@@ -113,8 +113,13 @@ it('polls a real worktree without journaling checks, then journals each git chan
     for (const checkedAt of ['2026-07-20T12:05:00.000Z', '2026-07-20T12:10:00.000Z']) {
       now = checkedAt
       const counts = await countStatements(db, () => svc.gitWorkflow.refreshGitState(id))
-      // The existing row reads before/after git; no comparison read or publish SQL.
-      expect(counts.statements, JSON.stringify([...counts.byQuery])).toBe(2)
+      // The database owns the facts now: placement is read around the probe,
+      // then the writer revalidates the row and conditionally upserts the facts.
+      // Its capture drain finds no change. No in-memory comparison is assumed.
+      expect(counts.statements, JSON.stringify([...counts.byQuery])).toBe(5)
+      expect(
+        [...counts.byQuery].filter(([sql]) => sql.startsWith('insert into "issue_git_states"')),
+      ).toEqual([[expect.any(String), 1]])
       expect((await svc.reports.get(id))?.gitState).toEqual(initial)
     }
     expect(repoOp.mock.calls.filter(([op]) => op === 'statusProbe')).toHaveLength(2)

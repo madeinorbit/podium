@@ -163,7 +163,7 @@ describe('janitor auto-archive candidates over per-user read state [POD-1210]', 
     rmSync(dir, { recursive: true, force: true })
   })
 
-  it('resolves both readers again after the original administrator is removed', async () => {
+  it('does not adopt another owner’s read state when an administrator is removed', async () => {
     const original = await firstAdminMemberId(store)
     const replacement = asUserId('mem_2YYYYYYYYYYYYYYYYYYYYYYYYYY')
     await memberFacts(store).create(
@@ -196,8 +196,33 @@ describe('janitor auto-archive candidates over per-user read state [POD-1210]', 
     expect(await issues.read(input)).toEqual([])
     expect(await sessions.read(input)).toEqual([])
     await memberFacts(store).removeMember(original, replacement)
-    expect((await issues.read(input)).map((row) => row.readerUserId)).toEqual([replacement])
-    expect((await sessions.read(input)).map((row) => row.readerUserId)).toEqual([replacement])
+    // Archive is each record owner's decision. Becoming the remaining admin
+    // does not make the removed member's personal records belong to them.
+    expect(await issues.read(input)).toEqual([])
+    expect(await sessions.read(input)).toEqual([])
+    await store.issues.upsertIssue(
+      fixtureWriteScope(),
+      issueRow('iss_next_owner', { ownerUserId: replacement, assignee: replacement }),
+    )
+    await seedSession(store, 'ses_next_owner', { ownerUserId: replacement })
+    await store.issues.setIssueUserState(
+      fixtureWriteScope(),
+      replacement,
+      asIssueId('iss_next_owner'),
+      { readAt: READ_OLD },
+    )
+    await store.sessions.markSessionRead(
+      fixtureWriteScope(),
+      replacement,
+      asSessionId('ses_next_owner'),
+      READ_OLD,
+    )
+    expect(await issues.read(input)).toEqual([
+      expect.objectContaining({ issueId: 'iss_next_owner', readerUserId: replacement }),
+    ])
+    expect(await sessions.read(input)).toEqual([
+      expect.objectContaining({ sessionId: 'ses_next_owner', readerUserId: replacement }),
+    ])
   })
 
   it('proposes an issue the broadcast viewer read before the cutoff', async () => {

@@ -117,6 +117,7 @@ describe('POD-376 · wire v2 feed into the kernel replica (live server)', () => 
           framesSeen.push('httpBootstrap')
           yield* bootstraps.bootstrap(signal, policy)
         },
+        collections: (instances, signal) => bootstraps.collections(instances, signal),
         changesRange: (cursor, signal, onTarget) => deltas.changesRange(cursor, signal, onTarget),
       },
     })

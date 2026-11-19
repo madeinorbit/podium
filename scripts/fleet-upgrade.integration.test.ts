@@ -55,10 +55,11 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
 import type { MachineId } from '@podium/model'
+import { afterEach, describe, expect, it } from 'vitest'
 import { noJanitorWorkerForTests } from '../apps/server/src/janitor-host'
 import { type ServerHandle, startServer } from '../apps/server/src/server'
+import { createMachineCredential } from '../packages/runtime/src/machine-credential'
 
 const ROOT = join(import.meta.dirname, '..')
 const FIXTURE = join(ROOT, 'scripts/fixtures/parent-stack-fixture.ts')
@@ -178,7 +179,7 @@ function readJsonAt(path: string): string {
  * `readOrCreateLocalMachineId` would do at boot anyway.
  */
 function resolveOrMintMachineId(stateDir: string): MachineId {
-  for (const file of ['supervisor.json', 'daemon.json']) {
+  for (const file of ['machine.json', 'supervisor.json', 'daemon.json']) {
     const path = join(stateDir, file)
     if (!existsSync(path)) continue
     try {
@@ -417,6 +418,8 @@ async function startFleetParent(
   // here rather than reading it back afterwards is what lets the attach listener
   // be registered before the process that causes the attach exists.
   const machineId = resolveOrMintMachineId(stateDir)
+  // Fresh setup creates its key before the parent dials with a pairing code.
+  if (options.pairCode) createMachineCredential(stateDir)
   const inherited = { ...process.env }
   delete inherited.PODIUM_AGENT_RELAY
   delete inherited.NOTIFY_SOCKET
@@ -462,7 +465,9 @@ async function startFleetParent(
     }
   }
   const supervisorState = () =>
-    (readJson('supervisor.json') ?? {}) as {
+    ((readJson('machine.json')?.supervisor as object | undefined) ??
+      readJson('supervisor.json') ??
+      {}) as {
       machineId: string
       token?: string
       updatePubkey?: string
@@ -496,8 +501,7 @@ async function startFleetParent(
     },
     supervisorState,
     connectivity: () => readJson('connectivity.json'),
-    legacyState: () =>
-      readJson('daemon.json') as { machineId: string; token?: string } | undefined,
+    legacyState: () => readJson('daemon.json') as { machineId: string; token?: string } | undefined,
   }
 }
 
@@ -822,9 +826,7 @@ describe('upgrade proof: the old stable and mixed fleets (real instances)', () =
     // THE WAVE'S STARTING POSITION: every machine present, every row its own
     // version. The unstamped one is a peer, not a casualty.
     expect(
-      Object.fromEntries(
-        (await coordinator.fleet()).map((row) => [row.id, row.appVersion]),
-      ),
+      Object.fromEntries((await coordinator.fleet()).map((row) => [row.id, row.appVersion])),
     ).toEqual({
       [unstamped.machineId]: '0.1.0',
       [stampedOne.machineId]: '0.2.0',
@@ -887,8 +889,7 @@ describe('upgrade proof: the old stable and mixed fleets (real instances)', () =
     const daemonSpawnsBefore = unstamped.spawns('daemon').length
     process.kill(daemonPid, 'SIGKILL')
     await until(
-      () =>
-        unstamped.spawns('daemon').length > daemonSpawnsBefore ? true : undefined,
+      () => (unstamped.spawns('daemon').length > daemonSpawnsBefore ? true : undefined),
       `the superseded parent to restart its daemon, and so to report; log:\n${unstamped.output()}`,
       30_000,
     )
@@ -931,9 +932,7 @@ describe('upgrade proof: the old stable and mixed fleets (real instances)', () =
 
     // The rest of the fleet never noticed any of it.
     expect(
-      Object.fromEntries(
-        (await coordinator.fleet()).map((row) => [row.id, row.appVersion]),
-      ),
+      Object.fromEntries((await coordinator.fleet()).map((row) => [row.id, row.appVersion])),
     ).toEqual({
       [unstamped.machineId]: '0.1.0',
       [stampedOne.machineId]: '0.2.0',

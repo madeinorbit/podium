@@ -604,6 +604,7 @@ describe('parent-supervised stack', () => {
             PODIUM_DEV_ARTIFACT_BASE_URL: feedOrigin,
             PODIUM_UPDATE_CHANNEL: 'dev',
             PODIUM_UPDATE_FEED_POLLING: 'on',
+            PODIUM_LOG: 'server:updates=info',
           },
           { instanceId: 'supervised-no-click', config: { updateChannel: 'dev' } },
         )
@@ -650,11 +651,10 @@ describe('parent-supervised stack', () => {
         expect(resolved.target?.version).toBe(feedVersion)
 
         const parentRecordBefore = await readFile(join(stack.stateDir, 'run', 'parent.pid'), 'utf8')
-        /** This host's own machine id, as the server's own attach line reports it. */
-        const machineId = /daemon attached — the machine is now online machineId=(\S+)/.exec(
-          await serverLog(),
-        )?.[1]
-        if (!machineId) throw new Error(`no daemon attach line yet:\n${await serverLog()}`)
+        // Identity is persisted by setup; log wording is not an identity API.
+        const machineId = JSON.parse(await readFile(join(stack.stateDir, 'machine.json'), 'utf8'))
+          .machineId as string
+        expect(machineId).toBeTruthy()
 
         /**
          * 2. THE WAKING EDGE, for real: bounce the local daemon so it reattaches

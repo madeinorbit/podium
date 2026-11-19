@@ -79,17 +79,17 @@ import {
   writeFileSync,
   writeSync,
 } from 'node:fs'
-import { tmpdir } from 'node:os'
 import { createServer } from 'node:net'
+import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { createTRPCClient, httpBatchLink } from '@trpc/client'
+import type { SessionId } from '@podium/model'
+import { hostHasSession } from '@podium/process/durable'
+import { CAP_SYNC_HTTP_V1, CLIENT_WIRE_VERSION, encode, parseServerMessage } from '@podium/protocol'
 import { durableSessionLabel } from '@podium/runtime/instance'
 import { readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
 import { openDatabase, type SqlParam } from '@podium/runtime/sqlite'
-import { hostHasSession } from '@podium/process/durable'
-import type { SessionId } from '@podium/model'
-import { CAP_SYNC_HTTP_V1, CLIENT_WIRE_VERSION, encode, parseServerMessage } from '@podium/protocol'
+import { createTRPCClient, httpBatchLink } from '@trpc/client'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { WebSocket } from 'ws'
 import { startServer } from '../apps/server/src/test-support/enrolled-server'
@@ -173,12 +173,7 @@ interface ProcHandle {
   kill: () => Promise<void>
 }
 
-function spawnLogged(
-  args: string[],
-  cwd: string,
-  env: NodeJS.ProcessEnv,
-  tag: string,
-): ProcHandle {
+function spawnLogged(args: string[], cwd: string, env: NodeJS.ProcessEnv, tag: string): ProcHandle {
   let captured = ''
   const logPath = join(runLogDir || stateDir, `log-${tag}.txt`)
   // File-backed first: pipe capture alone has proven lossy across a daemon
@@ -187,7 +182,10 @@ function spawnLogged(
   try {
     fileFd = openSync(logPath, 'a')
   } catch {}
-  const child = spawn(BUN, args, {
+  // A historical checkout runs on its own pinned runtime. The candidate's
+  // toolchain must not be used to install or boot the release under test.
+  const command = cwd === BASE_DIR ? baseBunCommand() : [BUN]
+  const child = spawn(command[0]!, [...command.slice(1), ...args], {
     cwd,
     env,
     detached: true,
@@ -225,14 +223,19 @@ function spawnLogged(
       try {
         if (child.exitCode === null && child.signalCode === null) process.kill(-pid, 'SIGKILL')
       } catch {}
-      await waitFor(() => {
-        try {
-          process.kill(pid, 0)
-          return false
-        } catch {
-          return true
-        }
-      }, `${tag} pid ${pid} to die`, 15_000, () => `tail:\n${captured.slice(-3000)}`)
+      await waitFor(
+        () => {
+          try {
+            process.kill(pid, 0)
+            return false
+          } catch {
+            return true
+          }
+        },
+        `${tag} pid ${pid} to die`,
+        15_000,
+        () => `tail:\n${captured.slice(-3000)}`,
+      )
       try {
         writeFileSync(logPath, captured)
       } catch {}
@@ -276,18 +279,39 @@ function openDb(ro = true): {
  * (worktree + frozen install) and reused while its HEAD still pins BASE_SHA —
  * a green here must mean the real old tree ran, never a skip.
  */
+function baseBunCommand(): string[] {
+  const pkg = JSON.parse(readFileSync(join(BASE_DIR, 'package.json'), 'utf8')) as {
+    packageManager?: string
+  }
+  const version = /^bun@(\d+\.\d+\.\d+)$/.exec(pkg.packageManager ?? '')?.[1]
+  if (!version) throw new Error('the pinned base must declare its exact Bun runtime')
+  const current = execFileSync(BUN, ['--version'], { encoding: 'utf8' }).trim()
+  return current === version ? [BUN] : [BUN, 'x', '--package', `bun@${version}`, 'bun']
+}
+
 async function ensureBaseTree(): Promise<string> {
   const headOf = (dir: string): string | undefined => {
     try {
-      const text = execFileSync('git', ['-C', dir, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
+      const text = execFileSync('git', ['-C', dir, 'rev-parse', 'HEAD'], {
+        encoding: 'utf8',
+      }).trim()
       return /^[0-9a-f]{40}$/.test(text) ? text : undefined
     } catch {
       return undefined
     }
   }
-  const run = async (cmd: string[], cwd: string, what: string, timeoutMs: number): Promise<void> => {
+  const run = async (
+    cmd: string[],
+    cwd: string,
+    what: string,
+    timeoutMs: number,
+  ): Promise<void> => {
     try {
-      execFileSync(cmd[0]!, cmd.slice(1), { cwd, timeout: timeoutMs, stdio: ['ignore', 'pipe', 'pipe'] })
+      execFileSync(cmd[0]!, cmd.slice(1), {
+        cwd,
+        timeout: timeoutMs,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      })
     } catch (e: any) {
       throw new Error(
         `upgrade-4428: ${what} failed in ${cwd}:\n${String(e?.stderr ?? e?.message ?? e).slice(-3000)}`,
@@ -309,7 +333,12 @@ async function ensureBaseTree(): Promise<string> {
     )
   }
   if (!existsSync(join(BASE_DIR, 'node_modules', '@podium', 'runtime'))) {
-    await run([BUN, 'install', '--frozen-lockfile'], BASE_DIR, 'base install', 600_000)
+    await run(
+      [...baseBunCommand(), 'install', '--frozen-lockfile'],
+      BASE_DIR,
+      'base install',
+      600_000,
+    )
   }
   if (!existsSync(join(BASE_DIR, 'scripts', 'cli.ts'))) {
     throw new Error(`upgrade-4428: base checkout at ${BASE_DIR} has no scripts/cli.ts`)
@@ -371,18 +400,30 @@ async function bootOldServer(baseDir: string, port: number): Promise<ProcHandle>
   }
   stripLoopbackPublicUrl()
   const proc = spawnLogged(
-    [BUN_CONDITIONS, join(baseDir, 'scripts', 'cli.ts'), '--instance', INSTANCE, 'server', '--takeover'],
+    [
+      BUN_CONDITIONS,
+      join(baseDir, 'scripts', 'cli.ts'),
+      '--instance',
+      INSTANCE,
+      'server',
+      '--takeover',
+    ],
     baseDir,
     env,
     'old-server',
   )
-  await waitFor(async () => {
-    try {
-      return (await fetch(`http://127.0.0.1:${port}/version`)).ok
-    } catch {
-      return false
-    }
-  }, `old server on :${port}`, 180_000, () => `tail:\n${proc.output()}`)
+  await waitFor(
+    async () => {
+      try {
+        return (await fetch(`http://127.0.0.1:${port}/version`)).ok
+      } catch {
+        return false
+      }
+    },
+    `old server on :${port}`,
+    180_000,
+    () => `tail:\n${proc.output()}`,
+  )
   return proc
 }
 
@@ -424,9 +465,13 @@ async function bootDaemon(
     agentRelay: { port: 0 },
   }
   const readyFile = join(dir, 'daemon.ready')
-  writeFileSync(join(dir, 'daemon-config.json'), JSON.stringify({ options: daemonOpts, readyFile }), {
-    mode: 0o600,
-  })
+  writeFileSync(
+    join(dir, 'daemon-config.json'),
+    JSON.stringify({ options: daemonOpts, readyFile }),
+    {
+      mode: 0o600,
+    },
+  )
   const env: NodeJS.ProcessEnv = {
     ...scrubEnv(),
     PODIUM_STATE_DIR: stateDir,
@@ -441,7 +486,11 @@ async function bootDaemon(
     PODIUM_LOG: 'daemon:*=debug',
   }
   const proc = spawnLogged(
-    [BUN_CONDITIONS, join(treeDir, 'tests', 'e2e', 'daemon-process.ts'), join(dir, 'daemon-config.json')],
+    [
+      BUN_CONDITIONS,
+      join(treeDir, 'tests', 'e2e', 'daemon-process.ts'),
+      join(dir, 'daemon-config.json'),
+    ],
     treeDir,
     env,
     opts.tag,
@@ -456,10 +505,14 @@ async function bootDaemon(
 }
 
 async function waitMachineOnline(api: any, machineId: string, what: string): Promise<void> {
-  await waitFor(async () => {
-    const machines = await api.machines.list.query().catch(() => [])
-    return Array.isArray(machines) && machines.some((m: any) => m.id === machineId && m.online)
-  }, `${what} online`, 180_000)
+  await waitFor(
+    async () => {
+      const machines = await api.machines.list.query().catch(() => [])
+      return Array.isArray(machines) && machines.some((m: any) => m.id === machineId && m.online)
+    },
+    `${what} online`,
+    180_000,
+  )
 }
 
 async function createSession(api: any, input: Record<string, unknown>): Promise<string> {
@@ -488,27 +541,40 @@ async function waitStatus(
   timeoutMs = 180_000,
 ): Promise<any> {
   let last: any
-  await waitFor(async () => {
-    const list = await api.sessions.list.query().catch(() => [])
-    last = Array.isArray(list) ? list.find((s: any) => (s.sessionId ?? s.id) === sessionId) : undefined
-    if (last?.status === 'exited' && status === 'live') {
-      throw new Error(
-        `upgrade-4428: ${what} exited instead of going live: spawnFailure=${String(last?.spawnFailure ?? '').slice(0, 1500)} exitCode=${last?.exitCode}`,
-      )
-    }
-    return last?.status === status
-  }, `${what} -> ${status}`, timeoutMs, () => `last: ${JSON.stringify({ ...last, spawnFailure: last?.spawnFailure }).slice(0, 2000)}`)
+  await waitFor(
+    async () => {
+      const list = await api.sessions.list.query().catch(() => [])
+      last = Array.isArray(list)
+        ? list.find((s: any) => (s.sessionId ?? s.id) === sessionId)
+        : undefined
+      if (last?.status === 'exited' && status === 'live') {
+        throw new Error(
+          `upgrade-4428: ${what} exited instead of going live: spawnFailure=${String(last?.spawnFailure ?? '').slice(0, 1500)} exitCode=${last?.exitCode}`,
+        )
+      }
+      return last?.status === status
+    },
+    `${what} -> ${status}`,
+    timeoutMs,
+    () => `last: ${JSON.stringify({ ...last, spawnFailure: last?.spawnFailure }).slice(0, 2000)}`,
+  )
   return last
 }
 
 function sessionMeta(api: any, sessionId: string): Promise<any> {
-  return api.sessions.list.query().then((list: any[]) =>
-    (Array.isArray(list) ? list : []).find((s: any) => (s.sessionId ?? s.id) === sessionId),
-  )
+  return api.sessions.list
+    .query()
+    .then((list: any[]) =>
+      (Array.isArray(list) ? list : []).find((s: any) => (s.sessionId ?? s.id) === sessionId),
+    )
 }
 
 /** Attach a real client socket and collect PTY bytes as text. */
-async function attachCollector(port: number, sessionId: string, cookie?: string): Promise<{
+async function attachCollector(
+  port: number,
+  sessionId: string,
+  cookie?: string,
+): Promise<{
   text: () => string
   close: () => void
 }> {
@@ -579,7 +645,10 @@ afterAll(() => {
 })
 
 describe('upgrade proof: previous-release sessions open under this build', () => {
-  it('reattaches, resumes, relays, drains and answers old sessions', { retry: 0, timeout: 900_000 }, async () => {
+  it('reattaches, resumes, relays, drains and answers old sessions', {
+    retry: 0,
+    timeout: 900_000,
+  }, async () => {
     const baseDir = await ensureBaseTree()
     const base = `http://127.0.0.1`
     const oldPort = await freePort()
@@ -690,10 +759,16 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
       await waitStatus(oldApi, sHib, 'live', 'hibernation candidate after old restart')
       await waitStatus(oldApi, sQueue, 'live', 'queue session after old restart')
       const hibRes2 = await oldApi.sessions.hibernate.mutate({ sessionId: sHib })
-      expect(hibRes2, `(2) hibernate refused: ${JSON.stringify(hibRes2).slice(0, 300)}`).toMatchObject({ ok: true })
+      expect(
+        hibRes2,
+        `(2) hibernate refused: ${JSON.stringify(hibRes2).slice(0, 300)}`,
+      ).toMatchObject({ ok: true })
       await waitStatus(oldApi, sHib, 'hibernated', 'hibernated session')
       const qhibRes = await oldApi.sessions.hibernate.mutate({ sessionId: sQueue })
-      expect(qhibRes, `(5) hibernate refused: ${JSON.stringify(qhibRes).slice(0, 300)}`).toMatchObject({ ok: true })
+      expect(
+        qhibRes,
+        `(5) hibernate refused: ${JSON.stringify(qhibRes).slice(0, 300)}`,
+      ).toMatchObject({ ok: true })
       await waitStatus(oldApi, sQueue, 'hibernated', 'queue session parked')
       // Both rows are INSERTED, not sent: every send API wakes a parked
       // session (queueText auto-resurrects; the seam wakes-and-delivers), and
@@ -813,7 +888,10 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
       {
         const db = openDb()
         try {
-          const nullDriver = db.get('SELECT selected_driver_id AS d FROM sessions WHERE id = ?', sHib) as any
+          const nullDriver = db.get(
+            'SELECT selected_driver_id AS d FROM sessions WHERE id = ?',
+            sHib,
+          ) as any
           expect(nullDriver?.d, 'hibernated row carries NULL driver').toBeNull()
           const rows = db.all(
             'SELECT id, text, attempts FROM queued_messages WHERE session_id = ? ORDER BY queued_at ASC',
@@ -827,7 +905,10 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
           attemptsPre = rows.map((r) => r.attempts as number)
           const ixn = db.get('SELECT status FROM pending_interactions WHERE id = ?', ixnId) as any
           expect(ixn?.status, 'interaction row pending').toBe('asked')
-          const loginRow = db.get('SELECT agent_kind AS k, login_harness AS h FROM sessions WHERE id = ?', sLogin) as any
+          const loginRow = db.get(
+            'SELECT agent_kind AS k, login_harness AS h FROM sessions WHERE id = ?',
+            sLogin,
+          ) as any
           expect(loginRow?.k, 'login row is a shell').toBe('shell')
           expect(loginRow?.h, 'login row names its harness').toBe('claude-code')
         } finally {
@@ -839,7 +920,9 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
       if (oldDaemon) {
         const oldDaemonPid2 = oldDaemon.pid
         await oldDaemon.kill()
-        expect(pidGone(oldDaemonPid2), 'old daemon pid is gone before the new one attaches').toBe(true)
+        expect(pidGone(oldDaemonPid2), 'old daemon pid is gone before the new one attaches').toBe(
+          true,
+        )
         oldDaemon = undefined
       }
       const oldServerPid = oldServer.pid
@@ -895,7 +978,10 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
         // selected_driver_id below is its durable proof.
         const db = openDb()
         try {
-          const row = db.get('SELECT selected_driver_id AS d, status AS s FROM sessions WHERE id = ?', sHarness) as any
+          const row = db.get(
+            'SELECT selected_driver_id AS d, status AS s FROM sessions WHERE id = ?',
+            sHarness,
+          ) as any
           expect(row?.d, '(1) driver persisted').toBe('generic-pty')
           expect(row?.s).toBe('live')
         } finally {
@@ -912,7 +998,10 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
         expect(live?.driverId, '(2) driver announced after resume').toBe('generic-pty')
         const db = openDb()
         try {
-          const row = db.get('SELECT selected_driver_id AS d FROM sessions WHERE id = ?', sHib) as any
+          const row = db.get(
+            'SELECT selected_driver_id AS d FROM sessions WHERE id = ?',
+            sHib,
+          ) as any
           expect(row?.d, '(2) driver column filled').toBe('generic-pty')
         } finally {
           db.close()
@@ -956,11 +1045,7 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
         }
         const collector = await attachCollector(newPort, sLogin, newCookie)
         try {
-          await waitFor(
-            () => collector.text().length > 0,
-            '(4) output frames flow',
-            60_000,
-          )
+          await waitFor(() => collector.text().length > 0, '(4) output frames flow', 60_000)
           const res = (await newApi.sessions.sendText.mutate({
             sessionId: sLogin,
             text: 'up4428-login-write-probe',
@@ -1025,7 +1110,9 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
             const deadline = Date.now() + 120_000
             while (!pollOwners()) {
               if (Date.now() > deadline) {
-                throw new Error('upgrade-4428: timed out waiting for both rows reserved post-upgrade')
+                throw new Error(
+                  'upgrade-4428: timed out waiting for both rows reserved post-upgrade',
+                )
               }
               await sleep(250)
             }
@@ -1057,7 +1144,10 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
             'SELECT id, text, attempts, delivery_owner FROM queued_messages WHERE session_id = ? ORDER BY queued_at ASC',
             sQueue,
           ) as any[]
-          expect(rows.map((r) => r.text), '(5) no row lost').toEqual([t1, t2])
+          expect(
+            rows.map((r) => r.text),
+            '(5) no row lost',
+          ).toEqual([t1, t2])
           expect(
             rows.map((r) => r.delivery_owner),
             '(5) new gateway reserved both rows',
@@ -1077,7 +1167,10 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
               'SELECT text, delivery_owner FROM queued_messages WHERE session_id = ? ORDER BY queued_at ASC',
               sQueue,
             ) as any[]
-            expect(again.map((r) => r.text), '(5) still exactly two rows').toEqual([t1, t2])
+            expect(
+              again.map((r) => r.text),
+              '(5) still exactly two rows',
+            ).toEqual([t1, t2])
             expect(
               again.map((r) => r.delivery_owner),
               '(5) owners undisturbed',
@@ -1102,15 +1195,23 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
       // back with its payload intact, and the refusal settles openly.
       {
         const open = await newApi.interactions.forSession.query({ sessionId: sMenu })
-        const rows = Array.isArray(open) ? open : (open as any)?.rows ?? []
-        expect(rows.some((r: any) => (r.id ?? r.interactionId) === ixnId), '(6) ask still open').toBe(true)
+        const rows = Array.isArray(open) ? open : ((open as any)?.rows ?? [])
+        expect(
+          rows.some((r: any) => (r.id ?? r.interactionId) === ixnId),
+          '(6) ask still open',
+        ).toBe(true)
         const outcome = (await newApi.interactions.answer.mutate({
           id: ixnId,
           answer: { kind: 'question', selections: [{ optionIndices: [0] }] },
         })) as any
-        expect(outcome?.ok, `(6) refused, not misdelivered: ${JSON.stringify(outcome).slice(0, 250)}`).toBe(false)
+        expect(
+          outcome?.ok,
+          `(6) refused, not misdelivered: ${JSON.stringify(outcome).slice(0, 250)}`,
+        ).toBe(false)
         expect(outcome?.reason, '(6) driver truthfully reports no menu').toBe('delivery-failed')
-        expect(String(outcome?.detail ?? ''), '(6) refusal names the cause').toContain('no menu on screen')
+        expect(String(outcome?.detail ?? ''), '(6) refusal names the cause').toContain(
+          'no menu on screen',
+        )
         const db = openDb()
         try {
           const row = db.get(
