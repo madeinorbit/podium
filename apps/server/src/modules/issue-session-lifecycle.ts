@@ -8,7 +8,7 @@ import type { IssueService } from './issues/service'
 import { IssueNotFound } from './issues/service/not-found'
 import type { HandoffCaller } from './sessions/handoff/ports'
 import type { SessionIssueWorkflowPort } from './sessions/issue-workflow-port'
-import type { SessionLifecycle } from './sessions/lifecycle'
+import type { SessionLifecycle, SessionLifecycleDeps } from './sessions/lifecycle'
 
 const log = createLogger('server:closed-issue-reaper')
 
@@ -49,6 +49,34 @@ export class IssueSessionLifecycle {
       arbitrate: (writer: IssueLifecycleWriter) => IssueLifecycleWriter
     },
   ) {}
+
+  /** The launch record has committed; its session's draft is the lifecycle's
+   * own issue write, carrying the same accountable human as the session. */
+  async draftForStart(
+    ...[writer, input]: Parameters<NonNullable<SessionLifecycleDeps['draftForStart']>>
+  ) {
+    const { cwd, agentKind, ownerUserId, machineId } = input
+    return (
+      await this.deps.issues.attention.createDraftFor(
+        writer,
+        cwd,
+        agentKind,
+        undefined,
+        { ownerUserId, createdByActor: ownerUserId, createdByOnBehalfOf: ownerUserId },
+        machineId,
+      )
+    ).id
+  }
+
+  async discardUnlaunchedDraft(
+    issueId: Parameters<IssueService['attention']['discardUnlaunchedDraft']>[0],
+  ) {
+    await this.deps.issues.attention.discardUnlaunchedDraft(issueId)
+  }
+
+  async recordParticipation(...args: Parameters<IssueService['attention']['recordParticipation']>) {
+    await this.deps.issues.attention.recordParticipation(...args)
+  }
 
   /**
    * The issue workflow as the session paths see it. A resume or a resurrect is

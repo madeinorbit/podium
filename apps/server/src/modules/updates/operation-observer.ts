@@ -10,7 +10,7 @@ const log = createLogger('server:updates')
 /** Only state transitions carry lifecycle effects; ordinary row writes still announce. */
 export function updateOperationObserver(
   updatesService: UpdatesService,
-  reconciler: () => UpdateReconciler | undefined,
+  reconciler: () => Pick<UpdateReconciler, 'onOperationStarted' | 'onOperationSettled'> | undefined,
 ) {
   return async (row: OperationRow, previousState: string | undefined): Promise<void> => {
     if (row.kind !== 'update' || previousState === row.state) return
@@ -38,7 +38,9 @@ export function updateOperationObserver(
     log.info('update operation settled', {
       operationId: row.id,
       channel,
-      approvedVersion: channel ? (await updatesService.approvedTarget(channel))?.version : undefined,
+      approvedVersion: channel
+        ? (await updatesService.approvedTarget(channel))?.version
+        : undefined,
       previousState,
       state: row.state,
     })
@@ -46,10 +48,13 @@ export function updateOperationObserver(
     // this is the moment it becomes free — whatever the outcome was. It
     // re-creates the OFFER, never an operation (§3.2).
     if (row.state === 'failed' && channel && target) {
-      const error = row.operation?.error ?? row.operation?.steps?.find((step) => step.state === 'failed')?.error
+      const error =
+        row.operation?.error ?? row.operation?.steps?.find((step) => step.state === 'failed')?.error
       const reason = error?.message ?? error?.detail ?? error?.code ?? 'The update failed.'
       await updatesService.withdrawFailedTarget(
-        channel, target, `Update ${row.id} failed: ${reason} Human re-approval is required.`,
+        channel,
+        target,
+        `Update ${row.id} failed: ${reason} Human re-approval is required.`,
       )
     }
     await updatesService.publishNextTargets()

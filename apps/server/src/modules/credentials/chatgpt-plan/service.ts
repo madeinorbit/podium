@@ -151,15 +151,15 @@ export class ChatgptPlanService {
 
 /**
  * Build the module for a server: the keeper, the sign-in (with this server's
- * host id) and the daemons' loopback listeners. `health` is read when it is
- * needed, because the composition root builds the health service later.
+ * host id) and the daemons' loopback listeners. Its named health verbs are
+ * installed at the composition root before any sign-in or renewal runs.
  */
 export function composeChatgptPlan(deps: {
   store: SessionStore
   now: () => number
   /** OpenAI's endpoints; tests pass a fake. Absent: the global `fetch`. */
   fetch?: FetchLike | undefined
-  health: () => KeeperHealthPort & {
+  health: KeeperHealthPort & {
     afterRenew(record: CredentialRecord, v: { providerChecked: boolean }): Promise<void>
   }
   machines: {
@@ -176,13 +176,13 @@ export function composeChatgptPlan(deps: {
     store: deps.store,
     now: deps.now,
     ...fetch,
-    health: { noteFailure: async (failure) => await deps.health().noteFailure(failure) },
+    health: { noteFailure: async (failure) => await deps.health.noteFailure(failure) },
   })
   const signIn = new ChatgptSignIn({
     store: deps.store,
     hostId: async () => chatgptHostId(await deps.store.secrets.installationIdentity()),
     now: deps.now,
-    afterRenew: async (record) => await deps.health().afterRenew(record, { providerChecked: true }),
+    afterRenew: async (record) => await deps.health.afterRenew(record, { providerChecked: true }),
     ...fetch,
   })
   return new ChatgptPlanService(signIn, keeper, {

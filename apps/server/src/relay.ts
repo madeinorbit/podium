@@ -92,6 +92,7 @@ import {
   systemPrincipal,
   userCommandPrincipal,
 } from './command-principal'
+import { LifecyclePort } from './composition/lifecycle-port'
 import { composeReactions, REACTIONS, type ReactionDefinition } from './composition/reactions'
 import { getFeatureStates, isFeatureEnabled, serverFeatureFacts } from './features'
 import { makeFeedVisibility } from './feed-visibility'
@@ -1254,61 +1255,6 @@ export class SessionRegistry {
     // @podium/runtime, so a relay that came and went without unsubscribing would
     // leave a listener holding a dead bus — visible in tests, which build several.
     this.configChangedBridge = bridgeConfigChanged(this.bus)
-    const settings = new SettingsService(this.store.settings, this.store.secrets, this.bus, {
-      telegramBindings: this.store.telegramBindings,
-      // The chat routing value is observed from Telegram, not supplied by the
-      // caller. Its server-owned projection also follows an online disconnect.
-      // Read per call: the write contexts are built after this service.
-      preferenceWriter: {
-        commit: async (op) =>
-          await asSystemWrite(
-            async () => await this.writes.system('settings.preferences').commit(op),
-          ),
-      },
-      // The append-only settings trail (POD-421). Injected here so the transport
-      // never reaches into the store for it.
-      audit: {
-        repo: this.store.settingsAudit,
-        now: () => new Date(this.now()).toISOString(),
-      },
-      ...(options.telegramSetup ? { telegramSetup: options.telegramSetup } : {}),
-      ...(options.generateTelegramSetupCode
-        ? { generateTelegramSetupCode: options.generateTelegramSetupCode }
-        : {}),
-      ...(options.modelProbe ? { modelProbe: options.modelProbe } : {}),
-      now: this.now,
-    })
-    /**
-     * THE SUPERAGENT'S BACKEND, PICKED FOR SOMEONE WHO HAS NOT PICKED (POD-1313).
-     *
-     * Wired here because it is the first point where both halves exist: the
-     * machines that report what is installed, and the settings service that owns
-     * the per-user write. It reads `listMachines()` with NO `use` resolver — the
-     * single-operator reading this build already takes everywhere else — so the
-     * seed sees exactly the machines the spawn path would consider.
-     */
-    const superagentDefaults = new SuperagentDefaultSeeder({
-      // An install that has never created an account row still has a person: this
-      // build authenticates one shared password as firstAdminMemberId(), and that
-      // is the very install this seed exists for. Falling back to it here rather
-      // than inside the seeder keeps the "who is this for" question at the
-      // composition root, where POD-315 will replace it with real principals.
-      users: async () => {
-        const rows = (await this.store.users.list()).map((row) => asUserId(row.id))
-        return rows.length > 0 ? rows : [await firstAdminMemberId(this.store)]
-      },
-      settingsFor: async (userId) => await settings.getSettingsFor(userId),
-      machines: async () => await machines.listMachines(),
-      updatePreferences: async (userId, values) => {
-        await settings.updatePreferences(userId, values)
-      },
-    })
-    // An inventory report is the ONLY moment new availability becomes known, and
-    // a daemon that connects minutes after boot is the ordinary case. The hook
-    // is awaited by recordInventory before it announces the metadata change, so
-    // every observer sees the seeded state and rename-only changes never re-run it.
-    seedSuperagentDefaults = async () => await superagentDefaults.seed()
-    this.superagentDefaults = superagentDefaults
     // Issue wire plumbing (modules/issues). Constructed BEFORE loadFromStore: the
     // deps are lazy closures (allWire guards the not-yet-assigned IssueService),
     // and broadcasts triggered during load must find the publisher in place.
@@ -1371,6 +1317,59 @@ export class SessionRegistry {
     // other writer is a declared origin (`write-contexts.ts`).
     const writes = new WriteContexts(ledger, ledger.takeScopeMint())
     this.writes = writes
+    const settings = new SettingsService(this.store.settings, this.store.secrets, this.bus, {
+      telegramBindings: this.store.telegramBindings,
+      // The chat routing value is observed from Telegram, not supplied by the
+      // caller. Its server-owned projection also follows an online disconnect.
+      // Read per call: the write contexts are built after this service.
+      preferenceWriter: {
+        commit: async (op) =>
+          await asSystemWrite(async () => await writes.system('settings.preferences').commit(op)),
+      },
+      // The append-only settings trail (POD-421). Injected here so the transport
+      // never reaches into the store for it.
+      audit: {
+        repo: this.store.settingsAudit,
+        now: () => new Date(this.now()).toISOString(),
+      },
+      ...(options.telegramSetup ? { telegramSetup: options.telegramSetup } : {}),
+      ...(options.generateTelegramSetupCode
+        ? { generateTelegramSetupCode: options.generateTelegramSetupCode }
+        : {}),
+      ...(options.modelProbe ? { modelProbe: options.modelProbe } : {}),
+      now: this.now,
+    })
+    /**
+     * THE SUPERAGENT'S BACKEND, PICKED FOR SOMEONE WHO HAS NOT PICKED (POD-1313).
+     *
+     * Wired here because it is the first point where both halves exist: the
+     * machines that report what is installed, and the settings service that owns
+     * the per-user write. It reads `listMachines()` with NO `use` resolver — the
+     * single-operator reading this build already takes everywhere else — so the
+     * seed sees exactly the machines the spawn path would consider.
+     */
+    const superagentDefaults = new SuperagentDefaultSeeder({
+      // An install that has never created an account row still has a person: this
+      // build authenticates one shared password as firstAdminMemberId(), and that
+      // is the very install this seed exists for. Falling back to it here rather
+      // than inside the seeder keeps the "who is this for" question at the
+      // composition root, where POD-315 will replace it with real principals.
+      users: async () => {
+        const rows = (await this.store.users.list()).map((row) => asUserId(row.id))
+        return rows.length > 0 ? rows : [await firstAdminMemberId(this.store)]
+      },
+      settingsFor: async (userId) => await settings.getSettingsFor(userId),
+      machines: async () => await machines.listMachines(),
+      updatePreferences: async (userId, values) => {
+        await settings.updatePreferences(userId, values)
+      },
+    })
+    // An inventory report is the ONLY moment new availability becomes known, and
+    // a daemon that connects minutes after boot is the ordinary case. The hook
+    // is awaited by recordInventory before it announces the metadata change, so
+    // every observer sees the seeded state and rename-only changes never re-run it.
+    seedSuperagentDefaults = async () => await superagentDefaults.seed()
+    this.superagentDefaults = superagentDefaults
     const compareMachineRecords = makeMachineRecordCompare(
       this.store,
       writes.system('machines.records'),
@@ -1680,6 +1679,9 @@ export class SessionRegistry {
       },
     )
     const rpcLate: { rpc?: DaemonRpcService } = {}
+    const checkoutWrites = new LifecyclePort<
+      Pick<IssueService['reports']['store'], 'commitRepoWrite'>
+    >('checkout repo writes')
     checkouts = new CheckoutsService({
       store: this.store,
       scan: async (machineId, roots) => {
@@ -1696,10 +1698,9 @@ export class SessionRegistry {
         try {
           await asSystemWrite(
             async () =>
-              await this.modules.issues.reports.store.commitRepoWrite(
-                this.writes.system('checkouts.scan'),
-                write,
-              ),
+              await checkoutWrites
+                .read()
+                .commitRepoWrite(this.writes.system('checkouts.scan'), write),
           )
         } catch (err) {
           log.warn('scanned repo origins were not recorded', { err })
@@ -1710,6 +1711,9 @@ export class SessionRegistry {
     this.checkouts = checkouts
     // A daemon that connects may have created or removed worktrees while away.
     this.bus.on('machine.connected', ({ machineId }) => checkouts?.rescanSoon(machineId))
+    const rpcSessions = new LifecyclePort<Pick<SessionLifecycle, 'residency' | 'repository'>>(
+      'RPC session readers',
+    )
     const rpc = new DaemonRpcService({
       broker: requestBroker,
       memory,
@@ -1726,10 +1730,11 @@ export class SessionRegistry {
       // the view closes over the object, which stays readable if it is evicted.
       getSession: async (sessionId) => {
         const session =
-          liveSessions.get(sessionId) ?? (await sessionsSvc.residency.ensure(sessionId, 'rpc'))
+          liveSessions.get(sessionId) ??
+          (await rpcSessions.read().residency.ensure(sessionId, 'rpc'))
         session?.freshenDurable()
         // A restored parked session's transcript is replayed for its reader (POD-6160).
-        if (session) await sessionsSvc.repository.ensureTranscript(session)
+        if (session) await rpcSessions.read().repository.ensureTranscript(session)
         return session
           ? {
               id: session.sessionId,
@@ -1923,11 +1928,14 @@ export class SessionRegistry {
     // A mail sender's capability and a session ref's owner, from who the session
     // acts for (POD-6160: the resident session, else its row, read once per
     // operation). `sessionsSvc` is built below; these run only once it exists.
+    const mailSessions = new LifecyclePort<
+      Pick<SessionLifecycle, 'capabilityForSession' | 'records'>
+    >('mail session authorization')
     const capabilityForLiveSession = async (sessionId: SessionId) =>
-      await sessionsSvc.capabilityForSession(sessionId)
+      await mailSessions.read().capabilityForSession(sessionId)
     // Sessions are private (POD-6283): the owner, and no grant.
     const liveSessionOwner = async (sessionId: SessionId) =>
-      (await sessionsSvc.records.ownershipOf(sessionId, 'mailSessionRef'))?.ownerUserId
+      (await mailSessions.read().records.ownershipOf(sessionId, 'mailSessionRef'))?.ownerUserId
     // What a mail principal may address. Its own function so a check that
     // needs only this (the apply-time re-authorization of each queued row)
     // does not read the fleet's machine ownership as well (POD-6229).
@@ -2087,6 +2095,15 @@ export class SessionRegistry {
     // A ChatGPT plan's session token (epic Task 15). Late-bound: the keeper and
     // credential health are composed further down.
     let issueSessionToken: AttachAccessDeps['issueToken'] | undefined
+    const issueUploads = new LifecyclePort<
+      Pick<IssueService['crud'], 'chatUploadBytes' | 'chatUploadOwner'>
+    >('session issue uploads')
+    const sessionIssues = new LifecyclePort<
+      Pick<
+        IssueSessionLifecycle,
+        'draftForStart' | 'discardUnlaunchedDraft' | 'recordParticipation'
+      >
+    >('session issue workflows')
     const sessionsSvc = new SessionLifecycle({
       issueToken: async (credentialId, to) => {
         if (!issueSessionToken) throw new Error('the ChatGPT plan keeper is not wired yet')
@@ -2112,8 +2129,10 @@ export class SessionRegistry {
       // Claimed chat uploads, staged at delivery (POD-2148). Lazy: `issues` is
       // composed below and only read once a row is forwarded.
       chatUploads: {
-        bytes: async (issueId, uploadId) => await issues.crud.chatUploadBytes(issueId, uploadId),
-        owner: async (issueId, uploadId) => await issues.crud.chatUploadOwner(issueId, uploadId),
+        bytes: async (issueId, uploadId) =>
+          await issueUploads.read().chatUploadBytes(issueId, uploadId),
+        owner: async (issueId, uploadId) =>
+          await issueUploads.read().chatUploadOwner(issueId, uploadId),
       },
       // Auto-continue is a message (POD-4846).
       sendContinue: async (writer, input) => {
@@ -2217,29 +2236,15 @@ export class SessionRegistry {
       commitRepoWrite: async (write) => await this.commitServerRepoWrite(write),
       instructionsForStart: (input) => sessionInstructions.prepare(input),
       agentLaunch: async (input) => await agentProfiles.launch(input),
-      // The issue service is composed after sessions; these run only on a start.
-      draftForStart: async (_writer, { cwd, agentKind, ownerUserId, machineId }) =>
-        (await this.store.repos.machineHasRootContaining(cwd, machineId))
-          ? (
-              await this.issues.attention.createDraftFor(
-                // A session start's draft: a start is the server acting after
-                // its launch record commits (`sessions.lifecycle`, POD-6601).
-                writes.system('sessions.lifecycle'),
-                cwd,
-                agentKind,
-                undefined,
-                { ownerUserId, createdByActor: ownerUserId, createdByOnBehalfOf: ownerUserId },
-                machineId,
-              )
-            ).id
+      // Installed at the existing issue/session workflow boundary before hydration.
+      draftForStart: async (_writer, input) =>
+        (await this.store.repos.machineHasRootContaining(input.cwd, input.machineId))
+          ? await sessionIssues.read().draftForStart(writes.system('sessions.lifecycle'), input)
           : undefined,
-      discardUnlaunchedDraft: async (_writer, issueId) => {
-        await this.issues.attention.discardUnlaunchedDraft(issueId)
-      },
-      // A session landing on a task records its owner's start there (POD-6290).
-      recordIssueParticipation: async (writer, issueId, userId, via) => {
-        await this.issues.attention.recordParticipation(writer, issueId, userId, via)
-      },
+      discardUnlaunchedDraft: async (_writer, issueId) =>
+        await sessionIssues.read().discardUnlaunchedDraft(issueId),
+      recordIssueParticipation: async (writer, issueId, userId, via) =>
+        await sessionIssues.read().recordParticipation(writer, issueId, userId, via),
       // POD-1081: attach owns frame delivery; presence rooms own who-is-watching
       // (a client counts the room's members, POD-6764: no client count on the
       // record). PTY attach auto-joins the room so the two stay one mechanism.
@@ -2250,6 +2255,8 @@ export class SessionRegistry {
         presence.ensureLeft(client, { kind: 'session', id: sessionId }),
     })
     topicLate.sessionLive = sessionsSvc.liveTopics
+    rpcSessions.install(sessionsSvc)
+    mailSessions.install(sessionsSvc)
     const nativeLogin = new NativeLoginService({
       machines,
       sessions: sessionsSvc,
@@ -2325,29 +2332,7 @@ export class SessionRegistry {
         machine?.inventory,
       )
     })
-    this.bus.on('superagent.turnEnded', async (event) => {
-      if (event.ok || event.harnessErrorKind !== 'provider-auth' || !event.harness) return
-      const session = await sessionsSvc.sessionById(asSessionId(event.podiumSessionId))
-      // A superagent turn on a credential the provider rejected (§7).
-      if (session?.credentialId) {
-        await this.modules.credentialHealth.noteFailure({
-          credentialId: session.credentialId,
-          failure: 'rejected',
-          reason: event.error ?? 'The provider rejected this credential.',
-          ...(event.ownerUserId ? { actorUserId: event.ownerUserId } : {}),
-          sessionId: session.sessionId,
-        })
-      }
-      if (!session?.machineId) return
-      nativeLogin.markRequired(session.machineId, event.harness)
-      await loginPropagation.trigger({
-        targetMachineId: session.machineId,
-        agentKind: event.harness,
-        force: true,
-        refresh: true,
-        ...(event.ownerUserId ? { principalUserId: event.ownerUserId } : {}),
-      })
-    })
+
     // The closed-issue memo behind the `sessions()` projection below, held for
     // the lifetime of a READ SCOPE [POD-3261]. It used to be invalidated by
     // `queueMicrotask`, which is sound only while nothing in the pass yields —
@@ -2529,8 +2514,8 @@ export class SessionRegistry {
         // The host's pressure reaper: the server's own act (`sessions.lifecycle`).
         killShellSession: (input) => sessionsSvc.killSession(sessionsSvc.serverWriter, input),
         hasScheduledWakeup: async (sessionId, now) => {
-          const { lastSpawned, automations } = await scheduledWakeupsInScope()
-          return automations.some((automation) => {
+          const { lastSpawned, automations: scheduledAutomations } = await scheduledWakeupsInScope()
+          return scheduledAutomations.some((automation) => {
             if (!automation.enabled || automation.nextRunAt === null) return false
             const target = automation.targetSessionId ?? lastSpawned.get(automation.id)
             return target === sessionId && Date.parse(automation.nextRunAt) > now
@@ -2659,7 +2644,6 @@ export class SessionRegistry {
     // releases its held locks and leaves every wait queue (the queue advances
     // with a grant-notification mail). Best-effort — the lazy expiry sweep is
     // the backstop if this listener ever misses a death.
-    this.bus.on('session.exited', ({ sessionId }) => locks.releaseForSession(sessionId))
     // Boot session hydration runs in `hydrate`, not here: it is async now and a
     // constructor cannot await it. Its recovery-only guard moved with it.
     // Constructed AFTER loadFromStore (same slot the inline mirror construction held).
@@ -2700,11 +2684,17 @@ export class SessionRegistry {
     let noticeReassignment: ((facts: ReassignmentFacts) => Promise<void>) | undefined
 
     // Sign in with ChatGPT and its keeper (§11). DEFERRED READ: health is built below.
+    const planHealth = new LifecyclePort<Pick<CredentialHealth, 'noteFailure' | 'afterRenew'>>(
+      'credential plan health',
+    )
     const chatgptPlan = composeChatgptPlan({
       store: this.store,
       now: () => this.now(),
       fetch: options.credentialProviderFetch,
-      health: () => credentialHealth,
+      health: {
+        noteFailure: async (failure) => await planHealth.read().noteFailure(failure),
+        afterRenew: async (record, verdict) => await planHealth.read().afterRenew(record, verdict),
+      },
       machines,
       rpc,
     })
@@ -2792,7 +2782,7 @@ export class SessionRegistry {
             chatgptPlan: chatgptPlan.keeper,
             // A provider that rejects the credential, or reports a limit (§7).
             // DEFERRED READ: the health service is built below.
-            onCredentialFailure: async (failure) => await credentialHealth.noteFailure(failure),
+            onCredentialFailure: async (failure) => await planHealth.read().noteFailure(failure),
           },
           input,
         ),
@@ -2952,12 +2942,15 @@ export class SessionRegistry {
     }
     this.bus.on('issue.sessionDerived', applySessionDerived)
     this.bus.on('issue.runtimeDerived', applyRuntimeDerived)
+    checkoutWrites.install(issues.reports.store)
+    issueUploads.install(issues.crud)
     const issueSessionLifecycle = new IssueSessionLifecycle({
       issues,
       sessions: sessionsSvc,
       ledger: issueArbitration.ledger,
       arbitrate: (writer) => issueArbitration.wrap(writer),
     })
+    sessionIssues.install(issueSessionLifecycle)
     stopClosedIssue = async (input) =>
       await issueSessionLifecycle.stopClosedIssue({ ...input, reason: 'close' })
 
@@ -2980,6 +2973,9 @@ export class SessionRegistry {
         }),
       },
     })
+    const credentialRestarts = new LifecyclePort<Pick<CredentialSwitcher, 'restartWithResume'>>(
+      'credential restart workflow',
+    )
     const credentialHealth = new CredentialHealth({
       store: this.store,
       placements: credentialPlacements,
@@ -3012,7 +3008,8 @@ export class SessionRegistry {
         // ONE restart path, the switch's (§9, epic Task 11): park, then revive;
         // for a switch the conversation is placed for its new home first. Each
         // session write inside is the server's (`asSystemWrite`, below).
-        restartWithResume: async (sessionId) => await credentialSwitch.restartWithResume(sessionId),
+        restartWithResume: async (sessionId) =>
+          await credentialRestarts.read().restartWithResume(sessionId),
         stop: async (sessionId) => {
           await asSystemWrite(async () => await issueSessionLifecycle.stopSession({ sessionId }))
         },
@@ -3041,6 +3038,30 @@ export class SessionRegistry {
           )
         },
       },
+    })
+    planHealth.install(credentialHealth)
+    this.bus.on('superagent.turnEnded', async (event) => {
+      if (event.ok || event.harnessErrorKind !== 'provider-auth' || !event.harness) return
+      const session = await sessionsSvc.sessionById(asSessionId(event.podiumSessionId))
+      // A superagent turn on a credential the provider rejected (§7).
+      if (session?.credentialId) {
+        await credentialHealth.noteFailure({
+          credentialId: session.credentialId,
+          failure: 'rejected',
+          reason: event.error ?? 'The provider rejected this credential.',
+          ...(event.ownerUserId ? { actorUserId: event.ownerUserId } : {}),
+          sessionId: session.sessionId,
+        })
+      }
+      if (!session?.machineId) return
+      nativeLogin.markRequired(session.machineId, event.harness)
+      await loginPropagation.trigger({
+        targetMachineId: session.machineId,
+        agentKind: event.harness,
+        force: true,
+        refresh: true,
+        ...(event.ownerUserId ? { principalUserId: event.ownerUserId } : {}),
+      })
     })
     // SWITCHING A SESSION TO ANOTHER CREDENTIAL (§9, epic Task 11). The
     // switch's own session writes run inside the `sessions.switchCredential`
@@ -3143,6 +3164,7 @@ export class SessionRegistry {
     // CODEX ON A CHATGPT PLAN (§11 "Codex"; epic Task 15). A session gets a token
     // with at least SESSION_TOKEN_MIN_LEFT_MS left, and restarts with resume at a
     // turn boundary before the one its engine holds runs low.
+    credentialRestarts.install(credentialSwitch)
     const planRenewal = new PlanSessionRenewal({
       now: () => this.now(),
       setTimer: realTimer(() => this.now()),
@@ -3284,61 +3306,6 @@ export class SessionRegistry {
       if (!s || s.status === 'exited' || !s.cwd) return null
       return s.cwd
     }
-    const locks = new LockService({
-      locks: this.store.locks,
-      transact: async (fn) => await this.store.transact(fn),
-      // NOT THROUGH THE AUTHORITY (POD-6419). A lease is server-local: a lock
-      // write publishes no change (the funnel was handed ``),
-      // and a lock write from a person or an agent is a plain command, whose
-      // scope gives it no Authority (ADR 12 D8). Its own `transact` is the unit.
-      funnel: {
-        run: async (op) => {
-          await op.authorize?.()
-          return await op.write()
-        },
-      },
-      now: () => this.now(),
-      resolveRepoId: async (repoPath) => await this.store.repos.resolveRepoIdForPath(repoPath),
-      // HOLDER liveness: does the row still exist? A hibernated holder is
-      // parked, not dead, and keeps its lease (session-exit.test.ts).
-      sessionAlive: async (sessionId) => {
-        const s = await lockSessionRow(sessionId)
-        return !!s && s.status !== 'exited'
-      },
-      // WAITER liveness: can it take a grant? A hibernated session polls
-      // nothing, so it is pruned like an exited one (POD-3807) and re-queues
-      // itself when it wakes. Only a running session can, and a running
-      // session is resident, so memory answers.
-      sessionRunning: (sessionId) => {
-        const s = liveSessions.get(asSessionId(sessionId))
-        return !!s && s.status !== 'exited' && s.status !== 'hibernated'
-      },
-      sessionWorkspace,
-      // Grant/steal notices are messages to the holder's issue (POD-4846);
-      // best-effort by contract (the waiter also discovers the grant by polling).
-      // The SERVER's own write (POD-6419): a lock write is a plain command,
-      // whose scope refuses synced writes; the notice it triggers is not one.
-      sendMail: async (issueId, from, body) => {
-        try {
-          await asSystemWrite(
-            async () =>
-              await systemIssueNotice(
-                messagesSvc,
-                writes.system('messages.server'),
-                from,
-              )(issueId, body),
-          )
-        } catch {}
-      },
-      appendEvent: async (e) => {
-        await this.store.events.appendEvent(e)
-      },
-    })
-    const lockCommands = new LockCommandDispatcher({
-      locks,
-      issues,
-      sessionWorkspace,
-    })
     // Unified messaging (#237) [spec:SP-34d7]: the one send path. Sender is
     // stamped by each surface from its authenticated caller; issue-addressed
     // sends dual-write the legacy issue_messages mirror so inbox/claim/pending
@@ -3410,6 +3377,62 @@ export class SessionRegistry {
       },
       now: () => new Date(this.now()).toISOString(),
     })
+    const locks = new LockService({
+      locks: this.store.locks,
+      transact: async (fn) => await this.store.transact(fn),
+      // NOT THROUGH THE AUTHORITY (POD-6419). A lease is server-local: a lock
+      // write publishes no change (the funnel was handed ``),
+      // and a lock write from a person or an agent is a plain command, whose
+      // scope gives it no Authority (ADR 12 D8). Its own `transact` is the unit.
+      funnel: {
+        run: async (op) => {
+          await op.authorize?.()
+          return await op.write()
+        },
+      },
+      now: () => this.now(),
+      resolveRepoId: async (repoPath) => await this.store.repos.resolveRepoIdForPath(repoPath),
+      // HOLDER liveness: does the row still exist? A hibernated holder is
+      // parked, not dead, and keeps its lease (session-exit.test.ts).
+      sessionAlive: async (sessionId) => {
+        const s = await lockSessionRow(sessionId)
+        return !!s && s.status !== 'exited'
+      },
+      // WAITER liveness: can it take a grant? A hibernated session polls
+      // nothing, so it is pruned like an exited one (POD-3807) and re-queues
+      // itself when it wakes. Only a running session can, and a running
+      // session is resident, so memory answers.
+      sessionRunning: (sessionId) => {
+        const s = liveSessions.get(asSessionId(sessionId))
+        return !!s && s.status !== 'exited' && s.status !== 'hibernated'
+      },
+      sessionWorkspace,
+      // Grant/steal notices are messages to the holder's issue (POD-4846);
+      // best-effort by contract (the waiter also discovers the grant by polling).
+      // The SERVER's own write (POD-6419): a lock write is a plain command,
+      // whose scope refuses synced writes; the notice it triggers is not one.
+      sendMail: async (issueId, from, body) => {
+        try {
+          await asSystemWrite(
+            async () =>
+              await systemIssueNotice(
+                messagesSvc,
+                writes.system('messages.server'),
+                from,
+              )(issueId, body),
+          )
+        } catch {}
+      },
+      appendEvent: async (e) => {
+        await this.store.events.appendEvent(e)
+      },
+    })
+    const lockCommands = new LockCommandDispatcher({
+      locks,
+      issues,
+      sessionWorkspace,
+    })
+    this.bus.on('session.exited', ({ sessionId }) => locks.releaseForSession(sessionId))
     // Both people hear about a reassignment in their own inbox (POD-6287).
     // Best effort: the reassignment has committed, and a lost notice must not
     // turn it into an error the caller would retry.
@@ -3729,6 +3752,7 @@ export class SessionRegistry {
         return content ? { content } : null
       },
     })
+    const workflowModules = new LifecyclePort<RegistryModules>('registry workflow entries')
     const messageGate = new MessageGate(
       {
         messages: messagesSvc,
@@ -3824,21 +3848,21 @@ export class SessionRegistry {
         // The mail writes go through the sync write entry point (POD-6525);
         // read per call, because the entry point is composed after the gate.
         // Before the module set exists (boot), a write dispatches directly.
-        syncWrite: () => (this.modules as RegistryModules | undefined)?.syncWrite,
+        syncWrite: () => workflowModules.read().syncWrite,
         // An agent's spawn is a `session.launch` record its write creates
         // (POD-6525); the adapter waits for it.
         spawnRecord: {
           refuseUnplaceable: async (principal, input) => {
             if (principal.kind === 'system') throw new Error('a system principal spawns no agent')
-            await refuseUnplaceable(this.modules, principal, {
+            await refuseUnplaceable(workflowModules.read(), principal, {
               cwd: input.cwd,
               ...(input.machineId !== undefined ? { machineId: input.machineId } : {}),
               ...(input.agentKind !== undefined ? { agentKind: input.agentKind as AgentKind } : {}),
             })
           },
           create: async (writer, principal, launch) =>
-            await createSpawnLaunchInUnit(this.modules, writer, principal, launch),
-          settled: async (effectId) => await settledSpawnLaunch(this.modules, effectId),
+            await createSpawnLaunchInUnit(workflowModules.read(), writer, principal, launch),
+          settled: async (effectId) => await settledSpawnLaunch(workflowModules.read(), effectId),
         },
       },
       mail.gateOptions,
@@ -3884,7 +3908,7 @@ export class SessionRegistry {
     // durable outbox — see AutomationsService.spawn for why not initialPrompt.
     // A session still occupying the machine (anything but exited/hibernated)
     // makes the next occurrence a skipped_overlap rather than a pile-up.
-    const automations = new AutomationsService({
+    const automationService = new AutomationsService({
       store: this.store.automations,
       ledger: writes.system('automations.schedule'),
       createSession: async (o) =>
@@ -4075,7 +4099,7 @@ export class SessionRegistry {
           // An approved server op, run by its approval record after the
           // decision committed: the server's own write on the requester's
           // behalf (ADR 12 D2), under its declared origin.
-          const scheduled = await automations.create(
+          const scheduled = await automationService.create(
             writes.system('approvals.execute'),
             {
               name: op.name,
@@ -4126,14 +4150,14 @@ export class SessionRegistry {
       effectRunWriter: writes.system('issues.server'),
       // Git actions as effect records (POD-6394), read per call: the modules
       // and the entry point are composed after this dispatcher.
-      gitEffects: issueGitEffectPort({ modules: () => this.modules }),
+      gitEffects: issueGitEffectPort({ modules: workflowModules.read }),
       // Relayed and MCP issue writes through the entry point (POD-6413).
-      syncWrite: () => this.modules.syncWrite,
+      syncWrite: () => workflowModules.read().syncWrite,
       // Start, stop, sessions, cleanup, ship, assistant as effect records (POD-6414).
-      workEffects: issueWorkEffectPort({ modules: () => this.modules }),
+      workEffects: issueWorkEffectPort({ modules: workflowModules.read }),
       // Adding, publishing and removing artifacts as effect records (POD-6420).
       artifactEffects: issueArtifactEffectPort({
-        modules: () => this.modules,
+        modules: workflowModules.read,
         record: async (id) => await this.store.effects.get(id),
       }),
       arbitration: issueArbitration,
@@ -4788,11 +4812,13 @@ export class SessionRegistry {
     // able to reach the reconciler, and the reconciler has to be able to ask the
     // engine whether an operation is active. Both reads are lazy, so neither
     // half captures the other's construction moment.
-    let updatesReconciler: UpdateReconciler | undefined
+    const updateReconciliation = new LifecyclePort<
+      Pick<UpdateReconciler, 'onOperationStarted' | 'onOperationSettled'>
+    >('update transition reconciliation')
     const operationsModule = createOperations({
       store: this.store.operations,
       startCleanupJanitor: !backgroundDisabled,
-      onChanged: updateOperationObserver(updatesService, () => updatesReconciler),
+      onChanged: updateOperationObserver(updatesService, updateReconciliation.read),
     })
     operationsModule.kinds.register(updateOperationKind())
     operationsModule.kinds.register(serverMoveOperationKind(serverTransfer))
@@ -4820,11 +4846,12 @@ export class SessionRegistry {
      * converges them afterwards, on their own reconnect, with no operation and
      * no second click.
      */
-    updatesReconciler = new UpdateReconciler({
+    const updatesReconciler = new UpdateReconciler({
       updates: updatesService,
       operationActive: async () =>
         (await operationsModule.engine.active(LIFECYCLE_EXCLUSION_GROUP)) !== undefined,
     })
+    updateReconciliation.install(updatesReconciler)
     const reconciler = updatesReconciler
     this.bus.on('machine.connected', ({ machineId }) => {
       // The daemon's hello — and therefore the version it just booted with — is
@@ -5137,7 +5164,7 @@ export class SessionRegistry {
       readToolkit,
       issueArtifacts,
       pendingUploads,
-      automations,
+      automations: automationService,
       perf,
       logs,
       clientLogLevels,
@@ -5145,6 +5172,7 @@ export class SessionRegistry {
       fleetLogLevels,
       mutations,
     }
+    workflowModules.install(this.modules)
     // THE OUTBOX COMMANDS ON THE ENTRY POINT (ADR 12 D2, POD-6350): every command
     // the apps queue is registered on `syncWrite`, each family with its own
     // target resolver and handler. Registered once the modules exist, because the
@@ -5557,7 +5585,7 @@ export class SessionRegistry {
     )
     if (!backgroundDisabled) this.quotaBackfill.start()
     // Automations scheduler timer RETIRED [POD-925]: janitor owns automation-fire.
-    this.automationScheduler = new AutomationScheduler(automations)
+    this.automationScheduler = new AutomationScheduler(automationService)
     // this.automationScheduler.start()
 
     // THE GATEWAY (POD-317 / POD-389). The daemon socket mux is composed HERE,
@@ -5688,10 +5716,7 @@ export class SessionRegistry {
   private async commitServerRepoWrite<T>(write: () => Promise<T>): Promise<T> {
     return await asSystemWrite(
       async () =>
-        await this.modules.issues.reports.store.commitRepoWrite(
-          this.writes.system('repos.registry'),
-          write,
-        ),
+        await checkoutWrites.read().commitRepoWrite(this.writes.system('repos.registry'), write),
     )
   }
 
