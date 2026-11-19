@@ -141,9 +141,13 @@ it('keeps the credential the launch names, and the requested driver', async () =
     credentialId: named.id,
     requestedDriverId: 'opencode-server',
   })
+  // The key rides the spawn's `access` field, never its env (credential management §9).
   expect(latestSpawn(daemon)).toMatchObject({
     requestedDriverId: 'opencode-server',
-    env: { OPENROUTER_API_KEY: 'sk-FAKE-openrouter-0003' },
+    access: {
+      credentialId: named.id,
+      delivery: { kind: 'env', variable: 'OPENROUTER_API_KEY', secret: 'sk-FAKE-openrouter-0003' },
+    },
   })
   expect((await registry.sessionStore.sessions.getSession(sessionId))?.credentialId).toBe(named.id)
 })
