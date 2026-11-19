@@ -204,9 +204,12 @@ describe('runDrizzleMigrations', () => {
   })
 
   it.each([
-    false,
-    true,
-  ])('retains a disk refusal for the installed grant before migration (workspace column=%s)', (scoped) => {
+    { scoped: false, stepId: 'machines' },
+    { scoped: true, stepId: 'server' },
+  ])('retains a disk refusal for the installed grant before migration (%j)', ({
+    scoped,
+    stepId,
+  }) => {
     const file = tmpDbFile('refusal.db')
     const db = openDatabase(file)
     try {
@@ -225,7 +228,7 @@ describe('runDrizzleMigrations', () => {
         createdAt: 1,
         updatedAt: 2,
         details: { coordinatorSnapshotGrantId: 'installed', preserved: 'receipt' },
-        steps: [{ id: 'server', state: 'stalled', startedAt: 2 }],
+        steps: [{ id: stepId, state: 'stalled', startedAt: 2 }],
         futureField: 'preserved',
       }
       const payload = JSON.stringify(operation)
@@ -265,7 +268,7 @@ describe('runDrizzleMigrations', () => {
         updatedAt: row.updated_at,
         steps: [
           {
-            id: 'server',
+            id: stepId,
             state: 'failed',
             error: { message: expect.stringContaining('not enough free disk space') },
           },
@@ -284,7 +287,7 @@ describe('runDrizzleMigrations', () => {
   it.each([
     { grantId: 'queued-later', state: 'running', steps: [{ id: 'server', state: 'running' }] },
     { grantId: 'installed', state: 'done', steps: [{ id: 'server', state: 'done' }] },
-    { grantId: 'installed', state: 'running', steps: [{ id: 'server', state: 'done' }] },
+    { grantId: undefined, state: 'running', steps: [{ id: 'machines', state: 'running' }] },
   ])('does not rewrite an unrelated or completed update on disk refusal: %j', (details) => {
     const file = tmpDbFile('unrelated.db')
     const db = openDatabase(file)

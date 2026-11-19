@@ -378,16 +378,19 @@ function preserveUpgradeRefusal(
       operation.details?.coordinatorSnapshotGrantId !== installedGrantId
     )
       return
-    const server = operation.steps?.find((step) => step.id === 'server')
-    if (!server || (server.state !== 'running' && server.state !== 'stalled')) return
     const now = Date.now()
     const error = { code: 'handover-failed', message: reason }
     operation.state = 'failed'
     operation.updatedAt = operation.finishedAt = now
     operation.error = error
-    server.state = 'failed'
-    server.finishedAt = server.lastProgressAt = now
-    server.error = error
+    // Predecessors use either a server step or one fleet-wide machines step.
+    // The exact installed grant is the binding, not that step's presentation.
+    for (const step of operation.steps ?? []) {
+      if (step.state !== 'running' && step.state !== 'stalled') continue
+      step.state = 'failed'
+      step.finishedAt = step.lastProgressAt = now
+      step.error = error
+    }
     // Compare the envelope too: never replace a concurrently changed operation.
     db.prepare(
       `UPDATE operations SET state = 'failed', updated_at = ?, finished_at = ?, payload = ? WHERE id = ? AND payload = ? AND state = 'running'${scope}`,
