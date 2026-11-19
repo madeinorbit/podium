@@ -39,7 +39,7 @@ import {
   issueRowToProjection,
 } from '../modules/issues/projection'
 import { superagentThreadWireOf } from '../modules/superagent/thread-records'
-import { checkoutWireOf } from '../store/checkouts'
+import { checkoutWireOf } from '../store/checkout-record'
 import { bindingFor } from '../store/executor/binding'
 import type { RecordReads } from './record-builders'
 import type { RecordSource } from './record-sources'

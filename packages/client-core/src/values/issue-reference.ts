@@ -5,6 +5,7 @@ import {
   type IssueStage,
   type IssueStatus,
   type IssueStatusFields,
+  isClosed,
   issueStatusLabel,
   issueStatusOf,
 } from '@podium/model'
@@ -50,7 +51,7 @@ export interface IssueReferenceModel {
 
 /** Unknown close reasons keep their raw label and never claim a successful ending. */
 export function issueReferenceStatus(issue: IssueStatusFields): IssueStatus | null {
-  if (issue.closedReason && !canonicalIssueCloseReason(issue.closedReason)) return null
+  if (isClosed(issue) && !canonicalIssueCloseReason(issue.closedReason)) return null
   return issueStatusOf(issue)
 }
 

@@ -267,7 +267,7 @@ export class MobileTasksBoard {
   @lazy get refreshing(): boolean {
     return boardRefreshing(
       this.pool,
-      MOBILE_TASK_STAGES.filter((stage) => stage !== 'done' || this.includesDone),
+      MOBILE_TASK_STAGES.filter((lane) => lane !== 'done' || this.includesDone),
       this.searchFilter,
     )
   }

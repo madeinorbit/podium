@@ -12,7 +12,7 @@ import { captureWrite } from '../sync/capture-pg'
  * here in one transaction.
  */
 
-import type { CheckoutKind, CheckoutWire, MachineId, RepoId } from '@podium/model'
+import type { CheckoutKind, MachineId, RepoId } from '@podium/model'
 import { and, asc, eq, isNull, or, sql } from 'drizzle-orm'
 import type { CheckoutReach } from '../checkout-reach'
 import type {
@@ -321,20 +321,7 @@ const deleteCheckout = prepared((db, t) =>
   ).prepare(),
 )
 
-/** A stored row as the feed's record. */
-export function checkoutWireOf(row: CheckoutRow): CheckoutWire {
-  return {
-    machineId: row.machineId,
-    path: row.path,
-    root: row.root,
-    kind: row.kind,
-    ...(row.repoId ? { repoId: row.repoId } : {}),
-    ...(row.branch ? { branch: row.branch } : {}),
-    ...(row.originUrl ? { originUrl: row.originUrl } : {}),
-    ...(row.locked ? { locked: true } : {}),
-    ...(row.prunable ? { prunable: true } : {}),
-  }
-}
+export { checkoutWireOf } from './checkout-record'
 
 export class CheckoutsRepository {
   private readonly scope: WorkspaceDb

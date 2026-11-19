@@ -26,6 +26,7 @@
  */
 
 import { createDemandAtoms } from '@podium/mobx-helpers'
+import { isFinished } from '@podium/model/browser'
 import { createAtom, type IAtom, runInAction } from 'mobx'
 import { LOADING } from './loading'
 import { type Gone, NOT_VISIBLE } from './lookup'
@@ -269,7 +270,7 @@ export class PoolCollections {
       const loader = this.loader()
       const children = loader?.stubsByParent(parentId) ?? []
       let done = 0
-      for (const id of children) if (loader?.stubOf(ISSUE, id)?.['stage'] === 'done') done += 1
+      for (const id of children) if (isFinished(loader?.stubOf(ISSUE, id) ?? {})) done += 1
       return { childCount: children.length, childDoneCount: done }
     },
     sameChildCounts,
@@ -641,7 +642,7 @@ export class PoolCollections {
       if (seen.has(id)) continue
       seen.add(id)
       total += 1
-      if (loader.stubOf(ISSUE, id)?.['stage'] === 'done') done += 1
+      if (isFinished(loader.stubOf(ISSUE, id) ?? {})) done += 1
       todo.push(...loader.stubsByParent(id))
     }
     return { total, done }
