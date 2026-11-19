@@ -50,6 +50,23 @@ const fields = (issue: object, mission = false) =>
 const STAGES = ['in_progress', 'review', 'planning', 'backlog', 'proposed', 'done']
 type Issue = IssueNavigationModel
 
+// Each reference publication is immutable during one compare. Reuse its flat
+// derivation across the same corpus roots and modes, then discard it with that
+// publication; rebuilding it for every opening adds no independent evidence.
+const publications = new WeakMap<ReferenceState, Issue[]>()
+function referenceIssues(source: ReferenceState): Issue[] {
+  let issues = publications.get(source)
+  if (!issues) {
+    issues = allIssueViewModels(
+      source.replica,
+      source.issueProjections,
+      source.issueUserStates,
+    ) as Issue[]
+    publications.set(source, issues)
+  }
+  return issues
+}
+
 /** Board matches retain eligible ancestors; human proposals lead their own blocks. */
 function boardRows(issues: Issue[], options: NonNullable<MobileScreenInput['tasks']>) {
   const byId = new Map(issues.map((issue) => [issue.id as string, issue]))
@@ -170,11 +187,7 @@ export function expectMobileScreens(
   input: MobileScreenInput,
   label: string,
 ) {
-  const issues = allIssueViewModels(
-    source.replica,
-    source.issueProjections,
-    source.issueUserStates,
-  ) as Issue[]
+  const issues = referenceIssues(source)
   const sessions = source.sessions.filter((session) => !session.headless)
   const paths = reposToViews(source.repos).flatMap((repo) =>
     repo.worktrees.map((worktree) => worktree.path),
