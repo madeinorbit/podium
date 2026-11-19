@@ -39,6 +39,7 @@ import {
   instanceStateDir,
 } from '../packages/runtime/src/instance'
 import { registeredParentPid } from '../packages/runtime/src/parent-control'
+import { prepareSetupEnrollment } from '../packages/runtime/src/setup-enrollment'
 import { openDatabase } from '../packages/runtime/src/sqlite'
 
 const ROOT = join(import.meta.dirname, '..')
@@ -178,6 +179,14 @@ async function bootStack(
   const stateDir = instanceStateDir(instanceId, instanceEnv)
   const installDir = instanceInstallDir(instanceId, instanceEnv)
   ensureInstanceStateIdentity({ instanceId, dir: stateDir, env: instanceEnv })
+  const previousInstance = process.env.PODIUM_INSTANCE
+  process.env.PODIUM_INSTANCE = instanceId
+  try {
+    prepareSetupEnrollment(true, true, stateDir)
+  } finally {
+    if (previousInstance === undefined) delete process.env.PODIUM_INSTANCE
+    else process.env.PODIUM_INSTANCE = previousInstance
+  }
   const port = await freePort()
   const version = '0.1.0-parent-stack-proof'
   for (const site of ['web', 'mobile']) {

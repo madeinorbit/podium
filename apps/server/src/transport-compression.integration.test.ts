@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { constants, gunzipSync, gzipSync, inflateRawSync } from 'node:zlib'
 import { asSessionId } from '@podium/model'
+import { saveConfig } from '@podium/runtime/config'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { noJanitorWorkerForTests } from './janitor-host'
 import type { ServerHandle } from './server'
@@ -271,6 +272,7 @@ describe('transport compression on real Bun wires', () => {
   beforeAll(async () => {
     stateDir = mkdtempSync(join(tmpdir(), 'podium-transport-compression-'))
     process.env.PODIUM_STATE_DIR = stateDir
+    saveConfig({ mode: 'all-in-one' })
     const webDir = join(stateDir, 'web')
     const mobileDir = join(stateDir, 'mobile')
     const artifactDir = join(stateDir, 'artifacts', 'proof-issue', 'proof-artifact')

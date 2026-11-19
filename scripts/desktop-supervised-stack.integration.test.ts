@@ -7,12 +7,13 @@
  * roles, but only a real boot can establish that the janitor handshakes and the
  * parent reports its installed payload and services on the machine plane.
  */
-import { spawn, type ChildProcess } from 'node:child_process'
-import { createServer } from 'node:net'
+import { type ChildProcess, spawn } from 'node:child_process'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { prepareSetupEnrollment } from '../packages/runtime/src/setup-enrollment'
 import { openDatabase } from '../packages/runtime/src/sqlite'
 
 const ROOT = join(import.meta.dirname, '..')
@@ -74,6 +75,7 @@ describe('desktop-supervised local stack', () => {
   it('hosts a live server, janitor lease, and machine supervisor in one versioned child', async () => {
     const stateDir = await mkdtemp(join(tmpdir(), 'podium-desktop-stack-'))
     roots.push(stateDir)
+    prepareSetupEnrollment(true, true, stateDir)
     const payloadDir = join(stateDir, 'payload')
     await mkdir(payloadDir)
     const port = await freePort()

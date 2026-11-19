@@ -13,8 +13,8 @@
  *   finding  3  a refusing child (exit 78) stays parked; the parent stays up
  *   findings 1+4 handover: the old parent decides, MAINPID only after health,
  *               a successor that never arrives is killed and supervision returns
- *   R2          a FAILED handover rolls back to `.old` — or, when the release
- *               carried migrations, refuses to and reports why
+ *   R2          a FAILED handover rolls back to `.old` — or, when this update
+ *               applied migrations, refuses to and reports why
  *
  * REAPING IS PART OF THE CONTRACT: `afterEach` kills every process it started,
  * then FAILS if any grandchild survived — a leak in the code under test must not
@@ -27,7 +27,12 @@ import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import {
+  beginMachineUpdateMigrations,
+  MACHINE_UPDATE_GRANT_ENV,
+} from '../packages/runtime/src/machine-update'
 import { requestParentHandover } from '../packages/runtime/src/parent-control'
+import { openDatabase } from '../packages/runtime/src/sqlite'
 
 const ROOT = join(import.meta.dirname, '..')
 const FIXTURE = join(ROOT, 'scripts/fixtures/parent-stack-fixture.ts')
@@ -682,13 +687,14 @@ describe('parent lifecycle (real processes)', () => {
   }, 60_000)
 
   /**
-   * The other side of decision 4, on real processes: a release that carried
+   * The other side of decision 4, on real processes: an update that applied
    * migrations must NOT be undone, and the parent must say why rather than
    * leaving the machine silently stuck on it.
    */
-  it('R2 — a failed handover on a MIGRATING release refuses to roll back, and reports why', async () => {
+  it('R2 — a failed handover after applied migrations refuses to roll back, and reports why', async () => {
+    const grantId = 'fixture-migrating-grant'
     const stack = await startStack(
-      { FIXTURE_HANDOVER_TIMEOUT_MS: '6000' },
+      { FIXTURE_HANDOVER_TIMEOUT_MS: '6000', [MACHINE_UPDATE_GRANT_ENV]: grantId },
       { separateInstallDir: true },
     )
     await until(
@@ -699,6 +705,21 @@ describe('parent lifecycle (real processes)', () => {
     mkdirSync(`${stack.installDir}.old`, { recursive: true })
     writeFileSync(join(`${stack.installDir}.old`, 'VERSION'), '1.0.0\n')
     writeFileSync(join(stack.installDir, 'VERSION'), '2.0.0\n')
+
+    const dbPath = join(stack.stateDir, 'podium.db')
+    const committed = beginMachineUpdateMigrations(
+      join(stack.stateDir, 'runtime'),
+      grantId,
+      dbPath,
+      ['fixture-migration'],
+    )
+    const db = openDatabase(dbPath)
+    try {
+      db.exec('CREATE TABLE fixture_migration_effect (id TEXT PRIMARY KEY)')
+    } finally {
+      db.close()
+    }
+    committed(['fixture-migration'])
 
     expect(
       await requestFixtureHandover(stack, {
