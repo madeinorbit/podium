@@ -177,6 +177,35 @@ vi.mock('@/lib/markdown-references', () => ({
 // Counts composer draws without changing them: the ask-anything regression
 // below holds an agent-state publication that keeps the phase to none.
 const composerRenders = vi.hoisted(() => vi.fn())
+const stateTrace = vi.hoisted(() => ({
+  writes: 0,
+  last: [] as string[],
+  wrappers: new WeakMap<Function, Function>(),
+}))
+vi.mock('react', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('react')>()
+  return {
+    ...actual,
+    useState(initial: unknown) {
+      const [value, set] = actual.useState(initial)
+      let wrapped = stateTrace.wrappers.get(set)
+      if (!wrapped) {
+        wrapped = (next: unknown) => {
+          stateTrace.writes++
+          if (stateTrace.writes < 15 || stateTrace.writes % 100 === 0) {
+            stateTrace.last.push(`${stateTrace.writes}: ${new Error().stack}`)
+            stateTrace.last = stateTrace.last.slice(-5)
+          }
+          if (stateTrace.writes > 1000)
+            throw new Error(`attachment state loop ${stateTrace.last.join('\n')}`)
+          return set(next)
+        }
+        stateTrace.wrappers.set(set, wrapped)
+      }
+      return [value, wrapped]
+    },
+  }
+})
 vi.mock('./ChatComposer', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./ChatComposer')>()
   const { createElement } = await import('react')
@@ -184,6 +213,10 @@ vi.mock('./ChatComposer', async (importOriginal) => {
     ...actual,
     ChatComposer: (props: Parameters<typeof actual.ChatComposer>[0]) => {
       composerRenders()
+      if (composerRenders.mock.calls.length > 1000)
+        throw new Error(
+          `attachment render loop; state writes=${stateTrace.writes} ${stateTrace.last.join('\n')}`,
+        )
       return createElement(actual.ChatComposer, props)
     },
   }
@@ -236,6 +269,8 @@ let container: HTMLDivElement
 let root: Root
 
 beforeEach(() => {
+  stateTrace.writes = 0
+  stateTrace.last = []
   reads.length = 0
   fakeHub.subscribes.length = 0
   storeSessions = [meta({})]
