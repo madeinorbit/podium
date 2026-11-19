@@ -296,8 +296,8 @@ export class LaunchWorkPicker {
       machineId === null
         ? this.repos
         : this.repos.filter((repo) => {
-            const hosts = repo.machines
-            return hosts.length === 0 || hosts.some((host) => host.machineId === machineId)
+            const hosts = repo.machineIds
+            return hosts.length === 0 || hosts.includes(machineId as (typeof hosts)[number])
           }),
     { equals: compareShallow },
   )
