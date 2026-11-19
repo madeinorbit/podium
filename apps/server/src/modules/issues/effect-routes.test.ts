@@ -212,9 +212,20 @@ describe.each(Object.keys(CASES))('issues.%s on sync.submit', (name) => {
     // Shared does not mean arbitrary: an absent task is refused before creation.
     const missingId = mintDeviceId('eff_')
     const missing = await asMember(recordEnvelope(name, 'missing-task', missingId, `m-${name}-3`))
-    expect(missing).toMatchObject({ outcome: 'rejected', refusal: { kind: 'target-not-found' } })
-    expect(await o.store.effects.get(missingId)).toBeUndefined()
-    expect(run).toHaveBeenCalledTimes(3)
+    if (name === 'answerQuestion') {
+      // This adapter targets the asking session, not the shared task. Its
+      // handler resolves that session; an absent task must settle without delivery.
+      appliedReply(missing)
+      expect(await settled(o, missingId)).toMatchObject({
+        status: 'failed',
+        error: { code: 'not-found', message: 'unknown issue missing-task' },
+      })
+      expect(run).toHaveBeenCalledTimes(4)
+    } else {
+      expect(missing).toMatchObject({ outcome: 'rejected', refusal: { kind: 'target-not-found' } })
+      expect(await o.store.effects.get(missingId)).toBeUndefined()
+      expect(run).toHaveBeenCalledTimes(3)
+    }
   })
 })
 
