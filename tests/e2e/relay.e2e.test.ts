@@ -2,8 +2,9 @@ import { fileURLToPath } from 'node:url'
 import { asMachineId, firstAdminMemberId } from '@podium/model'
 import { directPtyDurableForTests } from '@podium/process/durable'
 import { CAP_SYNC_HTTP_V1, CLIENT_WIRE_VERSION, encode, parseServerMessage } from '@podium/protocol'
+import { saveConfig } from '@podium/runtime/config'
 import { readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
-import { afterAll, describe, expect, it } from 'vitest'
+import { afterAll, describe, it } from 'vitest'
 import WebSocket from 'ws'
 import { startDaemon } from '../../apps/daemon/src/daemon'
 import { startServer } from '../../apps/server/src/test-support/enrolled-server'
@@ -73,6 +74,7 @@ async function waitFor(pred: () => boolean | Promise<boolean>, timeoutMs = 10000
 
 describe('e2e: daemon -> server -> client', () => {
   it('streams real fixture output to a client, round-trips input, and bumps epoch on takeover', async () => {
+    saveConfig({ mode: 'all-in-one' })
     const srv = await startServer()
     let daemon: Awaited<ReturnType<typeof startDaemon>> | undefined
     const clients: WebSocket[] = []

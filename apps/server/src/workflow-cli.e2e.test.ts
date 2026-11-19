@@ -50,7 +50,7 @@ describe('podium workflow CLI ↔ live server over the derived surface (e2e)', (
     process.env.PODIUM_STATE_DIR = stateDir
     server = await startServer({ janitorWorkerForTests: noJanitorWorkerForTests, port: 0 })
     const registry = server.registry
-    await attachHostDaemon(registry)
+    await attachHostDaemon(registry, () => {}, { repos: ['/repo/wt'] })
     await registry.modules.settings.setSettingsFor(
       await firstAdminMemberId(registry.sessionStore),
       {
@@ -117,7 +117,7 @@ describe('podium workflow CLI ↔ live server over the derived surface (e2e)', (
    */
   it('checkpoint advances a real run through the derived mutation, and status reads it back', async () => {
     const registry = server.registry
-    await attachHostDaemon(registry)
+    await attachHostDaemon(registry, () => {}, { repos: ['/repo/wt'] })
     const operator = { actor: { kind: 'operator' as const, id: null }, protectedWrite: true }
     const created = await registry.modules.workflows.execute(operator, 'create', {
       // Unique per attempt: the integration lane retries, and workflow names are

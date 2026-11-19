@@ -43,7 +43,7 @@ async function connectDaemon(port: number, stateDir: string, token: string): Pro
   const ws = new WebSocket(`ws://127.0.0.1:${port}/daemon`)
   const dialer = createHandshakeDialer({
     peerRole: 'machine',
-    credential: { kind: 'daemonSecret', secret: token },
+    credential: { kind: 'machineToken', token, machineHint: readOrCreateLocalMachineId(stateDir) },
     claims: { machineId: readOrCreateLocalMachineId(stateDir), hostname: hostname() },
   })
   await new Promise<void>((resolve, reject) => {

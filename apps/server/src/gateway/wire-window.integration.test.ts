@@ -184,12 +184,9 @@ describe('the wire window, over real sockets', () => {
     // the two peers the entity plane will refuse. Wait on current's world first
     // so the refusals below are asserted after hello has been processed, not by
     // spinning until the deadline.
-    await Promise.all([
-      stale.nextMatching((m) => m.type === 'welcome'),
-      previous.nextMatching((m) => m.type === 'welcome'),
-      current.nextMatching((m) => m.type === 'welcome'),
-      beyond.nextMatching((m) => m.type === 'welcome'),
-    ])
+    // A refused hello gets no welcome or entity data. The admitted peer is
+    // the positive control for this same socket/authority boundary.
+    await current.nextMatching((m) => m.type === 'welcome')
 
     const admitted = await current.nextMatching((m) => m.type === 'feedResume')
     expect(admitted.type).toBe('feedResume')
@@ -290,7 +287,6 @@ describe('the wire window, over real sockets', () => {
       minSupportedVersion: MIN_CLIENT_WIRE_VERSION,
       feedScoping: 'per-principal',
     })
-    expect(version.minSupportedVersion).toBe(4)
 
     for (const peer of [stale, previous, current, beyond]) peer.ws.close()
   })

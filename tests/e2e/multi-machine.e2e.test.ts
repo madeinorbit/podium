@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -141,8 +141,7 @@ describe('e2e: two-daemon pairing + routing', () => {
       //    hostMachineId() so it attaches to the machine the server adopts at startup.
       //    daemon2 paired, so its id is the UUID minted in its own identity file.
       const daemon1Id = hostMachineId()
-      const daemon2Id = JSON.parse(readFileSync(join(tmp2, 'daemon.json'), 'utf8'))
-        .machineId as string
+      const daemon2Id = supervisorState.machineId
 
       // The two daemons must have distinct ids and both must be online.
       expect(daemon1Id).toBeTruthy()

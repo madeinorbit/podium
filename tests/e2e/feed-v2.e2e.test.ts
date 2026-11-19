@@ -111,6 +111,7 @@ describe('POD-376 · wire v2 feed into the kernel replica (live server)', () => 
     })
     const view = store.viewFor(owner)
     const framesSeen: string[] = []
+    let bootstrapFailure: string | undefined
     let socket: WebSocket | undefined
 
     const sourceDeps = {
@@ -121,6 +122,9 @@ describe('POD-376 · wire v2 feed into the kernel replica (live server)', () => 
     const deltas = new HttpDeltaSource(sourceDeps)
     const replica = new Replica({
       store: view.cache,
+      onEvent: (event) => {
+        if (event.type === 'bootstrap-failed') bootstrapFailure = event.error
+      },
       authority: {
         async *bootstrap(signal, policy) {
           framesSeen.push('httpBootstrap')
@@ -167,12 +171,12 @@ describe('POD-376 · wire v2 feed into the kernel replica (live server)', () => 
     }
 
     await openSocket()
-    await until(
-      () =>
-        replica.cursor !== null &&
-        replica.posture !== 'cold' &&
-        replica.posture !== 'bootstrapping',
-    )
+    await until(() => {
+      if (bootstrapFailure) throw new Error(`HTTP bootstrap failed: ${bootstrapFailure}`)
+      return (
+        replica.cursor !== null && replica.posture !== 'cold' && replica.posture !== 'bootstrapping'
+      )
+    })
     const client: LiveClient = {
       replica,
       store,

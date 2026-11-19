@@ -113,10 +113,12 @@ describe('agent relay end-to-end (CLI → daemon relay → server capability gat
 
   // 4. update on B (outside sA's subtree) is a scope violation → rejected by the P1a gate.
   //    `update --priority 1` maps to issues.update({ id, patch: { priority: 1 } }).
-  it('update outside the subtree is rejected', async () => {
+  it('an out-of-scope update requires explicit confirmation and leaves the issue unchanged', async () => {
+    const before = await registry.issues.reports.get(B.id)
     await expect(runIssueCli(['update', '--id', B.id, '--priority', '1'], client)).rejects.toThrow(
-      /outside your subtree/,
+      /--outside-scope/,
     )
+    expect(await registry.issues.reports.get(B.id)).toEqual(before)
   })
 
   // 5. the same update through the --outside-scope client (overrideScope) succeeds.

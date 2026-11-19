@@ -168,7 +168,9 @@ describe('a daemon reattach storm', () => {
   }
 
   it('sends negotiated PTY output through Bun as a binary WebSocket message', async () => {
-    const ws = new WebSocket('ws://127.0.0.1:' + handle.port + '/client')
+    const ws = new WebSocket(
+      `ws://127.0.0.1:${handle.port}/client?v=${CLIENT_WIRE_VERSION}&cap=sync.http.v1`,
+    )
     await new Promise<void>((resolve, reject) => {
       ws.once('open', () => resolve())
       ws.once('error', reject)
@@ -194,7 +196,8 @@ describe('a daemon reattach storm', () => {
         type: 'hello',
         clientId: '',
         viewport: { cols: 80, rows: 24, dpr: 1 },
-        caps: [CAP_TERMINAL_OUTPUT_BINARY_V1],
+        caps: [CAP_TERMINAL_OUTPUT_BINARY_V1, 'sync.http.v1'],
+        wireVersion: CLIENT_WIRE_VERSION,
       }),
     )
     ws.send(JSON.stringify({ type: 'attach', sessionId }))
@@ -228,7 +231,9 @@ describe('a daemon reattach storm', () => {
   })
 
   it('closes only a client connection that sends unnegotiated binary', async () => {
-    const ws = new WebSocket('ws://127.0.0.1:' + handle.port + '/client')
+    const ws = new WebSocket(
+      `ws://127.0.0.1:${handle.port}/client?v=${CLIENT_WIRE_VERSION}&cap=sync.http.v1`,
+    )
     await new Promise<void>((resolve, reject) => {
       ws.once('open', () => resolve())
       ws.once('error', reject)

@@ -119,7 +119,7 @@ describe('a same-site app host talking to an API on another host', () => {
       headers: { 'content-type': 'application/json', origin: APP_ORIGIN },
       body: JSON.stringify({ email: 'cors@example.test', password: PASSWORD }),
     })
-    expect(res.status).toBe(200)
+    expect(res.status, await res.clone().text()).toBe(200)
     expect(res.headers.get('access-control-allow-origin')).toBe(APP_ORIGIN)
     cookie = res.headers.get('set-cookie')?.split(';')[0] ?? ''
     expect(cookie).not.toBe('')
@@ -127,7 +127,7 @@ describe('a same-site app host talking to an API on another host', () => {
 
   it('serves tRPC to the cookie the app host now holds', async () => {
     const res = await fetch(url('/trpc/setup.info'), { headers: { cookie, origin: APP_ORIGIN } })
-    expect(res.status).toBe(200)
+    expect(res.status, await res.clone().text()).toBe(200)
     expect(res.headers.get('access-control-allow-origin')).toBe(APP_ORIGIN)
   })
 
@@ -141,7 +141,7 @@ describe('a same-site app host talking to an API on another host', () => {
 
   it('answers /version across the origin, so a page can check its own build', async () => {
     const res = await fetch(url('/version'), { headers: { origin: APP_ORIGIN } })
-    expect(res.status).toBe(200)
+    expect(res.status, await res.clone().text()).toBe(200)
     expect(res.headers.get('access-control-allow-origin')).toBe(APP_ORIGIN)
   })
 

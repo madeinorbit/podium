@@ -59,7 +59,13 @@ describe('podium issue CLI ↔ live server (e2e)', () => {
     // no typed-client id fishing (an agent has no access to internal iss_ ids).
     expect(await runIssueCli(['show', seq], client)).toContain('Wire the CLI')
     expect(await runIssueCli(['show', `#${seq}`], client)).toContain('Wire the CLI')
-    expect(await runIssueCli(['claim', seq, '--assignee', 'agent:test'], client)).toMatch(/claimed/)
+    // A process label is not a person. Claim as the authenticated active member.
+    await expect(runIssueCli(['claim', seq, '--assignee', 'agent:test'], client)).rejects.toThrow(
+      /active member/,
+    )
+    expect(await runIssueCli(['claim', seq, '--assignee', 'me'], client)).toMatch(/claimed/)
+    const claimed = JSON.parse(await runIssueCli(['show', seq, '--json'], client))
+    expect(claimed.data.assignee).toBe(await firstAdminMemberId(server.registry.sessionStore))
     expect(await runIssueCli(['comment', seq, '--body', 'progress note'], client)).toMatch(
       /commented/,
     )
