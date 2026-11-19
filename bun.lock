@@ -603,7 +603,9 @@
       "name": "@podium/scripts",
       "version": "0.0.0",
       "dependencies": {
+        "@jridgewell/trace-mapping": "^0.3.31",
         "@podium/client-core": "workspace:*",
+        "@podium/client-graph": "workspace:*",
         "@podium/commands": "workspace:*",
         "@podium/harness": "workspace:*",
         "@podium/issue-client": "workspace:*",

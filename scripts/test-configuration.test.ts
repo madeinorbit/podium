@@ -348,9 +348,14 @@ describe('test lane configuration', () => {
 
   it('keeps package-owned lanes on shared Vitest hardening', () => {
     for (const packageConfig of [scriptsConfig, desktopConfig]) {
-      expect(config(packageConfig).test?.setupFiles).toEqual(sharedVitestConfig.test.setupFiles)
+      expect(config(packageConfig).test?.setupFiles).toEqual(
+        expect.arrayContaining(sharedVitestConfig.test.setupFiles),
+      )
       expect(config(packageConfig).test?.maxWorkers).toBe(sharedVitestConfig.test.maxWorkers)
     }
+    expect(config(scriptsConfig).test?.setupFiles).toContain(
+      fileURLToPath(new URL('./test-repository-root.ts', import.meta.url)),
+    )
     // Sorted: the shard's include comes from the generated manifest, which is sorted,
     // while normalizedWireTests is written in run order. Same two files either way.
     expect([...(config(normalizedWirePackageConfig).test?.include ?? [])].sort()).toEqual(
