@@ -3053,6 +3053,7 @@ export function checkDrizzleImportHome(file: string, source: string): Violation[
   // Superset pre-filter, same reason as rule 14: every specifier this rule can
   // flag matches /^drizzle-orm(\/|$)/ and so contains this substring.
   if (!source.includes('drizzle-orm')) return []
+  if (isTestFile(file)) return []
   if (!file.startsWith('apps/') && !file.startsWith('packages/')) return []
   if (STORE_BOUNDARY_FILES.has(file)) return []
   if (DRIZZLE_IMPORT_ROOTS.some((root) => file.startsWith(root))) return []

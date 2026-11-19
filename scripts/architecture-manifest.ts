@@ -177,7 +177,7 @@ export function extractImports(source: string): ImportRef[] {
  */
 export function isTestFile(file: string): boolean {
   return (
-    /\.(test|spec)\.tsx?$/.test(file) ||
+    /\.(test|spec)(?:\.fixture)?\.tsx?$/.test(file) ||
     /\/(test|tests|__tests__|fixtures|test-support)\//.test(file)
   )
 }

@@ -1543,6 +1543,19 @@ describe('store-transaction-port (POD-3252 rule 14)', () => {
 })
 
 describe('drizzle-import-home (POD-3252 rule 15)', () => {
+  it('separates test SQL setup from shipping application imports', () => {
+    const source = "import { eq } from 'drizzle-orm'"
+    for (const file of [
+      'apps/server/src/modules/issues/service.test.ts',
+      'apps/server/src/test-support/workspace-seeds/issues.ts',
+      'apps/web/src/app/waterfall-view.test.fixture.ts',
+    ])
+      expect(checkDrizzleImportHome(file, source), file).toEqual([])
+    expect(
+      checkDrizzleImportHome('apps/server/src/modules/issues/test-loader.ts', source),
+    ).toHaveLength(1)
+  })
+
   it('flags drizzle imported outside persistence, by any subpath', () => {
     for (const specifier of ['drizzle-orm', 'drizzle-orm/sqlite-core']) {
       const vs = checkDrizzleImportHome(
