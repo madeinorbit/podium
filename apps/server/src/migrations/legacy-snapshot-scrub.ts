@@ -72,6 +72,9 @@ export interface SnapshotScrubOptions {
 
 const SEALED_PLAIN_KEYS = ['integrations.linearApiKey', 'notifications.telegramBotToken']
 
+/** The keyed secret tables: `server_secrets`, and `workspace_secrets` since the workspace split. */
+const SECRET_TABLES = ['server_secrets', 'workspace_secrets'] as const
+
 /** Where an old `meta['settings']` blob kept secrets, before `server_secrets`. */
 const BLOB_SECRET_PATHS = [
   '$.apiKeys.anthropic',
@@ -115,10 +118,10 @@ function valuesIn(db: SqlDatabase, have: Set<string>): string[] {
     }[])
       values.push(r.credential)
   }
-  if (have.has('server_secrets')) {
-    for (const r of db
-      .prepare(`SELECT value FROM server_secrets WHERE ${SECRET_ROW_FILTER}`)
-      .all() as {
+  // A snapshot from after the workspace split (POD-7013) holds them in workspace_secrets.
+  for (const table of SECRET_TABLES) {
+    if (!have.has(table)) continue
+    for (const r of db.prepare(`SELECT value FROM ${table} WHERE ${SECRET_ROW_FILTER}`).all() as {
       value: string
     }[])
       values.push(r.value)
@@ -152,7 +155,8 @@ function removeValues(db: SqlDatabase, have: Set<string>): void {
       }
       db.exec("DELETE FROM accounts WHERE credential <> ''")
     }
-    if (have.has('server_secrets')) db.exec(`DELETE FROM server_secrets WHERE ${SECRET_ROW_FILTER}`)
+    for (const table of SECRET_TABLES)
+      if (have.has(table)) db.exec(`DELETE FROM ${table} WHERE ${SECRET_ROW_FILTER}`)
     if (have.has('meta')) {
       // `''` is the old blob's spelling of "not configured".
       const blank = db.prepare(
