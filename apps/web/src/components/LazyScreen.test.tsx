@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
-import { Component, type ReactNode } from 'react'
+import { Component, type ReactNode, Suspense } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { lazyScreen } from './LazyScreen'
 
@@ -20,7 +20,9 @@ it('keeps an unvisited offline screen in its shell, then renders it on online', 
   render(
     <div>
       <nav>App shell</nav>
-      <Screen />
+      <Suspense fallback={null}>
+        <Screen />
+      </Suspense>
     </div>,
   )
   expect(await screen.findByText('This screen is not available offline.')).toBeTruthy()
@@ -50,7 +52,9 @@ it('passes real module errors to the enclosing error boundary', async () => {
   })
   render(
     <Parent>
-      <Screen />
+      <Suspense fallback={null}>
+        <Screen />
+      </Suspense>
     </Parent>,
   )
   await waitFor(() => expect(screen.getByText('Real module error')).toBeTruthy())

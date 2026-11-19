@@ -115,15 +115,32 @@ import { useResponsiveSidebars } from './use-responsive-sidebars'
 const Workspace = lazyScreen(() =>
   import('./Workspace').then((module) => ({ default: module.Workspace })),
 )
-const SettingsView = lazyScreen(() =>
-  import('@/features/settings/SettingsView').then((module) => ({
-    default: module.SettingsView,
-  })),
+const SettingsView = lazyScreen(
+  () =>
+    import('@/features/settings/SettingsView').then((module) => ({ default: module.SettingsView })),
+  (content, { onClose }) => (
+    <AppSheet
+      label="Settings"
+      title="Settings"
+      className="app-sheet-settings app-sheet-fit"
+      onClose={onClose}
+    >
+      {content}
+    </AppSheet>
+  ),
 )
-const UsageView = lazyScreen(() =>
-  import('@/features/usage/UsageView').then((module) => ({
-    default: module.UsageView,
-  })),
+const UsageView = lazyScreen(
+  () => import('@/features/usage/UsageView').then((module) => ({ default: module.UsageView })),
+  (content, { onClose }) => (
+    <AppSheet
+      label="Usage & analytics"
+      title="Usage & analytics"
+      className="app-sheet-fit"
+      onClose={onClose}
+    >
+      {content}
+    </AppSheet>
+  ),
 )
 // FlightDeck already unmounts when folded. Deferring its module in exactly that
 // state changes no subscriptions or retained component state.

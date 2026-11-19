@@ -4,15 +4,14 @@ import {
   type LazyExoticComponent,
   lazy,
   type ReactNode,
-  Suspense,
 } from 'react'
 import { looksLikeChunkLoadFailure } from '@/app/chunk-load-failure'
 import { retryOnOnline } from '@/app/preload-error-recovery'
 import { retryChunkImport, throughRestarts } from '@/lib/chunk-recovery'
-import { WaitingForServer } from './WaitingForServer'
 
 type ScreenModule<Props extends object> = { default: ComponentType<Props> }
 type ScreenLoader<Props extends object> = () => Promise<ScreenModule<Props>>
+type OfflineFrame<Props> = (content: ReactNode, props: Props) => ReactNode
 
 /** Keep code-fetch failures inside their screen; render bugs still reach the app boundary. */
 class ScreenBoundary<Props extends object> extends Component<
@@ -20,6 +19,7 @@ class ScreenBoundary<Props extends object> extends Component<
     load: ScreenLoader<Props>
     screen: LazyExoticComponent<ComponentType<Props>>
     screenProps: Props
+    offlineFrame?: OfflineFrame<Props>
   },
   {
     failure: { error: unknown } | null
@@ -62,7 +62,7 @@ class ScreenBoundary<Props extends object> extends Component<
       if (!looksLikeChunkLoadFailure(error instanceof Error ? error.message : String(error))) {
         throw error
       }
-      return (
+      const content = (
         <div
           className="flex min-h-0 min-w-0 flex-1 items-center justify-center"
           role="status"
@@ -77,18 +77,20 @@ class ScreenBoundary<Props extends object> extends Component<
           </div>
         </div>
       )
+      return this.props.offlineFrame?.(content, this.props.screenProps) ?? content
     }
-    return (
-      <Suspense fallback={<WaitingForServer className="flex min-h-0 min-w-0 flex-1" />}>
-        <Screen {...this.props.screenProps} />
-      </Suspense>
-    )
+    return <Screen {...this.props.screenProps} />
   }
 }
 
-export function lazyScreen<Props extends object>(load: ScreenLoader<Props>): ComponentType<Props> {
+export function lazyScreen<Props extends object>(
+  load: ScreenLoader<Props>,
+  offlineFrame?: OfflineFrame<Props>,
+): ComponentType<Props> {
   const screen = lazy(() => throughRestarts(load))
   return function LazyScreen(props: Props) {
-    return <ScreenBoundary load={load} screen={screen} screenProps={props} />
+    return (
+      <ScreenBoundary load={load} screen={screen} screenProps={props} offlineFrame={offlineFrame} />
+    )
   }
 }

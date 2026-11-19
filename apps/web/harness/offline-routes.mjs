@@ -4,7 +4,8 @@
  */
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { resolve } from 'node:path'
 import { chromium, expect } from '@playwright/test'
 import { build } from '../node_modules/vite/dist/node/index.js'
@@ -19,7 +20,7 @@ const server = Bun.serve({
   async fetch(request) {
     const path = new URL(request.url).pathname
     const file = Bun.file(resolve(dist, `.${path}`))
-    if (await file.exists()) return new Response(file)
+    if (!path.endsWith('/') && (await file.exists())) return new Response(file)
     if (path.startsWith('/assets/')) return new Response('Missing', { status: 404 })
     return new Response(Bun.file(resolve(dist, 'harness/offline-routes.html')), {
       headers: { 'content-type': 'text/html' },
@@ -37,13 +38,21 @@ const result = {
   errors: [],
 }
 let browser
+let page
 try {
-  browser = await chromium.launch({ args: ['--no-sandbox', '--disable-dev-shm-usage'] })
+  const browserEnv = { ...process.env }
+  const userLib = resolve(homedir(), '.cache/podium-chromium-deps/root/usr/lib/x86_64-linux-gnu')
+  if (existsSync(userLib)) browserEnv.LD_LIBRARY_PATH = userLib
+  else delete browserEnv.LD_LIBRARY_PATH
+  browser = await chromium.launch({
+    env: browserEnv,
+    args: ['--no-sandbox', '--disable-dev-shm-usage'],
+  })
   const context = await browser.newContext({
     viewport: { width: 1440, height: 960 },
     serviceWorkers: 'block',
   })
-  const page = await context.newPage()
+  page = await context.newPage()
   let phase = 'startup'
   const frameChecks = []
   await page.addInitScript(() => {
@@ -82,17 +91,22 @@ try {
   await expect(page.locator('.desktop-shell')).toBeVisible({ timeout: 30000 })
   await page.waitForFunction(() => Boolean(window.offlineRoutes))
   // These production chunks must finish loading while no route has visited them.
-  for (const chunk of [
-    'IssuesView',
-    'FlightDeck',
-    'IssuePage',
-    'WorkflowsView',
-    'AutomationsView',
-    'SpecsView',
+  const graph = JSON.parse(readFileSync(resolve(dist, '.vite/import-graph.json'), 'utf8'))
+  for (const source of [
+    'features/issues/IssuesView.tsx',
+    'app/FlightDeck.tsx',
+    'features/issues/IssuePage.tsx',
+    'features/workflows/WorkflowsView.tsx',
+    'features/automations/AutomationsView.tsx',
+    'features/specs/SpecsView.tsx',
   ]) {
+    const chunks = Object.entries(graph.chunks)
+      .filter(([, chunk]) => chunk.modules.includes(`apps/web/src/${source}`))
+      .map(([file]) => file)
+    assert(chunks.length > 0, `No built chunk for ${source}`)
     assert(
-      result.loadedScripts.some((path) => path.includes(`/${chunk}-`)),
-      `Idle import missing: ${chunk}`,
+      chunks.every((file) => result.loadedScripts.some((path) => path.endsWith(`/${file}`))),
+      `Idle import missing: ${source}`,
     )
   }
   assert(
@@ -126,7 +140,9 @@ try {
     () => navigate('/issues'),
     () => expect(page.getByLabel('Search tasks')).toBeVisible(),
   )
-  await expect(page.locator('.desktop-shell-row')).toContainText('Fix OAuth token refresh')
+  await expect(page.locator('.desktop-shell-row')).toContainText(
+    'OAuth refresh loop logs users out',
+  )
   await check(
     'deck',
     () => page.evaluate(() => window.offlineRoutes.openDeck()),
@@ -135,7 +151,7 @@ try {
   await check(
     'issue-page',
     () => navigate('/issues/demo-issue-auth'),
-    () => expect(page.getByTestId('issue-page')).toContainText('Fix OAuth token refresh'),
+    () => expect(page.getByTestId('issue-page')).toContainText('OAuth refresh loop logs users out'),
   )
   await check(
     'search',
@@ -143,7 +159,8 @@ try {
       await navigate('/issues')
       await page.getByLabel('Search tasks').fill('OAuth')
     },
-    () => expect(page.locator('.desktop-shell-row')).toContainText('Fix OAuth token refresh'),
+    () =>
+      expect(page.locator('.desktop-shell-row')).toContainText('OAuth refresh loop logs users out'),
   )
   assert.deepEqual(
     result.offlineScriptRequests,
@@ -188,6 +205,7 @@ try {
 } catch (error) {
   result.status = 'failed'
   result.failure = String(error.stack ?? error)
+  await page?.screenshot({ path: resolve(out, 'failure.png') }).catch(() => {})
   throw error
 } finally {
   writeFileSync(resolve(out, 'result.json'), `${JSON.stringify(result, null, 2)}\n`)

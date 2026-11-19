@@ -1,5 +1,5 @@
 /** Production shell over the shared local demo replica. Only transport is stubbed. */
-import { useClientRuntime } from '@podium/client-core/react'
+import { useClientRuntime, useDeviceState } from '@podium/client-core/react'
 import { asIssueId } from '@podium/model'
 import { useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
@@ -17,6 +17,7 @@ import '@/styles.css'
 
 function Body() {
   const runtime = useClientRuntime()
+  const uiState = useDeviceState()
   const [syncProgress] = useState(() => {
     const progress = new WebSyncProgressStore()
     progress.begin('live')
@@ -26,12 +27,13 @@ function Body() {
     Object.assign(window, {
       offlineRoutes: {
         openDeck() {
+          uiState.set('podium:superagent:mode', 'open')
           runtime.ui.setSelectedIssueId(asIssueId('demo-mission-root'))
           runtime.ui.setView('workspace')
         },
       },
     })
-  }, [runtime])
+  }, [runtime, uiState])
   return <AppBody syncProgress={syncProgress} />
 }
 
