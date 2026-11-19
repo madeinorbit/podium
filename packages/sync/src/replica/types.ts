@@ -376,6 +376,12 @@ export type ReplicaEvent =
    * deletion and not a visibility change: a lookup now answers "on its way".
    */
   | { readonly type: 'released'; readonly entity: string; readonly entityId: string }
+  /**
+   * POD-7159 — the record left MEMORY and stays on the device's disk (its
+   * instance was unloaded). Not a removal, not a release: a reader gets
+   * LOADING and a disk load, never REMOVED or NOT_VISIBLE.
+   */
+  | { readonly type: 'unloaded'; readonly entity: string; readonly entityId: string }
   /** An issue's stub was written: the device holds it at stub level only. */
   | { readonly type: 'stub-upserted'; readonly record: EntityRecord }
   /**
