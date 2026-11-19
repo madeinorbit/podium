@@ -266,11 +266,35 @@ describe('binding receipt crash durability', () => {
         ),
       ).toBe('denied')
 
+      const refreshed: DaemonMessage[] = []
       expect(
-        await restarted.acknowledgePendingReceipt(owner, asSessionId('crash-pane'), {
-          kind: 'codex-thread',
-          value: 'crash-thread',
-        }),
+        await restarted.replayPendingReceiptsForOwner(owner, (msg) => refreshed.push(msg)),
+      ).toBe(1)
+      const current = refreshed[0]
+      const stale = sent[0]
+      if (current?.type !== 'sessionResumeRef' || stale?.type !== 'sessionResumeRef')
+        throw new Error('missing recovered resume receipt')
+      expect(current.receipt).toMatchObject({
+        observerGeneration: 2,
+        attemptId: 'attempt-crash-pane',
+      })
+      // Reattaching fences the old observer. Only the replay's current receipt
+      // can retire the durable pending observation.
+      expect(
+        await restarted.acknowledgePendingReceipt(
+          owner,
+          current.sessionId,
+          current.resume,
+          stale.receipt,
+        ),
+      ).toBe(false)
+      expect(
+        await restarted.acknowledgePendingReceipt(
+          owner,
+          current.sessionId,
+          current.resume,
+          current.receipt,
+        ),
       ).toBe(true)
       expect(await (await BindingStore.open({ dir })).pendingReceiptsForOwner(owner)).toEqual([])
     },

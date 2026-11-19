@@ -23,6 +23,7 @@ import {
   ShippingService,
 } from '../../../../server/src/modules/shipping'
 import { SessionStore } from '../../../../server/src/store'
+import { changeLogCommit } from '../../../../server/src/store/change-log-commit'
 import { installChangeLogHooks } from '../../../../server/src/test-support/change-log-hooks'
 import { assignHostMachine } from '../../../../server/src/test-support/host-daemon'
 import { logStoreRecords } from '../../../../server/src/test-support/record-writer'
@@ -39,8 +40,10 @@ const ledger = new Ledger({
   transact: (fn) => store.transact(fn),
 })
 installChangeLogHooks(store, testLedgerWriter(ledger))
-await assignHostMachine(store)
-await store.repos.addRepo(repoPath, machineId)
+await changeLogCommit(testLedgerWriter(ledger))(async () => {
+  await assignHostMachine(store)
+  await store.repos.addRepo(repoPath, machineId)
+})
 const issues = await IssueService.create({
   store,
   runningSessionFacts: () => [],

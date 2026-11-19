@@ -14,6 +14,7 @@ import { runMachineCli } from './machine-cli'
 import { runMailCli } from './mail-cli'
 import { runOfferCli } from './offer-cli'
 import { runPerfCli } from './perf-cli'
+import { runProfileCli } from './profile-cli'
 import { runQuotaCli } from './quota-cli'
 import { runSessionCli } from './session-cli'
 import { runSpecCli } from './spec-cli'
@@ -126,6 +127,14 @@ const EVERY_SUBCOMMAND: ReadonlyArray<readonly [string, () => Promise<string>]> 
   ['machine', () => failureOf(() => runMachineCli(['list', BOGUS], noopClient))],
   // `machines` dispatches to the same sub-CLI as `machine`.
   ['machines', () => failureOf(() => runMachineCli(['list', BOGUS], noopClient))],
+  [
+    'profile',
+    () => failureOf(() => runProfileCli(['list', BOGUS], { client: noopClient, cwd: '/r' })),
+  ],
+  [
+    'profiles',
+    () => failureOf(() => runProfileCli(['list', BOGUS], { client: noopClient, cwd: '/r' })),
+  ],
   ['quota', () => failureOf(() => runQuotaCli([BOGUS], noopClient))],
   [
     'telemetry',
