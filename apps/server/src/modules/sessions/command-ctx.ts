@@ -17,14 +17,13 @@ import type {
   SessionDesired,
   SessionId,
 } from '@podium/model'
-import { asMutationId, mintDeviceId, spawnedByParentSessionId } from '@podium/model'
+import { asMutationId, mintDeviceId } from '@podium/model'
 import type { SyncSubmitRefusal, SyncSubmitReply } from '@podium/protocol'
 import {
   attributionOf,
   type CommandPrincipal,
   onBehalfOfUser,
   resolvePrincipal,
-  resolvePrincipalAsync,
 } from '../../command-principal'
 import {
   canManageMachineCustody,
@@ -45,14 +44,15 @@ import {
 } from './command-plane'
 import { configureThroughEffect } from './configure-submit'
 import { interruptThroughEffect } from './interrupt-submit'
-import type { SessionWriter } from './lifecycle'
-import type { LifecycleOutcome, ReconcileResult } from './lifecycle-controller'
-import { asyncSessionIssueAccess } from './session-access'
 import {
   createThroughLaunchEffect,
   resumeThroughLaunchEffect,
   SESSION_LAUNCH_KIND,
-} from './session-launch-effect'
+} from './launch-submit'
+import type { SessionWriter } from './lifecycle'
+import type { LifecycleOutcome, ReconcileResult } from './lifecycle-controller'
+import { asyncSessionIssueAccess } from './session-access'
+import { sessionPrincipal } from './session-principal'
 
 /** Explicit L3 command service: core session capabilities plus atomic issue workflows. */
 export function sessionCommandServices(modules: RegistryModules): SessionCommandServices {
@@ -131,18 +131,7 @@ export async function sessionCommandCtx(
     answerAskUserQuestion: (input) =>
       sessions.answerAskUserQuestion({ ...input, writer: writer ?? sessions.serverWriter }),
   }
-  const principal = await resolvePrincipalAsync(capability, {
-    // The ONE reader of the `session:<id>` tag, in `@podium/model` alongside
-    // the one writer (POD-1133). It brands what it extracts, so `parentSessionOf`
-    // hands back a `SessionId` with no cast here.
-    parentSessionOf: async (sessionId) =>
-      // POD-1646: the narrow read. Authorization runs on essentially every
-      // request, so the full reader-scoped pass this used to build was pure
-      // waste — `sessionSpawnedBy` reads the one field under the same check.
-      spawnedByParentSessionId(await sessions.sessionSpawnedBy(sessionId)),
-    onBehalfOfFor: async (sessionId) =>
-      (await sessions.sessionOwner(sessionId))?.owner ?? undefined,
-  })
+  const principal = await sessionPrincipal(modules, capability)
   const deps: SessionCommandDeps = {
     sessions: () => commandSessions,
     stageAttachment: async (input) => await sessions.runtimeGateway.stageAttachment(input),
