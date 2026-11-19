@@ -28,6 +28,13 @@ function runtimeImports(path: string): string[] {
   const imports: string[] = []
   for (const statement of source.statements) {
     if (!ts.isImportDeclaration(statement) || statement.importClause?.isTypeOnly) continue
+    const bindings = statement.importClause?.namedBindings
+    if (
+      bindings &&
+      ts.isNamedImports(bindings) &&
+      bindings.elements.every((entry) => entry.isTypeOnly)
+    )
+      continue
     if (!ts.isStringLiteral(statement.moduleSpecifier)) continue
     const target = resolveImport(path, statement.moduleSpecifier.text)
     if (target) imports.push(target)

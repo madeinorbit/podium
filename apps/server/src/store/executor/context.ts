@@ -27,9 +27,9 @@ import {
   StoreExecutorError,
   TransactionPoisonedError,
 } from './errors'
-import type { StoreContext } from './executor'
 import type { PostCommitRegistry, PostCommitRunner } from './post-commit'
 import type { Lease } from './scheduler'
+import type { StoreContext } from './transaction-context'
 
 /**
  * The handle an operation is checked against. It is the TOKEN, not the callback

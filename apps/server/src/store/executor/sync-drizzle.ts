@@ -29,7 +29,7 @@ import type { InstallTableExport } from '../workspace-manifest'
 import { bindingFor, type StoreDialect, type StoreTables } from './binding'
 import { currentStoreContext, runRootStatementIn } from './context'
 import type { QueryClient, SqlRunResult, StatementIntent } from './driver'
-import { GLOBAL_CONTEXT, type StoreContext, workspaceContext } from './executor'
+import { GLOBAL_CONTEXT, type StoreContext, workspaceContext } from './transaction-context'
 
 export {
   type Bound,
