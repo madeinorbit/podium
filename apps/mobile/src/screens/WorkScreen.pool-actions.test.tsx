@@ -445,6 +445,12 @@ describe('mobile pool work-list actions', () => {
     )
     expect(value().emphasizeUnread).toBe(false)
     await settle(write)
+    // Selection's leading receipt and the explicit tap receipt may both have
+    // enqueued before the visit was established. Refuse every submitted read.
+    for (const receipt of requests.filter(
+      (r) => !r.settled && r.procedure === 'issues.markRead' && r.input.id === TARGET,
+    ))
+      await settle(receipt)
     // The authority cursor rolls back, but this device still knows the user
     // opened the content. A refused receipt must not restore its unread dot.
     expect(value().issue.readAt).toBeNull()

@@ -15,6 +15,7 @@ import {
   rowKey,
 } from '@podium/client-core/replica'
 import type { ClientRuntime } from '@podium/client-core/runtime-root'
+import { machineAndRepoRecords } from '@podium/client-core/test-support/machine-records'
 import { reposToViews } from '@podium/client-core/values'
 import type { EntityRecord } from '@podium/sync/replica'
 import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
@@ -177,7 +178,7 @@ const { MissionDetailsScreen } = await import('./MissionDetailsScreen')
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
-function kernelFixture(corpus: ReturnType<typeof buildCorpus>) {
+function kernelFixture(corpus: ReturnType<typeof buildCorpus>, principal: string) {
   const records = new Map<string, EntityRecord>()
   let seq = 1
   const key = (entity: string, id: string) => `${entity}:${id}`
@@ -194,6 +195,12 @@ function kernelFixture(corpus: ReturnType<typeof buildCorpus>) {
   install('repos', corpus.repoProjections)
   install('issueDeps', corpus.issueDeps)
   install('sessions', corpus.sessions)
+  for (const record of machineAndRepoRecords({
+    userId: principal,
+    machines: corpus.machines,
+    repos: corpus.repos,
+  }))
+    records.set(key(record.entity, record.entityId), { ...record, provenance: { seq } })
   const replica = createKernelReplica({
     cache: {
       readCursor: () => ({ seq }),
@@ -280,7 +287,7 @@ describe('mobile pool-only worklist regressions', () => {
       release = resolve
     })
     async function mount(principal: string) {
-      const feed = kernelFixture(corpus)
+      const feed = kernelFixture(corpus, principal)
       const view = await renderWithMobileStore(
         <Profiler
           id="phone-readers"
