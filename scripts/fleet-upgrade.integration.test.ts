@@ -59,6 +59,7 @@ import type { MachineId } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
 import { noJanitorWorkerForTests } from '../apps/server/src/janitor-host'
 import { type ServerHandle, startServer } from '../apps/server/src/server'
+import { readOrCreateLocalMachineId } from '../packages/runtime/src/local-machine'
 import { createMachineCredential } from '../packages/runtime/src/machine-credential'
 
 const ROOT = join(import.meta.dirname, '..')
@@ -178,27 +179,6 @@ function readJsonAt(path: string): string {
  * anything. A fresh directory gets `machine.id` written now, which is what
  * `readOrCreateLocalMachineId` would do at boot anyway.
  */
-function resolveOrMintMachineId(stateDir: string): MachineId {
-  for (const file of ['machine.json', 'supervisor.json', 'daemon.json']) {
-    const path = join(stateDir, file)
-    if (!existsSync(path)) continue
-    try {
-      const id = (JSON.parse(readFileSync(path, 'utf8')) as { machineId?: string }).machineId
-      if (id) return id as MachineId
-    } catch {
-      /* fall through to the next candidate */
-    }
-  }
-  const idPath = join(stateDir, 'machine.id')
-  if (existsSync(idPath)) {
-    const existing = readFileSync(idPath, 'utf8').trim()
-    if (existing) return existing as MachineId
-  }
-  const minted = randomUUID()
-  mkdirSync(stateDir, { recursive: true })
-  writeFileSync(idPath, `${minted}\n`)
-  return minted as MachineId
-}
 
 async function temporaryRoot(tag: string): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), `podium-fleet-${tag}-`))
@@ -417,7 +397,7 @@ async function startFleetParent(
   // every real install — `machine.id` is minted at setup, not at boot. Doing it
   // here rather than reading it back afterwards is what lets the attach listener
   // be registered before the process that causes the attach exists.
-  const machineId = resolveOrMintMachineId(stateDir)
+  const machineId = readOrCreateLocalMachineId(stateDir)
   // Fresh setup creates its key before the parent dials with a pairing code.
   if (options.pairCode) createMachineCredential(stateDir)
   const inherited = { ...process.env }
@@ -425,7 +405,7 @@ async function startFleetParent(
   delete inherited.NOTIFY_SOCKET
   let output = ''
   const context = (): string =>
-    `${output}\nconnectivity.json: ${readJsonAt(join(stateDir, 'connectivity.json'))}`
+    `${output}\nmachine.json: ${readJsonAt(join(stateDir, 'machine.json'))}`
   const attached = coordinator.observes('machine.connected', machineId, {
     context,
     ms: Coordinator.SPAWN_BUDGET_MS,

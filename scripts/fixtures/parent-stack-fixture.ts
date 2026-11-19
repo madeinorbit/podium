@@ -48,6 +48,9 @@
  */
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { addSink, createConsoleSink } from '@podium/logger'
+
+addSink(createConsoleSink())
 
 const role = process.argv[2]
 const stateDir = process.env.PODIUM_STATE_DIR ?? process.env.PODIUM_HOME ?? process.cwd()

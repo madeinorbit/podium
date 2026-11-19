@@ -67,14 +67,18 @@ describe('outbox write path e2e (live server)', () => {
     })
     expect(replay).toEqual(first)
 
-    // Verified through a separate query surface: the wire meta carries ONE
-    // queued message, not two (invariant 4: wire count == table count).
+    // The session remains unbound, and the durable mail ledger contains one
+    // accepted send. Queued chat sends no longer use the legacy typing queue.
     const sessions = await trpc.sessions.list.query()
     const meta = sessions.find((s) => s.sessionId === sessionId)
     expect(meta?.status).toBe('starting')
-    // Queue state moved off session metadata into the durable delivery ledger.
-    const queued = await server.registry.sessionStore.sync.listQueuedMessages(sessionId)
-    expect(queued).toEqual([expect.objectContaining({ text: 'queued while offline' })])
+    const queued = await server.registry.sessionStore.messages.listMessagesFor({
+      kind: 'session',
+      id: sessionId,
+    })
+    expect(queued).toEqual([
+      expect.objectContaining({ body: 'queued while offline', deliveryStatus: 'stored' }),
+    ])
     expect(new Set(queued.map((message) => message.id)).size).toBe(1)
   })
 
