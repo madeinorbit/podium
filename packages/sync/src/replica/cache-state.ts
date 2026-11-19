@@ -379,7 +379,8 @@ export function nextCacheMeta(
           writes.push({ kind: 'deleteInstances' })
           break
         case 'stale':
-          // The marker stays as it was; the stale flag is the disk index's.
+        case 'pruning':
+          // The marker stays as it was; the stale and indexed flags are the disk index's.
           break
         case 'release': {
           const held = next.get(op.key)

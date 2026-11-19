@@ -263,6 +263,8 @@ export interface DiskIndexReader {
   /** The member row keys of a main-part instance (empty for an unknown one). */
   membersOf(instanceKey: string): ReadonlySet<string>
   instance(instanceKey: string): InstanceState | undefined
+  /** POD-7162 — every instance on disk (each has a marker). */
+  instanceKeys(): IterableIterator<string>
   /** Whether the instance's rows are in memory (its marker answers `isComplete`). */
   inMemory(instanceKey: string): boolean
   /** Every instance in memory. */
@@ -738,6 +740,29 @@ export class DiskIndexDraft {
     const state = { ...before, stale: true }
     this.instanceChanges.set(key, state)
     this.writes.push({ kind: 'instance', key, state })
+  }
+
+  /**
+   * POD-7162 — the instance is being pruned: a disk load cannot answer it any
+   * more, and the members in `kept` (something else keeps them) are not its
+   * members any more.
+   */
+  pruning(key: string, kept: readonly string[]): void {
+    const before = this.instance(key)
+    if (before === undefined) return
+    if (before.indexed) {
+      const state = { ...before, indexed: false }
+      this.instanceChanges.set(key, state)
+      this.writes.push({ kind: 'instance', key, state })
+    }
+    for (const member of kept) {
+      const entry = this.record(member)
+      if (entry === undefined || !entry.holders.includes(key)) continue
+      this.putRecord(member, {
+        ...entry,
+        holders: this.base.holderList(entry.holders.filter((holder) => holder !== key)),
+      })
+    }
   }
 
   drop(key: string): void {
@@ -1434,6 +1459,9 @@ export function stageIndexInstances(
         break
       case 'stale':
         index.stale(op.key)
+        break
+      case 'pruning':
+        index.pruning(op.key, op.kept ?? [])
         break
     }
   }

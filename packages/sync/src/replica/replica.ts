@@ -39,6 +39,7 @@ import { COLLECTIONS, RECORDS } from '@podium/model'
 import { instanceKey, rowAfter } from './cache-state'
 import {
   AnswerMembers,
+  approxBytes,
   COMES_WITH_HOLDER,
   comesWithHolderKey,
   comesWithHolderOf,
@@ -52,6 +53,19 @@ import {
   rowKeyOf,
   splitRowKey,
 } from './disk-index'
+import {
+  comesWithParent,
+  DAY_MS,
+  type DiskBudget,
+  diskBudgetOf,
+  PRUNE_PLAN_MS,
+  PRUNE_SLICE_ROWS,
+  type PruneFallback,
+  type PrunePlan,
+  planPrune,
+  pointerTargets,
+  pruneMutation,
+} from './disk-prune'
 import {
   collectionComesWithSettled,
   comesWithOf,
@@ -187,8 +201,17 @@ export interface ReplicaOptions {
     readonly signals?: MemorySignals
     /** A test hook: the warm budget as a number of instances instead of the policy's MB. */
     readonly warmInstances?: number
+    /** POD-7162 — a test hook: the disk budget in bytes (or asked each slice) instead of the policy's MB. */
+    readonly diskBytes?: number | (() => number)
+    /** POD-7162 — the clock a prune slice measures its main-thread work by (ms). */
+    readonly workClock?: () => number
+    /** POD-7162 — a test hook: at most this many records per prune slice. */
+    readonly pruneSliceRows?: number
   }
 }
+
+/** POD-7162 — the main-thread clock a prune slice bounds its work by. */
+const workNow = (): number => globalThis.performance?.now() ?? Date.now()
 
 /** Most instances one fetch names; the route's own bound. */
 const FETCH_MAX_INSTANCES = 200
@@ -431,6 +454,10 @@ export class Replica implements DeviceCollectionReads {
   private graceTimer: ReturnType<typeof setTimeout> | undefined
   private memoryUnsubscribe: (() => void) | undefined
   private stoppedMemory = false
+  /** POD-7162 — the disk budget in bytes, a test hook in place of the policy's MB. */
+  private readonly diskBytes: number | (() => number) | undefined
+  private readonly workClock: () => number
+  private readonly pruneSliceRows: number
   private heldIndexCache:
     | {
         readonly instances: ReadonlyMap<string, InstanceRecord>
@@ -448,6 +475,7 @@ export class Replica implements DeviceCollectionReads {
     framesApplied: 0,
     watermarksApplied: 0,
     shrinks: 0,
+    prunes: 0,
     pendingGap: false,
   }
 
@@ -469,8 +497,14 @@ export class Replica implements DeviceCollectionReads {
     this.requestHook = options.request
     this.memorySignals = options.memory?.signals
     this.warmInstances = options.memory?.warmInstances
+    this.diskBytes = options.memory?.diskBytes
+    this.workClock = options.memory?.workClock ?? workNow
+    this.pruneSliceRows = options.memory?.pruneSliceRows ?? PRUNE_SLICE_ROWS
     this.memoryUnsubscribe = this.memorySignals?.subscribe((reason) => {
-      void this.shrinkMemory(reason).catch(() => undefined)
+      // The background is a quiet moment for the disk too; a memory warning is memory's alone.
+      void this.shrinkMemory(reason)
+        .then(() => (reason === 'background' ? this.pruneDisk() : undefined))
+        .catch(() => undefined)
     })
     this.cursorValue = this.readCursorSafely()
     if (this.cursorValue !== null) this.state = 'stale'
@@ -501,6 +535,7 @@ export class Replica implements DeviceCollectionReads {
       framesApplied: this.counters.framesApplied,
       watermarksApplied: this.counters.watermarksApplied,
       shrinks: this.counters.shrinks,
+      prunes: this.counters.prunes,
       entityCount: this.store.readEntities().length,
     }
   }
@@ -1007,6 +1042,8 @@ export class Replica implements DeviceCollectionReads {
     if (watermarkOnly) this.counters.watermarksApplied += 1
     this.counters.framesApplied += 1
     this.emit({ type: 'cursor', cursor, watermarkOnly })
+    // POD-7162: the feed grew the disk; it is pruned at the next idle moment, never now.
+    this.wakeMemory()
 
     // `classify` is the ONE answer, and the locals above are what the emission loop
     // needed anyway. Asserting they agree here would be a comment; `replica.test.ts`
@@ -2776,7 +2813,9 @@ export class Replica implements DeviceCollectionReads {
     const cancel = this.memorySignals.requestIdle(() => {
       ran = true
       this.idleCancel = undefined
-      void this.shrinkMemory('idle').catch(() => undefined)
+      void this.shrinkMemory('idle')
+        .then(() => this.pruneDisk())
+        .catch(() => undefined)
     })
     if (!ran) this.idleCancel = cancel
   }
@@ -2867,6 +2906,146 @@ export class Replica implements DeviceCollectionReads {
     )
     ;(timer as { unref?: () => void }).unref?.()
     this.graceTimer = timer
+  }
+
+  // ─── Disk pruning (POD-7162) ──────────────────────────────────────────────
+
+  /** The disk's bounds: the test hook's bytes, else the policy's MB, and its age; none without a policy. */
+  private diskBudget(): DiskBudget | undefined {
+    const policy = this.store.readPolicy()
+    const days = policy?.diskMaxIdleDays
+    const mb = policy?.diskBudgetMb
+    if (typeof days !== 'number' || !Number.isFinite(days)) return undefined
+    if (this.diskBytes !== undefined)
+      return {
+        bytes: typeof this.diskBytes === 'number' ? this.diskBytes : this.diskBytes(),
+        maxIdleMs: days * DAY_MS,
+      }
+    return typeof mb === 'number' && Number.isFinite(mb) ? diskBudgetOf(mb, days) : undefined
+  }
+
+  /**
+   * The instances pruning never removes: memory's (the policy's, what a view
+   * reads, what a fetch or a disk load fills), and a stale instance a view
+   * read while it could not reload yet. Every instance in memory is excepted
+   * by the planner itself.
+   */
+  private prunePinned(): Set<string> {
+    const pinned = this.pinnedInstances()
+    for (const key of this.staleWanted.keys()) pinned.add(key)
+    return pinned
+  }
+
+  /** What a pruned record leaves: its stub's bytes, nothing (no stub), or itself (no stub to build). */
+  private pruneFallback(key: string): PruneFallback {
+    const { entity, entityId } = splitRowKey(key)
+    if (stubFieldsOf(entity).length === 0) return 'gone'
+    const stub = this.store.readStubTable(entity)?.stubOf(entityId)
+    return stub === undefined ? 'keep' : approxBytes({ value: stub })
+  }
+
+  /**
+   * The pointers a prune slice follows, from what the device knows without a
+   * disk read: a record's value in memory, or its stub (an issue's parent);
+   * and back, the records in memory naming it and its children.
+   */
+  private prunePointers(now: number): {
+    from(key: string): string[]
+    to(key: string): string[]
+  } {
+    let named: Map<string, string[]> | undefined
+    const byMemory = (): Map<string, string[]> => {
+      if (named !== undefined) return named
+      named = new Map()
+      for (const row of this.store.readEntities()) {
+        const source = rowKeyOf(row.entity, row.entityId)
+        for (const target of pointerTargets(row.entity, row.value, now)) {
+          const list = named.get(target)
+          if (list === undefined) named.set(target, [source])
+          else list.push(source)
+        }
+      }
+      return named
+    }
+    return {
+      from: (key) => {
+        const { entity, entityId } = splitRowKey(key)
+        const row = this.ruleRows.readRow(entity, entityId)
+        return row === undefined ? [] : pointerTargets(entity, row.value, now)
+      },
+      to: (key) => {
+        const { entity, entityId } = splitRowKey(key)
+        const out = [...(byMemory().get(key) ?? [])]
+        if (comesWithParent(entity))
+          for (const child of this.store.readStubTable(entity)?.childrenOf(entityId) ?? [])
+            out.push(rowKeyOf(entity, child))
+        return out
+      },
+    }
+  }
+
+  /**
+   * One slice of a disk prune (design "Pruning"): over the size budget, or
+   * with an instance unread past the age limit, remove whole instances, least
+   * recently read first; never one memory holds, a policy collection, or what
+   * a kept record holds or comes with. At most `PRUNE_SLICE_ROWS` records and
+   * `PRUNE_PLAN_MS` of planning, committed in ONE transaction; what is left
+   * asks for the next idle moment. Runs only on an idle moment or in the
+   * background, as a store step of its own: never during a fetch, a disk load,
+   * a load that replaces the device's rows, a feed apply or a render. A
+   * pruned record's readers see it go as the trim's did ('released': on its
+   * way, never REMOVED); reading it again fetches it from the server.
+   */
+  pruneDisk(): Promise<PrunePlan | undefined> {
+    if (this.fetchCount > 0 || this.diskLoads.size > 0) {
+      this.idleAfterFetches = true
+      return Promise.resolve(undefined)
+    }
+    let plan: PrunePlan | undefined
+    return this.serial(() => {
+      if (this.state === 'bootstrapping' || this.store.readLoadingSince() !== null) return
+      const budget = this.diskBudget()
+      if (budget === undefined) return
+      const index = this.store.readDiskIndex()
+      const now = this.now()
+      const started = this.workClock()
+      const pointers = this.prunePointers(now)
+      const slice = planPrune({
+        index,
+        pinned: this.prunePinned(),
+        resident: (key) => {
+          const { entity, entityId } = splitRowKey(key)
+          return this.store.read(entity, entityId) !== undefined
+        },
+        pointsTo: pointers.from,
+        pointedBy: pointers.to,
+        fallback: (key) => this.pruneFallback(key),
+        now,
+        budget,
+        maxRows: this.pruneSliceRows,
+        overTime: () => this.workClock() - started > PRUNE_PLAN_MS,
+      })
+      plan = slice
+      const left = [...slice.stub, ...slice.remove]
+      const markers = slice.drop.length > 0 || slice.pruning !== undefined
+      if (left.length > 0 || markers) {
+        this.store.applyAtomic(
+          pruneMutation(slice, index, (entity, entityId) =>
+            this.store.readStubTable(entity)?.stubOf(entityId),
+          ),
+        )
+        this.counters.prunes += 1
+        for (const key of slice.drop) this.releasedAt.delete(key)
+        this.batchEvents(() => {
+          for (const key of left) {
+            const { entity, entityId } = splitRowKey(key)
+            this.emit({ type: 'released', entity, entityId })
+          }
+          if (markers) this.emit({ type: 'markers' })
+        })
+      }
+      if (!slice.done) this.wakeMemory()
+    }).then(() => plan)
   }
 
   /** Whether a record is whole on disk and not in memory: a reader gets LOADING and a disk load. */

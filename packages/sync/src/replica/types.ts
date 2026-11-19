@@ -463,5 +463,7 @@ export interface ReplicaStats {
   readonly watermarksApplied: number
   /** Times memory shrank the warm set and unloaded something (POD-7161: idle, background, warning). */
   readonly shrinks: number
+  /** POD-7162 — prune slices that removed something from the device (idle or background only). */
+  readonly prunes: number
   readonly entityCount: number
 }

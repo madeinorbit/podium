@@ -140,6 +140,15 @@ export type InstanceOperation =
    * it. A new `mark` clears it.
    */
   | { readonly kind: 'stale'; readonly key: string }
+  /**
+   * POD-7162 — the instance is being pruned: its members leave the device over
+   * several slices, so a disk load cannot answer it any more (only the
+   * server). `kept` are members something else keeps: they stay on the
+   * device and stop being its members, so the next slice does not look at
+   * them again. Its marker stays until its last member is gone (a `drop`); a
+   * new `mark` makes it whole again.
+   */
+  | { readonly kind: 'pruning'; readonly key: string; readonly kept?: readonly string[] }
 
 /**
  * Why the Replica's frame commit is multi-region at all, and why retirement
