@@ -225,7 +225,13 @@ export type OutboxEvent =
   | { readonly type: 'local-ack'; readonly mutationId: MutationId }
   | { readonly type: 'sending'; readonly mutationId: MutationId }
   | { readonly type: 'accepted'; readonly mutationId: MutationId }
-  | { readonly type: 'applied'; readonly mutationId: MutationId }
+  | {
+      readonly type: 'applied'
+      readonly mutationId: MutationId
+      /** Present when this commit also retires the entry, so observers can
+       * announce its acceptance after the durable entry has left. */
+      readonly record?: OutboxRecord
+    }
   /** Back to `queued` — transport, not verdict (D9 invariant 4). */
   | { readonly type: 'requeued'; readonly mutationId: MutationId }
   | {

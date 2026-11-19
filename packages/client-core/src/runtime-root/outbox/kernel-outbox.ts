@@ -577,7 +577,7 @@ class KernelEngineOutbox implements EngineOutbox {
       // the truth that covers it (ADR 12). `openKernelEngineOutbox` confirms it
       // against the replica's cursor straight after this. An entry the replica
       // confirmed before its reply is already gone here, as a terminal reply is.
-      const record = this.kernel.find(event.mutationId)
+      const record = event.record ?? this.kernel.find(event.mutationId)
       if (record !== undefined) this.callbacks.onApplied?.(this.toEntry(record))
     } else if (event.type === 'dead-lettered') {
       const entry = this.toEntry(event.record)

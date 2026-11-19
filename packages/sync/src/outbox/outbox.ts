@@ -913,7 +913,9 @@ export class Outbox {
         Object.entries(applied).filter(([, v]) => v !== undefined),
       ) as unknown as OutboxRecord
       draft.put(cleaned)
-      for (const event of eventsForTransition(cleaned, 'authority-applied')) draft.emit(event)
+      for (const event of eventsForTransition(cleaned, 'authority-applied')) {
+        draft.emit(event.type === 'applied' ? { ...event, record: cleaned } : event)
+      }
       draft.remove(cleaned.mutationId, 'covering-truth')
       draft.emit({ type: 'retired', mutationId: cleaned.mutationId })
     })
@@ -1091,7 +1093,7 @@ export class Outbox {
         // observable as `applied`, then `retired`, as `applyTerminal` does. No
         // intermediate record is written — it leaves in this same draft.
         if (record.state !== 'applied') {
-          draft.emit({ type: 'applied', mutationId: record.mutationId })
+          draft.emit({ type: 'applied', mutationId: record.mutationId, record })
         }
         retired.push(record.mutationId)
       }

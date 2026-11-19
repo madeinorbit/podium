@@ -83,19 +83,31 @@ describe.each([
   'legacy',
   'kernel',
 ] as const)('#9 optimisticEchoAndRejection steps on the %s queue', (outbox) => {
-  it('press → one accepted; echo and a duplicate echo → nothing; refused press → one rejected', async () => {
-    const ctx = await startScenarioEngine(1, { outbox })
+  it('a queued press is accepted once by a receiptless server; echoes add no outcome; a refusal rejects once', async () => {
+    const network = switchableNetwork()
+    const ctx = await startScenarioEngine(1, { outbox, network })
     const feed = attachFeed(ctx)
     const id = ctx.targets.markReadId
     const events: ReceiptEvent[] = []
     const off = subscribeReceipts(ctx.engine, (e) => events.push(e))
 
     await writeOptimisticPress(ctx)
+    expect(events).toEqual([])
+    const queued = ctx.engine.services.outbox.queue
+      .pending()
+      .find((entry) => entry.kind === 'recordEdit')
+    expect(queued).toBeDefined()
+    network.goOnline()
+    await vi.waitFor(() => expect(events).toHaveLength(1))
     expect(events).toEqual([{ type: 'accepted', txId: expect.any(String), kind: 'recordEdit', id }])
-    // The txId IS the queue entry's mutation id: the ledger holds this
-    // mark-read awaiting truth under exactly that id.
+    // This fixture uses the old per-command routes, which return no covering
+    // cursor. Acceptance names the queued press and retires it on the reply.
     const accepted = events[0]!.txId
-    expect(ctx.engine.services.outbox.queue.awaiting().map((e) => e.mutationId)).toContain(accepted)
+    expect(accepted).toBe(queued?.mutationId)
+    await vi.waitFor(() => expect(ctx.engine.services.outbox.queue.awaiting()).toEqual([]))
+    expect(
+      ctx.engine.services.outbox.queue.pending().map((entry) => entry.mutationId),
+    ).not.toContain(accepted)
 
     // The echo is recognised by value downstream, not here: no event.
     await writeOptimisticEcho(ctx)
@@ -106,7 +118,7 @@ describe.each([
 
     armMarkReadRejection(ctx)
     await writeOptimisticPress(ctx)
-    expect(events).toHaveLength(2)
+    await vi.waitFor(() => expect(events).toHaveLength(2))
     expect(events[1]).toEqual({
       type: 'rejected',
       txId: expect.any(String),
@@ -151,7 +163,7 @@ describe('write transport on the kernel queue', () => {
     transport.subscribe((e) => events.push(e))
 
     transport.send(tx('1'), { kind: 'issueUpdate', input: { id, patch: { title: 'Renamed' } } })
-    await tick()
+    await vi.waitFor(() => expect(events).toHaveLength(1))
     expect(seen).toEqual([tx('1')])
     expect(events).toEqual([{ type: 'accepted', txId: tx('1'), kind: 'issueUpdate', id }])
     // A second copy of the echo row: no second event.
@@ -235,8 +247,11 @@ describe('write transport on the kernel queue', () => {
     network.goOnline()
     await tick()
     expect(events.slice(1)).toEqual([{ type: 'accepted', txId: tx('4'), kind: 'recordEdit', id }])
-    // Applied, and held by the kernel until its echo: awaiting truth.
-    expect(transport.pending()).toEqual([{ ...queued[0], acked: true }])
+    // No covering cursor came from these legacy routes: the reply retires
+    // the accepted entry. The separate truth echo still reaches the replica.
+    await vi.waitFor(() => expect(transport.pending()).toEqual([]))
+    await writeOptimisticEcho(ctx, id)
+    expect(events).toHaveLength(2)
     feed.dispose()
     ctx.dispose()
   }, 60_000)
@@ -309,10 +324,8 @@ describe('write transport on the kernel queue', () => {
     subscribeReceipts(ctx.engine, (e) => events.push(e))
     await writeOptimisticPress(ctx)
     expect(events.map((e) => e.type)).toEqual(['accepted'])
-    // The ledger still took the applied entry into awaiting truth.
-    expect(ctx.engine.services.outbox.queue.awaiting().map((e) => e.mutationId)).toEqual([
-      events[0]!.txId,
-    ])
+    // A broken observer does not prevent the receiptless reply from retiring.
+    await vi.waitFor(() => expect(ctx.engine.services.outbox.queue.awaiting()).toEqual([]))
     feed.dispose()
     ctx.dispose()
   }, 60_000)

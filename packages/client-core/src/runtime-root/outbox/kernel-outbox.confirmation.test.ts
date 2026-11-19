@@ -268,7 +268,7 @@ describe('client write confirmation through sync.submit', () => {
           })
         : Promise.resolve(applied(9)),
     )
-    const { outbox, create, degraded, goOnline } = await open(api, {
+    const { outbox, create, onApplied, degraded, goOnline } = await open(api, {
       current: at(2),
     })
     await clear(outbox, M1)
@@ -283,12 +283,21 @@ describe('client write confirmation through sync.submit', () => {
     }
     expect(create.overlay.covers(evidence)).toBe(true)
     await create.overlay.retire(evidence)
+    expect(onApplied).toHaveBeenCalledTimes(1)
+    expect(onApplied).toHaveBeenCalledWith(
+      expect.objectContaining({
+        mutationId: M1,
+        kind: 'recordRemove',
+        input: { kind: 'userLayout', id: layoutRowId(ME, 'folder.nulldisk') },
+      }),
+    )
     expect(outbox.pending()).toEqual([])
     expect(outbox.awaiting()).toEqual([])
 
     // The slow reply neither throws nor stalls the partition.
     answer?.(applied(3))
     await draining
+    expect(onApplied).toHaveBeenCalledTimes(1)
     await clear(outbox, M2, 'folder.other')
     await outbox.drain()
     await settle()
