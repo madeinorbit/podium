@@ -14,7 +14,12 @@ import type {
   TranscriptItem,
   UserId,
 } from '@podium/model'
-import type { AgentObservation, MetadataChange, SessionOpenUrlMessage } from '@podium/protocol'
+import type {
+  AgentObservation,
+  MachineConditionPayload,
+  MetadataChange,
+  SessionOpenUrlMessage,
+} from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { runAtRoot } from '../store/executor/context'
 import { afterCommit } from '../store/executor/executor'
@@ -137,6 +142,8 @@ export interface EventMap {
   'transcript.delta': { sessionId: SessionId; items: TranscriptItem[]; reset?: boolean }
   /** A machine's daemon socket attached. */
   'machine.connected': { machineId: MachineId }
+  /** A live condition changed; the topic router publishes to its current holders. */
+  'machine.conditionChanged': { machineId: MachineId; value: MachineConditionPayload }
   /** A machine's daemon socket detached. */
   'machine.disconnected': { machineId: MachineId }
   /** Durable machine metadata changed; session machine-name projections recapture.

@@ -38,9 +38,12 @@ const TEST_MACHINE = asMachineId('machine-under-test')
 import { fixtureWriteScope } from '@podium/sync/testing'
 import { resolvePrincipalAsync, userCommandPrincipal } from './command-principal'
 import { feedPrincipalOf } from './gateway/client-principal'
+import { CredentialHealth } from './modules/credentials/health'
 import { MessageDeliveryService } from './modules/messages/service'
 import { sessionCommandCtx } from './modules/sessions/command-ctx'
 import { dispatchSessionCommand } from './modules/sessions/command-plane'
+import { SessionRuntimeGateway } from './modules/sessions/runtime-gateway'
+import { ShippingService } from './modules/shipping/service'
 import { SessionRegistry } from './relay'
 import type { SessionRow } from './store'
 import { SessionStore } from './store'
@@ -67,6 +70,54 @@ function sink() {
   const sent: ServerMessage[] = []
   return { send: (m: ServerMessage) => sent.push(m), sent }
 }
+
+it('serves after hydration while recovery passes run, then drains them before disposal', async () => {
+  let release!: () => void
+  const held = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  const passes = [
+    vi.spyOn(SessionRuntimeGateway.prototype, 'replayBoardProjection').mockReturnValue(held),
+    vi.spyOn(ShippingService.prototype, 'reconcile').mockReturnValue(held),
+    vi.spyOn(CredentialHealth.prototype, 'checkExpiry').mockReturnValue(held),
+  ]
+  const store = await openTestStore(':memory:')
+  let registry: SessionRegistry | undefined
+  let failure: unknown
+  const creating = SessionRegistry.create(store, undefined, { instanceId: 'startup-ownership' })
+    .then((value) => {
+      registry = value
+    })
+    .catch((error: unknown) => {
+      failure = error
+    })
+  let disposal: Promise<void> | undefined
+  try {
+    await vi.waitFor(
+      () => {
+        expect(failure).toBeUndefined()
+        expect(registry).toBeDefined()
+      },
+      { timeout: 5000 },
+    )
+    for (const pass of passes) expect(pass).toHaveBeenCalledTimes(1)
+    let disposed = false
+    disposal = registry!.dispose().then(() => {
+      disposed = true
+    })
+    await Promise.resolve()
+    expect(disposed).toBe(false)
+    release()
+    await disposal
+    expect(disposed).toBe(true)
+  } finally {
+    release()
+    await creating
+    await (disposal ?? registry?.dispose())
+    for (const pass of passes) pass.mockRestore()
+    await store.close()
+  }
+})
 
 async function attachCurrent(
   reg: SessionRegistry,

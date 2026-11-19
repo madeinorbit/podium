@@ -72,6 +72,24 @@ const delegated = (): ReactionPrincipal => ({
  */
 export const REACTIONS = [
   {
+    id: 'machines.condition-topic',
+    description: 'Publish a changed live machine condition to its authenticated topic holders.',
+    trigger: 'machine.conditionChanged',
+    durability: 'in-memory',
+    replay: {
+      mode: 'none',
+      reason: 'A subscriber reads the current live snapshot when subscribing.',
+    },
+    idempotency: { key: 'machine id + live condition', duplicatePolicy: 'safe-repeat' },
+    ordering: 'EventBus order after the condition producer records its newest facts.',
+    retry: 'No replay; the next condition change or subscription snapshot refreshes the reader.',
+    failureOwner: 'machine condition topic routing',
+    observability: { registry: true, events: ['machine.conditionChanged'], metrics: [] },
+    principal: system(),
+    scopeInvariant:
+      'Publishes only this workspace machine condition through existing subscriber authorization; no durable write.',
+  },
+  {
     id: 'settings.feature-cache',
     description: 'Refresh the process-local feature snapshot after settings change.',
     trigger: 'settings.changed',

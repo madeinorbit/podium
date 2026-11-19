@@ -771,6 +771,21 @@ export class SessionRegistry {
   /** Disposer for the runtime's config-write seam bridged onto the bus (POD-3840). */
   private readonly configChangedBridge: () => void
 
+  private stopping = false
+  private readonly backgroundTasks = new Set<Promise<void>>()
+
+  /** Owned work starts after hydration and drains before its services close. */
+  private startBackground(failure: string, work: () => Promise<unknown>): void {
+    if (this.stopping) return
+    const task = Promise.resolve()
+      .then(async () => {
+        if (!this.stopping) await work()
+      })
+      .catch((err: unknown) => log.warn(failure, { err }))
+      .finally(() => this.backgroundTasks.delete(task))
+    this.backgroundTasks.add(task)
+  }
+
   /**
    * THE BOOT STEPS, in the order the constructor ran them.
    *
@@ -780,9 +795,8 @@ export class SessionRegistry {
    * listens, which is where they always effectively ran: the durable seeds
    * below only have to beat the first client asking for a cursor.
    *
-   * The body is synchronous today. At the flip every line takes an await, and
-   * this method is where the awaits go — which is the whole reason the steps are
-   * a list in one place rather than three lines in three constructors.
+   * Correctness seeds are awaited here. Recoverable history passes start as
+   * owned background work after hydration and drain before disposal.
    */
   private async hydrate(rehearseBoot = false): Promise<void> {
     let stageStarted = performance.now()
@@ -828,7 +842,18 @@ export class SessionRegistry {
     if (!this.recoveryOnly && !rehearseBoot) await this.store.sync.raiseEmptyHead()
     // The effect trigger and its recovery sweep (POD-6357): the boot sweep
     // expires, re-dispatches and recovers what a stop left behind.
-    if (!this.recoveryOnly && !rehearseBoot) this.effectsRunner.start()
+    if (!this.recoveryOnly && !rehearseBoot) {
+      this.effectsRunner.start()
+      // These recoverable passes have periodic/durable retry sources. They
+      // must neither race construction nor hold first boot behind history.
+      this.startBackground('runtime board startup replay paused before cursor advance', () =>
+        this.modules.sessions.runtimeGateway.replayBoardProjection(),
+      )
+      this.startBackground('shipping startup recovery deferred', () => this.shipping.reconcile())
+      this.startBackground('credential expiry sweep failed', () =>
+        this.modules.credentialHealth.checkExpiry(),
+      )
+    }
   }
 
   /**
@@ -1471,7 +1496,8 @@ export class SessionRegistry {
         return { ...machines.condition(machineId), ...(linkKind ? { linkKind } : {}) }
       },
       now: () => this.now(),
-      publish: (machineId, value) => topics.publish('machine.condition', machineId, value),
+      publish: (machineId, value) =>
+        this.bus.emit('machine.conditionChanged', { machineId, value }),
     })
     machineConditionChanged = (machineId) => machineConditions.changed(machineId)
     const processReadState = () => ({ ...this.modules, repos: fleetRepos })
@@ -1549,6 +1575,9 @@ export class SessionRegistry {
       producers: topicProducers,
       now: this.now,
     })
+    this.bus.on('machine.conditionChanged', ({ machineId, value }) =>
+      topics.publish('machine.condition', machineId, value),
+    )
     this.topics = topics
     // Every account notice a connection holds the topic for goes on it (D26).
     clientRegistry.routeAccountEvents((conn, msg) => {
@@ -2930,9 +2959,6 @@ export class SessionRegistry {
     }
     this.bus.on('issue.sessionDerived', applySessionDerived)
     this.bus.on('issue.runtimeDerived', applyRuntimeDerived)
-    void sessionsSvc.runtimeGateway.replayBoardProjection().catch((err) => {
-      log.warn('runtime board startup replay paused before cursor advance', { err })
-    })
     const issueSessionLifecycle = new IssueSessionLifecycle({
       issues,
       sessions: sessionsSvc,
@@ -5318,9 +5344,6 @@ export class SessionRegistry {
     // Its remaining history scans are tracked by POD-6797.
     if (!backgroundDisabled) {
       shipping.start()
-      void shipping
-        .reconcile()
-        .catch((error) => log.warn('shipping startup recovery deferred', { err: error }))
     }
     // The durable queued-row pass runs in `hydrate` [spec:SP-c29e]. Called here it
     // was never awaited, so it raced the rest of boot AND the catch below it was
@@ -5407,13 +5430,12 @@ export class SessionRegistry {
     // The credential expiry sweep (§7): a notice two weeks before, attention at expiry.
     const sweepCredentialExpiry = () => {
       if (!backgroundDisabled)
-        void this.modules.credentialHealth.checkExpiry().catch((err: unknown) => {
-          log.warn('credential expiry sweep failed', { err })
-        })
+        this.startBackground('credential expiry sweep failed', () =>
+          this.modules.credentialHealth.checkExpiry(),
+        )
     }
     this.credentialExpirySweep = setInterval(sweepCredentialExpiry, CREDENTIAL_EXPIRY_SWEEP_MS)
     this.credentialExpirySweep.unref?.()
-    sweepCredentialExpiry()
     // The PTY queue's backstop (POD-1703). Faster than the ledger sweep because
     // it is cheap — `drain` is single-flight and returns immediately on a
     // session with an empty queue or one already draining — and because what it
@@ -5694,6 +5716,9 @@ export class SessionRegistry {
   }
 
   async dispose(): Promise<void> {
+    this.stopping = true
+    clearInterval(this.credentialExpirySweep)
+    await Promise.allSettled(this.backgroundTasks)
     this.unsubscribeAccessChanges?.()
     this.mobileVersions?.close()
     // FIRST, and before store.close() further down the shutdown's persist list:
