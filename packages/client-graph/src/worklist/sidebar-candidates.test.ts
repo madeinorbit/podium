@@ -14,6 +14,9 @@ import { isSidebarCandidate, sidebarKeeperOf } from './visible'
 const stamp = '2026-10-05T12:00:00Z'
 /** Finished a day before `stamp`: inside every finished-row window. */
 const yesterday = '2026-10-04T12:00:00Z'
+/** A month before `stamp`: past every finished-row window. */
+const lastMonth = '2026-09-05T12:00:00Z'
+const anHourAgo = '2026-10-05T11:00:00Z'
 const pools: MobxPool[] = []
 afterEach(() => {
   for (const pool of pools.splice(0)) pool.dispose()
@@ -133,6 +136,27 @@ describe('the declared candidates, by row', () => {
     expect(sidebarKeeperOf(value(null))).toBeUndefined()
     expect(sidebarKeeperOf(undefined)).toBeUndefined()
   })
+
+  it('at a clock, keeps only what R-VIS 2 retains then: an ended seat past its window keeps nothing (POD-7181)', () => {
+    const now = Date.parse(stamp)
+    const value = (patch: object) => session('s', 't', patch).value as never
+    const ended = (at: string, patch: object = {}) =>
+      value({ status: 'exited', stoppedAt: at, lastActiveAt: at, ...patch })
+    // No finish recorded: retained whatever its age.
+    expect(sidebarKeeperOf(value({ status: 'live' }), now)).toBe('t')
+    expect(sidebarKeeperOf(value({ status: 'exited', lastActiveAt: lastMonth }), now)).toBe('t')
+    // Finished inside the unread window, and outside it.
+    expect(sidebarKeeperOf(ended(yesterday), now)).toBe('t')
+    expect(sidebarKeeperOf(ended(lastMonth), now)).toBeUndefined()
+    // The ended phase dates the finish when no stop time is recorded.
+    expect(
+      sidebarKeeperOf(value({ status: 'exited', agentState: { phase: 'ended', since: lastMonth } }), now),
+    ).toBeUndefined()
+    // Read since: the grace runs from the read.
+    expect(sidebarKeeperOf(ended(lastMonth, { readAt: anHourAgo }), now)).toBe('t')
+    // Without a clock the rule reads the seat alone, as before.
+    expect(sidebarKeeperOf(ended(lastMonth))).toBe('t')
+  })
 })
 
 describe('the pool files only candidates', () => {
@@ -184,6 +208,33 @@ describe('the pool files only candidates', () => {
     expect(pool.worklist.tracks('kept-6')).toBe(false)
     update(pool, [closedAgentTask('kept-6')])
     expect(pool.worklist.tracks('kept-6')).toBe(true)
+  })
+
+  it('leaves a closed task out when its only session ended past the window, and keeps one that ended inside it (POD-7181)', () => {
+    const endedAt = (at: string) => ({
+      status: 'exited',
+      stoppedAt: at,
+      lastActiveAt: at,
+      agentState: { phase: 'ended', since: at },
+    })
+    const pool = poolWith([
+      issue('open-1'),
+      closedAgentTask('old-9'),
+      session('ended-old', 'old-9', endedAt(lastMonth)),
+      closedAgentTask('kept-10'),
+      session('ended-new', 'kept-10', endedAt(yesterday)),
+    ])
+    expect(pool.worklist.tracks('old-9')).toBe(false)
+    expect(pool.worklist.tracks('kept-10')).toBe(true)
+    expect(shown(pool)).not.toContain('old-9')
+    expect(shown(pool)).toContain('kept-10')
+    // The old seat resumed: it keeps its issue again.
+    update(pool, [session('ended-old', 'old-9')])
+    expect(pool.worklist.tracks('old-9')).toBe(true)
+    expect(shown(pool)).toContain('old-9')
+    // It ends long ago again (a replayed row): it lets go.
+    update(pool, [session('ended-old', 'old-9', endedAt(lastMonth))])
+    expect(pool.worklist.tracks('old-9')).toBe(false)
   })
 
   it('shows recently finished human rows that only the recent collection brings', () => {

@@ -414,6 +414,8 @@ export class MobxPool {
    * derivation; kept from the session table's own changes.
    */
   private readonly keepers = new Map<string, Set<string>>()
+  /** The issue each session was last judged to keep (`keepers`, inverted): what it lets go of. */
+  private readonly keeperOf = new Map<string, string>()
   readonly sources = new PoolSources(this)
   /** The index's `positionVersion` the settings rows last saw. */
   private positionsSeen = -1
@@ -1226,12 +1228,16 @@ export class MobxPool {
   /** A session moved: the issues it could and can keep are judged again (inside its action). */
   private followKeeper(
     sessionId: string,
-    before: SliceSession | undefined,
+    _before: SliceSession | undefined,
     after: SliceSession | undefined,
   ): void {
-    const was = sidebarKeeperOf(before)
-    const now = sidebarKeeperOf(after)
+    // What it kept when last judged, not its old row judged now: a window
+    // that lapsed since must still let go of the issue.
+    const was = this.keeperOf.get(sessionId)
+    const now = sidebarKeeperOf(after, this.clock.peekNow())
     if (was === now) return
+    if (now === undefined) this.keeperOf.delete(sessionId)
+    else this.keeperOf.set(sessionId, now)
     if (was !== undefined) {
       const seats = this.keepers.get(was)
       seats?.delete(sessionId)
@@ -1269,6 +1275,7 @@ export class MobxPool {
     runInAction(() => {
       this.worklist.clear()
       this.keepers.clear()
+      this.keeperOf.clear()
       this.sources.dispose()
       for (const entity of ENTITIES) this.tables[entity].clear()
       this.graph.clear()

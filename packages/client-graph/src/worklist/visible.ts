@@ -1368,7 +1368,10 @@ const FINISHED = [{ stage: 'done' }, { stage: SHOWN_STAGE, closedReason: { not: 
  * - `keeper`, a session the device holds: R-VIS 2's seat (not archived, not
  *   a shell). Its issue is a candidate while one is held, whatever its own row
  *   says: a closed issue that a live, asking or recent session brought along
- *   (its declared comes-with) stays shown while the session keeps it.
+ *   (its declared comes-with) stays shown while the session keeps it. The
+ *   pool also asks the seat's retention at its clock (`sidebarKeeperOf`): an
+ *   ended session past R-VIS's window keeps nothing (POD-7181), so a deck of
+ *   old trees files no rows.
  *
  * Every other issue files nothing: an agent task that is done and has no
  * held seat, a proposed, archived or deleted one, whatever collection (a
@@ -1404,13 +1407,24 @@ export function isSidebarCandidate(row: SliceIssue): boolean {
   return matchesWhere(SIDEBAR_CANDIDATES.issue, row as unknown as Readonly<Record<string, unknown>>, NO_CLOCK)
 }
 
-/** The issue a held session keeps a filing candidate (`SIDEBAR_CANDIDATES.keeper`), or undefined. */
-export function sidebarKeeperOf(session: SliceSession | undefined): string | undefined {
+/**
+ * The issue a held session keeps a filing candidate (`SIDEBAR_CANDIDATES.keeper`), or undefined.
+ * At a clock (`now`, epoch ms), only a seat that R-VIS 2 retains then (`retains`): a finished
+ * session past its window keeps nothing (POD-7181). Retention only lapses as time passes, so
+ * an answer judged earlier is a superset of the rule's later one, never a subset; an idle
+ * finished turn, which the rule times from its issue, is kept without the issue.
+ */
+export function sidebarKeeperOf(session: SliceSession | undefined, now?: number): string | undefined {
   if (
     session === undefined ||
     !matchesWhere(SIDEBAR_CANDIDATES.keeper, session as unknown as Readonly<Record<string, unknown>>, NO_CLOCK)
   )
     return undefined
+  if (now !== undefined) {
+    const retention = retentionOf(session)
+    if (retention !== null && !retains(retention, undefined, undefined, { passed: (t) => now > t }))
+      return undefined
+  }
   return session.issueId as string
 }
 
