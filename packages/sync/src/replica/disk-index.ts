@@ -206,8 +206,16 @@ export function heldByNothing(
   )
 }
 
+/**
+ * POD-7160 — how many record keys were hashed to a bucket (`bucketOf`), for
+ * the test that a commit hashes each changed key at most once (POD-7170
+ * found 2 million hashes, 1.0 s, in one first-download commit).
+ */
+export const INDEX_HASHES = { count: 0 }
+
 /** The bucket a record key lands in among `count` buckets (FNV-1a). */
 export function bucketOf(key: string, count = INDEX_BUCKETS): number {
+  INDEX_HASHES.count += 1
   let hash = 0x811c9dc5
   for (let at = 0; at < key.length; at += 1) {
     hash ^= key.charCodeAt(at)
@@ -448,7 +456,16 @@ export class DiskIndex implements DiskIndexReader {
       this.states.delete(key)
       this.memory.delete(key)
     }
-    for (const [key, entry] of draft.recordChanges) this.setRecord(key, entry)
+    // POD-7160: a re-bucket places every record once, after the changes;
+    // otherwise each changed record keeps the bucket the draft hashed it to.
+    const count = draft.bucketCountAfter()
+    const rebucket = count !== this.count
+    for (const [key, entry] of draft.recordChanges)
+      this.setRecord(
+        key,
+        entry,
+        rebucket ? null : (draft.hashed.get(key) ?? bucketOf(key, this.count)),
+      )
     for (const [key, state] of draft.instanceChanges) {
       if (state === null) {
         this.states.delete(key)
@@ -458,7 +475,7 @@ export class DiskIndex implements DiskIndexReader {
     for (const key of draft.markedInMemory) if (this.states.has(key)) this.memory.add(key)
     // POD-7160: the count of buckets the draft wrote, and the buckets it encoded.
     if (draft.cleared) this.encoded.clear()
-    this.setBucketCount(draft.bucketCountAfter())
+    this.setBucketCount(count)
     for (const [bucket, stored] of draft.encoded) {
       this.encoded.delete(bucket)
       this.encoded.set(bucket, stored)
@@ -470,7 +487,12 @@ export class DiskIndex implements DiskIndexReader {
     this.changes += 1
   }
 
-  private setRecord(key: string, entry: RecordEntry | null): void {
+  /** `bucket`: where the key lands (`null`: a re-bucket places it after). */
+  private setRecord(
+    key: string,
+    entry: RecordEntry | null,
+    bucket: number | null = bucketOf(key, this.count),
+  ): void {
     const before = this.entries.get(key)
     if (before !== undefined) {
       this.totalBytes -= before.bytes
@@ -479,10 +501,10 @@ export class DiskIndex implements DiskIndexReader {
     }
     if (entry === null) {
       this.entries.delete(key)
-      this.buckets[bucketOf(key, this.count)]?.delete(key)
+      if (bucket !== null) this.buckets[bucket]?.delete(key)
       return
     }
-    if (before === undefined) this.buckets[bucketOf(key, this.count)]?.add(key)
+    if (before === undefined && bucket !== null) this.buckets[bucket]?.add(key)
     this.entries.set(key, entry)
     this.totalBytes += entry.bytes
     for (const holder of entry.holders) {
@@ -521,6 +543,8 @@ export class DiskIndexDraft {
   readonly writes: IndexWrite[] = []
   /** POD-7160 — the buckets an adapter encoded for this draft, kept by the index at publish. */
   readonly encoded = new Map<number, StoredBucket>()
+  /** POD-7160 — the bucket each changed record was hashed to (`indexChanges`), reused at publish. */
+  readonly hashed = new Map<string, number>()
   private countAfter: number | undefined
 
   constructor(private readonly base: DiskIndex) {}
@@ -721,19 +745,21 @@ export function indexChanges(draft: DiskIndexDraft): IndexChanges {
   const bucketCount = draft.bucketCountAfter()
   const rebucket = bucketCount !== (draft.cleared ? INDEX_BUCKETS : draft.index.bucketCount)
   const changed = new Map<number, string[]>()
+  // Each key hashed once: the draft's changes are one entry per key.
   const add = (key: string): void => {
     const bucket = bucketOf(key, bucketCount)
+    if (!rebucket) draft.hashed.set(key, bucket)
     const list = changed.get(bucket)
     if (list === undefined) changed.set(bucket, [key])
-    else if (!list.includes(key)) list.push(key)
+    else list.push(key)
   }
+  if (!rebucket) for (const key of draft.recordChanges.keys()) add(key)
   const instances = new Map<string, InstanceState | null>()
   let clearInstances = false
   for (let i = at; i < draft.writes.length; i += 1) {
     const write = draft.writes[i] as IndexWrite
-    if (write.kind === 'record') {
-      if (!rebucket) add(write.key)
-    } else if (write.kind === 'instance') instances.set(write.key, write.state)
+    if (write.kind === 'record') continue
+    if (write.kind === 'instance') instances.set(write.key, write.state)
     else if (write.kind === 'clearInstances') {
       clearInstances = true
       instances.clear()
@@ -808,9 +834,17 @@ export function encodeBucketAfter(
     }
     stored = { ...(gone.size === 0 ? out : withoutPositions(out, gone)), n: count }
   } else {
-    const keys = changes.rebucket
-      ? changed.filter((key) => draft.record(key) !== undefined)
-      : bucketKeysAfter(draft, base, bucket)
+    // The bucket's records after the draft, with no key hashed again: those
+    // it held that stay, and the changed ones that are new to it.
+    const kept: string[] = []
+    if (!changes.rebucket && !draft.cleared)
+      for (const key of base.bucketKeys(bucket)) if (draft.record(key) !== undefined) kept.push(key)
+    const fresh = changed.filter(
+      (key) =>
+        draft.record(key) !== undefined &&
+        (changes.rebucket || draft.cleared || base.record(key) === undefined),
+    )
+    const keys = kept.length === 0 ? fresh : [...kept, ...fresh]
     stored = encodeBucket(
       keys.map((key) => {
         const entry = draft.record(key) as RecordEntry

@@ -23,6 +23,7 @@ import {
   encodeBucket,
   encodeBucketAfter,
   INDEX_BUCKETS,
+  INDEX_HASHES,
   indexChanges,
   retainedComesWith,
   type StoredBucket,
@@ -326,6 +327,26 @@ describe('the index buckets (POD-7160)', () => {
       })
     }
     expect(index.bucketCount).toBe(INDEX_BUCKETS)
+  })
+
+  it('hashes each changed record once per commit, whatever the disk holds (POD-7170)', () => {
+    const index = new DiskIndex()
+    const seed = new DiskIndexDraft(index)
+    for (let n = 0; n < 10_000; n += 1) seed.row(`issueProjection\u0000I${n}`, row(`I${n}`, 1))
+    index.publish(seed)
+    // A commit as an adapter stages it: its changes, every bucket it touched
+    // (the first write of each is encoded whole), then the publish.
+    const draft = new DiskIndexDraft(index)
+    for (let n = 0; n < 30; n += 1) draft.row(`issueProjection\u0000I${n * 7}`, row(`I${n * 7}`, 2))
+    for (let n = 0; n < 10; n += 1) draft.row(`issueProjection\u0000new${n}`, row(`new${n}`, 2))
+    for (let n = 0; n < 10; n += 1) draft.row(`issueProjection\u0000I${n * 13 + 1}`, null)
+    const changed = draft.recordChanges.size
+    INDEX_HASHES.count = 0
+    const changes = indexChanges(draft)
+    for (const bucket of changes.buckets) encodeBucketAfter(draft, changes, bucket, () => undefined)
+    index.publish(draft)
+    expect(changes.rebucket).toBe(false)
+    expect(INDEX_HASHES.count).toBeLessThanOrEqual(changed)
   })
 
   it('doubles the count of buckets past BUCKET_RECORDS each, writing every bucket once', () => {
