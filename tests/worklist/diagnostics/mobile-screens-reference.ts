@@ -326,13 +326,17 @@ function boardRows(issues: Issue[], options: NonNullable<MobileScreenInput['task
         }),
     ),
   )
+  // Index this immutable record publication once. Re-scanning every issue
+  // for every node makes the independent board oracle quadratic at 4x.
+  const byParent = new Map<string, Issue[]>()
+  for (const issue of issues) {
+    if (!issue.parentId || issue.parentId === issue.id) continue
+    const siblings = byParent.get(issue.parentId) ?? []
+    siblings.push(issue)
+    byParent.set(issue.parentId, siblings)
+  }
   const children = (id: string, ordinaryTree: boolean) =>
-    issues.filter(
-      (issue) =>
-        issue.parentId === id &&
-        issue.id !== id &&
-        (ordinaryTree ? ordinary : retained).has(issue.id),
-    )
+    (byParent.get(id) ?? []).filter((issue) => (ordinaryTree ? ordinary : retained).has(issue.id))
   const natural = [...ordinary].filter((id) => {
     const parent = byId.get(id)?.parentId
     return !parent || parent === id || !ordinary.has(parent)
