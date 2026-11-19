@@ -25,9 +25,8 @@
  * the package's worker loop with the server's database opener.
  */
 import { join } from 'node:path'
-import { startJanitorWorker } from '@podium/janitor/worker-client'
+import { type JanitorWorkerHostOptions, startJanitorWorker } from '@podium/janitor/worker-client'
 import { localServerUrl, stateDir } from '@podium/runtime/config'
-import { readOrCreateDaemonSecret } from '@podium/runtime/local-machine'
 import { janitorWorkerTarget } from './janitor-worker-embed'
 
 export type JanitorComponentState = 'running' | 'degraded' | 'stopped'
@@ -41,17 +40,12 @@ export interface JanitorHost {
 }
 
 /** The shape of `@podium/janitor`'s worker client, as the server needs it. */
-export type StartJanitorWorkerFn = (opts: {
-  serverUrl: string
-  token: string
-  /** The store's location: a SQLite file path or a Postgres URL. */
-  dbPath: string
-}) => Promise<JanitorHost>
+export type StartJanitorWorkerFn = (opts: JanitorWorkerHostOptions) => Promise<JanitorHost>
 
 export interface JanitorHostDeps {
   port: number
   serverUrl?: string
-  token?: string
+  token: JanitorWorkerHostOptions['token']
   /**
    * The store's location, which names its engine. Defaults to the instance's
    * `podium.db`, as `store.ts`'s `defaultDbPath()` (the location the server's
@@ -74,7 +68,7 @@ export interface JanitorHostDeps {
  */
 export async function startJanitorHost(deps: JanitorHostDeps): Promise<JanitorHost> {
   const serverUrl = deps.serverUrl ?? localServerUrl(deps.port)
-  const token = deps.token ?? readOrCreateDaemonSecret()
+  const token = deps.token
   const dbPath = deps.dbPath ?? join(stateDir(), 'podium.db')
   const start: StartJanitorWorkerFn =
     deps.start ?? (async (opts) => await startJanitorWorker(opts, janitorWorkerTarget()))

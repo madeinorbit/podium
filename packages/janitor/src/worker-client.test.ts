@@ -36,11 +36,17 @@ async function drainTimers(): Promise<void> {
 describe('JanitorWorkerClient', () => {
   it('reports recovery and keeps progress monotonic across worker generations', async () => {
     const workers: ReturnType<typeof fakeWorker>[] = []
+    const tokens: string[] = []
     const logs: string[] = []
     const client = new JanitorWorkerClient(
-      { serverUrl: 'http://server', token: 'token', dbPath: '/state/podium.db' },
       {
-        spawn: () => {
+        serverUrl: 'http://server',
+        token: () => `generation-${tokens.length}`,
+        dbPath: '/state/podium.db',
+      },
+      {
+        spawn: (options) => {
+          tokens.push(options.token)
           const worker = fakeWorker()
           workers.push(worker)
           return worker
@@ -58,6 +64,7 @@ describe('JanitorWorkerClient', () => {
     expect(logs).toContain('janitor worker failed: boom — restarting in 0ms')
     await drainTimers()
     expect(workers).toHaveLength(2)
+    expect(tokens).toEqual(['generation-0', 'generation-1'])
 
     workers[1]!.emit('message', { type: 'ready', progressVersion: 2 })
     expect(client.state()).toBe('running')

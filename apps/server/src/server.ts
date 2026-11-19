@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import { hostname } from 'node:os'
 import { join } from 'node:path'
@@ -48,11 +48,7 @@ import {
 import { PODIUM_CONNECT_PROBE_KEYS } from '@podium/runtime/connect-keys'
 import { installationPublicKeyWire } from '@podium/runtime/installation-identity'
 import { ensureInstanceStateIdentity } from '@podium/runtime/instance'
-import {
-  readOrCreateDaemonSecret,
-  readOrCreateLocalMachineId,
-  stateDir,
-} from '@podium/runtime/local-machine'
+import { readOrCreateLocalMachineId, stateDir } from '@podium/runtime/local-machine'
 import {
   addLoopAccounting,
   type LoopAccountingHandle,
@@ -987,8 +983,14 @@ export async function startServer(
   }
   const adoptionStarted = performance.now()
   const bootTargetPromotion = readNewestTargetPromotionMetadata(stateDir())
-  // Maintenance is a separate server-owned channel; this secret is never a machine credential.
-  const maintenanceToken = recoveryOnly ? '' : readOrCreateDaemonSecret()
+  // The owned worker receives this capability only through workerData. Each
+  // generation replaces it, so neither a persisted fleet secret nor an old
+  // worker's credential authorizes the private maintenance channel.
+  let maintenanceToken = recoveryOnly ? '' : randomBytes(32).toString('base64url')
+  const rotateMaintenanceToken = (): string => {
+    maintenanceToken = randomBytes(32).toString('base64url')
+    return maintenanceToken
+  }
   const setupStarted = performance.now()
   if (!recoveryOnly) {
     const supervisorSetup = loadSupervisorState(stateDir())
@@ -1697,10 +1699,16 @@ export async function startServer(
         : undefined,
   })
   registerMaintenanceRoute(app, {
-    // The maintenance realm is THIS HOST's credential, named by its real id rather
-    // than by a constant that stood for it.
-    authenticateToken: async (token) =>
-      await store.machines.getMachineByToken(hostMachineId, token),
+    authenticateToken: async (token) => {
+      const expected = Buffer.from(maintenanceToken)
+      const received = Buffer.from(token)
+      return (
+        (expected.length > 0 &&
+          expected.length === received.length &&
+          timingSafeEqual(expected, received)) ||
+        (await store.machines.getMachineByToken(hostMachineId, token))
+      )
+    },
     service: new MaintenanceService(store, registry.modules.funnel, {
       issues: registry.modules.issues,
       sessions: registry.modules.sessions,
@@ -2263,7 +2271,7 @@ export async function startServer(
       const { startJanitorHost } = await import('./janitor-host')
       const startedJanitorHost = await startJanitorHost({
         port: boundPort,
-        token: maintenanceToken,
+        token: rotateMaintenanceToken,
         dbPath: databaseLocation,
         ...(opts.janitorWorkerForTests ? { start: opts.janitorWorkerForTests } : {}),
       })
@@ -2770,7 +2778,9 @@ export async function startServer(
         identity: identity.workspace,
         ...(signInCarryOver ? { signInCarryOver } : {}),
         recoveryOnly,
-        maintenanceToken,
+        get maintenanceToken() {
+          return maintenanceToken
+        },
         localDaemonLink,
         ...(loopAccounting ? { loopAccounting } : {}),
         // Deterministic fast shutdown (POD-611): terminate WS intake, persist

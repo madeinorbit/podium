@@ -21,6 +21,11 @@ export interface JanitorWorkerStartOptions {
   tickMs?: number
 }
 
+/** Host-only options: resolve a fresh credential before cloning each generation. */
+export type JanitorWorkerHostOptions = Omit<JanitorWorkerStartOptions, 'token'> & {
+  token: string | (() => string)
+}
+
 /**
  * What `new Worker(...)` starts: the thread entry, which the HOST names [POD-6993]. The
  * janitor reads through the store's query definitions, so its entry is the server's
@@ -92,7 +97,7 @@ export class JanitorWorkerClient implements JanitorWorkerHandle {
   private readonly probes = new Map<string, ProbeWaiters>()
 
   constructor(
-    private readonly options: JanitorWorkerStartOptions,
+    private readonly options: JanitorWorkerHostOptions,
     private readonly deps: {
       /** The thread entry; `spawn` replaces the spawn altogether (tests). */
       target?: JanitorWorkerTarget
@@ -135,9 +140,13 @@ export class JanitorWorkerClient implements JanitorWorkerHandle {
   }
 
   private spawnOne(): WorkerLike {
-    if (this.deps.spawn) return this.deps.spawn(this.options)
+    const options = {
+      ...this.options,
+      token: typeof this.options.token === 'function' ? this.options.token() : this.options.token,
+    }
+    if (this.deps.spawn) return this.deps.spawn(options)
     if (this.deps.target === undefined) throw new Error('janitor worker has no entry to start')
-    return spawnAt(this.deps.target, this.options)
+    return spawnAt(this.deps.target, options)
   }
 
   private spawnWorker(): void {
@@ -342,7 +351,7 @@ export class JanitorWorkerClient implements JanitorWorkerHandle {
 }
 
 export async function startJanitorWorker(
-  options: JanitorWorkerStartOptions,
+  options: JanitorWorkerHostOptions,
   target: JanitorWorkerTarget,
 ): Promise<JanitorWorkerHandle> {
   return new JanitorWorkerClient(options, { target })
