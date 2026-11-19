@@ -296,15 +296,22 @@ describe('IndexedDB adapter — kill between writes, at every boundary', () => {
    * `writes` is the number of write requests the transaction issues; it is
    * ASSERTED per case rather than assumed, so a change that makes the commit carry
    * fewer requests fails these cases instead of silently collapsing them onto the
-   * same instant. Three regions plus a marker ⇒ four requests: the outbox delete, the entity
-   * put, the cursor put and the marker put.
+   * same instant. Three regions plus a marker and their disk index rows (POD-7159) ⇒ six requests:
+   * the outbox delete, the entity put, the cursor put, the marker put, the
+   * record's index row and the instance's.
    */
   const BOUNDARIES = [
     { at: 0, mode: 'deny' as const, what: 'before the outbox removal reached the store' },
     { at: 1, mode: 'deny' as const, what: 'between the outbox removal and the entity upsert' },
     { at: 2, mode: 'deny' as const, what: 'between the entity upsert and the cursor advance' },
     { at: 3, mode: 'deny' as const, what: 'between the cursor advance and the instance marker' },
-    { at: 3, mode: 'after' as const, what: 'after every write was issued and before the commit' },
+    {
+      at: 4,
+      mode: 'deny' as const,
+      what: "between the instance marker and the record's index row",
+    },
+    { at: 5, mode: 'deny' as const, what: "between the record's index row and the instance's" },
+    { at: 5, mode: 'after' as const, what: 'after every write was issued and before the commit' },
   ]
 
   for (const boundary of BOUNDARIES) {
@@ -321,10 +328,10 @@ describe('IndexedDB adapter — kill between writes, at every boundary', () => {
       // SURFACED, not swallowed: the kernel that opened the unit of work is told.
       await expect(commitAllThree(store.viewFor(PRINCIPAL), store)).rejects.toThrow(/power loss/)
 
-      // The transaction really did carry four write requests, so the boundary this
+      // The transaction really did carry six write requests, so the boundary this
       // case names is the boundary it hit. `deny` refuses its target, so one fewer
-      // reaches the engine; `after` lets all four through and then kills.
-      expect(factory.writesIssued - before).toBe(boundary.mode === 'after' ? 4 : boundary.at + 1)
+      // reaches the engine; `after` lets all six through and then kills.
+      expect(factory.writesIssued - before).toBe(boundary.mode === 'after' ? 6 : boundary.at + 1)
       expect(factory.denials).toBe(1)
 
       // THE KILL: the store object dies, IndexedDB does not.

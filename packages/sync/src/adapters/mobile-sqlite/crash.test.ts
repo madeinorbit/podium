@@ -310,8 +310,9 @@ describe('mobile SQLite adapter — kill between writes, at every boundary', () 
    * `writes` is the number of write statements the transaction issues; it is ASSERTED
    * per case rather than assumed, so a change that makes the commit carry fewer
    * statements fails these cases instead of silently collapsing them onto the same
-   * instant. Three regions plus a marker ⇒ four statements: the outbox delete, the entity upsert,
-   * the cursor upsert and the marker upsert. (The in-transaction precondition `SELECT` is a read and is
+   * instant. Three regions plus a marker and their disk index rows (POD-7159) ⇒ six statements:
+   * the outbox delete, the entity upsert, the cursor upsert, the marker upsert, the
+   * record's index row and the instance's. (The in-transaction precondition `SELECT` is a read and is
    * not counted — see `FaultySqlDatabase`.)
    */
   const BOUNDARIES = [
@@ -319,7 +320,13 @@ describe('mobile SQLite adapter — kill between writes, at every boundary', () 
     { at: 1, mode: 'deny' as const, what: 'between the outbox removal and the entity upsert' },
     { at: 2, mode: 'deny' as const, what: 'between the entity upsert and the cursor advance' },
     { at: 3, mode: 'deny' as const, what: 'between the cursor advance and the instance marker' },
-    { at: 3, mode: 'crash' as const, what: 'after every write was issued and before the commit' },
+    {
+      at: 4,
+      mode: 'deny' as const,
+      what: "between the instance marker and the record's index row",
+    },
+    { at: 5, mode: 'deny' as const, what: "between the record's index row and the instance's" },
+    { at: 5, mode: 'crash' as const, what: 'after every write was issued and before the commit' },
   ]
 
   for (const boundary of BOUNDARIES) {
@@ -332,10 +339,10 @@ describe('mobile SQLite adapter — kill between writes, at every boundary', () 
       // SURFACED, not swallowed: the kernel that opened the unit of work is told.
       await expect(commitAllThree(store.viewFor(PRINCIPAL), store)).rejects.toThrow(/power loss/)
 
-      // The transaction really did carry four write statements, so the boundary this
+      // The transaction really did carry six write statements, so the boundary this
       // case names is the boundary it hit. `deny` refuses its target, so one fewer
-      // reaches the engine; `crash` lets all four through and then kills.
-      expect(faulty.writesIssued - before).toBe(boundary.mode === 'crash' ? 4 : boundary.at + 1)
+      // reaches the engine; `crash` lets all six through and then kills.
+      expect(faulty.writesIssued - before).toBe(boundary.mode === 'crash' ? 6 : boundary.at + 1)
       expect(faulty.denials).toBe(1)
       // A crash leaves a connection that CANNOT tidy up — the property that makes this
       // boundary unreachable by any `deny` index, asserted rather than described.
