@@ -9,6 +9,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { hermeticChildEnv } from '../../../test-hermetic-env'
 
 const repoRoot = fileURLToPath(new URL('../../../', import.meta.url))
 
@@ -23,14 +24,20 @@ describe('compiled daemon control websocket', () => {
           'build',
           '--compile',
           '--conditions=@podium/source',
+          '--define=process.env.PODIUM_APP_VERSION="0.0.0-test"',
           'scripts/daemon-control-smoke.ts',
           'apps/daemon/src/discovery-worker.ts',
           '--outfile',
           bin,
         ],
-        { cwd: repoRoot, stdio: 'pipe' },
+        { cwd: repoRoot, env: hermeticChildEnv(), stdio: 'pipe' },
       )
-      const out = execFileSync(bin, { encoding: 'utf8', timeout: 20_000 })
+      const out = execFileSync(bin, {
+        cwd: repoRoot,
+        env: hermeticChildEnv(),
+        encoding: 'utf8',
+        timeout: 20_000,
+      })
       expect(out).toContain('SMOKE_OK')
       expect(out).not.toContain('SMOKE_FAILED')
       expect(out).not.toContain('dropped malformed inbound control frame')
