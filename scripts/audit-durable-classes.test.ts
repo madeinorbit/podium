@@ -121,7 +121,7 @@ describe('the runtime-table scanner reads the forms the repo actually uses', () 
       row: null,
       notEntityState:
         'Disposable fixture data in this one conformance harness, never a product record.',
-      writeSites: ['fixture.ts'],
+      creatorSites: ['fixture.ts'],
     }
     const source = "db.exec('CREATE TABLE notes (id TEXT)')"
     expect(checkRuntimeTables([{ file: 'fixture.ts', source }], [store])).toEqual([])

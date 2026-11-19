@@ -132,7 +132,8 @@ export function unscopedReadSeams(source: string, file: string): Finding[] {
     },
     {
       rx: /principal\s*\?\s*:/g,
-      detail: 'an OPTIONAL principal: the unscoped read becomes the default, which is what new call sites take',
+      detail:
+        'an OPTIONAL principal: the unscoped read becomes the default, which is what new call sites take',
     },
   ]
   for (const { rx, detail } of patterns) {
@@ -188,7 +189,8 @@ export function removeUsedForRevocation(source: string, file: string): Finding[]
   //     the distinction (`replica/ports.ts` defines both ops four lines apart) than
   //     the violation, and a detector that cried wolf there would be suppressed by
   //     the next reader rather than fixed.
-  const declaration = /(?:function|const|let|async|=>|\b)\s*([A-Za-z_$][\w$]*)\s*(?:=\s*)?\([^)]*\)\s*(?::[^{\n]+)?\{/g
+  const declaration =
+    /(?:function|const|let|async|=>|\b)\s*([A-Za-z_$][\w$]*)\s*(?:=\s*)?\([^)]*\)\s*(?::[^{\n]+)?\{/g
   for (const match of source.matchAll(declaration)) {
     const name = match[1] ?? ''
     if (!REVOCATION_WORDS.test(name)) continue
@@ -405,24 +407,8 @@ export async function runtimeChecks(kernel: KernelUnderTest): Promise<Finding[]>
     visibilityEdges: async (refs: readonly unknown[]) => refs.map(() => null),
     currentValuesOf: async (refs: readonly unknown[]) => refs.map(() => undefined),
   }
-  const models = new Map<string, unknown>()
-  const records = {
-    comparesAtSave: () => true,
-    namedAfterWrite: () => false,
-    build: async (_kind: string, ids: readonly string[]) =>
-      ids.flatMap((id) => (models.has(id) ? [{ id, value: models.get(id) }] : [])),
-    async *buildMany(idsByKind: ReadonlyMap<string, readonly string[]>) {
-      for (const [entity, ids] of idsByKind)
-        yield { entity, records: await this.build(entity, ids) }
-    },
-    kinds: () => ['session'],
-    async *streamAll() {
-      yield [...models].map(([id, value]) => ({ id, value }))
-    },
-    async *streamAllKinds() {
-      for await (const page of this.streamAll()) yield { entity: 'session', records: page }
-    },
-  }
+  const { ModelRecords } = await import('../packages/sync/src/conformance/model-records')
+  const records = new ModelRecords()
   const authority = new Authority({
     store,
     now: () => 1,
@@ -482,7 +468,7 @@ export async function runtimeChecks(kernel: KernelUnderTest): Promise<Finding[]>
   await authority.commit({
     affects: [{ entity: 'session', entityId: 'mine' }],
     write: async () => {
-      models.set('mine', { n: 1 })
+      records.set([{ entity: 'session', entityId: 'mine', op: 'upsert', value: { n: 1 } }])
     },
   })
 

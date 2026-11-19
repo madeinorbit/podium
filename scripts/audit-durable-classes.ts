@@ -102,6 +102,8 @@ export interface DurableStore {
    * NEW store impossible to add silently.
    */
   readonly writeSites?: readonly string[]
+  /** Runtime table creators, when a name is reserved for a specific fixture or adapter. */
+  readonly creatorSites?: readonly string[]
 }
 
 /**
@@ -173,6 +175,7 @@ export const DURABLE_STORES: readonly DurableStore[] = [
   { store: 'conversation_segment_incarnations', kind: 'drizzle-table', row: 'segments' },
   {
     store: 'conversations_fts',
+    creatorSites: ['apps/server/src/store/conversations/index.ts'],
     kind: 'runtime-table',
     row: null,
     notEntityState:
@@ -181,6 +184,7 @@ export const DURABLE_STORES: readonly DurableStore[] = [
   },
   {
     store: 'transcript_fts',
+    creatorSites: ['apps/server/src/store/conversations/transcript-index.ts'],
     kind: 'runtime-table',
     row: null,
     notEntityState:
@@ -506,6 +510,7 @@ export const DURABLE_STORES: readonly DurableStore[] = [
   },
   {
     store: 'transcript_fts_keys',
+    creatorSites: ['apps/server/src/store/conversations/transcript-index.ts'],
     kind: 'runtime-table',
     row: null,
     notEntityState:
@@ -514,6 +519,7 @@ export const DURABLE_STORES: readonly DurableStore[] = [
   },
   {
     store: 'notes',
+    creatorSites: ['apps/server/src/store/executor/harness.ts'],
     kind: 'runtime-table',
     row: null,
     notEntityState:
@@ -522,6 +528,7 @@ export const DURABLE_STORES: readonly DurableStore[] = [
   },
   {
     store: 'counters',
+    creatorSites: ['apps/server/src/store/executor/harness.ts'],
     kind: 'runtime-table',
     row: null,
     notEntityState:
@@ -530,6 +537,7 @@ export const DURABLE_STORES: readonly DurableStore[] = [
   },
   {
     store: 'spike_run_lease',
+    creatorSites: ['apps/server/src/store/spike/turso-append/run-lease.ts'],
     kind: 'runtime-table',
     row: null,
     notEntityState:
@@ -538,6 +546,7 @@ export const DURABLE_STORES: readonly DurableStore[] = [
   },
   {
     store: 'transcript_messages',
+    creatorSites: ['packages/client-core/src/transcript-store/sqlite.ts'],
     kind: 'runtime-table',
     row: null,
     notEntityState:
@@ -546,6 +555,7 @@ export const DURABLE_STORES: readonly DurableStore[] = [
   },
   {
     store: 'transcript_chats',
+    creatorSites: ['packages/client-core/src/transcript-store/sqlite.ts'],
     kind: 'runtime-table',
     row: null,
     notEntityState:
@@ -554,6 +564,7 @@ export const DURABLE_STORES: readonly DurableStore[] = [
   },
   {
     store: 'changes',
+    creatorSites: ['packages/janitor/scripts/change-log-prune-bench.ts'],
     kind: 'runtime-table',
     row: null,
     notEntityState:
@@ -562,6 +573,7 @@ export const DURABLE_STORES: readonly DurableStore[] = [
   },
   {
     store: 'sync_feed',
+    creatorSites: ['packages/janitor/scripts/change-log-prune-bench.ts'],
     kind: 'runtime-table',
     row: null,
     notEntityState:
@@ -570,6 +582,7 @@ export const DURABLE_STORES: readonly DurableStore[] = [
   },
   {
     store: 'installation_lease',
+    creatorSites: ['packages/runtime/src/installation-lease.ts'],
     kind: 'runtime-table',
     row: null,
     notEntityState:
@@ -578,12 +591,14 @@ export const DURABLE_STORES: readonly DurableStore[] = [
   },
   {
     store: 'disk_index',
+    creatorSites: ['packages/sync/src/adapters/mobile-sqlite/schema.ts'],
     kind: 'runtime-table',
     row: 'replica-cursor',
     writeSites: ['packages/sync/src/adapters/mobile-sqlite/schema.ts'],
   },
   {
     store: 'source',
+    creatorSites: ['packages/sync/src/adapters/sqlite/sync-repository.suites.ts'],
     kind: 'runtime-table',
     row: null,
     notEntityState:
@@ -650,6 +665,30 @@ export const DURABLE_STORES: readonly DurableStore[] = [
     row: 'segments',
     writeSites: ['packages/harness/src/store/annotations.ts'],
   },
+  {
+    store: '<stateDir>/homes/<credential>/login',
+    kind: 'filesystem',
+    row: 'managed-credentials',
+    writeSites: ['apps/daemon/src/homes/registry.ts'],
+  },
+  {
+    store: '<harness-home>/conversation-copies',
+    kind: 'filesystem',
+    row: 'blobs',
+    writeSites: ['apps/daemon/src/homes/conversation.ts'],
+  },
+  {
+    store: '<harness-home>/shared-config',
+    kind: 'filesystem',
+    row: 'harness-hook-settings',
+    writeSites: ['apps/daemon/src/homes/share.ts'],
+  },
+  {
+    store: '<outside-state>/vault.key',
+    kind: 'filesystem',
+    row: 'server-owned-secrets',
+    writeSites: ['packages/runtime/src/vault-key.ts'],
+  },
 ]
 
 /**
@@ -662,6 +701,26 @@ export const DURABLE_STORES: readonly DurableStore[] = [
  */
 export const NON_CLASS_WRITE_SITES: readonly { readonly file: string; readonly reason: string }[] =
   [
+    {
+      file: 'apps/daemon/src/homes/codex-hook-trust.ts',
+      reason:
+        'Caches the native harness hook-trust probe by exact version and hook flags. Deleting the cache re-runs the probe; it stores no credential or independently authored entity.',
+    },
+    {
+      file: 'apps/server/src/migrations/legacy-snapshot-scrub.ts',
+      reason:
+        'Rewrites upgrade backup copies of already classified stores to remove retired plaintext credential values after vault import; a backup is a copy, not an independent class.',
+    },
+    {
+      file: 'apps/web/harness/found-login-shots.ts',
+      reason:
+        'Writes screenshots and disposable fixtures for the found-login review proof; evidence describes the UI and never becomes an authoritative product store.',
+    },
+    {
+      file: 'packages/harness/src/driver/families/codex/engine-host.ts',
+      reason:
+        'Creates the runtime directory used by the session-owned durable engine attachment; the engine journal is classified at its owner and this adapter adds no record store.',
+    },
     {
       file: 'apps/cli/src/cli-doctor.ts',
       reason:
@@ -1427,7 +1486,7 @@ export function checkRuntimeTables(
         !declared.some(
           (store) =>
             store.store === table &&
-            (store.writeSites === undefined || store.writeSites.includes(file)),
+            (store.creatorSites === undefined || store.creatorSites.includes(file)),
         )
       ) {
         findings.push({
