@@ -2050,6 +2050,8 @@ export async function startServer(
       basePath: '/mobile',
       lazy: true,
       crossOriginIsolated: true,
+      // The phone's worker controls `/mobile` itself, for an offline reload (POD-7179).
+      serviceWorkerScope: '/mobile',
     })
   }
 

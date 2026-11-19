@@ -8,8 +8,8 @@ task of POD-7157):
 prepares the checkout (Chromium and its libraries, podium-host, the production web and phone
 builds, the synthetic operator corpus: 8,687 issues, 6,941 sessions, a 970-issue mission),
 then runs screens-probe.mjs: it opens every main screen above every budget (sidebar, deck,
-board, issue page, search, phone mission), moves between them, reopens them offline, and
-prints per screen the server requests, load hops, LOADING time, the longest main-thread task
+board, issue page, search, phone mission), moves between them, reopens them offline, reloads
+the phone with no network (its service worker, POD-7179), and prints per screen the server requests, load hops, LOADING time, the longest main-thread task
 and the heap after a GC. Evidence lands in .artifacts/screens-probe/<round>/.
 
 <tip> defaults to HEAD. Another commit runs in a sibling checkout (~/<checkout>-probe): that
@@ -84,7 +84,7 @@ def main():
     parser.add_argument('--live', default='', help='probe this live install instead, read-only')
     parser.add_argument('--round', default='', help='evidence folder name (default: a timestamp)')
     parser.add_argument('--host', default=socket.gethostname(), help='host label recorded with the evidence')
-    parser.add_argument('--surfaces', default='web,phone')
+    parser.add_argument('--surfaces', default='web,phone,phone-reload')
     parser.add_argument('--prepare-only', action='store_true', help='prepare the checkout and stop (a run of its own under a short lock)')
     args = parser.parse_args()
     stamp = args.round or datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%SZ')

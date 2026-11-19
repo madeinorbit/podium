@@ -26,6 +26,8 @@
  * request in the same window as every other boot request, long before any update
  * can be offered.
  */
+
+import { serviceWorkerContainer } from '@podium/client-core/service-worker'
 import { observer } from '@podium/client-graph/react'
 import type { JSX } from 'react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
@@ -35,7 +37,6 @@ import { forceReload } from '@/lib/force-reload'
 import { swLog, updatesLog } from '@/lib/logging/update-logs'
 import { navigateReload } from '@/lib/navigate'
 import { RELOAD_COMMIT_GRACE_MS, withReloadPreparation } from '@/lib/reload-preparation'
-import { serviceWorkerContainer } from '@/lib/sw-container'
 import { updateStatus } from '@/lib/update-status'
 import { registerUpdatePanelOpener } from './open-panel'
 import { DONE_COLLAPSE_MS } from './operation-view'

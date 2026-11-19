@@ -2,9 +2,12 @@ import { Stack } from 'expo-router/js-stack'
 import { Easing } from 'react-native'
 import { installE2eRouterHook } from '../src/client/e2e-router-hook'
 import { RootLayoutShell, type RootNavigationProps } from '../src/client/root-layout-shell'
+import { registerPhoneServiceWorker } from '../src/lib/phone-service-worker'
 import { color } from '../src/theme/theme'
 
 installE2eRouterHook()
+// The precached shell is what opens `/mobile` with no network (POD-7179).
+void registerPhoneServiceWorker()
 
 const easeOut = Easing.bezier(0.23, 1, 0.32, 1)
 const webRouteTransition = {

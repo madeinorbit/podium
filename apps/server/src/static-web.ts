@@ -379,6 +379,14 @@ export interface StaticWebOptions {
    * and must not inherit them — COOP would break its multi-window flows.
    */
   crossOriginIsolated?: boolean
+  /**
+   * The scope the dist's `sw.js` may claim, sent as `Service-Worker-Allowed`
+   * (POD-7179). A worker at `/mobile/sw.js` may by default control only
+   * `/mobile/…`; the phone website's own page is `/mobile`, one character
+   * outside that, so the phone's worker is registered with scope `/mobile`
+   * and needs the server's leave to.
+   */
+  serviceWorkerScope?: string
 }
 
 function contentType(p: string): string {
@@ -604,6 +612,10 @@ export function registerWebStatic(
 
   const basePath = normalizedBasePath(opts.basePath)
   const isolationHeaders = opts.crossOriginIsolated ? CROSS_ORIGIN_ISOLATION_HEADERS : undefined
+  const serviceWorkerPath = join(webDir, 'sw.js')
+  const serviceWorkerHeaders = opts.serviceWorkerScope
+    ? { ...isolationHeaders, 'Service-Worker-Allowed': opts.serviceWorkerScope }
+    : isolationHeaders
   const handler = async (c: Context) => {
     if (opts.lazy && !existsSync(indexPath)) return c.notFound()
     const pathname = new URL(c.req.url).pathname
@@ -620,7 +632,8 @@ export function registerWebStatic(
       statSync(filePath).isFile() &&
       filePath !== indexPath
     ) {
-      return await serveFile(filePath, accepted, undefined, isolationHeaders)
+      const headers = filePath === serviceWorkerPath ? serviceWorkerHeaders : isolationHeaders
+      return await serveFile(filePath, accepted, undefined, headers)
     }
     const icon = appleTouchIcon(webDir, inside)
     if (icon) return await serveFile(icon, accepted, undefined, isolationHeaders)

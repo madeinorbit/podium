@@ -55,6 +55,11 @@
       "types": "./src/outbox.ts",
       "import": "./src/outbox.ts"
     },
+    "./service-worker": {
+      "@podium/source": "./src/service-worker/index.ts",
+      "types": "./src/service-worker/index.ts",
+      "import": "./src/service-worker/index.ts"
+    },
     "./command-reducers": {
       "@podium/source": "./src/command-reducers.ts",
       "types": "./src/command-reducers.ts",

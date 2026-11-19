@@ -21,7 +21,12 @@
  * cold; the same again, warm (moving between them); then offline (the
  * browser's network cut) the same again, in-app, without a reload. On the
  * phone: its Work list, then the mission's details, cold, warm and offline,
- * moving through the phone's own router as a tap does.
+ * moving through the phone's own router as a tap does. Then the phone's
+ * offline RELOAD (surface `phone-reload`, POD-7179): an iPhone with service
+ * workers allowed opens the Work list and the mission online, the network is
+ * cut, and the page is loaded again from nothing: only the phone's worker can
+ * answer that, and the Work list and the mission must open on the data the
+ * device holds, with no request reaching the network for the page itself.
  *
  * Per screen: data requests (/sync/ and issue search, attempts offline
  * included), load hops (a request asked for once an earlier one's answer was
@@ -38,7 +43,7 @@ import { chromium, devices } from '@playwright/test'
 const arg = (key, fallback) => process.argv.find((x) => x.startsWith(`--${key}=`))?.slice(key.length + 3) ?? fallback
 const live = arg('live', '')
 const out = resolve(arg('out', `.artifacts/screens-probe/${live ? 'live' : 'operator'}-${Date.now()}`))
-const surfaces = arg('surfaces', 'web,phone').split(',').filter(Boolean)
+const surfaces = arg('surfaces', 'web,phone,phone-reload').split(',').filter(Boolean)
 const timeoutMs = Number(arg('timeout-ms', '60000'))
 if (!live && hostname() === 'ludovico') throw Error('The operator-size probe runs on an agent VM, never on ludovico')
 if (existsSync(resolve(out, 'run.json'))) throw Error('Probe output already exists; use a fresh --out')
@@ -133,7 +138,7 @@ function operatorTargets() {
 
 // ---------------------------------------------------------------- contexts
 async function bindOperator(context, surface) {
-  let policyDays = surface === 'phone' ? 7 : 30
+  let policyDays = surface === 'phone' || surface === 'phone-reload' ? 7 : 30
   const fixtureFor = (days) => fixtures.get(days) ?? fixtures.get(30)
   await context.route('**/sync/bootstrap*', async (route) => {
     const response = await route.fetch()
@@ -265,7 +270,11 @@ const INIT = ({ fixedNow }) => {
 }
 
 async function makeContext(browser, surface) {
-  const context = await browser.newContext(surface === 'phone'
+  // The walks measure the network path, so they block service workers; the
+  // offline reload is the one opening only a worker can answer.
+  const context = await browser.newContext(surface === 'phone-reload'
+    ? { ...devices['iPhone 15'], serviceWorkers: 'allow' }
+    : surface === 'phone'
     ? { ...devices['Pixel 7'], serviceWorkers: 'block' }
     : { viewport: { width: 1800, height: 1000 }, reducedMotion: 'reduce', serviceWorkers: 'block' })
   if (live) {
@@ -443,6 +452,96 @@ async function phoneWalk(browser, targets) {
   await f.context.close()
 }
 
+/** The resource types a page load is made of; an offline load must take none from the network. */
+const SHELL_TYPES = new Set(['document', 'script', 'stylesheet', 'font', 'image', 'manifest', 'media'])
+
+/**
+ * A page LOAD, not an in-app move: everything the new document asked for is
+ * its own, so its timeline is read whole. Every browser request is kept too:
+ * one the service worker answered never left the device; any other went to
+ * the network, and for the page's own files (the shell) that must be none.
+ */
+async function measureLoad(f, screen, phase, go, ready, readyArg) {
+  const requests = []
+  const listen = (request) => requests.push(request)
+  f.context.on('request', listen)
+  const t0 = Date.now()
+  let ok = true, failure
+  try {
+    await go()
+    await f.page.waitForFunction(ready, readyArg, { timeout: timeoutMs, polling: 'raf' })
+  } catch (error) { ok = false; failure = String(error).split('\n')[0].slice(0, 300) }
+  const loadingMs = Date.now() - t0
+  await pause(1500)
+  f.context.off('request', listen)
+  const { entries, longest } = await f.page.evaluate(() => ({
+    entries: window.__syncTimeline ?? [],
+    longest: Math.max(0, ...(window.__longTasks ?? []).map((x) => x.duration)),
+  })).catch(() => ({ entries: [], longest: 0 }))
+  const network = []
+  for (const request of requests) {
+    const response = await Promise.race([request.response().catch(() => null), pause(1000).then(() => null)])
+    if (response?.fromServiceWorker()) continue
+    network.push({ path: new URL(request.url()).pathname, type: request.resourceType(), byWorker: !!request.serviceWorker(),
+      ...(request.failure() ? { failed: request.failure().errorText } : {}) })
+  }
+  const shell = network.filter((x) => SHELL_TYPES.has(x.type))
+  await f.cdp.send('HeapProfiler.collectGarbage').catch(() => {})
+  const heap = await f.cdp.send('Runtime.getHeapUsage').catch(() => ({ usedSize: 0 }))
+  const row = { surface: f.surface, phase, screen, ready: ok, loadingMs, requests: entries.length,
+    collectionsRequests: entries.filter((x) => x.path === '/sync/collections').length, hops: hopsOf(entries),
+    declaredHops: undefined, longestTaskMs: Math.round(longest), heapAfterGcMiB: +(heap.usedSize / 1048576).toFixed(1),
+    collections: [...new Set(entries.flatMap((x) => x.collections ?? []))], shellNetwork: shell.length,
+    network: network.slice(0, 40), failure }
+  result.screens.push(row); save()
+  if (!ok) {
+    await f.page.screenshot({ path: resolve(out, `${f.surface}-${phase}-${screen}.png`) }).catch(() => {})
+    row.shown = await f.page.evaluate(() => document.body.innerText.slice(0, 600)).catch((error) => String(error)); save()
+  }
+  console.log(`${f.surface} ${phase} ${screen}: ready=${ok} LOADING ${loadingMs} ms, ${row.requests} requests, ${shell.length} page requests to the network (${network.length} in all)${failure ? ' — ' + failure : ''}`)
+  return row
+}
+
+/**
+ * The phone's offline reload (POD-7179), in its own iPhone context with
+ * service workers allowed. Online first, the Work list and the mission, so the
+ * device holds both and the worker has precached the build; then the network
+ * is cut and the Work list loaded again from nothing, and the mission opened.
+ */
+async function phoneReloadWalk(browser, targets) {
+  const f = await makeContext(browser, 'phone-reload')
+  const origin = live || base
+  const query = live ? '?e2e=1' : `?server=${encodeURIComponent(base.replace('http', 'ws'))}&e2e=1`
+  const start = `${origin}/mobile/work${query}`
+  result.phoneNavigation ??= 'router'
+  await measure(f, 'phoneWork', 'startup', () => f.page.goto(start, { waitUntil: 'domcontentloaded' }), READY.phoneWork)
+  if (targets.deck) {
+    await measure(f, 'phoneMission', 'cold', () => phoneNavigate(f.page, `/mission/${targets.deck.id}/details`, 'push'), READY.phoneMission, targets.deck)
+    await measure(f, 'phoneWork', 'warm', () => phoneBackToWork(f.page), READY.phoneWork)
+  }
+  // The worker must control the page and hold the whole build before the cut.
+  result.phoneWorker = await f.page.evaluate(async () => {
+    const container = navigator.serviceWorker
+    if (!container) return { available: false }
+    const deadline = performance.now() + 60000
+    while (!container.controller && performance.now() < deadline) await new Promise((done) => setTimeout(done, 200))
+    const registration = await container.getRegistration()
+    const precached = (await caches.keys()).filter((key) => key.includes('precache'))
+    const entries = precached.length ? (await (await caches.open(precached[0])).keys()).length : 0
+    return { available: true, controlled: !!container.controller, scope: registration?.scope ?? null,
+      script: container.controller?.scriptURL ?? null, precacheEntries: entries, crossOriginIsolated: globalThis.crossOriginIsolated === true }
+  })
+  save()
+  console.log(`phone-reload worker: ${JSON.stringify(result.phoneWorker)}`)
+  await f.context.setOffline(true)
+  await measureLoad(f, 'phoneWork', 'offline-reload', () => f.page.goto(start, { waitUntil: 'domcontentloaded' }), READY.phoneWork)
+  if (targets.deck) {
+    await measure(f, 'phoneMission', 'offline-reload', () => phoneNavigate(f.page, `/mission/${targets.deck.id}/details`, 'push'), READY.phoneMission, targets.deck)
+  }
+  await f.context.setOffline(false)
+  await f.context.close()
+}
+
 /** Live: the first sidebar root with a deck, and two done tasks from the board. */
 async function liveTargets(f) {
   const deck = await f.page.evaluate(() => {
@@ -474,15 +573,18 @@ try {
   result.targets = live ? undefined : { deck: { id: targets.deck.id, size: targets.deck.childIds.length + 1 }, issuePage: targets.issuePage.id, search: targets.search.id }
   if (surfaces.includes('web')) await webWalk(browser, targets)
   if (surfaces.includes('phone')) await phoneWalk(browser, targets)
+  if (surfaces.includes('phone-reload')) await phoneReloadWalk(browser, targets)
   result.status = 'complete'
 } catch (error) {
   result.status = 'failed'; result.failure = String(error?.stack ?? error).slice(0, 2000)
   console.error(result.failure)
 } finally {
   result.endedAt = new Date().toISOString(); result.loadEnd = loadavg()
-  // The rule: complete, within its declared hops, and offline with no request.
-  result.violations = result.screens.filter((x) => !x.ready || (x.declaredHops !== undefined && x.hops > x.declaredHops) || (x.phase === 'offline' && x.requests > 0))
-    .map((x) => `${x.surface} ${x.phase} ${x.screen}: ${!x.ready ? 'never ready' : x.hops > x.declaredHops ? `${x.hops} hops > ${x.declaredHops}` : `${x.requests} requests offline`}`)
+  // The rule: complete, within its declared hops, offline with no request, and
+  // an offline page load with nothing of the page itself from the network.
+  const offline = (x) => x.phase === 'offline' || x.phase === 'offline-reload'
+  result.violations = result.screens.filter((x) => !x.ready || (x.declaredHops !== undefined && x.hops > x.declaredHops) || (offline(x) && x.requests > 0) || x.shellNetwork > 0)
+    .map((x) => `${x.surface} ${x.phase} ${x.screen}: ${!x.ready ? 'never ready' : x.hops > x.declaredHops ? `${x.hops} hops > ${x.declaredHops}` : x.shellNetwork > 0 ? `${x.shellNetwork} page requests reached the network offline` : `${x.requests} requests offline`}`)
   save()
   writeFileSync(resolve(out, 'report.md'), report())
   await browser?.close().catch(() => {})
@@ -498,6 +600,7 @@ function report() {
     `# Screens probe (${result.mode})`, '',
     `Commit ${result.sha ?? 'unknown'} on ${result.host}, ${result.startedAt}; browser ${result.browser ?? '?'}; status ${result.status}.`,
     ...(result.phoneNavigation ? [`Phone navigation: ${result.phoneNavigation}.`] : []),
+    ...(result.phoneWorker ? [`Phone service worker before the offline reload: ${JSON.stringify(result.phoneWorker)}.`] : []),
     result.mode === 'operator' ? 'Synthetic operator corpus: 8,687 issues, 6,941 sessions; deck of the 970-issue mission.' : `Live install ${live}, read-only (${result.blockedWrites.length} writes refused).`, '',
     '| surface | phase | screen | ready | LOADING ms | requests | hops (max) | longest task ms | heap after GC MiB |',
     '|---|---|---|---|---:|---:|---:|---:|---:|',

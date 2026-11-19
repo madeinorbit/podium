@@ -1,5 +1,5 @@
+import { serviceWorkerContainer } from '@podium/client-core/service-worker'
 import { swLog } from '@/lib/logging/update-logs'
-import { serviceWorkerContainer } from '@/lib/sw-container'
 import { readServedWorkerIdentity } from '@/lib/sw-identity'
 
 /**

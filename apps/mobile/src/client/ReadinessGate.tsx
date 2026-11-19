@@ -4,12 +4,32 @@ import { type ReadinessDisplayState, ReadinessScreen } from '../components/Readi
 import { demoEnabled } from './demoData'
 import { heldOfflineStatus } from './held-offline'
 import { LaunchReadyView } from './launch-ready'
+import { createPlatformConnectivity } from './platform-connectivity'
 import { fetchServerReadiness, ReadinessAnswerError, readinessRecheckDelayMs } from './readiness'
 import { useOptionalServerProfile } from './server-profile-context'
 import { readServerConfig } from './trpc'
 
 /** `offline`: no answer, and the device holds data it may open (POD-7176). */
 type GateState = 'checking' | 'unreachable' | 'offline' | ServerReadiness
+
+/**
+ * Call `listener` each time the network comes back: the browser's `online` on
+ * the web, NetInfo on a phone (the same connectivity the live connection
+ * uses). Returns the unsubscribe.
+ */
+function onNetworkReturn(listener: () => void): () => void {
+  const native = createPlatformConnectivity()
+  if (native) {
+    native.onlineEvents.add(listener)
+    return () => {
+      native.onlineEvents.remove(listener)
+      native.dispose()
+    }
+  }
+  if (typeof window === 'undefined') return () => {}
+  window.addEventListener('online', listener)
+  return () => window.removeEventListener('online', listener)
+}
 
 /** The first network boundary in Expo web and native. No auth, replica, socket,
  * or route mounts until the server has explicitly opened its data plane, or
@@ -112,6 +132,42 @@ export function ReadinessGate({ children }: { children: ReactNode }) {
       if (timer !== undefined) clearTimeout(timer)
     }
   }, [polling, config.httpOrigin])
+
+  /**
+   * BACK ONLINE, ASK AGAIN (POD-7179). Opened offline on the data it holds, or
+   * parked on "Cannot reach this Podium server", the gate asked once and got no
+   * answer. When the network returns it asks again, quietly: the running app
+   * reconnects by itself, and the gate's state now follows the server's answer
+   * instead of staying `offline` for good. Never through `checking`, which
+   * would unmount the open app; a re-ask that again gets no answer changes
+   * nothing. An app already open offline stays open on a degraded answer (its
+   * person is already reviewing work); a blocked server closes it, as it would
+   * have at launch.
+   */
+  const stateRef = useRef(state)
+  stateRef.current = state
+  const awaitingNetwork = !demo && (state === 'offline' || state === 'unreachable')
+  useEffect(() => {
+    if (!awaitingNetwork) return
+    let alive = true
+    const reask = () => {
+      fetchServerReadiness(config.httpOrigin).then(
+        (readiness) => {
+          if (!alive) return
+          if (stateRef.current === 'offline' && readiness.state === 'degraded') {
+            setAcceptedDegraded(true)
+          }
+          setState(readiness)
+        },
+        () => {},
+      )
+    }
+    const unsubscribe = onNetworkReturn(reask)
+    return () => {
+      alive = false
+      unsubscribe()
+    }
+  }, [awaitingNetwork, config.httpOrigin])
 
   const retry = useCallback(() => setAttempt((value) => value + 1), [])
   if (state === 'checking') return null
