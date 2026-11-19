@@ -45,16 +45,15 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { asMachineId, firstAdminMemberId } from '@podium/model'
+import { asMachineId } from '@podium/model'
 import type { ServerMessage } from '@podium/protocol'
 import { CAP_METADATA_DELTA, CLIENT_WIRE_VERSION, MIN_CLIENT_WIRE_VERSION } from '@podium/protocol'
+import { createTRPCClient, httpBatchLink } from '@trpc/client'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { WebSocket } from 'ws'
-import { memberCredentials } from '../identity/member-credentials'
-import { noJanitorWorkerForTests } from '../janitor-host'
-import { startServer } from '../server'
+import type { AppRouter } from '../router'
 import { loginTestClient } from '../test-support/client-auth'
-import { attachHostDaemon } from '../test-support/host-daemon'
+import { startSyncWorkerTestServer } from '../test-support/sync-worker-server'
 
 const CLIENT_PASSWORD = 'wire-window-client-password'
 
@@ -72,9 +71,10 @@ const priorStateDir = process.env.PODIUM_STATE_DIR!
 
 describe('the wire window, over real sockets', () => {
   let stateDir: string
-  let handle: Awaited<ReturnType<typeof startServer>>
+  let handle: Awaited<ReturnType<typeof startSyncWorkerTestServer>>
   let cookieHeader: string
   let machineId: string
+  let trpc: ReturnType<typeof createTRPCClient<AppRouter>>
   let originalPassword: string | undefined
 
   beforeAll(async () => {
@@ -86,16 +86,10 @@ describe('the wire window, over real sockets', () => {
     process.env.PODIUM_STATE_DIR = stateDir
     originalPassword = process.env.PODIUM_PASSWORD
     process.env.PODIUM_PASSWORD = CLIENT_PASSWORD
-    handle = await startServer({ janitorWorkerForTests: noJanitorWorkerForTests, port: 0 })
-    const store = handle.registry.sessionStore
-    await memberCredentials(store.users, () => handle.identity.core.accounts).setPassword(
-      await firstAdminMemberId(store),
-      CLIENT_PASSWORD,
-    )
-    await memberCredentials(store.users, () => handle.identity.core.accounts).setEmail(
-      await firstAdminMemberId(store),
-      'wire@example.test',
-    )
+    handle = await startSyncWorkerTestServer({
+      stateDir,
+      member: { email: 'wire@example.test', password: CLIENT_PASSWORD },
+    })
     cookieHeader = (
       await loginTestClient({
         origin: `http://127.0.0.1:${handle.port}`,
@@ -103,14 +97,20 @@ describe('the wire window, over real sockets', () => {
         password: CLIENT_PASSWORD,
       })
     ).cookieHeader
-    machineId = handle.registry.modules.machines.hostMachineId
-    await attachHostDaemon(handle.registry)
-    await handle.registry.modules.sessions.createSession({
+    machineId = handle.machineId
+    trpc = createTRPCClient<AppRouter>({
+      links: [
+        httpBatchLink({
+          url: `http://127.0.0.1:${handle.port}/trpc`,
+          headers: { Cookie: cookieHeader },
+        }),
+      ],
+    })
+    await trpc.sessions.create.mutate({
       agentKind: 'shell',
       cwd: '/repo/before-the-deploy',
       machineId: asMachineId(machineId),
     })
-    handle.registry.modules.sessions.flushBroadcasts()
   })
 
   afterAll(async () => {
@@ -215,12 +215,11 @@ describe('the wire window, over real sockets', () => {
     const beyondAfterHello = beyond.frames.length
 
     // A write AFTER all three connected.
-    await handle.registry.modules.sessions.createSession({
+    await trpc.sessions.create.mutate({
       agentKind: 'shell',
       cwd: '/repo/after-the-deploy',
       machineId: asMachineId(machineId),
     })
-    handle.registry.modules.sessions.flushBroadcasts()
 
     // The current build gets the canonical frame for the write.
     const currentDelta = (await current.nextMatching((m) => m.type === 'feedDelta')) as {

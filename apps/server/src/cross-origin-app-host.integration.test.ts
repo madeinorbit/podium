@@ -28,15 +28,17 @@ import { createTRPCClient, httpBatchLink } from '@trpc/client'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { WebSocket } from 'ws'
 import { memberCredentials } from './identity/member-credentials'
+import { noJanitorWorkerForTests } from './janitor-host'
 import type { AppRouter } from './router'
 import { startServer } from './server'
 
 /** The page's origin. Nothing listens there; only the header matters. */
-const APP_ORIGIN = 'http://app.localtest.me:55556'
-const FOREIGN_ORIGIN = 'http://evil.localtest.me:55556'
+const APP_ORIGIN = 'https://app.localtest.me'
+const FOREIGN_ORIGIN = 'https://evil.localtest.me'
 const PASSWORD = 'same-site-secret'
 
 const priorStateDir = process.env.PODIUM_STATE_DIR
+const priorTrustedProxyHops = process.env.PODIUM_TRUSTED_PROXY_HOPS
 const priorAllowedOrigins = process.env.PODIUM_ALLOWED_ORIGINS
 
 describe('a same-site app host talking to an API on another host', () => {
@@ -45,9 +47,15 @@ describe('a same-site app host talking to an API on another host', () => {
   let cookie = ''
 
   const url = (path: string): string => `http://127.0.0.1:${handle.port}${path}`
+  // The fixture stands behind the one trusted HTTPS terminator configured at boot.
+  const request = (path: string, init: RequestInit = {}) =>
+    fetch(url(path), {
+      ...init,
+      headers: { host: 'api.localtest.me', 'x-forwarded-proto': 'https', ...init.headers },
+    })
 
   const preflight = (path: string, origin: string, method: string): Promise<Response> =>
-    fetch(url(path), {
+    request(path, {
       method: 'OPTIONS',
       headers: {
         origin,
@@ -59,13 +67,17 @@ describe('a same-site app host talking to an API on another host', () => {
   /** Resolve 'open' or 'rejected', with `Host` forged to the API's real name. */
   const socket = (origin: string, withCookie: boolean): Promise<'open' | 'rejected'> =>
     new Promise((resolve) => {
-      const ws = new WebSocket(`ws://127.0.0.1:${handle.port}/client?v=${CLIENT_WIRE_VERSION}`, {
-        headers: {
-          host: 'api.localtest.me',
-          origin,
-          ...(withCookie ? { cookie } : {}),
+      const ws = new WebSocket(
+        `ws://127.0.0.1:${handle.port}/client?v=${CLIENT_WIRE_VERSION}&cap=sync.http.v1`,
+        {
+          headers: {
+            host: 'api.localtest.me',
+            'x-forwarded-proto': 'https',
+            origin,
+            ...(withCookie ? { cookie } : {}),
+          },
         },
-      })
+      )
       ws.on('open', () => {
         ws.close()
         resolve('open')
@@ -85,7 +97,8 @@ describe('a same-site app host talking to an API on another host', () => {
     process.env.PODIUM_STATE_DIR = stateDir
     // Read once at boot, so it has to be here rather than in a test.
     process.env.PODIUM_ALLOWED_ORIGINS = APP_ORIGIN
-    handle = await startServer({ port: 0 })
+    process.env.PODIUM_TRUSTED_PROXY_HOPS = '1'
+    handle = await startServer({ port: 0, janitorWorkerForTests: noJanitorWorkerForTests })
     const trpc = createTRPCClient<AppRouter>({ links: [httpBatchLink({ url: url('/trpc') })] })
     await trpc.setup.complete.mutate({ publicUrl: 'https://api.localtest.me', password: PASSWORD })
     const store = handle.registry.sessionStore
@@ -97,6 +110,8 @@ describe('a same-site app host talking to an API on another host', () => {
 
   afterAll(async () => {
     await handle.close()
+    if (priorTrustedProxyHops === undefined) delete process.env.PODIUM_TRUSTED_PROXY_HOPS
+    else process.env.PODIUM_TRUSTED_PROXY_HOPS = priorTrustedProxyHops
     if (priorStateDir === undefined) delete process.env.PODIUM_STATE_DIR
     else process.env.PODIUM_STATE_DIR = priorStateDir
     if (priorAllowedOrigins === undefined) delete process.env.PODIUM_ALLOWED_ORIGINS
@@ -114,7 +129,7 @@ describe('a same-site app host talking to an API on another host', () => {
   })
 
   it('logs in and sets the session cookie', async () => {
-    const res = await fetch(url('/auth/login'), {
+    const res = await request('/auth/login', {
       method: 'POST',
       headers: { 'content-type': 'application/json', origin: APP_ORIGIN },
       body: JSON.stringify({ email: 'cors@example.test', password: PASSWORD }),
@@ -126,7 +141,7 @@ describe('a same-site app host talking to an API on another host', () => {
   })
 
   it('serves tRPC to the cookie the app host now holds', async () => {
-    const res = await fetch(url('/trpc/setup.info'), { headers: { cookie, origin: APP_ORIGIN } })
+    const res = await request('/trpc/setup.info', { headers: { cookie, origin: APP_ORIGIN } })
     expect(res.status, await res.clone().text()).toBe(200)
     expect(res.headers.get('access-control-allow-origin')).toBe(APP_ORIGIN)
   })

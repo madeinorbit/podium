@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { FeedSink } from '@podium/client-core/replica/feed'
 import { HttpBootstrapSource, HttpDeltaSource } from '@podium/client-core/sync-stream'
-import { firstAdminMemberId, type UserId } from '@podium/model'
+import type { UserId } from '@podium/model'
 import {
   CAP_SYNC_HTTP_V1,
   CLIENT_WIRE_VERSION,
@@ -25,11 +25,8 @@ import { createTRPCClient, httpBatchLink } from '@trpc/client'
 import { IDBFactory } from 'fake-indexeddb'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import WebSocket from 'ws'
-import { noJanitorWorkerForTests } from '../../apps/server/src/janitor-host'
 import type { AppRouter } from '../../apps/server/src/router'
-import { startServer } from '../../apps/server/src/server'
-import { attachHostDaemon } from '../../apps/server/src/test-support/host-daemon'
-import { cookieOf } from '../../apps/server/src/test-support/test-identity'
+import { startSyncWorkerTestServer } from '../../apps/server/src/test-support/sync-worker-server'
 
 const FEED_TYPES = new Set(['feedDelta', 'feedResume', 'feedRescope', 'feedResyncRequired'])
 
@@ -38,7 +35,7 @@ const priorMode = process.env.PODIUM_MODE
 
 describe('POD-376 · wire v2 feed into the kernel replica (live server)', () => {
   let stateDir: string
-  let server: Awaited<ReturnType<typeof startServer>>
+  let server: Awaited<ReturnType<typeof startSyncWorkerTestServer>>
   let baseUrl: string
   let trpc: ReturnType<typeof createTRPCClient<AppRouter>>
   let factory: IdbFactoryLike
@@ -51,19 +48,9 @@ describe('POD-376 · wire v2 feed into the kernel replica (live server)', () => 
     stateDir = mkdtempSync(join(tmpdir(), 'podium-feed-v2-e2e-'))
     process.env.PODIUM_STATE_DIR = stateDir
     process.env.PODIUM_MODE = 'server'
-    server = await startServer({ port: 0, janitorWorkerForTests: noJanitorWorkerForTests })
-    await attachHostDaemon(server.registry, () => {}, { repos: ['/repo'] })
-    owner = await firstAdminMemberId(server.registry.sessionStore)
-    const account = await server.registry.sessionStore.users.get(owner)
-    if (!account?.accountId) throw new Error('The fixture owner has no account')
-    cookie = cookieOf(
-      await server.identity.core.deviceSignIns.create(
-        account.accountId,
-        { kind: 'browser' },
-        'cookie',
-        { scheme: 'http', sameMachine: true, clientAddress: '127.0.0.1' },
-      ),
-    )
+    server = await startSyncWorkerTestServer({ stateDir, repos: ['/repo'] })
+    owner = server.owner
+    cookie = server.cookie
     baseUrl = `http://127.0.0.1:${server.port}`
     trpc = createTRPCClient<AppRouter>({
       links: [httpBatchLink({ url: `${baseUrl}/trpc`, headers: { cookie } })],
