@@ -42,17 +42,19 @@
  * a fixed-deadline wait that always times out can no longer say NO.
  */
 
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { asMachineId } from '@podium/model'
+import { asMachineId, firstAdminMemberId } from '@podium/model'
 import type { ServerMessage } from '@podium/protocol'
 import { CAP_METADATA_DELTA, CLIENT_WIRE_VERSION, MIN_CLIENT_WIRE_VERSION } from '@podium/protocol'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { WebSocket } from 'ws'
+import { memberCredentials } from '../identity/member-credentials'
 import { noJanitorWorkerForTests } from '../janitor-host'
 import { startServer } from '../server'
 import { loginTestClient } from '../test-support/client-auth'
+import { attachHostDaemon } from '../test-support/host-daemon'
 
 const CLIENT_PASSWORD = 'wire-window-client-password'
 
@@ -77,10 +79,19 @@ describe('the wire window, over real sockets', () => {
 
   beforeAll(async () => {
     stateDir = mkdtempSync(join(tmpdir(), 'podium-wire-window-'))
+    writeFileSync(
+      join(stateDir, 'config.json'),
+      JSON.stringify({ configVersion: 2, mode: 'all-in-one', persistence: 'systemd' }),
+    )
     process.env.PODIUM_STATE_DIR = stateDir
     originalPassword = process.env.PODIUM_PASSWORD
     process.env.PODIUM_PASSWORD = CLIENT_PASSWORD
     handle = await startServer({ janitorWorkerForTests: noJanitorWorkerForTests, port: 0 })
+    const store = handle.registry.sessionStore
+    await memberCredentials(store.users, () => handle.identity.core.accounts).setPassword(
+      await firstAdminMemberId(store),
+      CLIENT_PASSWORD,
+    )
     cookieHeader = (
       await loginTestClient({
         origin: `http://127.0.0.1:${handle.port}`,
@@ -88,7 +99,7 @@ describe('the wire window, over real sockets', () => {
       })
     ).cookieHeader
     machineId = handle.registry.modules.machines.hostMachineId
-    handle.registry.gateway.attachDaemon(machineId, () => {})
+    await attachHostDaemon(handle.registry)
     await handle.registry.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/repo/before-the-deploy',

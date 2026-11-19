@@ -5,6 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { runIssueCli } from '../../cli/src/issue-cli'
 import { createAgentRelayHub, startAgentRelayServer } from '../../daemon/src/agent-relay'
 import { SessionRegistry } from './relay'
+import { attachHostDaemon } from './test-support/host-daemon'
 
 /**
  * End-to-end proof that an agent's `podium issue` call flows the WHOLE chain with every
@@ -25,7 +26,7 @@ import { SessionRegistry } from './relay'
  * Everything is the real module except the physical network + PTY.
  */
 describe('agent relay end-to-end (CLI → daemon relay → server capability gate → back)', () => {
-  const machineId = 'm1'
+  let machineId: string
   const repoPath = '/repo'
   let registry: SessionRegistry
   let relayServer: Awaited<ReturnType<typeof startAgentRelayServer>>
@@ -37,13 +38,25 @@ describe('agent relay end-to-end (CLI → daemon relay → server capability gat
 
   beforeAll(async () => {
     registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    machineId = registry.sessionStore.hostMachineId
+    await attachHostDaemon(registry, () => {}, { repos: [repoPath] })
 
     // A is a subtree root with a worktree; a session running INSIDE it → a worker capability
     // rooted at A's subtree. B is unrelated (outside A's subtree). Mirrors the P1b-server tests.
-    A = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, { repoPath, title: 'epic root A', startNow: false })
-    await registry.issues.crud.update(registry.issues.reports.store.serverWriter, A.id, { worktreePath: '/wt/A' })
+    A = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
+      repoPath,
+      title: 'epic root A',
+      startNow: false,
+    })
+    await registry.issues.crud.update(registry.issues.reports.store.serverWriter, A.id, {
+      worktreePath: '/wt/A',
+    })
     const wtA = (await registry.issues.reports.get(A.id))?.worktreePath as string
-    B = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, { repoPath, title: 'unrelated B', startNow: false })
+    B = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
+      repoPath,
+      title: 'unrelated B',
+      startNow: false,
+    })
     sA = (await registry.modules.sessions.createSession({ cwd: wtA, agentKind: 'shell' })).sessionId
 
     // The capability-scoped command service is built into the registry (issue #13
@@ -72,8 +85,8 @@ describe('agent relay end-to-end (CLI → daemon relay → server capability gat
   })
 
   afterAll(async () => {
-    await relayServer.close()
-    await registry.dispose()
+    await relayServer?.close()
+    await registry?.dispose()
   })
 
   // 1. prime is bound to the session's subtree via its cwd (capabilityForSession → boundIssueId),

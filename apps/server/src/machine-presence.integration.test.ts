@@ -30,20 +30,20 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { hostname, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createHandshakeDialer } from '@podium/protocol'
-import { readOrCreateDaemonSecret, readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
+import { readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import WebSocket from 'ws'
 import { noJanitorWorkerForTests } from './janitor-host'
-import { startServer } from './server'
+import { startServer } from './test-support/enrolled-server'
 
 const priorStateDir = process.env.PODIUM_STATE_DIR
 
 /** One real daemon handshake over a real socket; resolves when the link is up. */
-async function connectDaemon(port: number, stateDir: string): Promise<WebSocket> {
+async function connectDaemon(port: number, stateDir: string, token: string): Promise<WebSocket> {
   const ws = new WebSocket(`ws://127.0.0.1:${port}/daemon`)
   const dialer = createHandshakeDialer({
     peerRole: 'machine',
-    credential: { kind: 'daemonSecret', secret: readOrCreateDaemonSecret(stateDir) },
+    credential: { kind: 'daemonSecret', secret: token },
     claims: { machineId: readOrCreateLocalMachineId(stateDir), hostname: hostname() },
   })
   await new Promise<void>((resolve, reject) => {
@@ -83,12 +83,12 @@ describe('machine presence (live server, real daemon socket)', () => {
   }
 
   it('flips the machine ONLINE while a daemon is attached, and back OFFLINE when it goes', async () => {
-    // Boot writes the host row (`ensureHostMachine`) before any daemon exists —
+    // Explicit fixture enrollment writes the host row before any daemon exists —
     // the row's mere presence, and its `lastSeenAt`, prove nothing about reach.
     expect((await listing()).online).toBe(false)
     const beforeConnect = (await listing()).lastSeenAt
 
-    const ws = await connectDaemon(server.port, stateDir)
+    const ws = await connectDaemon(server.port, stateDir, server.machineToken)
     expect((await listing()).online).toBe(true)
 
     // The handshake DID reach the presence writer. Asserted as an advance past a
@@ -109,7 +109,7 @@ describe('machine presence (live server, real daemon socket)', () => {
     // A SECOND handshake must advance it AGAIN: the reported symptom was a value
     // written once at connect and never after, which a single-connect assertion
     // would happily accept.
-    const ws2 = await connectDaemon(server.port, stateDir)
+    const ws2 = await connectDaemon(server.port, stateDir, server.machineToken)
     expect((await listing()).online).toBe(true)
     expect(new Date((await listing()).lastSeenAt).getTime()).toBeGreaterThan(
       new Date(afterConnect).getTime(),
@@ -132,7 +132,7 @@ describe('machine presence (live server, real daemon socket)', () => {
     // equality revalidation, both of which read a CHANGED value as a NEW
     // connection occurrence. Rewriting it on a timer would re-fire connect-scan
     // every interval and fail that revalidation.
-    const ws = await connectDaemon(server.port, stateDir)
+    const ws = await connectDaemon(server.port, stateDir, server.machineToken)
     expect((await listing()).online).toBe(true)
     const atConnect = (await listing()).lastSeenAt
 

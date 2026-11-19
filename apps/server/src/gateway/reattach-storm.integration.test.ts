@@ -8,7 +8,7 @@
  * systemd watchdog window. `relay.bind-storm.test.ts` pins the pipeline fixes at
  * the REGISTRY level, against a plain function sink. This file pins the property
  * one layer out, where the incident was actually observed: a REAL server, a real
- * HTTP surface, real `/client?cap=sync.http.v1` WebSockets receiving the fan-out, and the storm
+ * HTTP surface, real `/client?v=${CLIENT_WIRE_VERSION}&cap=sync.http.v1` WebSockets receiving the fan-out, and the storm
  * driven through the real gateway.
  *
  * ---------------------------------------------------------------------------
@@ -47,16 +47,17 @@ import { asSessionId, type MachineId } from '@podium/model'
 import {
   CAP_METADATA_DELTA,
   CAP_TERMINAL_OUTPUT_BINARY_V1,
+  CLIENT_WIRE_VERSION,
   decodeBinaryEnvelope,
   PtyOutputBinaryMetadata,
   type ServerMessage,
-  CLIENT_WIRE_VERSION,
 } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { WebSocket } from 'ws'
 import { noJanitorWorkerForTests } from '../janitor-host'
 import { startServer } from '../server'
+import { attachHostDaemon } from '../test-support/host-daemon'
 
 const SESSIONS = 40
 const ROUNDS = 6
@@ -88,16 +89,18 @@ describe('a daemon reattach storm', () => {
     // A session can only be created on an ONLINE machine, so the host has to be
     // attached before the fixture exists. This sink is superseded by the storm's
     // first round, which is exactly the reattach shape under test.
-    handle.registry.gateway.attachDaemon(machineId, () => {})
+    await attachHostDaemon(handle.registry)
     sessionIds = await Promise.all(
       Array.from(
         { length: SESSIONS },
         async (_, i) =>
-          (await handle.registry.modules.sessions.createSession({
-            agentKind: 'shell',
-            cwd: `/repo/w${i}`,
-            machineId,
-          })).sessionId,
+          (
+            await handle.registry.modules.sessions.createSession({
+              agentKind: 'shell',
+              cwd: `/repo/w${i}`,
+              machineId,
+            })
+          ).sessionId,
       ),
     )
     handle.registry.modules.sessions.flushBroadcasts()
@@ -112,7 +115,9 @@ describe('a daemon reattach storm', () => {
   /** Connect a real /client socket and collect its frames. Resolves once open. */
   async function connectClient(port: number) {
     const frames: ServerMessage[] = []
-    const ws = new WebSocket(`ws://127.0.0.1:${port}/client?cap=sync.http.v1`)
+    const ws = new WebSocket(
+      `ws://127.0.0.1:${port}/client?v=${CLIENT_WIRE_VERSION}&cap=sync.http.v1`,
+    )
     ws.on('message', (raw) => frames.push(JSON.parse(raw.toString()) as ServerMessage))
     let closedWith: number | undefined
     ws.on('close', (code) => {
