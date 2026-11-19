@@ -6,17 +6,21 @@ import {
   filterBoardScope,
   type IssueNavigationModel,
   isSessionWorking,
+  isVacatedOrigin,
   missionDepartures,
-  missionProgress,
   missionRootFor,
   missionSessions,
+  missionTaskBucket,
   orderIssues,
   reposToViews,
   sessionNeedsHuman,
+  sessionsForIssueNav,
+  tallyMissionBuckets,
   taskProgressMap,
   taskStateWord,
 } from '@podium/client-core/values'
 import { asIssueId, dedupeSessionsByResume, isFinished } from '@podium/model'
+import { leafTasks, sessionWorkingFact } from '@podium/model/browser'
 import { expect } from 'vitest'
 import type { MobileScreenInput } from './mobile-screens-snapshot'
 import { allIssueViewModels } from './reference/issue-view-models'
@@ -65,6 +69,37 @@ function referenceIssues(source: ReferenceState): Issue[] {
     publications.set(source, issues)
   }
   return issues
+}
+
+/** A hidden mission may still contain accepted visible work. Count that work
+ * from its formal records rather than dropping the meter with its root. */
+function referenceProgress(issues: Issue[], sessions: ReferenceState['sessions'], rootId?: string) {
+  const byId = new Map(issues.map((issue) => [issue.id as string, issue]))
+  const visible = (issue: Issue) => !issue.archived && !issue.deletedAt
+  const children = new Map<string, string[]>()
+  for (const issue of issues) {
+    if (!issue.parentId || !visible(issue) || issue.stage === 'proposed') continue
+    const siblings = children.get(issue.parentId) ?? []
+    siblings.push(issue.id)
+    children.set(issue.parentId, siblings)
+  }
+  const leaves =
+    rootId && byId.has(rootId)
+      ? leafTasks(rootId, { task: (id) => byId.get(id), children: (id) => children.get(id) ?? [] })
+      : []
+  return tallyMissionBuckets(leaves, (id) => {
+    const issue = byId.get(id)!
+    const own = sessions.filter((session) => session.issueId === id)
+    if (!visible(issue) || isVacatedOrigin(issue, own, byId)) return null
+    const members = sessionsForIssueNav(issue, sessions, [], { includeShells: true })
+    return missionTaskBucket(
+      issue,
+      own.length > 0 ||
+        Boolean(issue.memberSessionIds?.length) ||
+        sessions.some((session) => session.refIssueId === id),
+      [...own, ...members].some((session) => !session.archived && sessionWorkingFact(session)),
+    )
+  })
 }
 
 /** Board matches retain eligible ancestors; human proposals lead their own blocks. */
@@ -224,7 +259,7 @@ export function expectMobileScreens(
     root: root?.id ?? null,
     current: current?.sessionId ?? null,
     header: header ? { id: header.id, ...headerFields } : null,
-    progress: missionProgress(issues, sessions, root?.id),
+    progress: referenceProgress(issues, sessions, root?.id),
     attention: crew.filter(sessionNeedsHuman).length,
     live: crew.filter((session) => !session.archived && session.status !== 'exited').length,
     working: crew.filter(isSessionWorking).length,

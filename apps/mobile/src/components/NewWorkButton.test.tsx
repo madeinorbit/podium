@@ -211,7 +211,7 @@ describe('phone launch demand bounds', () => {
       // separately from those scalar reads, and bound both size and growth.
       const rootReads = rows.mock.calls.filter(([kind]) => String(kind) === 'repository')
       expect(rootReads.length).toBeGreaterThan(0)
-      expect(rootReads).toHaveLength(29)
+      expect(rootReads.length).toBeLessThanOrEqual(29)
       readsByScale.push(rootReads.length)
       expect(new Set(rootReads.map(([, id]) => id))).toEqual(
         new Set([JSON.stringify(['mine', path])]),

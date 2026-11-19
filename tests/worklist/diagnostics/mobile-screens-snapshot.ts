@@ -184,6 +184,26 @@ function opening(pool: MobxPool, rootId: string): MissionScreen {
   }
   return screen
 }
+export function mobileScreenLoadingState(pool: MobxPool, input: MobileScreenInput) {
+  const rootId = missionRootId(pool, input.selectedId, true)
+  if (rootId === LOADING || !rootId) return { rootId: String(rootId) }
+  const screen = opening(pool, rootId),
+    deck = screen.reader.deck(rootId, input.mode)
+  const state = {
+    ready: settled(() => screen.ready),
+    topology: settled(() => deck.topology),
+    progress: settled(() => deck.progress),
+    archivedCount: settled(() => deck.archivedCount),
+    headerReady: settled(() => deck.headerReady),
+    rows: settled(() => deck.rowIds()),
+  }
+  return {
+    rootId,
+    ...Object.fromEntries(
+      Object.entries(state).map(([key, value]) => [key, value === LOADING ? 'loading' : value]),
+    ),
+  }
+}
 function phoneMission(
   pool: MobxPool,
   selectedId: string | null,

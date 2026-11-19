@@ -10,6 +10,7 @@ import type { MobxPool } from '@podium/client-graph/pool'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import {
   type MobileScreenInput,
+  mobileScreenLoadingState,
   observeMobileScreens,
   poolMobileScreensSnapshot,
   trackMobileScreenRead as tracked,
@@ -36,12 +37,18 @@ const tasks: NonNullable<MobileScreenInput['tasks']> = {
   ordering: 'priority',
   showAgentTasks: false,
 }
-function settle(pool: MobxPool, input: MobileScreenInput) {
+async function settle(pool: MobxPool, input: MobileScreenInput) {
   for (let round = 0; round < 64; round++) {
-    tracked(() => poolMobileScreensSnapshot(pool, input))
-    if (!pool.hydrate()) return
+    const output = tracked(() => poolMobileScreensSnapshot(pool, input))
+    if (typeof output !== 'symbol') return
+    if (!pool.hydrate())
+      // Large missions warm their rows in MessageChannel tasks. A drained
+      // record-load queue does not mean that the opening has finished.
+      await new Promise<void>((resolve) => setTimeout(resolve, 0))
   }
-  throw new Error('Phone batched loads did not settle')
+  throw new Error(
+    `Phone opening did not settle: ${JSON.stringify(tracked(() => mobileScreenLoadingState(pool, input)))}`,
+  )
 }
 
 it.each([
@@ -65,7 +72,7 @@ it.each([
       }
       const stop = observeMobileScreens(handle.pool, input)
       try {
-        settle(handle.pool, input)
+        await settle(handle.pool, input)
         const output = tracked(() => poolMobileScreensSnapshot(handle.pool, input))
         if (typeof output === 'symbol') throw new Error('Archived root is still loading')
         expect(output.sections.find((section) => section.key === 'mission')?.fields).toMatchObject({
@@ -89,7 +96,7 @@ it.each([
   }
 })
 
-function compare(pool: MobxPool, store: Store, label: string, all: boolean) {
+async function compare(pool: MobxPool, store: Store, label: string, all: boolean) {
   const issues = store.issueProjections
   const roots = [
     ...new Set(
@@ -113,9 +120,12 @@ function compare(pool: MobxPool, store: Store, label: string, all: boolean) {
       }
       const stop = observeMobileScreens(pool, input)
       try {
-        settle(pool, input)
+        await settle(pool, input)
         const output = tracked(() => poolMobileScreensSnapshot(pool, input))
-        if (typeof output === 'symbol') throw new Error('Phone output is still loading')
+        if (typeof output === 'symbol')
+          throw new Error(
+            `${label} ${selectedId} ${mode}: phone output is still loading ${JSON.stringify(tracked(() => mobileScreenLoadingState(pool, input)))}`,
+          )
         expect(output.pending).toBe(0)
         expectMobileScreens(output, store, input, `${label} ${selectedId} ${mode}`)
         positions += output.sections.reduce((count, section) => count + section.rows.length, 0)
@@ -140,7 +150,7 @@ function compare(pool: MobxPool, store: Store, label: string, all: boolean) {
       selectedId: ids[0] ?? null,
       mode: 'full',
     }
-    settle(pool, input)
+    await settle(pool, input)
     const output = tracked(() => poolMobileScreensSnapshot(pool, input))
     if (typeof output === 'symbol') throw new Error('Phone board is still loading')
     expectMobileScreens(output, store, input, `${label} board options ${optionIndex}`)
@@ -154,18 +164,23 @@ for (const scale of [1, 4] as const)
     const handle = createWorklistPool(feeds.rows.source, feeds.locals.source, {})
     await attachMobileScreens(handle.pool)
     try {
-      let positions = compare(handle.pool, referenceState(ctx.engine), 'corpus', scale === 1)
+      let positions = await compare(handle.pool, referenceState(ctx.engine), 'corpus', scale === 1)
       for (const scenario of FENCE_SCENARIOS) {
         await scenario.write(ctx)
         feeds.flush()
-        positions += compare(handle.pool, referenceState(ctx.engine), scenario.scenario, false)
+        positions += await compare(
+          handle.pool,
+          referenceState(ctx.engine),
+          scenario.scenario,
+          false,
+        )
       }
       await writeRescopeGrow(ctx)
       feeds.flush()
-      positions += compare(handle.pool, referenceState(ctx.engine), 'scope growth', false)
+      positions += await compare(handle.pool, referenceState(ctx.engine), 'scope growth', false)
       await writeRescopeBack(ctx)
       feeds.flush()
-      positions += compare(handle.pool, referenceState(ctx.engine), 'scope back', false)
+      positions += await compare(handle.pool, referenceState(ctx.engine), 'scope back', false)
       expect(positions).toBeGreaterThan(0)
       console.info(
         '[phone screen regression]',
