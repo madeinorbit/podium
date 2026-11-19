@@ -1,3 +1,4 @@
+import { LayoutGroup, MotionContext } from 'motion/react'
 import type { VisualElement } from 'motion-dom'
 import {
   type Context,
@@ -12,7 +13,6 @@ import {
   useState,
 } from 'react'
 import { useBoundedVirtualList } from '@/features/issues/use-bounded-virtual-list'
-import { LayoutGroup, MotionContext } from './worklist-motion'
 
 const focusable = 'button:not([disabled]), input:not([disabled]), [tabindex="0"], a[href]'
 

@@ -1,9 +1,6 @@
 import { LayoutGroup, LazyMotion, MotionConfig } from 'motion/react'
 import type { JSX, ReactNode } from 'react'
 
-// Keep the shell's Motion entry centralized at this feature boundary.
-export { LayoutGroup, MotionContext } from 'motion/react'
-
 const loadWorklistMotionFeatures = () =>
   import('./worklist-motion-features').then((module) => module.default)
 

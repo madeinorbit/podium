@@ -166,7 +166,7 @@ describe('StatusStrip agent concurrency history', () => {
         agentState: { phase: 'working' },
       })),
     )
-    const roster = vi.spyOn(HeaderSessions.prototype, 'working')
+    const roster = vi.spyOn(HeaderSessions.prototype, 'workingIds')
     const view = render(<StatusStrip />)
     await waitFor(() => expect(fixture.query).toHaveBeenCalled())
     expect(screen.getByTestId('status-strip-working').textContent).toContain(

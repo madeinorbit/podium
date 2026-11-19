@@ -501,6 +501,9 @@ function useFixturePool(): MobxPool {
     const seen = seenSelected
     const pool = {
       notSaved: () => false,
+      get collections() {
+        return records().collections
+      },
       issueObject: (id: string) => records().issueObject(id),
       sessionObject: (id: string) => records().sessionObject(id),
       bindSessionDrafts: (drafts: Parameters<MobxPool['bindSessionDrafts']>[0]) =>

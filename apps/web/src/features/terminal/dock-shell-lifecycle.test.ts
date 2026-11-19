@@ -16,7 +16,10 @@ vi.mock('@/app/store', () => ({
 const owner = withKeyedInputs({ getSnapshot: () => store.value, subscribe: () => () => {} })
 vi.mock('@podium/client-core/react', async () => {
   const { fixtureRuntimeHooks } = await import('@podium/client-core/test-support/command-hooks')
-  return { ...fixtureRuntimeHooks(() => owner) }
+  return {
+    ...fixtureRuntimeHooks(() => owner),
+    ...(await import('@podium/client-core/test-support/react')).fixtureUiHooks(() => owner),
+  }
 })
 vi.mock('@/app/store-worklist-pool', () => ({
   useWorklistPoolProjection: <T>(read: (pool: MobxPool) => T) =>

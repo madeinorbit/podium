@@ -69,6 +69,7 @@ const keyedHandle = withKeyedInputs({
       'clearAttachedSession',
       'openFile',
       'interruptTurn',
+      'answerSession',
       'endSession',
       'dismissEffect',
     ] as const) {

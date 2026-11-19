@@ -397,8 +397,12 @@ export function expectMobileScreens(
     const byId = mismatch ? new Map(issues.map((issue) => [issue.id as string, issue])) : null
     const contributors = mismatch
       ? [row.issue.id, ...row.descendantIds].flatMap((id) => {
-          const child = rows.find((candidate) => candidate.issue.id === id)
-          if (!child) return []
+          const issue = byId!.get(id)
+          if (!issue || issue.archived || issue.deletedAt) return []
+          const child = rows.find((candidate) => candidate.issue.id === id) ?? {
+            issue,
+            sessions: sessionsForIssueNav(issue, sessions, paths, { includeShells: true }),
+          }
           return [
             {
               id,

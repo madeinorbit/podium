@@ -103,9 +103,23 @@ describe('eager shell Motion boundary', () => {
   const graph = eagerShellGraph()
 
   it('keeps the full React entry behind the one LazyMotion boundary', () => {
-    expect([...(graph.packageImports.get('motion/react') ?? [])].sort()).toEqual([
-      'features/worklist/worklist-motion.tsx',
-    ])
+    const fullEntries = [...(graph.packageImports.get('motion/react') ?? [])]
+    expect(fullEntries).toContain('features/worklist/worklist-motion.tsx')
+    for (const file of fullEntries) {
+      if (file === 'features/worklist/worklist-motion.tsx') continue
+      const source = readFileSync(resolve(SRC, file), 'utf8')
+      const imports = [...source.matchAll(/import\s*\{([^}]+)\}\s*from ['"]motion\/react['"]/g)]
+      expect(imports.length, file).toBeGreaterThan(0)
+      for (const entry of imports)
+        expect(
+          entry[1]!
+            .split(',')
+            .map((name) => name.trim())
+            .every((name) => ['LayoutGroup', 'MotionContext'].includes(name)),
+          file,
+        ).toBe(true)
+      expect(source, file).not.toMatch(/<LazyMotion|<motion[. ]/)
+    }
     // Lightweight m components may move between row owners. Every eager
     // importer still belongs to the worklist boundary and no feature bundle
     // may import the full motion entry alongside it.

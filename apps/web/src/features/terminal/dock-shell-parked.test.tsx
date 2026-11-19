@@ -1,3 +1,4 @@
+import '@/test-support/mock-core-store-handle'
 // @vitest-environment happy-dom
 import { asSessionId, type SessionMeta } from '@podium/model'
 import { act } from 'react'

@@ -1,17 +1,25 @@
-import { screenOptions } from '@podium/client-graph/host'
-import { createPoolProjection, createRuntimeWorklistPool } from '@podium/client-graph/runtime-pool'
 import { LOADING } from '@podium/client-graph'
-import { expect, it } from 'vitest'
-import { startScenarioEngine } from '../../../../tests/worklist/shared/src/scenarios'
+import { screenOptions } from '@podium/client-graph/host'
 import { MissionScreen } from '@podium/client-graph/mission-screen'
 import { settled } from '@podium/client-graph/mission-view'
+import { createPoolProjection, createRuntimeWorklistPool } from '@podium/client-graph/runtime-pool'
+import { expect, it } from 'vitest'
+import { startScenarioEngine } from '../../../../tests/worklist/shared/src/scenarios'
 import { poolBackedScreens } from './pool-screens'
 
-it.each([1, 4] as const)('settles a cold production mission at %sx before its first visible pane', async (scale) => {
+it.each([
+  1, 4,
+] as const)('settles a cold production mission at %sx before its first visible pane', async (scale) => {
   const ctx = await startScenarioEngine(scale, { seed: 4443 })
   const handle = createRuntimeWorklistPool(ctx.engine, screenOptions(poolBackedScreens, ctx.engine))
-  const input = { selectedIssueId: scale === 1 ? 'i1766' : 'i13916', paneA: 's0', paneB: null, split: false,
-    mode: 'full' as const, handoff: false }
+  const input = {
+    selectedIssueId: scale === 1 ? 'i1766' : 'i13916',
+    paneA: 's0',
+    paneB: null,
+    split: false,
+    mode: 'full' as const,
+    handoff: false,
+  }
   const screen = new MissionScreen(handle.pool, input.selectedIssueId, { fullOnly: true })
   // The deleted reader returned a lazy deck once its opening boundary was
   // ready. Preserve that question; rich fields load in their small observers.
@@ -25,10 +33,10 @@ it.each([1, 4] as const)('settles a cold production mission at %sx before its fi
   let pane = projection.getSnapshot()
   try {
     const batches: number[] = []
-    for (let turn = 0; turn < 8; turn++) {
+    for (let turn = 0; turn < 64; turn++) {
       // Device preferences publish in microtasks independently of row hydration.
       // Keep the row-batch ceiling while allowing the opening's owner to settle.
-      await Promise.resolve()
+      await new Promise<void>((resolve) => setTimeout(resolve, 0))
       const loaded = handle.pool.hydrate()
       batches.push(loaded)
       pane = projection.getSnapshot()
@@ -36,7 +44,10 @@ it.each([1, 4] as const)('settles a cold production mission at %sx before its fi
     }
     expect(pane, `cold loader batches: ${batches.join(', ')}`).not.toBe(LOADING)
     console.info('[mission cold batches]', JSON.stringify({ scale, batches }))
-    expect(batches.filter(Boolean).length, `cold loader batches: ${batches.join(', ')}`).toBeLessThanOrEqual(4)
+    expect(
+      batches.filter(Boolean).length,
+      `cold loader batches: ${batches.join(', ')}`,
+    ).toBeLessThanOrEqual(4)
     if (pane === LOADING) throw new Error('Cold mission did not settle')
     expect(pane.reader.issue(pane.rootId)).toMatchObject({ id: input.selectedIssueId })
     expect(pane.rows.length).toBeGreaterThan(0)

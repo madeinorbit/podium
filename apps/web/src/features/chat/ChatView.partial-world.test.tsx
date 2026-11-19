@@ -47,7 +47,9 @@ const fakeHub = {
 
 const reads: ReadCall[] = []
 const sendText = vi.fn(async (_input: Record<string, unknown>) => ({ disposition: 'delivered' }))
-const answerAsk = vi.fn(async (_input: Record<string, unknown>) => {})
+const answerAsk = vi.fn(
+  async (_sessionId: unknown, _answer: Record<string, unknown>) => 'eff_answer',
+)
 const fakeTrpc = {
   sessions: {
     transcriptRead: {
@@ -58,7 +60,7 @@ const fakeTrpc = {
       },
     },
     sendText: { mutate: sendText },
-    answerAskUserQuestion: { mutate: answerAsk },
+
     uploadImage: { mutate: vi.fn(async () => ({ path: '/x' })) },
   },
 }
@@ -79,6 +81,7 @@ vi.mock('@/app/store', () => {
   const useStore = () => ({
     hub: fakeHub,
     trpc: fakeTrpc,
+    answerSession: answerAsk,
     replica: fakeReplica,
     sessions: storeSessions,
     drafts: storeDrafts,
@@ -334,7 +337,7 @@ describe('no chat payload carries attribution', () => {
     })
     await flush()
     expect(answerAsk).toHaveBeenCalledTimes(1)
-    const payload = answerAsk.mock.calls[0]?.[0] ?? {}
+    const payload = answerAsk.mock.calls[0]?.[1] ?? {}
     // interactionId is question identity (POD-4292: which menu is answered, so a
     // stale card cannot answer a newer question), not actor attribution — the
     // authority still stamps who answered (doc §3.1.3 A3). It is optional on the
