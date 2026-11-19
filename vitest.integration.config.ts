@@ -1,4 +1,5 @@
 import { defineConfig } from 'vitest/config'
+import { standardDecorators } from './scripts/vite-standard-decorators'
 import { nodeTestExclude, sharedVitestConfig } from './vitest.config'
 import { ptySmokeTests } from './vitest.smoke-requirements'
 
@@ -31,6 +32,7 @@ const integrationTests = [
 
 /** Deterministic native/process integration scope. Resource flakes retry here only. */
 export default defineConfig({
+  plugins: [standardDecorators()],
   resolve: sharedVitestConfig.resolve,
   test: {
     name: 'node',

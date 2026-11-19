@@ -12,7 +12,7 @@ import { EventBus } from '../../apps/server/src/modules/bus'
 import { NotifyService } from '../../apps/server/src/modules/notify/service'
 
 describe('all-provider owner-scoped needs-attention', () => {
-  it('routes each precise session signal only to its owning principal', () => {
+  it('routes each precise session signal only to its owning principal', async () => {
     const owner = asUserId('user:owner')
     const other = asUserId('user:other')
     const ownerMessages: ServerMessage[] = []
@@ -65,7 +65,12 @@ describe('all-provider owner-scoped needs-attention', () => {
         ),
         '2026-08-02T10:00:00.000Z',
       )
-      bus.emit('session.stateChanged', { sessionId, ownerUserId: owner, prev: previous, next })
+      await bus.emitSettled('session.stateChanged', {
+        sessionId,
+        ownerUserId: owner,
+        prev: previous,
+        next,
+      })
     }
 
     const attention = ownerMessages.filter(
@@ -75,7 +80,7 @@ describe('all-provider owner-scoped needs-attention', () => {
     expect(attention.map((message) => message.sessionId).sort()).toEqual(
       [...expectedSessionIds].sort(),
     )
-    expect(attention).toHaveLength(5)
+    expect(attention).toHaveLength(expectedSessionIds.length)
     expect(otherMessages).toEqual([])
 
     // Unknown ownership fails closed; there is no ambient operator/broadcast fallback.
@@ -86,8 +91,8 @@ describe('all-provider owner-scoped needs-attention', () => {
       withStateChannelEvent({ kind: 'needs_user', need: 'question' }, 'hook'),
       '2026-08-02T10:00:01.000Z',
     )
-    bus.emit('session.stateChanged', { sessionId, prev: undefined, next: state })
-    expect(ownerMessages).toHaveLength(5)
+    await bus.emitSettled('session.stateChanged', { sessionId, prev: undefined, next: state })
+    expect(ownerMessages).toHaveLength(expectedSessionIds.length)
     expect(otherMessages).toEqual([])
   })
 })

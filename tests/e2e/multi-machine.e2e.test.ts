@@ -2,9 +2,9 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
 import { afterAll, describe, expect, it } from 'vitest'
 import { type DaemonOptions, startDaemon } from '../../apps/daemon/src/daemon'
-import { readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
 import { startServer } from '../../apps/server/src/test-support/enrolled-server'
 import { applyHarnessEnv, reapHarnessSessions } from './harness-env'
 
@@ -92,9 +92,9 @@ describe('e2e: two-daemon pairing + routing', () => {
 
     try {
       // 1) Both machines must appear online
-      const machines = srv.registry.modules.machines
-        .listMachines()
-        .filter((machine) => machine.online)
+      const machines = (await srv.registry.modules.machines.listMachines()).filter(
+        (machine) => machine.online,
+      )
       expect(machines).toHaveLength(2)
       expect(machines.every((m) => m.online)).toBe(true)
 

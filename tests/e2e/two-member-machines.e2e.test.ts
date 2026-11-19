@@ -37,9 +37,6 @@ describe('two members on independent machine processes', () => {
 
   it('enrolls independent machines and enforces file and git access', async () => {
     f = await startTwoMemberInstance()
-    await expect((await f.as('bob')).trpc.machines.pairingCode.mutate({})).rejects.toThrow(
-      /admin account/i,
-    )
     const machines = new Map<'alice' | 'bob', { id: MachineId; root: string; pid: number }>()
     for (const who of ['alice', 'bob'] as const) {
       const dir = mkdtempSync(join(tmpdir(), `mu-6303-${who}-`))
@@ -68,7 +65,9 @@ describe('two members on independent machine processes', () => {
         '-m',
         'Machine fixture',
       ])
-      const { code } = await (await f.as('alice')).trpc.machines.pairingCode.mutate({})
+      // Every member enrolls into their own custody (POD-6883). The cross-user
+      // file/git refusals below exercise the resulting independent owners.
+      const { code } = await (await f.as(who)).trpc.machines.pairingCode.mutate({})
       // Current enrollment belongs to the machine supervisor. A bare daemon's
       // legacy pairCode option does not enroll it or prove connectivity.
       const supervisorState = loadSupervisorState(state)
