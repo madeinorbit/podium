@@ -12,6 +12,8 @@ function machine(
   return {
     id: 'machine_1',
     online,
+    serviceAssignment: { server: false, agentExecution: true },
+    availability: { daemon: online },
     inventory: {
       agents: agents.map((a) => ({
         kind: a.kind,

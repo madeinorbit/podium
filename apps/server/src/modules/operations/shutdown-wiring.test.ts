@@ -40,15 +40,9 @@ describe('operation timers in the shutdown path', () => {
     expect(serverSource()).toContain('operations.stopTimers')
   })
 
-  it('are stopped BEFORE the store closes', () => {
-    const source = serverSource()
-    const stopTimers = source.indexOf("['operations.stopTimers'")
-    const closeStore = source.indexOf("['store.close'")
-    expect(stopTimers).toBeGreaterThan(-1)
-    expect(closeStore).toBeGreaterThan(-1)
-    expect(stopTimers).toBeLessThan(closeStore)
-  })
-
+  // Store close now owns the persistence callback, rather than appearing as a
+  // step beside stopTimers. shutdown.test.ts exercises that drain/persist/close
+  // order, and engine.test.ts proves stop fences pending timer work.
   it('are stopped through the module seam, not a captured local', () => {
     // A local reference would silently keep pointing at a replaced engine.
     expect(serverSource()).toContain('registry.modules.operations.engine.stop()')

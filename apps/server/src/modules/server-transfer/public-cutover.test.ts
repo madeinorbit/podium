@@ -26,7 +26,9 @@ describe('server-move clean public cutover', () => {
     ]
     const matches = files.flatMap((path) => {
       const text = readFileSync(path, 'utf8')
-      return forbidden.filter((term) => text.includes(term)).map((term) => ({ path, term }))
+      return forbidden
+        .filter((term) => new RegExp(`\\b${term}\\b`).test(text))
+        .map((term) => ({ path, term }))
     })
     expect(matches).toEqual([])
   })

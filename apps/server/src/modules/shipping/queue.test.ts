@@ -94,7 +94,7 @@ const cacheScope = (orders: readonly ShipOrder[], workspaceId: WorkspaceId = WS_
 })
 
 describe('shippingSchedule', () => {
-  it('O1 boot rows keep ranks and omit unused train and waitEstimate facts', () => {
+  it('boot truth puts scheduling on the lane and keeps order rows compact', () => {
     const first = order('first', '2026-08-14T10:00:00.000Z')
     const second = order('second', '2026-08-14T10:01:00.000Z', {
       deliveryDependsOn: [first.id],
@@ -103,13 +103,19 @@ describe('shippingSchedule', () => {
       deliveryDependsOn: [asShipOrderId('missing')],
     })
     const orders = [second, blocked, first]
-    const rows = scheduledShippingProjection(orders, [], []).orders
-    expect(rows.map(({ id, value }) => [id, value.queueRank])).toEqual([
-      [second.id, 1],
-      [blocked.id, undefined],
-      [first.id, 1],
+    const { orders: rows, lanes } = scheduledShippingProjection(orders, [], [])
+    expect(lanes.map(({ value }) => value)).toEqual([
+      {
+        id: shipLaneIdOf(first),
+        repoId: first.repoId,
+        destination: 'local:main',
+        trains: [{ orderIds: [first.id, second.id] }],
+        blockedOrderIds: [blocked.id],
+      },
     ])
+    expect(rows.map(({ id }) => id)).toEqual(orders.map(({ id }) => id))
     for (const { value } of rows) {
+      expect(value).not.toHaveProperty('queueRank')
       expect(value).not.toHaveProperty('train')
       expect(value).not.toHaveProperty('waitEstimate')
     }
@@ -387,7 +393,7 @@ describe('POD-4974 O2 lane-scoped scheduling', () => {
     expect(lane.lane.trains[0]!.orderIds).toEqual([lower.id, middle.id, upper.id])
   })
 
-  it('O2 boot truth ranks over recorded edges and publishes one row per queued lane', () => {
+  it('boot truth schedules recorded edges on lanes without changing order facts', () => {
     const lower = order('lower', t(2), { approvedHeadSha: 'lower-head' })
     const blocker = order('blocker', t(1), { approvedBaseSha: 'other-base' })
     const upper = order('upper', t(0), { approvedHeadSha: 'upper-head' })
@@ -407,11 +413,9 @@ describe('POD-4974 O2 lane-scoped scheduling', () => {
         blockedOrderIds: [],
       },
     ])
-    expect(Object.fromEntries(truth.orders.map((row) => [row.id, row.value.queueRank]))).toEqual({
-      upper: 2,
-      blocker: 1,
-      lower: 2,
-      done: undefined,
-    })
+    expect(truth.orders).toEqual(
+      scheduledShippingProjection([upper, blocker, lower, done], [], []).orders,
+    )
+    for (const { value } of truth.orders) expect(value).not.toHaveProperty('queueRank')
   })
 })

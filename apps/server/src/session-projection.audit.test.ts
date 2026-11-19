@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync, statSync } from 'node:fs'
+import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
@@ -69,6 +69,18 @@ const walk = (dir: string): string[] =>
 const FULL_LIST_CALL =
   /(?<![A-Za-z])(?:listSessions|view\.list|view\.listInPages|listSessionsForBootBaseline)\s*\(/
 
+function callsFullProjection(source: string): boolean {
+  // A private helper with the same name is a local method, not the session
+  // projection port. Its body is still scanned for calls to the real port.
+  const localMethod = /\bprivate\s+(?:async\s+)?listSessions\s*\(/
+  const calls = localMethod.test(source)
+    ? source
+        .replace(localMethod, 'private localSessionList(')
+        .replace(/\bthis\.listSessions\s*\(/g, 'this.localSessionList(')
+    : source
+  return FULL_LIST_CALL.test(calls)
+}
+
 /**
  * WHO MAY BUILD IT, and why each one genuinely needs a reader-scoped wire
  * projection rather than {@link SessionFacts}.
@@ -97,7 +109,7 @@ function offenders(source = SRC): string[] {
     const text = readFileSync(file, 'utf8')
       .replace(/\/\*[\s\S]*?\*\//g, '')
       .replace(/\/\/.*$/gm, '')
-    if (FULL_LIST_CALL.test(text)) found.push(relative)
+    if (callsFullProjection(text)) found.push(relative)
   }
   return found
 }
@@ -115,6 +127,10 @@ describe('full session projection call sites [POD-3857]', () => {
     expect(FULL_LIST_CALL.test('await deps.sessionsById(ids)')).toBe(false)
     expect(FULL_LIST_CALL.test('await deps.sessionById(id)')).toBe(false)
     expect(FULL_LIST_CALL.test('await this.deps.readSessionFacts()')).toBe(false)
+    const local =
+      'private async listSessions() { await this.deps.listRunning() } this.listSessions()'
+    expect(callsFullProjection(local)).toBe(false)
+    expect(callsFullProjection(local.replace('listRunning()', 'listSessions()'))).toBe(true)
   })
 
   it('production builds the full projection only at the named surfaces', () => {
