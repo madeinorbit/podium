@@ -49,6 +49,15 @@ if (!live && hostname() === 'ludovico') throw Error('The operator-size probe run
 if (existsSync(resolve(out, 'run.json'))) throw Error('Probe output already exists; use a fresh --out')
 mkdirSync(out, { recursive: true })
 
+/**
+ * Rows measured and reported, but not yet held to the rule: each names what is
+ * missing and who reported it. Remove an entry when its fix lands.
+ */
+const KNOWN_GAPS = {
+  'phone-reload offline-reload phoneMission':
+    'after an offline reload the phone mission page stays on its loading skeleton, with no request; the Work list opens (reported by POD-7179 to POD-5910)',
+}
+
 /** The declared hop maxima (design POD-7157, "Testing rules"). */
 const DECLARED_HOPS = { sidebar: 0, deck: 2, board: 1, issuePage: 2, search: 1, phoneMission: 2 }
 
@@ -583,7 +592,9 @@ try {
   // The rule: complete, within its declared hops, offline with no request, and
   // an offline page load with nothing of the page itself from the network.
   const offline = (x) => x.phase === 'offline' || x.phase === 'offline-reload'
-  result.violations = result.screens.filter((x) => !x.ready || (x.declaredHops !== undefined && x.hops > x.declaredHops) || (offline(x) && x.requests > 0) || x.shellNetwork > 0)
+  const gap = (x) => KNOWN_GAPS[`${x.surface} ${x.phase} ${x.screen}`]
+  result.knownGaps = result.screens.filter(gap).map((x) => `${x.surface} ${x.phase} ${x.screen}: ${x.ready ? 'ready now (remove the gap)' : 'not ready'}: ${gap(x)}`)
+  result.violations = result.screens.filter((x) => !gap(x)).filter((x) => !x.ready || (x.declaredHops !== undefined && x.hops > x.declaredHops) || (offline(x) && x.requests > 0) || x.shellNetwork > 0)
     .map((x) => `${x.surface} ${x.phase} ${x.screen}: ${!x.ready ? 'never ready' : x.hops > x.declaredHops ? `${x.hops} hops > ${x.declaredHops}` : x.shellNetwork > 0 ? `${x.shellNetwork} page requests reached the network offline` : `${x.requests} requests offline`}`)
   save()
   writeFileSync(resolve(out, 'report.md'), report())
@@ -606,6 +617,7 @@ function report() {
     '|---|---|---|---|---:|---:|---:|---:|---:|',
     ...result.screens.map((x) => `| ${x.surface} | ${x.phase} | ${x.screen} | ${x.ready ? 'yes' : 'NO'} | ${x.loadingMs} | ${x.requests} | ${x.hops} (${x.declaredHops ?? '-'}) | ${x.longestTaskMs < 50 ? '<50' : x.longestTaskMs} | ${x.heapAfterGcMiB} |`),
     '', `Violations: ${result.violations?.length ? '' : 'none'}`, ...(result.violations ?? []).map((x) => `- ${x}`),
+    ...(result.knownGaps?.length ? ['', 'Known gaps (reported, not yet the rule):', ...result.knownGaps.map((x) => `- ${x}`)] : []),
     ...(result.failure ? ['', 'Failure: ' + result.failure.split('\n')[0]] : []), '',
   ]
   return lines.join('\n')

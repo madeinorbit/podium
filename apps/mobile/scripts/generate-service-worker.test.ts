@@ -1,8 +1,8 @@
+// @vitest-environment node
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { rewriteServiceWorkerIndexRevision } from '../../../scripts/write-web-build-stamp'
 import { generatePhoneServiceWorker } from './generate-service-worker'
 
 /**
@@ -72,7 +72,10 @@ describe('the phone service worker', () => {
     expect(sw).not.toContain('sourceMappingURL')
   })
 
-  it('has the index.html entry the build stamp rewrites', () => {
-    expect(() => rewriteServiceWorkerIndexRevision(sw, '<!doctype html>stamped')).not.toThrow()
+  // scripts/write-web-build-stamp.ts rewrites exactly this entry's revision
+  // (SW_INDEX_PRECACHE_ENTRY), and throws on any count but one. That module
+  // does not load under this lane's resolution, so its shape is checked here.
+  it('has the one index.html entry the build stamp rewrites', () => {
+    expect(sw.match(/\{url:"index\.html",revision:"[0-9a-f]{32}"\}/g)).toHaveLength(1)
   })
 })
