@@ -1,4 +1,10 @@
-import { clockStore, nowForAge, setClockWakeSource } from '@podium/mobx-helpers'
+import {
+  clockStore,
+  deadlineClock,
+  nowForAge,
+  refreshClocks,
+  setClockWakeSource,
+} from '@podium/mobx-helpers'
 import { autorun } from 'mobx'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cardAge, cardAgeNextChangeAt, relativeTime, relativeTimeNextChangeAt } from './age'
@@ -156,6 +162,79 @@ it('catches up missed age boundaries immediately after an app wakes', () => {
     stop()
   }
   expect(vi.getTimerCount()).toBe(0)
+})
+
+it('retries a boundary crossed between sampling time and registering its deadline', () => {
+  vi.useFakeTimers()
+  vi.setSystemTime(since + 59_499)
+  let crossed = false
+  const nextChangeAt = (start: number, at: number) => {
+    const next = relativeTimeNextChangeAt(start, at)
+    if (!crossed) {
+      crossed = true
+      vi.setSystemTime(next)
+    }
+    return next
+  }
+  const draws: string[] = []
+  const stop = autorun(() => draws.push(relativeTime(stamp, nowForAge(since, nextChangeAt))))
+  try {
+    expect(draws).toEqual(['1m ago'])
+    expect(vi.getTimerCount()).toBe(1)
+    vi.advanceTimersByTime(29_999)
+    expect(draws).toEqual(['1m ago'])
+    vi.advanceTimersByTime(1)
+    expect(draws).toEqual(['1m ago', '2m ago'])
+  } finally {
+    stop()
+  }
+  expect(vi.getTimerCount()).toBe(0)
+})
+
+it('corrects independently phased ages on rewind before their first deadline fires', () => {
+  vi.useFakeTimers()
+  vi.setSystemTime(since + 120_000)
+  // Start the scheduler before these samples so its last advance alone cannot
+  // detect the correction. The latest observed time must be the rewind baseline.
+  deadlineClock.advance(since)
+  const detach = vi.fn()
+  setClockWakeSource({ isActive: () => true, subscribe: () => detach })
+  const first: string[] = [],
+    second: string[] = []
+  const other = since - 30_000
+  const a = autorun(() =>
+    first.push(relativeTime(stamp, nowForAge(since, relativeTimeNextChangeAt))),
+  )
+  const b = autorun(() =>
+    second.push(
+      relativeTime(new Date(other).toISOString(), nowForAge(other, relativeTimeNextChangeAt)),
+    ),
+  )
+  try {
+    expect(first).toEqual(['2m ago'])
+    expect(second).toEqual(['3m ago'])
+    expect(vi.getTimerCount()).toBe(1)
+    vi.setSystemTime(since)
+    refreshClocks()
+    expect(first).toEqual(['2m ago', 'just now'])
+    expect(second).toEqual(['3m ago', 'just now'])
+    expect(vi.getTimerCount()).toBe(1)
+    vi.advanceTimersByTime(29_499)
+    expect(first).toHaveLength(2)
+    expect(second).toHaveLength(2)
+    vi.advanceTimersByTime(1)
+    expect(first).toHaveLength(2)
+    expect(second).toEqual(['3m ago', 'just now', '1m ago'])
+    vi.advanceTimersByTime(30_000)
+    expect(first).toEqual(['2m ago', 'just now', '1m ago'])
+    expect(second).toEqual(['3m ago', 'just now', '1m ago', '2m ago'])
+    expect(vi.getTimerCount()).toBe(1)
+  } finally {
+    a()
+    b()
+  }
+  expect(vi.getTimerCount()).toBe(0)
+  expect(detach).toHaveBeenCalledTimes(1)
 })
 
 it('preserves the former formatter answers across negative ages and all units', () => {

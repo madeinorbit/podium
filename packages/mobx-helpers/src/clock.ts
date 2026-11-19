@@ -123,9 +123,14 @@ export function nowForAge(
   const start = typeof since === 'string' ? Date.parse(since) : since
   if (!Number.isFinite(start)) return Date.now()
   if (secondsUntil > 0) return now(Date.now() - start + baseMs < secondsUntil ? 1_000 : 60_000)
-  const current = deadlineClock.peekNow()
-  deadlineClock.reached(nextChangeAt(start - baseMs, current))
-  return current
+  let current = deadlineClock.read()
+  for (;;) {
+    const next = nextChangeAt(start - baseMs, current)
+    if (!Number.isFinite(next) || !deadlineClock.reached(next)) return current
+    // Formatting or registration can cross the boundary after the sample.
+    // Retry rather than return old text with no future deadline to wake it.
+    current = deadlineClock.read()
+  }
 }
 
 /** A cached scalar external store for React; only subscription observes time. */
@@ -153,7 +158,18 @@ export function clockStore(read: () => number, enabled = true) {
 export class DeadlineClock {
   private readonly deadlines: number[] = []
   private readonly atoms = new Map<number, IAtom>()
-  private readonly rewind = createAtom('clock.rewind')
+  private rewindObserved = false
+  private readonly rewind = createAtom(
+    'clock.rewind',
+    () => {
+      this.rewindObserved = true
+      this.schedule()
+    },
+    () => {
+      this.rewindObserved = false
+      this.schedule()
+    },
+  )
   private timer: ReturnType<typeof setTimeout> | undefined
   private scheduledAt: number | undefined
   private stopWake: (() => void) | undefined
@@ -170,6 +186,15 @@ export class DeadlineClock {
   }
   peekNow(): number {
     return this.manual ? this.value : Date.now()
+  }
+
+  /** Sample time with shared rewind invalidation, without periodic ticks. */
+  read(): number {
+    this.rewind.reportObserved()
+    const current = this.peekNow()
+    // A correction can precede the first timer; compare against reads too.
+    if (!this.manual && current > this.value) this.value = current
+    return current
   }
 
   reached(t: number): boolean {
@@ -214,7 +239,10 @@ export class DeadlineClock {
     runInAction(() => {
       const before = this.value
       this.value = value
-      if (value < before) this.rewind.reportChanged()
+      if (value < before) {
+        this.cancel()
+        this.rewind.reportChanged()
+      }
       const end = this.indexOf(nextUp(value))
       const crossed = this.deadlines.splice(0, end)
       for (const t of crossed) {
@@ -245,14 +273,17 @@ export class DeadlineClock {
   private schedule(): void {
     if (this.manual) return
     const next = this.deadlines[0]
-    if (next === undefined) {
+    if (next === undefined && !this.rewindObserved) {
       this.cancel()
       this.stopWake?.()
       this.stopWake = undefined
       return
     }
-    this.stopWake ??= watchWake(this.wake)
-    if (!awake()) {
+    if (!this.stopWake) {
+      this.value = this.peekNow()
+      this.stopWake = watchWake(this.wake)
+    }
+    if (!awake() || next === undefined) {
       this.cancel()
       return
     }

@@ -48,6 +48,29 @@ describe('activity day deadlines', () => {
     expect(activityDayLabel(key, stamp, day)).toBe('Today')
   })
 
+  it('constructs the following midnight independently when Santiago skips midnight', () => {
+    vi.stubEnv('TZ', 'America/Santiago')
+    try {
+      const key = '2026-09-06',
+        stamp = new Date(2026, 8, 6, 12).toISOString()
+      expect(new Date(2026, 8, 6).getHours()).toBe(1)
+      const midnight = new Date(2026, 8, 7).getTime()
+      const one = new Date(2026, 8, 7, 1).getTime()
+      expect(activityDayLabel(key, stamp, midnight - 1)).toBe('Today')
+      expect(activityDayLabelNextChangeAt(key, stamp, midnight - 1)).toBe(midnight)
+      const absolute = activityDayLabel(key, stamp, midnight)
+      expect(absolute).not.toBe('Today')
+      expect(absolute).not.toBe('Yesterday')
+      expect(activityDayLabelNextChangeAt(key, stamp, midnight)).toBe(one)
+      expect(activityDayLabel(key, stamp, one - 1)).toBe(absolute)
+      expect(activityDayLabelNextChangeAt(key, stamp, one - 1)).toBe(one)
+      expect(activityDayLabel(key, stamp, one)).toBe('Yesterday')
+      expect(activityDayLabelNextChangeAt(key, stamp, one)).toBe(new Date(2026, 8, 8).getTime())
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
   it.each([
     ['America/New_York', 2, 8],
     ['America/New_York', 10, 1],

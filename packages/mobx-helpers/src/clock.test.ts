@@ -125,6 +125,35 @@ describe('on-demand clock', () => {
     stop()
   })
 
+  it('keeps rewind-only snapshots observed without a timer and releases their wake subscription', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(1000)
+    const clock = new DeadlineClock()
+    const detach = vi.fn(),
+      subscribe = vi.fn(() => detach)
+    setClockWakeSource({ isActive: () => true, subscribe })
+    vi.setSystemTime(121_000)
+    const store = clockStore(() => clock.read()),
+      changed = vi.fn()
+    expect(subscribe).not.toHaveBeenCalled()
+    const stop = store.subscribe(changed)
+    try {
+      expect(store.getSnapshot()).toBe(121_000)
+      expect(subscribe).toHaveBeenCalledTimes(1)
+      expect(vi.getTimerCount()).toBe(0)
+      vi.setSystemTime(1000)
+      refreshClocks()
+      expect(store.getSnapshot()).toBe(1000)
+      expect(changed).toHaveBeenCalledTimes(1)
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      stop()
+      clock.clear()
+    }
+    expect(detach).toHaveBeenCalledTimes(1)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
   it('waits for the formatter boundary even when a server timestamp is ahead of this device', () => {
     vi.useFakeTimers()
     vi.setSystemTime(1_000)

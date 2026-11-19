@@ -428,8 +428,9 @@ export function activityDayLabelNextChangeAt(key: string, stamp: string, now: nu
   const at = new Date(stamp)
   if (Number.isNaN(at.getTime())) return Infinity
   const first = new Date(`${key}T00:00:00`)
-  const after = new Date(first)
-  after.setDate(after.getDate() + 1)
+  // A skipped midnight can normalize first to 01:00. Build the next civil
+  // midnight independently so that hour is not carried into the next day.
+  const after = new Date(first.getFullYear(), first.getMonth(), first.getDate() + 1)
   const current = activityDayLabel(key, stamp, now)
   const year = at.getFullYear()
   const changed = (t: number): number =>
