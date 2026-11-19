@@ -72,8 +72,8 @@ import { sessionSurfaceManifest } from './modules/sessions/trpc'
 import { scopedMutationId } from './modules/sync-write/legacy-receipt'
 import { appRouter } from './router'
 import { OPERATOR } from './test-support/capabilities'
-import { seedRows } from './test-support/seed-rows'
 import { messageTestWriter, messageTestWriters } from './test-support/message-writer'
+import { seedRows } from './test-support/seed-rows'
 import { soleHumanSessionStatePrincipal } from './test-support/session-state-principal'
 
 /** One person's pins by kind, read the way the boot reconcile reads them. */
@@ -577,9 +577,25 @@ describe('AC4 · the per-user split actually happened', () => {
     // `userId` parameter that the store ignored would pass any signature test.
     const o = await makeOracle()
     const store = o.store.sessions
-    await seedRows(o.store, async () => await store.addPin(asUserId('user:alice'), 'panel', 's-1', '2026-11-08T00:00:00.000Z'))
-    await seedRows(o.store, async () => await store.setSnooze(fixtureWriteScope(), asUserId('user:alice'), asSessionId('s-1'), null))
-    await seedRows(o.store, async () => await store.setTabOrder(asUserId('user:alice'), '/w', ['s-1']))
+    await seedRows(
+      o.store,
+      async () =>
+        await store.addPin(asUserId('user:alice'), 'panel', 's-1', '2026-11-08T00:00:00.000Z'),
+    )
+    await seedRows(
+      o.store,
+      async () =>
+        await store.setSnooze(
+          fixtureWriteScope(),
+          asUserId('user:alice'),
+          asSessionId('s-1'),
+          null,
+        ),
+    )
+    await seedRows(
+      o.store,
+      async () => await store.setTabOrder(asUserId('user:alice'), '/w', ['s-1']),
+    )
 
     // Alice's rows exist; Bob's are EMPTY — asserted on the values, because a
     // `userId` parameter the store ignored would satisfy any signature check.
@@ -660,7 +676,7 @@ describe('AC5 · attribution is a pair and comes from the transport', () => {
       deps,
       o.reg.modules.sessions.serverWriter,
       { sessionId, name: 'human choice' },
-      human(firstAdminMemberId()),
+      human(await firstAdminMemberId(o.store)),
     )
     expect(named.outcome).toBe('applied')
     expect((await o.meta(sessionId)).name).toBe('human choice')
@@ -712,7 +728,7 @@ describe('AC5 · attribution is a pair and comes from the transport', () => {
     })
     expect((await o.meta(created.sessionId)).spawnedBy).toBe(`session:${agentSession.sessionId}`)
 
-    const asHuman = await ctxFor(o, human(firstAdminMemberId()))
+    const asHuman = await ctxFor(o, human(await firstAdminMemberId(o.store)))
     const byHuman = await dispatchSessionCommand(asHuman, 'create', {
       agentKind: 'shell',
       cwd: '/by-human',
@@ -834,7 +850,7 @@ describe('AC6 · the machine `use` gate is on the only remaining path', () => {
         ],
       ]),
     )
-    const ctx = await ctxFor(o, human(firstAdminMemberId()), { ownership })
+    const ctx = await ctxFor(o, human(await firstAdminMemberId(o.store)), { ownership })
 
     const message = await messageOf(() =>
       dispatchSessionCommand(ctx, gated.key, gated.input(target.sessionId)),
@@ -851,7 +867,7 @@ describe('AC6 · the machine `use` gate is on the only remaining path', () => {
     // 'box' fixture above — that machine has a daemon but no machines-table row, so
     // it is `absent` for everyone and would have made this pass for the wrong reason.
     const o = await makeOracle()
-    const ctx = await ctxFor(o, human(firstAdminMemberId()))
+    const ctx = await ctxFor(o, human(await firstAdminMemberId(o.store)))
     const created = await dispatchSessionCommand(ctx, 'create', {
       agentKind: 'shell',
       cwd: '/p',
@@ -949,13 +965,15 @@ describe('AC7 · the command surface is not an existence oracle', () => {
     const live = await o.reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/p' })
 
     // Nonexistent: an id nothing ever created.
-    const ghostCtx = await ctxFor(o, human(firstAdminMemberId()))
+    const ghostCtx = await ctxFor(o, human(await firstAdminMemberId(o.store)))
     const ghost = await settle(() => dispatchSessionCommand(ghostCtx, row.key, row.input(GHOST)))
 
     // Invisible: a session that EXISTS and that this principal may not see. The
     // fixture contains a real row, so this is not the ghost case rerun — if the
     // visibility seam were ignored the two answers would differ.
-    const invisibleCtx = await ctxFor(o, human(firstAdminMemberId()), { visibility: () => false })
+    const invisibleCtx = await ctxFor(o, human(await firstAdminMemberId(o.store)), {
+      visibility: () => false,
+    })
     const invisible = await settle(() =>
       dispatchSessionCommand(invisibleCtx, row.key, row.input(live.sessionId)),
     )
@@ -969,13 +987,17 @@ describe('AC7 · the command surface is not an existence oracle', () => {
     const o = await makeOracle()
     const live = await o.reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/p' })
     const visible = await settle(async () =>
-      dispatchSessionCommand(await ctxFor(o, human(firstAdminMemberId())), 'hibernate', {
-        sessionId: live.sessionId,
-      }),
+      dispatchSessionCommand(
+        await ctxFor(o, human(await firstAdminMemberId(o.store))),
+        'hibernate',
+        {
+          sessionId: live.sessionId,
+        },
+      ),
     )
     const invisible = await settle(async () =>
       dispatchSessionCommand(
-        await ctxFor(o, human(firstAdminMemberId()), { visibility: () => false }),
+        await ctxFor(o, human(await firstAdminMemberId(o.store)), { visibility: () => false }),
         'hibernate',
         {
           sessionId: live.sessionId,
@@ -1036,7 +1058,7 @@ describe('AC7 · the command surface is not an existence oracle', () => {
       },
     )
     const viaCommand = await dispatchSessionCommand(
-      await ctxFor(o, human(firstAdminMemberId())),
+      await ctxFor(o, human(await firstAdminMemberId(o.store))),
       'sendText',
       {
         sessionId: GHOST,

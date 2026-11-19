@@ -26,7 +26,9 @@ afterEach(async () => {
 async function provenBoth(registry: SessionRegistry, sessionId: SessionId): Promise<boolean> {
   const single = await registry.modules.sessions.hasValidTerminalProof(sessionId)
   const status = await registry.modules.sessions.terminalProofStatus(sessionId)
-  const batched = (await registry.modules.sessions.terminalProofStatuses([sessionId])).get(sessionId)
+  const batched = (await registry.modules.sessions.terminalProofStatuses([sessionId])).get(
+    sessionId,
+  )
   expect(batched).toMatchObject(status)
   expect(batched?.missing).toBe(await registry.modules.sessions.terminalProofMissing(sessionId))
   return single
@@ -259,12 +261,12 @@ describe('durable terminal hibernation proof', () => {
     expect(
       (await store.observationCheckpoints.getTerminalCandidate(sessionId))?.consumedAt,
     ).toBeTruthy()
-    expect(daemon.filter((message) => message.type === 'kill')).toHaveLength(1)
+    expect(daemon.filter((message) => message.type === 'runtimeLifecycleRequest')).toHaveLength(1)
     expect(
       (await registry.modules.sessions.hibernateSession({ sessionId, requireTerminalProof: true }))
         .ok,
     ).toBe(false)
-    expect(daemon.filter((message) => message.type === 'kill')).toHaveLength(1)
+    expect(daemon.filter((message) => message.type === 'runtimeLifecycleRequest')).toHaveLength(1)
   })
 
   it.each([
@@ -446,7 +448,9 @@ describe('durable terminal hibernation proof', () => {
     ).autoContinue
     const gone = vi.spyOn(autoContinue, 'onSessionGone')
     vi.spyOn(store.observationCheckpoints, 'consumeTerminalCandidate').mockResolvedValue(false)
-    const beforeKills = daemon.filter((message) => message.type === 'kill').length
+    const beforeKills = daemon.filter(
+      (message) => message.type === 'runtimeLifecycleRequest',
+    ).length
 
     expect(
       await registry.modules.sessions.hibernateSession({ sessionId, requireTerminalProof: true }),
@@ -458,7 +462,9 @@ describe('durable terminal hibernation proof', () => {
     ).toBe('live')
     expect(await store.observationCheckpoints.getTerminalCandidate(sessionId)).toEqual(proofBefore)
     expect(gone).not.toHaveBeenCalled()
-    expect(daemon.filter((message) => message.type === 'kill')).toHaveLength(beforeKills)
+    expect(daemon.filter((message) => message.type === 'runtimeLifecycleRequest')).toHaveLength(
+      beforeKills,
+    )
   })
 
   it.each([
@@ -499,7 +505,7 @@ describe('durable terminal hibernation proof', () => {
     expect(
       (await h.store.sessions.loadSessions()).find((row) => row.id === h.sessionId)?.status,
     ).toBe('live')
-    expect(h.daemon.filter((message) => message.type === 'kill')).toEqual([])
+    expect(h.daemon.filter((message) => message.type === 'runtimeLifecycleRequest')).toEqual([])
     expect((await read(h.sessionId))?.consumedAt).toBeNull()
   })
 
@@ -592,7 +598,7 @@ describe('durable terminal hibernation proof', () => {
         requireTerminalProof: true,
       }),
     ).toEqual({ ok: false, reason: 'terminal state is not safely reapable' })
-    expect(h.daemon.filter((message) => message.type === 'kill')).toEqual([])
+    expect(h.daemon.filter((message) => message.type === 'runtimeLifecycleRequest')).toEqual([])
     expect(
       (await h.store.observationCheckpoints.getTerminalCandidate(h.sessionId))?.consumedAt,
     ).toBeNull()
@@ -619,7 +625,7 @@ describe('durable terminal hibernation proof', () => {
       (await store.sessions.loadSessions()).find((session) => session.id === sessionId)?.status,
     ).toBe('live')
     expect(await store.observationCheckpoints.getTerminalCandidate(sessionId)).toEqual(proofBefore)
-    expect(daemon.filter((message) => message.type === 'kill')).toHaveLength(0)
+    expect(daemon.filter((message) => message.type === 'runtimeLifecycleRequest')).toHaveLength(0)
   })
 
   it('re-arms one accepted-live retryable error on the first post-restart bind only', async () => {
@@ -637,9 +643,9 @@ describe('durable terminal hibernation proof', () => {
     const continues = () =>
       controls.filter(
         (message) =>
-          message.type === 'input' &&
+          message.type === 'runtimeDurableSendRequest' &&
           message.sessionId === h.sessionId &&
-          message.data === Buffer.from('continue\r').toString('base64'),
+          message.origin === 'auto_continue',
       )
     expect(continues()).toHaveLength(0)
 
@@ -653,7 +659,12 @@ describe('durable terminal hibernation proof', () => {
     }
     await restarted.gateway.routeDaemonFrame(restarted.sessionStore.hostMachineId, bind)
     await restarted.gateway.routeDaemonFrame(restarted.sessionStore.hostMachineId, bind)
-    expect(continues()).toHaveLength(1)
+    await vi.waitFor(() => expect(continues()).toHaveLength(1))
+    expect(continues()[0]).toMatchObject({
+      delivery: 'when-ready',
+      text: expect.stringContaining('\ncontinue\n'),
+    })
+    expect(controls.some((message) => message.type === 'input')).toBe(false)
   })
 
   it('does not re-arm a bootstrap-only retryable error after restart', async () => {
@@ -684,9 +695,9 @@ describe('durable terminal hibernation proof', () => {
     expect(
       controls.filter(
         (message) =>
-          message.type === 'input' &&
+          message.type === 'runtimeDurableSendRequest' &&
           message.sessionId === h.sessionId &&
-          message.data === Buffer.from('continue\r').toString('base64'),
+          message.origin === 'auto_continue',
       ),
     ).toEqual([])
   })
@@ -738,12 +749,14 @@ describe('durable terminal hibernation proof', () => {
     const { registry, daemon, sessionId, confirm } = await harness()
     await confirm(1)
     expect((await registry.modules.issueSessionLifecycle.stopSession({ sessionId })).ok).toBe(true)
-    const kills = daemon.filter((message) => message.type === 'kill').length
+    const kills = daemon.filter((message) => message.type === 'runtimeLifecycleRequest').length
     expect(
       (await registry.modules.sessions.hibernateSession({ sessionId, requireTerminalProof: true }))
         .ok,
     ).toBe(false)
-    expect(daemon.filter((message) => message.type === 'kill')).toHaveLength(kills)
+    expect(daemon.filter((message) => message.type === 'runtimeLifecycleRequest')).toHaveLength(
+      kills,
+    )
   })
 
   it('cancels pass one on exact rebind and requires two polls after a new generation', async () => {
@@ -785,21 +798,15 @@ describe('durable terminal hibernation proof', () => {
         },
       )
     await confirm(1)
-    expect(
-      await provenBoth(restarted.registry, restarted.sessionId),
-    ).toBe(false)
+    expect(await provenBoth(restarted.registry, restarted.sessionId)).toBe(false)
     await confirm(2)
-    expect(
-      await provenBoth(restarted.registry, restarted.sessionId),
-    ).toBe(true)
+    expect(await provenBoth(restarted.registry, restarted.sessionId)).toBe(true)
   })
 
   it('fails closed for non-resumable terminals and accepts session-terminal edges', async () => {
     const nonresumable = await harness({ resumable: false })
     await nonresumable.confirm(1)
-    expect(
-      await provenBoth(nonresumable.registry, nonresumable.sessionId),
-    ).toBe(false)
+    expect(await provenBoth(nonresumable.registry, nonresumable.sessionId)).toBe(false)
     const ended = await harness({
       terminalTransitionKind: 'session_terminal',
       terminalPhase: 'ended',

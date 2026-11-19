@@ -19,7 +19,12 @@ import {
   type SessionId,
   type SessionMeta,
 } from '@podium/model'
-import { asDelegationRef, CLIENT_WIRE_VERSION, DriverSelectedMessage, type ServerMessage } from '@podium/protocol'
+import {
+  asDelegationRef,
+  CLIENT_WIRE_VERSION,
+  DriverSelectedMessage,
+  type ServerMessage,
+} from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import { memberFacts } from './store/fixtures/test-support'
@@ -136,7 +141,18 @@ describe('SessionRegistry', () => {
     expect(await queryOnly.conversations.registry.segmentPath(TEST_MACHINE, nativeId)).toBe(
       stalePath,
     )
-    expect(await recovery.modules.sessions.listSessions(undefined, 'rpc')).toEqual([])
+    expect(await recovery.modules.sessions.listSessions(undefined, 'rpc')).toEqual([
+      expect.objectContaining({ sessionId }),
+    ])
+    // Reads remain available, while recovery may not repair or mutate the row.
+    await expect(
+      queryOnly.sessions.markSessionRead(
+        fixtureWriteScope(),
+        await firstAdminMemberId(queryOnly),
+        sessionId,
+        new Date().toISOString(),
+      ),
+    ).rejects.toThrow(/readonly|read.only/i)
     await recovery.dispose()
     await queryOnly.close()
 
@@ -1146,58 +1162,6 @@ describe('SessionRegistry', () => {
     expect(frames[0]).toMatchObject({ sessionId: s1, data: 'QQ==' })
   })
 
-  it('replays buffered output to a client that attaches after frames were produced', async () => {
-    const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    await attachHostDaemon(reg, () => {})
-    const s1 = (await reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/a' }))
-      .sessionId
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(s1))
-    // Frames arrive before any client attaches (e.g. a boot session, or a re-mount).
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
-      type: 'agentFrame',
-      sessionId: s1,
-      seq: 0,
-      data: 'QQ==',
-    })
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
-      type: 'agentFrame',
-      sessionId: s1,
-      seq: 1,
-      data: 'Qg==',
-    })
-    const c = sink()
-    const id = await attachCurrent(reg, c.send)
-    await reg.clientGateway.routeClientFrame(id, { type: 'attach', sessionId: s1 })
-    const frames = c.sent.filter((m) => m.type === 'outputFrame')
-    expect(frames.map((f) => (f as { data: string }).data)).toEqual(['QQ==', 'Qg=='])
-  })
-
-  it('resets the replay buffer on a screen clear so replay starts from the clear', async () => {
-    const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    await attachHostDaemon(reg, () => {})
-    const s1 = (await reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/a' }))
-      .sessionId
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(s1))
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
-      type: 'agentFrame',
-      sessionId: s1,
-      seq: 0,
-      data: Buffer.from('stale', 'latin1').toString('base64'),
-    })
-    const clearFrame = Buffer.from('\x1b[2Jfresh', 'latin1').toString('base64')
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
-      type: 'agentFrame',
-      sessionId: s1,
-      seq: 1,
-      data: clearFrame,
-    })
-    const c = sink()
-    const id = await attachCurrent(reg, c.send)
-    await reg.clientGateway.routeClientFrame(id, { type: 'attach', sessionId: s1 })
-    const frames = c.sent.filter((m) => m.type === 'outputFrame')
-    expect(frames.map((f) => (f as { data: string }).data)).toEqual([clearFrame])
-  })
-
   it('routes controller input to the daemon tagged with the right sessionId', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
@@ -1364,7 +1328,10 @@ describe('SessionRegistry', () => {
   it('the boot probe carries the owner so the daemon can adopt a pre-binding survivor', async () => {
     const store = await openTestStore(':memory:', TEST_MACHINE)
     const id = 'orphan-adopt'
-    await seedRows(store, async () => await store.sessions.upsertSession(fixtureWriteScope(), exitedRow(id)))
+    await seedRows(
+      store,
+      async () => await store.sessions.upsertSession(fixtureWriteScope(), exitedRow(id)),
+    )
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
     const rows = await reg.modules.machines.ownershipRows()
@@ -1398,7 +1365,10 @@ describe('SessionRegistry', () => {
   it('probes an exited session on boot and reattaches it when the master is alive', async () => {
     const store = await openTestStore(':memory:', TEST_MACHINE)
     const id = 'orphan-1'
-    await seedRows(store, async () => await store.sessions.upsertSession(fixtureWriteScope(), exitedRow(id)))
+    await seedRows(
+      store,
+      async () => await store.sessions.upsertSession(fixtureWriteScope(), exitedRow(id)),
+    )
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
     await attachHostDaemon(reg, (m) => daemon.push(m))
@@ -1439,7 +1409,10 @@ describe('SessionRegistry', () => {
   it('leaves a dead exited session exited and untouched when its master is gone', async () => {
     const store = await openTestStore(':memory:', TEST_MACHINE)
     const id = 'dead-1'
-    await seedRows(store, async () => await store.sessions.upsertSession(fixtureWriteScope(), exitedRow(id)))
+    await seedRows(
+      store,
+      async () => await store.sessions.upsertSession(fixtureWriteScope(), exitedRow(id)),
+    )
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     await attachHostDaemon(reg, () => {})
     // The durable host has no such session → reattachFailed. An already-exited row
@@ -1459,7 +1432,14 @@ describe('SessionRegistry', () => {
 
   it('does not probe an archived exited session', async () => {
     const store = await openTestStore(':memory:', TEST_MACHINE)
-    await seedRows(store, async () => await store.sessions.upsertSession(fixtureWriteScope(), exitedRow('arch-1', { archived: true })))
+    await seedRows(
+      store,
+      async () =>
+        await store.sessions.upsertSession(
+          fixtureWriteScope(),
+          exitedRow('arch-1', { archived: true }),
+        ),
+    )
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
     await attachHostDaemon(reg, (m) => daemon.push(m))
@@ -1653,7 +1633,13 @@ describe('SessionRegistry', () => {
     })
     // The colleague is a member, so the server writes their access rows too.
     await memberFacts(store).create(
-      { id: colleague, displayName: 'Colleague', role: 'member', createdAt: '2026-08-02T00:00:00.000Z', disabledAt: null },
+      {
+        id: colleague,
+        displayName: 'Colleague',
+        role: 'member',
+        createdAt: '2026-08-02T00:00:00.000Z',
+        disabledAt: null,
+      },
       'hash',
     )
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
@@ -2383,13 +2369,18 @@ describe('SessionRegistry', () => {
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     try {
       await attachHostDaemon(reg, () => {})
-      const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/a' })
+      const { sessionId } = await reg.modules.sessions.createSession({
+        agentKind: 'codex',
+        cwd: '/a',
+      })
       const decision = { type: 'driverSelected' as const, sessionId, driverId: 'codex-app-server' }
       const repeat = {
         ...decision,
         posture: {
           requestedMode: 'never',
-          unmet: [{ requirement: 'autonomy' as const, reason: 'a one-shot turn has nobody to ask' }],
+          unmet: [
+            { requirement: 'autonomy' as const, reason: 'a one-shot turn has nobody to ask' },
+          ],
         },
       }
       // The frame as a server that predates the field parses it.
@@ -2564,55 +2555,63 @@ describe('SessionRegistry', () => {
 
   it('skips a persisted session with an invalid agentKind on load', async () => {
     const store = await openTestStore(':memory:', TEST_MACHINE)
-    await seedRows(store, async () => await store.sessions.upsertSession(fixtureWriteScope(), {
-      id: asSessionId('good'),
-      ownerUserId: firstAdminMemberId(),
-      agentKind: 'claude-code',
-      cwd: '/a',
-      title: 'good',
-      name: null,
-      archived: false,
-      workState: null,
-      machineId: TEST_MACHINE,
-      originKind: 'spawn',
-      conversationId: null,
-      resumeKind: null,
-      resumeValue: null,
-      status: 'live',
-      exitCode: null,
-      durableLabel: 'podium-good',
-      createdAt: '2026-06-09T00:00:00.000Z',
-      lastActiveAt: '2026-06-09T00:00:00.000Z',
-      lastOutputAt: null,
-      lastInputAt: null,
-      lastResumedAt: null,
-    }))
+    await seedRows(
+      store,
+      async () =>
+        await store.sessions.upsertSession(fixtureWriteScope(), {
+          id: asSessionId('good'),
+          ownerUserId: firstAdminMemberId(),
+          agentKind: 'claude-code',
+          cwd: '/a',
+          title: 'good',
+          name: null,
+          archived: false,
+          workState: null,
+          machineId: TEST_MACHINE,
+          originKind: 'spawn',
+          conversationId: null,
+          resumeKind: null,
+          resumeValue: null,
+          status: 'live',
+          exitCode: null,
+          durableLabel: 'podium-good',
+          createdAt: '2026-06-09T00:00:00.000Z',
+          lastActiveAt: '2026-06-09T00:00:00.000Z',
+          lastOutputAt: null,
+          lastInputAt: null,
+          lastResumedAt: null,
+        }),
+    )
     // upsertSession now refuses an out-of-enum agentKind (write-side guard), so a
     // legacy/externally-corrupted row is simulated by writing a valid row and then
     // corrupting the persisted agent_kind directly — the exact loadFromStore scenario.
-    await seedRows(store, async () => await store.sessions.upsertSession(fixtureWriteScope(), {
-      id: asSessionId('bad'),
-      ownerUserId: firstAdminMemberId(),
-      agentKind: 'claude-code',
-      cwd: '/b',
-      title: 'bad',
-      name: null,
-      archived: false,
-      workState: null,
-      machineId: TEST_MACHINE,
-      originKind: 'spawn',
-      conversationId: null,
-      resumeKind: null,
-      resumeValue: null,
-      status: 'live',
-      exitCode: null,
-      durableLabel: 'podium-bad',
-      createdAt: '2026-06-09T00:00:00.000Z',
-      lastActiveAt: '2026-06-09T00:00:00.000Z',
-      lastOutputAt: null,
-      lastInputAt: null,
-      lastResumedAt: null,
-    }))
+    await seedRows(
+      store,
+      async () =>
+        await store.sessions.upsertSession(fixtureWriteScope(), {
+          id: asSessionId('bad'),
+          ownerUserId: firstAdminMemberId(),
+          agentKind: 'claude-code',
+          cwd: '/b',
+          title: 'bad',
+          name: null,
+          archived: false,
+          workState: null,
+          machineId: TEST_MACHINE,
+          originKind: 'spawn',
+          conversationId: null,
+          resumeKind: null,
+          resumeValue: null,
+          status: 'live',
+          exitCode: null,
+          durableLabel: 'podium-bad',
+          createdAt: '2026-06-09T00:00:00.000Z',
+          lastActiveAt: '2026-06-09T00:00:00.000Z',
+          lastOutputAt: null,
+          lastInputAt: null,
+          lastResumedAt: null,
+        }),
+    )
     ;(store as unknown as { db: { prepare(q: string): { run(...a: unknown[]): unknown } } }).db
       .prepare("UPDATE sessions SET agent_kind = 'bogus-agent' WHERE id = 'bad'")
       .run()
@@ -3102,6 +3101,7 @@ describe('agent state', () => {
     const settings = await store.settings.getSettings()
     await store.settings.setSettings({
       ...settings,
+      experimental: { ...settings.experimental, notifications: false },
       notifications: {
         ...settings.notifications,
         ntfyTopic: 'podium-topic',
@@ -3170,7 +3170,10 @@ describe('agent state', () => {
         expiresAt: new Date(301_000).toISOString(),
       })
 
-      const result = await reg.modules.settings.pollTelegramSetup(setup.setupId, firstAdminMemberId())
+      const result = await reg.modules.settings.pollTelegramSetup(
+        setup.setupId,
+        firstAdminMemberId(),
+      )
 
       expect(result.status).toBe('connected')
       if (result.status !== 'connected') throw new Error('expected setup to connect')
@@ -4239,7 +4242,10 @@ describe('hibernation', () => {
         ),
       ).toBeUndefined()
       expect(killSession).toHaveBeenCalledOnce()
-      expect(killSession).toHaveBeenCalledWith({ sessionId })
+      expect(killSession).toHaveBeenCalledWith(
+        expect.objectContaining({ origin: 'sessions.lifecycle', commit: expect.any(Function) }),
+        { sessionId },
+      )
     } finally {
       await reg.dispose()
       await store.close()
@@ -5682,10 +5688,14 @@ describe('hibernation', () => {
     // 'bound' back — see `store.test.ts`.)
     const stored = await store.sessions.getSession(sessionId)
     if (!stored) throw new Error('the forged row went missing')
-    await seedRows(store, async () => await store.sessions.upsertSession(fixtureWriteScope(), {
-      ...stored,
-      conversationBinding: null,
-    }))
+    await seedRows(
+      store,
+      async () =>
+        await store.sessions.upsertSession(fixtureWriteScope(), {
+          ...stored,
+          conversationBinding: null,
+        }),
+    )
 
     await reg.dispose()
     await reg.sessionStore.close()
@@ -6852,29 +6862,33 @@ describe('SessionRegistry snooze', () => {
 
   it('seeds snoozedUntil from the store at load', async () => {
     const store = await openTestStore(':memory:', TEST_MACHINE)
-    await seedRows(store, async () => await store.sessions.upsertSession(fixtureWriteScope(), {
-      id: asSessionId('s1'),
-      ownerUserId: firstAdminMemberId(),
-      agentKind: 'claude-code',
-      cwd: '/p',
-      title: 't',
-      name: null,
-      machineId: TEST_MACHINE,
-      originKind: 'spawn',
-      conversationId: null,
-      resumeKind: null,
-      resumeValue: null,
-      status: 'hibernated',
-      exitCode: null,
-      durableLabel: 'd',
-      createdAt: '2026-06-19T00:00:00.000Z',
-      lastActiveAt: '2026-06-19T00:00:00.000Z',
-      lastOutputAt: null,
-      lastInputAt: null,
-      lastResumedAt: null,
-      archived: false,
-      workState: null,
-    }))
+    await seedRows(
+      store,
+      async () =>
+        await store.sessions.upsertSession(fixtureWriteScope(), {
+          id: asSessionId('s1'),
+          ownerUserId: firstAdminMemberId(),
+          agentKind: 'claude-code',
+          cwd: '/p',
+          title: 't',
+          name: null,
+          machineId: TEST_MACHINE,
+          originKind: 'spawn',
+          conversationId: null,
+          resumeKind: null,
+          resumeValue: null,
+          status: 'hibernated',
+          exitCode: null,
+          durableLabel: 'd',
+          createdAt: '2026-06-19T00:00:00.000Z',
+          lastActiveAt: '2026-06-19T00:00:00.000Z',
+          lastOutputAt: null,
+          lastInputAt: null,
+          lastResumedAt: null,
+          archived: false,
+          workState: null,
+        }),
+    )
     await store.sessions.setSnooze(
       fixtureWriteScope(),
       firstAdminMemberId(),
@@ -6890,29 +6904,33 @@ describe('SessionRegistry boot over model rows at feed head 0', () => {
   it('raises the head to 1 so the start-up load carries the rows (ADR 2 D12)', async () => {
     const store = await openTestStore(':memory:', TEST_MACHINE)
     // Written without an append, as setup, migrations and backfills may: head stays 0.
-    await seedRows(store, async () => await store.sessions.upsertSession(fixtureWriteScope(), {
-      id: asSessionId('s1'),
-      ownerUserId: firstAdminMemberId(),
-      agentKind: 'claude-code',
-      cwd: '/p',
-      title: 't',
-      name: null,
-      machineId: TEST_MACHINE,
-      originKind: 'spawn',
-      conversationId: null,
-      resumeKind: null,
-      resumeValue: null,
-      status: 'hibernated',
-      exitCode: null,
-      durableLabel: 'd',
-      createdAt: '2026-06-19T00:00:00.000Z',
-      lastActiveAt: '2026-06-19T00:00:00.000Z',
-      lastOutputAt: null,
-      lastInputAt: null,
-      lastResumedAt: null,
-      archived: false,
-      workState: null,
-    }))
+    await seedRows(
+      store,
+      async () =>
+        await store.sessions.upsertSession(fixtureWriteScope(), {
+          id: asSessionId('s1'),
+          ownerUserId: firstAdminMemberId(),
+          agentKind: 'claude-code',
+          cwd: '/p',
+          title: 't',
+          name: null,
+          machineId: TEST_MACHINE,
+          originKind: 'spawn',
+          conversationId: null,
+          resumeKind: null,
+          resumeValue: null,
+          status: 'hibernated',
+          exitCode: null,
+          durableLabel: 'd',
+          createdAt: '2026-06-19T00:00:00.000Z',
+          lastActiveAt: '2026-06-19T00:00:00.000Z',
+          lastOutputAt: null,
+          lastInputAt: null,
+          lastResumedAt: null,
+          archived: false,
+          workState: null,
+        }),
+    )
     await store.sessions.setSnooze(
       fixtureWriteScope(),
       firstAdminMemberId(),

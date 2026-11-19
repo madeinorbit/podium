@@ -69,7 +69,7 @@ function sink() {
 // ---------------------------------------------------------------------------
 
 describe('characterization: session roundtrip across daemon reconnect (contract 1)', () => {
-  it('server seq stays monotonic, the epoch does not bump, and the replay buffer survives a daemon disconnect + rebind', async () => {
+  it('server seq stays monotonic, the epoch does not bump, and late viewers join the live stream after a daemon disconnect + rebind', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const daemon1: ControlMessage[] = []
     await attachHostDaemon(reg, (m) => daemon1.push(m))
@@ -154,46 +154,33 @@ describe('characterization: session roundtrip across daemon reconnect (contract 
     ])
     expect(new Set(live.map((f) => f.epoch))).toEqual(new Set([0]))
 
-    // A client that disconnected mid-way resumes from its cursor: sinceSeq=2 →
-    // resumed:true and EXACTLY the two missed frames, in order.
-    const resumer = sink()
-    const resumerId = attachTestClient(reg.clientGateway, resumer.send)
-    await reg.clientGateway.routeClientFrame(resumerId, {
-      type: 'hello',
-      clientId: resumerId,
-      wireVersion: CLIENT_WIRE_VERSION,
-      viewport: { cols: 80, rows: 24, dpr: 1 },
-      caps: ['sync.http.v1'],
-    })
-    await reg.clientGateway.routeClientFrame(resumerId, { type: 'attach', sessionId, sinceSeq: 2 })
-    expect(resumer.sent.find((m) => m.type === 'attached')).toMatchObject({
-      sessionId,
-      epoch: 0,
-      resumed: true,
-    })
-    expect(
-      resumer.sent.filter((m) => m.type === 'outputFrame').map((f) => [f.seq, f.data]),
-    ).toEqual([
-      [3, 'RA=='],
-      [4, 'RQ=='],
-    ])
-
-    // A fresh mount (no cursor) gets the FULL buffer — pre-disconnect frames were
-    // not dropped by the reconnect.
-    const fresh = sink()
-    const freshId = attachTestClient(reg.clientGateway, fresh.send)
-    await reg.clientGateway.routeClientFrame(freshId, {
-      type: 'hello',
-      clientId: freshId,
-      wireVersion: CLIENT_WIRE_VERSION,
-      viewport: { cols: 80, rows: 24, dpr: 1 },
-      caps: ['sync.http.v1'],
-    })
-    await reg.clientGateway.routeClientFrame(freshId, { type: 'attach', sessionId })
-    expect(fresh.sent.find((m) => m.type === 'attached')).toMatchObject({ resumed: false })
-    expect(fresh.sent.filter((m) => m.type === 'outputFrame').map((f) => f.seq)).toEqual([
-      0, 1, 2, 3, 4,
-    ])
+    // Late viewers receive live bytes from the daemon picture/tail boundary;
+    // the server no longer keeps historical PTY replay buffers.
+    for (const sinceSeq of [2, undefined]) {
+      const late = sink()
+      const lateId = attachTestClient(reg.clientGateway, late.send)
+      await reg.clientGateway.routeClientFrame(lateId, {
+        type: 'hello',
+        clientId: lateId,
+        wireVersion: CLIENT_WIRE_VERSION,
+        viewport: { cols: 80, rows: 24, dpr: 1 },
+        caps: ['sync.http.v1'],
+      })
+      await reg.clientGateway.routeClientFrame(lateId, { type: 'attach', sessionId, sinceSeq })
+      expect(late.sent.find((message) => message.type === 'attached')).toMatchObject({
+        sessionId,
+        epoch: 0,
+      })
+      expect(late.sent.filter((message) => message.type === 'outputFrame')).toEqual([])
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+        type: 'agentFrameBatch',
+        sessionId,
+        frames: ['Rg=='],
+      })
+      expect(late.sent.filter((message) => message.type === 'outputFrame')).toEqual([
+        expect.objectContaining({ seq: sinceSeq === 2 ? 5 : 6, data: 'Rg==', epoch: 0 }),
+      ])
+    }
     await reg.dispose()
   })
 })
@@ -302,7 +289,9 @@ describe('characterization: issue lifecycle equivalence across entry points (con
         'progress note',
         AS_OPERATOR,
       )
-      await regA.issues.crud.close(regA.issues.reports.store.serverWriter, a.id, 'done')
+      await regA.issues.crud.close(regA.issues.reports.store.serverWriter, a.id, 'done', {
+        caller: await firstAdminMemberId(regA.sessionStore),
+      })
 
       // (b) the ISSUE_COMMANDS table — the CLI/MCP path — over the command
       // registry's in-process IssueTrpc-shaped client.

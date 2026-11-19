@@ -110,7 +110,8 @@ async function harness(requestCoordinatorRestart?: (() => void) | HarnessOptions
     '2026-08-13T00:00:00.000Z',
   )
   const hostUpdateReceiver = opts.hostUpdateReceiver ?? (() => {})
-  if (hostUpdateReceiver !== false) registry.gateway.attachDaemon(hostMachineId, hostUpdateReceiver)
+  if (hostUpdateReceiver !== false)
+    await registry.gateway.attachDaemon(hostMachineId, hostUpdateReceiver)
   await registry.modules.machines.setUpdateChannel(hostMachineId, 'dev')
   const repos = new RepoRegistry(registry, registry.sessionStore)
   const superagent = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
@@ -398,7 +399,7 @@ describe('one default channel', () => {
       podiumManaged: false,
     })
     const sharedMachineId = asMachineId('shared')
-    registry.gateway.attachDaemon(sharedMachineId, () => {})
+    await registry.gateway.attachDaemon(sharedMachineId, () => {})
     await registry.modules.machines.setMachineBuild(
       sharedMachineId,
       { appVersion: '0.4.1' },
@@ -449,6 +450,7 @@ describe('release target checks', () => {
 
   it('exposes per-channel checked-at and outcome on the fleet payload', async () => {
     process.env.PODIUM_UPDATE_CHANNEL = 'stable'
+    vi.stubEnv('PODIUM_UPDATE_FEED_POLLING', 'on')
     const fetchSpy = offline()
     const { registry, caller } = await harness()
     await registry.modules.updates.refreshTarget('stable')
@@ -596,7 +598,7 @@ describe('the fleet counted is the fleet the global action would grant', () => {
       tokenHash: 'packaged-token',
       ownerUserId: firstAdminMemberId(),
     })
-    registry.gateway.attachDaemon(asMachineId('packaged'), () => {})
+    await registry.gateway.attachDaemon(asMachineId('packaged'), () => {})
     await registry.modules.machines.setUpdateChannel(asMachineId('packaged'), 'dev')
     await registry.modules.machines.setMachineBuild(
       asMachineId('packaged'),
@@ -862,7 +864,7 @@ describe('updates tRPC', () => {
       ['update.delivery.feed'],
       '2026-08-13T00:00:00.000Z',
     )
-    registry.gateway.attachDaemon('source-machine', (message) => grants.push(message))
+    await registry.gateway.attachDaemon('source-machine', (message) => grants.push(message))
     // A published dev release, as the resolver hands it over: an ordinary feed
     // artifact, on the instance trust root.
     await registry.modules.updates.setTarget({
@@ -945,7 +947,7 @@ describe('updates tRPC', () => {
       [],
       '2026-08-13T00:00:00.000Z',
     )
-    registry.gateway.attachDaemon('installed-edge', (message) => grants.push(message))
+    await registry.gateway.attachDaemon('installed-edge', (message) => grants.push(message))
     await registry.modules.updates.setTarget({
       version: 'dev+47a01e3',
       critical: false,
@@ -998,7 +1000,7 @@ describe('updates tRPC', () => {
       [],
       '2026-08-13T00:00:00.000Z',
     )
-    registry.gateway.attachDaemon('installed-edge', (message) => grants.push(message))
+    await registry.gateway.attachDaemon('installed-edge', (message) => grants.push(message))
     await registry.modules.updates.setTarget({
       version: 'dev+47a01e3',
       critical: false,
@@ -1107,7 +1109,7 @@ describe('updates tRPC', () => {
       [],
       '2026-08-13T00:00:00.000Z',
     )
-    registry.gateway.attachDaemon('installed-edge', (message) => grants.push(message))
+    await registry.gateway.attachDaemon('installed-edge', (message) => grants.push(message))
     await registry.modules.updates.setTarget({
       version: 'dev+47a01e3',
       critical: false,
@@ -1243,7 +1245,7 @@ describe('updates tRPC', () => {
       [],
       '2026-08-13T00:00:00.000Z',
     )
-    registry.gateway.attachDaemon('installed-edge', (message) => grants.push(message))
+    await registry.gateway.attachDaemon('installed-edge', (message) => grants.push(message))
     await registry.modules.updates.setTarget({
       version: 'dev+47a01e3',
       critical: false,
@@ -1268,7 +1270,7 @@ describe('updates tRPC', () => {
       ['update.delivery.bundle'],
       '2026-08-13T00:00:00.000Z',
     )
-    registry.gateway.attachDaemon(bundleMachine, (message) => grants.push(message))
+    await registry.gateway.attachDaemon(bundleMachine, (message) => grants.push(message))
 
     await caller.updates.converge()
     expect(requestCoordinatorRestart).not.toHaveBeenCalled()
@@ -1560,20 +1562,20 @@ describe('updates tRPC', () => {
       '2026-08-10T00:00:00.000Z',
     )
     await registry.sessionStore.machines.upsertMachine({
-      id: 'flatblock',
+      id: 'remote-machine',
       name: 'Flatblock',
-      hostname: 'flatblock',
+      hostname: 'remote-machine',
       tokenHash: 'flatblock-token',
       ownerUserId: firstAdminMemberId(),
     })
-    await registry.modules.machines.setUpdateChannel(asMachineId('flatblock'), 'dev')
+    await registry.modules.machines.setUpdateChannel(asMachineId('remote-machine'), 'dev')
     await registry.modules.machines.setMachineBuild(
-      asMachineId('flatblock'),
+      asMachineId('remote-machine'),
       { appVersion: '0.4.1' },
       [],
       '2026-08-10T00:00:00.000Z',
     )
-    registry.gateway.attachDaemon('flatblock', (message) => grants.push(message))
+    await registry.gateway.attachDaemon('remote-machine', (message) => grants.push(message))
     await registry.modules.updates.setTarget(target())
 
     const result = await caller.updates.converge()
@@ -1581,7 +1583,7 @@ describe('updates tRPC', () => {
       state: 'in-progress',
       version: '0.4.2',
       total: 1,
-      grantedMachineIds: ['flatblock'],
+      grantedMachineIds: ['remote-machine'],
     })
     expect(grants).toEqual([expect.objectContaining({ type: 'updateGrant' })])
     await registry.dispose()
@@ -1734,7 +1736,7 @@ describe('the update operation', () => {
       tokenHash: 'behind-token',
       ownerUserId: firstAdminMemberId(),
     })
-    registry.gateway.attachDaemon(behind, () => {})
+    await registry.gateway.attachDaemon(behind, () => {})
     await registry.modules.machines.setMachineBuild(
       behind,
       { appVersion: '0.4.1' },
