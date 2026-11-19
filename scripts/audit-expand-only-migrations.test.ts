@@ -102,6 +102,17 @@ ALTER TABLE __new_machines RENAME TO machines;`
     )
   })
 
+  it('distinguishes CHECK predicates from real NOT NULL column constraints', () => {
+    expect(
+      findDestructiveDdl(`ALTER TABLE machines ADD public_key text
+      CHECK (kind = 'key' AND public_key IS NOT NULL);`),
+    ).toEqual([])
+    expect(
+      findDestructiveDdl(`ALTER TABLE machines ADD public_key text
+      CHECK (length(public_key) > 0) NOT NULL;`)[0]?.kind,
+    ).toBe('not-null-without-default')
+  })
+
   it('passes NOT NULL WITH a default', () => {
     expect(
       findDestructiveDdl("ALTER TABLE machines ADD COLUMN k text NOT NULL DEFAULT '';"),

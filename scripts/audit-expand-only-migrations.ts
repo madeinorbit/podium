@@ -590,6 +590,23 @@ export function findDestructiveDdl(sql: string): DestructiveDdlFinding[] {
   const renameRe = /\bALTER\s+TABLE\b[\s\S]*?\bRENAME\b/i
   const addNotNullRe = /\bALTER\s+TABLE\b[\s\S]*?\bADD(?:\s+COLUMN)?\b[\s\S]*?\bNOT\s+NULL\b/i
   const defaultRe = /\bDEFAULT\b/i
+  // CHECK predicates can contain IS NOT NULL without constraining the column.
+  const columnConstraints = (statement: string): string => {
+    let depth = 0
+    return [...statement]
+      .map((char) => {
+        if (char === '(') {
+          depth++
+          return ' '
+        }
+        if (char === ')') {
+          depth--
+          return ' '
+        }
+        return depth > 0 ? ' ' : char
+      })
+      .join('')
+  }
 
   for (const [index, span] of spans.entries()) {
     if (covered.has(index)) continue
@@ -601,7 +618,10 @@ export function findDestructiveDdl(sql: string): DestructiveDdlFinding[] {
       kind = 'drop-column'
     } else if (renameRe.test(span.clean)) {
       kind = 'rename'
-    } else if (addNotNullRe.test(span.clean) && !defaultRe.test(span.clean)) {
+    } else if (
+      addNotNullRe.test(columnConstraints(span.clean)) &&
+      !defaultRe.test(columnConstraints(span.clean))
+    ) {
       kind = 'not-null-without-default'
     }
 
