@@ -68,7 +68,7 @@ describe('web shell structure', () => {
 
   it('sidebar renders always-on project groups and the pinned issue section (#41, POD-166/169)', () => {
     const src = readWorklist()
-    expect(src).toContain('pool.sidebar.sections')
+    expect(src).toContain('const sections = model.sections(state)')
     expect(src).toContain('ProjectGroupLabel')
     // Panel-pinning is retired (POD-169) — issue pinning renders its own section.
     const sidebar = readFileSync(

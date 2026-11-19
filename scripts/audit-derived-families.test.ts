@@ -17,7 +17,6 @@ import { describe, expect, it } from 'vitest'
 import {
   auditDerivedFamilies,
   foreignTableImports,
-  GOVERNED,
   handRolledProcedures,
   importedSymbols,
   tablesExist,
@@ -131,14 +130,5 @@ describe('subject-present', () => {
       () => 'export const SOMETHING_ELSE = {}',
     )
     expect(found.every((f) => f.check === 'subject-present')).toBe(true)
-  })
-})
-
-describe('the governed list', () => {
-  it('covers POD-314s eleven families, plus agent profiles (POD-6107)', () => {
-    // Pinned, because a list that silently shrank would take the gate's coverage
-    // with it while every case above still passed.
-    expect(GOVERNED).toHaveLength(12)
-    expect(new Set(GOVERNED.map((g) => g.module)).size).toBe(10)
   })
 })

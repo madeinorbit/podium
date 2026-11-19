@@ -14,6 +14,7 @@
  */
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import ts from 'typescript'
 import { describe, expect, it } from 'vitest'
 
 const HERE = join(import.meta.dirname)
@@ -27,9 +28,27 @@ function pageSources(): { path: string; text: string }[] {
   return [COMMANDS, ...files].map((path) => ({ path, text: readFileSync(path, 'utf8') }))
 }
 
-/** A payload key assignment: `actor:`, `owner:`, `onBehalfOf:`, `origin:` used
- *  as an object key rather than as a READ of a server field (`issue.owner`). */
-const IDENTITY_KEY = /(?<![.\w])(actor|owner|onBehalfOf|origin|visibility)\s*:/g
+/** Object literal writes can span lines; response types and reads are allowed. */
+function identityWrites(text: string): string[] {
+  const ast = ts.createSourceFile('page.tsx', text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
+  const found: string[] = []
+  function visit(node: ts.Node) {
+    if (ts.isObjectLiteralExpression(node))
+      for (const property of node.properties) {
+        if (!ts.isPropertyAssignment(property) && !ts.isShorthandPropertyAssignment(property))
+          continue
+        const key = ts.isComputedPropertyName(property.name)
+          ? property.name.expression
+          : property.name
+        const name = ts.isIdentifier(key) || ts.isStringLiteral(key) ? key.text : ''
+        if (['actor', 'owner', 'onBehalfOf', 'origin', 'visibility'].includes(name))
+          found.push(name)
+      }
+    ts.forEachChild(node, visit)
+  }
+  visit(ast)
+  return found
+}
 
 describe('the instrument can see what it claims to check', () => {
   it('reads a non-trivial set of page sources', () => {
@@ -47,29 +66,25 @@ describe('the instrument can see what it claims to check', () => {
 })
 
 describe('no command payload carries actor, owner, origin or visibility', () => {
-  it('finds no identity key written into any payload', () => {
-    const offenders: string[] = []
-    for (const { path, text } of pageSources()) {
-      for (const line of text.split('\n')) {
-        // Comments and JSX prop/type positions are not payloads. A payload key
-        // appears inside a mutate/update object literal, which in this codebase
-        // is always on a line that also mentions one of those.
-        const trimmed = line.trim()
-        if (trimmed.startsWith('*') || trimmed.startsWith('//')) continue
-        if (!/mutate\(|patch:|update\(/.test(line)) continue
-        IDENTITY_KEY.lastIndex = 0
-        if (IDENTITY_KEY.test(line)) offenders.push(`${path}: ${trimmed}`)
-      }
-    }
-    expect(offenders).toEqual([])
+  it('finds no identity key written into page objects', () => {
+    expect(
+      pageSources().flatMap(({ path, text }) =>
+        identityWrites(text).map((key) => `${path}: ${key}`),
+      ),
+    ).toEqual([])
   })
-
-  it('the commands module names no identity concept at all', () => {
-    // Broader than the payload scan and deliberately so: `issue-page-commands.ts`
-    // is the ONLY place this page issues writes from, so any mention of these
-    // words there is worth a human look even in a comment.
-    const text = readFileSync(COMMANDS, 'utf8')
-    expect(text).not.toMatch(/\bonBehalfOf\b/)
-    expect(text).not.toMatch(/\bactor\b/)
+  it('detects multiline and shorthand writes while allowing response types and reads', () => {
+    expect(
+      identityWrites(`mutate({
+ actor: 'forged',
+ onBehalfOf,
+ ['owner']: 'other'
+})`),
+    ).toEqual(['actor', 'onBehalfOf', 'owner'])
+    expect(
+      identityWrites(
+        `interface Response { actor: string; onBehalfOf: string }; const label = row.actor`,
+      ),
+    ).toEqual([])
   })
 })

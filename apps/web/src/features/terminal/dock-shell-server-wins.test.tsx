@@ -4,7 +4,7 @@ import { asSessionId, type SessionId, type SessionMeta } from '@podium/model'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-
+import { publishScreenPoolFixture } from '@/test-support/mock-screen-pool'
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 /**
@@ -30,6 +30,7 @@ const forWorktreeMutate = vi.fn(
 const setDockShell = vi.fn((cwd: string, sessionId: SessionId | null) => {
   if (sessionId) dockShells[cwd] = sessionId
   else delete dockShells[cwd]
+  publishScreenPoolFixture()
 })
 const setDockVisibleSession = vi.fn()
 
