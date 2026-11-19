@@ -13,6 +13,7 @@ import { observer } from 'mobx-react-lite'
 import type { JSX, MutableRefObject, RefObject } from 'react'
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { TranscriptFeedBoundary } from '@/features/chat/TranscriptFeedBoundary'
+import { throughRestarts } from '@/lib/chunk-recovery'
 import { lazy } from '@/lib/lazy-surface'
 import {
   markQuoteSinkFocused,
@@ -45,7 +46,9 @@ import { useConversation, type WebConversation } from './use-conversation'
  * time a session is actually stopped on something.
  */
 const PendingInteractionBar = lazy(() =>
-  import('./PendingInteractionBar').then((module) => ({ default: module.PendingInteractionBar })),
+  throughRestarts(() => import('./PendingInteractionBar')).then((module) => ({
+    default: module.PendingInteractionBar,
+  })),
 )
 
 /** Layout is local; live chat state is read by narrow observer leaves. */

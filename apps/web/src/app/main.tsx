@@ -38,7 +38,7 @@ const MotionDemo = lazy(() =>
 // this, and that window runs the BUNDLED app, so the chunk is local — never
 // fetched from the server that is gone.
 const RemoteServerSearchPage = lazy(() =>
-  import('./RemoteServerSearchPage').then((module) => ({
+  throughRestarts(() => import('./RemoteServerSearchPage')).then((module) => ({
     default: module.RemoteServerSearchPage,
   })),
 )
