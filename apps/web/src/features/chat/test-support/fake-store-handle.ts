@@ -49,6 +49,8 @@ const keyedHandle = withKeyedInputs({
       'httpOrigin',
       'replica',
       'attachedSessionId',
+      'sessions',
+      'machines',
     ] as const) {
       if (!Object.getOwnPropertyDescriptor(snapshot, key)) {
         Object.defineProperty(snapshot, key, {

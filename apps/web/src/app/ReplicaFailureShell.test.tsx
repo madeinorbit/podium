@@ -7,6 +7,7 @@
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { UpdatePanelView } from '@/features/updates/operation-view'
+import { passwordCapabilities } from '@/test-support/auth-capabilities'
 
 const mocks = vi.hoisted(() => ({
   useRegisterSW: vi.fn(),
@@ -43,7 +44,14 @@ beforeEach(() => {
   // Nothing on these screens may reach a real server.
   vi.stubGlobal(
     'fetch',
-    vi.fn(() => new Promise(() => {})),
+    vi.fn(async () =>
+      Response.json({
+        needsAuth: true,
+        authed: false,
+        capabilities: passwordCapabilities,
+        prompt: 'password',
+      }),
+    ),
   )
   mocks.useRegisterSW.mockReturnValue({
     needRefresh: [false, vi.fn()],
