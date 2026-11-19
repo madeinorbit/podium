@@ -1319,6 +1319,7 @@ describe('ChatView composer', () => {
   })
 
   it('sends a staged attachment ref without pasting its path into message text', async () => {
+    console.info('[attachment control] opening')
     const attachment = {
       id: 'staged-1',
       path: '/staged/shot.png',
@@ -1344,17 +1345,21 @@ describe('ChatView composer', () => {
       configurable: true,
       value: [new File(['pixels'], 'shot.png', { type: 'image/png' })],
     })
+    console.info('[attachment control] uploading')
     await act(async () => {
       input.dispatchEvent(new Event('change', { bubbles: true }))
     })
+    console.info('[attachment control] uploaded')
     await vi.waitFor(() => expect(fakeTrpc.sessions.uploadImage.mutate).toHaveBeenCalledTimes(1))
     await act(async () => Promise.resolve())
     await act(async () => {
+      console.info('[attachment control] submitting')
       textarea.dispatchEvent(
         new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
       )
       await Promise.resolve()
     })
+    console.info('[attachment control] submitted')
 
     expect(fakeTrpc.sessions.sendText.mutate).toHaveBeenCalledWith(
       expect.objectContaining({
