@@ -60,7 +60,10 @@ describe('web shell structure', () => {
         'features/worklist/use-pool-unified-work.ts',
         'app/DesktopMenuHost.tsx',
       ].map(read),
-      readClientCore('values/slices/worklist/published.ts'),
+      readFileSync(
+        new URL('../../../packages/client-graph/src/worklist/groups.ts', import.meta.url),
+        'utf8',
+      ),
     ].join('\n')
 
   it('sidebar renders always-on project groups and the pinned issue section (#41, POD-166/169)', () => {
@@ -68,11 +71,16 @@ describe('web shell structure', () => {
     expect(src).toContain('pool.sidebar.sections')
     expect(src).toContain('ProjectGroupLabel')
     // Panel-pinning is retired (POD-169) — issue pinning renders its own section.
-    expect(src).toContain('splitPinnedWork')
-    // Check the call and its route to the rendered section, not an unused import.
-    expect(readClientCore('values/slices/worklist/published.ts')).toContain(
-      'const { pinned, rest } = splitPinnedWork(work)',
+    const sidebar = readFileSync(
+      new URL('../../../packages/client-graph/src/worklist/sidebar.ts', import.meta.url),
+      'utf8',
     )
+    expect(sidebar).toContain('pinnedIds: worklistGroups(this.pool).pinnedRootIds')
+    const groups = readFileSync(
+      new URL('../../../packages/client-graph/src/worklist/groups.ts', import.meta.url),
+      'utf8',
+    )
+    expect(groups).toContain('pinnedRootIds')
     expect(read('features/worklist/pool-sidebar.tsx')).toContain('sections.pinnedIds')
     expect(read('features/worklist/pool-sidebar.tsx')).toContain('data-testid="pinned-section"')
     // The negative invariant stays scoped to the component that must not regain

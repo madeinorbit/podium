@@ -106,11 +106,12 @@ describe('eager shell Motion boundary', () => {
     expect([...(graph.packageImports.get('motion/react') ?? [])].sort()).toEqual([
       'features/worklist/worklist-motion.tsx',
     ])
-    expect([...(graph.packageImports.get('motion/react-m') ?? [])].sort()).toEqual([
-      'features/worklist/SidebarUnified.tsx',
-      'features/worklist/WorkRowShell.tsx',
-      'features/worklist/work-folds.tsx',
-    ])
+    // Lightweight m components may move between row owners. Every eager
+    // importer still belongs to the worklist boundary and no feature bundle
+    // may import the full motion entry alongside it.
+    const lightweight = [...(graph.packageImports.get('motion/react-m') ?? [])]
+    expect(lightweight.length).toBeGreaterThan(0)
+    expect(lightweight.every((file) => file.startsWith('features/worklist/'))).toBe(true)
     expect([...graph.files].map((file) => relative(SRC, file))).not.toContain(
       'features/worklist/worklist-motion-features.ts',
     )

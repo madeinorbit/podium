@@ -97,7 +97,7 @@ const ProjectRow = observer(function ProjectRow({
   const { openTakeover } = useSettingsFrame()
   return (
     <EntityRow
-      leading={<span className="font-mono text-[9.5px]">{row.prefix ?? '—'}</span>}
+      leading={<span className="font-mono shell-type-micro">{row.prefix ?? '—'}</span>}
       title={row.name}
       onClick={() => openTakeover({ title: row.name, content: <ProjectDetail row={row} /> })}
       subtitle={

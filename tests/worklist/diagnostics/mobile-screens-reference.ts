@@ -135,14 +135,26 @@ function referenceDeck(
     )
     const byRow = new Map(rows.map((row) => [row.issue.id as string, row]))
     const coordinated = new Set(
-      rows
-        .filter((row) => coordinatorLive(bySession.get(row.issue.coordinatorSessionId ?? '')))
-        .map((row) => row.issue.id as string),
+      issues
+        .filter((issue) => coordinatorLive(bySession.get(issue.coordinatorSessionId ?? '')))
+        .map((issue) => issue.id as string),
     )
     const interactions = new Map<string, number>()
     for (const row of source.pendingInteractions ?? [])
       if (row.status === 'asked')
         interactions.set(row.sessionId, (interactions.get(row.sessionId) ?? 0) + 1)
+    // The drawn rows can omit a grafted branch even though its descendants
+    // still contribute to a fold's totals. Counts read the complete visible
+    // record scope, independently of which rows the deck drew.
+    const crewById = new Map<string, ReferenceState['sessions']>()
+    const crew = (issue: Issue) => {
+      let members = crewById.get(issue.id)
+      if (!members) {
+        members = sessionsForIssueNav(issue, sessions, paths, { includeShells: true })
+        crewById.set(issue.id, members)
+      }
+      return members
+    }
     const ancestors = new Map<string, string[]>()
     for (const parent of rows)
       for (const childId of parent.descendantIds) {
@@ -156,8 +168,9 @@ function referenceDeck(
         waitingAgentCount = 0,
         workingAgentCount = 0
       for (const id of ids) {
-        const child = byRow.get(id)
-        if (!child) continue
+        const issue = byId.get(id)
+        if (!issue || issue.archived || issue.deletedAt) continue
+        const child = byRow.get(id) ?? { issue, sessions: crew(issue) }
         const delegated = (ancestors.get(id) ?? []).some(
           (lead) => ids.has(lead) && coordinated.has(lead),
         )

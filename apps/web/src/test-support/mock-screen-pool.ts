@@ -119,6 +119,8 @@ const selectInputs = (state: Store): Inputs => ({
   superagentThreads: (state as Inputs).superagentThreads,
   superThreadId: state.superThreadId,
   paneA: state.paneA,
+  dockShells: state.dockShells,
+  panelMode: state.panelMode,
   selectedWorktree: state.selectedWorktree,
   selectedIssueId: state.selectedIssueId,
   selectedIssueWasFolded: (state as unknown as Inputs).selectedIssueWasFolded,
