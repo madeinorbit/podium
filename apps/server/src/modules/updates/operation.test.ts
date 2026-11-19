@@ -3,7 +3,12 @@ import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asMachineId, type UpdateChannel } from '@podium/model'
-import type { Operation, UpdateGrantMessage, UpdateStatusMessage, UpdateTarget } from '@podium/protocol'
+import type {
+  Operation,
+  UpdateGrantMessage,
+  UpdateStatusMessage,
+  UpdateTarget,
+} from '@podium/protocol'
 import {
   CODE_FOR_UPDATE_FAILURE_TOKEN,
   UPDATE_FAILURE_EXAMPLES,
@@ -1764,13 +1769,22 @@ describe('the step runners', () => {
       preflightDatabaseBackup: preflight,
       prepareCoordinatorUpdate: prepare,
     })
-    const step = { id: UPDATE_STEP_SERVER, title: 'Updating your server', state: 'running' as const }
+    const step = {
+      id: UPDATE_STEP_SERVER,
+      title: 'Updating your server',
+      state: 'running' as const,
+    }
     const operation: Operation = {
-      id: 'old-fleet-operation', kind: UPDATE_OPERATION_KIND, state: 'running',
-      details: { target: packedTarget(), channel: 'dev' }, steps: [step],
+      id: 'old-fleet-operation',
+      kind: UPDATE_OPERATION_KIND,
+      state: 'running',
+      details: { target: packedTarget(), channel: 'dev' },
+      steps: [step],
     }
     const outcome = await updateOperationKind().runners[UPDATE_STEP_SERVER]!.ensure({
-      operation, step, context: h.context(),
+      operation,
+      step,
+      context: h.context(),
     })
     expect(outcome).toEqual({ state: 'skipped' })
     expect(restart).not.toHaveBeenCalled()
@@ -2042,13 +2056,16 @@ describe('the step runners', () => {
     const preflight = vi.fn(async () => ({ ok: true as const }))
     const restart = vi.fn()
     const h = await harness({
-      machines: [], durableRecovery: true,
-      approvedTarget: async () => packedTarget(), target: packedTarget(),
+      machines: [],
+      durableRecovery: true,
+      approvedTarget: async () => packedTarget(),
+      target: packedTarget(),
       servedWebDigest: () => WEB_DIGEST,
       prepareCoordinatorUpdate: async () => {
         throw new Error('artifact download returned 404 — not published yet; retry later')
       },
-      preflightDatabaseBackup: preflight, requestCoordinatorRestart: restart,
+      preflightDatabaseBackup: preflight,
+      requestCoordinatorRestart: restart,
     })
     await h.engine.start(UPDATE_OPERATION_KIND, h.context())
     await h.engine.whenSettled('op_1')
@@ -4703,7 +4720,9 @@ describe('the wave rounds an update writes down', () => {
 describe('coordinator backup preflight activation boundary', () => {
   function latch<T>() {
     let resolve!: (value: T) => void
-    const promise = new Promise<T>((done) => { resolve = done })
+    const promise = new Promise<T>((done) => {
+      resolve = done
+    })
     return { promise, resolve }
   }
 
@@ -4718,10 +4737,17 @@ describe('coordinator backup preflight activation boundary', () => {
     const releasePreflight = latch<void>()
     const activated = latch<void>()
     const receiptSettled = latch<void>()
-    const fleet = online ? [machine({
-      id: 'host', coordinator: true, presenceSource: 'supervisor',
-      deliveryCaps: FEED_CAPS, platform: 'linux-x64',
-    })] : []
+    const fleet = online
+      ? [
+          machine({
+            id: 'host',
+            coordinator: true,
+            presenceSource: 'supervisor',
+            deliveryCaps: FEED_CAPS,
+            platform: 'linux-x64',
+          }),
+        ]
+      : []
     let failPreflight = false
     const preflight = vi.fn(async (): Promise<{ ok: true } | { ok: false; detail: string }> => {
       preflighting.resolve()
@@ -4741,11 +4767,17 @@ describe('coordinator backup preflight activation boundary', () => {
     })
     const fallbackRestart = vi.fn()
     const prepare = createInstalledCoordinatorUpdate({
-      runtimeDir, hasParent: () => true, env: { PODIUM_MACHINE_UPDATE_OWNER: 'supervisor' },
+      runtimeDir,
+      hasParent: () => true,
+      env: { PODIUM_MACHINE_UPDATE_OWNER: 'supervisor' },
     })!
     const h = await harness({
-      machines: fleet, target, serverPlacement: { kind: 'fleet', machineId: 'host' }, durableRecovery: true,
-      approvedTarget: async () => approved, servedWebDigest: () => WEB_DIGEST,
+      machines: fleet,
+      target,
+      serverPlacement: { kind: 'fleet', machineId: 'host' },
+      durableRecovery: true,
+      approvedTarget: async () => approved,
+      servedWebDigest: () => WEB_DIGEST,
       legacyTransferActive: () => transfer,
       prepareCoordinatorUpdate: async (target, grant) => {
         const receipt = await prepare(target, grant)
@@ -4781,28 +4813,60 @@ describe('coordinator backup preflight activation boundary', () => {
       restart: vi.fn(async () => 'handover-pending' as const),
     }
     const reports: UpdateStatusMessage[] = []
-    const executor = new MachineUpdateExecutor({ runtimeDir, adapter, report: (status) => reports.push(status) })
+    const executor = new MachineUpdateExecutor({
+      runtimeDir,
+      adapter,
+      report: (status) => reports.push(status),
+    })
     const control = await startMachineUpdateControl(runtimeDir, executor)
     // Observable old-coordinator availability, separate from the control endpoint.
     const serving = createServer((_req, res) => res.end('old coordinator serving'))
     await new Promise<void>((resolve) => serving.listen(0, '127.0.0.1', resolve))
     const address = serving.address() as { port: number }
-    const oldServer = () => fetch(`http://127.0.0.1:${address.port}`).then((response) => response.text())
+    const oldServer = () =>
+      fetch(`http://127.0.0.1:${address.port}`).then((response) => response.text())
     const start = async () => {
       await h.engine.start(UPDATE_OPERATION_KIND, h.context())
       await preparing.promise
     }
     const repeat = async () => {
       const operation = await h.read()
-      const step = operation.steps!.find((candidate) => candidate.id === (online ? UPDATE_STEP_MACHINES : UPDATE_STEP_SERVER))!
-      return updateOperationKind().runners[step.id]!.ensure({ operation, step, context: h.context() })
+      const step = operation.steps!.find(
+        (candidate) => candidate.id === (online ? UPDATE_STEP_MACHINES : UPDATE_STEP_SERVER),
+      )!
+      return updateOperationKind().runners[step.id]!.ensure({
+        operation,
+        step,
+        context: h.context(),
+      })
     }
     return {
-      h, target, executor, adapter, reports, preflight, preflighting, preparing, activated, receiptSettled,
-      releasePreparation, releasePreflight, fallbackRestart, start, repeat, oldServer, runtimeDir,
-      failPreflight: () => { failPreflight = true },
-      transfer: () => { transfer = true },
-      supersede: () => { approved = { ...target, artifacts: { ...target.artifacts, web: { digest: 'replaced' } } } },
+      h,
+      target,
+      executor,
+      adapter,
+      reports,
+      preflight,
+      preflighting,
+      preparing,
+      activated,
+      receiptSettled,
+      releasePreparation,
+      releasePreflight,
+      fallbackRestart,
+      start,
+      repeat,
+      oldServer,
+      runtimeDir,
+      failPreflight: () => {
+        failPreflight = true
+      },
+      transfer: () => {
+        transfer = true
+      },
+      supersede: () => {
+        approved = { ...target, artifacts: { ...target.artifacts, web: { digest: 'replaced' } } }
+      },
       async close() {
         releasePreparation.resolve()
         releasePreflight.resolve()
@@ -4814,7 +4878,10 @@ describe('coordinator backup preflight activation boundary', () => {
     }
   }
 
-  it.each([true, false])('joins repeated ensures while preparing, preflighting and committed (online=%s)', async (online) => {
+  it.each([
+    true,
+    false,
+  ])('joins repeated ensures while preparing, preflighting and committed (online=%s)', async (online) => {
     const f = await fixture(online)
     try {
       await f.start()
@@ -4840,7 +4907,9 @@ describe('coordinator backup preflight activation boundary', () => {
       expect(f.adapter.activate).toHaveBeenCalledTimes(1)
       expect(f.h.sent).toEqual([])
       expect(f.fallbackRestart).not.toHaveBeenCalled()
-    } finally { await f.close() }
+    } finally {
+      await f.close()
+    }
   })
 
   it.each([
@@ -4910,7 +4979,11 @@ describe('coordinator backup preflight activation boundary', () => {
       const canceled = f.reports.findLast((status) => status.phaseDetail === 'canceled')!
       await f.h.updates.onStatus(asMachineId('host'), canceled)
       report.mockRestore()
-      await createUpdateFleetBridge({ engine: f.h.engine, updates: f.h.updates, now: () => f.h.clock.clock.now() }).onFleetChanged()
+      await createUpdateFleetBridge({
+        engine: f.h.engine,
+        updates: f.h.updates,
+        now: () => f.h.clock.clock.now(),
+      }).onFleetChanged()
       await f.h.engine.whenSettled('op_1')
       expect((await f.h.read()).state).toBe('failed')
       expect((await f.h.read()).error?.detail).toContain('Not enough disk space')
@@ -4961,16 +5034,20 @@ describe('coordinator backup preflight activation boundary', () => {
       // `canceled` detail and not a bare inactive code.
       const retry = await f.repeat()
       expect(retry.state).toBe('failed')
-      const detail = retry.error && 'detail' in retry.error
-        ? String((retry.error as { detail?: unknown }).detail ?? '')
-        : ''
-      const message = retry.error && 'message' in retry.error
-        ? String((retry.error as { message?: unknown }).message ?? '')
-        : ''
+      const detail =
+        retry.error && 'detail' in retry.error
+          ? String((retry.error as { detail?: unknown }).detail ?? '')
+          : ''
+      const message =
+        retry.error && 'message' in retry.error
+          ? String((retry.error as { message?: unknown }).message ?? '')
+          : ''
       expect(`${message} ${detail}`).toContain('Not enough disk space')
       expect(`${message} ${detail}`).not.toContain('canceled before activation')
       expect(retry.error?.code).not.toBe('coordinator-update-inactive')
-    } finally { await f.close() }
+    } finally {
+      await f.close()
+    }
   })
 
   it('never cancels a replacement grant after authority changes during the backup preflight', async () => {
@@ -4991,7 +5068,9 @@ describe('coordinator backup preflight activation boundary', () => {
       expect(f.executor.snapshot()!.phase).toBe('prepared')
       expect(f.adapter.activate).not.toHaveBeenCalled()
       expect((await f.h.read()).state).toBe('failed')
-    } finally { await f.close() }
+    } finally {
+      await f.close()
+    }
   })
 
   it('restores the exact committed grant and preflight receipt through the production recovery store', async () => {
@@ -5008,10 +5087,15 @@ describe('coordinator backup preflight activation boundary', () => {
       f.h.engine.stop()
       resetUpdateOperationState()
       const boot = await f.h.reboot()
-      await boot.engine.adoptOnBoot(() => ({
-        appVersion: '0.4.1', servedWebDigest: WEB_DIGEST,
-        machineDirectory: [], now: f.h.clock.clock.now(),
-      }), () => boot.context())
+      await boot.engine.adoptOnBoot(
+        () => ({
+          appVersion: '0.4.1',
+          servedWebDigest: WEB_DIGEST,
+          machineDirectory: [],
+          now: f.h.clock.clock.now(),
+        }),
+        () => boot.context(),
+      )
       await boot.engine.whenSettled('op_1')
       expect(f.executor.snapshot()!.grant).toEqual(grant)
       expect(f.adapter.prepare).toHaveBeenCalledTimes(1)
@@ -5019,7 +5103,9 @@ describe('coordinator backup preflight activation boundary', () => {
       expect(f.preflight).toHaveBeenCalledTimes(1)
       expect(f.h.sent).toEqual([])
       boot.engine.stop()
-    } finally { await f.close() }
+    } finally {
+      await f.close()
+    }
   })
 
   it('holds boot and reconnect auto-grants before any plan or handler exists', async () => {
@@ -5038,22 +5124,33 @@ describe('coordinator backup preflight activation boundary', () => {
     await service.setTarget('dev', target)
     await service.markAuthorized('dev')
     await service.tick('dev')
-    fleet.push(machine({ id: 'host', coordinator: true, presenceSource: 'supervisor',
-      deliveryCaps: FEED_CAPS, platform: 'linux-x64' }))
+    fleet.push(
+      machine({
+        id: 'host',
+        coordinator: true,
+        presenceSource: 'supervisor',
+        deliveryCaps: FEED_CAPS,
+        platform: 'linux-x64',
+      }),
+    )
     await service.tick('dev')
     await service.fleet()
     expect(send).not.toHaveBeenCalled()
   })
 })
 
-
 describe('boot target hydration observation boundary (POD-4257)', () => {
-  async function checkAdoptedTarget(scenario: 'own target' | 'different version' | 'different fingerprint' | 'withdrawn channel') {
+  async function checkAdoptedTarget(
+    scenario: 'own target' | 'different version' | 'different fingerprint' | 'withdrawn channel',
+  ) {
     const target = packedTarget()
     const fleet = [machine({ id: 'a' }), machine({ id: 'b' })]
-    const hydrated = scenario === 'different version'
-      ? { ...target, version: 'dev+def5678' }
-      : scenario === 'different fingerprint' ? { ...target, critical: true } : target
+    const hydrated =
+      scenario === 'different version'
+        ? { ...target, version: 'dev+def5678' }
+        : scenario === 'different fingerprint'
+          ? { ...target, critical: true }
+          : target
     const resolveTarget = vi.fn(async () => hydrated)
     const recordGrant = vi.fn<NonNullable<UpdatesDeps['recordGrant']>>()
     let approvalStore: OperationStore | undefined
@@ -5075,8 +5172,11 @@ describe('boot target hydration observation boundary (POD-4257)', () => {
       const grant = h.sent[0]!.message
       fleet[0] = machine({ id: 'a', version: target.version })
       await h.updates.onStatus(asMachineId('a'), {
-        type: 'updateStatus', state: 'current', version: target.version,
-        targetVersion: target.version, grantId: grant.grantId,
+        type: 'updateStatus',
+        state: 'current',
+        version: target.version,
+        targetVersion: target.version,
+        grantId: grant.grantId,
       })
       h.engine.stop()
       fleet[0]!.online = false
@@ -5084,8 +5184,12 @@ describe('boot target hydration observation boundary (POD-4257)', () => {
       boot = await h.reboot({ seedTarget: undefined })
       const successor = boot
       await successor.engine.adoptOnBoot(
-        () => ({ appVersion: target.version, servedWebDigest: WEB_DIGEST,
-          machineDirectory: fleet, now: h.clock.clock.now() }),
+        () => ({
+          appVersion: target.version,
+          servedWebDigest: WEB_DIGEST,
+          machineDirectory: fleet,
+          now: h.clock.clock.now(),
+        }),
         () => successor.context(),
       )
       await successor.engine.whenSettled('op_1')
@@ -5094,12 +5198,15 @@ describe('boot target hydration observation boundary (POD-4257)', () => {
         await successor.updates.withdrawFailedTarget('dev', target, 'test withdrawal')
       }
       const bridge = createUpdateFleetBridge({
-        engine: successor.engine, updates: successor.updates, now: h.clock.clock.now,
+        engine: successor.engine,
+        updates: successor.updates,
+        now: h.clock.clock.now,
       })
       successor.setTargetChanged(() => bridge.onTargetChanged())
       const reconciler = new UpdateReconciler({
         updates: successor.updates,
-        operationActive: async () => (await successor.engine.active(LIFECYCLE_EXCLUSION_GROUP)) !== undefined,
+        operationActive: async () =>
+          (await successor.engine.active(LIFECYCLE_EXCLUSION_GROUP)) !== undefined,
       })
       // server.ts opens the listener before awaiting its feed. A directory can
       // already show a participant online when that feed finishes resolving.
@@ -5108,9 +5215,11 @@ describe('boot target hydration observation boundary (POD-4257)', () => {
       fleet[1]!.online = true
       const before = await h.read()
       const grantsBefore = h.sent.length
-      const states = (operation: Operation) => operation.steps?.map(({ id, state }) => ({ id, state }))
+      const states = (operation: Operation) =>
+        operation.steps?.map(({ id, state }) => ({ id, state }))
       await refreshTargetsOnBoot({
-        channels: ['dev'], refresh: (channel) => successor.updates.refreshTarget(channel),
+        channels: ['dev'],
+        refresh: (channel) => successor.updates.refreshTarget(channel),
       })
       await h.settleTargetChanges()
       await reconciler.onBoot()
@@ -5118,12 +5227,24 @@ describe('boot target hydration observation boundary (POD-4257)', () => {
       expect(resolveTarget).toHaveBeenCalledTimes(1)
       const issued = h.sent.slice(grantsBefore)
       if (scenario === 'own target') {
+        if (issued.length === 0)
+          console.info(
+            'boot target observation',
+            JSON.stringify({
+              before: before.steps?.find(({ id }) => id === UPDATE_STEP_MACHINES),
+              after: (await h.read()).steps?.find(({ id }) => id === UPDATE_STEP_MACHINES),
+              fleet: await successor.updates.fleet('dev'),
+            }),
+          )
         expect(issued.map(({ machineId }) => machineId)).toEqual(['b'])
         for (const { message } of issued) {
           expect(message.target.version).toBe(target.version)
           expect(updateFingerprint(message.target)).toBe(updateFingerprint(target))
-          expect(recordGrant.mock.calls.find(([record]) => record.grantId === message.grantId)?.[0])
-            .toMatchObject({ initiator: { kind: 'operation', operationId: before.id, step: UPDATE_STEP_MACHINES } })
+          expect(
+            recordGrant.mock.calls.find(([record]) => record.grantId === message.grantId)?.[0],
+          ).toMatchObject({
+            initiator: { kind: 'operation', operationId: before.id, step: UPDATE_STEP_MACHINES },
+          })
         }
       } else {
         expect.soft(issued, 'unapproved or withdrawn hydration must not issue grants').toEqual([])
@@ -5133,19 +5254,23 @@ describe('boot target hydration observation boundary (POD-4257)', () => {
           code: 'published-target-changed',
           detail: 'published target changed under the running operation; approve again to continue',
         }
-        expect((await h.read()).steps?.find(({ id }) => id === UPDATE_STEP_MACHINES))
-          .toMatchObject({ state: 'running', detail: blocker.detail, error: blocker })
+        expect((await h.read()).steps?.find(({ id }) => id === UPDATE_STEP_MACHINES)).toMatchObject(
+          { state: 'running', detail: blocker.detail, error: blocker },
+        )
         // Fleet events and explicit runner retries must not bypass the refusal.
         await bridge.onFleetChanged()
         await successor.engine.reensure(before.id, UPDATE_STEP_MACHINES)
         await successor.engine.whenSettled(before.id)
         expect(h.sent.slice(grantsBefore)).toEqual([])
-        expect((await h.read()).steps?.find(({ id }) => id === UPDATE_STEP_MACHINES)?.error)
-          .toEqual(blocker)
+        expect(
+          (await h.read()).steps?.find(({ id }) => id === UPDATE_STEP_MACHINES)?.error,
+        ).toEqual(blocker)
       }
       expect((await h.read()).id).toBe(before.id)
       expect(await h.store.history(UPDATE_OPERATION_KIND)).toHaveLength(1)
-      expect.soft(states(await h.read()), 'boot hydration must not advance step states').toEqual(states(before))
+      expect
+        .soft(states(await h.read()), 'boot hydration must not advance step states')
+        .toEqual(states(before))
       expect(h.clock.clock.now()).toBe(0)
     } finally {
       h.engine.stop()
@@ -5153,9 +5278,12 @@ describe('boot target hydration observation boundary (POD-4257)', () => {
     }
   }
 
-  it.each(['own target', 'different version', 'different fingerprint', 'withdrawn channel'] as const)(
-    'resumes only an adopted operation’s exact approved target: %s', checkAdoptedTarget,
-  )
+  it.each([
+    'own target',
+    'different version',
+    'different fingerprint',
+    'withdrawn channel',
+  ] as const)('resumes only an adopted operation’s exact approved target: %s', checkAdoptedTarget)
 
   it('hydrates without starting an operation or granting when none is running', async () => {
     const target = packedTarget()
@@ -5169,14 +5297,21 @@ describe('boot target hydration observation boundary (POD-4257)', () => {
       serverPlacement: { kind: 'external' },
     })
     approvalStore = h.store
-    const bridge = createUpdateFleetBridge({ engine: h.engine, updates: h.updates, now: h.clock.clock.now })
+    const bridge = createUpdateFleetBridge({
+      engine: h.engine,
+      updates: h.updates,
+      now: h.clock.clock.now,
+    })
     h.setTargetChanged(() => bridge.onTargetChanged())
     const reconciler = new UpdateReconciler({
       updates: h.updates,
       operationActive: async () => (await h.engine.active(LIFECYCLE_EXCLUSION_GROUP)) !== undefined,
     })
     try {
-      await refreshTargetsOnBoot({ channels: ['dev'], refresh: (channel) => h.updates.refreshTarget(channel) })
+      await refreshTargetsOnBoot({
+        channels: ['dev'],
+        refresh: (channel) => h.updates.refreshTarget(channel),
+      })
       await h.settleTargetChanges()
       await reconciler.onBoot()
       expect(h.updates.target('dev')).toEqual(target)

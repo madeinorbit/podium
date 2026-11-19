@@ -20,6 +20,7 @@ import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it } from 'vitest'
 import { userCommandPrincipal } from '../../command-principal'
 import { confirmingRetirement } from '../../test-support/host-daemon'
+import { seedLegacyKeyCredential } from '../../test-support/legacy-key-credential'
 import { disposeOracles, makeOracle, type Oracle, waitFor } from '../sessions/oracle-support'
 import { appliedReply, changeRows, envelope, submit } from '../sync-write/outbox-test-support'
 import { ISSUE_START_DEADLINE_MS, ISSUE_START_KIND, ISSUE_START_PROPOSED } from './start-effect'
@@ -269,13 +270,20 @@ describe('an issue.start effect', () => {
       'test-only',
     )
     const parentId = newIssueId()
+    const credential = await seedLegacyKeyCredential(o.store, {
+      owner: writer,
+      accountKey: 'writer-key',
+      type: 'anthropic.api-key',
+      secret: 'synthetic-key',
+      sentTo: [o.store.hostMachineId],
+    })
     await o.call.issues.create({ id: parentId, repoPath: '/p', title: 'parent', startNow: false })
     o.reg.gateway.detachDaemon(o.reg.sessionStore.hostMachineId)
     const effectId = mintDeviceId('eff_')
     const issueId = newIssueId()
     const sessionId = newSessionId()
     const { reply } = await o.reg.modules.syncWrite.submitDetailed(
-      startEnvelope(effectId, issueId, task(sessionId, { parentId }), 's-1'),
+      startEnvelope(effectId, issueId, task(sessionId, { parentId, credential }), 's-1'),
       userCommandPrincipal(writer, 'member'),
       'trpc',
     )
@@ -308,8 +316,15 @@ describe('an issue.start effect', () => {
     const effectId = mintDeviceId('eff_')
     const issueId = newIssueId()
     const sessionId = newSessionId()
+    const credential = await seedLegacyKeyCredential(o.store, {
+      owner: writer,
+      accountKey: 'member-key',
+      type: 'anthropic.api-key',
+      secret: 'synthetic-key',
+      sentTo: [o.store.hostMachineId],
+    })
     const { reply } = await o.reg.modules.syncWrite.submitDetailed(
-      startEnvelope(effectId, issueId, task(sessionId), 's-1'),
+      startEnvelope(effectId, issueId, task(sessionId, { credential }), 's-1'),
       userCommandPrincipal(writer, 'member'),
       'trpc',
     )
@@ -338,8 +353,20 @@ describe('an issue.start effect', () => {
     )
     const effectId = mintDeviceId('eff_')
     const issueId = newIssueId()
+    const credential = await seedLegacyKeyCredential(o.store, {
+      owner: writer,
+      accountKey: 'member-key',
+      type: 'anthropic.api-key',
+      secret: 'synthetic-key',
+      sentTo: [o.store.hostMachineId],
+    })
     const { reply } = await o.reg.modules.syncWrite.submitDetailed(
-      startEnvelope(effectId, issueId, task(newSessionId(), { stage: 'planning' }), 's-1'),
+      startEnvelope(
+        effectId,
+        issueId,
+        task(newSessionId(), { stage: 'planning', credential }),
+        's-1',
+      ),
       userCommandPrincipal(writer, 'member'),
       'trpc',
     )

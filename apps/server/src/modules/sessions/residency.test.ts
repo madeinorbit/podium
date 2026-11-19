@@ -74,6 +74,20 @@ describe('session residency (POD-6160 D2f)', () => {
     ]
     const reg = await boot(store)
     const sessions = reg.modules.sessions
+    if (sessions.sessions.size !== running.length) {
+      const retained = [...sessions.sessions.values()].filter((s) => !running.includes(s.sessionId))
+      console.info(
+        'unexpected boot residents',
+        JSON.stringify(
+          retained.slice(0, 8).map((s) => ({
+            id: s.sessionId,
+            status: s.status,
+            headless: s.headless,
+            reason: sessions.residency.residentBecause(s.sessionId),
+          })),
+        ),
+      )
+    }
     // SESSIONS IN MEMORY = RUNNING SESSIONS, over thousands of ended ones.
     expect([...sessions.sessions.keys()].sort()).toEqual([...running].sort())
     // Boot read no draft document (they load when used).
