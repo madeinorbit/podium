@@ -1,3 +1,4 @@
+import { refreshClocks } from '@podium/mobx-helpers'
 import { referenceState } from '../../../../tests/worklist/diagnostics/reference-state'
 
 /** Cumulative derivations and actual React commits: enable before bootstrap
@@ -260,12 +261,6 @@ describe('mobile pool-only worklist regressions', () => {
     state.host = createMobilePool(false)
 
     const now = vi.spyOn(Date, 'now').mockReturnValue(corpus.fixedNow)
-    const ticks: (() => void)[] = []
-    const realInterval = globalThis.setInterval
-    vi.spyOn(globalThis, 'setInterval').mockImplementation((handler, delay, ...args) => {
-      if (delay === 60_000 && typeof handler === 'function') ticks.push(() => handler(...args))
-      return realInterval(handler, delay, ...args)
-    })
     const phases: { phase: string; worklist: number }[] = []
     function checkpoint(phase: string) {
       const stats = storeStats.snapshot()
@@ -375,14 +370,13 @@ describe('mobile pool-only worklist regressions', () => {
     })
     checkpoint('server echo')
 
-    const clockBefore = referenceState(state.runtime!).coarseNow
-    expect(ticks.length).toBeGreaterThan(0)
+    // Clocks are demanded by labels/deadlines, not by a store-wide interval.
+    // Wake those actual readers after an idle minute and retain the zero-worklist gate.
     now.mockReturnValue(corpus.fixedNow + 60_000)
     await act(async () => {
-      for (const tick of ticks) tick()
+      refreshClocks()
     })
-    expect(referenceState(state.runtime!).coarseNow).toBeGreaterThan(clockBefore)
-    checkpoint('real idle clock callback')
+    checkpoint('idle minute clock wake')
 
     const before = state.runtime
     view.unmount()

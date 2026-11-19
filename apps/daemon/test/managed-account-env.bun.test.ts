@@ -39,6 +39,7 @@ import { SessionRegistry } from '../src/session/registry'
 import { buildSessionHarnessContext } from '../src/session-harness-context'
 
 const CREDENTIAL = 'sk-test-xyz'
+const ENV_BIN = Bun.which('env')
 /** A key on the DAEMON, standing in for one an operator exported before starting it. */
 const INHERITED_KEY = 'sk-test-inherited-from-the-daemon'
 const HARNESS_ENV_KEYS = [
@@ -123,6 +124,7 @@ async function dumpEnvOfSpawnedProcess(
   agentKind: 'shell' | HarnessAgent = 'shell',
 ): Promise<string> {
   const landing = join(home, `${sessionId}.env`)
+  if (!ENV_BIN) throw new Error('environment acceptance requires the env executable')
   const sessions = new SessionRegistry()
   const sent: DaemonMessage[] = []
   const ctx = {
@@ -159,7 +161,7 @@ async function dumpEnvOfSpawnedProcess(
       has: () => false,
     },
     outputScheduler: {
-      enqueue: (_id: string, data: string) => {
+      enqueue: () => {
         // PTY output is irrelevant: the child reports its environment to a file.
       },
       remove: () => {},
@@ -221,7 +223,9 @@ async function dumpEnvOfSpawnedProcess(
     // A prompt is presentation, not process readiness. Write through the real
     // attached terminal and wait for the child's own environment artifact.
     terminal.writeBase64(
-      Buffer.from(`env > ${JSON.stringify(landing)}\n`, 'utf8').toString('base64'),
+      Buffer.from(`${JSON.stringify(ENV_BIN)} > ${JSON.stringify(landing)}\n`, 'utf8').toString(
+        'base64',
+      ),
     )
     // PODIUM_SESSION_ID is bound by the daemon on EVERY spawn: seeing it proves the dump
     // really landed and that this process came out of Podium's spawn path — which is what
