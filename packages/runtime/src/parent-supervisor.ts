@@ -378,14 +378,14 @@ export function proveOwnStack(input: {
         refusal: { child, because: 'unspawnable', fault: 'no-lifecycle-channel' },
       }
     }
-    if (report.channel === 'closed') {
-      return { proved: false, refusal: { child, because: 'channel-closed' } }
-    }
     if (report.stopping) {
       return {
         proved: false,
         refusal: { child, because: 'stopping', reason: report.stopping.reason },
       }
+    }
+    if (report.channel === 'closed') {
+      return { proved: false, refusal: { child, because: 'channel-closed' } }
     }
     const ready = report.ready
     if (!ready) return { proved: false, refusal: { child, because: 'silent' } }

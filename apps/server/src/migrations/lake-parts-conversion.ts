@@ -4,9 +4,9 @@
  * Before the parted lake, the mirror kept one file per segment incarnation
  * under `<state>/transcripts`: `<machine>/<native>.jsonl` for the active
  * incarnation (or a segment with no incarnation row) and
- * `<machine>/<native>.incarnation-<seq>.jsonl` for an archived one. This boot
- * step splits each of those files into the parted lake's parts, once, after the
- * store migrations and before the mirror starts.
+ * `<machine>/<native>.incarnation-<seq>.jsonl` for an archived one. Conversion
+ * runs after health. Reads prefer a present legacy file over incomplete parts;
+ * a mirror writer first joins that file's conversion. Sources are immutable.
  *
  * - **Work list from the database**, never a directory walk: a co-located
  *   daemon keeps its own files under the same `transcripts/` name. Segments
@@ -22,7 +22,7 @@
  * - **Resumable.** A present source means "not yet converted", so a run killed
  *   anywhere starts that file again from byte 0 and ends byte-identical.
  * - **Free space.** One source file is converted at a time, so the preflight
- *   needs the largest remaining source plus a margin, never the whole lake.
+ *   checks each source plus a margin immediately before writing it.
  * - **Done marker.** `lake-parts-conversion.done` in the state directory,
  *   outside the transferred roots; its presence skips the step.
  */
@@ -36,7 +36,7 @@ import {
   type PortableStateWriteFence,
 } from '@podium/blob-store'
 import type { MachineId, WorkspaceId } from '@podium/model'
-import { type LakeSegment, PartedLake } from '@podium/sync'
+import { type LakeByteSource, type LakeSegment, PartedLake } from '@podium/sync'
 import type { LakeConversionArchived, LakeConversionSegment } from '../store/conversations/mirror'
 import { freeDiskBytes } from './backup'
 
@@ -54,6 +54,10 @@ const DEFAULT_PAGE_SIZE = 500
 
 /** The rows the work list is read from: the mirror repository's two pages. */
 export interface LakeConversionRows {
+  activeIncarnation(
+    machineId: MachineId,
+    nativeId: string,
+  ): Promise<{ sequence: number } | undefined>
   lakeConversionSegments(
     after: { machineId: MachineId; nativeId: string } | undefined,
     limit: number,
@@ -88,6 +92,8 @@ export interface LakePartsConversionOptions {
   partBytes?: number
   /** TEST ONLY: rows per page. */
   pageSize?: number
+  /** Shutdown cancels between parts, leaving the source for the next run. */
+  signal?: AbortSignal
 }
 
 export interface LakePartsConversionResult {
@@ -147,6 +153,122 @@ interface WorkItem {
 export async function convertLakeToParts(
   options: LakePartsConversionOptions,
 ): Promise<LakePartsConversionResult> {
+  return await new ConvertingLake(options).run()
+}
+
+/**
+ * One per self-hosted lake, shared by the background pass and mirror writers.
+ * A present source is the durable conversion receipt in reverse: readers use
+ * it, writers join its single-flight conversion, and only verified parts can
+ * replace it. No mirror ever appends to a legacy source or partial conversion.
+ */
+export class ConvertingLake extends PartedLake {
+  private readonly pending = new Map<string, Promise<number | undefined>>()
+  private tail: Promise<void> = Promise.resolve()
+  private completed = false
+  private readonly root: string
+  private readonly runWriter: <T>(writer: () => Promise<T>) => Promise<T>
+
+  constructor(private readonly options: LakePartsConversionOptions) {
+    super(options.blobs, options.workspaceId, {
+      ...(options.partBytes === undefined ? {} : { partBytes: options.partBytes }),
+    })
+    this.root = resolve(options.stateDir, 'transcripts')
+    this.runWriter = (writer) =>
+      options.fence === undefined ? writer() : options.fence.runWriter(writer)
+  }
+
+  private async legacy(segment: LakeSegment): Promise<WorkItem | undefined> {
+    this.options.signal?.throwIfAborted()
+    if (this.completed) return undefined
+    const active = await this.options.rows.activeIncarnation(segment.machineId, segment.nativeId)
+    const name =
+      segment.incarnation === (active?.sequence ?? 1)
+        ? `${segment.nativeId}.jsonl`
+        : `${segment.nativeId}.incarnation-${segment.incarnation}.jsonl`
+    const path = legacyPath(this.root, segment.machineId, name)
+    return path === undefined ? undefined : { path, segment }
+  }
+
+  private convert(item: WorkItem): Promise<number | undefined> {
+    const current = this.pending.get(item.path)
+    if (current) return current
+    const work = this.tail
+      .then(() => convertFile(this, this.options, item, this.runWriter))
+      .finally(() => {
+        this.pending.delete(item.path)
+      })
+    // One file's temporary duplicate on disk at a time, including demand work.
+    this.tail = work.then(
+      () => {},
+      () => {},
+    )
+    this.pending.set(item.path, work)
+    return work
+  }
+
+  override async openWriter(segment: LakeSegment, cursor: number) {
+    const item = await this.legacy(segment)
+    if (item) await this.convert(item)
+    this.options.signal?.throwIfAborted()
+    return await super.openWriter(segment, cursor)
+  }
+
+  override async clear(segment: LakeSegment, cursor: number): Promise<void> {
+    const item = await this.legacy(segment)
+    if (item) await this.convert(item)
+    this.options.signal?.throwIfAborted()
+    await super.clear(segment, cursor)
+  }
+
+  override source(segment: LakeSegment, cursor: () => number | Promise<number>): LakeByteSource {
+    const parts = super.source(segment, cursor)
+    // Open before stat/read: an unlink during this operation leaves the open
+    // descriptor readable; an unlink before open falls back to verified parts.
+    const withSource = async <T>(
+      read: (handle: FileHandle, limit: number) => Promise<T>,
+      fallback: () => Promise<T>,
+    ): Promise<T> => {
+      const item = await this.legacy(segment)
+      const handle = item && (await openIfPresent(item.path))
+      if (!handle) return await fallback()
+      try {
+        return await read(handle, Math.min(await cursor(), (await handle.stat()).size))
+      } finally {
+        await handle.close()
+      }
+    }
+    return {
+      id: parts.id,
+      size: () => withSource(async (_handle, limit) => limit, parts.size),
+      read: (offset, length) =>
+        withSource(
+          async (handle, limit) => {
+            const start = Math.max(0, offset)
+            return await readChunk(handle, start, Math.max(0, Math.min(length, limit - start)))
+          },
+          () => parts.read(offset, length),
+        ),
+      version: () => withSource(async (_handle, limit) => `legacy:${limit}`, parts.version),
+    }
+  }
+
+  /** Join demand conversions too before the owner closes the database. */
+  async settled(): Promise<void> {
+    await Promise.allSettled([...this.pending.values()])
+  }
+
+  async run(): Promise<LakePartsConversionResult> {
+    const result = await runConversion(this.options, (item) => this.convert(item))
+    this.completed = true
+    return result
+  }
+}
+
+async function runConversion(
+  options: LakePartsConversionOptions,
+  convert: (item: WorkItem) => Promise<number | undefined>,
+): Promise<LakePartsConversionResult> {
   const result: LakePartsConversionResult = {
     skipped: false,
     segments: 0,
@@ -159,33 +281,16 @@ export async function convertLakeToParts(
   const marker = join(options.stateDir, LAKE_PARTS_CONVERSION_MARKER)
   if (await exists(marker)) return { ...result, skipped: true }
 
-  const lake = new PartedLake(options.blobs, options.workspaceId, {
-    ...(options.partBytes === undefined ? {} : { partBytes: options.partBytes }),
-  })
+  const lake = new PartedLake(options.blobs, options.workspaceId)
   const root = resolve(options.stateDir, 'transcripts')
   const work = () => workList(options.rows, root, options.pageSize ?? DEFAULT_PAGE_SIZE)
   const runWriter = <T>(writer: () => Promise<T>): Promise<T> =>
     options.fence === undefined ? writer() : options.fence.runWriter(writer)
 
-  // Preflight: one file at a time, so the largest remaining source plus a margin.
-  const freeBytes =
-    'freeBytes' in options ? options.freeBytes : () => freeDiskBytes(options.stateDir)
-  if (freeBytes !== undefined) {
-    let largest = { size: 0, path: '' }
-    for await (const { item } of work()) {
-      const size = await fileSize(item.path)
-      if (size !== undefined && size > largest.size) largest = { size, path: item.path }
-    }
-    if (largest.size > 0) {
-      const needed = largest.size + LAKE_CONVERSION_MARGIN_BYTES
-      const free = freeBytes()
-      if (free < needed) throw new LakeConversionNoSpace(needed, free, largest.path)
-    }
-  }
-
   const started = Date.now()
   options.log.info('converting the transcript lake into parts')
   for await (const { item, kind } of work()) {
+    options.signal?.throwIfAborted()
     if (kind === 'segment') result.segments += 1
     else result.archived += 1
     try {
@@ -199,7 +304,7 @@ export async function convertLakeToParts(
       })
       continue
     }
-    const bytes = await convertFile(lake, options.blobs, item, runWriter)
+    const bytes = await convert(item)
     if (bytes === undefined) result.absent += 1
     else {
       result.converted += 1
@@ -215,6 +320,7 @@ export async function convertLakeToParts(
       })
     }
   }
+  options.signal?.throwIfAborted()
   await runWriter(() =>
     writeMarker(marker, {
       layout: 'parted',
@@ -301,18 +407,28 @@ function legacyPath(root: string, machineId: string, name: string): string | und
  */
 async function convertFile(
   lake: PartedLake,
-  blobs: BlobStore,
+  options: LakePartsConversionOptions,
   item: WorkItem,
   runWriter: <T>(writer: () => Promise<T>) => Promise<T>,
 ): Promise<number | undefined> {
+  options.signal?.throwIfAborted()
+  const blobs = options.blobs
   const handle = await openIfPresent(item.path)
   if (handle === undefined) return undefined
   const P = lake.partBytes
   let size: number
   try {
     size = (await handle.stat()).size
+    const freeBytes =
+      'freeBytes' in options ? options.freeBytes : () => freeDiskBytes(options.stateDir)
+    if (size > 0 && freeBytes !== undefined) {
+      const needed = size + LAKE_CONVERSION_MARGIN_BYTES
+      const free = freeBytes()
+      if (free < needed) throw new LakeConversionNoSpace(needed, free, item.path)
+    }
     const parts = Math.ceil(size / P)
     for (let part = 0; part < parts; part += 1) {
+      options.signal?.throwIfAborted()
       const bytes = await readChunk(handle, part * P, Math.min(P, size - part * P))
       await blobs.put(lake.partKey(item.segment, part), bytes, { durable: true })
     }
@@ -324,6 +440,7 @@ async function convertFile(
       await blobs.delete(key, { durable: true })
     }
     for (let part = 0; part < parts; part += 1) {
+      options.signal?.throwIfAborted()
       const length = Math.min(P, size - part * P)
       const key = lake.partKey(item.segment, part)
       const source = await readChunk(handle, part * P, length)
@@ -337,6 +454,7 @@ async function convertFile(
     await handle.close()
   }
   await runWriter(async () => {
+    options.signal?.throwIfAborted()
     await unlink(item.path)
     await fsyncDirectory(dirname(item.path))
   })

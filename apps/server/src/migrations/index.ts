@@ -21,6 +21,7 @@ import { bootStage } from '../boot-timing'
 
 import { createLogger } from '@podium/logger'
 import { type IdPrefix, mintBrandedId } from '@podium/model'
+import { reportLifecycleProgress } from '@podium/runtime/lifecycle-channel'
 import { beginMachineUpdateMigrations } from '@podium/runtime/machine-update'
 import { MIGRATION_NAME_ALIASES as SHARED_MIGRATION_NAME_ALIASES } from '@podium/runtime/migration-ledger'
 import { bunSqliteClient, isBunRuntime, type SqlDatabase } from '@podium/runtime/sqlite'
@@ -361,12 +362,13 @@ function reportingRebuilds<TClient extends object>(
   pending: readonly DrizzleMigration[],
 ): TClient {
   const total = pending.reduce((sum, m) => sum + (m.sql.match(REBUILD_START)?.length ?? 0), 0)
-  if (total === 0) return client
+  if (pending.length === 0) return client
   let done = 0
   let last = performance.now()
   // drizzle-kit writes the indexes of every rebuilt table after the rebuilds: one line says
   // how long they took, so the time is not counted against the table rebuilt next.
   let indexes = 0
+  let indexSteps = 0
   return new Proxy(client, {
     get(target, property) {
       const value = Reflect.get(target, property, target) as unknown
@@ -375,6 +377,7 @@ function reportingRebuilds<TClient extends object>(
       return (sql: string, ...rest: unknown[]) => {
         if (INDEX_STATEMENT.test(sql)) {
           indexes += 1
+          reportLifecycleProgress(`migration index ${++indexSteps}`)
         } else if (indexes > 0) {
           const now = performance.now()
           log.info('built indexes', { count: indexes, ms: Math.round(now - last) })
@@ -391,6 +394,7 @@ function reportingRebuilds<TClient extends object>(
             of: total,
             ms: Math.round(now - last),
           })
+          reportLifecycleProgress(`migration table ${done}/${total}: ${rebuilt}`)
           last = now
         }
         return value.call(target, sql, ...rest)

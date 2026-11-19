@@ -140,7 +140,7 @@ import {
   convertArtifactKeys,
   convertPendingUploadRecords,
 } from './migrations/artifact-key-conversion'
-import { convertLakeToParts } from './migrations/lake-parts-conversion'
+import { ConvertingLake } from './migrations/lake-parts-conversion'
 import { registerMobilePairingRoutes } from './mobile-pairing-route'
 import { connectClient } from './modules/connect/client'
 import { ConnectPublisher } from './modules/connect/publisher'
@@ -744,22 +744,23 @@ export async function startServer(
     })
   }
   const workspaceFiles = fileStorage.storage.forWorkspace(SELF_HOSTED_WORKSPACE_ID)
-  // A lake mirrored before the parted lake kept one file per segment incarnation;
-  // split those into parts, once, before the mirror (built with the registry
-  // below) writes any (POD-6963 design 2.3.1). Blocking: it takes as long as it
-  // takes, and a failed run leaves its marker unwritten so the next boot resumes.
-  if (!recoveryOnly) {
-    await convertLakeToParts({
-      stateDir: stateDir(),
-      rows: store.conversations.mirror,
-      blobs: workspaceFiles,
-      workspaceId: SELF_HOSTED_WORKSPACE_ID,
-      log,
-      fence: portableStateFence,
-      // Parts on a bucket take no local disk, so there is nothing to preflight.
-      ...(fileStorage.backend === 'local' ? {} : { freeBytes: undefined }),
-    })
-  }
+  // Legacy reads remain available while the background pass splits the lake.
+  // Mirror writes join the same per-file conversion before touching its parts.
+  const lakeConversionAbort = new AbortController()
+  const convertingLake = !recoveryOnly
+    ? new ConvertingLake({
+        stateDir: stateDir(),
+        rows: store.conversations.mirror,
+        blobs: workspaceFiles,
+        workspaceId: SELF_HOSTED_WORKSPACE_ID,
+        log,
+        fence: portableStateFence,
+        signal: lakeConversionAbort.signal,
+        // Parts on a bucket take no local disk, so there is nothing to preflight.
+        ...(fileStorage.backend === 'local' ? {} : { freeBytes: undefined }),
+      })
+    : undefined
+  let lakeConversionWork: Promise<unknown> | undefined
   // The installation identity follows server authority across transfers.
   const installation = await store.secrets.installationIdentity()
   const installationPublicKey = installationPublicKeyWire(installation)
@@ -881,7 +882,13 @@ export async function startServer(
     // spec §2.1, POD-6963 design 2.3): `<state>/transcripts` on local disk, the
     // workspace's prefix on a bucket.
     ...(lakeEnabled
-      ? { transcriptLake: { blobs: workspaceFiles, workspaceId: SELF_HOSTED_WORKSPACE_ID } }
+      ? {
+          transcriptLake: {
+            blobs: workspaceFiles,
+            workspaceId: SELF_HOSTED_WORKSPACE_ID,
+            lake: convertingLake,
+          },
+        }
       : {}),
     files: workspaceFiles,
     portableStateFence,
@@ -2684,6 +2691,13 @@ export async function startServer(
             })
       targetsResolvedOnBoot = true
       bootStage('health exposed', healthStarted)
+      // Health cannot wait for tens of GB of cold history. A failed pass keeps
+      // its sources and no done marker; reads work and the next boot retries.
+      lakeConversionWork = convertingLake?.run().catch((err) => {
+        if (!lakeConversionAbort.signal.aborted) {
+          log.warn('transcript lake conversion paused; will resume on restart', { err })
+        }
+      })
       if (!recoveryOnly && !rehearsal) connectPublisher.start()
       // Local programs (the quick-tunnel utility first) reach this server on a
       // user-only unix socket; a new public URL written there reaches Connect at
@@ -2792,6 +2806,9 @@ export async function startServer(
               // join it BEFORE store.close marks the scheduler as draining.
               await superagent.dispose()
               await membershipCatchUp?.stop()
+              lakeConversionAbort.abort()
+              await lakeConversionWork
+              await convertingLake?.settled()
               await store.close(persist)
             },
             server,

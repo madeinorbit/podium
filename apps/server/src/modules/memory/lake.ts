@@ -46,6 +46,8 @@ const MIRROR_READ = daemonRequestKind<{
 export interface TranscriptLakeStorage {
   blobs: BlobStore
   workspaceId: WorkspaceId
+  /** Self-hosted upgrades read legacy sources and fence writers during conversion. */
+  lake?: PartedLake
 }
 
 export interface LakeReadSession {
@@ -110,7 +112,9 @@ export class TranscriptLake {
     options: { transcriptLake?: TranscriptLakeStorage } = {},
   ) {
     if (!options.transcriptLake) return
-    const lake = new PartedLake(options.transcriptLake.blobs, options.transcriptLake.workspaceId)
+    const lake =
+      options.transcriptLake.lake ??
+      new PartedLake(options.transcriptLake.blobs, options.transcriptLake.workspaceId)
     this.lake = lake
     const indexer = new TranscriptIndexer({
       mirror: deps.store.mirror,

@@ -6,16 +6,18 @@ import { LocalBlobStorage } from '@podium/blob-store/local'
 import { type ChainEntry, fileByteSource, fileChainSource, fileIdFor } from '@podium/harness/store'
 import { asMachineId, type MachineId } from '@podium/model'
 import { type LakeSegment, PartedLake } from '@podium/sync'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { transcriptRecordMapperFor } from '../harness-manifest'
 import { DaemonRequestBroker } from '../modules/daemon-request'
 import { TranscriptLake } from '../modules/memory/lake'
 import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import { openTestStore } from '../test-support/open-test-store'
 import {
+  ConvertingLake,
   convertLakeToParts,
   LAKE_CONVERSION_MARGIN_BYTES,
   LAKE_PARTS_CONVERSION_MARKER,
+  LakeConversionMismatch,
   LakeConversionNoSpace,
   type LakePartsConversionOptions,
 } from './lake-parts-conversion'
@@ -52,6 +54,7 @@ interface Fixture {
   /** Every stored byte of one incarnation. */
   stored(segment: LakeSegment): Promise<Buffer>
   run(overrides?: Partial<LakePartsConversionOptions>): ReturnType<typeof convertLakeToParts>
+  conversion(overrides?: Partial<LakePartsConversionOptions>): ConvertingLake
 }
 
 const cleanups: (() => void)[] = []
@@ -69,6 +72,19 @@ async function fixture(partBytes = P): Promise<Fixture> {
     () => store.close(),
   )
   const mirror = store.conversations.mirror
+  const options = (
+    overrides: Partial<LakePartsConversionOptions> = {},
+  ): LakePartsConversionOptions => ({
+    stateDir,
+    rows: mirror,
+    blobs,
+    workspaceId: SELF_HOSTED_WORKSPACE_ID,
+    log: silent,
+    freeBytes: () => Number.MAX_SAFE_INTEGER,
+    partBytes,
+    pageSize: 2,
+    ...overrides,
+  })
   return {
     stateDir,
     store,
@@ -115,18 +131,9 @@ async function fixture(partBytes = P): Promise<Fixture> {
       return Buffer.from(await source.read(0, await source.size()))
     },
     run(overrides = {}) {
-      return convertLakeToParts({
-        stateDir,
-        rows: mirror,
-        blobs,
-        workspaceId: SELF_HOSTED_WORKSPACE_ID,
-        log: silent,
-        freeBytes: () => Number.MAX_SAFE_INTEGER,
-        partBytes,
-        pageSize: 2,
-        ...overrides,
-      })
+      return convertLakeToParts(options(overrides))
     },
+    conversion: (overrides) => new ConvertingLake(options(overrides)),
   }
 }
 
@@ -137,6 +144,124 @@ function bytesOf(length: number, seed: number): Buffer {
 }
 
 describe('the lake parts conversion', () => {
+  it('keeps the source and blocks a mirror writer when read-back verification fails', async () => {
+    const f = await fixture()
+    const bytes = bytesOf(1500, 30)
+    await f.segment('verify', bytes.length)
+    const path = f.legacy('verify.jsonl', bytes)
+    const put = f.blobs.put.bind(f.blobs)
+    const spy = vi.spyOn(f.blobs, 'put').mockImplementation(async (key, body, opts) => {
+      await put(key, body, opts)
+      return await put(key, Buffer.from('corrupt'), opts)
+    })
+    const lake = f.conversion()
+    await expect(
+      lake.openWriter({ machineId, nativeId: 'verify', incarnation: 1 }, bytes.length),
+    ).rejects.toBeInstanceOf(LakeConversionMismatch)
+    expect(readFileSync(path)).toEqual(bytes)
+    expect(existsSync(join(f.stateDir, LAKE_PARTS_CONVERSION_MARKER))).toBe(false)
+    spy.mockRestore()
+    expect(await f.run()).toMatchObject({ converted: 1 })
+    expect(await f.stored({ machineId, nativeId: 'verify', incarnation: 1 })).toEqual(bytes)
+  })
+  it('serves legacy bytes during partial conversion and joins a racing mirror writer', async () => {
+    const f = await fixture()
+    const original = bytesOf(2500, 31)
+    await f.segment('racing', original.length)
+    const path = f.legacy('racing.jsonl', original)
+    const segment = { machineId, nativeId: 'racing', incarnation: 1 }
+    const originalPut = f.blobs.put.bind(f.blobs)
+    let entered!: () => void
+    let release!: () => void
+    const writing = new Promise<void>((resolve) => {
+      entered = resolve
+    })
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let puts = 0
+    const put = vi.spyOn(f.blobs, 'put').mockImplementation(async (...args) => {
+      puts += 1
+      const result = await originalPut(...args)
+      if (puts === 1) {
+        entered()
+        await blocked
+      }
+      return result
+    })
+    const lake = f.conversion()
+    const source = lake.source(segment, () => original.length)
+    const work = lake.run()
+    await writing
+    let opened = false
+    const writer = lake.openWriter(segment, original.length).then((value) => {
+      opened = true
+      return value
+    })
+    try {
+      expect(await source.size()).toBe(original.length)
+      expect(Buffer.from(await source.read(0, original.length))).toEqual(original)
+      expect(await source.version()).toBe(`legacy:${original.length}`)
+      expect(existsSync(path)).toBe(true)
+      expect(opened).toBe(false)
+    } finally {
+      release()
+    }
+    await work
+    const ready = await writer
+    expect(put).toHaveBeenCalledTimes(3)
+    expect(existsSync(path)).toBe(false)
+    expect(Buffer.from(await source.read(0, original.length))).toEqual(original)
+    expect(await source.version()).not.toContain('legacy:')
+    await ready.append(Buffer.from('tail'))
+    expect(await f.stored(segment)).toEqual(Buffer.concat([original, Buffer.from('tail')]))
+    put.mockRestore()
+  })
+
+  it('checks free disk for every file, retaining a refused source and resuming later', async () => {
+    const f = await fixture()
+    const bytes = bytesOf(1500, 32)
+    await f.segment('a', bytes.length)
+    await f.segment('b', bytes.length)
+    const first = f.legacy('a.jsonl', bytes)
+    const second = f.legacy('b.jsonl', bytes)
+    let checks = 0
+    await expect(f.run({ freeBytes: () => (++checks === 1 ? 1e10 : 0) })).rejects.toBeInstanceOf(
+      LakeConversionNoSpace,
+    )
+    expect(checks).toBe(2)
+    expect(existsSync(first)).toBe(false)
+    expect(readFileSync(second)).toEqual(bytes)
+    expect(existsSync(join(f.stateDir, LAKE_PARTS_CONVERSION_MARKER))).toBe(false)
+    expect(await f.run()).toMatchObject({ converted: 1, absent: 1 })
+  })
+
+  it('cancels between parts, keeps readable sources and resumes on restart', async () => {
+    const f = await fixture()
+    const bytes = bytesOf(2500, 33)
+    await f.segment('interrupted', bytes.length)
+    const path = f.legacy('interrupted.jsonl', bytes)
+    const abort = new AbortController()
+    const put = f.blobs.put.bind(f.blobs)
+    const spy = vi.spyOn(f.blobs, 'put').mockImplementation(async (...args) => {
+      const result = await put(...args)
+      abort.abort(new Error('shutdown'))
+      return result
+    })
+    const lake = f.conversion({ signal: abort.signal })
+    await expect(lake.run()).rejects.toThrow('shutdown')
+    await lake.settled()
+    spy.mockRestore()
+    expect(readFileSync(path)).toEqual(bytes)
+    const restarted = f.conversion()
+    const source = restarted.source(
+      { machineId, nativeId: 'interrupted', incarnation: 1 },
+      () => bytes.length,
+    )
+    expect(Buffer.from(await source.read(0, bytes.length))).toEqual(bytes)
+    expect(await restarted.run()).toMatchObject({ converted: 1 })
+    expect(await f.stored({ machineId, nativeId: 'interrupted', incarnation: 1 })).toEqual(bytes)
+  })
   it('converts canonical and archived incarnation files and a row-less legacy segment', async () => {
     const f = await fixture()
     // A segment mirrored before incarnation rows existed: its bytes are sequence 1.
@@ -355,8 +480,7 @@ describe('the lake parts conversion', () => {
     expect(beforeChain).toHaveLength(100)
     expect(beforeLegacy).toHaveLength(30)
 
-    expect(await f.run()).toMatchObject({ converted: 3 })
-
+    const conversion = f.conversion()
     const lake = new TranscriptLake(
       {
         store: f.store.conversations,
@@ -368,7 +492,9 @@ describe('the lake parts conversion', () => {
         parseForAgentKind: (agentKind) => transcriptRecordMapperFor(agentKind),
         findSessionByNativeId: async () => undefined,
       },
-      { transcriptLake: { blobs: f.blobs, workspaceId: SELF_HOSTED_WORKSPACE_ID } },
+      {
+        transcriptLake: { blobs: f.blobs, workspaceId: SELF_HOSTED_WORKSPACE_ID, lake: conversion },
+      },
     )
     cleanups.push(() => lake.dispose())
     const read = async (nativeId: string) =>
@@ -382,6 +508,9 @@ describe('the lake parts conversion', () => {
           { direction: 'before', limit: 1000 },
         )
       )?.items
+    expect(await read('chain')).toEqual(beforeChain)
+    expect(await read('legacy')).toEqual(beforeLegacy)
+    expect(await conversion.run()).toMatchObject({ converted: 3 })
     expect(await read('chain')).toEqual(beforeChain)
     expect(await read('legacy')).toEqual(beforeLegacy)
   })

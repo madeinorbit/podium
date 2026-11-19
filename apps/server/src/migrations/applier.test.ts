@@ -11,18 +11,21 @@
 import { mkdtempSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { reportLifecycleProgress } from '@podium/runtime/lifecycle-channel'
 import {
   beginMachineUpdateMigrations,
   MACHINE_UPDATE_GRANT_ENV,
   MachineUpdateExecutor,
-  readMachineUpdateJournal,
   readAppliedUpdateMigrations,
+  readMachineUpdateJournal,
 } from '@podium/runtime/machine-update'
 import { rollbackDecision } from '@podium/runtime/parent-supervisor'
-import { migrateStoreConnection } from './store-lifecycle'
+import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { appliedDrizzleNames, type DrizzleMigration, runDrizzleMigrations } from './index'
+import { migrateStoreConnection } from './store-lifecycle'
+
+vi.mock('@podium/runtime/lifecycle-channel', () => ({ reportLifecycleProgress: vi.fn() }))
 
 const A: DrizzleMigration = {
   name: '20260101000000_a',
@@ -56,6 +59,38 @@ function tmpDbFile(name: string): string {
 }
 
 describe('runDrizzleMigrations', () => {
+  it('reports distinct lifecycle stages for rebuilt tables and indexes', () => {
+    const db = openDatabase(':memory:')
+    try {
+      runDrizzleMigrations(db, [A])
+      vi.mocked(reportLifecycleProgress).mockClear()
+      const rebuild = {
+        name: '20260101000003_rebuild',
+        sql: [
+          'CREATE TABLE "__new_a" (id TEXT PRIMARY KEY);',
+          'INSERT INTO "__new_a" SELECT * FROM a;',
+          'DROP TABLE a;',
+          'ALTER TABLE "__new_a" RENAME TO "a";',
+          'CREATE INDEX a_id ON a (id);',
+          'CREATE UNIQUE INDEX a_unique ON a (id);',
+        ].join('\n--> statement-breakpoint\n'),
+      }
+      runDrizzleMigrations(db, [A, rebuild])
+      expect(vi.mocked(reportLifecycleProgress).mock.calls.map(([stage]) => stage)).toEqual([
+        'migration table 1/1: a',
+        'migration index 1',
+        'migration index 2',
+      ])
+      expect(appliedDrizzleNames(db)).toContain(rebuild.name)
+      expect(
+        db
+          .prepare('SELECT name FROM sqlite_master WHERE type = ? AND tbl_name = ?')
+          .all('index', 'a'),
+      ).toHaveLength(3)
+    } finally {
+      db.close()
+    }
+  })
   it('fresh apply: builds the tables and writes matching __drizzle_migrations rows', () => {
     const db = openDatabase(':memory:')
     const applied = runDrizzleMigrations(db, [A, B, C])
