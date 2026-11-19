@@ -418,6 +418,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
   // construction-order audit now enforces the same rule (POD-1411). Moving this
   // block above `bag.view` fails `bun scripts/server-construction-order.ts`.
   bag.sessionStart = new SessionStart({
+    now: () => bag.now(),
     writer: bag.deps.writers.lifecycle,
     store,
     view: bag.view,

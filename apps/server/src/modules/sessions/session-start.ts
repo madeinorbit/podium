@@ -116,6 +116,7 @@ export interface SessionSpawnResult {
 }
 
 export interface SessionStartPorts {
+  readonly now: () => number
   store: SessionStore
   view: SessionView
   repository: SessionRepository
@@ -575,7 +576,7 @@ export class SessionStart {
     // observable across every spawn path [spec:SP-cc60].
     if (forced) {
       await this.ports.store.events.appendEvent({
-        ts: new Date().toISOString(),
+        ts: new Date(this.ports.now()).toISOString(),
         kind: 'agent.model_forced',
         subject: spawned.sessionId,
         payload: {
@@ -727,7 +728,7 @@ export class SessionStart {
       ...(access.credentialId ? { credentialId: access.credentialId } : {}),
       ...(input.loginHarness ? { loginHarness: input.loginHarness } : {}),
       origin: input.origin,
-      createdAt: new Date().toISOString(),
+      createdAt: new Date(this.ports.now()).toISOString(),
       geometry: { ...DEFAULT_GEOMETRY },
       machineId,
       // Bind the route to the LIVE machineId (tracks the local-adoption
