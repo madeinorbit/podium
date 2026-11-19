@@ -4,6 +4,7 @@ import { asSessionId, type SessionMeta } from '@podium/model'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { publishScreenPoolFixture } from '@/test-support/mock-screen-pool'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -143,6 +144,7 @@ describe('POD-4429 parked dock shell', () => {
     storeSessions[0] = shellMeta({ sessionId: 'dock1', status: 'hibernated' })
     mockState.sessions = [...storeSessions]
     await act(async () => {
+      publishScreenPoolFixture()
       root.render(<DockShellPanel cwd="/repo/a" />)
     })
     await flush()

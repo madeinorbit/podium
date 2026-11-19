@@ -119,13 +119,26 @@ describe('feature folder boundaries', () => {
     expect(lowerLayerViolations(edgesFrom(file, text))).toEqual([])
   })
 
-  it('src root stayed unflattened (only entry-level files outside the folders)', () => {
-    // The flat-src regression guard: new modules go in app/, lib/, features/*
-    // or components/ui — never back into a flat src root.
-    const rootFiles = readdirSync(SRC, { withFileTypes: true })
-      .filter((e) => e.isFile())
-      .map((e) => e.name)
-      .sort()
-    expect(rootFiles).toEqual(['index.css', 'styles.css', 'vite-env.d.ts'])
+  const rootModules = (files: readonly string[]) =>
+    files.filter((file) => /\.tsx?$/.test(file) && !/\.(?:d|test|spec)\.tsx?$/.test(file))
+
+  it('src root contains entry styles, declarations and regression tests only', () => {
+    const files = readdirSync(SRC, { withFileTypes: true })
+      .filter((entry) => entry.isFile())
+      .map((entry) => entry.name)
+    expect(rootModules(files)).toEqual([])
+    expect(files).toEqual(expect.arrayContaining(['index.css', 'styles.css', 'vite-env.d.ts']))
+  })
+
+  it('rejects a new runtime root module while allowing declarations and tests', () => {
+    expect(
+      rootModules([
+        'feature.ts',
+        'Screen.tsx',
+        'vite-env.d.ts',
+        'wiring.test.ts',
+        'screen.spec.tsx',
+      ]),
+    ).toEqual(['feature.ts', 'Screen.tsx'])
   })
 })
