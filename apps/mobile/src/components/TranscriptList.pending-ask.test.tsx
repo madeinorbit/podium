@@ -514,7 +514,7 @@ describe('TranscriptList pendingAsk', () => {
   })
 })
 
-it('renders the Bash input as coloured inline text when a work run opens', () => {
+it('discloses the retained Bash input and its capture state inside a work run', () => {
   const command = 'echo "$HOME" && printf "%s" 42'
   const { container } = render(
     <TranscriptList
@@ -529,16 +529,24 @@ it('renders the Bash input as coloured inline text when a work run opens', () =>
           toolName: 'Bash',
           toolTitle: 'Check home',
           toolInput: command,
+          toolExecution: {
+            kind: 'commands',
+            inputs: [{ kind: 'command', toolName: 'Bash', text: command, capture: 'complete' }],
+            status: 'running',
+          },
         },
       ]}
     />,
   )
   fireEvent.click(screen.getByLabelText(/^Expand work run:/))
-  const description = Array.from(container.querySelectorAll('div')).find(
-    (node) => node.textContent === command && node.children.length > 2,
+  expect(screen.queryByText(command)).toBeNull()
+  fireEvent.click(screen.getByLabelText(`Expand ${command}`))
+  expect(screen.getByText(command)).toBeTruthy()
+  expect(screen.getByLabelText('Copy retained input')).toBeTruthy()
+  expect(screen.queryByText('The record may contain only an input preview.')).toBeNull()
+  expect(container.textContent).toContain(
+    'The transcript does not establish whether output was returned.',
   )
-  expect(description).toBeDefined()
-  expect(getComputedStyle(description as HTMLElement).whiteSpace).toBe('nowrap')
 })
 
 // POD-2143: an oversized mail reaches the agent as a one-line inbox pointer
@@ -771,6 +779,13 @@ it('discloses note members of a mixed stretch on the phone', () => {
       toolName: 'Bash',
       toolInput: 'git status',
       toolResult: 'clean',
+      toolExecution: {
+        kind: 'commands',
+        inputs: [{ kind: 'command', toolName: 'Bash', text: 'git status', capture: 'complete' }],
+        status: 'completed',
+        exitCode: 0,
+        output: { capture: 'complete' },
+      },
     },
     {
       id: 'note',
