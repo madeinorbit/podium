@@ -152,6 +152,8 @@ export default defineConfig(({ command, mode }) => {
   const isDevBuild = mode === 'development'
 
   return {
+    // Workers have their own plugin pipeline; main-bundle transforms do not run there.
+    worker: { plugins: () => [standardDecorators()] },
     plugins: [
       standardDecorators(),
       mobileEntryRedirectPlugin(),

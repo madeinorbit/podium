@@ -120,6 +120,11 @@
       "types": "./src/conversation/index.ts",
       "import": "./src/conversation/index.ts"
     },
+    "./conversation/transcript-graph": {
+      "@podium/source": "./src/conversation/transcript-graph.ts",
+      "types": "./src/conversation/transcript-graph.ts",
+      "import": "./src/conversation/transcript-graph.ts"
+    },
     "./runtime-root": {
       "@podium/source": "./src/runtime-root/index.ts",
       "types": "./src/runtime-root/index.ts",

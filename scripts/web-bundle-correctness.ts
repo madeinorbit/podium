@@ -22,6 +22,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { browserHostileSources } from '../apps/web/test/web-bundle-boundaries'
 import { splitSingletons } from './web-bundle-duplicates'
+import { browserSyntaxErrors } from './web-bundle-syntax'
 
 const dist = resolve(process.argv.slice(2).find((arg) => !arg.startsWith('--')) ?? 'apps/web/dist')
 const assets = join(dist, 'assets')
@@ -43,6 +44,12 @@ function readableSource(source: string): string {
 }
 
 const errors: string[] = []
+const syntax = browserSyntaxErrors(dist)
+errors.push(
+  ...syntax.errors.map(
+    (error) => `JavaScript outside ES2025 (including native decorators): ${error}`,
+  ),
+)
 
 // Sources in a chunk map are relative to the map, and every map sits in
 // dist/assets: the absolute form is what tells two installations apart.
@@ -75,4 +82,6 @@ if (hostile.length > 0) {
 for (const error of errors) console.error(`[web-bundle-correctness] ${error}`)
 if (errors.length > 0) process.exitCode = 1
 else
-  console.log(`[web-bundle-correctness] ${chunkSources.length} browser chunks: no breaking source`)
+  console.log(
+    `[web-bundle-correctness] ${chunkSources.length} browser chunks: no breaking source; ${syntax.files} JavaScript assets parse as ES2025`,
+  )

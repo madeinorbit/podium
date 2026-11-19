@@ -1,5 +1,8 @@
 import { highlightCode } from '@podium/client-core/code-highlight'
-import { TranscriptGraph, type TranscriptGraphChange } from '@podium/client-core/conversation'
+import {
+  TranscriptGraph,
+  type TranscriptGraphChange,
+} from '@podium/client-core/conversation/transcript-graph'
 import {
   computeTranscript,
   type TranscriptComputeInput,
