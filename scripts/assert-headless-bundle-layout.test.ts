@@ -613,10 +613,13 @@ describe('the gate and the signing step name the same JIT keys', () => {
     expect(packageJson).toContain('"build": "bun scripts/build-clients.ts --workspace"')
     expect(packageJson).toContain('"build:clients": "bun scripts/build-clients.ts"')
     expect(windowsSmoke).not.toContain('bun scripts/build-bun.ts')
-    // LAST on purpose (POD-3058): this expectation is red — windows-smoke.yml has no
-    // such step — and an early failure in a single `it` makes every assertion after it
-    // unreachable, so a red here silently stopped guarding everything below. Fixing it
-    // belongs to POD-3058; keeping it at the end is what stops it hiding the rest.
-    expect(windowsSmoke).toContain('run: bun run package:headless')
+    // Windows builds the desktop once, whose staging step packages the same
+    // fresh headless payload. Follow that chain rather than demand a second,
+    // obsolete top-level packaging invocation in the workflow.
+    expect(windowsSmoke).toContain('run: bun run --cwd apps/desktop build -- --no-bundle')
+    const desktop = JSON.parse(readFileSync(join(repoRoot, 'apps/desktop/package.json'), 'utf8'))
+    expect(desktop.scripts.build.split(' && ')).toContain('bun scripts/stage-sidecar.ts')
+    const staging = readFileSync(join(repoRoot, 'apps/desktop/scripts/stage-sidecar.ts'), 'utf8')
+    expect(staging).toContain("execFileSync('bun', ['run', 'package:headless']")
   })
 })
