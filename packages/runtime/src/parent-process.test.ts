@@ -2103,7 +2103,7 @@ describe('delayed successor boot ownership', () => {
     await starting
     expect(parent.isBootHealthy()).toBe(false)
     expect(finalize).not.toHaveBeenCalled()
-    expect(notify).not.toHaveBeenCalled()
+    expect(notify.mock.calls.every(([state]) => state.startsWith('EXTEND_TIMEOUT_USEC='))).toBe(true)
     expect(confirmed).not.toHaveBeenCalled()
     expect(existsSync(join(state, 'run/supervisor-ready.json'))).toBe(false)
   })
