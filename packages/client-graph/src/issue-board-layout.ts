@@ -63,7 +63,13 @@ export function createBoardLayout(pool: MobxPool) {
     const deferred = Number.isFinite(deadline) && !pool.clock.reached(deadline)
     return flag === 'deferred' ? deferred : !row.blocked && !deferred && !isFinished(row)
   })
-  const textIds = keyedComputed('IssueBoard.textIds', (needle: string) => new Set(issueSearch(pool).read(needle, pool.queries.localTextIds(needle)).ids))
+  // The text filter's candidates: the device's matches and the server's hits.
+  // `exact` once the server's answer covers history in the pages read (POD-7175).
+  const textSearch = keyedComputed('IssueBoard.textSearch', (needle: string) => {
+    const answer = issueSearch(pool).read(needle, pool.queries.localTextIds(needle))
+    return { ids: new Set(answer.ids), exact: answer.complete && !answer.more }
+  })
+  const textIds = (needle: string) => textSearch(needle).ids
   const matchesFacet = keyedComputed('IssueBoard.matchesFacet', (key: string): Loaded<boolean> => {
     const [id, queryKey] = JSON.parse(key) as [string, string]
     const query = JSON.parse(queryKey) as BoardQuery
@@ -295,7 +301,8 @@ export function createBoardLayout(pool: MobxPool) {
   // read to its end holds the rest. Otherwise the column reads its page,
   // which asks for it and holds it while the column is read (POD-7158), and
   // its count comes from the stubs when the filter reads only stub fields,
-  // with the page when it filters by priority, else LOADING.
+  // with the page when it filters by priority, from its cards when a text
+  // filter's search answer is complete (POD-7175), else LOADING.
   const SIDEBAR = { collection: 'issueProjection.sidebar', part: 'main' } as const
   const pageOf = (options: BoardColumnOptions) =>
     options.filter.priority != null
@@ -375,6 +382,13 @@ export function createBoardLayout(pool: MobxPool) {
       return ids === LOADING ? LOADING : (ids?.length ?? 0)
     }
     if (member !== undefined) return fromStubs(member)
+    // A text filter whose search answer is complete names every candidate:
+    // its cards in this column are the count (POD-7175).
+    const needle = options.filter.text?.trim()
+    if (needle && textSearch(needle).exact) {
+      const ids = columnIds(key)
+      return ids === LOADING ? LOADING : (ids?.length ?? 0)
+    }
     // A priority filter's total comes with its page, counted for this viewer.
     const onlyPriority = options.filter.priority != null &&
       stubFilter({ ...options.filter, priority: undefined }, options.showAgentTasks) !== undefined
@@ -416,12 +430,12 @@ export function createBoardLayout(pool: MobxPool) {
       return flat === LOADING ? LOADING : flat?.flatMap(group => group.rows.map(row => row.id)) ?? []
     },
     stats: () => ({ demandKeys: matching.size,
-      cached: [scope, parent, column, status, textIds, matchesFacet, matching, members, root, sortKey, columnIds, columnHeld, columnCount, roots, inColumn, presentRoots, position, rows, board]
+      cached: [scope, parent, column, status, textSearch, matchesFacet, matching, members, root, sortKey, columnIds, columnHeld, columnCount, roots, inColumn, presentRoots, position, rows, board]
         .reduce((total, cache) => total + cache.size, columnResults.size) }),
     dispose() {
       for (const result of [...columnResults.values()]) result.dispose()
       columnResults.clear()
-      for (const cache of [scope, parent, column, status, textIds, matchesFacet, matching, members, root, sortKey, columnIds, columnHeld, columnCount, roots, inColumn, presentRoots, position, rows, board]) cache.clear()
+      for (const cache of [scope, parent, column, status, textSearch, matchesFacet, matching, members, root, sortKey, columnIds, columnHeld, columnCount, roots, inColumn, presentRoots, position, rows, board]) cache.clear()
     },
   }
 }

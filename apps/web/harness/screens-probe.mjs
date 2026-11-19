@@ -115,7 +115,9 @@ function operatorTargets() {
   const titles = new Map()
   for (const x of corpus.issues) titles.set(x.title, (titles.get(x.title) ?? 0) + 1)
   const unique = old.filter((x) => titles.get(x.title) === 1)
-  const page = unique[0], search = unique[1]
+  // The board hides agent-internal tasks without a visible ancestor (Show
+  // agent tasks is off): search for one it shows (POD-7175).
+  const page = unique[0], search = unique.find((x) => x !== page && x.audience !== 'agent' && !x.parentId)
   if (!tree || !page || !search) throw Error('The operator corpus lacks a probe target')
   const issue = corpus.issues.find((x) => x.id === tree.root)
   return {
