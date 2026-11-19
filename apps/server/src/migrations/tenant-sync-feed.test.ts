@@ -46,7 +46,7 @@ describe('tenant feed migration', () => {
         // The credential migration (POD-6857) invalidates the session records and the
         // notices: one generation up each, or 1 for a kind with no row yet.
         const bumped = ['session', 'sessionUserState', 'message', 'inboxNotice']
-        const expected = generations.map((r) => ({
+        const expected: Record<string, unknown>[] = generations.map((r) => ({
           ...r,
           workspace_id: 'local',
           generation: bumped.includes(String(r.kind)) ? Number(r.generation) + 1 : r.generation,
