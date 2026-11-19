@@ -17,7 +17,7 @@ import type {
   SessionDesired,
   SessionId,
 } from '@podium/model'
-import { asMutationId, asSessionId, mintDeviceId, spawnedByParentSessionId } from '@podium/model'
+import { asMutationId, mintDeviceId, spawnedByParentSessionId } from '@podium/model'
 import type { SyncSubmitRefusal, SyncSubmitReply } from '@podium/protocol'
 import {
   attributionOf,
@@ -43,11 +43,11 @@ import {
   type SessionCommandDeps,
   type SessionCommandServices,
 } from './command-plane'
+import { configureThroughEffect } from './configure-submit'
+import { interruptThroughEffect } from './interrupt-submit'
 import type { SessionWriter } from './lifecycle'
 import type { LifecycleOutcome, ReconcileResult } from './lifecycle-controller'
 import { asyncSessionIssueAccess } from './session-access'
-import { configureThroughEffect } from './session-configure-effect'
-import { interruptThroughEffect } from './session-interrupt-effect'
 import {
   createThroughLaunchEffect,
   resumeThroughLaunchEffect,
@@ -158,11 +158,8 @@ export async function sessionCommandCtx(
     // session: it never waits on the agent's turn [POD-4661], so a Stop or the
     // next message right behind it is never queued behind a delivery poll.
     //
-    // The non-null assertion is safe by the same argument the router's makes: a
-    // `undefined` here would mean `mail.send` does not name this transport, and
-    // both transports that build this context are in its exposure set.
-    mailSend: async (input) =>
-      (await modules.messageGate.dispatch(
+    mailSend: async (input) => {
+      const result = await modules.messageGate.dispatch(
         capability,
         overrideScope,
         'send',
@@ -171,7 +168,10 @@ export async function sessionCommandCtx(
         // Inside the command's write the send is written with its writer; a
         // context with none (outside every write) sends through the entry point.
         writer,
-      ))!,
+      )
+      if (result === undefined) throw new Error(`mail.send is not exposed on ${transport}`)
+      return result
+    },
     createDraftIssue: async (repoPath, agentKind, issueId, ownership) =>
       await issues.attention.createDraftFor(
         writerFor('createDraftIssue'),
