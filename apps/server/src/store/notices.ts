@@ -96,7 +96,7 @@ const allOpen = prepared((db, t) =>
     .select(NOTICE_COLUMNS(t))
     .from(t.notices)
     .where(inWorkspace(t.notices, isNull(t.notices.resolvedAt)))
-    .orderBy(t.notices.id)
+    .orderBy(t.notices.resolvedAt, t.notices.id)
     .prepare(),
 )
 
@@ -155,12 +155,16 @@ const resolveKey = prepared((db, t) =>
   ).prepare(),
 )
 
+// Keep the NULL constrained index column in the ordering. PostgreSQL does not
+// treat IS NULL as an equality path key; including it lets the same recipient
+// index serve the page in order without sorting the growing inbox. All rows
+// have the same resolvedAt, so the visible creation/id order is unchanged.
 const openOfRecipient = prepared((db, t) =>
   db
     .select(NOTICE_COLUMNS(t))
     .from(t.notices)
     .where(inWorkspace(t.notices, recipientIs(t), isNull(t.notices.resolvedAt)))
-    .orderBy(desc(t.notices.createdAt), desc(t.notices.id))
+    .orderBy(desc(t.notices.resolvedAt), desc(t.notices.createdAt), desc(t.notices.id))
     .limit(sql.placeholder('limit'))
     .prepare(),
 )
@@ -177,7 +181,7 @@ const openOfRecipientBefore = prepared((db, t) =>
         sql`(${t.notices.createdAt}, ${t.notices.id}) < (${sql.placeholder('beforeAt')}, ${sql.placeholder('beforeId')})`,
       ),
     )
-    .orderBy(desc(t.notices.createdAt), desc(t.notices.id))
+    .orderBy(desc(t.notices.resolvedAt), desc(t.notices.createdAt), desc(t.notices.id))
     .limit(sql.placeholder('limit'))
     .prepare(),
 )
@@ -254,7 +258,7 @@ const resolveReadEventsPastCap = prepared((db, t) =>
                   inArray(t.notices.kind, EVENT_KINDS),
                 ),
               )
-              .orderBy(desc(t.notices.createdAt), desc(t.notices.id))
+              .orderBy(desc(t.notices.resolvedAt), desc(t.notices.createdAt), desc(t.notices.id))
               .limit(CAP_BATCH)
               .offset(sql.placeholder('keep')),
           ),

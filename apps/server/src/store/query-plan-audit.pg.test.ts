@@ -114,6 +114,8 @@ function isLowSelectivity(table: string, column: string): boolean {
  */
 const SMALL_TABLES: ReadonlyMap<string, string> = new Map([
   ['accounts', 'Provider accounts the operator configures by hand.'],
+  ['credentials', 'Provider credentials people configure by hand, like accounts.'],
+  ['credential_secrets', 'Only the newest secret version of each person-configured credential.'],
   ['automations', 'Schedules people define by hand; a handful per person.'],
   ['machines', 'The fleet: one row per enrolled machine.'],
   ['maintenance_commands', 'The maintenance ledger, held to a fixed size by pruneOldestCommands.'],
@@ -204,10 +206,6 @@ const ALLOWLIST: ReadonlyMap<string, string> = new Map([
   [
     'apps/server/src/store/janitor-reads.ts:worktreeGcAfter',
     'Sorts the finished issues still holding a checkout: bounded by the checkouts on disk. SQLite finds them through idx_issues_worktree; on the seed half the issues have a worktree, so Postgres scans instead, which then costs less.',
-  ],
-  [
-    'apps/server/src/store/accounts.ts:sentMachines',
-    "Sorts one account's machine sends: a row per machine the account was sent to; accounts is a small table.",
   ],
   [
     'apps/server/src/store/sessions.ts:sessionById',
@@ -431,6 +429,18 @@ const ALLOWLIST: ReadonlyMap<string, string> = new Map([
  * one-time repairs. The list may only shrink.
  */
 const WHOLE_TABLE_READS: ReadonlyMap<string, string> = new Map([
+  [
+    'apps/server/src/store/credentials.ts:legacySends',
+    'One-time pre-vault boot import of legacy account machine sends; never a per-session or per-command read.',
+  ],
+  [
+    'apps/server/src/store/credentials.ts:legacySharedCandidates',
+    'One-time pre-vault boot import of the old shared credential candidates; never a per-session or per-command read.',
+  ],
+  [
+    'apps/server/src/store/notices.ts:allOpen',
+    'The inboxNotice record builder streams all open notices during client bootstrap. The open index excludes resolved history; never run at server startup or per write.',
+  ],
   // The first page of a history collection (POD-7085), as the SQLite audit lists them.
   ...(['automationRun', 'conversation', 'workflowRun'] as const).map(
     (kind) =>
