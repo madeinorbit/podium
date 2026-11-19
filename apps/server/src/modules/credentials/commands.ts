@@ -47,13 +47,11 @@ import { CREDENTIAL_RESOURCE_KIND, type CredentialAccessLevel, mayUse } from './
 import { type NativeLoginState, useOnMyMachines } from './native-login-actions'
 import type { CodexServerAiMarker } from './server-ai-status'
 import { SignInRefused as HomeSignInRefused, type HomeSignInService } from './sign-in'
+/** The store tables the credential family reaches. A SessionStore satisfies it. */
+import type { CredentialsStore } from './store-port'
 import { sealCredentialSecret, VaultLockedError } from './vault'
 
-/** The store tables the credential family reaches. A SessionStore satisfies it. */
-export type CredentialsStore = Pick<
-  SessionStore,
-  'credentials' | 'vault' | 'grants' | 'users' | 'machines' | 'settingsAudit' | 'secrets'
->
+export type { CredentialsStore }
 
 /** Exactly what the credential family reaches, named. */
 export interface CredentialsState {

@@ -36,6 +36,13 @@ const CREATED_AFTER_M1 = new Set([
   // Created already keyed by workspace (POD-7057).
   'artifact_uploads',
   'pending_uploads',
+  // Created already keyed by workspace (credential management, POD-6857).
+  'credentials',
+  'credential_secrets',
+  'credential_placements',
+  'credential_machines',
+  'vault_key',
+  'notices',
 ])
 
 /** The workspace tables the migration chain creates before M1 (planned and runtime ones excluded). */

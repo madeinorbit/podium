@@ -5,6 +5,7 @@ import { firstAdminMemberId, primeFirstAdminMember } from '@podium/model'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterEach, describe, expect, it } from 'vitest'
 import { VaultLockedError } from '../modules/credentials/vault'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import { SessionStore } from '../store'
 
 /** Obviously fake values. */
@@ -39,7 +40,7 @@ describe('the Linear and Telegram secrets in the vault', () => {
   function rawSecrets(dbPath: string): { key: string; value: string; updated_at: string }[] {
     const db = openDatabase(dbPath)
     try {
-      return db.prepare('SELECT key, value, updated_at FROM server_secrets').all() as {
+      return db.prepare('SELECT key, value, updated_at FROM workspace_secrets').all() as {
         key: string
         value: string
         updated_at: string
@@ -53,7 +54,7 @@ describe('the Linear and Telegram secrets in the vault', () => {
     const db = openDatabase(dbPath)
     try {
       db.prepare(
-        'INSERT OR REPLACE INTO server_secrets (key, value, updated_at) VALUES (?, ?, ?)',
+        `INSERT OR REPLACE INTO workspace_secrets (workspace_id, key, value, updated_at) VALUES ('${SELF_HOSTED_WORKSPACE_ID}', ?, ?, ?)`,
       ).run(key, value, OLD_STAMP)
     } finally {
       db.close()

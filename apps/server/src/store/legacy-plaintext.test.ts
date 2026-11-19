@@ -17,6 +17,7 @@ import { hashPassword } from '@podium/runtime/auth-store'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { afterEach, describe, expect, it } from 'vitest'
 import { credentialIdFromLegacy } from '../modules/credentials/legacy-ids'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import { SessionStore } from '../store'
 import { memberFacts } from './fixtures/test-support'
 import { LEGACY_PLAINTEXT_STATE_KEY, type LegacyPlaintextOptions } from './legacy-plaintext'
@@ -94,7 +95,7 @@ const accountRows = (dbPath: string) =>
 
 const secretKeys = (dbPath: string) =>
   (
-    sql(dbPath, (db) => db.prepare('SELECT key FROM server_secrets ORDER BY key').all()) as {
+    sql(dbPath, (db) => db.prepare('SELECT key FROM workspace_secrets ORDER BY key').all()) as {
       key: string
     }[]
   ).map((r) => r.key)
@@ -153,9 +154,9 @@ describe('the old plaintext keys after the move into the vault', () => {
     await close(store)
     sql(dbPath, (db) => {
       const account = db.prepare(
-        `INSERT INTO accounts (id, provider, kind, credential, identity, scope, created_at,
+        `INSERT INTO accounts (workspace_id, id, provider, kind, credential, identity, scope, created_at,
            owner_user_id, account_key, ref, shared_with)
-         VALUES (?, ?, ?, ?, '', 'role', ?, ?, ?, NULL, NULL)`,
+         VALUES ('${SELF_HOSTED_WORKSPACE_ID}', ?, ?, ?, ?, '', 'role', ?, ?, ?, NULL, NULL)`,
       )
       account.run(
         `managed:anthropic@${admin}`,
@@ -185,10 +186,10 @@ describe('the old plaintext keys after the move into the vault', () => {
         'managed:openai',
       )
       db.prepare(
-        `INSERT INTO account_machine_sends (account_id, machine_id, sent_at) VALUES (?, 'm-sent', '2026-11-01T00:00:00Z')`,
+        `INSERT INTO account_machine_sends (workspace_id, account_id, machine_id, sent_at) VALUES ('${SELF_HOSTED_WORKSPACE_ID}', ?, 'm-sent', '2026-11-01T00:00:00Z')`,
       ).run(`managed:openai@${MEMBER}`)
       const secret = db.prepare(
-        'INSERT OR REPLACE INTO server_secrets (key, value, updated_at) VALUES (?, ?, ?)',
+        `INSERT OR REPLACE INTO workspace_secrets (workspace_id, key, value, updated_at) VALUES ('${SELF_HOSTED_WORKSPACE_ID}', ?, ?, ?)`,
       )
       for (const [key, value] of Object.entries(API_KEYS))
         secret.run(key, value, '2026-01-01T00:00:00.000Z')
@@ -200,7 +201,7 @@ describe('the old plaintext keys after the move into the vault', () => {
         `${FREED}${'x'.repeat(9_000)}`,
         '2026-01-01T00:00:00.000Z',
       )
-      db.prepare("DELETE FROM server_secrets WHERE key = 'native-login-transfer:freed'").run()
+      db.prepare("DELETE FROM workspace_secrets WHERE key = 'native-login-transfer:freed'").run()
       // The transfer sweep's own truncate waits out a reader; the busy tests leave it out.
       if (transferRow) {
         secret.run(`native-login-transfer:${randomUUID()}`, BUNDLE, '2026-01-01T00:00:00.000Z')
@@ -378,9 +379,9 @@ describe('the old plaintext keys after the move into the vault', () => {
     // Two OpenRouter keys shared with everyone: the member's row is the older.
     sql(dbPath, (db) => {
       const insert = db.prepare(
-        `INSERT INTO accounts (id, provider, kind, credential, identity, scope, created_at,
+        `INSERT INTO accounts (workspace_id, id, provider, kind, credential, identity, scope, created_at,
            owner_user_id, account_key, ref, shared_with)
-         VALUES (?, 'openrouter', 'api-key', ?, '', 'role', ?, ?, 'managed:openrouter:team', NULL, '["*"]')`,
+         VALUES ('${SELF_HOSTED_WORKSPACE_ID}', ?, 'openrouter', 'api-key', ?, '', 'role', ?, ?, 'managed:openrouter:team', NULL, '["*"]')`,
       )
       insert.run(`managed:openrouter:team@${admin}`, 'FAKE-sk-or-order-admin-0011', 9_000, admin)
       insert.run(`managed:openrouter:team@${MEMBER}`, 'FAKE-sk-or-order-member-0012', 8_000, MEMBER)
@@ -431,7 +432,7 @@ describe('the old plaintext keys after the move into the vault', () => {
     // Another connection holds a read transaction, so the truncate is busy.
     const reader = openDatabase(dbPath)
     reader.exec('BEGIN')
-    reader.prepare('SELECT count(*) FROM server_secrets').get()
+    reader.prepare('SELECT count(*) FROM workspace_secrets').get()
     let waits = 0
     const store = await openAt(dbPath, keyPath, {
       wait: () => {
@@ -452,7 +453,7 @@ describe('the old plaintext keys after the move into the vault', () => {
     await plantOldDatabase(dbPath, keyPath, { transferRow: false })
     const reader = openDatabase(dbPath)
     reader.exec('BEGIN')
-    reader.prepare('SELECT count(*) FROM server_secrets').get()
+    reader.prepare('SELECT count(*) FROM workspace_secrets').get()
     const first = await openAt(dbPath, keyPath, { attempts: 3, wait: () => {} })
     expect(ran(first).compaction).toBe('busy')
     reader.exec('COMMIT')

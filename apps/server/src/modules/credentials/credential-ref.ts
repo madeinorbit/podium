@@ -17,9 +17,9 @@
 
 import { CREDENTIAL_ID_PREFIX, type CredentialId, type MachineId, type UserId } from '@podium/model'
 import { type AccessRefusal, refuse } from './access'
-import type { CredentialsStore } from './commands'
+import { listCredentials } from './list'
 import { mayUse } from './may-use'
-import { listCredentials } from './queries'
+import type { CredentialsStore } from './store-port'
 
 /** The spelling that means "no credential: the harness's own login". */
 export const NO_CREDENTIAL_REF = 'none'

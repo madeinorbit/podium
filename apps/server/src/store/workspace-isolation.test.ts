@@ -84,6 +84,10 @@ const INSTALL_REPOSITORIES: Record<string, string> = {
 const FACADES: Record<string, string> = {
   conversations:
     'only ensureFts; its index, registry, mirror and transcript index are exercised by name',
+  openedVault:
+    "the workspace's vault: it holds no statement; its key rows are the credentials repository's (vault_key), exercised there",
+  vaultKeyCheck:
+    'the same vault, as the credentials repository asks it whether a key opens; no statement of its own',
 }
 
 const isInstance = (value: unknown): value is object =>

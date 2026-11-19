@@ -764,9 +764,12 @@ export function describeSyncRepositoryGolden(open: OpenSyncRepositoryFixture): v
   })
 
   describe('the change capture', () => {
+    // A store's feed already holds generations for its kinds; these pins name their own.
+    const KINDS = "kind IN ('machine', 'machineAccess')"
     it('retires the rows above a mark: each kind up one generation, in this workspace only', async () => {
+      await fixture().seed(`DELETE FROM sync_kind WHERE ${KINDS}`)
       await fixture().seed(
-        "INSERT INTO sync_kind (workspace_id, kind, generation) VALUES ('local', 'machine', 4), ('other', 'machine', 9)",
+        `INSERT INTO sync_kind (workspace_id, kind, generation) VALUES ('${SUITE_WORKSPACE_ID}', 'machine', 4), ('other', 'machine', 9)`,
       )
       await fixture().seed(`INSERT INTO sync_capture (id, kind, source, op, old_key, new_key) VALUES
         (1, 'issueProjection', 0, 'u', '["i"]', '["i"]'),
@@ -778,11 +781,11 @@ export function describeSyncRepositoryGolden(open: OpenSyncRepositoryFixture): v
       // row below the mark and the other workspace's generation are untouched.
       expect(
         await stored(
-          'SELECT workspace_id, kind, generation FROM sync_kind ORDER BY workspace_id, kind',
+          `SELECT workspace_id, kind, generation FROM sync_kind WHERE ${KINDS} ORDER BY workspace_id, kind`,
         ),
       ).toEqual([
-        { workspace_id: 'local', kind: 'machine', generation: 5 },
-        { workspace_id: 'local', kind: 'machineAccess', generation: 1 },
+        { workspace_id: SUITE_WORKSPACE_ID, kind: 'machine', generation: 5 },
+        { workspace_id: SUITE_WORKSPACE_ID, kind: 'machineAccess', generation: 1 },
         { workspace_id: 'other', kind: 'machine', generation: 9 },
       ])
       expect(await stored('SELECT id FROM sync_capture')).toEqual([{ id: 1 }])
@@ -790,8 +793,9 @@ export function describeSyncRepositoryGolden(open: OpenSyncRepositoryFixture): v
     })
 
     it('changes nothing when nothing was captured above the mark', async () => {
+      const before = await stored('SELECT * FROM sync_kind ORDER BY workspace_id, kind')
       expect(await repo.retireCapture()).toEqual([])
-      expect(await stored('SELECT * FROM sync_kind')).toEqual([])
+      expect(await stored('SELECT * FROM sync_kind ORDER BY workspace_id, kind')).toEqual(before)
     })
   })
 }
