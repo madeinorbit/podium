@@ -185,10 +185,7 @@ const ALLOWLIST: ReadonlyMap<string, string> = new Map([
     'apps/server/src/store/messages.ts:messagesAddressedTo [no-id]',
     "The messages to a recipient with no id (the operator's), oldest first: read in order from the partial index idx_messages_recipient_no_id, which holds only rows with no recipient id, so its range on the kind is that recipient's messages. Before it, Postgres sorted every such message for each page (POD-6992).",
   ],
-  [
-    'apps/server/src/store/messages.ts:pendingCountOf [no-id]',
-    "Counts the pending messages of a recipient with no id (the operator's) through the partial index idx_messages_recipient_no_id: its range on the kind is that recipient's messages.",
-  ],
+
   // The janitor's reads (POD-6993), as the SQLite audit lists them: each runs once per
   // janitor tick, in the janitor's worker on a read session of its own.
   ['apps/server/src/store/janitor-reads.ts:maxEventIdOf', MIN_MAX_SEEK],
@@ -814,17 +811,7 @@ const HINT_SHAPES: ReadonlyMap<string, HintShape> = new Map<string, HintShape>([
         "The janitor's read of the feed with the retention prune's age threshold (as newestAgedSeq): the generic plan takes a third of the log as aged and walks the primary key down from the head; for a real threshold Postgres plans the changes_event_time range.",
     },
   ],
-  ...(['implicitExpiryFirst', 'implicitExpiryAfter'] as const).map(
-    (name) =>
-      [
-        `apps/server/src/store/janitor-reads.ts:${name} [undefined]`,
-        {
-          alsoReads: 'idx_messages_delivery_order',
-          reason:
-            "The janitor's implicit expiry page: stored messages that wait, with no expiry of their own, oldest first. SQLite names idx_messages_delivery_expiry_implicit, whose `expires_at IS NULL` it reads as an equality; Postgres does not take IS NULL for order, so it reads idx_messages_delivery_order, the stored messages in created order (the pending queue), and filters: the same rows in the same order, without a sort.",
-        },
-      ] as const,
-  ),
+
   [
     'apps/server/src/store/superagent.ts:syncTurnRunning [undefined]',
     {
@@ -882,7 +869,6 @@ const PLANNER_CHOICES: ReadonlyMap<string, PlannerChoice> = new Map<string, Plan
       'conversation.recent',
       'issueProjection.recent',
       'session.recent',
-      'workflowRun.recent',
     ] as const
   ).map(
     (collection) =>
@@ -932,16 +918,7 @@ const PLANNER_CHOICES: ReadonlyMap<string, PlannerChoice> = new Map<string, Plan
         "The tombstone purge's batch: effects deleted before a bound, at most a batch. The generic plan takes the bound as a third of the table; for a real one Postgres reads the batch through idx_effects_tombstones (partial over the tombstones since POD-7034).",
     },
   ],
-  [
-    'apps/server/src/store/messages.ts:queuedCount',
-    {
-      reshape: [`UPDATE messages SET delivery_status = 'confirmed' WHERE right(id, 2) <> '00'`],
-      analyze: ['messages'],
-      values: [WS_LITERAL, ...[...MESSAGE_PENDING].map((status) => `'${status}'`)],
-      reason:
-        'Counts the undelivered messages. The statuses are bound as parameters, so the generic plan cannot know which; and on the seed every status is as common as the next. On a real database confirmed messages are the history and the pending queue is a few: for the statuses themselves Postgres reads idx_messages_delivery_order, and keeps that custom plan.',
-    },
-  ],
+
   [
     'apps/server/src/store/issues.ts:issuesMissingRepoIdCount',
     {
