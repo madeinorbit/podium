@@ -202,6 +202,12 @@ export class LaunchCatalogPicker {
   @observable accessor opened = false
   @observable accessor initialRepoPath = ''
   private readonly choice = companion((root: RepositoryModel) => new LaunchCatalogRoot(root))
+  // The optional lookup reads the repository kind to distinguish Gone. Keep
+  // that read at the addressed root: a branch update may recheck one model,
+  // but an unchanged model identity must not rebuild the whole catalog.
+  private readonly root = keyedComputed('launch.catalogRootModel', (id: string) =>
+    here(this.pool.model('repository', id)),
+  )
   constructor(private readonly pool: MobxPool) {}
   @action open() {
     const catalog = launchOptionViews(this.pool).catalogOnOpen()
@@ -212,7 +218,7 @@ export class LaunchCatalogPicker {
   @lazy({ equals: compareShallow }) get roots() {
     return headerEntities(this.pool)
       .repositoryRootIds()
-      .flatMap((id) => here(this.pool.model('repository', id)) ?? [])
+      .flatMap((id) => this.root(id) ?? [])
   }
   @lazy({ equals: compareShallow }) get repoPaths() {
     const paths = this.roots.flatMap((root) => {
