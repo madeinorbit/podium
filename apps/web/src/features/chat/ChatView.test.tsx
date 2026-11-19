@@ -1351,7 +1351,9 @@ describe('ChatView composer', () => {
     })
     console.info('[attachment control] uploaded')
     await vi.waitFor(() => expect(fakeTrpc.sessions.uploadImage.mutate).toHaveBeenCalledTimes(1))
+    console.info('[attachment control] answer observed')
     await act(async () => Promise.resolve())
+    console.info('[attachment control] render settled')
     await act(async () => {
       console.info('[attachment control] submitting')
       textarea.dispatchEvent(
