@@ -337,10 +337,10 @@ describe('the mail writes are on the sync write entry point', () => {
     const f = await makeFixture()
     // Held for the operator: nothing past the server holds it, so a retract
     // cancels it once the request committed.
-    const held = (await f.o.call.messages.send({ to: f.issueId, body: 'take it back' })) as {
+    const held = (await f.o.call.messages.send({ to: 'operator', body: 'take it back' })) as {
       id: string
     }
-    const read = (await f.o.call.messages.send({ to: f.issueId, body: 'clear me' })) as {
+    const read = (await f.o.call.messages.send({ to: 'operator', body: 'clear me' })) as {
       id: string
     }
     const calls = entryCalls(f.o)

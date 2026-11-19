@@ -84,11 +84,11 @@ async function fixture() {
   })
   /** A session, the given member's (POD-6283: sessions are private, so two
    *  principals never share one; each per-user test gives each its own). */
-  const session = async (ownerUserId?: string) =>
+  const session = async (ownerUserId: string = firstAdminMemberId()) =>
     await reg.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/p',
-      ...(ownerUserId ? { ownerUserId: asUserId(ownerUserId) } : {}),
+      ownerUserId: asUserId(ownerUserId),
     })
   return { store, reg, sessionState, asUser, asVisibleUser, session }
 }

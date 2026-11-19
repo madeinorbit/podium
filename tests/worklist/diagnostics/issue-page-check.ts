@@ -64,7 +64,8 @@ export const ISSUE_PAGE_CHECK_FIELDS = [
   'lastLifecycleActor',
   'createdAt',
   'updatedAt',
-  'panel',
+  // Panel items are separate record families, not a cell on issueProjection.
+  // Their model joins and publications are covered by issue-panel-records.test.ts.
   'linearIdentifier',
   'linearUrl',
   'pinned',

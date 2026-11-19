@@ -31,6 +31,7 @@ import {
   OWNERSHIP_MATRIX_INDEX,
   ROW,
   type SessionId,
+  SlimIssueProjection,
   sessionUserStateRowId,
 } from '@podium/model'
 import type { SyncSubmitReply } from '@podium/protocol'
@@ -161,17 +162,17 @@ describe('records.issueProjection.create', () => {
     const o = await makeOracle()
     await repo(o)
     const id = newIssueId()
-    const fields = { repoPath: '/p', title: 'parity' }
+    const fields = { repoPath: '/p', title: 'parity', description: 'painted description' }
     appliedReply(
       await submit(o, envelope('records.issueProjection.create', { id, fields }, 'm-parity')),
     )
     const change = (await rowsOf(o, 'm-parity')).find(
       (r) => r.entity === 'issueProjection' && r.entityId === id,
     )
-    const stored = ISSUE_RECORD.wire.parse(JSON.parse(String(must(change).payload)))
+    const stored = SlimIssueProjection.parse(JSON.parse(String(must(change).payload)))
 
-    const painted = must(
-      freshRow(ISSUE_RECORD, id, fields, { at: new Date().toISOString(), by: stored.owner }),
+    const painted = SlimIssueProjection.parse(
+      must(freshRow(ISSUE_RECORD, id, fields, { at: new Date().toISOString(), by: stored.owner })),
     )
     const pending = new Set(pendingCells(ISSUE_RECORD))
     const cells = new Set([...Object.keys(painted), ...Object.keys(stored)])
@@ -185,6 +186,15 @@ describe('records.issueProjection.create', () => {
     expect(differ).toEqual([])
     // And the server did assign the pending ones: a real number, its own clock.
     expect(stored.seq).toBeGreaterThan(0)
+    // The document is published by its own record in the same command, rather
+    // than being duplicated into the issue's feed projection.
+    const description = (await rowsOf(o, 'm-parity')).find(
+      (row) => row.entity === 'issueDescription' && row.entityId === id,
+    )
+    expect(JSON.parse(String(must(description).payload))).toMatchObject({
+      id,
+      text: fields.description,
+    })
   })
 
   it('refuses an id that is not a device-minted one', async () => {
@@ -645,23 +655,15 @@ describe('a member writes their own per-user rows through sync.submit', () => {
     await member(o)
     return userCommandPrincipal(MEMBER, 'member')
   }
-  /** A session the member may read: shared with them by the admin. */
-  async function sharedSession(o: Oracle): Promise<SessionId> {
-    const sessionId = await shellSession(o)
-    const admin = await firstAdminMemberId(o.store)
-    await o.store.grants.upsert({
-      resourceKind: 'session',
-      resourceId: sessionId,
-      grantee: MEMBER,
-      verb: 'read',
-      owner: admin,
-      visibility: 'personal',
-      createdAt: '2026-01-01T00:00:00.000Z',
-      actorKind: 'user',
-      actorId: admin,
-      onBehalfOf: admin,
-    })
-    return sessionId
+  /** Sessions are private: the member writes markers on their own session. */
+  async function memberSession(o: Oracle): Promise<SessionId> {
+    return (
+      await o.reg.modules.sessions.createSession({
+        agentKind: 'shell',
+        cwd: '/p',
+        ownerUserId: MEMBER,
+      })
+    ).sessionId
   }
   const as = (o: Oracle, principal: CommandPrincipal, env: Parameters<typeof submit>[1]) =>
     o.reg.modules.syncWrite.submit(env, principal, 'trpc')
@@ -669,7 +671,7 @@ describe('a member writes their own per-user rows through sync.submit', () => {
   it('marks a session read, snoozes it, marks an issue read, tucks it and sets a layout key', async () => {
     const o = await makeOracle()
     const principal = await asMember(o)
-    const sessionId = await sharedSession(o)
+    const sessionId = await memberSession(o)
     const issue = await createIssue(o)
     await o.call.issues.close({ id: issue, reason: 'done' })
     const sessionRow = sessionUserStateRowId(MEMBER, sessionId)
@@ -700,7 +702,7 @@ describe('a member writes their own per-user rows through sync.submit', () => {
   it('the old route a member’s older app sends is applied too (sessions.markRead)', async () => {
     const o = await makeOracle()
     const principal = await asMember(o)
-    const sessionId = await sharedSession(o)
+    const sessionId = await memberSession(o)
 
     appliedReply(
       await as(o, principal, envelope('sessions.markRead', { sessionId }, 'mb-old-read')),
