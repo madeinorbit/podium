@@ -434,7 +434,9 @@ describe('mobile pool work-list actions', () => {
   it('opens the mission before the deferred mark-read, then restores unread on refusal', async () => {
     await mount((f) => f.patchIssue(TARGET, { readAt: null }))
     expect(value().emphasizeUnread).toBe(true)
-    const navigation = vi.fn(() => expect(requests).toEqual([]))
+    const navigation = vi.fn(() =>
+      expect(requests.filter((request) => request.procedure === 'issues.markRead')).toEqual([]),
+    )
     router.push.mockImplementationOnce(navigation)
     fireEvent.click(button())
     await waitFor(() => expect(router.push).toHaveBeenCalledWith(`/mission/${TARGET}`))

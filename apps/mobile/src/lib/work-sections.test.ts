@@ -1,15 +1,24 @@
 import type { MobxPool } from '@podium/client-graph/pool'
+import { worklistGroups } from '@podium/client-graph/worklist/groups'
 import {
   MobileSectionsView,
   type MobileWorkRef,
   type MobileWorkSection as WorkSection,
 } from '@podium/client-graph/worklist/mobile'
-import { worklistGroups } from '@podium/client-graph/worklist/groups'
 import { observable, runInAction } from 'mobx'
 import { describe, expect, it } from 'vitest'
-const source = (section: MobileWorkSection): WorkSection => ({ ...section, data: section.data.map(ref => ref.id) })
 
-import { MobileNativeSections, MobileSearchSections, workGroupFoldKey, type MobileWorkSection } from './work-sections'
+const source = (section: MobileWorkSection): WorkSection => ({
+  ...section,
+  data: section.data.map((ref) => ref.id),
+})
+
+import {
+  MobileNativeSections,
+  MobileSearchSections,
+  type MobileWorkSection,
+  workGroupFoldKey,
+} from './work-sections'
 
 // Synthetic resident lanes; the band/fold logic under test is the actual pool
 // projection. Waiting is an addressed fact, never a legacy row derivation.
@@ -111,10 +120,14 @@ function nativeSections(pinned: Row[], groups: Group[]) {
     selectedWasFolded: false,
     layout: {},
     knownRow: pool.issue,
-    mobileSections() { return (this as unknown as { mobileSectionsView: MobileSectionsView }).mobileSectionsView },
+    mobileSections() {
+      return (this as unknown as { mobileSectionsView: MobileSectionsView }).mobileSectionsView
+    },
     desktop: (pool as unknown as { sidebar: unknown }).sidebar,
     reference: (id: string, kind = 'issue', attention = false) => ({
-      id, kind, listKey: attention ? `needs-you:${id}` : id,
+      id,
+      kind,
+      listKey: attention ? `needs-you:${id}` : id,
     }),
   })
   // File every row into the groups view the mobile sections read: pinned to
@@ -128,7 +141,11 @@ function nativeSections(pinned: Row[], groups: Group[]) {
     seq: 0,
     id,
   })
-  const file = (id: string, groupKey: string, lane: 'pinned' | 'rows' | 'snoozedRows' | 'closedRows') => {
+  const file = (
+    id: string,
+    groupKey: string,
+    lane: 'pinned' | 'rows' | 'snoozedRows' | 'closedRows',
+  ) => {
     const placement = {
       pinned: lane === 'pinned',
       repoKey: groupKey,
@@ -150,11 +167,16 @@ function nativeSections(pinned: Row[], groups: Group[]) {
     }
   })
   const sections = new MobileSectionsView(pool, {})
-  ;(views.get('worklist.view') as { mobileSectionsView: MobileSectionsView }).mobileSectionsView = sections
-  return { issueCount: sections.issueCount, pinnedCount: sections.pinnedCount,
-    attentionCount: sections.attentionCount, pending: sections.pending,
+  ;(views.get('worklist.view') as { mobileSectionsView: MobileSectionsView }).mobileSectionsView =
+    sections
+  return {
+    issueCount: sections.issueCount,
+    pinnedCount: sections.pinnedCount,
+    attentionCount: sections.attentionCount,
+    pending: sections.pending,
     sections: new MobileSearchSections().update(pool, sections.sectionKeys, ''),
-    orderingSections: new MobileSearchSections(true).update(pool, sections.orderingSectionKeys, '') }
+    orderingSections: new MobileSearchSections(true).update(pool, sections.orderingSectionKeys, ''),
+  }
 }
 const bandKeys = (split: ReturnType<typeof nativeSections>) =>
   split.sections.map((section) => section.key)
@@ -297,13 +319,21 @@ describe('workGroupFoldKey', () => {
 })
 
 describe('MobileSearchSections', () => {
+  // Local matching is complete offline. There are no remote hits to hold,
+  // and reading these resident titles needs no refresh.
+  const offlineCollections = () => ({
+    online: false,
+    available: false,
+    holdRecords: (_entity: string, ids: readonly string[]) => expect(ids).toEqual([]),
+    reading: () => 'ready' as const,
+  })
   const titles = new Map([
     ['a', 'alpha'],
     ['b', 'beta'],
   ])
   const pool = () =>
     ({
-      collections: { online: false, available: false },
+      collections: offlineCollections(),
       queries: {
         localTextIds: (needle: string) =>
           new Set([...titles].filter(([, title]) => title.includes(needle)).map(([id]) => id)),
@@ -371,7 +401,7 @@ describe('MobileSearchSections', () => {
       for (const id of closed) titles.set(id, `closed routine ${id}`)
       const calls = { textPasses: 0, issueRows: 0 }
       const graph = {
-        collections: { online: false, available: false },
+        collections: offlineCollections(),
         clock: { current: 0, reached: () => {} },
         selection: {
           keys: (): IterableIterator<string> => [][Symbol.iterator](),
@@ -414,7 +444,11 @@ describe('MobileSearchSections', () => {
         foldKey: 'fold:/r',
         collapsed: false,
       }
-      const found = new MobileSearchSections().update(graph, [source(section)], 'unique phone target')
+      const found = new MobileSearchSections().update(
+        graph,
+        [source(section)],
+        'unique phone target',
+      )
       expect(found.map((s) => s.data.map((ref) => ref.id))).toEqual([[`issue-71`]])
       expect(found[0]?.snoozedIds).toEqual([])
       expect(found[0]?.closedIds).toEqual([])
