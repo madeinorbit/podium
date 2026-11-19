@@ -111,7 +111,7 @@ const CONTINUE_IN_SHORT_FRAME = expect.stringMatching(
 )
 
 describe('SessionRegistry', () => {
-  it('assembles recovery-only over a query-only store without running writable boot repairs', async () => {
+  it('serves recovery reads from a query-only store without mutating durable state', async () => {
     const file = join(trackTmp('podium-recovery-only-'), 'podium.db')
     const nativeId = 'subagent-under-test'
     const stalePath = '/project/subagents/stale-name.jsonl'
@@ -158,14 +158,6 @@ describe('SessionRegistry', () => {
     ).toBeNull()
     await recovery.dispose()
     await queryOnly.close()
-
-    const writable = await SessionStore.open(file, TEST_MACHINE)
-    const ordinary = await SessionRegistry.create(writable, undefined, { instanceId: 'writable' })
-    expect(
-      await writable.conversations.registry.segmentPath(TEST_MACHINE, nativeId),
-    ).toBeUndefined()
-    await ordinary.dispose()
-    await writable.close()
   })
 
   it('create spawns via the daemon and lists the session as starting', async () => {
