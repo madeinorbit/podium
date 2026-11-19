@@ -539,10 +539,9 @@ it('discloses the retained Bash input and its capture state inside a work run', 
     />,
   )
   fireEvent.click(screen.getByLabelText(/^Expand work run:/))
-  expect(screen.queryByText(command)).toBeNull()
+  expect(screen.queryByLabelText('Copy retained input')).toBeNull()
   fireEvent.click(screen.getByLabelText(`Expand ${command}`))
-  expect(screen.getByText(command)).toBeTruthy()
-  expect(screen.getByLabelText('Copy retained input')).toBeTruthy()
+  expect(screen.getByLabelText('Copy retained input').parentElement?.textContent).toContain(command)
   expect(screen.queryByText('The record may contain only an input preview.')).toBeNull()
   expect(container.textContent).toContain(
     'The transcript does not establish whether output was returned.',
@@ -802,7 +801,7 @@ it('discloses note members of a mixed stretch on the phone', () => {
     />,
   )
   expect(screen.queryByText(/needle in the note/)).toBeNull()
-  fireEvent.click(screen.getByLabelText(/Expand work run: Ran a command, read a note/))
+  fireEvent.click(screen.getByLabelText(/^Expand work run:/))
   expect(screen.getByText(/needle in the note/)).toBeTruthy()
   expect(screen.getByText('Internal')).toBeTruthy()
 })

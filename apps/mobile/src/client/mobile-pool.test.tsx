@@ -322,9 +322,9 @@ describe('mobile pool ownership', () => {
     if (!alice.pool) throw new Error('The mobile pool did not attach')
     // Hooks read the routed UI store directly. The pool's optional preference
     // read port does not materialize an inventory of unobserved keys.
-    expect(alice.runtime.ui.get('podium.chat.stickyPrompts')).toBe('saved')
-    expect(alice.runtime.ui.get('podium:sidebar:task-details-fold')).toBe('false')
-    expect(alice.runtime.ui.get('podium:sidebar:repo')).toBe('true')
+    expect(alice.runtime.deviceState.get('podium.chat.stickyPrompts')).toBe('saved')
+    expect(alice.runtime.deviceState.get('podium:sidebar:task-details-fold')).toBe('false')
+    expect(alice.runtime.deviceState.get('podium:sidebar:repo')).toBe('true')
     await app.switchUser('bob')
     await waitFor(() => expect(app.seen.pool).toBeTruthy(), { timeout: 10_000 })
     await waitFor(() =>
