@@ -54,7 +54,7 @@ describe('tenant feed migration', () => {
         for (const kind of bumped)
           if (!expected.some((r) => r.kind === kind))
             expected.push({ kind, generation: 1, workspace_id: 'local' })
-        expected.sort((x, y) => String(x.kind).localeCompare(String(y.kind)))
+        expected.sort((x, y) => (String(x.kind) < String(y.kind) ? -1 : 1))
         expect(db.prepare('SELECT * FROM sync_kind ORDER BY kind').all()).toEqual(expected)
         const sync = new SyncRepository(
           workspaceQueries(syncQueriesOver(db), SELF_HOSTED_WORKSPACE_ID),
