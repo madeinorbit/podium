@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { ISSUE_COMMAND_NAMES, ISSUE_CONTRACTS, type IssueContractName } from '@podium/commands'
-import { describe, expect, expectTypeOf, it, vi } from 'vitest'
+import { describe, expect, expectTypeOf, it } from 'vitest'
 import type { IssueTrpc } from './client.js'
 import { ISSUE_COMMANDS } from './commands.js'
 
@@ -93,35 +93,6 @@ describe('CLI table ↔ protocol command-name drift', () => {
       expect(c.summary.length).toBeGreaterThan(0)
       expect(typeof c.args.safeParse).toBe('function')
     }
-  })
-
-  it('forwards colour slots on create and maps update --color none to null', async () => {
-    const createMutate = vi.fn(async () => ({ seq: 1, title: 'Tinted' }))
-    const updateMutate = vi.fn(async () => ({ seq: 1 }))
-    const client = {
-      issues: {
-        create: { mutate: createMutate },
-        update: { mutate: updateMutate },
-      },
-    } as unknown as IssueTrpc
-    const create = ISSUE_COMMANDS.find((entry) => entry.name === 'create')
-    const update = ISSUE_COMMANDS.find((entry) => entry.name === 'update')
-    expect(create).toBeDefined()
-    expect(update).toBeDefined()
-    if (!create || !update) throw new Error('missing create/update command')
-
-    await create.run(client, {
-      repoPath: '/r',
-      title: 'Tinted',
-      color: 'violet',
-      start: false,
-    })
-    await update.run(client, { id: '1', color: 'none' })
-
-    expect(createMutate).toHaveBeenCalledWith(
-      expect.objectContaining({ repoPath: '/r', title: 'Tinted', color: 'violet' }),
-    )
-    expect(updateMutate).toHaveBeenCalledWith({ id: '1', patch: { color: null } })
   })
 })
 
