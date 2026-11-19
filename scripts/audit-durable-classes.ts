@@ -1377,13 +1377,7 @@ export function checkDrizzleTables(
   for (const { file, source } of schemas) {
     for (const table of drizzleTables(source)) {
       live.add(table)
-      if (
-        !declared.some(
-          (store) =>
-            store.store === table &&
-            (store.writeSites === undefined || store.writeSites.includes(file)),
-        )
-      ) {
+      if (!declared.has(table)) {
         findings.push({
           check: 'drizzle-table-undeclared',
           where: `${file} → ${table}`,
