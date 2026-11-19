@@ -179,27 +179,28 @@ describe('a timeout says it stopped watching before the product stopped trying',
   // because the stall deadline retried has failed — but the timeout never said
   // so, and "did not reach a terminal state within 300s" reads as "the wave is
   // dead". These pin the note, not the timeouts.
+  const silenceSeconds = UPDATE_STEP_DEADLINES[UPDATE_STEP_MACHINES].silenceMs! / 1000
   async function note(waited: number): Promise<string> {
     const run = await bash(`say_watch_budget ${waited}`)
     return run.stderr.trim()
   }
 
   it('speaks when the wait ended inside the budget', async () => {
-    expect(await note(300)).toContain('INSIDE')
-    expect(await note(150)).toContain('INSIDE')
+    expect(await note(silenceSeconds - 1)).toContain('INSIDE')
+    expect(await note(0)).toContain('INSIDE')
   })
 
   it('stays silent at and past the budget, where the red is unambiguous', async () => {
     // Past the budget the product HAS had its retry, so there is nothing to
     // disambiguate and the note would be noise on a true failure.
-    expect(await note(420)).toBe('')
-    expect(await note(600)).toBe('')
+    expect(await note(silenceSeconds)).toBe('')
+    expect(await note(silenceSeconds + 1)).toBe('')
   })
 
   it('names the retry, not just the window', async () => {
     // "inside its recovery window" understates it: the product actively tries
     // again. A reader who does not know that will read the red as terminal.
-    const text = await note(300)
+    const text = await note(silenceSeconds - 1)
     expect(text).toContain('REISSUES GRANTS')
     expect(text).toMatch(/do not lengthen this wait/i)
   })

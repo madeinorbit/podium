@@ -163,7 +163,9 @@ describe('desktop-supervised local stack', () => {
               service_report_json: string
             }
           | undefined
-        return lease && machine ? { lease, machine } : undefined
+        return lease && machine?.presence_source === 'supervisor' && machine.service_report_json
+          ? { lease, machine }
+          : undefined
       } finally {
         db.close()
       }

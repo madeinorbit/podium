@@ -222,13 +222,21 @@ describe('the wire window, over real sockets', () => {
     })
 
     // The current build gets the canonical frame for the write.
-    const currentDelta = (await current.nextMatching((m) => m.type === 'feedDelta')) as {
+    const currentDelta = (await current.nextMatching(
+      (m) =>
+        m.type === 'feedDelta' &&
+        m.changes.some(
+          (change) =>
+            change.entity === 'session' &&
+            (change.value as { cwd?: string } | undefined)?.cwd === '/repo/after-the-deploy',
+        ),
+    )) as {
       fromSeq: number
       seq: number
       minAvailableSeq: number
       changes: { entity: string; value?: { cwd?: string } | null }[]
     }
-    expect(currentDelta.fromSeq).toBe(admitted.seq)
+    expect(currentDelta.fromSeq).toBeGreaterThanOrEqual(admitted.seq)
     expect(currentDelta.minAvailableSeq).toBeGreaterThanOrEqual(0)
     expect(
       currentDelta.changes.some(

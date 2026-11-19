@@ -184,16 +184,18 @@ describe('POD-376 · wire v2 feed into the kernel replica (live server)', () => 
   }
 
   /** `(entity, entityId)` keys the AUTHORITY says this principal's slice holds. */
-  async function authoritySlice(): Promise<string[]> {
+  async function authoritySlice(): Promise<{ keys: string[]; seq: number }> {
     const source = new HttpBootstrapSource({
       origin: baseUrl,
       streamingFetch: { fetch, headers: () => ({ cookie }) },
     })
     const keys: string[] = []
+    let seq = 0
     for await (const chunk of source.bootstrap()) {
+      seq = chunk.snapshotSeq
       for (const row of chunk.changes) keys.push(`${row.entity}:${row.entityId}`)
     }
-    return keys.sort()
+    return { keys: keys.sort(), seq }
   }
 
   it('a current peer pulls its HTTP bootstrap and installs the authority slice', async () => {
@@ -213,8 +215,10 @@ describe('POD-376 · wire v2 feed into the kernel replica (live server)', () => 
     expect(client.replica.cursor?.epoch).toBeTruthy()
 
     const slice = await authoritySlice()
-    expect(slice.length).toBeGreaterThan(0)
-    expect(client.keys()).toEqual(slice)
+    expect(slice.keys.length).toBeGreaterThan(0)
+    await until(() => (client.replica.cursor?.seq ?? -1) >= slice.seq)
+    await client.replica.settled()
+    expect(client.keys()).toEqual(slice.keys)
   })
 
   it('a live write reaches a connected v2 replica as a delta', async () => {
@@ -228,7 +232,10 @@ describe('POD-376 · wire v2 feed into the kernel replica (live server)', () => 
     await client.replica.settled()
 
     expect(client.framesSeen).toContain('feedDelta')
-    expect(client.keys()).toEqual(await authoritySlice())
+    const slice = await authoritySlice()
+    await until(() => (client.replica.cursor?.seq ?? -1) >= slice.seq)
+    await client.replica.settled()
+    expect(client.keys()).toEqual(slice.keys)
   })
 
   it('offline write window → reconnect → both clients converge on the authority slice', async () => {
@@ -268,8 +275,10 @@ describe('POD-376 · wire v2 feed into the kernel replica (live server)', () => 
     // CONVERGENCE, AGAINST THE AUTHORITY AND NOT ONLY AGAINST EACH OTHER. Two
     // clients agreeing on the wrong slice is not convergence, and a two-way diff
     // cannot tell the difference.
-    expect(a.keys()).toEqual(slice)
-    expect(b.keys()).toEqual(slice)
+    await until(() => [a, b].every((client) => (client.replica.cursor?.seq ?? -1) >= slice.seq))
+    await Promise.all([a.replica.settled(), b.replica.settled()])
+    expect(a.keys()).toEqual(slice.keys)
+    expect(b.keys()).toEqual(slice.keys)
     expect(a.replica.posture).not.toBe('cold')
   })
 

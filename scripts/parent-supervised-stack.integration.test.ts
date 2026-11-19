@@ -430,8 +430,8 @@ describe('parent-supervised stack', () => {
       db.exec('PRAGMA busy_timeout = 5000')
       db.prepare(
         `INSERT INTO operations
-           (id, kind, exclusion_group, state, created_at, updated_at, finished_at, payload)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+           (workspace_id, id, kind, exclusion_group, state, created_at, updated_at, finished_at, payload)
+         VALUES ('local', ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         operation.id,
         operation.kind,
@@ -603,6 +603,7 @@ describe('parent-supervised stack', () => {
             PODIUM_DEV_SOURCE_ROOT: sourceRoot,
             PODIUM_DEV_ARTIFACT_BASE_URL: feedOrigin,
             PODIUM_UPDATE_CHANNEL: 'dev',
+            PODIUM_UPDATE_FEED_POLLING: 'on',
           },
           { instanceId: 'supervised-no-click', config: { updateChannel: 'dev' } },
         )
