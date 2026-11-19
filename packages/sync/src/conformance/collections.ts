@@ -20,6 +20,7 @@ import { Replica } from '../replica/replica'
 import {
   type CachePolicy,
   type Cursor,
+  type EntityRecord,
   type InstanceRecord,
   type InstanceSpec,
   type ReplicaEvent,
@@ -1243,6 +1244,434 @@ export function describeCollectionStore(instantiation: SyncInstantiation): void 
         expect([...booted.cache.readDiskIndex().membersOf(instanceKey(one))]).toEqual([
           keyOf(ISSUE, 'A1'),
         ])
+      })
+    })
+
+    // ─── The feed to records only on disk, and gaps (POD-7160) ────────────────
+
+    describe('the feed to records only on disk, and gaps (POD-7160)', () => {
+      /**
+       * seedWorld plus D3 (done, under A1): A1's tree holds D1 and D3 only,
+       * the sidebar holds A1 and A2. What each record comes with is answered
+       * with it.
+       */
+      const world = (): CollectionServer => {
+        const server = new CollectionServer()
+        seedWorld(server)
+        server.put(
+          ISSUE,
+          'D3',
+          issue('D3', { stage: 'done', closedReason: 'completed', parentId: 'A1' }),
+        )
+        server.answerComesWith = true
+        return server
+      }
+      const POLICY_KEYS = new Set([LIVE, SIDEBAR, STUBS].map((spec) => instanceKey(spec)))
+      /** The instances in memory that are not the policy's. */
+      const viewKeys = (cache: ReplicaCacheStore): string[] =>
+        [...cache.readInstances().keys()].filter(
+          (key) => !POLICY_KEYS.has(key) && cache.readDiskIndex().inMemory(key),
+        )
+      /** A1's tree read, then out of memory: on disk only. */
+      const treeOnDisk = async (booted: Booted): Promise<void> => {
+        await booted.replica.load([tree('A1')])
+        await booted.replica.settled()
+        await ticks()
+        await booted.replica.settled()
+        await booted.replica.unload(viewKeys(booted.cache))
+        expect(booted.cache.read(ISSUE, 'D1')).toBeUndefined()
+        expect(booted.replica.isUnloaded(ISSUE, 'D1')).toBe(true)
+      }
+      /** Count the disk reads a store makes. */
+      const countDiskReads = (cache: ReplicaCacheStore): { reads: number } => {
+        const counter = { reads: 0 }
+        const read = cache.readDiskRows.bind(cache)
+        ;(cache as { readDiskRows: ReplicaCacheStore['readDiskRows'] }).readDiskRows = (keys) => {
+          counter.reads += 1
+          return read(keys)
+        }
+        return counter
+      }
+      const titleOf = (cache: ReplicaCacheStore, id: string): unknown =>
+        (cache.read(ISSUE, id)?.value as { title?: unknown } | undefined)?.title
+      const onDiskTitle = async (cache: ReplicaCacheStore, id: string): Promise<unknown> => {
+        const [row] = await cache.readDiskRows([keyOf(ISSUE, id)])
+        return (row?.value as { title?: unknown } | undefined)?.title
+      }
+
+      it('a change to a record held only on disk is written to disk, with no disk read, and a disk load shows it', async () => {
+        const server = world()
+        const booted = await boot(instantiation, server)
+        await treeOnDisk(booted)
+        const { cache, replica, events } = booted
+        const counter = countDiskReads(cache)
+        const told = events.length
+        server.put(
+          ISSUE,
+          'D1',
+          issue('D1', {
+            stage: 'done',
+            closedReason: 'completed',
+            parentId: 'A1',
+            title: 'renamed',
+          }),
+        )
+        await feed(booted, server)
+        expect(counter.reads, 'no disk read during feed apply').toBe(0)
+        // On disk, current as of the change; memory did not take it.
+        expect(cache.read(ISSUE, 'D1')).toBeUndefined()
+        expect(cache.readDiskIndex().record(keyOf(ISSUE, 'D1'))).toMatchObject({
+          seq: server.head,
+          level: 'main',
+        })
+        expect(
+          cache
+            .readDiskIndex()
+            .membersOf(instanceKey(tree('A1')))
+            .has(keyOf(ISSUE, 'D1')),
+        ).toBe(true)
+        // A reader is told it is on disk, never that it changed in memory.
+        const after = events.slice(told)
+        expect(
+          after.some((event) => event.type === 'upserted' && event.record.entityId === 'D1'),
+        ).toBe(false)
+        expect(after.some((event) => event.type === 'unloaded' && event.entityId === 'D1')).toBe(
+          true,
+        )
+        expect(await onDiskTitle(cache, 'D1')).toBe('renamed')
+        // A disk load shows the new value, with no server request.
+        const fetched = server.fetches.length
+        await replica.load([tree('A1')])
+        await replica.settled()
+        expect(server.fetches.length).toBe(fetched)
+        expect(replica.isComplete(tree('A1'))).toBeDefined()
+        expect(titleOf(cache, 'D1')).toBe('renamed')
+        expectIndexTrue(cache, server, 'after the disk load')
+      })
+
+      describe('newest wins for a record only on disk', () => {
+        const key = keyOf(ISSUE, 'R1')
+        const X: InstanceSpec = tree('R1')
+        const xKey = instanceKey(X)
+        const upsert = (asOf: number, title: string, diskOnly: boolean) => ({
+          kind: 'upsert' as const,
+          entity: ISSUE,
+          entityId: 'R1',
+          value: issue('R1', { stage: 'done', closedReason: 'completed', title }),
+          provenance: { seq: asOf },
+          asOf,
+          holders: [xKey],
+          ...(diskOnly ? { diskOnly: true as const } : {}),
+        })
+        /** R1 at feed number 5, its instance marked, then out of memory. */
+        const onDisk = async () => {
+          const storage = await instantiation.open()
+          const { cache } = storage.viewFor(PRINCIPAL)
+          const cursor: Cursor = { feedId: 'feed', epoch: 'epoch', seq: 5 }
+          cache.applyAtomic({
+            operations: [upsert(5, 'five', false)],
+            cursor,
+            instances: [
+              {
+                kind: 'mark',
+                instance: { ...X, key: xKey, completeAt: cursor },
+                members: [key],
+              },
+            ],
+          })
+          cache.unload([xKey])
+          expect(cache.read(ISSUE, 'R1')).toBeUndefined()
+          expect(cache.readDiskIndex().record(key)?.seq).toBe(5)
+          return { storage, cache }
+        }
+
+        it('the feed first, then an older fetch answer: the answer is skipped', async () => {
+          const { cache } = await onDisk()
+          cache.applyAtomic({ operations: [upsert(10, 'ten', true)] })
+          expect(cache.read(ISSUE, 'R1'), 'disk only').toBeUndefined()
+          expect(cache.readDiskIndex().record(key)?.seq).toBe(10)
+          // An answer read as of 8 arrives after the feed's change at 10.
+          cache.applyAtomic({ operations: [upsert(8, 'eight', false)] })
+          expect(cache.readDiskIndex().record(key)?.seq).toBe(10)
+          expect(cache.read(ISSUE, 'R1')).toBeUndefined()
+          expect(await onDiskTitle(cache, 'R1')).toBe('ten')
+          // An older feed change is skipped too; a newer one applies.
+          cache.applyAtomic({ operations: [upsert(9, 'nine', true)] })
+          expect(await onDiskTitle(cache, 'R1')).toBe('ten')
+          cache.applyAtomic({ operations: [upsert(11, 'eleven', true)] })
+          expect(await onDiskTitle(cache, 'R1')).toBe('eleven')
+          expect(cache.readDiskIndex().record(key)?.seq).toBe(11)
+        })
+
+        it('the fetch answer first, then the feed: the newer change applies, an older one does not', async () => {
+          const { cache } = await onDisk()
+          cache.applyAtomic({ operations: [upsert(8, 'eight', false)] })
+          expect(titleOf(cache, 'R1'), 'the answer is in memory').toBe('eight')
+          // Memory holds it now: a change for the disk only replaces it in memory too.
+          cache.applyAtomic({ operations: [upsert(10, 'ten', true)] })
+          expect(titleOf(cache, 'R1')).toBe('ten')
+          cache.applyAtomic({ operations: [upsert(7, 'seven', true)] })
+          expect(titleOf(cache, 'R1')).toBe('ten')
+          expect(await onDiskTitle(cache, 'R1')).toBe('ten')
+          expect(cache.readDiskIndex().record(key)?.seq).toBe(10)
+        })
+
+        it('a removal of a record only on disk takes it off the disk', async () => {
+          const { cache } = await onDisk()
+          cache.applyAtomic({
+            operations: [{ kind: 'remove', entity: ISSUE, entityId: 'R1', asOf: 6 }],
+          })
+          expect(cache.readDiskIndex().record(key)).toBeUndefined()
+          expect(await cache.readDiskRows([key])).toEqual([])
+        })
+
+        it('a write to disk only that a disk load put in memory meanwhile replaces it in memory', async () => {
+          const { storage, cache } = await onDisk()
+          const [row] = await cache.readDiskRows([key])
+          await storage.unitOfWork.transact(async (span) => {
+            cache.applyAtomic({ operations: [upsert(10, 'ten', true)] }, span)
+            // The disk load installs the row it read before the write publishes.
+            cache.installResident([row as EntityRecord])
+          })
+          expect(titleOf(cache, 'R1')).toBe('ten')
+        })
+      })
+
+      it('a record that leaves an instance on disk leaves it there, and falls back to its stub when nothing else holds it', async () => {
+        const server = world()
+        const booted = await boot(instantiation, server)
+        const { cache, replica } = booted
+        // D3 is in A1's tree and its own; D1 only in A1's.
+        await replica.load([tree('A1'), tree('D3')])
+        await replica.settled()
+        await ticks()
+        await replica.settled()
+        await replica.unload(viewKeys(cache))
+        const a1 = instanceKey(tree('A1'))
+        const d3 = instanceKey(tree('D3'))
+        expect(cache.read(ISSUE, 'D1')).toBeUndefined()
+        expect(cache.read(ISSUE, 'D3')).toBeUndefined()
+        // Both move to the top level: their rule for A1's tree no longer matches.
+        server.put(ISSUE, 'D1', issue('D1', { stage: 'done', closedReason: 'completed' }))
+        server.put(ISSUE, 'D3', issue('D3', { stage: 'done', closedReason: 'completed' }))
+        const counter = countDiskReads(cache)
+        await feed(booted, server)
+        expect(counter.reads).toBe(0)
+        const index = cache.readDiskIndex()
+        expect(index.membersOf(a1).has(keyOf(ISSUE, 'D1'))).toBe(false)
+        expect(index.membersOf(a1).has(keyOf(ISSUE, 'D3'))).toBe(false)
+        // D3 stays whole on disk for its own tree.
+        expect(index.record(keyOf(ISSUE, 'D3'))).toMatchObject({ level: 'main', seq: server.head })
+        expect(index.membersOf(d3).has(keyOf(ISSUE, 'D3'))).toBe(true)
+        // Nothing else holds D1: its stub, current.
+        expect(index.record(keyOf(ISSUE, 'D1'))?.level).toBe('stub')
+        expect(partOf(cache, ISSUE, 'D1')).toBe('stub')
+        expect(replica.stubOf(ISSUE, 'D1')).toMatchObject({ parentId: null })
+        expect(replica.stubsByParent('A1')).not.toContain('D1')
+        // Read again from disk, both trees are right: A1's holds neither.
+        await replica.load([tree('A1'), tree('D3')])
+        await replica.settled()
+        expect(replica.isComplete(tree('A1'))).toBeDefined()
+        expect(cache.read(ISSUE, 'D1')).toBeUndefined()
+        expectMarkersTrue(cache, server)
+      })
+
+      it('a gap keeps an instance only on disk readable and stale; a read shows it at once, then reloads it in place', async () => {
+        const server = world()
+        server.chunkRows = 1
+        const booted = await boot(instantiation, server)
+        const { cache, replica } = booted
+        await treeOnDisk(booted)
+        const key = instanceKey(tree('A1'))
+        // Offline, D1 and D3 are renamed; the feed cannot bridge the gap.
+        replica.disconnect()
+        const rename = (id: string, title: string) =>
+          server.put(
+            ISSUE,
+            id,
+            issue(id, { stage: 'done', closedReason: 'completed', parentId: 'A1', title }),
+          )
+        rename('D1', 'new D1')
+        rename('D3', 'new D3')
+        server.minAvailableSeq = server.head
+        const gate = barrier()
+        const entered = barrier()
+        server.gate = gate.promise
+        const original = server.bootstrap.bind(server)
+        server.bootstrap = (...args) => {
+          entered.release()
+          return original(...args)
+        }
+        replica.connect()
+        await entered.promise
+        await ticks()
+        // During the reload: the policy's markers withdrawn, the tree's kept, stale.
+        for (const spec of [LIVE, SIDEBAR, STUBS]) expect(marked(cache, spec)).toBe(false)
+        expect(cache.readInstances().has(key)).toBe(true)
+        expect(replica.instanceStale(tree('A1'))).toBe(true)
+        server.gate = undefined
+        gate.release()
+        await replica.settled()
+        await ticks()
+        await replica.settled()
+        // After it: the tree's rows are still on disk, old, and it is still stale.
+        expect(replica.posture).toBe('live')
+        expect(cache.readLoadingSince()).toBeNull()
+        expect(replica.instanceStale(tree('A1'))).toBe(true)
+        expect(cache.readDiskIndex().record(keyOf(ISSUE, 'D1'))?.level).toBe('main')
+        expect(await onDiskTitle(cache, 'D1')).toBe('Issue D1')
+        for (const spec of [LIVE, SIDEBAR, STUBS]) expect(marked(cache, spec)).toBe(true)
+        // A reader sees the instance whole, as before the gap or as after it, never mixed.
+        const mixed: string[] = []
+        const versions = (): string => {
+          const titles = ['D1', 'D3'].map((id) => String(titleOf(cache, id) ?? ''))
+          return titles.every((title) => title.startsWith('new')) ? 'new' : titles.join('|')
+        }
+        const seen = new Set<string>()
+        const check = (): void => {
+          if (replica.isComplete(tree('A1')) === undefined) return
+          const now = versions()
+          seen.add(now)
+          if (now !== 'new' && now !== 'Issue D1|Issue D3') mixed.push(now)
+        }
+        const loading = replica.load([tree('A1')])
+        const poll = (async () => {
+          for (let i = 0; i < 200 && replica.instanceStale(tree('A1')); i += 1) {
+            check()
+            await ticks(1)
+          }
+        })()
+        await loading
+        // Read at once from disk: complete, stale, the rows it had.
+        expect(replica.isComplete(tree('A1'))).toBeDefined()
+        check()
+        await poll
+        await replica.settled()
+        await ticks()
+        await replica.settled()
+        check()
+        expect(mixed).toEqual([])
+        expect(seen.has('Issue D1|Issue D3')).toBe(true)
+        // Replaced in place by the reload.
+        expect(replica.instanceStale(tree('A1'))).toBe(false)
+        expect(titleOf(cache, 'D1')).toBe('new D1')
+        expect(titleOf(cache, 'D3')).toBe('new D3')
+        expectMarkersTrue(cache, server)
+        expectIndexTrue(cache, server, 'after the stale reload')
+      })
+
+      it('a gap removes a row of an instance only on disk that the reload confirms is gone, and the reload drops what left it', async () => {
+        const server = world()
+        const booted = await boot(instantiation, server)
+        const { cache, replica } = booted
+        await treeOnDisk(booted)
+        replica.disconnect()
+        // D3 is deleted while the device is offline; D1 moves out of A1's tree.
+        server.drop(ISSUE, 'D3')
+        server.put(ISSUE, 'D1', issue('D1', { stage: 'done', closedReason: 'completed' }))
+        server.minAvailableSeq = server.head
+        replica.connect()
+        await replica.settled()
+        await ticks()
+        await replica.settled()
+        // The load after the gap named no stub of D3: gone. D1's stub changed: newer, it wins.
+        expect(cache.readRow(ISSUE, 'D3')).toBeUndefined()
+        expect(cache.readDiskIndex().record(keyOf(ISSUE, 'D3'))).toBeUndefined()
+        expect(partOf(cache, ISSUE, 'D1')).toBe('stub')
+        expect(replica.instanceStale(tree('A1'))).toBe(true)
+        await replica.load([tree('A1')])
+        await replica.settled()
+        await ticks()
+        await replica.settled()
+        expect(replica.instanceStale(tree('A1'))).toBe(false)
+        expect(replica.isComplete(tree('A1'))).toBeDefined()
+        expectMarkersTrue(cache, server)
+        expectIndexTrue(cache, server, 'after the reload')
+      })
+
+      it('a stale instance the reload refuses leaves memory and disk', async () => {
+        const server = world()
+        const booted = await boot(instantiation, server)
+        const { cache, replica, events } = booted
+        await treeOnDisk(booted)
+        const key = instanceKey(tree('A1'))
+        replica.requestRebootstrap()
+        await replica.settled()
+        await ticks()
+        await replica.settled()
+        expect(replica.instanceStale(tree('A1'))).toBe(true)
+        // The viewer lost the tree: its answer comes back without it.
+        const original = server.collections.bind(server)
+        server.collections = (instances) =>
+          (async function* () {
+            for await (const chunk of original(instances))
+              yield {
+                ...chunk,
+                changes: [],
+                complete: (chunk.complete ?? []).filter((marker) => instanceKey(marker) !== key),
+              }
+          })()
+        const told = events.length
+        await replica.load([tree('A1')])
+        await replica.settled()
+        await ticks()
+        await replica.settled()
+        expect(cache.readInstances().has(key)).toBe(false)
+        expect(replica.isComplete(tree('A1'))).toBeUndefined()
+        expect(replica.instanceStale(tree('A1'))).toBe(false)
+        // Its rows nothing else holds left memory and disk; an issue keeps its stub.
+        for (const id of ['D1', 'D3']) {
+          expect(cache.read(ISSUE, id), id).toBeUndefined()
+          expect(cache.readDiskIndex().record(keyOf(ISSUE, id))?.level, id).toBe('stub')
+        }
+        expect(
+          events.slice(told).some((event) => event.type === 'released' && event.entityId === 'D1'),
+        ).toBe(true)
+      })
+
+      it('offline, every instance on disk reads from disk; a stale one stays readable, stale, and reloads when the connection returns', async () => {
+        const server = world()
+        const booted = await boot(instantiation, server)
+        const { cache, replica } = booted
+        await replica.load([tree('A1'), tree('D3')])
+        await replica.settled()
+        await ticks()
+        await replica.settled()
+        await replica.unload(viewKeys(cache))
+        // A gap leaves both trees stale; then the connection drops.
+        replica.requestRebootstrap()
+        await replica.settled()
+        await ticks()
+        await replica.settled()
+        replica.disconnect()
+        const collections = server.collections.bind(server)
+        server.collections = () => {
+          throw new Error('offline: no fetch may reach the server')
+        }
+        const loader = new CollectionLoader({ replica, schedule: () => () => {} })
+        expect(loader.isStale(tree('A1'))).toBe(true)
+        expect(loader.status(tree('A1'))).toBe('loading')
+        loader.request([tree('A1'), tree('D3')], 'visible')
+        await loader.flush()
+        await replica.settled()
+        await ticks()
+        await replica.settled()
+        for (const spec of [tree('A1'), tree('D3')]) {
+          expect(loader.status(spec)).toBe('complete')
+          expect(loader.isStale(spec)).toBe(true)
+        }
+        expect(titleOf(cache, 'D1')).toBe('Issue D1')
+        // Back online, the read reloads them.
+        server.collections = collections
+        replica.connect()
+        await replica.settled()
+        await ticks()
+        await loader.flush()
+        await replica.settled()
+        await ticks()
+        await replica.settled()
+        for (const spec of [tree('A1'), tree('D3')]) expect(loader.isStale(spec)).toBe(false)
+        expectMarkersTrue(cache, server)
       })
     })
 

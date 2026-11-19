@@ -87,6 +87,11 @@ export interface CollectionLoaderPort {
   unloaded?(entity: string, entityId: string): boolean
   /** POD-7159 — read records whole on disk into memory, batched, with no connection too. */
   loadFromDisk?(entity: string, entityIds: readonly string[]): void
+  /**
+   * POD-7160 — the device holds the instance behind the feed (a gap left it
+   * on the device): it reads as usual and is reloading. POD-7166 shows it.
+   */
+  isStale?(spec: LoaderInstance): boolean
   subscribe(listener: (change: 'markers' | 'stubs' | 'connection') => void): () => void
 }
 

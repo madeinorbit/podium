@@ -313,6 +313,16 @@ export class PoolCollections {
     return this.loader()?.status(spec) ?? 'complete'
   }
 
+  /**
+   * TRACKED (POD-7160): the device holds the instance behind the feed: a gap
+   * the feed could not bridge left it on the device, readable as usual, and
+   * a read reloads it in place. POD-7166 shows it as refreshing.
+   */
+  isStale(spec: LoaderInstance): boolean {
+    this.observeMarker(spec)
+    return this.loader()?.isStale?.(spec) === true
+  }
+
   /** TRACKED: whether the device has a connection to load over. */
   get online(): boolean {
     this.connection.reportObserved()

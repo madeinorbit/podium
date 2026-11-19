@@ -117,6 +117,11 @@ export interface DeviceState {
   /** The issues the device holds a stub of: every one, or only these. */
   readonly stubs: ReadonlySet<string> | 'all'
   readonly firstDownload: boolean
+  /**
+   * POD-7160 — the collection ids a gap left stale: the device holds them
+   * behind the feed and reads them as usual (`isStale`).
+   */
+  readonly stale?: ReadonlySet<string>
 }
 
 /**
@@ -159,6 +164,7 @@ export function devicePort(feed: StartupFeed, state: DeviceState): CollectionLoa
     online: true,
     firstDownload: state.firstDownload,
     isComplete: (spec) => (complete(spec) ? {} : undefined),
+    isStale: (spec) => state.stale?.has(spec.collection) === true,
     wasRefused: () => false,
     stubOf: (entity, id) => (entity === 'issueProjection' ? stubs.get(id) : undefined),
     stubsByParent: (parentId) => byParent.get(parentId) ?? [],
@@ -214,6 +220,33 @@ export function firstDownloadPool(feed: StartupFeed, steps: number, recentDays =
     stubs: done.includes('stubs') ? 'all' : held.issues,
     firstDownload: steps < FIRST_DOWNLOAD_STEPS.length,
   })
+  pool.collections.attach(() => port)
+  runInAction(() => pool.apply({ type: 'replace', rows: held.rows }))
+  return pool
+}
+
+/**
+ * POD-7160 — after a gap the feed could not bridge (design POD-7157 "Offline
+ * and gaps"): the policy's collections are reloaded, and every other
+ * instance the device held stays on disk, stale. Before a read (`read:
+ * false`) only the policy set is in memory and the stale instances are not
+ * complete there; after one, each was loaded from disk whole (every row, every
+ * instance complete), still stale until its reload lands. Never a first
+ * download: the device had its data.
+ */
+export function gapPool(feed: StartupFeed, options: { readonly read: boolean }): MobxPool {
+  const policy = new Set(FIRST_DOWNLOAD_STEPS.flatMap((step) => STEP_COLLECTIONS[step]))
+  const stale = new Set([...COLLECTIONS.keys()].filter((id) => !policy.has(id)))
+  const pool = new MobxPool(feed.locals)
+  if (options.read) {
+    fullSearchControl(pool)
+    const port = devicePort(feed, { complete: 'all', stubs: 'all', firstDownload: false, stale })
+    pool.collections.attach(() => port)
+    runInAction(() => pool.apply({ type: 'replace', rows: [...feed.rows] }))
+    return pool
+  }
+  const held = heldRows(feed, FIRST_DOWNLOAD_STEPS.length, 30)
+  const port = devicePort(feed, { complete: policy, stubs: 'all', firstDownload: false, stale })
   pool.collections.attach(() => port)
   runInAction(() => pool.apply({ type: 'replace', rows: held.rows }))
   return pool

@@ -39,12 +39,16 @@ import { COLLECTIONS, RECORDS } from '@podium/model'
 import { instanceKey, rowAfter } from './cache-state'
 import {
   AnswerMembers,
+  COMES_WITH_HOLDER,
   comesWithHolderKey,
   comesWithHolderOf,
   comesWithHolders,
+  heldRowOf,
+  isComesWithHolder,
   loadInstancesFromDisk,
   pointerTargetOf,
   type ResidentLoadPort,
+  retainedComesWith,
   rowKeyOf,
   splitRowKey,
 } from './disk-index'
@@ -395,6 +399,14 @@ export class Replica implements DeviceCollectionReads {
    * asks in more than one request): kept until the via is complete.
    */
   private readonly comesWithAnswered = new Map<string, Set<string>>()
+  /**
+   * POD-7160 — records a load after a gap kept whole for the stale instances
+   * that hold them, because their stub came back the same: confirmed to
+   * exist, so the load's sweep keeps them.
+   */
+  private readonly keptWhole = new Set<string>()
+  /** POD-7160 — stale instances read while they could not reload yet (no connection, a load under way). */
+  private readonly staleWanted = new Map<string, InstanceRequest>()
   /** What held records come with, gathered for one batched fetch. */
   private readonly needs = new Map<string, InstanceRequest>()
   private needsScheduled = false
@@ -946,6 +958,15 @@ export class Replica implements DeviceCollectionReads {
         // The feed-apply table decided what the device keeps (POD-7086): a
         // change it ignored is not held, and a stub is not a whole record.
         if (decision?.ignored.has(change)) continue
+        // POD-7160: written to disk only. Unless memory holds it by now, a
+        // reader keeps LOADING and a disk load, and the stubs moved.
+        if (
+          decision?.diskOnly.has(change) &&
+          this.store.read(change.entity, change.entityId) === undefined
+        ) {
+          this.emit({ type: 'unloaded', entity: change.entity, entityId: change.entityId })
+          continue
+        }
         if (decision?.stubbed.has(change)) {
           this.emit({ type: 'stub-upserted', record: { ...recordOf(change), part: 'stub' } })
           continue
@@ -1215,7 +1236,7 @@ export class Replica implements DeviceCollectionReads {
       // publication restore the old markers behind this recovery.
       try {
         if (cause !== 'resume' && this.store.readInstances().size > 0) {
-          this.store.applyAtomic({ operations: [], instances: [{ kind: 'dropAll' }] })
+          this.store.applyAtomic({ operations: [], instances: this.gapMarkers() })
           this.emit({ type: 'markers' })
         }
       } catch (error) {
@@ -1226,6 +1247,29 @@ export class Replica implements DeviceCollectionReads {
       }
       await this.walk(cause, generation)
     })
+  }
+
+  /**
+   * POD-7160 — what a gap the feed cannot bridge does to the markers (design
+   * POD-7157 "Offline and gaps"): an instance in memory is reloaded at once,
+   * so its marker goes; one only on disk keeps its rows and its marker,
+   * marked stale, and a read reloads it. One that cannot be read from disk
+   * (no members known) goes too.
+   */
+  private gapMarkers(): InstanceOperation[] {
+    const disk = this.store.readDiskIndex()
+    const instances = this.store.readInstances()
+    const ops: InstanceOperation[] = []
+    let dropped = 0
+    for (const [key, marker] of instances) {
+      const state = disk.instance(key)
+      const onDiskOnly = !disk.inMemory(key) && (marker.part === 'stub' || state?.indexed === true)
+      if (!onDiskOnly) {
+        ops.push({ kind: 'drop', key })
+        dropped += 1
+      } else if (state?.stale !== true) ops.push({ kind: 'stale', key })
+    }
+    return dropped === instances.size ? [{ kind: 'dropAll' }] : ops
   }
 
   private async walk(cause: RebootstrapCause, generation: number): Promise<void> {
@@ -1451,7 +1495,45 @@ export class Replica implements DeviceCollectionReads {
   private currencyOf(row: EntityRecord, loadingSince: number | null): number {
     const asOf = rowAsOf(row)
     if (loadingSince !== null && asOf < loadingSince) return asOf
+    // POD-7160: a record only stale instances hold missed the gap's changes.
+    if (this.staleOnly(entityKey(row.entity, row.entityId))) return asOf
     return Math.max(asOf, this.cursorValue?.seq ?? -1)
+  }
+
+  /**
+   * POD-7160 — whether a whole record is held only by stale instances (a gap
+   * the feed could not bridge left them behind), directly or through the
+   * records it comes with: the feed has not kept it current through the
+   * cursor, only as of its own number. False for a record a current instance
+   * holds, and for one nothing holds.
+   */
+  private staleOnly(key: string, depth = 0): boolean {
+    const disk = this.store.readDiskIndex()
+    const entry = disk.record(key)
+    if (entry === undefined || entry.level !== 'main' || entry.holders.length === 0) return false
+    const markers = this.store.readInstances()
+    let stale = false
+    for (const holder of entry.holders) {
+      if (isComesWithHolder(holder)) {
+        const record = holder.slice(COMES_WITH_HOLDER.length)
+        if (disk.record(record)?.level !== 'main') continue
+        if (depth >= 4 || !this.staleOnly(record, depth + 1)) return false
+        stale = true
+      } else if (markers.has(holder)) {
+        if (disk.instance(holder)?.stale !== true) return false
+        stale = true
+      }
+    }
+    return stale
+  }
+
+  /**
+   * POD-7160 — a row a load after a gap keeps although it did not confirm it:
+   * whole on disk only, held only by stale instances. Their reload replaces it.
+   */
+  private keptForStale(key: string): boolean {
+    const { entity, entityId } = splitRowKey(key)
+    return this.store.read(entity, entityId) === undefined && this.staleOnly(key)
   }
 
   /**
@@ -1487,6 +1569,7 @@ export class Replica implements DeviceCollectionReads {
     const operations: CacheOperation[] = []
     const events: ReplicaEvent[] = []
     const written: EntityRecord[] = []
+    const disk = this.store.readDiskIndex()
     for (const change of chunk.changes) {
       const key = entityKey(change.entity, change.entityId)
       if (newer(key)) continue
@@ -1501,14 +1584,21 @@ export class Replica implements DeviceCollectionReads {
             : at <= this.currencyOf(existing, loadingSince)
         if (stale) continue
       }
-      const op = upsertOf(change, change.payload, at)
+      // POD-7160: a record whole on disk and not in memory, newer than the
+      // answer, stays (newest wins); as of the same number the answer is the
+      // same row, and memory takes it.
+      const onDisk = existing === undefined && !staged.has(key) ? disk.record(key) : undefined
+      if (onDisk?.level === 'main' && onDisk.seq > at) continue
+      const same = onDisk?.level === 'main' && onDisk.seq === at
+      const op: CacheOperation & { readonly kind: 'upsert' } = same
+        ? { ...upsertOf(change, change.payload, at), force: true }
+        : upsertOf(change, change.payload, at)
       operations.push(op)
       const row = recordFromOp(op)
       staged.set(key, row)
       events.push({ type: 'upserted', record: row, readmitted: false })
       written.push(row)
     }
-    const disk = this.store.readDiskIndex()
     for (const change of chunk.stubs ?? []) {
       const key = entityKey(change.entity, change.entityId)
       if (newer(key)) continue
@@ -1534,6 +1624,20 @@ export class Replica implements DeviceCollectionReads {
           continue
         }
         if (loadingSince === null || rowAsOf(existing) >= loadingSince) continue
+        // POD-7160: a record only stale instances hold stays whole while its
+        // stub is the same (the reload of what holds it replaces it); a
+        // changed stub is newer, and wins.
+        if (
+          this.keptForStale(key) &&
+          sameStub(
+            change.entity,
+            this.store.readStubTable(change.entity)?.stubOf(change.entityId),
+            change.payload,
+          )
+        ) {
+          this.keptWhole.add(key)
+          continue
+        }
         events.push({ type: 'released', entity: change.entity, entityId: change.entityId })
       } else if (existing !== undefined && at <= this.currencyOf(existing, loadingSince)) continue
       const op: CacheOperation = { ...upsertOf(change, change.payload, at), part: 'stub' }
@@ -1543,7 +1647,19 @@ export class Replica implements DeviceCollectionReads {
       events.push({ type: 'stub-upserted', record: row })
     }
     const instances: InstanceOperation[] = []
-    if (start) instances.push({ kind: 'dropAll' })
+    // A full load replaces every marker but those a gap left stale (POD-7160):
+    // their rows stay on disk, and a read reloads them.
+    if (start) {
+      this.keptWhole.clear()
+      const states = this.store.readDiskIndex()
+      const stale = [...this.store.readInstances().keys()].filter(
+        (key) => states.instance(key)?.stale === true,
+      )
+      if (stale.length === 0) instances.push({ kind: 'dropAll' })
+      else
+        for (const key of this.store.readInstances().keys())
+          if (states.instance(key)?.stale !== true) instances.push({ kind: 'drop', key })
+    }
     const markRows: HeldRows = {
       readRow: (entity, entityId) => {
         const key = entityKey(entity, entityId)
@@ -1740,8 +1856,18 @@ export class Replica implements DeviceCollectionReads {
         // POD-7159: over every row on the device, in memory or only on disk.
         swept = []
         if (complete && loadingSince !== null)
-          for (const [key, entry] of this.store.readDiskIndex().records())
-            if (entry.seq < loadingSince && !named.has(key)) swept.push(splitRowKey(key))
+          for (const [key, entry] of this.store.readDiskIndex().records()) {
+            if (entry.seq >= loadingSince || named.has(key)) continue
+            // POD-7160: the rows of instances a gap left stale stay for their
+            // reload; an issue's only while the load confirmed its stub.
+            const { entity } = splitRowKey(key)
+            if (
+              this.keptForStale(key) &&
+              (stubFieldsOf(entity).length === 0 || this.keptWhole.has(key))
+            )
+              continue
+            swept.push(splitRowKey(key))
+          }
         const staged = new Map<string, EntityRecord | null>()
         for (const row of swept) staged.set(entityKey(row.entity, row.entityId), null)
         this.store.applyAtomic(
@@ -1771,6 +1897,7 @@ export class Replica implements DeviceCollectionReads {
           this.buffer = this.buffer.slice(foreignAt >= 0 ? foreignAt : buffered.length)
         this.note('D6-INSTALL')
         this.cursorValue = running
+        if (complete) this.keptWhole.clear()
         if (full) this.exits.clear()
         for (const row of swept)
           this.emit({ type: 'released', entity: row.entity, entityId: row.entityId })
@@ -1833,32 +1960,56 @@ export class Replica implements DeviceCollectionReads {
     const everything = this.store.readPolicy() === null
     const index = everything ? undefined : this.heldIndex()
     const disk = this.store.readDiskIndex()
-    const rows: HeldRows = {
+    const markers = this.store.readInstances()
+    // What a rule reads: the rows as this batch leaves them, then the stub
+    // columns of a record only on disk (a parent's id for a tree).
+    const ruleRows: HeldRows = {
       readRow: (entity, entityId) => {
         const key = entityKey(entity, entityId)
         return staged.has(key)
           ? (staged.get(key) ?? undefined)
-          : this.store.readRow(entity, entityId)
+          : this.ruleRows.readRow(entity, entityId)
       },
-    }
-    // What a rule reads: the rows as this batch leaves them, then the stub
-    // columns of a record only on disk (a parent's id for a tree).
-    const ruleRows: HeldRows = {
-      readRow: (entity, entityId) =>
-        staged.has(entityKey(entity, entityId))
-          ? rows.readRow(entity, entityId)
-          : this.ruleRows.readRow(entity, entityId),
     }
     const now = this.now()
     const operations: CacheOperation[] = []
     const ignored = new Set<ChangeEnvelope>()
     const stubbed = new Set<ChangeEnvelope>()
     const skipped = new Set<ChangeEnvelope>()
+    const diskOnly = new Set<ChangeEnvelope>()
     const needs: InstanceSpec[] = []
+    // POD-7160 — the records this batch wrote to disk only, and the holders it
+    // gave records (the store's index draft is not visible here).
+    const onDiskOnly = new Set<string>()
+    const holdersNow = new Map<string, readonly string[]>()
+    // While a fetch or a disk load is under way, a change stays in memory
+    // too: the answer or the load may name the record, and must find it there.
+    const busy = this.fetchCount > 0 || this.diskLoads.size > 0
+    /** Whether a record is whole in memory, as this batch leaves it. */
+    const wholeInMemory = (key: string): boolean => {
+      if (onDiskOnly.has(key)) return false
+      if (staged.has(key)) {
+        const row = staged.get(key)
+        return row != null && row.part !== 'stub'
+      }
+      const { entity, entityId } = splitRowKey(key)
+      return this.store.read(entity, entityId) !== undefined
+    }
     for (const change of changes) {
       const key = entityKey(change.entity, change.entityId)
       if (this.seen !== null) this.seen.set(key, Math.max(this.seen.get(key) ?? -1, change.seq))
-      const existing = rows.readRow(change.entity, change.entityId)
+      // The row as this batch leaves it: in memory, or whole only on disk
+      // (POD-7160: its feed number from the index, no disk read).
+      let existing: EntityRecord | undefined
+      let onDisk: EntityRecord | undefined
+      if (staged.has(key)) {
+        const row = staged.get(key) ?? undefined
+        if (onDiskOnly.has(key)) onDisk = row
+        else existing = row
+      } else {
+        existing = this.store.readRow(change.entity, change.entityId)
+        if (existing === undefined) onDisk = heldRowOf(key, disk.record(key))
+      }
       let op: CacheOperation | undefined
       if (change.op !== 'upsert') {
         op = { kind: change.op, entity: change.entity, entityId: change.entityId, asOf: change.seq }
@@ -1876,24 +2027,59 @@ export class Replica implements DeviceCollectionReads {
           now,
           disk,
         )
-        // POD-7159: a record whole on disk and not in memory is whole too.
-        const whole =
-          existing !== undefined
-            ? existing.part !== 'stub'
-            : !staged.has(key) && disk.record(key)?.level === 'main'
-        if (memberOf.length > 0 || brought.length > 0 || whole) {
-          // Its holders, for the disk index: the instances it belongs to now,
-          // and the records it comes with.
-          const holders: string[] = [...brought]
-          for (const instance of memberOf) {
-            if (instance.spec.via === undefined) holders.push(instance.key)
-            else {
-              const holder = comesWithHolderOf(instance.spec)
-              if (holder !== undefined) holders.push(comesWithHolderKey(holder))
-            }
+        // Its holders, for the disk index: the instances it belongs to now,
+        // and the records it comes with (POD-7160: a record it no longer
+        // comes with lets go of it).
+        const before = holdersNow.get(key) ?? (staged.has(key) ? [] : disk.record(key)?.holders)
+        const holders = retainedComesWith(
+          change.entity,
+          change.payload,
+          before ?? [],
+          brought,
+          disk,
+        )
+        for (const instance of memberOf) {
+          if (instance.spec.via === undefined) holders.push(instance.key)
+          else {
+            const holder = comesWithHolderOf(instance.spec)
+            if (holder !== undefined && !holders.includes(comesWithHolderKey(holder)))
+              holders.push(comesWithHolderKey(holder))
           }
-          op = { ...upsertOf(change, change.payload, change.seq), holders }
-          needs.push(...comesWithOf(change.entity, change.payload, memberOf, now))
+        }
+        const whole = existing !== undefined ? existing.part !== 'stub' : onDisk !== undefined
+        if (memberOf.length > 0 || holders.length > 0 || whole) {
+          // POD-7160: in memory when memory holds the record or an instance
+          // or record in memory holds it; else on disk only.
+          const resident =
+            (existing !== undefined && existing.part !== 'stub') ||
+            busy ||
+            memberOf.some(
+              (instance) =>
+                instance.spec.via !== undefined ||
+                disk.inMemory(instance.key) ||
+                !markers.has(instance.key),
+            ) ||
+            holders.some(
+              (holder) =>
+                isComesWithHolder(holder) && wholeInMemory(holder.slice(COMES_WITH_HOLDER.length)),
+            )
+          if (!resident && holders.length === 0 && stubFieldsOf(change.entity).length > 0) {
+            // Whole on disk, and nothing holds it any more: its stub.
+            op = {
+              ...upsertOf(change, stubOfValue(change.entity, change.payload), change.seq),
+              part: 'stub',
+            }
+            stubbed.add(change)
+          } else {
+            op = {
+              ...upsertOf(change, change.payload, change.seq),
+              holders,
+              ...(resident ? {} : { diskOnly: true as const }),
+            }
+            // What a record only on disk comes with is asked when it is read.
+            if (resident) needs.push(...comesWithOf(change.entity, change.payload, memberOf, now))
+            else diskOnly.add(change)
+          }
         } else if (stubFieldsOf(change.entity).length > 0) {
           op = {
             ...upsertOf(change, stubOfValue(change.entity, change.payload), change.seq),
@@ -1906,17 +2092,27 @@ export class Replica implements DeviceCollectionReads {
         ignored.add(change)
         continue
       }
-      const next = rowAfter(existing, op)
+      const next = rowAfter(existing ?? onDisk, op)
       if (next === undefined) {
         // The newer one wins, per record: the row is current as of this
         // change or later already.
+        stubbed.delete(change)
+        diskOnly.delete(change)
         skipped.add(change)
         continue
       }
       staged.set(key, next)
+      if (op.kind === 'upsert' && op.diskOnly === true) onDiskOnly.add(key)
+      else onDiskOnly.delete(key)
+      holdersNow.set(
+        key,
+        op.kind === 'upsert' && op.part === undefined
+          ? (op.holders ?? holdersNow.get(key) ?? disk.record(key)?.holders ?? [])
+          : [],
+      )
       operations.push(op)
     }
-    return { mutation: { operations, cursor }, ignored, stubbed, skipped, needs }
+    return { mutation: { operations, cursor }, ignored, stubbed, skipped, diskOnly, needs }
   }
 
   /** The instances the device holds, as a change asks about them; new only when the markers or fetches change. */
@@ -2004,7 +2200,8 @@ export class Replica implements DeviceCollectionReads {
    * that is no comes-with is held when its marker is in memory.
    */
   private comesWithSatisfied(spec: InstanceSpec, key = instanceKey(spec)): boolean {
-    if (spec.via === undefined) return this.inMemoryMarker(key) !== undefined
+    if (spec.via === undefined)
+      return this.inMemoryMarker(key) !== undefined && !this.instanceStale(spec)
     const disk = this.store.readDiskIndex()
     const target = pointerTargetOf(spec)
     if (target !== undefined) return disk.record(target)?.level === 'main'
@@ -2129,15 +2326,130 @@ export class Replica implements DeviceCollectionReads {
   async load(requests: readonly InstanceRequest[]): Promise<void> {
     const device: InstanceRequest[] = []
     const server: InstanceRequest[] = []
+    const stale: InstanceRequest[] = []
     for (const request of requests) {
       const source = this.sourceOf(request)
       if (source === 'disk' || source === 'local') device.push(request)
+      else if (this.instanceStale(request) && this.isComplete(request) !== undefined)
+        stale.push(request)
       else server.push(request)
     }
     await Promise.all([
       device.length === 0 ? undefined : this.loadFromDisk(device),
       server.length === 0 ? undefined : this.loadFromServer(server),
+      stale.length === 0 ? undefined : this.reloadStale(stale),
     ])
+  }
+
+  /**
+   * POD-7160 — whether the device holds the instance behind the feed: a gap
+   * the feed could not bridge left it on disk with its rows. It reads as
+   * usual (from disk), and a read reloads it in place (design POD-7157
+   * "Offline and gaps"; POD-7166 shows it as refreshing).
+   */
+  instanceStale(spec: InstanceSpec): boolean {
+    const key = instanceKey(spec)
+    return (
+      this.store.readInstances().has(key) &&
+      this.store.readDiskIndex().instance(key)?.stale === true
+    )
+  }
+
+  /**
+   * POD-7160 — reload stale instances in memory from the server, each
+   * replaced in place: the whole answer, and the rows that left the instance,
+   * in one store step and one burst of events, so no reader sees old and new
+   * rows of one instance together. An answer without the instance's marker
+   * (refused: the viewer lost it) removes it from memory and disk. Without a
+   * connection, or while a load is under way, it waits for the device to go
+   * live.
+   */
+  private async reloadStale(requests: readonly InstanceRequest[]): Promise<void> {
+    const wanted = requests.filter((request) => {
+      const key = instanceKey(request)
+      return this.instanceStale(request) && this.inMemoryMarker(key) !== undefined
+    })
+    if (wanted.length === 0) return
+    if (this.state !== 'live' || this.authority.collections === undefined) {
+      for (const request of wanted) this.staleWanted.set(instanceKey(request), request)
+      return
+    }
+    const disk = this.store.readDiskIndex()
+    const before = new Map<string, readonly string[]>()
+    for (const request of wanted) {
+      const key = instanceKey(request)
+      this.staleWanted.delete(key)
+      before.set(key, [...disk.membersOf(key)])
+    }
+    try {
+      await this.fetchInstances(wanted, undefined, false, before)
+    } catch (error) {
+      // The answer broke off: the instance stays as it was, stale, and is
+      // reloaded the next time the device goes live.
+      for (const request of wanted)
+        if (this.instanceStale(request)) this.staleWanted.set(instanceKey(request), request)
+      throw error
+    }
+  }
+
+  /**
+   * POD-7160 — the end of a stale reload, inside its one store step: each
+   * instance's old members its answer did not name leave it, and one the
+   * answer refused leaves the device. A row that leaves and that nothing
+   * current holds goes too: an issue keeps its stub (confirmed by the load
+   * after the gap), anything else is removed.
+   */
+  private sweepStale(
+    before: ReadonlyMap<string, readonly string[]>,
+    named: ReadonlyMap<string, unknown>,
+  ): void {
+    const disk = this.store.readDiskIndex()
+    const markers = this.store.readInstances()
+    const operations: CacheOperation[] = []
+    const instances: InstanceOperation[] = []
+    const events: ReplicaEvent[] = []
+    const gone = new Set<string>()
+    const heldElsewhere = (member: string, except: string): boolean =>
+      disk.record(member)?.holders.some((holder) => {
+        if (holder === except) return false
+        if (isComesWithHolder(holder)) {
+          const record = holder.slice(COMES_WITH_HOLDER.length)
+          return disk.record(record)?.level === 'main' && !this.staleOnly(record)
+        }
+        return markers.has(holder) && disk.instance(holder)?.stale !== true
+      }) === true
+    for (const [key, members] of before) {
+      const refused = markers.has(key) && disk.instance(key)?.stale === true
+      if (refused) instances.push({ kind: 'drop', key })
+      for (const member of members) {
+        if (gone.has(member) || (!refused && named.has(member))) continue
+        const entry = disk.record(member)
+        if (entry === undefined || entry.level !== 'main' || heldElsewhere(member, key)) continue
+        gone.add(member)
+        const { entity, entityId } = splitRowKey(member)
+        const stub = this.store.readStubTable(entity)?.stubOf(entityId)
+        if (stub !== undefined)
+          operations.push({
+            kind: 'upsert',
+            entity,
+            entityId,
+            value: stub,
+            provenance: { seq: entry.seq },
+            part: 'stub',
+            asOf: entry.seq,
+            force: true,
+          })
+        else operations.push({ kind: 'remove', entity, entityId })
+        events.push({ type: 'released', entity, entityId })
+      }
+    }
+    if (operations.length === 0 && instances.length === 0) return
+    this.store.applyAtomic({
+      operations,
+      ...(instances.length === 0 ? {} : { instances }),
+    })
+    for (const event of events) this.emit(event)
+    if (instances.length > 0) this.emit({ type: 'markers' })
   }
 
   /**
@@ -2264,6 +2576,14 @@ export class Replica implements DeviceCollectionReads {
     if (complete.length > 0) {
       this.store.markInMemory(complete)
       this.batchEvents(() => this.emit({ type: 'markers' }))
+      // POD-7160: a stale instance, shown from disk, reloads in the background.
+      const stale = complete.flatMap((key) => {
+        const marker = markers.get(key)
+        return marker !== undefined && index.instance(key)?.stale === true
+          ? [requestOf(marker)]
+          : []
+      })
+      if (stale.length > 0) this.request(stale)
     }
     if (records.length > 0) await this.answerFromDevice(records)
     if (refetch.length > 0) await this.loadFromServer(refetch)
@@ -2413,6 +2733,11 @@ export class Replica implements DeviceCollectionReads {
     requests: readonly InstanceRequest[],
     reload?: KindReload,
     insideLoad = false,
+    /**
+     * POD-7160 — a stale reload: each instance's members before it. The
+     * answer installs whole at its end, with `sweepStale`, in one step.
+     */
+    stale?: ReadonlyMap<string, readonly string[]>,
   ): Promise<readonly EntityRecord[]> {
     const authority = this.authority
     if (authority.collections === undefined) return []
@@ -2442,9 +2767,12 @@ export class Replica implements DeviceCollectionReads {
         // never waits for more data to install what it has, so an answer that
         // stalls or breaks off keeps every chunk it delivered.
         const pending: BootstrapChunk[] = []
+        /** POD-7160 — a stale reload's answer, merged per feed number, installed at its end. */
+        const whole: BootstrapChunk[] = []
         let pendingRows = 0
         const install = async (): Promise<void> => {
-          if (pending.length === 0) return
+          // A stale reload installs once, at the end of its answer.
+          if (pending.length === 0 || stale !== undefined) return
           await this.takeInstallTurn()
           if (pending.length === 0) return
           const chunk = mergeChunks(pending)
@@ -2495,16 +2823,22 @@ export class Replica implements DeviceCollectionReads {
                 for (const change of chunk.changes)
                   named.set(entityKey(change.entity, change.entityId), change)
               // Chunks merge only as of one feed number: newest wins per record.
-              if (pending.length > 0 && pending[0]?.snapshotSeq !== chunk.snapshotSeq)
+              if (pending.length > 0 && pending[0]?.snapshotSeq !== chunk.snapshotSeq) {
+                if (stale !== undefined) whole.push(mergeChunks(pending.splice(0)))
                 await install()
+              }
               pending.push(chunk)
               pendingRows += rowsOfChunk(chunk)
               if (chunk.last) break
               if (pendingRows >= INSTALL_BATCH_ROWS) await install()
             }
+            if (stale !== undefined && pending.length > 0)
+              whole.push(mergeChunks(pending.splice(0)))
             await install()
           } catch (error) {
             // The answer broke off: the chunks that arrived whole stay (POD-7086).
+            // A stale reload keeps the instance as it was instead.
+            whole.length = 0
             if (!signal.aborted) await install()
             throw error
           } finally {
@@ -2512,6 +2846,17 @@ export class Replica implements DeviceCollectionReads {
             pendingRows = 0
             void chunks.return?.()?.catch(() => undefined)
           }
+        }
+        // POD-7160: a stale reload replaces its instances in one step.
+        if (stale !== undefined && !signal.aborted) {
+          await this.takeInstallTurn()
+          await this.serial(() =>
+            this.batchEvents(() => {
+              for (const chunk of whole)
+                written.push(...this.installChunk(chunk, { signal, members }))
+              this.sweepStale(stale, named)
+            }),
+          )
         }
         // Swept once, after every batch: sweeping after the first would take
         // rows off the screen that a later batch is about to confirm.
@@ -2942,6 +3287,14 @@ export class Replica implements DeviceCollectionReads {
     if (next === this.state) return
     const previous = this.state
     this.state = next
+    // POD-7160: stale instances read while the device could not reload them.
+    if (next === 'live' && this.staleWanted.size > 0)
+      queueMicrotask(() => {
+        if (this.state !== 'live' || this.staleWanted.size === 0) return
+        const wanted = [...this.staleWanted.values()]
+        this.staleWanted.clear()
+        void this.reloadStale(wanted).catch(() => undefined)
+      })
     // A row's `to` is the posture its effect settles on, so seal here rather than
     // making callers remember. A row that changes no posture keeps to === from,
     // which is also correct.
@@ -3058,6 +3411,8 @@ interface FeedDecision {
   readonly skipped: ReadonlySet<ChangeEnvelope>
   /** What the records it keeps whole come with. */
   readonly needs: readonly InstanceSpec[]
+  /** POD-7160 — upserts written to disk only: announced only when memory holds the record by then. */
+  readonly diskOnly: ReadonlySet<ChangeEnvelope>
 }
 
 /** A kind reload in flight: its kinds, and the stubs its answer brought for whole records. */
@@ -3086,6 +3441,25 @@ function upsertOf(
     },
     asOf,
   }
+}
+
+/** POD-7160 — whether a stub delivered for a record equals the stub the device holds of it. */
+function sameStub(
+  entity: string,
+  held: Readonly<Record<string, unknown>> | undefined,
+  value: unknown,
+): boolean {
+  if (held === undefined) return false
+  const next = (stubOfValue(entity, value) ?? {}) as Readonly<Record<string, unknown>>
+  for (const field of stubFieldsOf(entity))
+    if (!isDeepEqual(held[field] ?? null, next[field] ?? null)) return false
+  return true
+}
+
+function isDeepEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true
+  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false
+  return JSON.stringify(a) === JSON.stringify(b)
 }
 
 /** The row an upsert writes. */

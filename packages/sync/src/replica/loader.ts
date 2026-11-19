@@ -67,6 +67,8 @@ export interface LoaderReplica {
   isUnloaded?(entity: string, entityId: string): boolean
   /** POD-7159 — read records whole on disk into memory, by key. */
   loadRecords?(entity: string, entityIds: readonly string[]): Promise<void>
+  /** POD-7160 — whether the device holds the instance behind the feed (after a gap): it reloads when read. */
+  instanceStale?(spec: InstanceSpec): boolean
 }
 
 /** How a view reads one instance: held complete, on its way, or not loadable without a connection. */
@@ -218,6 +220,16 @@ export class CollectionLoader {
   }
 
   /**
+   * POD-7160 — whether the device holds the instance behind the feed: a gap
+   * the feed could not bridge left it on the device. It reads as usual (its
+   * `status` is complete once in memory), and a read reloads it in place;
+   * POD-7166 shows it as refreshing.
+   */
+  isStale(spec: InstanceSpec): boolean {
+    return this.replica.instanceStale?.(spec) === true
+  }
+
+  /**
    * POD-7159 — whether a record is whole on the device's disk and not in
    * memory: a reader gets LOADING and a disk load (`loadFromDisk`), never
    * "gone".
@@ -344,6 +356,8 @@ export class CollectionLoader {
       case 'released':
       case 'removed':
       case 'evicted':
+      // POD-7160: a feed change written to disk only moves its stub too.
+      case 'unloaded':
         if (hasStub(event.entity)) this.notify('stubs')
         return
       // The first download ends for the views when its records are in the
@@ -469,6 +483,8 @@ export class CollectionLoader {
   private held(request: InstanceRequest): boolean {
     const marker = this.replica.isComplete(request)
     if (marker === undefined) return false
+    // POD-7160: a stale instance is asked again: the Replica reloads it.
+    if (this.replica.instanceStale?.(request) === true) return false
     if (request.after === undefined) return true
     const range = marker.range
     return range === undefined || range.end || !samePosition(range.through, request.after)
