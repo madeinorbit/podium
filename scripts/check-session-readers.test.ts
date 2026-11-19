@@ -20,6 +20,15 @@ describe('session reader lint boundary', () => {
       ),
     ).toEqual([])
   })
+  it('distinguishes wire writers and declared oracle inputs from application readers', () => {
+    const raw = "import type { SessionMeta } from '@podium/model'; replica.rows('sessions')"
+    for (const file of [
+      'packages/client-graph/src/write/launches.ts',
+      'tests/worklist/diagnostics/reference-state.ts',
+    ])
+      expect(legacySessionReads(raw, file)).toEqual([])
+    expect(legacySessionReads(raw, 'tests/worklist/diagnostics/new-reader.ts')).not.toEqual([])
+  })
   it('has no exemption for raw legacy cells, including in the join module', () => {
     const source = '(row as SessionMeta).readAt'
     expect(legacySessionReads(source, 'packages/client-core/src/session-values.ts')).not.toEqual([])

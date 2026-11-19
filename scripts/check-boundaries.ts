@@ -3181,10 +3181,10 @@ export function checkSqlRawLiteral(file: string, source: string): Violation[] {
     const constant = CONSTANT_IDENTIFIER_STATEMENTS.get(file)
     const sourceLines = source.split('\n')
     const previous = sourceLines[line - 2] ?? ''
-    const tokenOnLine = constant !== undefined && (
-      (sourceLines[line - 1] ?? '').includes(constant.token) ||
-      (/^\s*\/\//.test(previous) && previous.includes(constant.token))
-    )
+    const tokenOnLine =
+      constant !== undefined &&
+      ((sourceLines[line - 1] ?? '').includes(constant.token) ||
+        (/^\s*\/\//.test(previous) && previous.includes(constant.token)))
     if (
       argument !== null &&
       !SQL_RAW_STRING_LITERAL.test(argument.trim()) &&
@@ -4159,6 +4159,9 @@ export function checkHotPathStoreBoundary(file: string, source: string): Violati
           .join('/')
       : ref.specifier.replace(/^@podium\/server(?:\/src)?(?=\/|$)/, 'apps/server/src')
     if (!/^apps\/server\/src\/store(?:[/.]|$)/.test(target)) return []
+    // The operation scope carries memo slots and their operation lifetime only. It
+    // imports no database and supplies no repository reads or writes.
+    if (target === 'apps/server/src/store/executor/operation-scope') return []
     return [
       {
         rule: 'hot-path-store-boundary',
@@ -4249,7 +4252,8 @@ export function checkClientGraphBoundaries(file: string, source: string): Violat
       graph &&
       !ref.typeOnly &&
       (/^@podium\/client-core(?:$|\/(?:engine|runtime-root)(?:\/|$))/.test(ref.specifier) ||
-        (path !== null && /^packages\/client-core\/src(?:$|\/index$|\/(?:engine|runtime-root)(?:\/|$))/.test(path)))
+        (path !== null &&
+          /^packages\/client-core\/src(?:$|\/index$|\/(?:engine|runtime-root)(?:\/|$))/.test(path)))
     ) {
       violations.push({
         file,

@@ -28,7 +28,17 @@ export function sessionReaderFiles(root = process.cwd()): string[] {
 }
 export function legacySessionReads(source: string, file = 'apps/web/src/example.ts'): string[] {
   const ast = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
-  const reader = !file.includes('packages/client-core/src/') || CORE_READERS.test(file)
+  // Optimistic record writers construct wire rows. Independent oracle input
+  // adapters join raw records so they can disagree with product readers.
+  const wireOwner =
+    file.startsWith('packages/client-graph/src/write/') ||
+    [
+      'tests/worklist/diagnostics/reference-state.ts',
+      'tests/worklist/diagnostics/reference/issue-views.ts',
+      'tests/worklist/diagnostics/mobile-screens-reference.ts',
+    ].includes(file)
+  const reader =
+    !wireOwner && (!file.includes('packages/client-core/src/') || CORE_READERS.test(file))
   const hits: string[] = []
   const wireNames = new Set(['SessionMeta'])
   const rawBindings = new Set<string>()

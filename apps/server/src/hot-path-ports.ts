@@ -59,3 +59,7 @@ export type DeliveryMessages = Pick<
   SessionStore['messages'],
   'countQueued' | 'listQueuedPage' | 'pendingForPages' | 'pendingTargets'
 >
+
+export type { EffectAudience } from './store/effects'
+export type { MemberAccessChange } from './store/users'
+export type { WorkflowVisibilityFacts } from './store/workflows'

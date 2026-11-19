@@ -58,7 +58,7 @@ import {
   type SyncKindTokens,
   type TopicClientMessage,
 } from '@podium/protocol'
-import type { MemberAccessChange } from '../store/users'
+import type { MemberAccessChange } from '../hot-path-ports'
 import {
   type ClientPortId,
   clientPlaneClassFor,

@@ -70,17 +70,17 @@ import type {
 } from '@podium/sync'
 import { type CheckoutReach, checkoutReaders, covers } from './checkout-reach'
 import type {
+  EffectAudience,
   FeedVisibilityStore,
   GrantRow,
   IssueAccessRow,
   IssueRow,
   SessionRow,
+  WorkflowVisibilityFacts,
 } from './hot-path-ports'
 import { FEED_WINDOW } from './modules/issue-events/feed'
 import { custodianFromEdges, executionPointersOf } from './modules/issues/execution-visibility'
 import { INSTANCE_EFFECT_KINDS } from './modules/operations/instance-effect-kinds'
-import type { EffectAudience } from './store/effects'
-import type { WorkflowVisibilityFacts } from './store/workflows'
 
 /**
  * Rows the bootstrap pass already fetched in bulk. Present only on the state
