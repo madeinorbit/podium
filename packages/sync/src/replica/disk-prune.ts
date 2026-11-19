@@ -11,7 +11,8 @@
  *    a fetch or a disk load is using (the `pinned` set);
  *  - a record a kept instance holds, or what a kept record comes with (the
  *    rows it brings, holder `^` + its key, and the records it points to: an
- *    issue's parent, found from the stub table), transitively;
+ *    issue's parent, a session's issue, a pending interaction's session,
+ *    from the index's pointer edges, POD-7186), transitively;
  *  - a record whose row is in memory;
  *  - a stub. An issue falls back to its stub; a record without one leaves.
  *
@@ -20,7 +21,8 @@
  * the rows it brought. Which records something kept holds is a walk UP the
  * index: a record is kept when one of its holders is a kept instance (a marker
  * on the device not dropped by this prune) or a kept record, or a kept record
- * points to it. Both are read from the index alone; nothing reads the disk.
+ * points to it. Both are read from the index alone (a record only on disk
+ * points where its entry says, `pt`); nothing reads the disk.
  *
  * THE WORK IS SLICED. The Replica runs one slice per idle moment (or when the
  * page or app goes to the background), never during a fetch, a disk load, a
@@ -44,16 +46,13 @@
  * removed is a prefix of the least-recently-read order.
  */
 
-import { recordOf } from '@podium/model'
 import {
   COMES_WITH_HOLDER,
   comesWithHolderKey,
   type DiskIndexReader,
   isComesWithHolder,
-  pointerTargetOf,
   splitRowKey,
 } from './disk-index'
-import { comesWithOf } from './holdings'
 import type { CacheMutation, CacheOperation, InstanceOperation } from './ports'
 
 const MB = 1024 * 1024
@@ -90,10 +89,6 @@ export interface PruneInput {
   readonly pinned: ReadonlySet<string>
   /** Whether a record's whole row is in memory (kept). */
   resident(rowKey: string): boolean
-  /** The records a record points to as far as the device knows without a disk read (its parent). */
-  pointsTo(rowKey: string): Iterable<string>
-  /** The records known to point to a record (its children; records in memory naming it). */
-  pointedBy(rowKey: string): Iterable<string>
   /** What a record leaves when pruned. */
   fallback(rowKey: string): PruneFallback
   readonly now: number
@@ -219,7 +214,7 @@ export function planPrune(input: PruneInput): PrunePlan {
       if (yes) break
     }
     if (!yes)
-      for (const source of input.pointedBy(row)) {
+      for (const source of index.pointedBy(row)) {
         if (source === row) continue
         yes = kept(source)
         if (yes) break
@@ -251,7 +246,7 @@ export function planPrune(input: PruneInput): PrunePlan {
       bytes -= entry.bytes - (fallback === 'gone' ? 0 : fallback)
       rows += 1
       for (const member of index.membersOf(comesWithHolderKey(row))) queue.push(member)
-      for (const target of input.pointsTo(row)) if (target !== row) queue.push(target)
+      for (const target of entry.pt) if (target !== row) queue.push(target)
     }
   }
 
@@ -347,28 +342,4 @@ export function pruneMutation(
   if (plan.pruning !== undefined)
     instances.push({ kind: 'pruning', key: plan.pruning.key, kept: plan.pruning.kept })
   return { operations, ...(instances.length === 0 ? {} : { instances }) }
-}
-
-/** The records a record points to through a comes-with ("X's parent", "a session's issue"). */
-export function pointerTargets(kind: string, value: unknown, now: number): string[] {
-  const out: string[] = []
-  for (const spec of comesWithOf(kind, value, [], now)) {
-    const target = pointerTargetOf(spec)
-    if (target !== undefined) out.push(target)
-  }
-  return out
-}
-
-/**
- * Whether a record kind comes with its parent by its parent link (an issue
- * comes with the issue it is under): then the stub table's children of a
- * record are the records that point to it.
- */
-export function comesWithParent(kind: string): boolean {
-  const declaration = recordOf(kind)
-  const link = declaration?.parentLink
-  if (declaration === undefined || link === undefined) return false
-  return declaration.comesWith.some(
-    (entry) => entry.key === link && entry.collection === `${kind}.one`,
-  )
 }

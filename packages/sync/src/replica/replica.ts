@@ -54,7 +54,6 @@ import {
   splitRowKey,
 } from './disk-index'
 import {
-  comesWithParent,
   DAY_MS,
   type DiskBudget,
   diskBudgetOf,
@@ -63,7 +62,6 @@ import {
   type PruneFallback,
   type PrunePlan,
   planPrune,
-  pointerTargets,
   pruneMutation,
 } from './disk-prune'
 import {
@@ -1308,7 +1306,10 @@ export class Replica implements DeviceCollectionReads {
    * POD-7157 "Offline and gaps"): an instance in memory is reloaded at once,
    * so its marker goes; one only on disk keeps its rows and its marker,
    * marked stale, and a read reloads it. One that cannot be read from disk
-   * (no members known) goes too.
+   * (no members known) goes too, unless it is being pruned (POD-7186): its
+   * marker is what holds the members it still has, so it stays, stale, and
+   * the next idle slice finishes it. Dropped here, its members would be held
+   * by nothing: loaded into memory at every start, and never pruned.
    */
   private gapMarkers(): InstanceOperation[] {
     const disk = this.store.readDiskIndex()
@@ -1317,7 +1318,10 @@ export class Replica implements DeviceCollectionReads {
     let dropped = 0
     for (const [key, marker] of instances) {
       const state = disk.instance(key)
-      const onDiskOnly = !disk.inMemory(key) && (marker.part === 'stub' || state?.indexed === true)
+      const beingPruned =
+        marker.part === 'main' && state?.indexed === false && disk.membersOf(key).size > 0
+      const onDiskOnly =
+        !disk.inMemory(key) && (marker.part === 'stub' || state?.indexed === true || beingPruned)
       if (!onDiskOnly) {
         ops.push({ kind: 'drop', key })
         dropped += 1
@@ -2945,46 +2949,6 @@ export class Replica implements DeviceCollectionReads {
   }
 
   /**
-   * The pointers a prune slice follows, from what the device knows without a
-   * disk read: a record's value in memory, or its stub (an issue's parent);
-   * and back, the records in memory naming it and its children.
-   */
-  private prunePointers(now: number): {
-    from(key: string): string[]
-    to(key: string): string[]
-  } {
-    let named: Map<string, string[]> | undefined
-    const byMemory = (): Map<string, string[]> => {
-      if (named !== undefined) return named
-      named = new Map()
-      for (const row of this.store.readEntities()) {
-        const source = rowKeyOf(row.entity, row.entityId)
-        for (const target of pointerTargets(row.entity, row.value, now)) {
-          const list = named.get(target)
-          if (list === undefined) named.set(target, [source])
-          else list.push(source)
-        }
-      }
-      return named
-    }
-    return {
-      from: (key) => {
-        const { entity, entityId } = splitRowKey(key)
-        const row = this.ruleRows.readRow(entity, entityId)
-        return row === undefined ? [] : pointerTargets(entity, row.value, now)
-      },
-      to: (key) => {
-        const { entity, entityId } = splitRowKey(key)
-        const out = [...(byMemory().get(key) ?? [])]
-        if (comesWithParent(entity))
-          for (const child of this.store.readStubTable(entity)?.childrenOf(entityId) ?? [])
-            out.push(rowKeyOf(entity, child))
-        return out
-      },
-    }
-  }
-
-  /**
    * One slice of a disk prune (design "Pruning"): over the size budget, or
    * with an instance unread past the age limit, remove whole instances, least
    * recently read first; never one memory holds, a policy collection, or what
@@ -3009,7 +2973,6 @@ export class Replica implements DeviceCollectionReads {
       const index = this.store.readDiskIndex()
       const now = this.now()
       const started = this.workClock()
-      const pointers = this.prunePointers(now)
       const slice = planPrune({
         index,
         pinned: this.prunePinned(),
@@ -3017,8 +2980,6 @@ export class Replica implements DeviceCollectionReads {
           const { entity, entityId } = splitRowKey(key)
           return this.store.read(entity, entityId) !== undefined
         },
-        pointsTo: pointers.from,
-        pointedBy: pointers.to,
         fallback: (key) => this.pruneFallback(key),
         now,
         budget,

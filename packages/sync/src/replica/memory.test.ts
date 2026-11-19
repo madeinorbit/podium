@@ -75,6 +75,9 @@ class FakeIndex implements DiskIndexReader {
   membersOf(key: string): ReadonlySet<string> {
     return this.members.get(key) ?? new Set()
   }
+  pointedBy(): ReadonlySet<string> {
+    return new Set()
+  }
   instance(): InstanceState | undefined {
     return undefined
   }
@@ -113,6 +116,7 @@ function planCase(seed: number): PlanCase {
       bytes: 100 + Math.floor(next() * 2_000),
       holders: [],
       cw: [],
+      pt: [],
     })
     if (next() < 0.9) resident.add(key)
   }

@@ -2,7 +2,8 @@
  * DISK PRUNING, AS A PROPERTY (POD-7162 acceptance 1, 2, 3, 4 and 6).
  *
  * The planner over random disk indexes (random sizes, reads, members,
- * comes-with edges, parents, holds and records in memory), run slice by slice
+ * comes-with edges, pointer edges (POD-7186: parents, a session's issue),
+ * holds and records in memory), run slice by slice
  * at a random slice size until it is done, against an independent model: a
  * forward mark from everything kept. The instances removed are exactly the
  * least recently read prefix that brings the disk within budget and past the
@@ -64,9 +65,11 @@ interface World {
   readonly resident: Set<string>
   /** Records whose stub cannot be built. */
   readonly noStub: Set<string>
-  /** Child → parent (issues); the parent is what a child points to. */
-  readonly parent: Map<string, string>
-  readonly children: Map<string, string[]>
+  /**
+   * What a record points to, as its index entry says (POD-7186): an issue its
+   * parent, a session its issue (any issue, a cycle now and then).
+   */
+  readonly points: Map<string, string[]>
   readonly stubRows: readonly string[]
   readonly now: number
   readonly budget: DiskBudget
@@ -82,8 +85,7 @@ function world(seed: number): World {
   const rows: string[] = []
   const holders = new Map<string, string[]>()
   const stubRows: string[] = []
-  const parent = new Map<string, string>()
-  const children = new Map<string, string[]>()
+  const points = new Map<string, string[]>()
   const count = 10 + Math.floor(next() * 60)
   for (let n = 0; n < count; n += 1) {
     const isSession = next() < 0.3
@@ -100,12 +102,14 @@ function world(seed: number): World {
     // Some issues point to an earlier issue as their parent.
     if (!isSession && n > 0 && next() < 0.4) {
       const up = rows[Math.floor(next() * n)] as string
-      if (up.startsWith(ISSUE)) {
-        parent.set(row, up)
-        children.set(up, [...(children.get(up) ?? []), row])
-      }
+      if (up.startsWith(ISSUE)) points.set(row, [up])
     }
   }
+  // A session points to its issue, wherever it is in the index.
+  const issues = rows.filter((row) => row.startsWith(ISSUE))
+  for (const row of rows)
+    if (row.startsWith(SESSION) && issues.length > 0 && next() < 0.6)
+      points.set(row, [issues[Math.floor(next() * issues.length)] as string])
   for (let n = 0; n < count; n += 1) {
     if (next() < 0.1) {
       const later = rows[n + 1 + Math.floor(next() * Math.max(1, count - n - 1))]
@@ -123,6 +127,7 @@ function world(seed: number): World {
       bytes: stub ? STUB_BYTES : 200 + Math.floor(next() * 3_000),
       holders: stub ? [] : (holders.get(row) ?? []),
       cw: [],
+      pt: stub ? [] : (points.get(row) ?? []),
     })
     if (!stub && next() < 0.08) resident.add(row)
     if (!stub && row.startsWith(ISSUE) && next() < 0.03) noStub.add(row)
@@ -139,7 +144,7 @@ function world(seed: number): World {
   }
   index.setInMemory(inMemory, true)
   const budget = { bytes: Math.floor(next() * index.bytes * 1.1), maxIdleMs }
-  return { index, pinned, resident, noStub, parent, children, stubRows, now, budget }
+  return { index, pinned, resident, noStub, points, stubRows, now, budget }
 }
 
 const fallbackIn =
@@ -176,7 +181,7 @@ function splitKey(row: string): { entity: string; entityId: string } {
 /**
  * THE MODEL: with `dropped` gone, what is kept is everything reachable from a
  * live instance's members, a record in memory or one with no stub to fall to,
- * through what each kept record brings and the parent it points to. What
+ * through what each kept record brings and what it points to. What
  * leaves is what the dropped instances reach, through records not kept, that
  * is not kept itself.
  */
@@ -196,7 +201,7 @@ function model(
       }
   const edges = (row: string): string[] => [
     ...(brings.get(row) ?? []),
-    ...(w.parent.has(row) ? [w.parent.get(row) as string] : []),
+    ...(w.points.get(row) ?? []),
   ]
   const kept = new Set<string>()
   const work: string[] = []
@@ -243,8 +248,6 @@ function prune(w: World, maxRows: number): { drops: string[]; slices: number } {
       index: w.index,
       pinned: w.pinned,
       resident: (row) => w.resident.has(row),
-      pointsTo: (row) => (w.parent.has(row) ? [w.parent.get(row) as string] : []),
-      pointedBy: (row) => w.children.get(row) ?? [],
       fallback: fallbackIn(w),
       now: w.now,
       budget: w.budget,
@@ -309,14 +312,14 @@ describe('the disk planner, over random disk indexes (POD-7162)', () => {
       }
       for (const instance of [...w.pinned, ...w.index.memoryInstances()])
         expect(w.index.instance(instance), `${label}: ${instance} never removed`).toBeDefined()
-      // A kept record's comes-with and parent are whole too.
+      // A kept record's comes-with and what it points to are whole too.
       for (const row of kept) {
         for (const [other, entry] of entries)
           if (entry.holders.includes(comesWithHolderKey(row)) && entry.level === 'main')
             expect(w.index.record(other)?.level, `${label}: ${row} brings ${other}`).toBe('main')
-        const up = w.parent.get(row)
-        if (up !== undefined && entries.get(up)?.level === 'main')
-          expect(w.index.record(up)?.level, `${label}: ${row}'s parent`).toBe('main')
+        for (const to of w.points.get(row) ?? [])
+          if (entries.get(to)?.level === 'main')
+            expect(w.index.record(to)?.level, `${label}: ${row} points to ${to}`).toBe('main')
       }
     }
     // The cases reach what they claim to.
@@ -332,8 +335,6 @@ describe('the disk planner, over random disk indexes (POD-7162)', () => {
       index: w.index,
       pinned: w.pinned,
       resident: () => false,
-      pointsTo: () => [],
-      pointedBy: () => [],
       fallback: () => 'gone',
       now: w.now,
       budget,
@@ -350,14 +351,13 @@ describe('the disk planner, over random disk indexes (POD-7162)', () => {
         bytes: 1_000,
         holders: ['tree:1'],
         cw: [],
+        pt: [],
       })
     index.putInstance('tree:1', { lastReadAt: 0, stale: false, indexed: true })
     const input = {
       index,
       pinned: new Set<string>(),
       resident: () => false,
-      pointsTo: () => [],
-      pointedBy: () => [],
       fallback: (): PruneFallback => 'gone',
       now: WORLD_NOW,
       budget: { bytes: 0, maxIdleMs: DAY_MS },

@@ -182,8 +182,11 @@ import { isQuotaError, type SqlDatabaseLike, type SqlValue } from './sql'
  *  entity kind containing the delimiter would otherwise collide two distinct keys. */
 const rowKey = (entity: string, entityId: string): string => `${entity}\u0000${entityId}`
 
-/** The format of the disk index this build writes; a store without it is rebuilt from its rows. */
-const INDEX_FORMAT = 1
+/**
+ * The format of the disk index this build writes; a store without it is rebuilt from its rows.
+ * 2 (POD-7186): every entry carries its pointer edges.
+ */
+const INDEX_FORMAT = 2
 /** POD-7160 — a quiet tick after the last journal row, then the journal folds into its buckets. */
 const INDEX_FOLD_IDLE_MS = 2_000
 /** The principal of store-wide metadata rows (no principal's view reads it). */

@@ -13,7 +13,14 @@
 
 import { describe, expect, it } from 'vitest'
 import { instanceKey } from '../replica/cache-state'
-import { approxBytes, comesWithHolderOf, pointerTargetOf, splitRowKey } from '../replica/disk-index'
+import {
+  approxBytes,
+  comesWithHolderKey,
+  comesWithHolderOf,
+  heldByNothing,
+  pointerTargetOf,
+  splitRowKey,
+} from '../replica/disk-index'
 import { CollectionLoader } from '../replica/loader'
 import { manualMemorySignals, WARM_GRACE_MS } from '../replica/memory'
 import type { CacheMutation, ReplicaCacheStore } from '../replica/ports'
@@ -1255,15 +1262,22 @@ export function describeCollectionStore(instantiation: SyncInstantiation): void 
       /** Four trees read in order, left; a budget that only the oldest two must leave for. */
       const fourTrees = async (
         storage?: ConformanceStorage,
-        options: { readonly pruneSliceRows?: number } = {},
+        options: {
+          readonly pruneSliceRows?: number
+          /** More records on the server before the first download (POD-7186). */
+          readonly seed?: (server: CollectionServer) => void
+        } = {},
       ) => {
         const server = new CollectionServer()
         withTrees(server)
+        options.seed?.(server)
         const budget = { bytes: Number.MAX_SAFE_INTEGER }
         const booted = kernelOver(storage ?? (await instantiation.open()), server, undefined, {
           warmInstances: 0,
           diskBytes: () => budget.bytes,
-          ...options,
+          ...(options.pruneSliceRows === undefined
+            ? {}
+            : { pruneSliceRows: options.pruneSliceRows }),
         })
         booted.replica.connect()
         await booted.replica.settled()
@@ -1369,6 +1383,160 @@ export function describeCollectionStore(instantiation: SyncInstantiation): void 
         expect(booted.replica.isComplete(tree('P10'))).toBeDefined()
         for (const id of idsOf('P10')) expect(whole(booted, id), id).toBe(true)
         expectMarkersTrue(booted.cache, server)
+      })
+
+      // ─── Pointer edges (POD-7186) ───────────────────────────────────────────
+
+      const ONE_S5: InstanceSpec = { collection: 'session.one', args: { id: 'S5' }, part: 'main' }
+      /** Open an instance, read it, leave it at `at`, and let memory unload it. */
+      const visitSpec = async (booted: Booted, spec: InstanceSpec, at: number) => {
+        booted.clock.now = at
+        const release = booted.replica.hold(spec)
+        await booted.replica.load([spec])
+        await booted.replica.settled()
+        release()
+        await booted.replica.settled()
+        await booted.replica.unload(instanceKey(spec))
+      }
+      const settle = async (booted: Booted) => {
+        await booted.replica.settled()
+        await ticks()
+        await booted.replica.settled()
+      }
+
+      it('a pruned instance never takes what a kept record only on disk points to; offline, its screen reopens from disk with it', async () => {
+        const storage = await instantiation.open()
+        const server = new CollectionServer()
+        withTrees(server)
+        // A headless session on P11: no deck shows it, so only its own view holds it.
+        server.put(
+          SESSION,
+          'S5',
+          session('S5', { issueId: 'P11', status: 'ended', headless: true }),
+        )
+        const budget = { bytes: Number.MAX_SAFE_INTEGER }
+        const options = { warmInstances: 0, diskBytes: () => budget.bytes }
+        const first = kernelOver(storage, server, undefined, options)
+        first.replica.connect()
+        await settle(first)
+        // The tree of P10 is read first, the session's screen after it: the tree is older.
+        await visit(first, 'P10', WORLD_NOW)
+        await visitSpec(first, ONE_S5, WORLD_NOW + 1_000)
+        // The restart: the pointer edges come back with the index, no row read.
+        const booted = kernelOver(storage, server, first.clock, options)
+        booted.replica.connect()
+        await settle(booted)
+        const { cache, replica } = booted
+        const index = cache.readDiskIndex()
+        const S5 = keyOf(SESSION, 'S5')
+        const P10 = keyOf(ISSUE, 'P10')
+        const P11 = keyOf(ISSUE, 'P11')
+        // Only on disk: the session, its issue, that issue's parent.
+        for (const id of ['P10', 'P11', 'P12']) expect(cache.read(ISSUE, id), id).toBeUndefined()
+        expect(cache.read(SESSION, 'S5')).toBeUndefined()
+        expect(index.record(S5)?.level).toBe('main')
+        expect(index.record(S5)?.pt).toEqual([P11])
+        expect(index.record(P11)?.pt).toEqual([P10])
+        expect([...index.pointedBy(P11)]).toEqual([S5])
+        expect([...index.pointedBy(P10)].sort()).toEqual([P11, keyOf(ISSUE, 'P12')].sort())
+        expect(index.record(P11)?.holders).toEqual([instanceKey(tree('P10'))])
+        // One byte over budget: the least recently read instance, the tree, leaves.
+        budget.bytes = index.bytes - 1
+        await idle(booted)
+        expect(replica.stats().prunes).toBeGreaterThan(0)
+        expect(marked(cache, tree('P10'))).toBe(false)
+        expect(marked(cache, ONE_S5)).toBe(true)
+        expect(cache.readDiskIndex().bytes).toBeLessThanOrEqual(budget.bytes)
+        // The session keeps its issue whole, and the issue its parent; the rest falls to its stub.
+        expect(whole(booted, 'P11'), 'P11, the session points to it').toBe(true)
+        expect(whole(booted, 'P10'), "P10, P11's parent").toBe(true)
+        expect(whole(booted, 'P12')).toBe(false)
+        expect(replica.stubOf(ISSUE, 'P12')).toBeDefined()
+        expect(cache.readDiskIndex().record(S5)?.level).toBe('main')
+        await expectDiskAgrees(cache, server, 'after the prune')
+        // Offline: the session's screen reopens from disk, with what it points to.
+        replica.disconnect()
+        server.collections = () => {
+          throw new Error('offline: no fetch may reach the server')
+        }
+        const fetched = server.fetches.length
+        const loader = new CollectionLoader({ replica, schedule: () => () => {} })
+        loader.request([ONE_S5], 'visible')
+        await loader.flush()
+        await settle(booted)
+        expect(server.fetches.length, 'no server request').toBe(fetched)
+        expect(loader.status(ONE_S5)).toBe('complete')
+        expect(cache.read(SESSION, 'S5')).toBeDefined()
+        expect(cache.read(ISSUE, 'P11'), 'its issue, whole').toBeDefined()
+        expect(cache.read(ISSUE, 'P10'), "the issue's parent, whole").toBeDefined()
+      })
+
+      it('a gap while an instance is half pruned keeps its marker, stale: nothing it held is left held by nothing, and idle slices finish it', async () => {
+        const storage = await instantiation.open()
+        const { server, booted, budget } = await fourTrees(storage, {
+          pruneSliceRows: 1,
+          // A deck session of P11: the tree brings it (its holder is P11).
+          seed: (world) =>
+            world.put(SESSION, 'S6', session('S6', { issueId: 'P11', status: 'ended' })),
+        })
+        const key = instanceKey(tree('P10'))
+        const S6 = keyOf(SESSION, 'S6')
+        expect(booted.cache.readDiskIndex().record(S6)?.holders).toContain(
+          comesWithHolderKey(keyOf(ISSUE, 'P11')),
+        )
+        // One slice: the tree is half pruned, its marker kept for the rest.
+        await idle(booted)
+        const index = booted.cache.readDiskIndex()
+        expect(index.instance(key)?.indexed).toBe(false)
+        const left = [...index.membersOf(key)].filter(
+          (member) => index.record(member)?.level === 'main',
+        )
+        expect(left.length).toBeGreaterThan(0)
+        // Offline, the server moves on; back online, the feed cannot bridge the gap.
+        booted.replica.disconnect()
+        server.put(ISSUE, 'Z1', issue('Z1'))
+        server.minAvailableSeq = server.head
+        booted.replica.connect()
+        await settle(booted)
+        expect(booted.replica.posture).toBe('live')
+        const after = booted.cache.readDiskIndex()
+        expect(marked(booted.cache, tree('P10')), 'the half-pruned marker stays').toBe(true)
+        expect(after.instance(key)).toMatchObject({ indexed: false, stale: true })
+        // Everything the tree still held, and what that brings, is held by something on the device.
+        const markers = booted.cache.readInstances()
+        for (const member of [...left, S6]) {
+          const entry = after.record(member)
+          if (entry?.level !== 'main') continue
+          expect(heldByNothing(entry, markers, after), `${member} held by something`).toBe(false)
+        }
+        // A restart loads none of it into memory.
+        const restarted = kernelOver(storage, server, booted.clock, {
+          warmInstances: 0,
+          diskBytes: () => budget.bytes,
+          pruneSliceRows: 1,
+        })
+        restarted.replica.connect()
+        await settle(restarted)
+        for (const member of [...left, S6]) {
+          const { entity, entityId } = splitRowKey(member)
+          expect(
+            restarted.cache.read(entity, entityId),
+            `${entityId} not in memory`,
+          ).toBeUndefined()
+        }
+        // Idle slices finish it: the marker goes with the last member, the session leaves with its issue.
+        for (let i = 0; i < 40; i += 1) {
+          const prunes = restarted.replica.stats().prunes
+          await idle(restarted)
+          if (restarted.replica.stats().prunes === prunes) break
+        }
+        expect(marked(restarted.cache, tree('P10'))).toBe(false)
+        for (const id of idsOf('P10')) {
+          expect(whole(restarted, id), id).toBe(false)
+          expect(restarted.replica.stubOf(ISSUE, id), `${id} keeps its stub`).toBeDefined()
+        }
+        expect(restarted.cache.readDiskIndex().record(S6)).toBeUndefined()
+        await expectDiskAgrees(restarted.cache, server, 'after the prune finished')
       })
     })
 

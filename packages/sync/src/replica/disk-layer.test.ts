@@ -20,6 +20,7 @@ import {
   bucketOf,
   DiskIndex,
   DiskIndexDraft,
+  decodeBucket,
   encodeBucket,
   encodeBucketAfter,
   INDEX_BUCKETS,
@@ -27,6 +28,7 @@ import {
   indexChanges,
   JOURNAL_FOLD_ROWS,
   planIndexWrite,
+  pointerKeysOf,
   retainedComesWith,
   type StoredBucket,
 } from './disk-index'
@@ -255,6 +257,68 @@ describe('the disk index draft', () => {
     expect(retainedComesWith('session', { issueId: 'X' }, [holder], [holder], index)).toEqual([
       holder,
     ])
+  })
+})
+
+describe('pointer edges in the disk index (POD-7186)', () => {
+  const I = (id: string) => `issueProjection\u0000${id}`
+  const S = (id: string) => `session\u0000${id}`
+  const at = (entity: string, id: string, value: unknown, seq: number, part?: 'stub') =>
+    ({
+      entity,
+      entityId: id,
+      value,
+      provenance: { seq },
+      ...(part === undefined ? {} : { part }),
+    }) as EntityRecord
+
+  it('a record points where its declared comes-with pointers name, by its own fields', () => {
+    expect(pointerKeysOf(ISSUE, issue('B', { parentId: 'A' }))).toEqual([I('A')])
+    expect(pointerKeysOf(ISSUE, issue('A'))).toEqual([])
+    expect(pointerKeysOf('session', session('S1', { issueId: 'A' }))).toEqual([I('A')])
+    expect(pointerKeysOf('session', session('S1'))).toEqual([])
+    expect(pointerKeysOf('pendingInteraction', { id: 'q', sessionId: 'S1' })).toEqual([S('S1')])
+    // A pointer's condition reads the record: a pinned issue, a pinned panel.
+    expect(pointerKeysOf('pin', { id: 'p', kind: 'issue', entityId: 'A' })).toEqual([I('A')])
+    expect(pointerKeysOf('pin', { id: 'p', kind: 'panel', entityId: 'S1' })).toEqual([S('S1')])
+  })
+
+  it('follows each row written: the reverse moves with a changed pointer, a stub or a delete drops it, and the buckets keep it', () => {
+    const index = new DiskIndex()
+    const draft = new DiskIndexDraft(index)
+    draft.row(I('A'), at(ISSUE, 'A', issue('A'), 1))
+    draft.row(I('B'), at(ISSUE, 'B', issue('B', { parentId: 'A' }), 1))
+    draft.row(S('S1'), at('session', 'S1', session('S1', { issueId: 'B' }), 1))
+    draft.row(S('S2'), at('session', 'S2', session('S2', { issueId: 'B' }), 1))
+    // Holders and vias written later keep the edges.
+    draft.addHolder(S('S1'), `^${I('B')}`)
+    draft.setComesWith(I('B'), ['issueProjection'])
+    expect([...index.pointedBy(I('B'))]).toEqual([])
+    index.publish(draft)
+    expect(index.record(S('S1'))?.pt).toEqual([I('B')])
+    expect([...index.pointedBy(I('B'))].sort()).toEqual([S('S1'), S('S2')])
+    expect([...index.pointedBy(I('A'))]).toEqual([I('B')])
+    // S1 moves to A; B falls to its stub; S2 leaves the device.
+    const next = new DiskIndexDraft(index)
+    next.row(S('S1'), at('session', 'S1', session('S1', { issueId: 'A' }), 2))
+    next.row(I('B'), at(ISSUE, 'B', issue('B', { parentId: 'A' }), 2, 'stub'))
+    next.row(S('S2'), null)
+    index.publish(next)
+    expect([...index.pointedBy(I('A'))]).toEqual([S('S1')])
+    expect([...index.pointedBy(I('B'))]).toEqual([])
+    expect(index.record(I('B'))?.pt).toEqual([])
+    // The bucket rows carry them; read back, the edges are as written.
+    const entries = [...index.records()].map(([key, entry]) => [key, entry, undefined] as const)
+    const decoded = decodeBucket(encodeBucket(entries))
+    expect(decoded?.map(({ key, entry }) => [key, entry.pt])).toEqual(
+      entries.map(([key, entry]) => [key, entry.pt]),
+    )
+    const reopened = new DiskIndex()
+    for (const { key, entry } of decoded ?? []) reopened.putRecord(key, entry)
+    expect([...reopened.pointedBy(I('A'))]).toEqual([S('S1')])
+    // A bucket written without the column cannot be read: the store is rebuilt.
+    const { p: _pointers, ...older } = encodeBucket(entries)
+    expect(decodeBucket(older)).toBeUndefined()
   })
 })
 

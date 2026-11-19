@@ -100,8 +100,6 @@ export function planPruneSlice(cache: ReplicaCacheStore, maxRows = 2): PrunePlan
       const { entity, entityId } = splitRowKey(key)
       return cache.read(entity, entityId) !== undefined
     },
-    pointsTo: () => [],
-    pointedBy: () => [],
     fallback: (key) => {
       const { entity, entityId } = splitRowKey(key)
       if (entity !== ISSUE) return 'gone'

@@ -32,6 +32,13 @@
  * is one record, found by key. So the markers are bounded by views and the
  * policy, not by records.
  *
+ * POINTER EDGES (POD-7186). What a record points to through a declared
+ * comes-with pointer is recorded on its entry too (`pt`: the row keys it
+ * names, from its own value whenever its whole row is written), and the index
+ * keeps the reverse in memory (`pointedBy`). So whether a kept record points
+ * to a record is known without its row: a disk-only session still keeps its
+ * issue, and that issue its parent, when pruning removes what held them.
+ *
  * ON DISK the index is BUCKET rows, each the entries of the records whose key
  * hashes to it, read at start with one getAll; an instance's state rides in
  * its marker row, which the open reads anyway. A bucket holds about
@@ -54,10 +61,11 @@
  * anyway.
  */
 
-import { COLLECTIONS, instanceParams, recordOf } from '@podium/model'
+import { COLLECTIONS, type ComesWith, instanceParams, recordOf } from '@podium/model'
 import { INSTANCE_META_PREFIX, instanceKey, rowAfter } from './cache-state'
 import {
   comesWithEntry,
+  comesWithInstance,
   comesWithOf,
   holds,
   policyArgs,
@@ -102,6 +110,13 @@ export interface RecordEntry {
    * record kind, or a collection it is a member of). Empty for a stub.
    */
   readonly cw: readonly string[]
+  /**
+   * POD-7186 — the records it points to through its kind's declared
+   * comes-with pointers ("an issue's parent", "a session's issue"), as row
+   * keys, from its value (`pointerKeysOf`); whether they are on the device
+   * or not. Empty for a stub.
+   */
+  readonly pt: readonly string[]
 }
 
 /** The holder a row brought by a record carries: that record. */
@@ -163,6 +178,35 @@ export function pointerTargetOf(spec: InstanceSpec): string | undefined {
   )
     return undefined
   return rowKeyOf(collection.of, id)
+}
+
+/** Per record kind, its declared comes-with pointers (`comesWith` entries with a key). */
+const pointerEntries = new Map<string, readonly ComesWith[]>()
+
+/**
+ * POD-7186 — the records a record points to through its kind's declared
+ * comes-with pointers (a one-record collection named by one of its fields:
+ * "X's parent", "a session's issue", "a pending interaction's session"), as
+ * row keys. Only a kind's own comes-with are pointers; a collection's are
+ * keyed by the holder (`comesWithHolderOf`). A pointer's condition reads the
+ * record's own fields, never the clock.
+ */
+export function pointerKeysOf(kind: string, value: unknown): readonly string[] {
+  let entries = pointerEntries.get(kind)
+  if (entries === undefined) {
+    entries = (recordOf(kind)?.comesWith ?? []).filter((entry) => entry.key !== undefined)
+    pointerEntries.set(kind, entries)
+  }
+  if (entries.length === 0) return NO_HOLDERS
+  let out: string[] | undefined
+  for (const entry of entries) {
+    const spec = comesWithInstance(kind, value, entry, kind, 0)
+    const target = spec === undefined ? undefined : pointerTargetOf(spec)
+    if (target === undefined) continue
+    if (out === undefined) out = [target]
+    else if (!out.includes(target)) out.push(target)
+  }
+  return out ?? NO_HOLDERS
 }
 
 /**
@@ -262,6 +306,8 @@ export interface DiskIndexReader {
   records(): IterableIterator<[string, RecordEntry]>
   /** The member row keys of a main-part instance (empty for an unknown one). */
   membersOf(instanceKey: string): ReadonlySet<string>
+  /** POD-7186 — the records on the device whose entry points to this one (`pt`). */
+  pointedBy(rowKey: string): ReadonlySet<string>
   instance(instanceKey: string): InstanceState | undefined
   /** POD-7162 — every instance on disk (each has a marker). */
   instanceKeys(): IterableIterator<string>
@@ -314,6 +360,8 @@ export function approxBytes(row: Pick<EntityRecord, 'value'>): number {
 export class DiskIndex implements DiskIndexReader {
   private readonly entries = new Map<string, RecordEntry>()
   private readonly members = new Map<string, Set<string>>()
+  /** POD-7186 — per record, the records whose entry points to it (the reverse of `pt`). */
+  private readonly pointers = new Map<string, Set<string>>()
   /** POD-7160 — how many buckets the disk keeps (`bucketCountFor`). */
   private count = INDEX_BUCKETS
   /** The record keys of each disk bucket (a commit rewrites the buckets it touched). */
@@ -412,6 +460,10 @@ export class DiskIndex implements DiskIndexReader {
     return this.members.get(instanceKey) ?? EMPTY_SET
   }
 
+  pointedBy(rowKey: string): ReadonlySet<string> {
+    return this.pointers.get(rowKey) ?? EMPTY_SET
+  }
+
   instance(instanceKey: string): InstanceState | undefined {
     return this.states.get(instanceKey)
   }
@@ -444,6 +496,7 @@ export class DiskIndex implements DiskIndexReader {
       ...entry,
       holders: this.lists.of(entry.holders),
       cw: this.lists.of(entry.cw),
+      pt: entry.level === 'main' && entry.pt.length > 0 ? entry.pt : NO_HOLDERS,
     })
   }
 
@@ -473,6 +526,7 @@ export class DiskIndex implements DiskIndexReader {
   clear(): void {
     this.entries.clear()
     this.members.clear()
+    this.pointers.clear()
     for (const bucket of this.buckets) bucket.clear()
     this.setBucketCount(INDEX_BUCKETS)
     this.encoded.clear()
@@ -494,6 +548,7 @@ export class DiskIndex implements DiskIndexReader {
     if (draft.cleared) {
       this.entries.clear()
       this.members.clear()
+      this.pointers.clear()
       for (const bucket of this.buckets) bucket.clear()
       this.states.clear()
       this.memory.clear()
@@ -561,6 +616,8 @@ export class DiskIndex implements DiskIndexReader {
       this.totalBytes -= before.bytes
       for (const holder of before.holders)
         if (entry === null || !entry.holders.includes(holder)) this.members.get(holder)?.delete(key)
+      for (const target of before.pt)
+        if (entry === null || !entry.pt.includes(target)) unlink(this.pointers, target, key)
     }
     if (entry === null) {
       this.entries.delete(key)
@@ -572,14 +629,30 @@ export class DiskIndex implements DiskIndexReader {
     this.totalBytes += entry.bytes
     for (const holder of entry.holders) {
       if (before?.holders.includes(holder) === true) continue
-      let set = this.members.get(holder)
-      if (set === undefined) {
-        set = new Set()
-        this.members.set(holder, set)
-      }
-      set.add(key)
+      link(this.members, holder, key)
+    }
+    for (const target of entry.pt) {
+      if (before?.pt.includes(target) === true) continue
+      link(this.pointers, target, key)
     }
   }
+}
+
+function link(map: Map<string, Set<string>>, from: string, key: string): void {
+  let set = map.get(from)
+  if (set === undefined) {
+    set = new Set()
+    map.set(from, set)
+  }
+  set.add(key)
+}
+
+/** POD-7186 — a reverse edge goes; an empty set with it (pointer targets are records, not views). */
+function unlink(map: Map<string, Set<string>>, from: string, key: string): void {
+  const set = map.get(from)
+  if (set === undefined) return
+  set.delete(key)
+  if (set.size === 0) map.delete(from)
 }
 
 /** One durable index write, for an adapter to turn into its own rows. */
@@ -686,6 +759,8 @@ export class DiskIndexDraft {
       bytes: bytes ?? approxBytes(row),
       holders: this.base.holderList(kept),
       cw: level === 'stub' ? NO_VIAS : (before?.cw ?? NO_VIAS),
+      // POD-7186: what it points to, from the value written (the feed, a fetch, the first download).
+      pt: level === 'stub' ? NO_HOLDERS : pointerKeysOf(row.entity, row.value),
     })
   }
 
@@ -1056,7 +1131,7 @@ export const INDEX_BUILT_META_KEY = 'disk-index'
 /**
  * One bucket row's value, in columns (arrays of plain values read fast at
  * start): per record its key, feed number, level (1 main, 0 stub), size,
- * holders and comes-with vias (0 for none), and for a record with a stub its
+ * holders, comes-with vias and pointer edges (POD-7186; 0 for none), and for a record with a stub its
  * stub (0 for none) and, held at stub level, the row's own fields
  * `[revision, provenance, asOf]` (0 for none).
  */
@@ -1067,6 +1142,8 @@ export interface StoredBucket {
   readonly b: readonly number[]
   readonly h: readonly (readonly string[] | 0)[]
   readonly c: readonly (readonly string[] | 0)[]
+  /** POD-7186 — the records each one points to (`RecordEntry.pt`). */
+  readonly p: readonly (readonly string[] | 0)[]
   readonly st: readonly unknown[]
   readonly r: readonly (readonly [number | null, EntityRecord['provenance'], number | null] | 0)[]
   /** POD-7160 — how many buckets the disk kept when this one was written (absent: 256). */
@@ -1081,7 +1158,7 @@ export function storedBucketCount(value: unknown): number {
 
 type Columns = { -readonly [K in Exclude<keyof StoredBucket, 'n'>]: StoredBucket[K][number][] }
 type EntryColumns = { readonly [K in keyof Columns]: Columns[K][number] }
-const COLUMNS = ['k', 's', 'l', 'b', 'h', 'c', 'st', 'r'] as const
+const COLUMNS = ['k', 's', 'l', 'b', 'h', 'c', 'p', 'st', 'r'] as const
 
 /** One record's cells in a bucket row's columns. */
 function entryColumns(
@@ -1097,6 +1174,7 @@ function entryColumns(
     b: entry.bytes,
     h: entry.holders.length > 0 ? [...entry.holders] : 0,
     c: entry.cw.length > 0 ? [...entry.cw] : 0,
+    p: entry.pt.length > 0 ? [...entry.pt] : 0,
     st: !stubbed ? 0 : entry.level === 'stub' ? row.value : stubOfValue(row.entity, row.value),
     r:
       stubbed && entry.level === 'stub'
@@ -1105,7 +1183,17 @@ function entryColumns(
   }
 }
 
-const emptyColumns = (): Columns => ({ k: [], s: [], l: [], b: [], h: [], c: [], st: [], r: [] })
+const emptyColumns = (): Columns => ({
+  k: [],
+  s: [],
+  l: [],
+  b: [],
+  h: [],
+  c: [],
+  p: [],
+  st: [],
+  r: [],
+})
 
 const columnsOf = (out: Columns): Record<(typeof COLUMNS)[number], unknown[]> =>
   out as unknown as Record<(typeof COLUMNS)[number], unknown[]>
@@ -1158,15 +1246,17 @@ export interface DecodedEntry {
 export function decodeBucket(value: unknown): DecodedEntry[] | undefined {
   const row = value as Partial<StoredBucket> | null
   if (row === null || typeof row !== 'object') return undefined
-  const { k, s, l, b, h, c, st, r } = row
+  const { k, s, l, b, h, c, p, st, r } = row
   if (!Array.isArray(k) || !Array.isArray(s) || !Array.isArray(l) || !Array.isArray(b))
     return undefined
   if (!Array.isArray(h) || !Array.isArray(c) || !Array.isArray(st) || !Array.isArray(r))
     return undefined
+  // POD-7186: a bucket without pointer edges cannot be read (the store is rebuilt).
+  if (!Array.isArray(p)) return undefined
   const n = k.length
   if (s.length !== n || l.length !== n || b.length !== n || h.length !== n || c.length !== n)
     return undefined
-  if (st.length !== n || r.length !== n) return undefined
+  if (p.length !== n || st.length !== n || r.length !== n) return undefined
   const out: DecodedEntry[] = []
   for (let at = 0; at < n; at += 1) {
     const key = k[at]
@@ -1177,12 +1267,14 @@ export function decodeBucket(value: unknown): DecodedEntry[] | undefined {
     const main = l[at] === 1
     const holders = h[at]
     const vias = c[at]
+    const targets = p[at]
     const entry: RecordEntry = {
       seq,
       level: main ? 'main' : 'stub',
       bytes,
       holders: Array.isArray(holders) ? holders : NO_HOLDERS,
       cw: Array.isArray(vias) ? vias : NO_VIAS,
+      pt: main && Array.isArray(targets) ? targets : NO_HOLDERS,
     }
     const stub = st[at]
     const fields = r[at]
@@ -1850,6 +1942,7 @@ export function buildIndex(input: {
       bytes: input.bytes(key, row),
       holders: main ? (holders.get(key) ?? []) : [],
       cw,
+      pt: main ? pointerKeysOf(row.entity, row.value) : NO_HOLDERS,
     })
   }
   const states = new Map<string, InstanceState>()
