@@ -82,6 +82,7 @@ describe('POD-376 · wire v2 feed into the kernel replica (live server)', () => 
     readonly replica: Replica
     readonly store: IndexedDbSyncStore
     readonly framesSeen: string[]
+    readonly feedChanges: string[]
     keys(): string[]
     goOffline(): void
     goOnline(): Promise<void>
@@ -98,6 +99,7 @@ describe('POD-376 · wire v2 feed into the kernel replica (live server)', () => 
     })
     const view = store.viewFor(owner)
     const framesSeen: string[] = []
+    const feedChanges: string[] = []
     let bootstrapFailure: string | undefined
     let socket: WebSocket | undefined
 
@@ -135,6 +137,10 @@ describe('POD-376 · wire v2 feed into the kernel replica (live server)', () => 
       socket = ws
       ws.on('message', (data) => {
         const message = JSON.parse(String(data)) as ServerMessage
+        if (message.type === 'feedDelta')
+          feedChanges.push(
+            ...message.changes.map((change) => `${change.entity}:${change.entityId}`),
+          )
         if (!FEED_TYPES.has(message.type)) return
         sink.frame(message as FeedServerFrame)
       })
@@ -169,6 +175,7 @@ describe('POD-376 · wire v2 feed into the kernel replica (live server)', () => 
       replica,
       store,
       framesSeen,
+      feedChanges,
       keys: () =>
         replica
           .entities()
@@ -219,7 +226,7 @@ describe('POD-376 · wire v2 feed into the kernel replica (live server)', () => 
     expect(slice.keys.length).toBeGreaterThan(0)
     await until(() => (client.replica.cursor?.seq ?? -1) >= slice.seq)
     await client.replica.settled()
-    expect(client.keys()).toEqual(slice.keys)
+    expect(client.keys(), JSON.stringify({ feedChanges: client.feedChanges })).toEqual(slice.keys)
   })
 
   it('a live write reaches a connected v2 replica as a delta', async () => {
@@ -236,7 +243,7 @@ describe('POD-376 · wire v2 feed into the kernel replica (live server)', () => 
     const slice = await authoritySlice()
     await until(() => (client.replica.cursor?.seq ?? -1) >= slice.seq)
     await client.replica.settled()
-    expect(client.keys()).toEqual(slice.keys)
+    expect(client.keys(), JSON.stringify({ feedChanges: client.feedChanges })).toEqual(slice.keys)
   })
 
   it('offline write window → reconnect → both clients converge on the authority slice', async () => {
@@ -278,8 +285,8 @@ describe('POD-376 · wire v2 feed into the kernel replica (live server)', () => 
     // cannot tell the difference.
     await until(() => [a, b].every((client) => (client.replica.cursor?.seq ?? -1) >= slice.seq))
     await Promise.all([a.replica.settled(), b.replica.settled()])
-    expect(a.keys()).toEqual(slice.keys)
-    expect(b.keys()).toEqual(slice.keys)
+    expect(a.keys(), JSON.stringify({ feedChanges: a.feedChanges })).toEqual(slice.keys)
+    expect(b.keys(), JSON.stringify({ feedChanges: b.feedChanges })).toEqual(slice.keys)
     expect(a.replica.posture).not.toBe('cold')
   })
 

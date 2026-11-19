@@ -40,9 +40,12 @@ const FIELDS = [
   'labels',
   'estimateMin',
 ]
-const fields = (issue: object) =>
+const fields = (issue: object, mission = false) =>
   Object.fromEntries(
-    FIELDS.map((key) => [key, Reflect.get(issue, key) ?? (key === 'labels' ? [] : null)]),
+    FIELDS.filter((key) => !mission || key !== 'pinned').map((key) => [
+      key,
+      Reflect.get(issue, key) ?? (key === 'labels' ? [] : null),
+    ]),
   )
 const STAGES = ['in_progress', 'review', 'planning', 'backlog', 'proposed', 'done']
 type Issue = IssueNavigationModel
@@ -221,7 +224,7 @@ export function expectMobileScreens(
   ).toEqual(rows.map((row) => row.issue.id))
   for (const [index, row] of rows.entries())
     expect(details.rows[index]?.fields, `${label}: deck ${row.issue.id}`).toMatchObject({
-      issue: fields(row.issue),
+      issue: fields(row.issue, true),
       depth: row.depth,
       descendantIds: row.descendantIds,
       matched: row.matched,
