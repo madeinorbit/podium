@@ -41,8 +41,8 @@ import {
   parseLayoutRowId,
   parsePinRowId,
   parseReadPositionRowId,
-  parseSuperagentThreadRowId,
   parseSubscriptionRowId,
+  parseSuperagentThreadRowId,
   parseTabOrderRowId,
   parseUserEntityKey,
   parseUserPreferencesRowId,
@@ -55,13 +55,13 @@ import {
   SessionLifecycleFailure,
   SessionMeta,
   SessionUserStateWire,
-  SuperagentThreadKind,
-  SuperagentThreadWire,
-  SuperagentTurnFailureWire,
   SubscriberKind,
   SubscriptionOrigin,
   SubscriptionSourceKind,
   SubscriptionWire,
+  SuperagentThreadKind,
+  SuperagentThreadWire,
+  SuperagentTurnFailureWire,
   TabOrderWire,
   ThreadIdField,
   UpdateChannel,
@@ -1201,6 +1201,31 @@ export const NOT_YET_GENERIC: Readonly<
     { readonly reason: string; readonly by: string }
   >
 > = {
+  issueBrief: {
+    reason:
+      'Read projection of the issue; its source changes through issues.* and records.issueProjection.*.',
+    by: 'never (projection)',
+  },
+  issueDescription: {
+    reason: 'Read projection of the issue document; edits use issues.* document commands.',
+    by: 'never (projection)',
+  },
+  issuePanelArtifact: {
+    reason: 'Read projection of an issue artifact; writes use the artifact commands.',
+    by: 'never (projection)',
+  },
+  issuePanelDeferred: {
+    reason: 'Read projection of a deferred issue; its lifecycle is owned by issues.*.',
+    by: 'never (projection)',
+  },
+  issuePanelState: {
+    reason: 'Read projection of issue panel state; its source changes through issues.*.',
+    by: 'never (projection)',
+  },
+  issuePanelTodo: {
+    reason: 'Read projection of issue todos; writes use issues.* todo commands.',
+    by: 'never (projection)',
+  },
   issueDep: { reason: 'Graph edges with cycle rules (`cmd`).', by: 'POD-6359' },
   repo: { reason: 'Repo config moves with the repos family.', by: 'POD-6359' },
   shipOrder: { reason: 'Shipping is system-owned.', by: 'POD-6359' },

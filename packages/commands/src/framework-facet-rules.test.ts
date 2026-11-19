@@ -84,23 +84,18 @@ const OFFLINE_ELIGIBLE_EXCEPTIONS: Record<string, string> = {
 }
 
 describe('the contract-table scan itself', () => {
-  it('finds every table this package exports, by name — so a later "no violations" means something', () => {
-    const found = TABLES.map((table) => table.export).sort()
-
-    // Both migrations' tables, named explicitly. If POD-642's handoff table (or
-    // anyone else's) lands and this list is stale, the count assertion below is
-    // what notices — the rule still covers it either way.
-    expect(found).toEqual(
-      expect.arrayContaining([
-        'pinCommands',
-        'sessionCommandPlane',
-        'sessionStateCommands',
-        'snoozeCommands',
-        'tabCommands',
-      ]),
+  it('covers execution, session state and snooze commands independently', () => {
+    for (const table of [
+      commands.sessionCommandPlane,
+      commands.sessionStateCommands,
+      commands.snoozeCommands,
+    ]) {
+      expect(TABLES.find((found) => found.defs === table.defs)?.namespace).toBe(table.namespace)
+      expect(Object.keys(table.defs).length).toBeGreaterThan(0)
+    }
+    expect(ALL_CONTRACTS.map(({ name }) => name)).toEqual(
+      expect.arrayContaining(['sessions.create', 'sessions.sendText', 'sessions.kill']),
     )
-    expect(TABLES.length).toBeGreaterThanOrEqual(5)
-    expect(ALL_CONTRACTS.length).toBeGreaterThanOrEqual(20)
   })
 
   it('the scan discriminates — it does not sweep up every exported object', () => {

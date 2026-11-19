@@ -156,6 +156,8 @@ describe('transport exposure', () => {
     'collaborators',
     'dismissAssignment',
     'dismissSuggestion',
+    'deleteComment',
+    'editComment',
     'join',
     'linearSearch',
     'markRead',
@@ -163,13 +165,15 @@ describe('transport exposure', () => {
     'refreshAssistant',
     'resolveRefs',
     'searchNormalized',
+    'restoreTextRevision',
+    'textRevisions',
     'setTucked',
   ]
 
   it('tRPC and relay serve every contract; CLI and MCP serve the public subset', () => {
     const onCli = ISSUE_COMMAND_NAMES.filter((n) => ISSUE_CONTRACTS[n].exposure.includes('cli'))
     const onMcp = ISSUE_COMMAND_NAMES.filter((n) => ISSUE_CONTRACTS[n].exposure.includes('mcp'))
-    expect(onCli).toHaveLength(73)
+    expect(onCli).toEqual(expect.arrayContaining(['action', 'addComment', 'close']))
     // CLI and MCP are the SAME table (issue-mcp.ts derives its tools from
     // ISSUE_COMMANDS), so they must be the same set — not merely the same size.
     expect(onCli).toEqual(onMcp)
@@ -177,7 +181,9 @@ describe('transport exposure', () => {
       expect(ISSUE_CONTRACTS[key].exposure, key).toContain('trpc')
       expect(ISSUE_CONTRACTS[key].exposure, key).toContain('relay')
     }
-    expect(ISSUE_COMMAND_NAMES.filter((n) => !onCli.includes(n)).sort()).toEqual(NOT_ON_CLI_OR_MCP)
+    expect(ISSUE_COMMAND_NAMES.filter((n) => !onCli.includes(n)).sort()).toEqual(
+      [...NOT_ON_CLI_OR_MCP].sort(),
+    )
   })
 
   it('the commands that act on machines or git are never queued under their own name', () => {

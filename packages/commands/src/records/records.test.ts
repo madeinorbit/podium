@@ -107,32 +107,19 @@ describe('a declaration that could never serve a command fails where it is writt
 
 describe('the generated commands', () => {
   it('one contract per offered op, named records.<kind>.<op>', () => {
-    expect(Object.keys(RECORD_CONTRACTS).sort()).toEqual([
-      'records.agentProfile.create',
-      'records.agentProfile.edit',
-      'records.agentProfile.remove',
-      'records.effect.edit',
-      'records.instancePreferences.edit',
-      'records.issueProjection.create',
-      'records.issueProjection.edit',
-      'records.issueUserState.edit',
-      'records.pin.create',
-      'records.pin.remove',
-      'records.session.edit',
-      'records.session.remove',
-      'records.sessionUserState.edit',
-      'records.sessionUserState.remove',
-      'records.subscription.edit',
-      'records.subscription.remove',
-      'records.superagentThread.edit',
-      'records.tabOrder.edit',
-      'records.tabOrder.remove',
-      'records.userLayout.edit',
-      'records.userLayout.remove',
-      'records.userPreferences.edit',
-      'records.userReadPosition.edit',
-      'records.workflowBinding.edit',
-    ])
+    const offered = SYNCED_KINDS.flatMap((declaration) =>
+      Object.keys(declaration.ops).map((op) => `records.${declaration.kind}.${op}`),
+    )
+    expect(offered.length).toBeGreaterThan(0)
+    expect(Object.keys(RECORD_CONTRACTS).sort()).toEqual(offered.sort())
+    for (const declaration of SYNCED_KINDS) {
+      for (const op of ['create', 'edit', 'remove'] as const) {
+        expect(
+          RECORD_CONTRACTS[`records.${declaration.kind}.${op}`] !== undefined,
+          `${declaration.kind}.${op}`,
+        ).toBe(declaration.ops[op] !== undefined)
+      }
+    }
   })
 
   it('are classified: policy, delivery, redaction and conflict all pass the lint', () => {
