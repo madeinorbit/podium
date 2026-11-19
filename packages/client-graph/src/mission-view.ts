@@ -1108,30 +1108,46 @@ export class MissionDeckModel {
     return settled(() => requireLoaded(this.paths).map((path) => path[path.length - 1]!))
   }
   private readPaths() {
+    if (this.mode !== 'full') {
+      // Filter the paths the full deck actually draws. A graft's preferred
+      // parent can lead outside this root, and graph cycles must retain the
+      // same finite paths as the full view.
+      const paths = requireLoaded(this.view.deck(this.id, 'full').paths)
+      const included = new Set<string>([JSON.stringify([this.id])])
+      for (const path of paths) {
+        const id = path[path.length - 1]
+        if (id === undefined || !this.model(id).matches(this.mode)) continue
+        for (let length = 1; length <= path.length; length++) {
+          included.add(JSON.stringify(path.slice(0, length)))
+        }
+      }
+      return paths.filter((path) => included.has(JSON.stringify(path)))
+    }
     const shape = requireLoaded(this.topology),
       members = requireLoaded(this.members)
-    const matches = new Set<string>()
+    const included = new Set<string>([this.id])
     for (const id of members) {
-      if (!this.view.facts(id).visible || !this.model(id).matches(this.mode)) continue
-      matches.add(id)
+      if (!this.view.facts(id).visible) continue
+      let current: string | undefined = id
+      const seen = new Set<string>()
+      while (current && !seen.has(current)) {
+        seen.add(current)
+        included.add(current)
+        if (current === this.id) break
+        current = shape.parent.get(current)
+      }
     }
     const paths: string[][] = []
-    // A graft's preferred parent can lead outside this root. Filter the
-    // actual drawn paths, including their cycle fence, rather than walking a
-    // single parent chain or letting a cycle retain an unrelated branch.
-    const walk = (id: string, path: readonly string[]): boolean => {
-      if (path.includes(id) || !this.view.facts(id).visible) return false
+    const walk = (id: string, path: readonly string[]) => {
+      if (path.includes(id) || !included.has(id) || !this.view.facts(id).visible) return
       const next = [...path, id]
-      const start = paths.length
       paths.push(next)
-      let matched = matches.has(id)
-      for (const child of shape.children.get(id) ?? []) matched = walk(child, next) || matched
-      if (!matched && id !== this.id) paths.length = start
-      return matched
+      for (const child of shape.children.get(id) ?? []) walk(child, next)
     }
     walk(this.id, [])
     return paths
   }
+
   rowIds(
     mode: FlightDeckMode = this.mode,
     collapsed: FlightDeckFoldMap | null = null,
