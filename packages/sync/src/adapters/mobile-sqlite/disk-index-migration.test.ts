@@ -246,7 +246,36 @@ describe('mobile SQLite schema 2 to 3: the disk index (POD-7159)', () => {
       store.close()
     })
 
-  it('grows its buckets with the disk, patches a bucket per change, and reads them back after a reopen (POD-7160)', async () => {
+  /** The principal's index rows on disk: buckets and journal rows. */
+  const indexRows = (file: string) => {
+    const raw = sqliteEngine.open(file)
+    const rows = raw
+      .prepare(`SELECT key, value FROM ${INDEX_TABLE} WHERE principal = ?`)
+      .all(PRINCIPAL) as { key: string; value: string }[]
+    raw.close()
+    const parsed = rows.map((row) => ({
+      key: row.key,
+      v: JSON.parse(row.value) as { k: string[]; n?: number; d?: string[] },
+    }))
+    return {
+      buckets: parsed.filter((row) => row.key.startsWith('b')),
+      journal: parsed
+        .filter((row) => row.key.startsWith('j'))
+        .sort((a, b) => (a.key < b.key ? -1 : 1)),
+    }
+  }
+  const expectHistory = (cache: ReturnType<SqliteSyncStore['viewFor']>['cache']): void => {
+    const index = cache.readDiskIndex()
+    expect(index.bucketCount).toBe(2 * INDEX_BUCKETS)
+    expect(index.recordCount).toBe(MANY - 1)
+    expect(index.record(`${ISSUE}\u0000H7`)).toMatchObject({ seq: 2, level: 'stub' })
+    expect(index.record(`${ISSUE}\u0000H8`)).toBeUndefined()
+    expect(cache.readRow(ISSUE, 'H7')).toMatchObject({ part: 'stub', asOf: 2 })
+    expect(cache.readRow(ISSUE, 'H8')).toBeUndefined()
+    expect(cache.readRow(ISSUE, `H${MANY - 1}`)?.part).toBe('stub')
+  }
+
+  it('grows its buckets with the disk, journals each later commit, folds the journal, and reads all of it back (POD-7160)', async () => {
     const fresh = freshDatabaseFile()
     cleanups.push(fresh.cleanup)
     const store = await open(() => sqliteEngine.open(fresh.file))
@@ -262,30 +291,62 @@ describe('mobile SQLite schema 2 to 3: the disk index (POD-7159)', () => {
       cursor: at(3),
     })
     store.close()
-    const raw = sqliteEngine.open(fresh.file)
-    const rows = raw
-      .prepare(`SELECT key, value FROM ${INDEX_TABLE} WHERE principal = ?`)
-      .all(PRINCIPAL) as { key: string; value: string }[]
-    raw.close()
-    const buckets = rows
-      .filter((row) => row.key.startsWith('b'))
-      .map((row) => ({ key: row.key, v: JSON.parse(row.value) as { k: string[]; n?: number } }))
-    expect(buckets.length).toBeLessThanOrEqual(2 * INDEX_BUCKETS)
-    for (const row of buckets) {
+    const written = indexRows(fresh.file)
+    expect(written.buckets.length).toBeLessThanOrEqual(2 * INDEX_BUCKETS)
+    for (const row of written.buckets) {
       expect(row.v.n, row.key).toBe(2 * INDEX_BUCKETS)
       expect(row.v.k.length, row.key).toBeLessThan(3 * BUCKET_RECORDS)
     }
-    expect(buckets.reduce((sum, row) => sum + row.v.k.length, 0)).toBe(MANY - 1)
+    expect(written.journal.map((row) => [row.v.k, row.v.d ?? []])).toEqual([
+      [[`${ISSUE}\u0000H7`], []],
+      [[], [`${ISSUE}\u0000H8`]],
+    ])
     const again = await open(() => sqliteEngine.open(fresh.file))
-    const reopened = again.viewFor(PRINCIPAL).cache
-    const index = reopened.readDiskIndex()
-    expect(index.bucketCount).toBe(2 * INDEX_BUCKETS)
-    expect(index.recordCount).toBe(MANY - 1)
-    expect(index.record(`${ISSUE}\u0000H7`)).toMatchObject({ seq: 2, level: 'stub' })
-    expect(index.record(`${ISSUE}\u0000H8`)).toBeUndefined()
-    expect(reopened.readRow(ISSUE, 'H7')).toMatchObject({ part: 'stub', asOf: 2 })
-    expect(reopened.readRow(ISSUE, 'H8')).toBeUndefined()
-    expect(reopened.readRow(ISSUE, `H${MANY - 1}`)?.part).toBe('stub')
+    expectHistory(again.viewFor(PRINCIPAL).cache)
+    again.foldIndexJournals()
     again.close()
+    const folded = indexRows(fresh.file)
+    expect(folded.journal).toEqual([])
+    expect(folded.buckets.reduce((sum, row) => sum + row.v.k.length, 0)).toBe(MANY - 1)
+    const last = await open(() => sqliteEngine.open(fresh.file))
+    expectHistory(last.viewFor(PRINCIPAL).cache)
+    last.close()
+  })
+
+  it('opens the format before POD-7160 (256 buckets, no count) with every stub-only record (POD-7170)', async () => {
+    const fresh = freshDatabaseFile()
+    cleanups.push(fresh.cleanup)
+    const store = await open(() => sqliteEngine.open(fresh.file))
+    const { cache } = store.viewFor(PRINCIPAL)
+    cache.applyAtomic({
+      operations: Array.from({ length: 600 }, (_, n) => historyStub(n, 1)),
+      cursor: at(1),
+    })
+    // Folded into its buckets, as the older build kept every record.
+    store.foldIndexJournals()
+    store.close()
+    expect(indexRows(fresh.file).journal).toEqual([])
+    // The older build wrote the same bucket rows, without their count.
+    const raw = sqliteEngine.open(fresh.file)
+    for (const row of indexRows(fresh.file).buckets) {
+      const { n: _count, ...older } = row.v
+      raw
+        .prepare(`UPDATE ${INDEX_TABLE} SET value = ? WHERE principal = ? AND key = ?`)
+        .run(JSON.stringify(older), PRINCIPAL, row.key)
+    }
+    raw.close()
+    expect(indexRows(fresh.file).buckets.every((row) => row.v.n === undefined)).toBe(true)
+    const reopened = await open(() => sqliteEngine.open(fresh.file))
+    const view = reopened.viewFor(PRINCIPAL).cache
+    expect(view.readDiskIndex().bucketCount).toBe(INDEX_BUCKETS)
+    expect(view.readDiskIndex().recordCount).toBe(600)
+    for (let n = 0; n < 600; n += 1)
+      expect(view.readRow(ISSUE, `H${n}`)?.part, `H${n}`).toBe('stub')
+    view.applyAtomic({ operations: [historyStub(9, 2)], cursor: at(2) })
+    reopened.close()
+    const after = await open(() => sqliteEngine.open(fresh.file))
+    expect(after.viewFor(PRINCIPAL).cache.readRow(ISSUE, 'H9')).toMatchObject({ asOf: 2 })
+    expect(after.viewFor(PRINCIPAL).cache.readDiskIndex().recordCount).toBe(600)
+    after.close()
   })
 })

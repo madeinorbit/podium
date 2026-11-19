@@ -25,6 +25,8 @@ import {
   INDEX_BUCKETS,
   INDEX_HASHES,
   indexChanges,
+  JOURNAL_FOLD_ROWS,
+  planIndexWrite,
   retainedComesWith,
   type StoredBucket,
 } from './disk-index'
@@ -347,6 +349,66 @@ describe('the index buckets (POD-7160)', () => {
     index.publish(draft)
     expect(changes.rebucket).toBe(false)
     expect(INDEX_HASHES.count).toBeLessThanOrEqual(changed)
+  })
+
+  it('writes one journal row per commit, and folds the journal into its buckets when it is full (POD-7160)', () => {
+    const index = new DiskIndex()
+    const rows = new Map<string, EntityRecord>()
+    const commit = (change: (draft: DiskIndexDraft) => void, fold = false) => {
+      const draft = new DiskIndexDraft(index)
+      change(draft)
+      const writes = planIndexWrite(draft, indexChanges(draft), (key) => rows.get(key), fold)
+      index.publish(draft)
+      return writes
+    }
+    const put = (draft: DiskIndexDraft, id: string, seq: number): void => {
+      const value = row(id, seq)
+      rows.set(`issueProjection\u0000${id}`, value)
+      draft.row(`issueProjection\u0000${id}`, value)
+    }
+    // A first commit of 300 records: one journal row, no bucket.
+    const first = commit((draft) => {
+      for (let n = 0; n < 300; n += 1) put(draft, `I${n}`, 1)
+    })
+    expect(first.deleteAll).toBe(false)
+    expect(first.puts.map(([key]) => key)).toEqual(['j000000000000'])
+    expect(first.puts[0]?.[1].k.length).toBe(300)
+    // Then one row per commit, each with only what it changed.
+    for (let n = 1; n < JOURNAL_FOLD_ROWS; n += 1) {
+      const writes = commit((draft) => {
+        put(draft, `I${n}`, n + 1)
+        if (n === 5) draft.row('issueProjection\u0000I200', null)
+      })
+      expect(writes.puts.length).toBe(1)
+      expect(writes.puts[0]?.[0].startsWith('j')).toBe(true)
+      expect(writes.puts[0]?.[1].k).toEqual([`issueProjection\u0000I${n}`])
+    }
+    expect(index.journalKeys().size).toBe(JOURNAL_FOLD_ROWS)
+    // Full: the next commit folds. Every journaled record's bucket, the journal rows deleted.
+    const fold = commit((draft) => put(draft, 'I299', 99))
+    expect(fold.deletes.filter((key) => key.startsWith('j')).length).toBe(JOURNAL_FOLD_ROWS)
+    expect(fold.puts.every(([key]) => key.startsWith('b'))).toBe(true)
+    expect(index.journalKeys().size).toBe(0)
+    // What the fold wrote is every record, each bucket as encoding it whole gives.
+    const written = new Map(fold.puts)
+    let records = 0
+    for (const [key, stored] of written) {
+      const bucket = Number(key.slice(1))
+      const whole = encodeBucket(
+        [...index.bucketKeys(bucket)].map(
+          (record) => [record, index.record(record) as never, rows.get(record)] as const,
+        ),
+        index.bucketCount,
+      )
+      expect(cells(stored), key).toEqual(cells(whole))
+      records += stored.k.length
+    }
+    expect(records).toBe(299)
+    // And an idle fold of a short journal does the same.
+    commit((draft) => put(draft, 'I7', 200))
+    const idle = commit(() => {}, true)
+    expect(idle.deletes).toEqual(['j000000000064'])
+    expect(index.journalKeys().size).toBe(0)
   })
 
   it('doubles the count of buckets past BUCKET_RECORDS each, writing every bucket once', () => {

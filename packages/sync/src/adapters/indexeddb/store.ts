@@ -92,17 +92,19 @@ import {
   type DiskIndexReader,
   DiskOnlyWrites,
   decodeBucket,
+  decodeJournal,
   decodeMarkerStates,
   encodeBucket,
-  encodeBucketAfter,
   heldByNothing,
   INDEX_BUCKETS,
   INDEX_BUILT_META_KEY,
   indexBucketKey,
   indexChanges,
   installResidentRows,
+  isJournalKey,
   loadInstancesFromDisk,
   markerWithState,
+  planIndexWrite,
   policyInstanceKeys,
   type RecordEntry,
   splitRowKey,
@@ -167,6 +169,8 @@ const rowKey = (entity: string, entityId: string): string => `${entity}\u0000${e
 
 /** The format of the disk index this build writes; a store without it is rebuilt from its rows. */
 const INDEX_FORMAT = 1
+/** POD-7160 — a quiet tick after the last journal row, then the journal folds into its buckets. */
+const INDEX_FOLD_IDLE_MS = 2_000
 /** The principal of store-wide metadata rows (no principal's view reads it). */
 const STORE_PRINCIPAL = ''
 /** The upper bound of every string key that starts with a given prefix. */
@@ -252,6 +256,8 @@ interface SpanDraft {
   readonly indexes: Map<string, DiskIndexDraft>
   /** Principal → the rows this draft writes to disk and not to memory (POD-7160). */
   readonly diskOnly: Map<string, DiskOnlyWrites>
+  /** POD-7160 — principals whose index journal this draft folds into its buckets (an idle tick). */
+  readonly foldIndex: Set<string>
   /** The index's durable rows were added to `ops` (once, at commit). */
   indexWritten: boolean
   readonly outbox: Map<string, StoredOutboxRecord[]>
@@ -354,6 +360,7 @@ const newDraft = (): SpanDraft => ({
   metas: new Map(),
   indexes: new Map(),
   diskOnly: new Map(),
+  foldIndex: new Set(),
   indexWritten: false,
   outbox: new Map(),
   ops: [],
@@ -688,6 +695,7 @@ export class IndexedDbSyncStore {
 
   close(): void {
     this.closeRequested = true
+    if (this.foldTimer !== undefined) clearTimeout(this.foldTimer)
     this.db.close()
   }
 
@@ -1082,6 +1090,66 @@ export class IndexedDbSyncStore {
     for (const [principal, rows] of draft.outbox) this.outboxRows.set(principal, rows)
   }
 
+  /** POD-7160 — the journal rows read at open, in commit order; `undefined` when one cannot be read. */
+  private decodeJournals(
+    rows: readonly { principal: string; key: string; value: unknown }[],
+  ):
+    | { principal: string; key: string; entries: DecodedEntry[]; removed: readonly string[] }[]
+    | undefined {
+    const out: {
+      principal: string
+      key: string
+      entries: DecodedEntry[]
+      removed: readonly string[]
+    }[] = []
+    for (const row of [...rows].sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))) {
+      const journal = decodeJournal(row.value)
+      if (journal === undefined) return undefined
+      out.push({ principal: row.principal, key: row.key, ...journal })
+    }
+    return out
+  }
+
+  /** POD-7160 — principals whose journal waits for the idle fold. */
+  private readonly foldPending = new Set<string>()
+  private foldTimer: ReturnType<typeof setTimeout> | undefined
+
+  /** POD-7160 — fold a journal once the store has been quiet for a tick (POD-7161 will own idle). */
+  private scheduleIndexFold(principal: string): void {
+    this.foldPending.add(principal)
+    if (this.foldTimer !== undefined) clearTimeout(this.foldTimer)
+    this.foldTimer = setTimeout(() => {
+      this.foldTimer = undefined
+      this.foldIndexJournals()
+    }, INDEX_FOLD_IDLE_MS)
+    ;(this.foldTimer as { unref?: () => void }).unref?.()
+  }
+
+  /**
+   * POD-7160 — fold every waiting index journal into its buckets now, in one
+   * transaction: the buckets its records land in are written and its rows
+   * deleted. An idle tick calls it; a failure leaves the journal for the next
+   * commit, which folds it once it is full.
+   */
+  foldIndexJournals(): void {
+    const principals = [...this.foldPending].filter(
+      (principal) => this.indexOf(principal).journalKeys().size > 0,
+    )
+    this.foldPending.clear()
+    if (principals.length === 0 || this.mode !== 'durable') return
+    try {
+      this.autocommitEager((draft) => {
+        for (const principal of principals) {
+          this.indexDraft(draft, principal)
+          draft.foldIndex.add(principal)
+        }
+        draft.touchedCache = true
+      })
+    } catch {
+      // Left for the next commit.
+    }
+  }
+
   /**
    * POD-7159 — the durable rows of a draft's index changes, one per key, in
    * the same native transaction as the rows they describe.
@@ -1092,38 +1160,34 @@ export class IndexedDbSyncStore {
     for (const [principal, index] of draft.indexes) {
       const live = this.indexOf(principal)
       const changes = indexChanges(index)
-      // POD-7160: a re-bucket writes every bucket again, after the old rows go.
-      if (changes.clearAll || changes.rebucket) {
+      // POD-7160: one journal row per commit; a clear or a re-bucket writes
+      // every bucket again after the old rows go, a fold the journal's buckets.
+      const writes = planIndexWrite(
+        index,
+        changes,
+        (key, entry) => this.rowForIndex(draft, principal, key, entry),
+        draft.foldIndex.has(principal),
+      )
+      if (writes.deleteAll) {
         const range = this.options.keyRange?.bound([principal, ''], [principal, KEY_END])
         if (range !== undefined) draft.ops.push({ kind: 'delete', store: INDEX_STORE, key: range })
-        else
+        else {
+          const keys = [...live.journalKeys()]
           for (let bucket = 0; bucket < Math.max(live.bucketCount, INDEX_BUCKETS); bucket += 1)
-            draft.ops.push({
-              kind: 'delete',
-              store: INDEX_STORE,
-              key: [principal, indexBucketKey(bucket)],
-            })
-      }
-      // A bucket a record of it changed in is written in its final state:
-      // patched when this session wrote it before (POD-7160).
-      for (const bucket of changes.buckets) {
-        const stored = encodeBucketAfter(index, changes, bucket, (key, entry) =>
-          this.rowForIndex(draft, principal, key, entry),
-        )
-        if (stored === undefined) {
-          draft.ops.push({
-            kind: 'delete',
-            store: INDEX_STORE,
-            key: [principal, indexBucketKey(bucket)],
-          })
-          continue
+            keys.push(indexBucketKey(bucket))
+          for (const key of keys)
+            draft.ops.push({ kind: 'delete', store: INDEX_STORE, key: [principal, key] })
         }
+      }
+      for (const key of writes.deletes)
+        draft.ops.push({ kind: 'delete', store: INDEX_STORE, key: [principal, key] })
+      for (const [key, v] of writes.puts)
         draft.ops.push({
           kind: 'put',
           store: INDEX_STORE,
-          value: { principal, key: indexBucketKey(bucket), v: stored } satisfies StoredIndexRow,
+          value: { principal, key, v } satisfies StoredIndexRow,
         })
-      }
+      if (index.indexWrite?.kind === 'journal') this.scheduleIndexFold(principal)
       // An instance's state rides in its marker row.
       if (changes.instances.size > 0) {
         const markers = (draft.metas.get(principal) ?? this.metaOf(principal)).instances
@@ -1251,13 +1315,21 @@ export class IndexedDbSyncStore {
     const buckets: { principal: string; entries: DecodedEntry[] }[] = []
     const counts = new Map<string, number>()
     let readable = built
+    const journals: { principal: string; key: string; value: unknown }[] = []
     for (const row of stored) {
       if (row.principal === STORE_PRINCIPAL) continue
+      // POD-7160: a journal row applies over the buckets, after them.
+      if (isJournalKey(row.key)) {
+        journals.push({ principal: row.principal, key: row.key, value: row.v })
+        continue
+      }
       const entries = decodeBucket(row.v)
       if (entries === undefined) readable = false
       else buckets.push({ principal: row.principal, entries })
       counts.set(row.principal, Math.max(counts.get(row.principal) ?? 0, storedBucketCount(row.v)))
     }
+    const journalRows = this.decodeJournals(journals)
+    if (journalRows === undefined) readable = false
     const stubsInIndex = meta.some(isStubsInIndexFlag)
     if (!readable) {
       // POD-7170: a store this build wrote keeps stub-level records in the
@@ -1288,6 +1360,27 @@ export class IndexedDbSyncStore {
         if (stubRow !== undefined) mirror.set(key, stubRow)
         else if (stub !== undefined) mirror.putStubOf(entity, entityId, stub)
       }
+    // POD-7160: the journal rows, in commit order, over the buckets.
+    for (const { principal, key, entries, removed } of journalRows ?? []) {
+      const index = this.indexOf(principal)
+      const mirror = this.mirrorOf(principal)
+      for (const { key: record, entry, stub, stubRow } of entries) {
+        const { entity, entityId } = splitRowKey(record)
+        if (!this.retainsEntity(entity)) continue
+        index.putRecord(record, entry)
+        if (stubRow !== undefined) mirror.set(record, stubRow)
+        else {
+          mirror.unload(record)
+          if (stub !== undefined) mirror.putStubOf(entity, entityId, stub)
+        }
+      }
+      for (const record of removed) {
+        index.dropRecord(record)
+        mirror.delete(record)
+      }
+      index.noteJournalRow(key, [...entries.map((entry) => entry.key), ...removed])
+      this.scheduleIndexFold(principal)
+    }
     // Old caches remain readable: retire excluded rows before the first read.
     // Their index entries go with the next write of their bucket.
     if (excluded.length > 0) {

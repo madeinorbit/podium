@@ -40,6 +40,14 @@
  * feed change rewrites a bucket of bounded size whatever the disk holds. A
  * bucket's rows are encoded once and patched by the records that change.
  *
+ * THE JOURNAL (POD-7160). A commit does not rewrite the buckets its records
+ * land in (a frame of 100 changes touches about 100 of them): it writes ONE
+ * journal row with the entries it changed. The open reads the journal rows
+ * with the same getAll and applies them over the buckets, in order. Past
+ * `JOURNAL_FOLD_ROWS` rows, or on an idle tick, a commit folds the journal:
+ * it writes the buckets the journaled records land in and deletes the journal
+ * rows, in one transaction.
+ *
  * A dropped instance's key is left in its members' holders rather than
  * rewriting every one of them: an instance's members are a superset of what
  * its rule selects, never fewer, and a reader evaluates the rule over the rows
@@ -105,6 +113,12 @@ export const isComesWithHolder = (holder: string): boolean => holder.startsWith(
 export const INDEX_BUCKETS = 256
 /** POD-7160 — about this many records per bucket: past it, the count of buckets doubles. */
 export const BUCKET_RECORDS = 64
+/** POD-7160 — past this many journal rows, the next commit folds the journal into its buckets. */
+export const JOURNAL_FOLD_ROWS = 64
+/** The key of a journal row, in commit order. */
+export const indexJournalKey = (seq: number): string => `j${seq.toString().padStart(12, '0')}`
+/** Whether an index row of a principal is a journal row (not a bucket). */
+export const isJournalKey = (key: string): boolean => key.startsWith('j')
 
 /** The count of buckets an index of `records` records keeps, never fewer than `from`. */
 export function bucketCountFor(records: number, from = INDEX_BUCKETS): number {
@@ -309,6 +323,10 @@ export class DiskIndex implements DiskIndexReader {
    * the oldest dropped past `ENCODED_BUCKETS`.
    */
   private readonly encoded = new Map<number, StoredBucket>()
+  /** POD-7160 — the journal rows on disk, and the records they hold (with their bucket). */
+  private readonly journalRows = new Set<string>()
+  private journalSeq = 0
+  private readonly journaled = new Map<string, number>()
   private readonly states = new Map<string, InstanceState>()
   private readonly memory = new Set<string>()
   private readonly lists = new HolderLists()
@@ -337,6 +355,34 @@ export class DiskIndex implements DiskIndexReader {
     return bucketOf(key, this.count)
   }
 
+  /** The journal rows on disk (their keys). */
+  journalKeys(): ReadonlySet<string> {
+    return this.journalRows
+  }
+
+  /** The next journal row's number. */
+  get nextJournal(): number {
+    return this.journalSeq
+  }
+
+  /** The records the journal holds, each with its bucket. */
+  journalRecords(): ReadonlyMap<string, number> {
+    return this.journaled
+  }
+
+  /** A journal row read at open: its records are the journal's until a fold. */
+  noteJournalRow(key: string, records: Iterable<string>): void {
+    this.journalRows.add(key)
+    const seq = Number(key.slice(1))
+    if (Number.isSafeInteger(seq) && seq >= this.journalSeq) this.journalSeq = seq + 1
+    for (const record of records) this.journaled.set(record, bucketOf(record, this.count))
+  }
+
+  /** Forget a record (a journal row read at open removed it). */
+  dropRecord(key: string): void {
+    this.setRecord(key, null)
+  }
+
   /** A bucket as this session last wrote it; `undefined` when it has not, or was re-bucketed. */
   encodedBucket(bucket: number): StoredBucket | undefined {
     return this.encoded.get(bucket)
@@ -349,6 +395,7 @@ export class DiskIndex implements DiskIndexReader {
     this.buckets = Array.from({ length: count }, () => new Set<string>())
     for (const key of this.entries.keys()) this.buckets[bucketOf(key, count)]?.add(key)
     this.encoded.clear()
+    for (const key of this.journaled.keys()) this.journaled.set(key, bucketOf(key, count))
   }
 
   record(key: string): RecordEntry | undefined {
@@ -427,6 +474,8 @@ export class DiskIndex implements DiskIndexReader {
     for (const bucket of this.buckets) bucket.clear()
     this.setBucketCount(INDEX_BUCKETS)
     this.encoded.clear()
+    this.journalRows.clear()
+    this.journaled.clear()
     this.states.clear()
     this.memory.clear()
     this.lists.clear()
@@ -476,6 +525,18 @@ export class DiskIndex implements DiskIndexReader {
     // POD-7160: the count of buckets the draft wrote, and the buckets it encoded.
     if (draft.cleared) this.encoded.clear()
     this.setBucketCount(count)
+    // The journal: a full write or a fold ends it; a journal row extends it.
+    const write = draft.indexWrite
+    if (draft.cleared || rebucket || write?.kind === 'fold') {
+      this.journalRows.clear()
+      this.journaled.clear()
+    }
+    if (write?.kind === 'journal') {
+      this.journalRows.add(write.key)
+      this.journalSeq += 1
+      for (const key of write.records)
+        this.journaled.set(key, draft.hashed.get(key) ?? bucketOf(key, this.count))
+    }
     for (const [bucket, stored] of draft.encoded) {
       this.encoded.delete(bucket)
       this.encoded.set(bucket, stored)
@@ -545,6 +606,12 @@ export class DiskIndexDraft {
   readonly encoded = new Map<number, StoredBucket>()
   /** POD-7160 — the bucket each changed record was hashed to (`indexChanges`), reused at publish. */
   readonly hashed = new Map<string, number>()
+  /** POD-7160 — how an adapter wrote this draft's index (`planIndexWrite`). */
+  indexWrite:
+    | { readonly kind: 'journal'; readonly key: string; readonly records: readonly string[] }
+    | { readonly kind: 'fold' }
+    | { readonly kind: 'buckets' }
+    | undefined
   private countAfter: number | undefined
 
   constructor(private readonly base: DiskIndex) {}
@@ -808,10 +875,11 @@ export function encodeBucketAfter(
   changes: IndexChanges,
   bucket: number,
   row: (key: string, entry: RecordEntry) => EntityRecord | undefined,
+  /** The records that changed in the bucket since it was written (a fold: the journal's too). */
+  changed: readonly string[] = changes.changed.get(bucket) ?? [],
 ): StoredBucket | undefined {
   const base = draft.index
   const count = changes.bucketCount
-  const changed = changes.changed.get(bucket) ?? []
   const cached =
     changes.clearAll || changes.rebucket || draft.cleared ? undefined : base.encodedBucket(bucket)
   let stored: StoredBucket
@@ -859,6 +927,96 @@ export function encodeBucketAfter(
   }
   draft.encoded.set(bucket, stored)
   return stored
+}
+
+/** A stored journal row: the entries a commit changed, and the records it removed. */
+export interface StoredJournal extends StoredBucket {
+  readonly d?: readonly string[]
+}
+
+/** What an adapter writes for a draft's index records: rows to put and rows to delete. */
+export interface IndexRowWrites {
+  /** Every index row of the principal goes first (a clear, a re-bucket). */
+  readonly deleteAll: boolean
+  readonly puts: readonly (readonly [string, StoredBucket | StoredJournal])[]
+  readonly deletes: readonly string[]
+}
+
+/**
+ * POD-7160 — the index rows a draft writes, for every adapter. A clear or a
+ * re-bucket writes every bucket. Otherwise one journal row holds the records
+ * it changed, unless the journal is full or `fold` asks (an idle tick): then
+ * the buckets of every journaled and changed record are written and the
+ * journal rows deleted, in the same transaction.
+ */
+export function planIndexWrite(
+  draft: DiskIndexDraft,
+  changes: IndexChanges,
+  row: (key: string, entry: RecordEntry) => EntityRecord | undefined,
+  fold = false,
+): IndexRowWrites {
+  const base = draft.index
+  const puts: (readonly [string, StoredBucket | StoredJournal])[] = []
+  const deletes: string[] = []
+  const bucketRows = (changed: ReadonlyMap<number, readonly string[]>): void => {
+    for (const [bucket, keys] of changed) {
+      const stored = encodeBucketAfter(draft, changes, bucket, row, keys)
+      if (stored === undefined) deletes.push(indexBucketKey(bucket))
+      else puts.push([indexBucketKey(bucket), stored])
+    }
+  }
+  if (changes.clearAll || changes.rebucket || draft.cleared) {
+    bucketRows(changes.changed)
+    draft.indexWrite = { kind: 'buckets' }
+    return { deleteAll: true, puts, deletes }
+  }
+  const journal = base.journalKeys()
+  if (!fold && journal.size < JOURNAL_FOLD_ROWS) {
+    if (changes.changed.size === 0) return { deleteAll: false, puts, deletes }
+    const out = emptyColumns()
+    const removed: string[] = []
+    const records: string[] = []
+    for (const keys of changes.changed.values())
+      for (const key of keys) {
+        records.push(key)
+        const entry = draft.record(key)
+        if (entry === undefined) removed.push(key)
+        else pushColumns(out, entryColumns(key, entry, row(key, entry)))
+      }
+    const key = indexJournalKey(base.nextJournal)
+    draft.indexWrite = { kind: 'journal', key, records }
+    puts.push([key, removed.length === 0 ? out : { ...out, d: removed }])
+    return { deleteAll: false, puts, deletes }
+  }
+  // The fold: every journaled record's bucket, and this commit's.
+  if (journal.size === 0 && changes.changed.size === 0) return { deleteAll: false, puts, deletes }
+  const changed = new Map<number, string[]>()
+  for (const [bucket, keys] of changes.changed) changed.set(bucket, [...keys])
+  for (const [key, bucket] of base.journalRecords()) {
+    const list = changed.get(bucket)
+    if (list === undefined) changed.set(bucket, [key])
+    else if (!list.includes(key)) list.push(key)
+  }
+  bucketRows(changed)
+  deletes.push(...journal)
+  draft.indexWrite = { kind: 'fold' }
+  return { deleteAll: false, puts, deletes }
+}
+
+/**
+ * A journal row's records, as the open applies them over the buckets: the
+ * entries it wrote, and the records it removed. `undefined` when it cannot
+ * be read (the store is rebuilt).
+ */
+export function decodeJournal(
+  value: unknown,
+): { readonly entries: DecodedEntry[]; readonly removed: readonly string[] } | undefined {
+  const entries = decodeBucket(value)
+  if (entries === undefined) return undefined
+  const d = (value as { readonly d?: unknown }).d
+  if (d !== undefined && (!Array.isArray(d) || d.some((key) => typeof key !== 'string')))
+    return undefined
+  return { entries, removed: (d as readonly string[] | undefined) ?? [] }
 }
 
 // ---------------------------------------------------------------------------

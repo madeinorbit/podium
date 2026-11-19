@@ -233,7 +233,35 @@ describe('IndexedDB schema 1 to 2: the disk index (POD-7159)', () => {
       store.close()
     })
 
-  it('grows its buckets with the disk, patches a bucket per change, and reads them back after a reopen (POD-7160)', async () => {
+  /** The principal's index rows on disk: buckets and journal rows. */
+  const indexRows = async (factory: IdbFactoryLike) => {
+    const rows = ((await readDurable(factory))['disk-index'] ?? []) as {
+      readonly principal: string
+      readonly key: string
+      readonly v: {
+        readonly k: readonly string[]
+        readonly n?: number
+        readonly d?: readonly string[]
+      }
+    }[]
+    const mine = rows.filter((row) => row.principal === PRINCIPAL)
+    return {
+      buckets: mine.filter((row) => row.key.startsWith('b')),
+      journal: mine.filter((row) => row.key.startsWith('j')),
+    }
+  }
+  const expectHistory = (cache: ReturnType<IndexedDbSyncStore['viewFor']>['cache']): void => {
+    const index = cache.readDiskIndex()
+    expect(index.bucketCount).toBe(2 * INDEX_BUCKETS)
+    expect(index.recordCount).toBe(MANY - 1)
+    expect(index.record(`${ISSUE}\u0000H7`)).toMatchObject({ seq: 2, level: 'stub' })
+    expect(index.record(`${ISSUE}\u0000H8`)).toBeUndefined()
+    expect(cache.readRow(ISSUE, 'H7')).toMatchObject({ part: 'stub', asOf: 2 })
+    expect(cache.readRow(ISSUE, 'H8')).toBeUndefined()
+    expect(cache.readRow(ISSUE, `H${MANY - 1}`)?.part).toBe('stub')
+  }
+
+  it('grows its buckets with the disk, journals each later commit, folds the journal, and reads all of it back (POD-7160)', async () => {
     const factory = freshFactory()
     const store = await open(factory)
     const { cache } = store.viewFor(PRINCIPAL)
@@ -250,27 +278,77 @@ describe('IndexedDB schema 1 to 2: the disk index (POD-7159)', () => {
     })
     await store.settled()
     store.close()
-    const durable = (await readDurable(factory))['disk-index'] as {
-      readonly key: string
-      readonly v: { readonly k: readonly string[]; readonly n?: number }
-    }[]
-    const buckets = durable.filter((row) => row.key.startsWith('b'))
-    expect(buckets.length).toBeLessThanOrEqual(2 * INDEX_BUCKETS)
-    for (const row of buckets) {
+    // The re-bucket wrote every bucket, each of bounded size; the two commits after it one journal row each.
+    const written = await indexRows(factory)
+    expect(written.buckets.length).toBeLessThanOrEqual(2 * INDEX_BUCKETS)
+    for (const row of written.buckets) {
       expect(row.v.n, row.key).toBe(2 * INDEX_BUCKETS)
       expect(row.v.k.length, row.key).toBeLessThan(3 * BUCKET_RECORDS)
     }
-    expect(buckets.reduce((sum, row) => sum + row.v.k.length, 0)).toBe(MANY - 1)
+    expect(written.journal.map((row) => [row.v.k, row.v.d ?? []])).toEqual([
+      [[`${ISSUE}\u0000H7`], []],
+      [[], [`${ISSUE}\u0000H8`]],
+    ])
+    // The open applies the journal over the buckets.
     const again = await open(factory)
-    const reopened = again.viewFor(PRINCIPAL).cache
-    const index = reopened.readDiskIndex()
-    expect(index.bucketCount).toBe(2 * INDEX_BUCKETS)
-    expect(index.recordCount).toBe(MANY - 1)
-    expect(index.record(`${ISSUE}\u0000H7`)).toMatchObject({ seq: 2, level: 'stub' })
-    expect(index.record(`${ISSUE}\u0000H8`)).toBeUndefined()
-    expect(reopened.readRow(ISSUE, 'H7')).toMatchObject({ part: 'stub', asOf: 2 })
-    expect(reopened.readRow(ISSUE, 'H8')).toBeUndefined()
-    expect(reopened.readRow(ISSUE, `H${MANY - 1}`)?.part).toBe('stub')
+    expectHistory(again.viewFor(PRINCIPAL).cache)
+    // The idle fold writes the journal's buckets and deletes its rows, in one transaction.
+    again.foldIndexJournals()
+    await again.settled()
     again.close()
+    const folded = await indexRows(factory)
+    expect(folded.journal).toEqual([])
+    expect(folded.buckets.reduce((sum, row) => sum + row.v.k.length, 0)).toBe(MANY - 1)
+    const last = await open(factory)
+    expectHistory(last.viewFor(PRINCIPAL).cache)
+    last.close()
+  })
+
+  it('opens the format before POD-7160 (256 buckets, no count) with every stub-only record (POD-7170)', async () => {
+    const factory = freshFactory()
+    const store = await open(factory)
+    const { cache } = store.viewFor(PRINCIPAL)
+    cache.applyAtomic({
+      operations: Array.from({ length: 600 }, (_, n) => historyStub(n, 1)),
+      cursor: at(1),
+    })
+    // Folded into its buckets, as the older build kept every record.
+    store.foldIndexJournals()
+    await store.settled()
+    store.close()
+    expect((await indexRows(factory)).journal).toEqual([])
+    // The older build wrote the same bucket rows, without their count.
+    const buckets = (await indexRows(factory)).buckets
+    const db = await new Promise<IdbDatabaseLike>((resolve, reject) => {
+      const request = factory.open(REPLICA_DB_NAME)
+      request.onsuccess = () => resolve(request.result)
+      request.onerror = () => reject(request.error ?? new Error('open failed'))
+    })
+    const tx = db.transaction(['disk-index'], 'readwrite')
+    const done = new Promise<void>((resolve, reject) => {
+      tx.oncomplete = () => resolve()
+      tx.onerror = () => reject(tx.error ?? new Error('rewrite failed'))
+    })
+    for (const row of buckets) {
+      const { n: _count, ...older } = row.v
+      tx.objectStore('disk-index').put({ ...row, v: older })
+    }
+    await done
+    db.close()
+    expect((await indexRows(factory)).buckets.every((row) => row.v.n === undefined)).toBe(true)
+    const reopened = await open(factory)
+    const view = reopened.viewFor(PRINCIPAL).cache
+    expect(view.readDiskIndex().bucketCount).toBe(INDEX_BUCKETS)
+    expect(view.readDiskIndex().recordCount).toBe(600)
+    for (let n = 0; n < 600; n += 1)
+      expect(view.readRow(ISSUE, `H${n}`)?.part, `H${n}`).toBe('stub')
+    // And it keeps writing them: a change lands, and reads back after a reopen.
+    view.applyAtomic({ operations: [historyStub(9, 2)], cursor: at(2) })
+    await reopened.settled()
+    reopened.close()
+    const after = await open(factory)
+    expect(after.viewFor(PRINCIPAL).cache.readRow(ISSUE, 'H9')).toMatchObject({ asOf: 2 })
+    expect(after.viewFor(PRINCIPAL).cache.readDiskIndex().recordCount).toBe(600)
+    after.close()
   })
 })

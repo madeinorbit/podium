@@ -49,9 +49,10 @@ import { actorUser, asUserId } from '@podium/model'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { OutboxRecord } from '../../outbox/records'
 import { instanceKey, instanceMetaKey } from '../../replica/cache-state'
+import { bucketOf } from '../../replica/disk-index'
 import type { InstanceOperation } from '../../replica/ports'
 import type { Cursor } from '../../replica/types'
-import { META_TABLE } from './schema'
+import { INDEX_TABLE, META_TABLE } from './schema'
 import { type DurabilityDegradation, type SqliteStoreView, SqliteSyncStore } from './store'
 import { FaultySqlDatabase, freshDatabaseFile, readDurable, sqliteEngine } from './test-support'
 
@@ -427,4 +428,115 @@ describe('mobile SQLite adapter — kill between writes, at every boundary', () 
     store.close()
     expectPost()
   })
+})
+
+// ─── The index journal's fold (POD-7160) ──────────────────────────────────────
+
+/**
+ * Three commits leave three journal rows over 40 records (two changed, one
+ * removed); the fold writes the buckets those records land in and deletes the
+ * journal rows, in ONE transaction. Killed at any of its writes, the journal
+ * stays whole and the store reads the same index after a restart.
+ */
+const FOLD_ISSUE = 'issueProjection'
+const foldRow = (id: string, seq: number) => ({
+  kind: 'upsert' as const,
+  entity: FOLD_ISSUE,
+  entityId: id,
+  value: { v: seq },
+  provenance: { seq },
+  asOf: seq,
+})
+const foldAt = (seq: number): Cursor => ({ ...CURSOR_1, seq })
+const FOLD_KEYS = Array.from({ length: 40 }, (_, n) => `${FOLD_ISSUE}\u0000R${n}`)
+/** The fold's writes: a row per bucket the 40 records land in, and the three journal deletes. */
+const FOLD_WRITES = new Set(FOLD_KEYS.map((key) => bucketOf(key))).size + 3
+const FOLD_POINTS = [0, 1, Math.floor(FOLD_WRITES / 2), FOLD_WRITES - 1]
+
+describe('mobile SQLite adapter — the index journal fold, killed at every write (POD-7160)', () => {
+  let file: string
+  let cleanup: () => void
+  let faulty: FaultySqlDatabase
+  beforeEach(() => {
+    const fresh = freshDatabaseFile()
+    file = fresh.file
+    cleanup = fresh.cleanup
+  })
+  afterEach(() => {
+    cleanup()
+  })
+  const open = async (): Promise<SqliteSyncStore> =>
+    await SqliteSyncStore.open({
+      openDatabase: () => {
+        faulty = new FaultySqlDatabase(sqliteEngine.open(file))
+        return faulty
+      },
+      deleteDatabase: () => {
+        throw new Error('these cases never poison the file')
+      },
+      onDegraded: () => {},
+    })
+  const journaled = async (): Promise<void> => {
+    const store = await open()
+    const { cache } = store.viewFor(PRINCIPAL)
+    cache.applyAtomic({
+      operations: FOLD_KEYS.map((_, n) => foldRow(`R${n}`, 1)),
+      cursor: foldAt(1),
+    })
+    cache.applyAtomic({ operations: [foldRow('R3', 2), foldRow('R17', 2)], cursor: foldAt(2) })
+    cache.applyAtomic({
+      operations: [{ kind: 'remove', entity: FOLD_ISSUE, entityId: 'R5' }],
+      cursor: foldAt(3),
+    })
+    store.close()
+  }
+  const journalRows = (): number => {
+    const db = sqliteEngine.open(file)
+    const rows = db
+      .prepare(`SELECT key FROM ${INDEX_TABLE} WHERE principal = ?`)
+      .all(PRINCIPAL) as { key: string }[]
+    db.close()
+    return rows.filter((row) => row.key.startsWith('j')).length
+  }
+  const expectIndex = async (): Promise<void> => {
+    const store = await open()
+    const { cache } = store.viewFor(PRINCIPAL)
+    const index = cache.readDiskIndex()
+    expect(index.recordCount).toBe(39)
+    expect(index.record(`${FOLD_ISSUE}\u0000R3`)?.seq).toBe(2)
+    expect(index.record(`${FOLD_ISSUE}\u0000R5`)).toBeUndefined()
+    const rows = await cache.readDiskRows(FOLD_KEYS)
+    const values = new Map(rows.map((row) => [row.entityId, row.value]))
+    expect(values.get('R3')).toEqual({ v: 2 })
+    expect(values.get('R0')).toEqual({ v: 1 })
+    expect(values.has('R5')).toBe(false)
+    store.close()
+  }
+
+  it("POSITIVE CONTROL — the fold writes the journal's buckets and deletes its rows, in one transaction", async () => {
+    await journaled()
+    expect(journalRows()).toBe(3)
+    const store = await open()
+    const before = faulty.writesIssued
+    store.foldIndexJournals()
+    expect(faulty.writesIssued - before).toBe(FOLD_WRITES)
+    store.close()
+    expect(journalRows()).toBe(0)
+    await expectIndex()
+  })
+
+  for (const at of FOLD_POINTS)
+    for (const mode of at === FOLD_WRITES - 1 ? (['deny', 'crash'] as const) : (['deny'] as const))
+      it(`a fold killed at write ${at} (${mode}) leaves the journal whole and the index the same`, async () => {
+        await journaled()
+        const store = await open()
+        const before = faulty.writesIssued
+        faulty.denyWriteAt({ at, mode, error: new Error('power loss') })
+        store.foldIndexJournals()
+        expect(faulty.writesIssued - before).toBe(mode === 'crash' ? FOLD_WRITES : at + 1)
+        expect(faulty.denials).toBe(1)
+        store.close()
+        expect(journalRows()).toBe(3)
+        await expectIndex()
+      })
 })
