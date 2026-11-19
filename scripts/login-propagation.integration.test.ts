@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process'
+import { createHash, randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -158,16 +159,27 @@ describe('real daemon-to-daemon login propagation', () => {
         port: 0,
       })
       const serverUrl = 'ws://127.0.0.1:' + server.port
+      const store = server.registry.sessionStore
+      const ownerUserId = await firstAdminMemberId(store)
       const startFixtureDaemon = async (
         machineId: MachineId,
         homeDir: string,
         label: string,
-      ): Promise<DaemonHandle> =>
-        startDaemon({
+      ): Promise<DaemonHandle> => {
+        // These are already-enrolled legacy peers; pairing is covered by the
+        // supervisor suites. Custody and assignment still come from real rows.
+        const machineToken = randomUUID()
+        await store.machines.upsertMachine({
+          id: machineId,
+          name: label,
+          hostname: label,
+          tokenHash: createHash('sha256').update(machineToken).digest('hex'),
+          ownerUserId,
+          assignment: { server: false, agentExecution: true },
+        })
+        return await startDaemon({
           serverUrl,
-          pairCode: server?.registry.modules.machines.mintPairingCode({
-            ownerUserId: firstAdminMemberId(),
-          }),
+          machineToken,
           machineId,
           identityDir: join(root as string, label + '-identity'),
           backend: 'none',
@@ -177,12 +189,10 @@ describe('real daemon-to-daemon login propagation', () => {
             homeDir,
           },
           metrics: { background: false },
-          hooks: {
-            port: 0,
-            settingsDir: join(root as string, label + '-hooks'),
-          },
+          hooks: { port: 0, settingsDir: join(root as string, label + '-hooks') },
           agentRelay: { port: 0 },
         })
+      }
 
       daemons.push(await startFixtureDaemon(DONOR_ID, donorHome, 'donor'))
       daemons.push(await startFixtureDaemon(TARGET_ID, targetHome, 'target'))

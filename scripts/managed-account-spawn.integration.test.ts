@@ -55,7 +55,8 @@ function openAccountsDatabase() {
   // that boundary avoids coupling a real PTY spawn test to the Bun-only full
   // server migration runner used by SessionStore.
   db.exec(`CREATE TABLE accounts (
-    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL,
+    id TEXT NOT NULL,
     provider TEXT NOT NULL,
     kind TEXT NOT NULL,
     credential TEXT NOT NULL,
@@ -65,10 +66,13 @@ function openAccountsDatabase() {
     owner_user_id TEXT,
     ref TEXT,
     account_key TEXT,
-    shared_with TEXT
+    shared_with TEXT,
+    PRIMARY KEY (workspace_id, id)
   )`)
-  db.exec('CREATE UNIQUE INDEX accounts_owner_ref ON accounts (owner_user_id, ref)')
-  db.exec('CREATE UNIQUE INDEX accounts_owner_account_key ON accounts (owner_user_id, account_key)')
+  db.exec('CREATE UNIQUE INDEX accounts_owner_ref ON accounts (workspace_id, owner_user_id, ref)')
+  db.exec(
+    'CREATE UNIQUE INDEX accounts_owner_account_key ON accounts (workspace_id, owner_user_id, account_key)',
+  )
   return db
 }
 
