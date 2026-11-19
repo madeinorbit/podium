@@ -25,7 +25,7 @@ import {
   ChangeEntityIdField,
   ChangeProvenanceFields,
   ChangeSeqField,
-  ConversationSummaryWire,
+  ConversationRecordWire,
   EffectRecordWire,
   IssueDepProjection,
   IssueGitStateProjection,
@@ -77,7 +77,7 @@ const PAYLOAD_OF_KIND: Record<string, z.ZodTypeAny> = {
   issueGitState: IssueGitStateProjection,
   issueDep: IssueDepProjection,
   repo: RepoProjection,
-  conversation: ConversationSummaryWire,
+  conversation: ConversationRecordWire,
   automation: AutomationWire,
   automationRun: AutomationRunWire,
   shipOrder: ShipOrderProjection,
@@ -142,7 +142,7 @@ describe('the v2 change row composes the shared vocabulary', () => {
 
   it('takes each payload from the model INSTANCE in every arm', () => {
     for (const arm of arms) {
-      expect(innerOf(arm.shape.value)).toBe(PAYLOAD_OF_KIND[kindOf(arm)])
+      expect(innerOf(arm.shape.value), kindOf(arm)).toBe(PAYLOAD_OF_KIND[kindOf(arm)])
     }
   })
 

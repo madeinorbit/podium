@@ -11,7 +11,7 @@ describe('inventory messages (#222)', () => {
         kind: 'claude-code',
         installed: true,
         version: '2.1.0',
-        path: '/home/u/.local/bin/claude',
+        path: '/usr/local/bin/claude',
         login: { state: 'in', account: 'mike@example.com' },
       },
       { kind: 'codex', installed: false, login: { state: 'out' } },
@@ -54,12 +54,23 @@ describe('inventory messages (#222)', () => {
   })
 
   it('rejects an inventory with an unknown os/arch', () => {
-    const bad = {
-      type: 'inventoryReport',
-      machineId: 'm1',
-      inventory: { ...inventory, os: 'win32' },
+    for (const patch of [{ os: 'unknown-os' }, { arch: 'unknown-arch' }]) {
+      const bad = {
+        type: 'inventoryReport',
+        machineId: 'm1',
+        inventory: { ...inventory, ...patch },
+      }
+      expect(() => parseDaemonMessage(encode(bad as never))).toThrow()
     }
-    expect(() => parseDaemonMessage(encode(bad as never))).toThrow()
+  })
+
+  it('round-trips a Windows inventory through the daemon wire', () => {
+    const msg = {
+      type: 'inventoryReport' as const,
+      machineId: asMachineId('m1'),
+      inventory: { ...inventory, os: 'win32' as const },
+    }
+    expect(parseDaemonMessage(encode(msg))).toEqual(msg)
   })
 
   it('defaults tools to [] for a blob persisted before the field existed (#214 back-compat)', () => {
