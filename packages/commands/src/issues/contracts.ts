@@ -1641,7 +1641,7 @@ export const issueEditCommentContract = {
   visibility: ISSUE_VISIBILITY,
   input: editCommentInput,
   policy: WRITE_POLICY,
-  exposure: SERVED_EVERYWHERE,
+  exposure: SERVED_ON_WIRE,
   delivery: WRITE_DELIVERY,
   redaction: ISSUE_REDACTION,
   ownership: CREATES_NOTHING,
@@ -1662,12 +1662,14 @@ export const issueTextRevisionsContract = {
   ...issueCommentsContract,
   name: 'issues.textRevisions',
   input: textRevisionsInput,
+  exposure: SERVED_ON_WIRE,
 } as const satisfies CommandContract
 
 export const issueRestoreTextRevisionContract = {
   ...issueUpdateContract,
   name: 'issues.restoreTextRevision',
   input: restoreTextRevisionInput.merge(EXPECTED_REVISION),
+  exposure: SERVED_ON_WIRE,
 } as const satisfies MutatingCommandContract
 
 export const issueDepAddContract = {
