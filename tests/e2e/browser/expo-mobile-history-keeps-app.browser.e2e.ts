@@ -52,7 +52,9 @@ const routerNavigate = (page: Page, href: string) =>
 
 const onWork = async (page: Page) => {
   await expect(page).toHaveURL(/\/mobile\/work(?:\?|$)/)
-  await expect(page.getByRole('button', { name: 'Search work', exact: true })).toBeVisible()
+  await expect(
+    page.getByLabel('Search work', { exact: true }).filter({ visible: true }).first(),
+  ).toBeVisible()
 }
 const onMission = async (page: Page, id: string) => {
   await expect(page).toHaveURL(new RegExp(`/mobile/mission/${id}(?:\\?|$)`))
@@ -81,7 +83,9 @@ test('back and forward between Work, a mission and its details keep the app and 
   await expect(page.getByRole('tab', { name: 'Work', exact: true })).toBeVisible({
     timeout: 60_000,
   })
-  await expect(page.getByRole('button', { name: 'Search work', exact: true })).toBeVisible()
+  await expect(
+    page.getByLabel('Search work', { exact: true }).filter({ visible: true }).first(),
+  ).toBeVisible()
   // The issue is on the device before the walk, so no screen waits on the feed.
   await routerNavigate(page, `/mission/${id}`)
   await onMission(page, id)
