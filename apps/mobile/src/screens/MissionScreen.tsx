@@ -220,7 +220,7 @@ export const MissionScreen = observer(function MissionScreen() {
       <BootstrapCrossfade resolved={resolved} placeholder={<DetailSkeleton />}>
         {root && screen ? (
           <MissionBody
-            current={current}
+            current={current as unknown as SessionView | undefined}
             currentIssue={currentIssue}
             full={screen.full}
             live={live}

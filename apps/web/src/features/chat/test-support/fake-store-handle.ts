@@ -76,7 +76,10 @@ const keyedHandle = withKeyedInputs({
       if (!Object.hasOwn(snapshot, key))
         Object.defineProperty(snapshot, key, {
           enumerable: true,
-          value: (...args: unknown[]) => selectMockSnapshot((state) => state[key])?.(...args),
+          value: (...args: unknown[]) => {
+            const action = selectMockSnapshot((state) => state[key])
+            return typeof action === 'function' ? Reflect.apply(action, undefined, args) : undefined
+          },
         })
     }
     return snapshot

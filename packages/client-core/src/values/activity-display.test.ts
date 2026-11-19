@@ -45,7 +45,7 @@ it('keeps command executions inline, including a failed inbox command without a 
       multiple: false,
     })
   }
-  const opaque = presentToolBlock({ item: { ...tool(), toolName: 'OpaqueTool', toolInput: {} } })
+  const opaque = presentToolBlock({ item: { ...tool(), toolName: 'OpaqueTool', toolInput: '{}' } })
   expect(opaque.execution).toBeUndefined()
   expect(activitySingletonDisplay(opaque)).toMatchObject({ kind: 'tool', inline: false })
 })

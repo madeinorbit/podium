@@ -583,13 +583,19 @@ describe('the unbranded-ts-id-members item', () => {
     ctx.files[0]!.isTest = true
     // Keep the production population canary alive while this entire test file
     // is excluded; a zero-file synthetic context must still trip that guard.
-    ctx.files.push({
-      file: 'packages/model/src/entities/scaffold.ts',
-      raw: SCAFFOLD,
-      stripped: stripComments(SCAFFOLD),
-      isTest: false,
-    })
-    expect(unbrandedTsIdMembers(ctx)).toHaveLength(0)
+    const withCanary = {
+      ...ctx,
+      files: [
+        ...ctx.files,
+        {
+          file: 'packages/model/src/entities/scaffold.ts',
+          raw: SCAFFOLD,
+          stripped: stripComments(SCAFFOLD),
+          isTest: false,
+        },
+      ],
+    }
+    expect(unbrandedTsIdMembers(withCanary)).toHaveLength(0)
   })
 
   it('counts a raw TypeScript member in neither zod nor drizzle items', () => {

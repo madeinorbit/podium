@@ -1,3 +1,4 @@
+import { asMachineId } from '@podium/model'
 /**
  * GOLDEN TESTS FOR THE WORKFLOWS AGGREGATE — written BEFORE the drizzle
  * conversion, against the synchronous code, so they are the oracle it is judged
@@ -82,7 +83,7 @@ const agentProfile = (id: string, model = 'opus'): AgentProfileWire => ({
   name: id,
   description: '',
   candidates: [{ harness: 'claude-code', model, effort: 'high' }],
-  machineId: 'machine-1',
+  machineId: asMachineId('machine-1'),
   instructions: '',
   createdAt: T0,
   updatedAt: T0,

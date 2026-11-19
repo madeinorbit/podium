@@ -16,9 +16,18 @@ vi.mock('@podium/client-core/react', async (original) => ({
   ...(await original<typeof import('@podium/client-core/react')>()),
   useDeviceState: () => currentOwner,
 }))
-const owners: ReturnType<typeof openOwner>[] = []
+type QuoteOwner = {
+  principal: string
+  basePrefix: string
+  keyPrefix: string
+  ui: ReturnType<typeof fixtureUi>
+  persistence: UiPersistence
+  state: RoutedUiState
+  side: ReturnType<typeof createSideCache>
+}
+const owners: QuoteOwner[] = []
 const mounted = new Set<ReturnType<typeof createRoot>>()
-function openOwner(member = 'alice', workspace = 'workspace-a') {
+function openOwner(member = 'alice', workspace = 'workspace-a'): QuoteOwner {
   const principal = JSON.stringify([workspace, member])
   const basePrefix = 'podium.quote-tests'
   const keyPrefix = principalKeyPrefix(basePrefix, principal)

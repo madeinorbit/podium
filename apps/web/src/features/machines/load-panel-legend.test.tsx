@@ -11,7 +11,13 @@ import '@/test-support/mock-store-action-ports'
  * follows the machine processes topic while visible, releases it on close,
  * and requests a fresh sample through the refresh control.
  */
-import { asMachineId, asSessionId, type MachineId, type SessionMeta } from '@podium/model'
+import {
+  asMachineId,
+  asSessionId,
+  type HostMetricsWire,
+  type MachineId,
+  type SessionMeta,
+} from '@podium/model'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { JSX } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -40,7 +46,9 @@ vi.mock('@/app/header-data', async (original) => {
   return {
     ...actual,
     usePoolPanelMetric: (id: MachineId) =>
-      readFixture((state) => state.hostMetrics.find((metric) => metric.machineId === id)),
+      readFixture((state) =>
+        state.hostMetrics.find((metric: HostMetricsWire) => metric.machineId === id),
+      ),
     usePoolHostAggregate: (id: MachineId) =>
       readFixture((state) => aggregate(state.sessions).forMachine(id)),
   }

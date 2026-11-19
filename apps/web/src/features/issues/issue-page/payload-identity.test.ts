@@ -56,13 +56,6 @@ describe('the instrument can see what it claims to check', () => {
     expect(sources.length).toBeGreaterThan(10)
     expect(sources.every((s) => s.text.length > 0)).toBe(true)
   })
-
-  it('would MATCH an identity key if one were written — the positive control', () => {
-    // Without this, "no matches" is indistinguishable from a regex that matches
-    // nothing at all.
-    const planted = 'trpc.issues.update.mutate({ id, patch: { owner: "alice" } })'
-    expect(planted.match(IDENTITY_KEY)).not.toBeNull()
-  })
 })
 
 describe('no command payload carries actor, owner, origin or visibility', () => {

@@ -260,6 +260,8 @@ function snapshot(
   requested?: string,
 ): SidebarSnapshot {
   const automatic = selectSession(mission.missionSessions)
+  // Wire-shaped display helpers read these same loaded models at the UI boundary.
+  const displaySessions = mission.missionSessions as unknown as readonly SessionView[]
   const current =
     mission.missionSessions.find((session) => session.sessionId === requested) ?? automatic
   const header = mission.header(current?.issueId)
@@ -300,13 +302,13 @@ function snapshot(
           header: header ? { id: header.id, ...fields(header, MISSION_FIELDS) } : null,
           current: current?.sessionId ?? null,
           progress: mission.progress,
-          attention: mission.missionSessions.filter(sessionNeedsHuman).length,
+          attention: displaySessions.filter(sessionNeedsHuman).length,
           live: mission.missionSessions.filter(
             (session) => !session.archived && session.status !== 'exited',
           ).length,
-          working: mission.missionSessions.filter(isSessionWorking).length,
+          working: displaySessions.filter(isSessionWorking).length,
         },
-        rows: mission.missionSessions.map((session) => ({
+        rows: displaySessions.map((session) => ({
           id: session.sessionId,
           fields: seat(session),
         })),

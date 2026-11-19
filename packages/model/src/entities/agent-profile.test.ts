@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { asMachineId } from '../ids'
 import {
   AgentProfileDocumentError,
   AgentProfileName,
@@ -15,7 +16,7 @@ const build = {
     { harness: 'claude-code' as const, model: 'auto', effort: 'high' },
     { harness: 'codex' as const, model: 'gpt-6.1-sol', effort: 'xhigh' },
   ],
-  machineId: 'm-profile',
+  machineId: asMachineId('m-profile'),
   instructions: '  Build it.  ',
 }
 
