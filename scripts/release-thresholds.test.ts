@@ -52,17 +52,17 @@ interface InheritedRow {
 const INHERITED: readonly InheritedRow[] = [
   {
     what: 'change-log retention rows (§T1 row 2)',
-    file: 'packages/sync/src/change-log.ts',
+    file: 'packages/protocol/src/maintenance.ts',
     pattern: /^export const CHANGE_KEEP_ROWS = (.+)$/m,
-    value: '20_000',
-    docPhrase: '**CHANGE_KEEP_ROWS (20 000)**',
+    value: '500_000',
+    docPhrase: '**CHANGE_KEEP_ROWS (500 000)**',
   },
   {
     what: 'change-log retention age (§T1 row 2)',
-    file: 'packages/sync/src/change-log.ts',
+    file: 'packages/protocol/src/maintenance.ts',
     pattern: /^export const CHANGE_MAX_AGE_MS = (.+)$/m,
-    value: '3 * 24 * 60 * 60 * 1000',
-    docPhrase: '`CHANGE_MAX_AGE_MS = 3 d`',
+    value: '30 * 24 * 60 * 60 * 1000',
+    docPhrase: '`CHANGE_MAX_AGE_MS = 30 d`',
   },
   {
     what: 'outbox dead-letter horizon (§T1 row 4)',
@@ -109,16 +109,17 @@ const INHERITED: readonly InheritedRow[] = [
   {
     what: 'warm-set cap, desktop (§T1 row 9)',
     file: 'apps/web/src/features/terminal/use-warm-set.ts',
-    pattern: /^const DESKTOP_N = (.+)$/m,
-    value: '8',
-    docPhrase: 'with all **8** panes warm',
+    pattern: /^export const HEAVY_PANEL_RESIDENCY_BUDGET = \{\n {2}desktop: (\d+),/m,
+    value: '3',
+    docPhrase: 'with all **3** panes warm',
   },
   {
     what: 'warm-set cap, mobile (§T1 row 9b)',
     file: 'apps/web/src/features/terminal/use-warm-set.ts',
-    pattern: /^const MOBILE_N = (.+)$/m,
-    value: '3',
-    docPhrase: '(8 desktop / 3 mobile, `use-warm-set.ts`)',
+    pattern:
+      /^export const HEAVY_PANEL_RESIDENCY_BUDGET = \{\n {2}desktop: \d+,\n {2}mobile: (\d+),/m,
+    value: '2',
+    docPhrase: '(3 desktop / 2 mobile, `HEAVY_PANEL_RESIDENCY_BUDGET`)',
   },
 ]
 
@@ -157,18 +158,20 @@ describe('release-criteria thresholds do not drift from the constants they inher
     })
   }
 
-  it('the derived per-pane budget is still the ceiling divided by the desktop warm cap', () => {
-    // §T1 row 9 states a ceiling AND the per-pane figure derived from it. Two numbers
-    // that must agree by arithmetic drift apart the moment one is edited alone.
+  it('keeps the independent per-pane budget within the desktop ceiling', () => {
+    // The coordinator retained 125 MB/pane as a criterion of its own. The old
+    // eight-pane arithmetic must not relax it when the residency cap shrinks.
     const cap = Number(
       read('apps/web/src/features/terminal/use-warm-set.ts').match(
-        /^const DESKTOP_N = (\d+)$/m,
+        /^export const HEAVY_PANEL_RESIDENCY_BUDGET = \{\n {2}desktop: (\d+),/m,
       )?.[1],
     )
     expect(cap).toBeGreaterThan(0)
-    const CEILING_MB = 1000 // "≤ 1.0 GB" in the table
-    expect(Math.round(CEILING_MB / cap)).toBe(125)
-    expect(doc).toContain('≤ **1.0 GB** ⇒ marginal ≤ **~125 MB/pane**')
+    const CEILING_MB = 1000
+    const PER_PANE_MB = 125
+    expect(cap * PER_PANE_MB).toBeLessThanOrEqual(CEILING_MB)
+    expect(doc).toContain('marginal ≤ **~125 MB/pane** as an independent budget')
+    expect(doc).toContain('panes warm ≤ **1.0 GB**')
   })
 
   it('the runbook and the threshold section are both present in the Phase 2 ledger', () => {

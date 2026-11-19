@@ -1642,7 +1642,7 @@ here rather than restated (drift-gated by `scripts/release-thresholds.test.ts`, 
 |---|---|---|---|---|
 | 1 | Cold startup — client | first meaningful paint p95 ≤ **1 s**; interactive p95 ≤ **3 s**; hard fail **10 s** | perception classes: 1 s = flow of thought, 10 s = limit of attention | **MISSING** (§T4.1) |
 | 1b | Cold startup — server | boot → `/health` 200 ≤ **10 s**; hard fail **120 s** | 120 s is `PODIUM_HEALTH_GRACE` in `scripts/podium-health-probe.sh` — past it the fleet's own probe restarts the process. Mechanical, not taste | coarse only (§T4.1) |
-| 2 | DB growth — bounded shape | `changes` row count at soak end ≤ **CHANGE_KEEP_ROWS (20 000)** + one retention interval's arrivals, and not monotonically rising | retention bounds the log *by construction* (`CHANGE_KEEP_ROWS`, `CHANGE_MAX_AGE_MS = 3 d`) — a rising count IS retention not running | partial (§T4.2) |
+| 2 | DB growth — bounded shape | `changes` row count at soak end ≤ **CHANGE_KEEP_ROWS (500 000)** + one retention interval's arrivals, and not monotonically rising | retention bounds the log *by construction* (`packages/protocol/src/maintenance.ts`: `CHANGE_KEEP_ROWS`, `CHANGE_MAX_AGE_MS = 30 d`) — a rising count IS retention not running | partial (§T4.2) |
 | 2b | DB growth — upgrade headroom | at soak end `freeDiskBytes(stateDir)` ≥ **3 ×** (`podium.db` + sidecars) | the pre-migration backup preflight refuses below 1.1×, and the server keeps the last 3 backups; 3× is what keeps an upgrade possible after the soak | `backup.ts` (`freeDiskBytes`, `statSync`) + one hourly `stat` |
 | 2c | DB growth — absolute rate | **UNDETERMINED** | no representative-load figure exists; a rate without its load is not a number | experiment in §T3.2 |
 | 3 | Sync lag — server share | `feedPublish.total` p99 ≤ **50 ms** | INHERITED `LOOP_P99_TARGET_MS`, already asserted against `sessionsBroadcast.total`, whose successor under `PHASE_MIGRATION` is `feedPublish.total` | **EXISTS** — `perf.snapshot`, per principal with slice size |
@@ -1654,20 +1654,20 @@ here rather than restated (drift-gated by `scripts/release-thresholds.test.ts`, 
 | 7 | Reconnect storm | with every client the topology has reconnecting at once (≥ 3): event-loop p99 ≤ **50 ms**, interaction p95 ≤ **25 ms** / p99 ≤ **50 ms**, **all** replicas converge, dead letters 0 | all three latency numbers INHERITED from `scripts/loop-split-load.integration.test.ts`; convergence is binary, not a budget | behaviour EXISTS (`adr/reconnect-storm`); load shape EXISTS; **never pointed at each other** (§T4.4) |
 | 8 | UI render counts | renders per applied change must be **O(1) in session and issue count** (double the fleet, same render count), and one applied change ≤ **16.7 ms** of main-thread work on a hot screen | a render count that scales with the collection is the defect the client split exists to remove — and a *ratio* is testable without knowing the absolute. 16.7 ms is one frame at 60 Hz: hardware | **MISSING**; POD-427 (Phase 6) owes the probe (§T4.5) |
 | 8b | Absolute render counts per screen | **UNDETERMINED** | fixing a number for an instrument nobody has built fixes nothing | POD-427's probe, then a number |
-| 9 | Memory per pane — desktop | steady-state renderer heap with all **8** panes warm ≤ **1.0 GB** ⇒ marginal ≤ **~125 MB/pane** | the warm cap (8 desktop / 3 mobile, `use-warm-set.ts`) is a committed decision, so total = cap × marginal. 2.2 GB was declared a *leak* (POD-771): the band must sit far below a value already ruled pathological. **Weakest row in this table** — bounded above by an incident, below by nothing | **MISSING** client-side (§T4.6) |
+| 9 | Memory per pane — desktop | steady-state renderer heap with all **3** panes warm ≤ **1.0 GB**; marginal ≤ **~125 MB/pane** as an independent budget | the warm cap (3 desktop / 2 mobile, `HEAVY_PANEL_RESIDENCY_BUDGET`) is a committed decision. The 125 MB/pane criterion originally came from 1 GB / the old eight-pane cap; it remains independent, and the smaller cap leaves headroom under the unchanged 1 GB ceiling. 2.2 GB was declared a *leak* (POD-771): the band must sit far below a value already ruled pathological. **Weakest row in this table** — bounded above by an incident, below by nothing | **MISSING** client-side (§T4.6) |
 | 9b | Memory per pane — mobile | **NEEDS A HUMAN DECISION** (§T2) | derives from the floor phone Podium supports, and no floor device is recorded anywhere in this plan | — |
 | 10 | Zero-data-loss crash | **0** lost or torn acknowledged writes | ADR 2 D10's one-transaction rule makes "PRE or POST, never torn" a correctness property. One loss is a bug, not an overrun | **EXISTS, strongest of the ten** — `base/crash-between-writes`, `scoped/crash-with-watermark-in-flight`, `cross/attribution-survives-every-hop`, × 3 instantiations, `assertGatesCovered` throws |
 
 ##### §T2 — What a human must decide, recorded rather than defaulted
 
-1. **The floor phone (row 9b).** The mobile per-pane budget is `budget ÷ 3` and the budget
+1. **The floor phone (row 9b).** The mobile per-pane budget is `budget ÷ 2` and the budget
    follows from the least-capable device Podium claims to support on the PWA. That device
    is named nowhere in this plan or in `apps/mobile`. A number picked here would be a
    support commitment made by an agent; it is recorded as an open decision instead.
 2. **Row 9's desktop ceiling is provisional and labelled so.** 1.0 GB is derived from an
-   incident (2.2 GB = leak) and from the committed warm cap, which bounds it from above but
-   not from below. If POD-337 measures 900 MB the correct response is not relief — it is to
-   ask whether 8 warm panes should cost that, which is a product question.
+   incident (2.2 GB = leak). Its independent 125 MB/pane budget remains in force after
+   the warm cap fell from eight to three; that change does not authorize spending the
+   saved headroom on each remaining pane.
 3. **Reconnect-storm N (row 7).** Fixed as "every client the topology has, ≥ 3" because the
    rehearsal topology is what the criterion is about. If POD-337 wants a synthetic N far
    above the real fleet, that is a different (and defensible) criterion, and someone should
@@ -1682,7 +1682,7 @@ fabricated number is what it cannot.
 downward; they run on a fixture clock and against in-memory/IndexedDB/SQLite adapters, so
 they cannot produce a wall-clock number even in principle. *Experiment:* during the
 rehearsal (runbook step 7b), take a client offline, append a fixed gap on the Authority —
-**10 000 changes**, half of `CHANGE_KEEP_ROWS` and therefore the worst gap that retention
+**250 000 changes**, half of `CHANGE_KEEP_ROWS` and therefore the worst gap that retention
 still permits to be healed rather than snapshotted — reconnect, and time detect →
 converged. **Record the gap size with the time.** A heal time without its gap size is the
 same error as a p50 without its slice size, and POD-1077's rule applies verbatim.
