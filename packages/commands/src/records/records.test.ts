@@ -183,6 +183,7 @@ describe('what a new record looks like (POD-6400)', () => {
       type: 'task',
       stage: 'backlog',
       owner: 'user_1',
+      assignee: 'user_1',
       createdAt: ctx.at,
       updatedAt: ctx.at,
     })
@@ -194,6 +195,13 @@ describe('what a new record looks like (POD-6400)', () => {
   it('a device that does not know its person still paints a whole row', () => {
     const row = freshRow(ISSUE_RECORD, id, { title: 'new', repoPath: '/p' }, { ...ctx, by: null })
     expect(ISSUE_RECORD.wire.safeParse(row).success).toBe(true)
+    expect(row).not.toHaveProperty('assignee')
+  })
+
+  it('an explicit assignee wins over the creating person', () => {
+    expect(freshRow(ISSUE_RECORD, id, { title: 'new', assignee: 'user_2' }, ctx)).toMatchObject({
+      assignee: 'user_2',
+    })
   })
 
   it('what the create names wins over a default', () => {
@@ -324,6 +332,37 @@ describe('what a new record looks like (POD-6400)', () => {
       expect(() =>
         defineSyncedKind({ ...base, ops: { edit: must(ISSUE_RECORD.ops.edit) }, fields, fresh }),
       ).toThrow(/fresh record without a create/)
+    })
+
+    it('context defaults must name create fields and parse under known and unknown creators', () => {
+      expect(() =>
+        defineSyncedKind({
+          ...base,
+          fields,
+          fresh: { ...fresh, defaults: { missing: () => 'x' } },
+        }),
+      ).toThrow(/context default missing is not on/)
+      expect(() =>
+        defineSyncedKind({
+          ...base,
+          fields,
+          fresh: { ...fresh, defaults: { seq: () => 1 } },
+        }),
+      ).toThrow(/context default seq is not a field a create carries/)
+      expect(() =>
+        defineSyncedKind({
+          ...base,
+          fields,
+          fresh: { ...fresh, defaults: { title: () => 1 } },
+        }),
+      ).toThrow(/context default title does not parse/)
+      expect(() =>
+        defineSyncedKind({
+          ...base,
+          fields,
+          fresh: { ...fresh, defaults: { title: (ctx) => ctx.by ?? undefined } },
+        }),
+      ).toThrow(/context default title does not parse/)
     })
   })
 })

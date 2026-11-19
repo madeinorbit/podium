@@ -53,6 +53,9 @@ export interface FreshRecord {
   readonly cells: Readonly<Record<string, unknown>>
   /** Wire cells the server assigns, and what the device paints until it does. */
   readonly pending: Readonly<Record<string, (ctx: FreshContext, fields: Values) => unknown>>
+  /** Create fields whose omitted value depends on the creating device's context.
+   * Explicit choices win; an unknown value stays absent until the server answers. */
+  readonly defaults?: Readonly<Record<string, (ctx: FreshContext) => unknown>>
 }
 
 /** The fields a create may carry (spec and key), as `./declare.ts#createFields`. */
@@ -118,7 +121,16 @@ export function freshRow(
     const value = placeholder(ctx, fields)
     if (value !== undefined) row[name] = value
   }
-  Object.assign(row, d.fresh.cells, wireCells(d, freshCreateFields(d, fields)))
+  const defaults: Record<string, unknown> = {}
+  for (const [name, value] of Object.entries(d.fresh.defaults ?? {})) {
+    if (fields[name] === undefined) defaults[name] = value(ctx)
+  }
+  Object.assign(
+    row,
+    d.fresh.cells,
+    wireCells(d, defaults),
+    wireCells(d, freshCreateFields(d, fields)),
+  )
   if ('id' in d.wire.shape) row.id = id
   return row
 }
@@ -139,6 +151,24 @@ export function freshProblems(d: SyncedKindDeclaration): string[] {
     return ['offers create without a fresh record (what a new one looks like)']
   const out: string[] = []
   const shape = d.wire.shape as Record<string, z.ZodTypeAny>
+  for (const [name, value] of Object.entries(fresh.defaults ?? {})) {
+    const field = d.fields[name]
+    if (!(name in shape)) out.push(`context default ${name} is not on the ${d.kind} wire schema`)
+    else if (field === undefined || (field.role !== 'spec' && field.role !== 'key')) {
+      out.push(`context default ${name} is not a field a create carries`)
+    } else {
+      for (const ctx of SAMPLE_CONTEXTS) {
+        const cell = wireCells(d, { [name]: value(ctx) })[name]
+        if (!shape[name]?.safeParse(cell).success) {
+          out.push(`context default ${name} does not parse as the wire cell`)
+          break
+        }
+      }
+    }
+    if (name in fresh.cells || name in fresh.pending) {
+      out.push(`context default ${name} is also a constant or pending`)
+    }
+  }
   for (const name of Object.keys(fresh.cells)) {
     if (!(name in shape)) out.push(`fresh cell ${name} is not on the ${d.kind} wire schema`)
     else if (name in d.fields) out.push(`fresh cell ${name} is a field (give it a default instead)`)
@@ -177,7 +207,7 @@ export function freshProblems(d: SyncedKindDeclaration): string[] {
   // carry or defaults, a constant, or a placeholder.
   for (const [name, schema] of Object.entries(shape)) {
     if (name === 'id' || acceptsAbsent(schema)) continue
-    if (name in fresh.cells || name in fresh.pending) continue
+    if (name in fresh.cells || name in fresh.pending || name in (fresh.defaults ?? {})) continue
     const f = d.fields[name]
     if (f !== undefined && (f.required || 'default' in f)) continue
     out.push(`a fresh ${d.title} has no ${name}: give it a default, a constant or a placeholder`)

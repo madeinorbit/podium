@@ -48,6 +48,9 @@ const by = (ctx: FreshContext) => asUserId(ctx.by ?? '')
 
 export const ISSUE_FRESH: FreshRecord = {
   cells: ISSUE_FRESH_CELLS,
+  defaults: {
+    assignee: (ctx) => ctx.by ?? undefined,
+  },
   pending: {
     // The server numbers it inside the create (`nextIssueSeq`).
     seq: () => PENDING_ISSUE_SEQ,
