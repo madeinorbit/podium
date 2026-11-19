@@ -26,12 +26,14 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { agentLaunchCommand, shellCommand } from '@podium/harness'
-import type { HarnessAgent } from '@podium/model'
+import { asSessionId, type HarnessAgent } from '@podium/model'
+import { directPtyDurableForTests } from '@podium/process/durable'
 import { hasBunTerminal } from '@podium/process/pty'
 import { SpawnMessage } from '@podium/protocol'
 import { credentialEnv } from '@podium/runtime'
 import type { DaemonContext } from '../src/control/context'
 import { launchTerminalSpawn } from '../src/control/session'
+import { SessionRegistry } from '../src/session/registry'
 
 const CREDENTIAL = 'sk-test-xyz'
 /** A key on the DAEMON, standing in for one an operator exported before starting it. */
@@ -119,7 +121,7 @@ async function dumpEnvOfSpawnedProcess(
 ): Promise<string> {
   let buffer = ''
   const landing = join(home, `${sessionId}.env`)
-  const bridges = new Map<string, { pid: number; write(b64: string): void; dispose(): void }>()
+  const sessions = new SessionRegistry()
   const ctx = {
     send: () => {},
     instanceId: 'default',
@@ -133,8 +135,8 @@ async function dumpEnvOfSpawnedProcess(
         ? agentLaunchCommand(kind, opts as Parameters<typeof agentLaunchCommand>[1])
         : shellCommand({ cmd: '/bin/bash', args: ['-c', 'exec /bin/bash -i'], cwd: opts.cwd }),
     settingsDir,
-    bridges,
-    durableLabels: new Map(),
+    sessions,
+    durable: directPtyDurableForTests(),
     durableLabelFor: (id: string) => `podium-${id}`,
     bindingStore: {
       ensureBinding: async () => ({}),
@@ -147,7 +149,6 @@ async function dumpEnvOfSpawnedProcess(
     // `session-binding.test.ts` owns.
     machineId: 'bun-spawn-test-machine',
     sessionBinding: { transition: async () => ({ status: 'applied' }) },
-    pendingResizes: new Map(),
     composerEngine: {
       attach: () => false,
       onData: () => {},
@@ -184,18 +185,20 @@ async function dumpEnvOfSpawnedProcess(
   // The environment contract lives at the terminal launch boundary. Server
   // admission is orthogonal and has its own process-level coverage.
   await launchTerminalSpawn(ctx, msg)
-  // The handler dispatches the launch and returns; the bridge appears when the
-  // PTY is up, an await or two later. Wait for it rather than racing it.
-  await waitFor(() => bridges.has(sessionId)).catch(() => {
-    throw new Error('daemon never bridged the session (spawn failed)')
+  // The registry publishes the terminal once the real PTY is attached.
+  const id = asSessionId(sessionId)
+  await waitFor(() => Boolean(sessions.get(id)?.terminal)).catch(() => {
+    throw new Error('daemon never attached the terminal (spawn failed)')
   })
 
-  const session = bridges.get(sessionId)
-  if (!session) throw new Error('daemon never bridged the session (spawn failed)')
-  const pid = session.pid
+  const terminal = sessions.get(id)?.terminal
+  if (!terminal) throw new Error('daemon never attached the terminal (spawn failed)')
+  const pid = terminal.attachment.pid
   try {
     await waitFor(() => buffer.length > 0)
-    session.write(Buffer.from(`env > ${JSON.stringify(landing)}\n`, 'utf8').toString('base64'))
+    terminal.writeBase64(
+      Buffer.from(`env > ${JSON.stringify(landing)}\n`, 'utf8').toString('base64'),
+    )
     // PODIUM_SESSION_ID is bound by the daemon on EVERY spawn: seeing it proves the dump
     // really landed and that this process came out of Podium's spawn path — which is what
     // makes the credential's ABSENCE in the negative case meaningful rather than just early.
@@ -206,7 +209,7 @@ async function dumpEnvOfSpawnedProcess(
     )
     return readFileSync(landing, 'utf8')
   } finally {
-    session.dispose() // reap by explicit pid — never pattern-kill
+    terminal.park() // the direct PTY double reaps only its own child
     await waitFor(() => !alive(pid), 5_000)
   }
 }

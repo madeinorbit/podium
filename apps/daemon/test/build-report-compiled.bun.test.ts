@@ -68,7 +68,12 @@ describe('compiled installed daemon build report', () => {
       delete childEnv.PODIUM_APP_VERSION
       const startedChild = spawn(
         bin,
-        [`ws://127.0.0.1:${server.port}`, server.machineToken, join(dir, 'daemon-hooks')],
+        [
+          `ws://127.0.0.1:${server.port}`,
+          server.machineToken,
+          join(dir, 'daemon-hooks'),
+          server.registry.sessionStore.hostMachineId,
+        ],
         { env: childEnv, stdio: ['ignore', 'pipe', 'pipe'] },
       )
       child = startedChild

@@ -4,7 +4,7 @@
 // verifies the installed/runtime websocket path processes control frames sent right
 // after helloOk.
 import { describe, expect, it } from 'bun:test'
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -32,12 +32,15 @@ describe('compiled daemon control websocket', () => {
         ],
         { cwd: repoRoot, env: hermeticChildEnv(), stdio: 'pipe' },
       )
-      const out = execFileSync(bin, {
+      const result = spawnSync(bin, {
         cwd: repoRoot,
         env: hermeticChildEnv(),
         encoding: 'utf8',
         timeout: 20_000,
       })
+      if (result.error) throw result.error
+      const out = result.stdout
+      expect(result.status, `${out}\n${result.stderr}`).toBe(0)
       expect(out).toContain('SMOKE_OK')
       expect(out).not.toContain('SMOKE_FAILED')
       expect(out).not.toContain('dropped malformed inbound control frame')
