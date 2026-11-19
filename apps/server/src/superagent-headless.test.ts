@@ -1926,7 +1926,8 @@ describe('sendTurn (headless harness turns)', () => {
       threadId: asThreadId('global'),
       text: 'hi',
     })
-    const { posture, ...old } = h.turnReqs[0]!.frame as Record<string, unknown> & {
+    // The turn is sent once its credential resolves (credential management §9).
+    const { posture, ...old } = (await h.turnReq(0)).frame as Record<string, unknown> & {
       text: string
       turnId: string
       sessionId: string
