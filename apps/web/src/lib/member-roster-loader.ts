@@ -2,7 +2,7 @@ import { type MemberRosterAnswer, memberRoster } from '@podium/client-graph/memb
 import type { MobxPool } from '@podium/client-graph/pool'
 import { followVisibleRequest } from '@podium/client-graph/visible-request'
 import { serverConfig } from '@/app/trpc'
-import { memberRequest } from '@/features/setup/member-api'
+import { memberRequest } from './member-api'
 
 /** Members change rarely and nothing pushes them; refresh while shown. */
 const REFRESH_MS = 5 * 60_000
