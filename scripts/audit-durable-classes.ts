@@ -329,7 +329,6 @@ export const DURABLE_STORES: readonly DurableStore[] = [
   // -- §10 Sync infrastructure ----------------------------------------------
   { store: 'changes', kind: 'drizzle-table', row: 'change-log' },
   { store: 'applied_mutations', kind: 'drizzle-table', row: 'applied-mutations' },
-  { store: 'feed_identity', kind: 'drizzle-table', row: 'feed-identity' },
   {
     store: 'upstream_outbox',
     kind: 'drizzle-table',
@@ -367,7 +366,6 @@ export const DURABLE_STORES: readonly DurableStore[] = [
     writeSites: ['packages/runtime/src/session-token.ts'],
   },
   { store: 'users', kind: 'drizzle-table', row: 'user-account' },
-  { store: 'identity_account', kind: 'drizzle-table', row: 'account-credential' },
   { store: 'grants', kind: 'drizzle-table', row: 'grant-edge' },
   { store: 'telegram_chat_bindings', kind: 'drizzle-table', row: 'telegram-chat-binding' },
   // A bound chat's routing, extended per conversation (POD-6212): the same user's route.
@@ -441,6 +439,217 @@ export const DURABLE_STORES: readonly DurableStore[] = [
       'apps/server/src/migrations/index.ts',
     ],
   },
+  // Current workspace, credential and runtime stores; exact creator sites below.
+  { store: 'workspace_meta', kind: 'drizzle-table', row: 'preferences-instance-keys' },
+  { store: 'workspace_secrets', kind: 'drizzle-table', row: 'server-owned-secrets' },
+  { store: 'checkouts', kind: 'drizzle-table', row: 'repo-prefix' },
+  { store: 'checkout_reach', kind: 'drizzle-table', row: 'repo-prefix' },
+  { store: 'checkout_lost', kind: 'drizzle-table', row: 'repo-prefix' },
+  { store: 'grant_audiences', kind: 'drizzle-table', row: 'grant-edge' },
+  { store: 'carried_sign_ins', kind: 'drizzle-table', row: 'per-user-client-session' },
+  { store: 'transcript_costs', kind: 'drizzle-table', row: 'segments' },
+  { store: 'runtime_event_checkpoints', kind: 'drizzle-table', row: 'daemon-observed-runtime' },
+  {
+    store: 'runtime_event_projection_cursors',
+    kind: 'drizzle-table',
+    row: 'daemon-observed-runtime',
+  },
+  { store: 'issue_text_revisions', kind: 'drizzle-table', row: 'issue-document-fields' },
+  { store: 'issue_git_states', kind: 'drizzle-table', row: 'issue-core' },
+  { store: 'root_integration_receipts', kind: 'drizzle-table', row: 'shipping-aggregate-family' },
+  { store: 'account_machine_sends', kind: 'drizzle-table', row: 'managed-credentials' },
+  { store: 'native_login_opt_ins', kind: 'drizzle-table', row: 'per-user-state-family' },
+  { store: 'native_login_transfers', kind: 'drizzle-table', row: 'managed-credentials' },
+  { store: 'quota_windows', kind: 'drizzle-table', row: 'managed-credentials' },
+  { store: 'issue_panel_todos', kind: 'drizzle-table', row: 'issue-core' },
+  { store: 'issue_panel_artifacts', kind: 'drizzle-table', row: 'artifacts' },
+  { store: 'issue_panel_deferred', kind: 'drizzle-table', row: 'issue-core' },
+  { store: 'issue_panel_states', kind: 'drizzle-table', row: 'issue-core' },
+  { store: 'artifact_uploads', kind: 'drizzle-table', row: 'artifacts' },
+  { store: 'pending_uploads', kind: 'drizzle-table', row: 'session-uploads' },
+  { store: 'sync_feed', kind: 'drizzle-table', row: 'feed-identity' },
+  { store: 'sync_kind', kind: 'drizzle-table', row: 'change-log' },
+  { store: 'credentials', kind: 'drizzle-table', row: 'managed-credentials' },
+  { store: 'credential_secrets', kind: 'drizzle-table', row: 'managed-credentials' },
+  { store: 'credential_placements', kind: 'drizzle-table', row: 'managed-credentials' },
+  { store: 'credential_machines', kind: 'drizzle-table', row: 'managed-credentials' },
+  { store: 'vault_key', kind: 'drizzle-table', row: 'server-owned-secrets' },
+  { store: 'notices', kind: 'drizzle-table', row: 'notices' },
+  { store: 'ship_orders', kind: 'drizzle-table', row: 'shipping-aggregate-family' },
+  { store: 'ship_attempts', kind: 'drizzle-table', row: 'shipping-aggregate-family' },
+  { store: 'ship_repair_candidates', kind: 'drizzle-table', row: 'shipping-aggregate-family' },
+  { store: 'ship_evidence', kind: 'drizzle-table', row: 'shipping-aggregate-family' },
+  { store: 'ship_order_stack_edges', kind: 'drizzle-table', row: 'shipping-aggregate-family' },
+  { store: 'ship_lane_revisions', kind: 'drizzle-table', row: 'shipping-aggregate-family' },
+  { store: 'ship_train_manifests', kind: 'drizzle-table', row: 'shipping-aggregate-family' },
+  { store: 'ship_train_members', kind: 'drizzle-table', row: 'shipping-aggregate-family' },
+  { store: 'ship_train_active_claims', kind: 'drizzle-table', row: 'shipping-aggregate-family' },
+  { store: 'ship_effect_envelopes', kind: 'drizzle-table', row: 'shipping-aggregate-family' },
+  { store: 'ship_steps', kind: 'drizzle-table', row: 'shipping-aggregate-family' },
+  { store: 'ship_recovery_work', kind: 'drizzle-table', row: 'shipping-aggregate-family' },
+  { store: 'ship_recovery_revision', kind: 'drizzle-table', row: 'shipping-aggregate-family' },
+  { store: 'ship_holds', kind: 'drizzle-table', row: 'shipping-aggregate-family' },
+  { store: 'delivery_receipts', kind: 'drizzle-table', row: 'shipping-aggregate-family' },
+  {
+    store: 'sync_capture_guard',
+    kind: 'drizzle-table',
+    row: null,
+    notEntityState:
+      'Transaction-local change capture staging, drained into the classified change log before the unit commits; it has no independent record identity or reader surface.',
+  },
+  {
+    store: 'sync_capture',
+    kind: 'drizzle-table',
+    row: null,
+    notEntityState:
+      'Transaction-local change capture staging, drained into the classified change log before the unit commits; it has no independent record identity or reader surface.',
+  },
+  {
+    store: 'transcript_fts_keys',
+    kind: 'runtime-table',
+    row: null,
+    notEntityState:
+      'Derived keys for the transcript FTS index; rebuilt from classified transcript segments and mirrored bytes, with no independently authored record.',
+    writeSites: ['apps/server/src/store/conversations/transcript-index.ts'],
+  },
+  {
+    store: 'notes',
+    kind: 'runtime-table',
+    row: null,
+    notEntityState:
+      'Disposable executor conformance fixture rows, created only by this test harness in its scratch database; not part of any product schema or user store.',
+    writeSites: ['apps/server/src/store/executor/harness.ts'],
+  },
+  {
+    store: 'counters',
+    kind: 'runtime-table',
+    row: null,
+    notEntityState:
+      'Disposable executor conformance counters used to prove transaction ordering and rollback in a scratch database; no product state is stored here.',
+    writeSites: ['apps/server/src/store/executor/harness.ts'],
+  },
+  {
+    store: 'spike_run_lease',
+    kind: 'runtime-table',
+    row: null,
+    notEntityState:
+      'A process lease for the isolated append-store experiment, coordinating scratch benchmark runs rather than an independently owned product record.',
+    writeSites: ['apps/server/src/store/spike/turso-append/run-lease.ts'],
+  },
+  {
+    store: 'transcript_messages',
+    kind: 'runtime-table',
+    row: null,
+    notEntityState:
+      'A local cache of authority transcript pages, reconstructible by reading the classified conversation and transcript stores; it owns no source record.',
+    writeSites: ['packages/client-core/src/transcript-store/sqlite.ts'],
+  },
+  {
+    store: 'transcript_chats',
+    kind: 'runtime-table',
+    row: null,
+    notEntityState:
+      'A local page-cache index for cached transcript messages, reconstructed from the authority and deleted with the cache rather than owned independently.',
+    writeSites: ['packages/client-core/src/transcript-store/sqlite.ts'],
+  },
+  {
+    store: 'changes',
+    kind: 'runtime-table',
+    row: null,
+    notEntityState:
+      'The pruning benchmark creates a disposable synthetic change-log table in its scratch database; it is not a second product change-log authority.',
+    writeSites: ['packages/janitor/scripts/change-log-prune-bench.ts'],
+  },
+  {
+    store: 'sync_feed',
+    kind: 'runtime-table',
+    row: null,
+    notEntityState:
+      'Synthetic feed bounds in the isolated pruning benchmark database, discarded with that scratch database and never used as a product feed identity.',
+    writeSites: ['packages/janitor/scripts/change-log-prune-bench.ts'],
+  },
+  {
+    store: 'installation_lease',
+    kind: 'runtime-table',
+    row: null,
+    notEntityState:
+      'Machine-local process occupancy for an installation, used to detect a live competing process and recover after its exit; no user entity is stored.',
+    writeSites: ['packages/runtime/src/installation-lease.ts'],
+  },
+  {
+    store: 'disk_index',
+    kind: 'runtime-table',
+    row: 'replica-cursor',
+    writeSites: ['packages/sync/src/adapters/mobile-sqlite/schema.ts'],
+  },
+  {
+    store: 'source',
+    kind: 'runtime-table',
+    row: null,
+    notEntityState:
+      'Synthetic source rows in the reusable sync-repository conformance suite, created in the test database to exercise feed capture and rollback.',
+    writeSites: ['packages/sync/src/adapters/sqlite/sync-repository.suites.ts'],
+  },
+  {
+    store: '<stateDir>/runtime-event-outbox',
+    kind: 'filesystem',
+    row: 'daemon-observed-runtime',
+    writeSites: ['apps/daemon/src/runtime-event-outbox.ts'],
+  },
+  {
+    store: '<stateDir>/queue-drain-outbox',
+    kind: 'filesystem',
+    row: 'queued-agent-messages',
+    writeSites: ['apps/daemon/src/queue-drain-outbox.ts'],
+  },
+  {
+    store: '<stateDir>/engine-journals',
+    kind: 'filesystem',
+    row: 'session-binding',
+    writeSites: ['apps/daemon/src/session/engines.ts', 'apps/daemon/src/session/journal.ts'],
+  },
+  {
+    store: '<stateDir>/shipping-journal',
+    kind: 'filesystem',
+    row: 'shipping-aggregate-family',
+    writeSites: ['apps/daemon/src/shipping/journal.ts'],
+  },
+  {
+    store: '<machine>/working-tree-files',
+    kind: 'filesystem',
+    row: 'machine',
+    writeSites: ['apps/daemon/src/dir-ops.ts', 'apps/daemon/src/shipping/executor.ts'],
+  },
+  {
+    store: '<stateDir>/staged-attachments',
+    kind: 'filesystem',
+    row: 'session-uploads',
+    writeSites: ['apps/daemon/src/runtime/attachment-staging.ts'],
+  },
+  {
+    store: '<stateDir>/machine.key',
+    kind: 'filesystem',
+    row: 'pairing-token',
+    writeSites: ['packages/runtime/src/machine-credential.ts'],
+  },
+  {
+    store: '<harness-home>/instrumentation',
+    kind: 'filesystem',
+    row: 'harness-hook-settings',
+    writeSites: [
+      'apps/daemon/src/harness-home-edits.ts',
+      'apps/daemon/src/session-posture.ts',
+      'packages/harness/src/adapters/codex/instrumentation.ts',
+      'packages/harness/src/adapters/grok/instrumentation.ts',
+      'packages/harness/src/driver/families/terminal/instrumentation.ts',
+    ],
+  },
+  {
+    store: '<stateDir>/transcript-annotations',
+    kind: 'filesystem',
+    row: 'segments',
+    writeSites: ['packages/harness/src/store/annotations.ts'],
+  },
 ]
 
 /**
@@ -453,6 +662,451 @@ export const DURABLE_STORES: readonly DurableStore[] = [
  */
 export const NON_CLASS_WRITE_SITES: readonly { readonly file: string; readonly reason: string }[] =
   [
+    {
+      file: 'apps/cli/src/cli-doctor.ts',
+      reason:
+        'Writes an explicitly requested, scrubbed diagnostic report; the output describes existing state and is never read as an authoritative product record.',
+    },
+    {
+      file: 'apps/cli/src/cli-reachability.ts',
+      reason:
+        'Opens an existing classified database read-only for observation; it creates no table, changes no record and introduces no durable class of its own.',
+    },
+    {
+      file: 'apps/server/scripts/bootstrap-load.ts',
+      reason:
+        'Opens an existing classified database read-only for observation; it creates no table, changes no record and introduces no durable class of its own.',
+    },
+    {
+      file: 'apps/server/src/migrations/snapshot-verification.ts',
+      reason:
+        'Opens an existing classified database read-only for observation; it creates no table, changes no record and introduces no durable class of its own.',
+    },
+    {
+      file: 'apps/server/src/sync-worker/read-session.ts',
+      reason:
+        'Opens an existing classified database read-only for observation; it creates no table, changes no record and introduces no durable class of its own.',
+    },
+    {
+      file: 'packages/harness/src/driver/families/opencode2/pending.ts',
+      reason:
+        'Opens an existing classified database read-only for observation; it creates no table, changes no record and introduces no durable class of its own.',
+    },
+    {
+      file: 'packages/runtime/src/migration-ledger.ts',
+      reason:
+        'Opens an existing classified database read-only for observation; it creates no table, changes no record and introduces no durable class of its own.',
+    },
+    {
+      file: 'apps/cli/src/cli-setup.ts',
+      reason:
+        'Rewrites the already classified installation configuration during setup or import, preserving its existing settings ownership rather than creating a new record store.',
+    },
+    {
+      file: 'apps/server/src/settings-config-import.ts',
+      reason:
+        'Rewrites the already classified installation configuration during setup or import, preserving its existing settings ownership rather than creating a new record store.',
+    },
+    {
+      file: 'apps/cli/src/cli.ts',
+      reason:
+        'Writes the temporary pid evidence used by a detached local command; this is process supervision, meaningful only for the running process and not a user entity.',
+    },
+    {
+      file: 'apps/cli/src/install-path.ts',
+      reason:
+        'Installs shell PATH snippets for the executable in the operator-selected shell configuration; install plumbing is regenerated from the product and owns no entity rows.',
+    },
+    {
+      file: 'apps/cli/src/profile-cli.ts',
+      reason:
+        'Supplies report-file and directory ports to the explicit profiling command; outputs are measurements of existing state, never authoritative product state.',
+    },
+    {
+      file: 'apps/cli/src/tunnel-cli.ts',
+      reason:
+        'Downloads the tunnel executable into its installation cache; the binary is replaceable build material and contains no independently authored product record.',
+    },
+    {
+      file: 'apps/daemon/src/buffered-harness.ts',
+      reason:
+        'Stages a prompt in a temporary launch file for the selected harness and deletes it after use; this is transport of the already classified session input, not a separate record.',
+    },
+    {
+      file: 'apps/daemon/src/github-cli.ts',
+      reason:
+        'Creates a directory for the selected GitHub CLI execution environment; the caller owns the operation and this module stores no independent product entity.',
+    },
+    {
+      file: 'apps/daemon/src/instance-bootstrap.ts',
+      reason:
+        'Creates private local socket directories for process communication; socket placement and stale endpoint cleanup are supervision plumbing, not durable user records.',
+    },
+    {
+      file: 'packages/runtime/src/user-socket.ts',
+      reason:
+        'Creates private local socket directories for process communication; socket placement and stale endpoint cleanup are supervision plumbing, not durable user records.',
+    },
+    {
+      file: 'packages/pty/src/host.ts',
+      reason:
+        'Creates private local socket directories for process communication; socket placement and stale endpoint cleanup are supervision plumbing, not durable user records.',
+    },
+    {
+      file: 'apps/desktop/scripts/generate-dmg-background.ts',
+      reason:
+        'Generates packaged application artwork from source; the image bytes are reproducible build outputs rather than an independently owned product store.',
+    },
+    {
+      file: 'apps/desktop/scripts/generate-icons.ts',
+      reason:
+        'Generates packaged application artwork from source; the image bytes are reproducible build outputs rather than an independently owned product store.',
+    },
+    {
+      file: 'apps/web/scripts/generate-maskable-icon.ts',
+      reason:
+        'Generates packaged application artwork from source; the image bytes are reproducible build outputs rather than an independently owned product store.',
+    },
+    {
+      file: 'apps/desktop/scripts/verify-remote-join-runtime.ts',
+      reason:
+        'Creates isolated state directories and captures evidence for the explicitly invoked desktop runtime probe; fixtures are disposable and never become the live product store.',
+    },
+    {
+      file: 'apps/desktop/scripts/verify-server-down-runtime.ts',
+      reason:
+        'Creates isolated state directories and captures evidence for the explicitly invoked desktop runtime probe; fixtures are disposable and never become the live product store.',
+    },
+    {
+      file: 'apps/desktop/scripts/verify-update-ui-runtime.ts',
+      reason:
+        'Creates isolated state directories and captures evidence for the explicitly invoked desktop runtime probe; fixtures are disposable and never become the live product store.',
+    },
+    {
+      file: 'apps/server/scripts/record-builders.ts',
+      reason:
+        'Reads the classified database through a read-only connection and writes an optional record-builder measurement report; neither creates a new product class.',
+    },
+    {
+      file: 'apps/server/src/gateway/mobile-client-versions.ts',
+      reason:
+        'Persists a bounded observation history of connecting client builds for compatibility diagnostics; the history describes connections and does not reconstruct entity state.',
+    },
+    {
+      file: 'apps/server/src/migrations/artifact-key-conversion.ts',
+      reason:
+        'Converts the physical keys or catalogue layout of already classified artifact and transcript bytes during migration; copied bytes retain their existing class and owner.',
+    },
+    {
+      file: 'apps/server/src/migrations/lake-parts-conversion.ts',
+      reason:
+        'Converts the physical keys or catalogue layout of already classified artifact and transcript bytes during migration; copied bytes retain their existing class and owner.',
+    },
+    {
+      file: 'apps/server/src/migrations/snapshot-catalogue.ts',
+      reason:
+        'Writes the catalogue of database backup files and their verification metadata; backups are copies of the classified stores, not a new independently owned entity class.',
+    },
+    {
+      file: 'apps/server/src/migrations/store-lifecycle.ts',
+      reason:
+        'Opens and migrates the container of the already classified database tables; physical database lifecycle owns no second classification of their rows.',
+    },
+    {
+      file: 'apps/server/src/modules/files/write-effect.ts',
+      reason:
+        'Delegates a file write to the authorized machine through RPC; the bytes belong to the classified machine filesystem and the effect stores no additional copy.',
+    },
+    {
+      file: 'apps/server/src/modules/server-transfer/operation.ts',
+      reason:
+        'Writes optional crash-boundary evidence markers for the isolated transfer probe; the underlying transfer journal and database retain their own existing classifications.',
+    },
+    {
+      file: 'apps/server/src/relay.ts',
+      reason:
+        'Writes optional crash-boundary evidence markers for the isolated transfer probe; the underlying transfer journal and database retain their own existing classifications.',
+    },
+    {
+      file: 'apps/server/src/modules/updates/build-record.ts',
+      reason:
+        'Stores locally built release bundles and their resumable publisher bookkeeping; these are reproducible deployment artifacts, not independently owned application records.',
+    },
+    {
+      file: 'apps/server/src/modules/updates/dev-bundle.ts',
+      reason:
+        'Stores locally built release bundles and their resumable publisher bookkeeping; these are reproducible deployment artifacts, not independently owned application records.',
+    },
+    {
+      file: 'apps/server/src/modules/updates/dev-publisher-state.ts',
+      reason:
+        'Stores locally built release bundles and their resumable publisher bookkeeping; these are reproducible deployment artifacts, not independently owned application records.',
+    },
+    {
+      file: 'apps/server/src/store/executor/lane-intent-audit.ts',
+      reason:
+        'Appends an opt-in diagnostic log of query-lane intent; it describes database operations and is never read to reconstruct authoritative entity state.',
+    },
+    {
+      file: 'packages/api-types/build.ts',
+      reason:
+        'Generates type declarations or protocol fixture vectors from source; these reproducible build outputs carry no independently authored durable product class.',
+    },
+    {
+      file: 'packages/protocol/scripts/generate-server-locate-vectors.ts',
+      reason:
+        'Generates type declarations or protocol fixture vectors from source; these reproducible build outputs carry no independently authored durable product class.',
+    },
+    {
+      file: 'packages/blob-store/src/local.ts',
+      reason:
+        'Generic local blob-storage primitive; callers choose namespaces and classify the artifact or transcript bytes they store, while this adapter owns no independent record class.',
+    },
+    {
+      file: 'packages/harness/src/adapters/claude-code/keychain-lock.ts',
+      reason:
+        'A temporary filesystem lock serializes access to the native keychain; it carries no credential value or independently owned product record.',
+    },
+    {
+      file: 'packages/harness/src/inventory/credential-store.ts',
+      reason:
+        'Generic guarded credential-file adapter; the harness home and credential owner are selected and classified by the caller, and the primitive creates no separate entity class.',
+    },
+    {
+      file: 'packages/issue-client/src/commands.ts',
+      reason:
+        'Downloads an existing authorized artifact to the destination explicitly requested by the caller; the copy keeps its artifact classification rather than creating server state.',
+    },
+    {
+      file: 'packages/janitor/scripts/change-log-prune-bench.ts',
+      reason:
+        'Creates disposable synthetic rows for the isolated change-log pruning benchmark; no product database or user-owned durable state is opened by this scratch experiment.',
+    },
+    {
+      file: 'packages/janitor/src/janitor-worker.ts',
+      reason:
+        'Uses the configured read-only database observer and writes through the classified maintenance command/lease path; the worker composition creates no independent durable store.',
+    },
+    {
+      file: 'packages/runtime/src/config-write-lock.ts',
+      reason:
+        'Creates process-scoped lock directories and holder metadata to serialize access to already classified installation state; locks are operational exclusion, not independently owned records.',
+    },
+    {
+      file: 'packages/runtime/src/instance-guard.ts',
+      reason:
+        'Creates process-scoped lock directories and holder metadata to serialize access to already classified installation state; locks are operational exclusion, not independently owned records.',
+    },
+    {
+      file: 'packages/runtime/src/daemon-health.ts',
+      reason:
+        'Writes the current process health observation for its local supervisor; a subsequent probe replaces it and it is not an authoritative product record.',
+    },
+    {
+      file: 'packages/runtime/src/desktop-payload-startup.ts',
+      reason:
+        'Persists the running process endpoint, payload staging or update/restart recovery markers; installation supervision is local operational state and creates no independently owned application entity.',
+    },
+    {
+      file: 'packages/runtime/src/legacy-daemon-update.ts',
+      reason:
+        'Persists the running process endpoint, payload staging or update/restart recovery markers; installation supervision is local operational state and creates no independently owned application entity.',
+    },
+    {
+      file: 'packages/runtime/src/machine-update-control.ts',
+      reason:
+        'Persists the running process endpoint, payload staging or update/restart recovery markers; installation supervision is local operational state and creates no independently owned application entity.',
+    },
+    {
+      file: 'packages/runtime/src/machine-update-headless.ts',
+      reason:
+        'Persists the running process endpoint, payload staging or update/restart recovery markers; installation supervision is local operational state and creates no independently owned application entity.',
+    },
+    {
+      file: 'packages/runtime/src/machine-update.ts',
+      reason:
+        'Persists the running process endpoint, payload staging or update/restart recovery markers; installation supervision is local operational state and creates no independently owned application entity.',
+    },
+    {
+      file: 'packages/runtime/src/machine-supervisor.ts',
+      reason:
+        'Persists the running process endpoint, payload staging or update/restart recovery markers; installation supervision is local operational state and creates no independently owned application entity.',
+    },
+    {
+      file: 'packages/runtime/src/parent-control.ts',
+      reason:
+        'Persists the running process endpoint, payload staging or update/restart recovery markers; installation supervision is local operational state and creates no independently owned application entity.',
+    },
+    {
+      file: 'packages/runtime/src/parent-process.ts',
+      reason:
+        'Persists the running process endpoint, payload staging or update/restart recovery markers; installation supervision is local operational state and creates no independently owned application entity.',
+    },
+    {
+      file: 'packages/runtime/src/loop-minute-sink.ts',
+      reason:
+        'Writes bounded runtime measurements or explicit profiling evidence; these observations describe existing execution and are never a source of truth for product records.',
+    },
+    {
+      file: 'packages/runtime/src/loop-profile-capture.ts',
+      reason:
+        'Writes bounded runtime measurements or explicit profiling evidence; these observations describe existing execution and are never a source of truth for product records.',
+    },
+    {
+      file: 'packages/runtime/src/release-build-timing.ts',
+      reason:
+        'Writes bounded runtime measurements or explicit profiling evidence; these observations describe existing execution and are never a source of truth for product records.',
+    },
+    {
+      file: 'packages/runtime/src/stall-watch.ts',
+      reason:
+        'Writes bounded runtime measurements or explicit profiling evidence; these observations describe existing execution and are never a source of truth for product records.',
+    },
+    {
+      file: 'packages/runtime/src/update-signing-key.ts',
+      reason:
+        'Opens the classified installation secret store to select update signing material; key ownership stays with that existing secret store and is not duplicated by this helper.',
+    },
+    {
+      file: 'apps/web/harness/account-switch-proof.ts',
+      reason:
+        'Writes captures, measurement reports or disposable fixtures for the account-switch-proof proof; these are review evidence, not a live product store or an entity authority.',
+    },
+    {
+      file: 'apps/web/harness/admin-area-shots.ts',
+      reason:
+        'Writes captures, measurement reports or disposable fixtures for the admin-area-shots proof; these are review evidence, not a live product store or an entity authority.',
+    },
+    {
+      file: 'apps/web/harness/capture-issue-records.ts',
+      reason:
+        'Writes captures, measurement reports or disposable fixtures for the capture-issue-records proof; these are review evidence, not a live product store or an entity authority.',
+    },
+    {
+      file: 'apps/web/harness/capture-terminal-first-frame.ts',
+      reason:
+        'Writes captures, measurement reports or disposable fixtures for the capture-terminal-first-frame proof; these are review evidence, not a live product store or an entity authority.',
+    },
+    {
+      file: 'apps/web/harness/command-execution-proof.ts',
+      reason:
+        'Writes captures, measurement reports or disposable fixtures for the command-execution-proof proof; these are review evidence, not a live product store or an entity authority.',
+    },
+    {
+      file: 'apps/web/harness/conversation-stream-ab.ts',
+      reason:
+        'Writes captures, measurement reports or disposable fixtures for the conversation-stream-ab proof; these are review evidence, not a live product store or an entity authority.',
+    },
+    {
+      file: 'apps/web/harness/device-search.ts',
+      reason:
+        'Writes captures, measurement reports or disposable fixtures for the device-search proof; these are review evidence, not a live product store or an entity authority.',
+    },
+    {
+      file: 'apps/web/harness/fast-scroll.ts',
+      reason:
+        'Writes captures, measurement reports or disposable fixtures for the fast-scroll proof; these are review evidence, not a live product store or an entity authority.',
+    },
+    {
+      file: 'apps/web/harness/full-screen-click-profile.ts',
+      reason:
+        'Writes captures, measurement reports or disposable fixtures for the full-screen-click-profile proof; these are review evidence, not a live product store or an entity authority.',
+    },
+    {
+      file: 'apps/web/harness/full-screen-profile-analyze.ts',
+      reason:
+        'Writes captures, measurement reports or disposable fixtures for the full-screen-profile-analyze proof; these are review evidence, not a live product store or an entity authority.',
+    },
+    {
+      file: 'apps/web/harness/full-screen-profile.ts',
+      reason:
+        'Writes captures, measurement reports or disposable fixtures for the full-screen-profile proof; these are review evidence, not a live product store or an entity authority.',
+    },
+    {
+      file: 'apps/web/harness/heap-owners.ts',
+      reason:
+        'Writes captures, measurement reports or disposable fixtures for the heap-owners proof; these are review evidence, not a live product store or an entity authority.',
+    },
+    {
+      file: 'apps/web/harness/issue-board-controls.ts',
+      reason:
+        'Writes captures, measurement reports or disposable fixtures for the issue-board-controls proof; these are review evidence, not a live product store or an entity authority.',
+    },
+    {
+      file: 'apps/web/harness/issue-board-proof.ts',
+      reason:
+        'Writes captures, measurement reports or disposable fixtures for the issue-board-proof proof; these are review evidence, not a live product store or an entity authority.',
+    },
+    {
+      file: 'apps/web/harness/issue-chips-proof.ts',
+      reason:
+        'Writes captures, measurement reports or disposable fixtures for the issue-chips-proof proof; these are review evidence, not a live product store or an entity authority.',
+    },
+    {
+      file: 'apps/web/harness/live-sidebar-profile.ts',
+      reason:
+        'Writes captures, measurement reports or disposable fixtures for the live-sidebar-profile proof; these are review evidence, not a live product store or an entity authority.',
+    },
+    {
+      file: 'apps/web/harness/message-quote-focus.browser.ts',
+      reason:
+        'Writes captures, measurement reports or disposable fixtures for the message-quote-focus.browser proof; these are review evidence, not a live product store or an entity authority.',
+    },
+    {
+      file: 'apps/web/harness/old-vs-new-cpu.ts',
+      reason:
+        'Writes captures, measurement reports or disposable fixtures for the old-vs-new-cpu proof; these are review evidence, not a live product store or an entity authority.',
+    },
+    {
+      file: 'apps/web/harness/pool-memory.ts',
+      reason:
+        'Writes captures, measurement reports or disposable fixtures for the pool-memory proof; these are review evidence, not a live product store or an entity authority.',
+    },
+    {
+      file: 'apps/web/harness/refreshing-shots.ts',
+      reason:
+        'Writes captures, measurement reports or disposable fixtures for the refreshing-shots proof; these are review evidence, not a live product store or an entity authority.',
+    },
+    {
+      file: 'apps/web/harness/selection-runtime.ts',
+      reason:
+        'Writes captures, measurement reports or disposable fixtures for the selection-runtime proof; these are review evidence, not a live product store or an entity authority.',
+    },
+    {
+      file: 'apps/web/harness/sidebar-acceptance.ts',
+      reason:
+        'Writes captures, measurement reports or disposable fixtures for the sidebar-acceptance proof; these are review evidence, not a live product store or an entity authority.',
+    },
+    {
+      file: 'apps/web/harness/sidebar-actions-proof.ts',
+      reason:
+        'Writes captures, measurement reports or disposable fixtures for the sidebar-actions-proof proof; these are review evidence, not a live product store or an entity authority.',
+    },
+    {
+      file: 'apps/web/harness/sidebar-renderer-proof.ts',
+      reason:
+        'Writes captures, measurement reports or disposable fixtures for the sidebar-renderer-proof proof; these are review evidence, not a live product store or an entity authority.',
+    },
+    {
+      file: 'apps/web/harness/sidebar-search-proof.ts',
+      reason:
+        'Writes captures, measurement reports or disposable fixtures for the sidebar-search-proof proof; these are review evidence, not a live product store or an entity authority.',
+    },
+    {
+      file: 'apps/web/harness/speed-gate.ts',
+      reason:
+        'Writes captures, measurement reports or disposable fixtures for the speed-gate proof; these are review evidence, not a live product store or an entity authority.',
+    },
+    {
+      file: 'apps/web/harness/transcript-window-proof.ts',
+      reason:
+        'Writes captures, measurement reports or disposable fixtures for the transcript-window-proof proof; these are review evidence, not a live product store or an entity authority.',
+    },
+    {
+      file: 'apps/web/harness/working-mark-style.tsx',
+      reason:
+        'Writes captures, measurement reports or disposable fixtures for the working-mark-style proof; these are review evidence, not a live product store or an entity authority.',
+    },
     {
       file: 'packages/runtime/src/run-registry.ts',
       reason:
@@ -723,7 +1377,13 @@ export function checkDrizzleTables(
   for (const { file, source } of schemas) {
     for (const table of drizzleTables(source)) {
       live.add(table)
-      if (!declared.has(table)) {
+      if (
+        !declared.some(
+          (store) =>
+            store.store === table &&
+            (store.writeSites === undefined || store.writeSites.includes(file)),
+        )
+      ) {
         findings.push({
           check: 'drizzle-table-undeclared',
           where: `${file} → ${table}`,
@@ -764,12 +1424,18 @@ export function checkRuntimeTables(
   files: readonly { readonly file: string; readonly source: string }[],
   inventory: readonly DurableStore[] = DURABLE_STORES,
 ): Finding[] {
-  const declared = new Set(inventory.filter((s) => s.kind === 'runtime-table').map((s) => s.store))
+  const declared = inventory.filter((store) => store.kind === 'runtime-table')
   const findings: Finding[] = []
   for (const { file, source } of files) {
     if (MIGRATION_LEDGER.test(file)) continue
     for (const table of runtimeTables(source)) {
-      if (!declared.has(table)) {
+      if (
+        !declared.some(
+          (store) =>
+            store.store === table &&
+            (store.writeSites === undefined || store.writeSites.includes(file)),
+        )
+      ) {
         findings.push({
           check: 'runtime-table-undeclared',
           where: `${file} → ${table}`,

@@ -99,6 +99,7 @@ export const ROW = {
   maintenanceCommandReceipts: id('maintenance-command-receipts'),
   stewardState: id('steward-state'),
   notificationFacts: id('notification-facts'),
+  notices: id('notices'),
   wakeCooldowns: id('message-wake-cooldowns'),
   idAllocationCounters: id('id-allocation-counters'),
   // The workflow surface, as FIVE classes rather than the one row it used to

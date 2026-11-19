@@ -3427,6 +3427,38 @@ const MULTI_USER_ROWS: readonly MatrixRow[] = [
     },
   }),
   perUserState({
+    id: ROW.notices,
+    section: 'multi-user-classes',
+    title: 'Recipient notice inbox (credential management design section 13)',
+    sites: [
+      'apps/server/src/store/notices.ts',
+      'apps/server/src/modules/notices/emit.ts',
+      'apps/server/src/modules/notices/sync-write.ts',
+      'docs/superpowers/specs/2026-11-12-credential-management-design.md#13-the-notification-inbox',
+    ],
+    idMinting: 'Server-minted notice id; recipientUserId is fixed when the notice is raised.',
+    writers: ['operator', 'system'],
+    owner: {
+      kind: 'user',
+      resolves: 'routed-to-human',
+      note: 'The recipient named by the producer, never the actor who caused the notice or the owner of its subject.',
+    },
+    conflictNote:
+      'The server raises and resolves the condition under its dedupe key; only the recipient marks it read. Each write is serialized by the authority and never transfers the recipient.',
+    systemWriter: 'may-write',
+    systemWriterRule: SYSTEM_WRITER_RULE,
+    inheritanceOnCreate: {
+      kind: 'not-applicable',
+      reason:
+        'The producer explicitly routes the notice to its recipient; it does not inherit the subject owner, the actor, or any grants.',
+    },
+    attribution: {
+      actor: 'required',
+      onBehalfOf: 'none-representable',
+      note: 'A system producer may have no human principal; a recipient read is attributed to that recipient. No producer becomes the owner through attribution.',
+    },
+  }),
+  perUserState({
     id: ROW.perUserStateFamily,
     section: 'multi-user-classes',
     title: 'Per-user state family (generic)',
@@ -3524,6 +3556,11 @@ export const PER_USER_WRITER_EXCEPTIONS: readonly {
   readonly row: MatrixRowId
   readonly reason: string
 }[] = [
+  {
+    row: ROW.notices,
+    reason:
+      'Credential management design section 13 authorizes system producers to raise and resolve a notice for its fixed recipient. Only that person reads or marks it; no admin, producer or subject owner gains the recipient row.',
+  },
   {
     row: ROW.perUserClientSession,
     reason:
