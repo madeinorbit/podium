@@ -42,7 +42,7 @@
 
 import { readdirSync, readFileSync } from 'node:fs'
 import { join, relative } from 'node:path'
-import { MESSAGE_PENDING, primeFirstAdminMember } from '@podium/model'
+import { primeFirstAdminMember } from '@podium/model'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
 import { pgSyncTables } from '@podium/sync/adapters/pg/schema'
 import postgres from 'postgres'
@@ -1111,7 +1111,10 @@ function closedValues(definition: string): { column: string; values: string[] } 
  */
 async function seedRows(db: AuditDb): Promise<string[]> {
   const filled = await db.begin(async (tx) => await seedIn(tx))
-  await db.unsafe('ANALYZE')
+  // Fix the visibility map as well as the statistics. Otherwise autovacuum
+  // racing this census can change an index-only plan into a bitmap/heap plan
+  // between a focused run and a whole-lane run on the identical data.
+  await db.unsafe('VACUUM (ANALYZE)')
   return filled
 }
 
