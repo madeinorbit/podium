@@ -81,6 +81,7 @@ async function world() {
   const providerLog: { session: SessionId; token: string; at: number; expired: boolean }[] = []
   const sessions = new Map<SessionId, SimSession>()
   const timers: { at: number; fn: () => void; live: boolean }[] = []
+  const restarts = new Set<Promise<void>>()
 
   const keeper = new ChatgptPlanKeeper({ store: s, fetch: openai.fetch, now: () => now })
   let health: CredentialHealth
@@ -93,7 +94,12 @@ async function world() {
         timer.live = false
       }
     },
-    restartAtTurnBoundary: async (id) => await health.restartAtTurnBoundary(id),
+    restartAtTurnBoundary: (id) => {
+      const work = health.restartAtTurnBoundary(id)
+      restarts.add(work)
+      void work.finally(() => restarts.delete(work))
+      return work
+    },
   })
   const plan: SessionAccess = {
     ok: true,
@@ -145,7 +151,9 @@ async function world() {
     },
   })
   const settle = async () => {
-    for (let i = 0; i < 50; i += 1) await new Promise((resolve) => setImmediate(resolve))
+    // Advance virtual time only after the due SQL and token delivery finish.
+    // A fixed number of event-loop turns does not wait for Postgres I/O.
+    while (restarts.size) await Promise.all([...restarts])
   }
   /** One minute passes: due timers fire, every session in a turn calls the provider. */
   const tick = async () => {

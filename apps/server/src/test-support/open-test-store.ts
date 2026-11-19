@@ -43,7 +43,6 @@ import {
   primeFirstAdminMember,
   type WorkspaceId,
 } from '@podium/model'
-import type { SnapshotVerifierDeps } from '../migrations/snapshot-verifier'
 import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import { SessionStore } from '../store'
 import {
@@ -67,7 +66,7 @@ import {
 export async function openTestStore(
   path?: string,
   hostMachineId?: MachineId,
-  snapshotVerifierDeps?: SnapshotVerifierDeps,
+  storeOptions?: Omit<NonNullable<Parameters<typeof SessionStore.open>[2]>, 'workspace'>,
   options: { workspace?: WorkspaceId } = {},
 ): Promise<SessionStore> {
   // Every parameter of the constructor has a default and an explicit `undefined`
@@ -79,7 +78,7 @@ export async function openTestStore(
   const clone = testStoreEngine() === 'pg' ? await postgresDatabase(path) : undefined
   const location = clone?.url ?? path
   const store = await SessionStore.open(location, hostMachineId, {
-    ...snapshotVerifierDeps,
+    ...storeOptions,
     changeCapture: 'whenLogAttaches',
     workspace: options.workspace ?? SELF_HOSTED_WORKSPACE_ID,
     // A test file may hold many stores at once; the leg's server has 300 connections.

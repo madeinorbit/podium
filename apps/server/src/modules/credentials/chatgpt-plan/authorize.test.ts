@@ -10,10 +10,11 @@ import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asUserId, firstAdminMemberId, primeFirstAdminMember } from '@podium/model'
-import type { SqlDatabase } from '@podium/runtime/sqlite'
 import { afterEach, describe, expect, it } from 'vitest'
-import { SessionStore } from '../../../store'
+import type { SessionStore } from '../../../store'
 import { memberFacts } from '../../../store/fixtures/test-support'
+import { credentialStorageRows } from '../../../test-support/credential-storage-rows'
+import { openTestStore } from '../../../test-support/open-test-store'
 import { withSecret } from '../vault'
 import {
   CHATGPT_PLAN_TYPE,
@@ -33,10 +34,6 @@ const HOST_ID =
   'urn:ietf:params:oauth:jwk-thumbprint:sha-256:FAKEhostThumbprint00000000000000000000000000'
 const T0 = Date.parse('2026-11-16T12:00:00Z')
 
-const rawDb = (store: SessionStore): SqlDatabase => (store as unknown as { db: SqlDatabase }).db
-const rawRows = (store: SessionStore, table: string): string =>
-  JSON.stringify(rawDb(store).prepare(`SELECT * FROM ${table}`).all())
-
 describe('ChatGPT sign-in', () => {
   let store: SessionStore | undefined
   afterEach(async () => {
@@ -46,7 +43,7 @@ describe('ChatGPT sign-in', () => {
 
   async function setup() {
     const dir = mkdtempSync(join(tmpdir(), 'chatgpt-sign-in-'))
-    store = await SessionStore.open(join(dir, 'podium.db'), undefined, {
+    store = await openTestStore(join(dir, 'podium.db'), undefined, {
       vaultKeyFile: join(dir, 'vault.key'),
       // A store-level fixture with no change log attached (POD-6920), as health.test.
       changeCapture: 'whenLogAttaches',
@@ -334,8 +331,8 @@ describe('ChatGPT sign-in', () => {
       // Canary: the values are what the fake issued, and the search can find one.
       expect(set.accessToken).toBe('FAKE-access-token-1')
       expect(JSON.stringify({ planted })).toContain(set.refreshToken)
-      for (const table of ['credentials', 'credential_secrets', 'settings_audit_events']) {
-        const rows = rawRows(store, table)
+      for (const table of ['credentials', 'credentialSecrets', 'settingsAuditEvents'] as const) {
+        const rows = JSON.stringify(await credentialStorageRows(store, table))
         for (const secret of planted) expect(rows).not.toContain(secret)
       }
       const [record] = await store.credentials.listVisibleTo(OWNER)

@@ -16,9 +16,10 @@ import {
   primeFirstAdminMember,
 } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
-import { SessionStore } from '../../../store'
+import type { SessionStore } from '../../../store'
 import { newCredentialId } from '../../../store/credentials'
 import { memberFacts } from '../../../store/fixtures/test-support'
+import { openTestStore } from '../../../test-support/open-test-store'
 import { CredentialRefusal } from '../../sessions/launch-config'
 import { attentionNoticeKey, CredentialHealth, type CredentialNotice } from '../health'
 import { sealCredentialSecret, withSecret } from '../vault'
@@ -40,7 +41,7 @@ describe('ChatgptPlanKeeper', () => {
 
   async function setup() {
     const dir = mkdtempSync(join(tmpdir(), 'chatgpt-keeper-'))
-    store = await SessionStore.open(join(dir, 'podium.db'), undefined, {
+    store = await openTestStore(join(dir, 'podium.db'), undefined, {
       vaultKeyFile: join(dir, 'vault.key'),
       // A store-level fixture with no change log attached (POD-6920), as health.test.
       changeCapture: 'whenLogAttaches',

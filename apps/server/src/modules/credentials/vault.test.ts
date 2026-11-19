@@ -3,21 +3,16 @@ import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asUserId, firstAdminMemberId, primeFirstAdminMember } from '@podium/model'
-import type { SqlDatabase } from '@podium/runtime/sqlite'
 import { afterEach, describe, expect, it } from 'vitest'
-import { SessionStore } from '../../store'
+import type { SessionStore } from '../../store'
 import type { CredentialRecord } from '../../store/credentials'
+import { credentialStorageRows } from '../../test-support/credential-storage-rows'
+import { openTestStore } from '../../test-support/open-test-store'
 import { sealCredentialSecret, VaultLockedError, withSecret } from './vault'
 
 /** Obviously fake. Never a real provider key. */
 const CANARY = 'FAKE-sk-ant-vault-test-canary-0000'
 const OWNER = asUserId('user:owner')
-
-const rawDb = (store: SessionStore): SqlDatabase => (store as unknown as { db: SqlDatabase }).db
-
-function rawRows(store: SessionStore, table: string): string {
-  return JSON.stringify(rawDb(store).prepare(`SELECT * FROM ${table}`).all())
-}
 
 describe('Vault', () => {
   let store: SessionStore | undefined
@@ -30,7 +25,7 @@ describe('Vault', () => {
   /** Open (or reopen) the store at `dbPath` with its vault key at `keyPath`. */
   async function openStore(dbPath: string, keyPath: string): Promise<SessionStore> {
     await store?.close()
-    store = await SessionStore.open(dbPath, undefined, { vaultKeyFile: keyPath })
+    store = await openTestStore(dbPath, undefined, { vaultKeyFile: keyPath })
     primeFirstAdminMember(await firstAdminMemberId(store))
     return store
   }
@@ -62,7 +57,9 @@ describe('Vault', () => {
     expect(vault.state()).toBe('ready')
     // The stored key id names the key file the first seal created.
     expect(vault.status().keyId).toMatch(/^file:[0-9a-f]{16}$/)
-    expect(rawRows(s, 'vault_key')).toContain(vault.status().keyId)
+    expect(JSON.stringify(await credentialStorageRows(s, 'vaultKey'))).toContain(
+      vault.status().keyId,
+    )
 
     const latest = await s.credentials.latestSecret(credential.id)
     expect(latest?.openable).toBe(true)
@@ -72,11 +69,11 @@ describe('Vault', () => {
 
     // Canary: the search below finds the secret where it is present.
     expect(JSON.stringify({ planted: CANARY })).toContain(CANARY)
-    const secrets = rawRows(s, 'credential_secrets')
+    const secrets = JSON.stringify(await credentialStorageRows(s, 'credentialSecrets'))
     expect(secrets).toContain(credential.id)
     expect(secrets).not.toContain(CANARY)
     expect(secrets).not.toContain(Buffer.from(CANARY).toString('base64'))
-    expect(rawRows(s, 'vault_key')).not.toContain(CANARY)
+    expect(JSON.stringify(await credentialStorageRows(s, 'vaultKey'))).not.toContain(CANARY)
   })
 
   it('does not open a ciphertext moved to another credential, type or version', async () => {
@@ -103,7 +100,7 @@ describe('Vault', () => {
       vault.seal(a, Buffer.from('FAKE-a')),
       vault.seal(b, Buffer.from('FAKE-b')),
     ])
-    expect(rawDb(s).prepare('SELECT count(*) AS n FROM vault_key').get()).toEqual({ n: 1 })
+    expect(await credentialStorageRows(s, 'vaultKey')).toHaveLength(1)
     expect(sa.keyId).toBe(sb.keyId)
     expect(vault.open(a, sa).toString()).toBe('FAKE-a')
     expect(vault.open(b, sb).toString()).toBe('FAKE-b')
