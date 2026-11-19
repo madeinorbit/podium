@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs'
+import { URL as NodeURL } from 'node:url'
 import { runInNewContext } from 'node:vm'
 import { afterEach, expect, it, vi } from 'vitest'
 
@@ -24,7 +25,7 @@ it('activates over an old non-responsive page while keeping a matching or unsave
   const phone = client('/mobile/')
   const clients = [old, current, unsaved, phone]
   runInNewContext(
-    readFileSync(new URL('../../public/sw-interface-repair.js', import.meta.url), 'utf8'),
+    readFileSync(new NodeURL('../../public/sw-interface-repair.js', import.meta.url), 'utf8'),
     {
       self: {
         addEventListener: (_type: string, listener: typeof activate) => {
