@@ -1,8 +1,7 @@
-import { omitGone } from '@podium/client-graph/lookup'
-import { referenceView } from '@podium/client-graph/issue-reference'
 import { type IssueReferenceSource, issueReferenceModel } from '@podium/client-core/values'
 import { LOADING, MobxPool } from '@podium/client-graph'
-import { IssueReferences } from '@podium/client-graph/issue-reference'
+import { IssueReferences, referenceView } from '@podium/client-graph/issue-reference'
+import { omitGone } from '@podium/client-graph/lookup'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import { asIssueId } from '@podium/model/browser'
 import { describe, expect, it, vi } from 'vitest'
@@ -35,15 +34,26 @@ function issue(i: number, patch: Record<string, unknown> = {}) {
     ...patch,
   }
 }
-const repo = { kind: 'worktree' as const, id: '/r', value: {
-  path: '/r', repoId: 'r', prefix: 'POD', repoPath: '/r', repoName: 'Fixture',
-} as never }
+const repo = {
+  kind: 'worktree' as const,
+  id: '/r',
+  value: {
+    path: '/r',
+    repoId: 'r',
+    prefix: 'POD',
+    repoPath: '/r',
+    repoName: 'Fixture',
+  } as never,
+}
 function setup(count = 2000) {
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.now() })
   const rows = Array.from({ length: count }, (_, i) => issue(i + 1))
   pool.apply({
     type: 'replace',
-    rows: [repo, ...rows.map((row) => ({ kind: 'issue' as const, id: row.id, value: row as never }))],
+    rows: [
+      repo,
+      ...rows.map((row) => ({ kind: 'issue' as const, id: row.id, value: row as never })),
+    ],
   })
   const queue = vi.fn()
   const row = vi.fn(pool.row.bind(pool))
@@ -105,7 +115,7 @@ describe('per-issue pool references', () => {
     f.dispose()
   })
 
-  it('redraws only when displayed fields change and follows remove/re-add', () => {
+  it('redraws only when displayed fields change and follows remove/re-add', async () => {
     const f = setup(1),
       paint = vi.fn()
     const stop = reaction(() => f.refs.read('POD-01'), paint, { fireImmediately: true })
@@ -137,6 +147,7 @@ describe('per-issue pool references', () => {
     }
     f.pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'iss_1', value: undefined }] })
     expect(paint.mock.calls.at(-1)?.[0]).toBe(LOADING)
+    await Promise.resolve()
     f.refs.resolved('POD-1', null)
     expect(paint.mock.calls.at(-1)?.[0]).toBeNull()
     f.pool.apply({
@@ -182,126 +193,75 @@ describe('per-issue pool references', () => {
     pool.dispose()
   })
 
-  it('loads 50 named cold rows together and resolves only the unknown reference', () => {
+  it('loads 50 stub-held labels together and asks the authority only for an observed unknown ref', async () => {
     const cold = Array.from({ length: 50 }, (_, i) => issue(i + 1, { archived: true }))
-    const load = vi.fn((_entity: string, id: string) => cold.find((row) => row.id === id))
-    const due: Array<() => void> = []
-    const ids = new Map(cold.map((row) => [`POD-${row.seq}`, row.id]))
-    const issueIdByRef = vi.fn((ref: string) => ids.get(ref))
-    const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.now() }, undefined, {
-      load,
-      issueIdByRef,
-      schedule: (run) => {
-        due.push(run)
-        return () => {}
-      },
-    })
-    pool.apply({
-      type: 'replace',
-      rows: [repo, ...cold.map((row) => ({ kind: 'issue' as const, id: row.id, value: row as never }))],
-    })
-    const paints = cold.map(() => vi.fn())
-    const stops = cold.map((row, i) =>
-      reaction(() => referenceView(pool).read(`POD-${row.seq}`), paints[i]!, { fireImmediately: true }),
+    const history = historyLoader(
+      cold.map((row) => ({ kind: 'issue' as const, id: row.id, value: row as never })),
+      cold,
     )
-    expect(referenceView(pool).read('POD-01')).toBe(LOADING)
-    expect(referenceView(pool).read('POD-999')).toBe(LOADING)
-    // A relation and a chip can ask for the same row in the same window.
-    expect(omitGone(pool.row('issue', cold[0]!.id))).toBe(LOADING)
-    expect(issueIdByRef).not.toHaveBeenCalled()
-    expect(load).not.toHaveBeenCalled()
-    expect(due).toHaveLength(1)
-    due.shift()!()
-    expect(issueIdByRef).toHaveBeenCalledTimes(1)
-    expect(referenceView(pool).read('POD-999')).toBeNull()
-    expect(due).toHaveLength(0)
-    expect(load).toHaveBeenCalledTimes(50)
+    const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 }, undefined, {
+      loader: () => history.port,
+      schedule: () => () => {},
+    })
+    pool.apply({ type: 'replace', rows: [repo] })
+    const queue = vi.fn(),
+      refs = new IssueReferences(pool, queue),
+      paints = cold.map(() => vi.fn())
+    const stops = cold.map((row, i) =>
+      reaction(() => refs.read(`POD-${row.seq}`), paints[i]!, { fireImmediately: true }),
+    )
+    const unknown = vi.fn()
+    stops.push(reaction(() => refs.read('POD-999'), unknown, { fireImmediately: true }))
+    expect(history.asked).toHaveLength(50)
+    expect(paints.every((paint) => paint.mock.calls.at(-1)?.[0] === LOADING)).toBe(true)
+    await Promise.resolve()
+    expect(queue.mock.calls).toEqual([['POD-999']])
+    expect(history.answer(pool)).toBe(50)
+    refs.resolved('POD-999', null)
+    expect(unknown.mock.calls.at(-1)?.[0]).toBeNull()
     expect(paints.every((paint) => paint.mock.calls.at(-1)?.[0]?.availability === 'archived')).toBe(
       true,
     )
     for (const stop of stops) stop()
+    refs.dispose()
     pool.dispose()
   })
 
-  it('refreshes a missing normalized cold ref through its repo identity', () => {
-    const cold = issue(1, { archived: true, repoId: 'r', prefix: undefined, displayRef: undefined })
-    const due: Array<() => void> = []
-    let localRow: typeof cold | undefined
-    const load = vi.fn(() => localRow)
-    const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.now() }, undefined, {
-      load,
-      issueIdByRef: (ref) => (ref === 'POD-1' ? localRow?.id : undefined),
-      schedule: (run) => {
-        due.push(run)
-        return () => {}
-      },
-    })
+  it('refreshes a normalized missing ref when its repository and row arrive', async () => {
+    const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
+    const refs = new IssueReferences(pool, vi.fn()),
+      paint = vi.fn()
+    const stop = reaction(() => refs.read('POD-1'), paint, { fireImmediately: true })
+    await Promise.resolve()
+    refs.resolved('POD-1', null)
+    expect(paint.mock.calls.at(-1)?.[0]).toBeNull()
+    const cold = issue(1, { repoId: 'r', prefix: undefined, displayRef: undefined })
     pool.apply({
-      type: 'replace',
-      rows: [repo],
+      type: 'update',
+      rows: [repo, { kind: 'issue', id: cold.id, value: cold as never }],
     })
-    const paint = vi.fn()
-    const stop = reaction(() => referenceView(pool).read('POD-1'), paint, { fireImmediately: true })
-    due.shift()!()
-    expect(paint.mock.calls.at(-1)?.[0]).toBeNull()
-    localRow = cold
-    pool.apply({ type: 'update', rows: [{ kind: 'issue', id: cold.id, value: cold as never }] })
-    expect(paint.mock.calls.at(-1)?.[0]).toBe(LOADING)
-    expect(due).toHaveLength(1)
-    due.shift()!()
-    expect(load).toHaveBeenCalledTimes(1)
-    expect(paint.mock.calls.at(-1)?.[0]).toMatchObject({ ref: 'POD-1', availability: 'archived' })
+    expect(paint.mock.calls.at(-1)?.[0]).toMatchObject({ ref: 'POD-1', title: 'Task 1' })
     stop()
+    refs.dispose()
     pool.dispose()
   })
 
-  it('refreshes missing refs when a cold row arrives and across scope replacements', () => {
-    const cold = issue(1, { archived: true })
-    const due: Array<() => void> = []
-    let localRow: typeof cold | undefined
-    const issueIdByRef = vi.fn((ref: string) => (ref === 'POD-1' ? localRow?.id : undefined))
-    const load = vi.fn(() => localRow)
-    const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.now() }, undefined, {
-      load,
-      issueIdByRef,
-      schedule: (run) => {
-        due.push(run)
-        return () => {
-          const index = due.indexOf(run)
-          if (index >= 0) due.splice(index, 1)
-        }
-      },
-    })
-    const paint = vi.fn()
-    const stop = reaction(() => referenceView(pool).read('POD-1'), paint, { fireImmediately: true })
-    due.shift()!()
+  it('forgets unresolved scope answers and ignores a response after the chip disappears', async () => {
+    const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
+    const queue = vi.fn(),
+      refs = new IssueReferences(pool, queue),
+      paint = vi.fn()
+    const stop = reaction(() => refs.read('POD-1'), paint, { fireImmediately: true })
+    await Promise.resolve()
+    refs.resolved('POD-1', null)
     expect(paint.mock.calls.at(-1)?.[0]).toBeNull()
-    localRow = cold
-    const scope = {
-      type: 'replace' as const,
-      rows: [repo, { kind: 'issue' as const, id: cold.id, value: cold as never }],
-    }
-    pool.apply({ ...scope, type: 'update' })
+    refs.resetUnresolved()
     expect(paint.mock.calls.at(-1)?.[0]).toBe(LOADING)
-    expect(due).toHaveLength(1)
-    due.shift()!()
-    expect(load).toHaveBeenCalledTimes(1)
-    expect(paint.mock.calls.at(-1)?.[0]).toMatchObject({
-      availability: 'archived',
-      title: 'Task 1',
-    })
-    localRow = undefined
-    pool.apply({ type: 'replace', rows: [] })
-    expect(referenceView(pool).read('POD-1')).toBe(LOADING)
-    due.shift()!()
-    expect(referenceView(pool).read('POD-1')).toBeNull()
-    // The scope changes again while a missing demand is awaiting its window.
-    pool.apply({ type: 'replace', rows: [] })
-    localRow = cold
-    pool.apply(scope)
-    due.shift()!()
-    expect(referenceView(pool).read('POD-1')).toMatchObject({ availability: 'archived' })
+    expect(queue).toHaveBeenCalledTimes(2)
     stop()
+    refs.resolved('POD-1', 'iss_1')
+    expect(refs.hasRequest('POD-1')).toBe(false)
+    refs.dispose()
     pool.dispose()
   })
 })

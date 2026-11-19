@@ -1,11 +1,11 @@
-import { RequestAnswer } from '@podium/client-graph/request-answer'
-import { ConversationSearchView } from './lib/conversation-search-view'
 import { GitView } from '@podium/client-graph/git-view'
+import { RequestAnswer } from '@podium/client-graph/request-answer'
 import { describe, expect, it, vi } from 'vitest'
+import { FileBrowserView } from './features/files/file-browser-view'
 import { FileDocumentView } from './features/files/file-document-view'
 import { FileTreeView } from './features/files/file-tree-view'
-import { FileBrowserView } from './features/files/file-browser-view'
 import { DiffView } from './features/git/diff-view'
+import { ConversationSearchView } from './lib/conversation-search-view'
 import { FileMentionView } from './lib/search-views'
 
 function deferred<T>() {
@@ -59,22 +59,30 @@ describe('request answer lifetime', () => {
   it('fences directory refresh, navigation and close without prefetching collapsed directories', async () => {
     type Listing = { ok: boolean; path: string; entries: { name: string; isDir: boolean }[] }
     const old = deferred<Listing>(),
-      current = deferred<Listing>()
-    const listDir = vi.fn().mockReturnValueOnce(old.promise).mockReturnValueOnce(current.promise)
+      current = deferred<Listing>(),
+      late = deferred<Listing>()
+    let roots = 0
+    const listDir = vi.fn((input: { path?: string }) => {
+      if (input.path === '/repo/new') return late.promise
+      roots++
+      return roots === 1 ? old.promise : current.promise
+    })
     const view = new FileTreeView('/repo', undefined, { listDir, trpc: {} as never })
-    const first = view.load('/repo')
+    view.open()
+    await vi.waitFor(() => expect(roots).toBe(1))
     view.refresh()
+    await vi.waitFor(() => expect(roots).toBe(2))
     current.resolve({ ok: true, path: '/repo', entries: [{ name: 'new', isDir: true }] })
-    await current.promise
-    await Promise.resolve()
-    await Promise.resolve()
+    await vi.waitFor(() => expect(view.children['/repo']).toEqual([{ name: 'new', isDir: true }]))
     old.resolve({ ok: true, path: '/repo', entries: [{ name: 'old', isDir: false }] })
-    await first
+    await old.promise
+    await Promise.resolve()
     expect(view.children['/repo']).toEqual([{ name: 'new', isDir: true }])
-    expect(listDir).toHaveBeenCalledTimes(2)
-    const late = deferred<Listing>()
-    listDir.mockReturnValueOnce(late.promise)
+    expect(listDir.mock.calls.every(([input]) => input.path === '/repo')).toBe(true)
     view.toggleDir('/repo/new')
+    await vi.waitFor(() =>
+      expect(listDir.mock.calls.some(([input]) => input.path === '/repo/new')).toBe(true),
+    )
     view.close()
     late.resolve({ ok: true, path: '/repo/new', entries: [{ name: 'late', isDir: false }] })
     await late.promise
