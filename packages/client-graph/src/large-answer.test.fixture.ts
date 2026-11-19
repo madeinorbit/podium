@@ -18,11 +18,13 @@ import {
 } from '../../sync/src/conformance/collection-server'
 import { inMemoryInstantiation } from '../../sync/src/conformance/in-memory'
 import { TEST_BUDGETS } from '../../sync/src/conformance/test-budgets'
+import { instanceKey } from '../../sync/src/replica/cache-state'
 import { CollectionLoader, type LoaderSchedule } from '../../sync/src/replica/loader'
 import { Replica } from '../../sync/src/replica/replica'
 import type { CachePolicy } from '../../sync/src/replica/types'
 import { createWorklistPool } from './create'
 import { LOADING } from './loading'
+import { isGone } from './lookup'
 import { MissionScreen } from './mission-screen'
 import { attachMissionTestPreferences } from './mission-screen.test.fixture'
 import type { MobxPool } from './pool'
@@ -101,7 +103,38 @@ export interface LargeDeckRun {
   readonly publications: readonly number[]
   /** Each burst of the Replica's events while the deck opened, with what it ran, in ms. */
   readonly burstMs: readonly number[]
+  /**
+   * POD-7159 — close the deck, unload every instance it read from memory
+   * (the policy's stay), and open it again: from disk, with no server
+   * request, `offline` with the connection gone too.
+   */
+  readonly reopenFromDisk: (options?: { readonly offline?: boolean }) => Promise<DeckReopen>
   readonly dispose: () => void
+}
+
+/** What reopening the deck from disk did (POD-7159). */
+export interface DeckReopen {
+  readonly ready: boolean
+  readonly rows: number
+  /** Instances unloaded before the reopen. */
+  readonly unloaded: number
+  /** Rows that left memory with them. */
+  readonly rowsUnloaded: number
+  /** Server fetches while the deck reopened. */
+  readonly fetches: number
+  /** The instances those fetches named. */
+  readonly fetched: readonly string[]
+  /** How the device held each fetched instance when it was asked for. */
+  readonly fetchedStates: Readonly<Record<string, number>>
+  /** The instances unloaded before the reopen. */
+  readonly unloadedKeys: readonly string[]
+  /** Answers a reader of an unloaded row saw, in order (distinct, consecutive). */
+  readonly answers: readonly string[]
+  /** Bursts of the Replica's events that put rows in memory while the deck reopened. */
+  readonly rowBursts: number
+  /** Rows the reopen put back in memory. */
+  readonly rowsLoaded: number
+  readonly openMs: number
 }
 
 export async function openLargeDeck(
@@ -233,7 +266,23 @@ export async function openLargeDeck(
   let answeredHop = 0
   const fetches: { hop: number; collections: string[] }[] = []
   const answer = server.collections.bind(server)
+  let asked = 0
+  const askedKeys: string[] = []
+  const askedStates = new Map<string, number>()
+  let refuse = false
   server.collections = (instances) => {
+    asked += 1
+    for (const instance of instances) {
+      const key = instanceKey(instance)
+      askedKeys.push(key)
+      // Why the device did not answer it itself (diagnostics for the reopen).
+      const index = cache.readDiskIndex()
+      const state = cache.readInstances().has(key)
+        ? `marker:${index.inMemory(key) ? 'memory' : 'disk'}:${index.instance(key)?.indexed === true ? 'indexed' : 'unindexed'}`
+        : 'no-marker'
+      askedStates.set(state, (askedStates.get(state) ?? 0) + 1)
+    }
+    if (refuse) throw new Error('offline: no fetch may reach the server')
     const hop = answeredHop + 1
     if (opening)
       fetches.push({ hop, collections: [...new Set(instances.map((i) => i.collection))] })
@@ -260,6 +309,8 @@ export async function openLargeDeck(
   })
   const stages: { stage: string; ms: number }[] = []
   let bursts = 0
+  let rowBursts = 0
+  let burstHadRows = false
   let opening = false
   const burstMs: number[] = []
   let longestMs = 0
@@ -291,12 +342,14 @@ export async function openLargeDeck(
     view: () => loader?.takeView() ?? [],
     request: (specs) => loader?.request(specs),
     onEvent: (event) => {
+      if (event.type === 'upserted') burstHadRows = true
       if (event.type === 'load-installed') loadInstalled = true
       facade.onKernelEvent(event)
       loader?.onEvent(event)
     },
     batchEvents: (emit) => {
       bursts += 1
+      burstHadRows = false
       const at = performance.now()
       // The app's composition (assembly.ts); without the loader's burst on request.
       const batch = options.loaderBatch === false ? undefined : loader?.batch?.bind(loader)
@@ -306,6 +359,7 @@ export async function openLargeDeck(
       if (opening) {
         longestMs = Math.max(longestMs, ms)
         burstMs.push(ms)
+        if (burstHadRows) rowBursts += 1
       }
       if (ms > 50) {
         stages.push({ stage: 'batch', ms })
@@ -368,7 +422,7 @@ export async function openLargeDeck(
   const notificationsBefore = loader!.stats.notifications
   const flushesBefore = rows.stats.flushes
   const trimsBefore = kernel.stats().trims
-  const screen = new MissionScreen(handle.pool, rootId, { sessionName: (s) => s.name ?? '' })
+  let screen = new MissionScreen(handle.pool, rootId, { sessionName: (s) => s.name ?? '' })
   let shown = 0
   // What the Full view draws once it has settled: its rows and their words.
   const ready = () => screen.ready && screen.full.ready
@@ -377,6 +431,7 @@ export async function openLargeDeck(
     shown = screen.rows.length
     for (const id of screen.full.rowIds) void screen.full.task(id).word
   })
+  let stopShown = stop
   for (let round = 0; round < 6 && !ready(); round += 1) await settle()
   const readyWhileCommitHeld = holding && ready() && kernel.posture === 'bootstrapping'
   if (holding) {
@@ -412,8 +467,78 @@ export async function openLargeDeck(
     longestMs,
     publications,
     burstMs,
+    reopenFromDisk: async (reopen = {}) => {
+      // Held while the screen is closed: a trim (the cache cap stays until
+      // POD-7161/7162) must not take the deck off the device meanwhile.
+      const keepDeck = kernel.hold({
+        collection: 'issueProjection.tree',
+        args: { root: rootId },
+        part: 'main',
+      })
+      stopShown()
+      screen.close()
+      await settle()
+      const policy = new Set(
+        POLICY.steps.flatMap((step) =>
+          step.collections.map((id) =>
+            instanceKey({ collection: id, part: id === 'issueProjection.stubs' ? 'stub' : 'main' }),
+          ),
+        ),
+      )
+      const index = cache.readDiskIndex()
+      const keys = [...cache.readInstances().keys()].filter(
+        (key) => !policy.has(key) && index.inMemory(key),
+      )
+      const residentBefore = cache.readEntities().length
+      await kernel.unload(keys)
+      const rowsUnloaded = residentBefore - cache.readEntities().length
+      if (reopen.offline === true) {
+        kernel.disconnect()
+        refuse = true
+      }
+      const askedBefore = asked
+      const askedKeysBefore = askedKeys.length
+      askedStates.clear()
+      const rowBurstsBefore = rowBursts
+      const at = performance.now()
+      opening = true
+      // A reader of one unloaded row, from before the deck asks for anything.
+      const answers: string[] = []
+      // A done member: no policy collection holds it, so it leaves memory.
+      const watched = ids[ids.length - 2] as string
+      const watch = autorun(() => {
+        const row = handle.pool.row('issue', watched)
+        const seen = row === LOADING ? 'loading' : isGone(row) ? row.reason : 'row'
+        if (answers[answers.length - 1] !== seen) answers.push(seen)
+      })
+      screen = new MissionScreen(handle.pool, rootId, { sessionName: (s) => s.name ?? '' })
+      stopShown = autorun(() => {
+        if (!ready()) return
+        shown = screen.rows.length
+        for (const id of screen.full.rowIds) void screen.full.task(id).word
+      })
+      for (let round = 0; round < 6 && !(ready() && answers.at(-1) === 'row'); round += 1)
+        await settle()
+      watch()
+      keepDeck()
+      opening = false
+      return {
+        ready: ready(),
+        rows: shown,
+        unloaded: keys.length,
+        rowsUnloaded,
+        fetches: asked - askedBefore,
+        fetched: askedKeys.slice(askedKeysBefore),
+        fetchedStates: Object.fromEntries(askedStates),
+        unloadedKeys: keys,
+        answers,
+        rowBursts: rowBursts - rowBurstsBefore,
+        rowsLoaded: cache.readEntities().length - (residentBefore - rowsUnloaded),
+        openMs: performance.now() - at,
+      }
+    },
     dispose: () => {
-      stop()
+      stopShown()
       sidebar?.stop()
       screen.close()
       replica?.disconnect()

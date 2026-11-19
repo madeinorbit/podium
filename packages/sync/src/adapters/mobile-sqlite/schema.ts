@@ -58,12 +58,14 @@ export const REPLICA_DB_NAME = 'podium-replica.db'
  * in `open()` is where its migration goes, and the D6 posture stays as the fallback
  * for anything the migration cannot carry.
  */
-export const REPLICA_SCHEMA_VERSION = 2
+export const REPLICA_SCHEMA_VERSION = 3
 
 export const ENTITY_TABLE = 'entities'
 export const META_TABLE = 'meta'
 export const OUTBOX_TABLE = 'outbox'
 export const SCHEMA_VERSION_TABLE = 'schema_version'
+/** Version 3 (POD-7159): the disk index, one row per record and per instance. */
+export const INDEX_TABLE = 'disk_index'
 
 /** Every table one transaction must be able to span. Order is irrelevant; completeness is not. */
 export const ALL_TABLES: readonly string[] = [
@@ -71,6 +73,7 @@ export const ALL_TABLES: readonly string[] = [
   META_TABLE,
   OUTBOX_TABLE,
   SCHEMA_VERSION_TABLE,
+  INDEX_TABLE,
 ]
 
 /**
@@ -160,6 +163,7 @@ export function applySchema(db: SqlDatabaseLike): void {
       version INTEGER NOT NULL
     );
   `)
+  applyIndexTable(db)
   db.prepare(
     `INSERT INTO ${SCHEMA_VERSION_TABLE} (singleton, version) VALUES (1, ?)
      ON CONFLICT(singleton) DO UPDATE SET version = excluded.version`,
@@ -172,6 +176,23 @@ export function applySchema(db: SqlDatabaseLike): void {
  * every existing row reads as a whole record current as of its provenance seq,
  * and the outbox is untouched.
  */
+/**
+ * Version 3 (POD-7159): the disk index table. Its rows are built from the
+ * existing rows at the first open that finds no `disk-index` flag (see
+ * `store.ts`), in one transaction, so a crash there repeats it and drops
+ * nothing.
+ */
+function applyIndexTable(db: SqlDatabaseLike): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS ${INDEX_TABLE} (
+      principal TEXT NOT NULL,
+      key TEXT NOT NULL,
+      value TEXT NOT NULL,
+      PRIMARY KEY (principal, key)
+    );
+  `)
+}
+
 export function migrateSchema(db: SqlDatabaseLike, from: number): void {
   if (from < 2) {
     db.exec(`
@@ -179,6 +200,7 @@ export function migrateSchema(db: SqlDatabaseLike, from: number): void {
       ALTER TABLE ${ENTITY_TABLE} ADD COLUMN as_of INTEGER;
     `)
   }
+  if (from < 3) applyIndexTable(db)
   db.prepare(
     `INSERT INTO ${SCHEMA_VERSION_TABLE} (singleton, version) VALUES (1, ?)
      ON CONFLICT(singleton) DO UPDATE SET version = excluded.version`,

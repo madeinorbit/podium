@@ -779,7 +779,10 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
         case 'evicted':
         // The device let the record go (trim, end of a load): absent here too,
         // and NOT an exit — a lookup answers "on its way", never "gone".
-        case 'released': {
+        case 'released':
+        // POD-7159: the record left memory and stays on disk; a lookup answers
+        // "on its way" and reads it from disk.
+        case 'unloaded': {
           // Both leave this slice, and `rows()` renders both as gone, so THIS
           // projection does not branch — a row that has left the view is absent
           // either way.

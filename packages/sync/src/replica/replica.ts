@@ -35,8 +35,19 @@
  * `remove(seq 1)` then `upsert(seq 2)` for one entity left the entity absent.
  */
 
-import { RECORDS } from '@podium/model'
+import { COLLECTIONS, RECORDS } from '@podium/model'
 import { instanceKey, rowAfter } from './cache-state'
+import {
+  AnswerMembers,
+  comesWithHolderKey,
+  comesWithHolderOf,
+  comesWithHolders,
+  loadInstancesFromDisk,
+  pointerTargetOf,
+  type ResidentLoadPort,
+  rowKeyOf,
+  splitRowKey,
+} from './disk-index'
 import {
   comesWithOf,
   HeldIndex,
@@ -54,6 +65,7 @@ import {
   type AuthorityReadPort,
   type CacheMutation,
   type CacheOperation,
+  type ComesWithOperation,
   type InstanceOperation,
   type KnownKindValidatorPort,
   type ReplicaParticipantStore,
@@ -176,6 +188,13 @@ const INSTALL_BATCH_ROWS = 4096
  * wall: the cache may stand above it for the length of a burst of fetches.
  */
 const TRIM_QUIET_MS = 1_000
+
+/**
+ * POD-7159 — the most rows a disk load puts in memory in one burst: one
+ * store step, one burst of events and so one reader notification per chunk
+ * (the install-cost rule, POD-7165), each in a task of its own.
+ */
+export const DISK_INSTALL_ROWS = 250
 
 /** What `arrivedBy` answers for a step that has not arrived by the next task. */
 const NOT_YET: unique symbol = Symbol('not yet')
@@ -365,6 +384,16 @@ export class Replica implements DeviceCollectionReads {
   private tail: { readonly generation: number; readonly named: Set<string> } | null = null
   /** The fetch answering each instance now: a second asker waits for its answer (POD-7169). */
   private readonly inFlightAnswers = new Map<string, Promise<unknown>>()
+  /** POD-7159 — the disk load answering each instance now: a second asker waits for it. */
+  private readonly diskLoads = new Map<string, Promise<void>>()
+  /** POD-7159 — the records each comes-with instance was asked for, until its answer completes them. */
+  private readonly askedComesWith = new Map<string, Set<string>>()
+  /**
+   * POD-7159 — a holder's own comes-with instances answered complete while
+   * others of the same via are still to come (the loader sends a holder's
+   * asks in more than one request): kept until the via is complete.
+   */
+  private readonly comesWithAnswered = new Map<string, Set<string>>()
   /** What held records come with, gathered for one batched fetch. */
   private readonly needs = new Map<string, InstanceRequest>()
   private needsScheduled = false
@@ -1284,6 +1313,7 @@ export class Replica implements DeviceCollectionReads {
     // stalls or dies keeps every chunk it delivered.
     const pending: BootstrapChunk[] = []
     let pendingRows = 0
+    const members = new AnswerMembers()
     const install = (): void => {
       if (pending.length === 0) return
       if (generation !== this.walkGeneration) {
@@ -1295,7 +1325,7 @@ export class Replica implements DeviceCollectionReads {
       const chunk = mergeChunks(pending)
       pending.length = 0
       pendingRows = 0
-      entityCount += this.installChunk(chunk, { start: full && first }).length
+      entityCount += this.installChunk(chunk, { start: full && first, members }).length
       first = false
     }
     const chunks = source[Symbol.asyncIterator]()
@@ -1348,6 +1378,7 @@ export class Replica implements DeviceCollectionReads {
     }
     if (generation !== this.walkGeneration) return false
     install()
+    if (generation === this.walkGeneration) this.completeComesWith(members)
     if (!head?.last) return false
     if (generation !== this.walkGeneration) return false
     await this.finishLoad(cause, head, generation, full, entityCount)
@@ -1427,10 +1458,16 @@ export class Replica implements DeviceCollectionReads {
       readonly start?: boolean
       readonly reload?: KindReload
       readonly signal?: AbortSignal
+      /** What the answer named so far: the members of the instances it marks (POD-7159). */
+      readonly members?: AnswerMembers
     },
   ): EntityRecord[] {
     if (options.signal?.aborted) return []
     const start = options.start === true
+    const members = options.members
+    if (members !== undefined)
+      for (const change of chunk.changes)
+        members.add(change.entity, change.entityId, change.payload)
     const snapshot: Cursor = { feedId: chunk.feedId, epoch: chunk.epoch, seq: chunk.snapshotSeq }
     const at = chunk.snapshotSeq
     const loadingSince = start ? at : this.store.readLoadingSince()
@@ -1464,10 +1501,23 @@ export class Replica implements DeviceCollectionReads {
       events.push({ type: 'upserted', record: row, readmitted: false })
       written.push(row)
     }
+    const disk = this.store.readDiskIndex()
     for (const change of chunk.stubs ?? []) {
       const key = entityKey(change.entity, change.entityId)
       if (newer(key)) continue
-      const existing = rowOf(change.entity, change.entityId)
+      // POD-7159: a record whole on disk and not in memory is whole, as of its index number.
+      const onDisk = staged.has(key) ? undefined : disk.record(key)
+      const existing: EntityRecord | undefined =
+        rowOf(change.entity, change.entityId) ??
+        (onDisk?.level === 'main'
+          ? {
+              entity: change.entity,
+              entityId: change.entityId,
+              value: undefined,
+              provenance: { seq: onDisk.seq },
+              asOf: onDisk.seq,
+            }
+          : undefined)
       if (existing !== undefined && existing.part !== 'stub') {
         // A whole record the feed keeps current needs no stub. Only a load
         // that replaces what the device held takes an unconfirmed record back
@@ -1487,8 +1537,27 @@ export class Replica implements DeviceCollectionReads {
     }
     const instances: InstanceOperation[] = []
     if (start) instances.push({ kind: 'dropAll' })
+    const markRows: HeldRows = {
+      readRow: (entity, entityId) => {
+        const key = entityKey(entity, entityId)
+        return staged.has(key)
+          ? (staged.get(key) ?? undefined)
+          : this.ruleRows.readRow(entity, entityId)
+      },
+    }
+    const args = policyArgs(chunk.policy ?? this.store.readPolicy())
     for (const marker of chunk.complete ?? []) {
       const key = instanceKey(marker)
+      // POD-7159: what a record comes with is not a marker of its own; the
+      // answer's end records it on the holder (`completeComesWith`).
+      if (marker.via !== undefined) {
+        members?.comesWith.set(key, marker)
+        continue
+      }
+      const held =
+        marker.part === 'main' && members !== undefined
+          ? members.membersOf(marker, args, markRows, this.now())
+          : undefined
       // A later page carries no total: the first page's stays (POD-7158).
       const total =
         marker.total ??
@@ -1510,6 +1579,8 @@ export class Replica implements DeviceCollectionReads {
           completeAt: snapshot,
           ...(this.holds.has(key) ? {} : { releasedAt: this.now() }),
         },
+        ...(held === undefined ? {} : { members: held }),
+        at: this.now(),
       })
     }
     const mutation: CacheMutation = {
@@ -1642,7 +1713,7 @@ export class Replica implements DeviceCollectionReads {
     const complete = this.store.readPolicy() === null || this.missingPolicyInstances().length === 0
     // POD-7168: read when the commit is written, after the fetches the load's
     // durable wait let in, and never a row one of them named.
-    let swept: EntityRecord[] = []
+    let swept: { readonly entity: string; readonly entityId: string }[] = []
     const decisions: FeedDecision[] = []
     // A load that replaced what the device held is a new truth, also when it
     // was resumed after an early close: it covers receipts the old rows owed.
@@ -1659,13 +1730,11 @@ export class Replica implements DeviceCollectionReads {
         }
         prepare()
         span?.join({ prepare, publish() {} })
-        swept =
-          complete && loadingSince !== null
-            ? [...this.store.readEntities(), ...this.store.readStubs()].filter(
-                (row) =>
-                  rowAsOf(row) < loadingSince && !named.has(entityKey(row.entity, row.entityId)),
-              )
-            : []
+        // POD-7159: over every row on the device, in memory or only on disk.
+        swept = []
+        if (complete && loadingSince !== null)
+          for (const [key, entry] of this.store.readDiskIndex().records())
+            if (entry.seq < loadingSince && !named.has(key)) swept.push(splitRowKey(key))
         const staged = new Map<string, EntityRecord | null>()
         for (const row of swept) staged.set(entityKey(row.entity, row.entityId), null)
         this.store.applyAtomic(
@@ -1756,6 +1825,7 @@ export class Replica implements DeviceCollectionReads {
   ): FeedDecision {
     const everything = this.store.readPolicy() === null
     const index = everything ? undefined : this.heldIndex()
+    const disk = this.store.readDiskIndex()
     const rows: HeldRows = {
       readRow: (entity, entityId) => {
         const key = entityKey(entity, entityId)
@@ -1763,6 +1833,14 @@ export class Replica implements DeviceCollectionReads {
           ? (staged.get(key) ?? undefined)
           : this.store.readRow(entity, entityId)
       },
+    }
+    // What a rule reads: the rows as this batch leaves them, then the stub
+    // columns of a record only on disk (a parent's id for a tree).
+    const ruleRows: HeldRows = {
+      readRow: (entity, entityId) =>
+        staged.has(entityKey(entity, entityId))
+          ? rows.readRow(entity, entityId)
+          : this.ruleRows.readRow(entity, entityId),
     }
     const now = this.now()
     const operations: CacheOperation[] = []
@@ -1780,9 +1858,34 @@ export class Replica implements DeviceCollectionReads {
       } else if (index === undefined) {
         op = upsertOf(change, change.payload, change.seq)
       } else {
-        const memberOf = index.matching(change.entity, change.payload, rows, now)
-        if (memberOf.length > 0 || (existing !== undefined && existing.part !== 'stub')) {
-          op = upsertOf(change, change.payload, change.seq)
+        const memberOf = index.matching(change.entity, change.payload, ruleRows, now)
+        // POD-7159: what it comes with for a holder (a session of a held issue),
+        // by the holder's comes-with complete bit.
+        const brought = comesWithHolders(
+          change.entity,
+          change.payload,
+          index.args,
+          ruleRows,
+          now,
+          disk,
+        )
+        // POD-7159: a record whole on disk and not in memory is whole too.
+        const whole =
+          existing !== undefined
+            ? existing.part !== 'stub'
+            : !staged.has(key) && disk.record(key)?.level === 'main'
+        if (memberOf.length > 0 || brought.length > 0 || whole) {
+          // Its holders, for the disk index: the instances it belongs to now,
+          // and the records it comes with.
+          const holders: string[] = [...brought]
+          for (const instance of memberOf) {
+            if (instance.spec.via === undefined) holders.push(instance.key)
+            else {
+              const holder = comesWithHolderOf(instance.spec)
+              if (holder !== undefined) holders.push(comesWithHolderKey(holder))
+            }
+          }
+          op = { ...upsertOf(change, change.payload, change.seq), holders }
           needs.push(...comesWithOf(change.entity, change.payload, memberOf, now))
         } else if (stubFieldsOf(change.entity).length > 0) {
           op = {
@@ -1829,18 +1932,17 @@ export class Replica implements DeviceCollectionReads {
   /** Ask for instances held records come with, batched into one fetch per burst. */
   private request(specs: readonly InstanceSpec[]): void {
     if (specs.length === 0 || this.authority.collections === undefined) return
-    const marked = this.store.readInstances()
     if (this.requestHook !== undefined) {
       const fresh = specs.filter((spec) => {
         const key = instanceKey(spec)
-        return !marked.has(key) && !this.inFlight.has(key)
+        return !this.inFlight.has(key) && !this.comesWithSatisfied(spec, key)
       })
       if (fresh.length > 0) this.requestHook(fresh)
       return
     }
     for (const spec of specs) {
       const key = instanceKey(spec)
-      if (marked.has(key) || this.inFlight.has(key)) continue
+      if (this.inFlight.has(key) || this.comesWithSatisfied(spec, key)) continue
       this.needs.set(key, spec)
     }
     if (this.needs.size === 0 || this.needsScheduled) return
@@ -1859,21 +1961,127 @@ export class Replica implements DeviceCollectionReads {
     this.request(this.missingComesWith(this.store.readEntities()))
   }
 
-  /** What these whole records come with that the device holds no marker for, nor fetches. */
+  /** What these whole records come with that memory holds no marker for, nor fetches. */
   private missingComesWith(rows: readonly EntityRecord[]): InstanceSpec[] {
     if (this.store.readPolicy() === null || this.authority.collections === undefined) return []
     const index = this.heldIndex()
     const now = this.now()
-    const marked = this.store.readInstances()
     const specs = new Map<string, InstanceSpec>()
     for (const row of rows) {
-      const memberOf = index.matching(row.entity, row.value, this.store, now)
+      const memberOf = index.matching(row.entity, row.value, this.ruleRows, now)
+      const holder = rowKeyOf(row.entity, row.entityId)
       for (const spec of comesWithOf(row.entity, row.value, memberOf, now)) {
         const key = instanceKey(spec)
-        if (!marked.has(key) && !this.inFlight.has(key)) specs.set(key, spec)
+        if (this.inFlight.has(key) || this.comesWithSatisfied(spec, key)) continue
+        specs.set(key, spec)
+        let asked = this.askedComesWith.get(key)
+        if (asked === undefined) {
+          asked = new Set()
+          this.askedComesWith.set(key, asked)
+        }
+        asked.add(holder)
       }
     }
     return [...specs.values()]
+  }
+
+  /**
+   * POD-7159 — whether the device holds what a comes-with instance selects:
+   * a pointer, when its one record is whole on the device; the holder's own
+   * things, when its comes-with through that via is complete. An instance
+   * that is no comes-with is held when its marker is in memory.
+   */
+  private comesWithSatisfied(spec: InstanceSpec, key = instanceKey(spec)): boolean {
+    if (spec.via === undefined) return this.inMemoryMarker(key) !== undefined
+    const disk = this.store.readDiskIndex()
+    const target = pointerTargetOf(spec)
+    if (target !== undefined) return disk.record(target)?.level === 'main'
+    const holder = comesWithHolderOf(spec)
+    if (holder === undefined) return false
+    return (
+      disk.record(holder)?.cw.includes(spec.via) === true ||
+      this.comesWithAnswered.get(holder)?.has(key) === true
+    )
+  }
+
+  /**
+   * POD-7159 — the end of an answer: what it brought for its holders. A row a
+   * holder's own comes-with instance selects carries the holder; and each
+   * holder whose comes-with through a via is now all on the device gets that
+   * via (the comes-with complete bit, design "The disk index"). The holders:
+   * those of the instances the answer completed, the records it named, and
+   * those the instances were asked for.
+   */
+  private completeComesWith(members: AnswerMembers): void {
+    if (members.comesWith.size === 0) return
+    const disk = this.store.readDiskIndex()
+    const args = policyArgs(this.store.readPolicy())
+    const now = this.now()
+    const ops: ComesWithOperation[] = []
+    const candidates = new Set<string>()
+    for (const [key, spec] of members.comesWith) {
+      const holder = comesWithHolderOf(spec)
+      if (holder !== undefined) {
+        candidates.add(holder)
+        let answered = this.comesWithAnswered.get(holder)
+        if (answered === undefined) {
+          answered = new Set()
+          this.comesWithAnswered.set(holder, answered)
+        }
+        answered.add(key)
+        for (const member of members.membersOf(spec, args, this.ruleRows, now) ?? [])
+          ops.push({ kind: 'held', member, holder })
+      }
+      for (const asked of this.askedComesWith.get(key) ?? []) candidates.add(asked)
+      this.askedComesWith.delete(key)
+    }
+    for (const key of members.namedKeys()) candidates.add(key)
+    const index = this.heldIndex()
+    for (const key of candidates) {
+      const { entity, entityId } = splitRowKey(key)
+      const row = this.store.read(entity, entityId)
+      const entry = disk.record(key)
+      if (row === undefined || entry === undefined) continue
+      const done = new Map<string, boolean>()
+      const answered = this.comesWithAnswered.get(key)
+      const memberOf = index.matching(entity, row.value, this.ruleRows, now)
+      const specs = comesWithOf(entity, row.value, memberOf, now)
+      for (const spec of specs) {
+        const via = spec.via as string
+        const specKey = instanceKey(spec)
+        const target = pointerTargetOf(spec)
+        const ok =
+          members.comesWith.has(specKey) ||
+          answered?.has(specKey) === true ||
+          (target !== undefined ? disk.record(target)?.level === 'main' : entry.cw.includes(via))
+        done.set(via, (done.get(via) ?? true) && ok)
+      }
+      const vias = [...done].filter(([, ok]) => ok).map(([via]) => via)
+      if (answered !== undefined) {
+        for (const spec of specs)
+          if (vias.includes(spec.via as string)) answered.delete(instanceKey(spec))
+        if (answered.size === 0) this.comesWithAnswered.delete(key)
+      }
+      const same = vias.length === entry.cw.length && vias.every((via) => entry.cw.includes(via))
+      if (!same) ops.push({ kind: 'complete', record: key, vias })
+    }
+    if (ops.length > 0) this.store.applyAtomic({ operations: [], comesWith: ops })
+  }
+
+  /**
+   * The rows a collection rule reads (a parent's id for a tree): the row in
+   * memory, or the stub columns of a record that is only on disk (POD-7159:
+   * the stub table is complete over everything the device holds).
+   */
+  private readonly ruleRows: HeldRows = {
+    readRow: (entity, entityId) => {
+      const row = this.store.readRow(entity, entityId)
+      if (row !== undefined) return row
+      const stub = this.store.readStubTable(entity)?.stubOf(entityId)
+      return stub === undefined
+        ? undefined
+        : { entity, entityId, value: stub, provenance: { seq: -1 }, part: 'stub' }
+    },
   }
 
   /**
@@ -1888,19 +2096,293 @@ export class Replica implements DeviceCollectionReads {
       if (generation !== this.walkGeneration) return
       const specs = this.missingComesWith(rows)
       if (specs.length === 0) return
+      // POD-7159: what is on disk comes from disk, the rest from the server.
+      const device = specs.filter((spec) => this.onDevice(spec))
+      const server = specs.filter((spec) => !this.onDevice(spec))
+      if (device.length > 0) await this.loadFromDisk(device)
       // Direct, not queued: the load itself runs on the queue (`run`), so a
       // step queued behind it would wait for the load that waits for it.
-      rows = await this.fetchInstances(specs, undefined, true)
+      rows = server.length === 0 ? [] : await this.fetchInstances(server, undefined, true)
     }
   }
 
   /**
-   * Fetch instances through the collection route while the feed keeps
-   * applying (the loader's way in, POD-7087; what held records come with; a
-   * kind reload). Records install as they arrive, the newer one winning per
-   * record against the feed, and each instance's marker follows its records.
+   * Load instances (the loader's way in, POD-7087; what held records come
+   * with). TWO SOURCES (POD-7159, design POD-7157 "The loader: two sources"):
+   * an instance with a marker on disk that is not in memory is read from disk
+   * into memory, with no server request (it works offline); a one-record
+   * instance whose record is whole on disk is answered from the device; the
+   * rest is fetched from the server, written to disk and memory together.
    */
   async load(requests: readonly InstanceRequest[]): Promise<void> {
+    const device: InstanceRequest[] = []
+    const server: InstanceRequest[] = []
+    for (const request of requests) {
+      const source = this.sourceOf(request)
+      if (source === 'disk' || source === 'local') device.push(request)
+      else server.push(request)
+    }
+    await Promise.all([
+      device.length === 0 ? undefined : this.loadFromDisk(device),
+      server.length === 0 ? undefined : this.loadFromServer(server),
+    ])
+  }
+
+  /**
+   * Whether the device can answer a request itself (POD-7159): from disk, or
+   * a one-record instance from the record it holds. The loader sends those
+   * without a connection too.
+   */
+  onDevice(spec: InstanceSpec): boolean {
+    const source = this.sourceOf(spec)
+    return source === 'disk' || source === 'local'
+  }
+
+  /**
+   * Where a request is answered from. In memory already counts as the
+   * server's, as before: the loader skips what is complete, and an explicit
+   * load of a complete instance asks again.
+   */
+  private sourceOf(request: InstanceSpec): 'disk' | 'local' | 'server' {
+    // What a record comes with is asked only when the device lacks it.
+    if (request.via !== undefined) return 'server'
+    const key = instanceKey(request)
+    const marker = this.store.readInstances().get(key)
+    const index = this.store.readDiskIndex()
+    if (marker !== undefined) {
+      if (index.inMemory(key)) return 'server'
+      if (marker.part === 'stub' || index.instance(key)?.indexed === true) return 'disk'
+      return 'server'
+    }
+    const record = oneRecordKey(request)
+    if (record !== undefined && index.record(record)?.level === 'main') return 'local'
+    return 'server'
+  }
+
+  /** POD-7159 — the instances' rows from disk into memory, and what they come with; never the server. */
+  private async loadFromDisk(requests: readonly InstanceRequest[]): Promise<void> {
+    const waits: Promise<void>[] = []
+    const fresh: InstanceRequest[] = []
+    for (const request of requests) {
+      const answer = this.diskLoads.get(instanceKey(request))
+      if (answer !== undefined) waits.push(answer)
+      else fresh.push(request)
+    }
+    if (fresh.length > 0) {
+      const task = this.diskLoad(fresh)
+      const tracked = task.catch((error) => {
+        if (error instanceof ReplicaStoreCorruptError) this.onCorruption()
+        else if (this.failure === undefined) this.failure = error
+      })
+      for (const request of fresh) {
+        const key = instanceKey(request)
+        this.diskLoads.set(key, tracked)
+        void tracked.then(() => {
+          if (this.diskLoads.get(key) === tracked) this.diskLoads.delete(key)
+        })
+      }
+      this.fetching = Promise.all([this.fetching, tracked]).then(() => undefined)
+      waits.push(task)
+    }
+    await Promise.all(waits)
+  }
+
+  private residentPort(): ResidentLoadPort {
+    return {
+      index: this.store.readDiskIndex(),
+      markers: this.store.readInstances(),
+      policy: this.store.readPolicy(),
+      now: this.now(),
+      resident: (key) => {
+        const { entity, entityId } = splitRowKey(key)
+        return this.store.read(entity, entityId) !== undefined
+      },
+      read: (keys) => this.store.readDiskRows(keys),
+      install: (rows) => {
+        this.store.installResident(rows)
+      },
+    }
+  }
+
+  private async diskLoad(requests: readonly InstanceRequest[]): Promise<void> {
+    const instances: InstanceRequest[] = []
+    const records: InstanceRequest[] = []
+    for (const request of requests) {
+      const source = this.sourceOf(request)
+      if (source === 'disk') instances.push(request)
+      else if (source === 'local') records.push(request)
+    }
+    const port = this.residentPort()
+    const { loaded } = await loadInstancesFromDisk(
+      port,
+      instances.map((request) => instanceKey(request)),
+      {
+        install: (rows) => this.installFromDisk(rows),
+        row: (key) => {
+          const { entity, entityId } = splitRowKey(key)
+          return this.store.read(entity, entityId)
+        },
+      },
+    )
+    // A member the read did not bring (it changed on disk meanwhile) is read
+    // once more; an instance still short of a member is asked of the server.
+    const index = this.store.readDiskIndex()
+    const short = (key: string): string[] =>
+      [...index.membersOf(key)].filter(
+        (member) => index.record(member)?.level === 'main' && !port.resident(member),
+      )
+    const again = new Set<string>()
+    for (const key of loaded) for (const member of short(key)) again.add(member)
+    if (again.size > 0) await this.installFromDisk(await this.store.readDiskRows([...again]))
+    const complete: string[] = []
+    const refetch: InstanceRequest[] = []
+    const markers = this.store.readInstances()
+    for (const key of loaded) {
+      const marker = markers.get(key)
+      if (marker === undefined) continue
+      if (short(key).length === 0) complete.push(key)
+      else refetch.push(requestOf(marker))
+    }
+    for (const request of instances) {
+      const key = instanceKey(request)
+      if (!loaded.includes(key) && !index.inMemory(key)) refetch.push(request)
+    }
+    // Memory only, so not queued behind the frame commits: a load waiting
+    // for what its records come with runs this from inside the queue.
+    if (complete.length > 0) {
+      this.store.markInMemory(complete)
+      this.batchEvents(() => this.emit({ type: 'markers' }))
+    }
+    if (records.length > 0) await this.answerFromDevice(records)
+    if (refetch.length > 0) await this.loadFromServer(refetch)
+    // What the rows now in memory come with and the disk does not hold: the server's.
+    const rows: EntityRecord[] = []
+    for (const key of complete)
+      for (const member of index.membersOf(key)) {
+        const { entity, entityId } = splitRowKey(member)
+        const row = this.store.read(entity, entityId)
+        if (row !== undefined) rows.push(row)
+      }
+    this.request(this.missingComesWith(rows))
+  }
+
+  /** Put rows read from disk in memory, one chunk per task and one burst of events per chunk. */
+  private async installFromDisk(rows: readonly EntityRecord[]): Promise<void> {
+    for (let at = 0; at < rows.length; at += DISK_INSTALL_ROWS) {
+      await this.takeInstallTurn()
+      const installed = this.store.installResident(rows.slice(at, at + DISK_INSTALL_ROWS))
+      if (installed.length === 0) continue
+      this.batchEvents(() => {
+        for (const record of installed) this.emit({ type: 'upserted', record, readmitted: false })
+      })
+    }
+  }
+
+  /**
+   * One-record instances whose record is whole on the device (POD-7159): the
+   * feed keeps such a record current and it is visible, so the instance is
+   * complete as of the cursor without asking the server. Its row is read from
+   * disk first when it is not in memory.
+   */
+  private async answerFromDevice(requests: readonly InstanceRequest[]): Promise<void> {
+    const keys = requests.flatMap((request) => {
+      const key = oneRecordKey(request)
+      return key === undefined ? [] : [key]
+    })
+    const absent = keys.filter((key) => {
+      const { entity, entityId } = splitRowKey(key)
+      return this.store.read(entity, entityId) === undefined
+    })
+    if (absent.length > 0) await this.installFromDisk(await this.store.readDiskRows(absent))
+    // A marker alone, beside rows the device already holds: not queued (see `diskLoad`).
+    {
+      const cursor = this.cursorValue
+      if (cursor === null) return
+      const instances: InstanceOperation[] = []
+      for (const request of requests) {
+        const record = oneRecordKey(request)
+        if (record === undefined) continue
+        const { entity, entityId } = splitRowKey(record)
+        if (this.store.read(entity, entityId) === undefined) continue
+        const key = instanceKey(request)
+        instances.push({
+          kind: 'mark',
+          instance: {
+            key,
+            collection: request.collection,
+            ...(request.args === undefined ? {} : { args: request.args }),
+            part: request.part,
+            ...(request.via === undefined ? {} : { via: request.via }),
+            completeAt: { feedId: cursor.feedId, epoch: cursor.epoch, seq: cursor.seq },
+            ...(this.holds.has(key) ? {} : { releasedAt: this.now() }),
+          },
+          members: [record],
+          at: this.now(),
+        })
+      }
+      if (instances.length === 0) return
+      this.store.applyAtomic({ operations: [], instances })
+      this.batchEvents(() => this.emit({ type: 'markers' }))
+    }
+  }
+
+  /**
+   * POD-7159 — take instances out of memory, keeping them on disk (design
+   * "Leaving memory is not leaving the device"). Each row no other instance
+   * in memory holds leaves memory; its readers see LOADING and a disk load,
+   * never a removal. The policy collections stay resident. POD-7161 decides
+   * when to call it; it waits for the fetches and disk loads in flight.
+   */
+  async unload(instanceKeys: string | readonly string[]): Promise<void> {
+    const policy = new Set(
+      policyInstances(this.store.readPolicy()).map((spec) => instanceKey(spec)),
+    )
+    const keys = (typeof instanceKeys === 'string' ? [instanceKeys] : instanceKeys).filter(
+      (key) => !policy.has(key),
+    )
+    if (keys.length === 0) return
+    for (let guard = 0; guard < 50 && (this.fetchCount > 0 || this.diskLoads.size > 0); guard += 1)
+      await Promise.all([this.fetching, ...this.diskLoads.values()])
+    await this.serial(() => {
+      const left = this.store.unload(keys)
+      this.batchEvents(() => {
+        for (const row of left)
+          this.emit({ type: 'unloaded', entity: row.entity, entityId: row.entityId })
+        this.emit({ type: 'markers' })
+      })
+    })
+  }
+
+  /**
+   * POD-7159's test hook (POD-7161 decides when memory lets go): unload every
+   * instance in memory that no view holds, the policy's excepted.
+   */
+  async unloadForTest(): Promise<void> {
+    const held = new Set(this.holds.keys())
+    await this.unload(
+      [...this.store.readDiskIndex().memoryInstances()].filter((key) => !held.has(key)),
+    )
+  }
+
+  /** Whether a record is whole on disk and not in memory: a reader gets LOADING and a disk load. */
+  isUnloaded(entity: string, entityId: string): boolean {
+    return (
+      this.store.readDiskIndex().record(rowKeyOf(entity, entityId))?.level === 'main' &&
+      this.store.read(entity, entityId) === undefined
+    )
+  }
+
+  /** POD-7159 — records whole on disk and not in memory, read into memory by key (never the server). */
+  async loadRecords(entity: string, entityIds: readonly string[]): Promise<void> {
+    const keys = entityIds
+      .filter((id) => this.isUnloaded(entity, id))
+      .map((id) => rowKeyOf(entity, id))
+    if (keys.length === 0) return
+    await this.installFromDisk(await this.store.readDiskRows(keys))
+  }
+
+  /** The server's answer to instances (the old `load`): written to disk and memory together. */
+  private async loadFromServer(requests: readonly InstanceRequest[]): Promise<void> {
     const signal = this.fetchAbort.signal
     // POD-7169: an instance another fetch is answering now resolves with that
     // answer, not at once without one: the loader reads a load that resolved
@@ -1934,6 +2416,7 @@ export class Replica implements DeviceCollectionReads {
     const written: EntityRecord[] = []
     /** Every record the answer named, written or already current on the device. */
     const named = new Map<string, { readonly entity: string; readonly entityId: string }>()
+    const members = new AnswerMembers()
     const task = (async () => {
       try {
         // The earliest answer of a reload: a row of its kinds current only as
@@ -1959,6 +2442,7 @@ export class Replica implements DeviceCollectionReads {
             written.push(
               ...this.installChunk(chunk, {
                 signal,
+                members,
                 ...(reload === undefined ? {} : { reload }),
               }),
             )
@@ -2021,6 +2505,11 @@ export class Replica implements DeviceCollectionReads {
         // rows off the screen that a later batch is about to confirm.
         if (reload !== undefined && reloadedAt !== undefined && !signal.aborted)
           await this.serial(() => this.sweepKinds(reload, reloadedAt as BootstrapChunk))
+        // What the answer's records come with, on their holders (POD-7159).
+        if (!signal.aborted) {
+          if (insideLoad) this.completeComesWith(members)
+          else await this.serial(() => this.completeComesWith(members))
+        }
       } finally {
         for (const request of fresh) this.inFlight.delete(instanceKey(request))
         this.inFlightVersion += 1
@@ -2117,10 +2606,11 @@ export class Replica implements DeviceCollectionReads {
     const at = answer.snapshotSeq
     const operations: CacheOperation[] = []
     const events: ReplicaEvent[] = []
-    for (const row of [...this.store.readEntities(), ...this.store.readStubs()]) {
-      if (!reload.kinds.has(row.entity) || rowAsOf(row) >= at) continue
-      const key = entityKey(row.entity, row.entityId)
-      const stub = row.part === 'stub' ? undefined : reload.stubs.get(key)
+    // POD-7159: over every row on the device, in memory or only on disk.
+    for (const [key, entry] of this.store.readDiskIndex().records()) {
+      const row = splitRowKey(key)
+      if (!reload.kinds.has(row.entity) || entry.seq >= at) continue
+      const stub = entry.level === 'stub' ? undefined : reload.stubs.get(key)
       if (stub !== undefined) {
         operations.push({ ...stub, force: true })
         events.push({ type: 'released', entity: row.entity, entityId: row.entityId })
@@ -2149,6 +2639,7 @@ export class Replica implements DeviceCollectionReads {
     const entry = this.holds.get(key) ?? { spec, count: 0 }
     entry.count += 1
     this.holds.set(key, entry)
+    this.store.touchInstance(key, this.now())
     let released = false
     return () => {
       if (released) return
@@ -2167,9 +2658,19 @@ export class Replica implements DeviceCollectionReads {
     }
   }
 
-  /** The marker of an instance the device holds complete; `undefined` when it does not. */
+  /**
+   * The marker of an instance the device holds complete IN MEMORY; `undefined`
+   * when it does not (POD-7159: a marker on disk whose rows are not in memory
+   * is not an answer yet — the loader reads it from disk).
+   */
   isComplete(spec: InstanceSpec): InstanceRecord | undefined {
-    return this.store.readInstances().get(instanceKey(spec))
+    const key = instanceKey(spec)
+    return this.inMemoryMarker(key)
+  }
+
+  private inMemoryMarker(key: string): InstanceRecord | undefined {
+    const marker = this.store.readInstances().get(key)
+    return marker !== undefined && this.store.readDiskIndex().inMemory(key) ? marker : undefined
   }
 
   /** The stub part of a record the device holds, stub or whole; `undefined` when absent. */
@@ -2261,8 +2762,22 @@ export class Replica implements DeviceCollectionReads {
       now: this.now(),
       store: this.store,
     })
-    if (plan.dropInstances.length === 0 && plan.toStub.length === 0 && plan.remove.length === 0)
-      return
+    // POD-7159: the trim reads the rows in memory only, so it cannot tell what
+    // an instance whose rows are on disk alone keeps; it never drops such a
+    // marker (one not in memory, or holding a member that is only on disk).
+    // Leaving the device is pruning's (POD-7162), never a side effect of memory.
+    const disk = this.store.readDiskIndex()
+    const evaluable = (key: string): boolean => {
+      if (!disk.inMemory(key)) return false
+      for (const member of disk.membersOf(key)) {
+        if (disk.record(member)?.level !== 'main') continue
+        const { entity, entityId } = splitRowKey(member)
+        if (this.store.read(entity, entityId) === undefined) return false
+      }
+      return true
+    }
+    const dropInstances = plan.dropInstances.filter(evaluable)
+    if (dropInstances.length === 0 && plan.toStub.length === 0 && plan.remove.length === 0) return
     const operations: CacheOperation[] = [
       ...plan.toStub.map(
         (row): CacheOperation => ({
@@ -2283,12 +2798,12 @@ export class Replica implements DeviceCollectionReads {
     ]
     this.store.applyAtomic({
       operations,
-      instances: plan.dropInstances.map((key) => ({ kind: 'drop' as const, key })),
+      instances: dropInstances.map((key) => ({ kind: 'drop' as const, key })),
     })
     this.batchEvents(() => {
       for (const row of [...plan.toStub, ...plan.remove])
         this.emit({ type: 'released', entity: row.entity, entityId: row.entityId })
-      if (plan.dropInstances.length > 0) this.emit({ type: 'markers' })
+      if (dropInstances.length > 0) this.emit({ type: 'markers' })
     })
   }
 
@@ -2571,6 +3086,28 @@ function recordFromOp(op: CacheOperation & { readonly kind: 'upsert' }): EntityR
     provenance: op.provenance,
     ...(op.part === undefined ? {} : { part: op.part }),
     ...(op.asOf === undefined ? {} : { asOf: op.asOf }),
+  }
+}
+
+/**
+ * The record a one-record instance (`<kind>.one`, `{ id }`) selects, as a
+ * row key; `undefined` for any other instance.
+ */
+function oneRecordKey(spec: InstanceSpec): string | undefined {
+  const id = spec.args?.['id']
+  if (typeof id !== 'string' || spec.part !== 'main' || spec.via !== undefined) return undefined
+  const collection = COLLECTIONS.get(spec.collection)
+  if (collection === undefined || spec.collection !== `${collection.of}.one`) return undefined
+  return rowKeyOf(collection.of, id)
+}
+
+/** The request that asks for a marker's instance again. */
+function requestOf(marker: InstanceRecord): InstanceRequest {
+  return {
+    collection: marker.collection,
+    part: marker.part,
+    ...(marker.args === undefined ? {} : { args: marker.args }),
+    ...(marker.via === undefined ? {} : { via: marker.via }),
   }
 }
 

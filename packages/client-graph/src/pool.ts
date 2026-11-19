@@ -511,6 +511,8 @@ export class MobxPool {
             hot: tables,
             absent: (entity, id) => this.collections.absent(entity, id),
             exitKind: lazy.exitKind,
+            unloaded: (entity, id) => this.collections.unloaded(entity, id),
+            reload: (entity, id) => this.collections.reload(entity, id),
             ...(lazy.windowMs === undefined ? {} : { windowMs: lazy.windowMs }),
             ...(lazy.schedule === undefined ? {} : { schedule: lazy.schedule }),
           })
@@ -773,9 +775,11 @@ export class MobxPool {
         // record the device does not hold is on its way like any lookup,
         // never "gone" because history is not here. Maintenance modes start
         // no load.
-        return (absent === 'load' && (core === 'issue' || core === 'session')
-          ? this.collections.absent(core, id)
-          : undefined) ?? NOT_VISIBLE
+        return (
+          (absent === 'load' && (core === 'issue' || core === 'session')
+            ? this.collections.absent(core, id)
+            : undefined) ?? NOT_VISIBLE
+        )
       }
       return residency.lookup(core, id, absent === 'load')
     }

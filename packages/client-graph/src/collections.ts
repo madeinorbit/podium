@@ -89,6 +89,9 @@ export interface StubTreeProgress {
 
 const ISSUE = LOADER_KIND.issue
 
+/** The replica's record kind of a pool entity (the row source's own mapping). */
+const replicaKind = (entity: string): string => (entity === 'issue' ? ISSUE : entity)
+
 /** What a reader of an instance's marker reads: whether it is held, to where, of how many, refused. */
 interface MarkerSeen {
   readonly held: boolean
@@ -422,6 +425,19 @@ export class PoolCollections {
     if (loader.isComplete(spec) !== undefined || loader.wasRefused(spec)) return NOT_VISIBLE
     loader.request([spec], 'visible')
     return LOADING
+  }
+
+  /**
+   * POD-7159 — whether a record of a pool entity is whole on the device's
+   * disk and not in memory: its reader gets LOADING and a disk load.
+   */
+  unloaded(entity: string, id: string): boolean {
+    return this.loader()?.unloaded?.(replicaKind(entity), id) === true
+  }
+
+  /** POD-7159 — read an unloaded record from disk, batched in the loader's window. */
+  reload(entity: string, id: string): void {
+    this.loader()?.loadFromDisk?.(replicaKind(entity), [id])
   }
 
   /**

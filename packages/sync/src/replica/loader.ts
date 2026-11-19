@@ -3,22 +3,26 @@
  * "Lookup", "Search and references").
  *
  * Its input is a list of INSTANCES of declared collections; its output is
- * whole records installed in the device store, with a marker per instance
- * (the Replica's `load`, over the one fetch route). It:
+ * whole records in the device store's memory, with a marker per instance
+ * (the Replica's `load`). The Replica answers from TWO SOURCES (POD-7159,
+ * design POD-7157 "The loader: two sources"): an instance on disk is read
+ * from disk, with no server request; the rest goes over the one fetch route
+ * and is written to disk and memory together. It:
  *  - collects requests for 50 ms and removes duplicates, so many lookups in
  *    one burst make one request;
  *  - skips what the device already holds complete, or is fetching;
  *  - sends what a visible view asks for first. Before the first download
  *    has a feed to answer against, the visible requests ride in that
  *    download as its second step (`takeView`, the Replica's `view`);
- *  - starts nothing without a connection. A view reads that as "not
- *    available offline" (`status`), never as an endless loading row; the
- *    queue is sent when the connection returns.
+ *  - starts nothing from the server without a connection. A view reads
+ *    that as "not available offline" (`status`), never as an endless
+ *    loading row; the queue is sent when the connection returns. What the
+ *    device answers itself (from disk) is sent offline too.
  *
- * Two things hold an instance: the policy (the Replica's own) and an open
- * view (`show`). Everything else a load brings is cache: the records of a
- * lookup ("one record" instances) and the records a request returns
- * (`requestRecords`), whose ids the view keeps.
+ * Two things hold an instance: the policy (the Replica's own) and a view
+ * that reads it (`show`, which the pool calls for every read: holding
+ * follows reading, POD-7158). What no view reads any more is cache, whether
+ * a lookup's "one record" instance or the records a request returned.
  *
  * Nothing here is per screen: a screen that needs another question gets a
  * collection definition, never a branch in this file.
@@ -57,6 +61,12 @@ export interface LoaderReplica {
   stubRows(entity: string): readonly StubRow[]
   /** The record at a reference (repository and number), by the stubs. */
   stubIdAt?(entity: string, repoId: string, seq: number): string | undefined
+  /** POD-7159 — whether the device answers the instance itself (from disk): sent offline too. */
+  onDevice?(spec: InstanceSpec): boolean
+  /** POD-7159 — whether a record is whole on disk and not in memory. */
+  isUnloaded?(entity: string, entityId: string): boolean
+  /** POD-7159 — read records whole on disk into memory, by key. */
+  loadRecords?(entity: string, entityIds: readonly string[]): Promise<void>
 }
 
 /** How a view reads one instance: held complete, on its way, or not loadable without a connection. */
@@ -121,6 +131,8 @@ export class CollectionLoader {
   private readonly inFlight = new Map<string, InstanceRequest>()
   /** Sent in the first download's view step; back to the queue if it ends without them. */
   private readonly riding = new Map<string, InstanceRequest>()
+  /** POD-7159 — records to read from disk in the next window. */
+  private readonly diskRecords = new Map<string, { readonly entity: string; readonly id: string }>()
   private readonly listeners = new Set<(change: LoaderChange) => void>()
   private cancel: (() => void) | null = null
   /** Inside a burst of the Replica's events: what moved, told once when it ends. */
@@ -187,8 +199,10 @@ export class CollectionLoader {
   }
 
   /**
-   * The records a request returned (server search hits): each is installed
-   * as a "one record" instance, cache, never held. The view keeps the ids.
+   * Ask for the records a request returned (server search hits), each as its
+   * "one record" instance, without holding them: a view that reads them holds
+   * them through the pool (`holdRecords`). A record already whole on the
+   * device is answered from it, with no fetch (POD-7159).
    */
   requestRecords(kind: string, ids: readonly string[], priority: LoadPriority = 'visible'): void {
     this.request(
@@ -197,10 +211,35 @@ export class CollectionLoader {
     )
   }
 
-  /** How a view reads an instance. Offline only for what is not complete. */
+  /** How a view reads an instance. Offline only for what neither memory nor disk holds. */
   status(spec: InstanceSpec): LoadStatus {
     if (this.replica.isComplete(spec) !== undefined) return 'complete'
-    return this.connected ? 'loading' : 'offline'
+    return this.connected || this.replica.onDevice?.(spec) === true ? 'loading' : 'offline'
+  }
+
+  /**
+   * POD-7159 — whether a record is whole on the device's disk and not in
+   * memory: a reader gets LOADING and a disk load (`loadFromDisk`), never
+   * "gone".
+   */
+  unloaded(entity: string, entityId: string): boolean {
+    return this.replica.isUnloaded?.(entity, entityId) === true
+  }
+
+  /**
+   * POD-7159 — read records that are on disk into memory, batched in the
+   * window like any request, and with no connection too.
+   */
+  loadFromDisk(entity: string, entityIds: readonly string[]): void {
+    if (this.disposed || this.replica.loadRecords === undefined) return
+    let added = false
+    for (const id of entityIds) {
+      const key = `${entity}\u0000${id}`
+      if (this.diskRecords.has(key)) continue
+      this.diskRecords.set(key, { entity, id })
+      added = true
+    }
+    if (added) this.arm()
   }
 
   /** Whether the device has a connection to load over (the view's "not available offline"). */
@@ -331,16 +370,35 @@ export class CollectionLoader {
   async flush(): Promise<void> {
     this.cancel?.()
     this.cancel = null
-    if (this.disposed || this.queue.size === 0) return
-    // Without a connection, or before the first download has a feed, nothing
-    // can start: the queue waits for the connection or the cursor.
-    if (!this.connected || !this.replica.canFetch) return
-    const batch = [...this.queue.values()]
-      .sort((a, b) => rank(a.priority) - rank(b.priority))
-      .map((queued) => queued.request)
-      .filter((request) => !this.held(request))
-    this.queue.clear()
+    if (this.disposed) return
     const sends: Promise<void>[] = []
+    if (this.diskRecords.size > 0) sends.push(this.sendDiskRecords())
+    if (this.queue.size === 0) {
+      await Promise.all(sends)
+      return
+    }
+    // Without a connection, or before the first download has a feed, nothing
+    // can start from the server: the queue waits for the connection or the
+    // cursor. What the device answers from disk goes now (POD-7159).
+    const offline = !this.connected || !this.replica.canFetch
+    const queued = [...this.queue.values()]
+      .sort((a, b) => rank(a.priority) - rank(b.priority))
+      .map((entry) => entry.request)
+    const batch: InstanceRequest[] = []
+    for (const request of queued) {
+      const key = instanceKey(request)
+      if (this.held(request)) {
+        this.queue.delete(key)
+        continue
+      }
+      if (offline && this.replica.onDevice?.(request) !== true) continue
+      this.queue.delete(key)
+      batch.push(request)
+    }
+    if (batch.length === 0) {
+      await Promise.all(sends)
+      return
+    }
     for (let at = 0; at < batch.length; at += MAX_INSTANCES)
       sends.push(this.send(batch.slice(at, at + MAX_INSTANCES)))
     await Promise.all(sends)
@@ -352,10 +410,26 @@ export class CollectionLoader {
     this.cancel?.()
     this.cancel = null
     this.queue.clear()
+    this.diskRecords.clear()
     this.listeners.clear()
   }
 
   // ------------------------------------------------------------ internals
+
+  private async sendDiskRecords(): Promise<void> {
+    const byEntity = new Map<string, string[]>()
+    for (const { entity, id } of this.diskRecords.values()) {
+      const ids = byEntity.get(entity)
+      if (ids === undefined) byEntity.set(entity, [id])
+      else ids.push(id)
+    }
+    this.diskRecords.clear()
+    await Promise.all(
+      [...byEntity].map(([entity, ids]) =>
+        this.replica.loadRecords?.(entity, ids).catch(() => undefined),
+      ),
+    )
+  }
 
   private async send(requests: readonly InstanceRequest[]): Promise<void> {
     if (requests.length === 0) return

@@ -80,6 +80,13 @@ export interface CollectionLoaderPort {
   ): readonly { readonly id: string; readonly stub: Readonly<Record<string, unknown>> }[]
   /** The record at a reference (repository and number), by the stubs (POD-7094: a table lookup). */
   stubIdAt?(entity: string, repoId: string, seq: number): string | undefined
+  /**
+   * POD-7159 — the record is whole on the device's disk and not in memory
+   * (its instance was unloaded): a reader gets LOADING and a disk load.
+   */
+  unloaded?(entity: string, entityId: string): boolean
+  /** POD-7159 — read records whole on disk into memory, batched, with no connection too. */
+  loadFromDisk?(entity: string, entityIds: readonly string[]): void
   subscribe(listener: (change: 'markers' | 'stubs' | 'connection') => void): () => void
 }
 

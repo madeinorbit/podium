@@ -13,15 +13,17 @@
 
 import { describe, expect, it } from 'vitest'
 import { instanceKey } from '../replica/cache-state'
+import { comesWithHolderOf, pointerTargetOf } from '../replica/disk-index'
 import { CollectionLoader } from '../replica/loader'
 import type { CacheMutation, ReplicaCacheStore } from '../replica/ports'
 import { Replica } from '../replica/replica'
-import type {
-  CachePolicy,
-  Cursor,
-  InstanceRecord,
-  InstanceSpec,
-  ReplicaEvent,
+import {
+  type CachePolicy,
+  type Cursor,
+  type InstanceRecord,
+  type InstanceSpec,
+  type ReplicaEvent,
+  rowAsOf,
 } from '../replica/types'
 import type { SyncUnitOfWork } from '../span'
 import {
@@ -199,6 +201,19 @@ const partOf = (cache: ReplicaCacheStore, entity: string, id: string) => {
 const marked = (cache: ReplicaCacheStore, spec: InstanceSpec): boolean =>
   cache.readInstances().has(instanceKey(spec))
 
+/**
+ * POD-7159 — what a record comes with is recorded on the record, not as a
+ * marker: the holder's comes-with complete via, or, for a pointer (a parent,
+ * a session's issue), the record it names whole on the device.
+ */
+function comesWithHeld(cache: ReplicaCacheStore, spec: InstanceSpec): boolean {
+  const index = cache.readDiskIndex()
+  const target = pointerTargetOf(spec)
+  if (target !== undefined) return index.record(target)?.level === 'main'
+  const holder = comesWithHolderOf(spec)
+  return holder !== undefined && index.record(holder)?.cw.includes(spec.via as string) === true
+}
+
 /** No instance claims complete while a record the server puts in it is not whole on the device. */
 function expectMarkersTrue(cache: ReplicaCacheStore, server: CollectionServer): void {
   for (const instance of cache.readInstances().values()) {
@@ -209,6 +224,36 @@ function expectMarkersTrue(cache: ReplicaCacheStore, server: CollectionServer): 
     }
     for (const row of server.members(instance))
       expect(cache.read(row.entity, row.id), `${instance.key} holds ${row.id}`).toBeDefined()
+  }
+}
+
+const keyOf = (entity: string, id: string): string => `${entity}\u0000${id}`
+
+/**
+ * POD-7159 — the disk index agrees with the rows the device holds: every row
+ * has its entry at its feed number and level, nothing else has one, and every
+ * main-part marker lists (at least) the records the server puts in it.
+ */
+function expectIndexTrue(cache: ReplicaCacheStore, server: CollectionServer, label = ''): void {
+  const index = cache.readDiskIndex()
+  const rows = [...cache.readEntities(), ...cache.readStubs()]
+  for (const row of rows) {
+    const entry = index.record(keyOf(row.entity, row.entityId))
+    expect(entry, `${label} ${row.entityId} has an entry`).toBeDefined()
+    expect(entry?.seq, `${label} ${row.entityId} feed number`).toBe(rowAsOf(row))
+    expect(entry?.level, `${label} ${row.entityId} level`).toBe(
+      row.part === 'stub' ? 'stub' : 'main',
+    )
+  }
+  expect(index.recordCount, `${label} one entry per row`).toBe(rows.length)
+  for (const instance of cache.readInstances().values()) {
+    if (instance.part !== 'main') continue
+    expect(index.instance(instance.key)?.indexed, `${label} ${instance.key} indexed`).toBe(true)
+    for (const row of server.members(instance))
+      expect(
+        index.membersOf(instance.key).has(keyOf(row.entity, row.id)),
+        `${label} ${instance.key} lists ${row.id}`,
+      ).toBe(true)
   }
 }
 
@@ -327,7 +372,7 @@ export function describeCollectionStore(instantiation: SyncInstantiation): void 
         ).toEqual(['D1', 'D2'])
         // What the held records come with arrived inside the load, each with its marker.
         expect(
-          marked(cache, {
+          comesWithHeld(cache, {
             collection: 'session.ofIssue',
             args: { issueId: 'A1' },
             part: 'main',
@@ -335,7 +380,7 @@ export function describeCollectionStore(instantiation: SyncInstantiation): void 
           }),
         ).toBe(true)
         expect(
-          marked(cache, {
+          comesWithHeld(cache, {
             collection: 'issueUserState.ofIssue',
             args: { issueId: 'A2' },
             part: 'main',
@@ -397,7 +442,7 @@ export function describeCollectionStore(instantiation: SyncInstantiation): void 
         expect(events.map((event) => event.type)).not.toContain('bootstrap-installed')
         for (const spec of [LIVE, SIDEBAR, STUBS]) expect(marked(cache, spec)).toBe(true)
         expect(
-          marked(cache, {
+          comesWithHeld(cache, {
             collection: 'session.ofIssue',
             args: { issueId: 'A1' },
             part: 'main',
@@ -776,14 +821,14 @@ export function describeCollectionStore(instantiation: SyncInstantiation): void 
           .slice(fetchesBefore)
           .flat()
           .map((spec) => instanceKey(spec))
-        const sessions = instanceKey({
+        const sessionsSpec: InstanceSpec = {
           collection: 'session.ofIssue',
           args: { issueId: 'D2' },
           part: 'main',
           via: 'issueProjection.sidebar',
-        })
-        expect(asked).toContain(sessions)
-        expect(booted.cache.readInstances().has(sessions)).toBe(true)
+        }
+        expect(asked).toContain(instanceKey(sessionsSpec))
+        expect(comesWithHeld(booted.cache, sessionsSpec)).toBe(true)
         // The sidebar issue's sessions that are not archived came with it.
         expect(booted.cache.read(SESSION, 'S3')).toBeDefined()
         expectMarkersTrue(booted.cache, server)
@@ -998,7 +1043,7 @@ export function describeCollectionStore(instantiation: SyncInstantiation): void 
         await booted.replica.trim()
         expect(partOf(booted.cache, ISSUE, 'D1')).toBe('main')
         expect(
-          marked(booted.cache, {
+          comesWithHeld(booted.cache, {
             collection: 'issueProjection.one',
             args: { id: 'D1' },
             part: 'main',
@@ -1008,6 +1053,196 @@ export function describeCollectionStore(instantiation: SyncInstantiation): void 
         for (const id of ['A1', 'A2', 'D1', 'D2', 'T1', 'T2', 'U1'])
           expect(partOf(booted.cache, ISSUE, id), id).not.toBe('absent')
         expectMarkersTrue(booted.cache, server)
+      })
+    })
+
+    // ─── The disk layer (POD-7159) ────────────────────────────────────────────
+
+    describe('the disk index and reads from disk (POD-7159)', () => {
+      /** seedWorld, with what each record comes with answered in the same answer. */
+      const world = (): CollectionServer => {
+        const server = new CollectionServer()
+        seedWorld(server)
+        server.put(SESSION, 'S9', session('S9', { issueId: 'D1', status: 'ended' }))
+        server.answerComesWith = true
+        return server
+      }
+      /** The instances a screen read: the tree of A1 and what its records come with. */
+      const deckKeys = (cache: ReplicaCacheStore): string[] => {
+        const policy = new Set([LIVE, SIDEBAR, STUBS].map((spec) => instanceKey(spec)))
+        return [...cache.readInstances().keys()].filter(
+          (key) => !policy.has(key) && cache.readDiskIndex().inMemory(key),
+        )
+      }
+      /** The server refuses every fetch: the device is offline. */
+      const offline = (server: CollectionServer): void => {
+        server.collections = () => {
+          throw new Error('offline: no fetch may reach the server')
+        }
+      }
+
+      it('is written with the rows it describes: an entry per row, each instance with its members', async () => {
+        const server = world()
+        const booted = await boot(instantiation, server)
+        expectIndexTrue(booted.cache, server, 'after the first download')
+        await booted.replica.load([tree('A1')])
+        await booted.replica.settled()
+        expectIndexTrue(booted.cache, server, 'after the tree')
+        // A feed change moves its record's entry with it.
+        server.put(ISSUE, 'A2', issue('A2', { stage: 'review', parentId: 'A1', title: 'moved' }))
+        await feed(booted, server)
+        expectIndexTrue(booted.cache, server, 'after the feed')
+        const entry = booted.cache.readDiskIndex().record(keyOf(ISSUE, 'A2'))
+        expect(entry?.seq).toBe(server.head)
+      })
+
+      it('leaves the index as it was when the batch that would change it aborts', async () => {
+        const storage = await instantiation.open()
+        const { cache } = storage.viewFor(PRINCIPAL)
+        const cursor: Cursor = { feedId: 'feed', epoch: 'epoch', seq: 1 }
+        const marker: InstanceRecord = { ...SIDEBAR, key: instanceKey(SIDEBAR), completeAt: cursor }
+        await storage.unitOfWork.transact(async (span) =>
+          cache.applyAtomic(
+            {
+              operations: [
+                {
+                  kind: 'upsert',
+                  entity: ISSUE,
+                  entityId: 'A1',
+                  value: issue('A1'),
+                  provenance: { seq: 1 },
+                },
+              ],
+              cursor,
+              instances: [{ kind: 'mark', instance: marker, members: [keyOf(ISSUE, 'A1')] }],
+            },
+            span,
+          ),
+        )
+        storage.failNextCommit(new Error('power loss'))
+        await expect(
+          storage.unitOfWork.transact(async (span) =>
+            cache.applyAtomic(
+              {
+                operations: [{ kind: 'remove', entity: ISSUE, entityId: 'A1' }],
+                instances: [{ kind: 'drop', key: marker.key }],
+              },
+              span,
+            ),
+          ),
+        ).rejects.toThrow('power loss')
+        const index = cache.readDiskIndex()
+        expect(index.record(keyOf(ISSUE, 'A1'))).toMatchObject({ seq: 1, level: 'main' })
+        expect([...index.membersOf(marker.key)]).toEqual([keyOf(ISSUE, 'A1')])
+        expect(index.inMemory(marker.key)).toBe(true)
+      })
+
+      it('stays true to its rows after a kill at every chunk boundary', async () => {
+        const reference = world()
+        await boot(instantiation, reference)
+        const boundaries = reference.served
+        expect(boundaries).toBeGreaterThan(4)
+        for (let k = 1; k < boundaries; k += 1) {
+          const storage = await instantiation.open()
+          const dying = world()
+          dying.dieAfterChunks = k
+          const first = kernelOver(storage, dying)
+          first.replica.connect()
+          for (let i = 0; i < 200 && dying.served < k; i += 1) await ticks(1)
+          await ticks()
+          expectIndexTrue(first.cache, dying, `killed at boundary ${k}`)
+          const restarted = world()
+          const second = await boot(instantiation, restarted, storage)
+          expectIndexTrue(second.cache, restarted, `restarted after boundary ${k}`)
+        }
+      })
+
+      it('reopens an unloaded screen from disk: complete again, with no server request, offline', async () => {
+        const server = world()
+        const booted = await boot(instantiation, server)
+        const { cache, replica, events } = booted
+        await replica.load([tree('A1')])
+        await replica.settled()
+        await ticks()
+        await replica.settled()
+        const keys = deckKeys(cache)
+        expect(keys).toContain(instanceKey(tree('A1')))
+        const before = contents(cache)
+        await replica.unload(keys)
+        // Out of memory, on the device: not complete, not removed, still on disk.
+        expect(replica.isComplete(tree('A1'))).toBeUndefined()
+        expect(cache.readInstances().has(instanceKey(tree('A1')))).toBe(true)
+        expect(cache.read(ISSUE, 'D1')).toBeUndefined()
+        expect(replica.isUnloaded(ISSUE, 'D1')).toBe(true)
+        expect(replica.exitKind(ISSUE, 'D1')).toBeUndefined()
+        expect(replica.stubOf(ISSUE, 'D1')).toMatchObject({ stage: 'done' })
+        expect(cache.readDiskIndex().record(keyOf(ISSUE, 'D1'))?.level).toBe('main')
+        expect(events.some((event) => event.type === 'unloaded')).toBe(true)
+        expect(events.some((event) => event.type === 'removed' || event.type === 'evicted')).toBe(
+          false,
+        )
+        // The policy collections stayed in memory.
+        for (const spec of [LIVE, SIDEBAR, STUBS]) expect(replica.isComplete(spec)).toBeDefined()
+        expect(cache.read(ISSUE, 'A1')).toBeDefined()
+        // Offline: reading the screen again through the loader reads it from disk.
+        replica.disconnect()
+        offline(server)
+        const fetched = server.fetches.length
+        const loader = new CollectionLoader({ replica, schedule: () => () => {} })
+        expect(loader.status(tree('A1'))).toBe('loading')
+        loader.request(
+          keys.map((key) => {
+            const marker = cache.readInstances().get(key) as InstanceRecord
+            return {
+              collection: marker.collection,
+              part: marker.part,
+              ...(marker.args === undefined ? {} : { args: marker.args }),
+              ...(marker.via === undefined ? {} : { via: marker.via }),
+            }
+          }),
+          'visible',
+        )
+        await loader.flush()
+        await replica.settled()
+        await ticks()
+        await replica.settled()
+        expect(server.fetches.length, 'no server request').toBe(fetched)
+        for (const key of keys) expect(cache.readDiskIndex().inMemory(key), key).toBe(true)
+        expect(loader.status(tree('A1'))).toBe('complete')
+        expect(contents(cache)).toEqual(before)
+        expectMarkersTrue(cache, server)
+      })
+
+      it('reads a single unloaded record back from disk by key, never from the server', async () => {
+        const server = world()
+        const booted = await boot(instantiation, server)
+        await booted.replica.load([tree('A1')])
+        await booted.replica.settled()
+        await booted.replica.unload(deckKeys(booted.cache))
+        expect(booted.replica.isUnloaded(ISSUE, 'D1')).toBe(true)
+        offline(server)
+        await booted.replica.loadRecords(ISSUE, ['D1', 'missing'])
+        expect(booted.cache.read(ISSUE, 'D1')?.value).toEqual(
+          server.members(tree('A1')).find((row) => row.id === 'D1')?.value,
+        )
+        expect(booted.replica.isUnloaded(ISSUE, 'D1')).toBe(false)
+      })
+
+      it('answers a one-record instance from a record whole on the device, with no fetch', async () => {
+        const server = world()
+        const booted = await boot(instantiation, server)
+        const one: InstanceSpec = {
+          collection: 'issueProjection.one',
+          args: { id: 'A1' },
+          part: 'main',
+        }
+        const fetched = server.fetches.length
+        await booted.replica.load([one])
+        expect(server.fetches.length).toBe(fetched)
+        expect(booted.replica.isComplete(one)).toBeDefined()
+        expect([...booted.cache.readDiskIndex().membersOf(instanceKey(one))]).toEqual([
+          keyOf(ISSUE, 'A1'),
+        ])
       })
     })
 
