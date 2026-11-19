@@ -328,7 +328,8 @@ export function attachChildChannel(
 export interface LifecycleClient {
   ready(extra?: { port?: number }): boolean
   degraded(reason: string): boolean
-  stopping(reason: string): boolean
+  /** Optional callback flushes the refusal before a startup failure exits. */
+  stopping(reason: string, onFlush?: (error: Error | null) => void): boolean
   /** Say that one named boot step finished. See the `progress` frame. */
   progress(stage: string): boolean
   /** True while this process still holds its line to the supervisor that spawned it. */
@@ -521,7 +522,8 @@ export function connectLifecycleChannel(
         ...(extra.port !== undefined ? { port: extra.port } : {}),
       }),
     degraded: (reason) => send({ type: 'degraded', reason }),
-    stopping: (reason) => send({ type: 'stopping', reason }),
+    stopping: (reason, onFlush) =>
+      trySend(transport, encodeLifecycle({ type: 'stopping', reason }), onFlush),
     progress: sendProgress,
     identity: () => identity,
     onIdentity: (listener) => {

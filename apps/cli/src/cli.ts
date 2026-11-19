@@ -1366,7 +1366,16 @@ async function runInProcess(
         console.error(portInUseMessage(port))
         process.exit(1)
       }
-      throw err
+      // Startup is not a recoverable request handler. Letting this escape to
+      // the process safety net keeps an unbound server alive indefinitely.
+      const reason = err instanceof Error ? err.message : String(err)
+      console.error(`Podium server failed to start: ${reason}`)
+      if (lifecycle) {
+        await new Promise<void>((resolve) => {
+          if (!lifecycle.stopping(reason, () => resolve())) resolve()
+        })
+      }
+      process.exit(78)
     }
     serverPort = server.port
     localDaemonLink = server.localDaemonLink

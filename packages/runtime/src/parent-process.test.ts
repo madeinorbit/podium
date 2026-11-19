@@ -453,6 +453,127 @@ describe('ParentProcess', () => {
     expect(probedPorts, 'the daemon question goes to the port our own server named').toEqual([4173])
   })
 
+  it('extends cold startup only on new stages and recovers READY after its first gate times out', async () => {
+    vi.useFakeTimers()
+    const clock = fakeClock()
+    const notifications: string[] = []
+    const server = new FakeChild(819)
+    let claims = 0
+    const parent = track(
+      new ParentProcess({
+        port: 19099,
+        children: ['server'],
+        installBinary: '/opt/podium/podium',
+        env: { PODIUM_APP_VERSION: '2.0.0' },
+        spawn: (() => server as unknown as ReturnType<SpawnChildFn>) as SpawnChildFn,
+        probeHealth: async () => healthy('2.0.0'),
+        notify: (state) => notifications.push(state),
+        claimRole: () => {
+          claims += 1
+        },
+        now: clock.now,
+        sleep: async (ms) => clock.advance(ms),
+        exit: () => {},
+      }),
+    )
+    try {
+      await parent.start()
+      expect(parent.isBootHealthy()).toBe(false)
+      expect(notifications).not.toContain('READY=1')
+      const extensions = () => notifications.filter((s) => s.startsWith('EXTEND_TIMEOUT_USEC='))
+      expect(extensions()).toHaveLength(1)
+      server.deliver(encodeLifecycle({ type: 'progress', stage: 'migration table 1: sessions' }))
+      expect(extensions()).toHaveLength(2)
+      clock.advance(30_000)
+      server.deliver(encodeLifecycle({ type: 'progress', stage: 'migration table 1: sessions' }))
+      expect(extensions()).toHaveLength(2)
+      server.reportReady({ role: 'server', version: '2.0.0', port: 19099 })
+      await vi.advanceTimersByTimeAsync(500)
+      expect(parent.isBootHealthy()).toBe(true)
+      expect(notifications).toContain('READY=1')
+      expect(notifications).toContain('WATCHDOG=1')
+      expect(claims).toBe(1)
+      await vi.advanceTimersByTimeAsync(500)
+      expect(notifications.filter((s) => s === 'READY=1')).toHaveLength(1)
+    } finally {
+      await parent.stop()
+      vi.useRealTimers()
+    }
+  })
+
+  it.each([
+    true,
+    false,
+  ])('bounds cold boot progress while awaiting late readiness (becomes ready=%s)', async (becomesReady) => {
+    const clock = fakeClock()
+    const began = clock.now()
+    const server = new FakeChild(821)
+    const notifications: string[] = []
+    let stage = 0
+    const parent = track(
+      new ParentProcess({
+        port: 19099,
+        children: ['server'],
+        installBinary: '/opt/podium/podium',
+        env: { PODIUM_APP_VERSION: '2.0.0' },
+        spawn: (() => server as unknown as ReturnType<SpawnChildFn>) as SpawnChildFn,
+        probeHealth: async () => healthy('2.0.0'),
+        notify: (state) => notifications.push(state),
+        now: clock.now,
+        sleep: async (ms) => {
+          clock.advance(ms)
+          const elapsed = clock.now() - began
+          if (elapsed >= (stage + 1) * 20_000) {
+            server.deliver(encodeLifecycle({ type: 'progress', stage: `migration index ${++stage}` }))
+          }
+          if (becomesReady && elapsed >= 140_000) {
+            server.reportReady({ role: 'server', version: '2.0.0', port: 19099 })
+          }
+        },
+        exit: () => {},
+      }),
+    )
+    await parent.start()
+    expect(clock.now() - began).toBe(becomesReady ? 140_000 : 600_000)
+    expect(parent.isBootHealthy()).toBe(becomesReady)
+    expect(notifications.filter((state) => state === 'READY=1')).toHaveLength(becomesReady ? 1 : 0)
+  })
+
+  it('retains a startup refusal after the child exits and closes its channel', async () => {
+    const clock = fakeClock()
+    const server = new FakeChild(820)
+    let refused = false
+    const parent = track(
+      new ParentProcess({
+        port: 19099,
+        children: ['server'],
+        installBinary: '/opt/podium/podium',
+        env: { PODIUM_APP_VERSION: '2.0.0' },
+        spawn: (() => server as unknown as ReturnType<SpawnChildFn>) as SpawnChildFn,
+        now: clock.now,
+        sleep: async (ms) => {
+          clock.advance(ms)
+          if (!refused) {
+            refused = true
+            server.reportStopping('Podium cannot upgrade its database: not enough free disk space')
+            server.die(78)
+          }
+        },
+        notify: () => {},
+        exit: () => {},
+      }),
+    )
+    await parent.start()
+    expect(parent.snapshot().children.server).toMatchObject({
+      status: 'refused',
+      reason: expect.stringContaining('not enough free disk space'),
+    })
+    expect(parent.lifecycle('server')).toMatchObject({
+      channel: 'closed',
+      stopping: { reason: expect.stringContaining('not enough free disk space') },
+    })
+  })
+
   it('AUDIT NEGATIVE CONTROL: failed boot health must not claim ready ownership', async () => {
     const clock = fakeClock()
     const notifications: string[] = []
@@ -1270,6 +1391,7 @@ describe('ParentProcess', () => {
       releaseHadMigrations?: boolean
       appliedIds?: string[]
       children?: ('server' | 'daemon')[]
+      refusal?: string
     }): Promise<{ install: string; state: string; kids: FakeChild[]; parent: ParentProcess }> {
       const { install, state } = installDirs('2.0.0')
       await migrationJournal(state, deps.appliedIds)
@@ -1279,6 +1401,17 @@ describe('ParentProcess', () => {
       const spawnImpl: SpawnChildFn = (_cmd, args, options) => {
         const child = channelChild(nextPid++, args, options)
         if (args[0] !== 'parent') kids.push(child)
+        else if (deps.refusal) {
+          const deadline = Number(options?.env?.[PARENT_HANDOVER_DEADLINE_ENV])
+          mkdirSync(join(state, 'run'), { recursive: true })
+          writeFileSync(
+            join(state, 'run', `supervisor-gate-${child.pid}.json`),
+            JSON.stringify({
+              deadline, until: deadline,
+              detail: { refusedBy: { child: 'server', because: 'stopping', reason: deps.refusal } },
+            }),
+          )
+        }
         return child as unknown as ReturnType<SpawnChildFn>
       }
       const parent = track(
@@ -1331,6 +1464,15 @@ describe('ParentProcess', () => {
       })
       expect(versionAt(install)).toBe('1.0.0')
       expect(outcomeIn(state)?.outcome).toBe('rolled-back')
+    })
+
+    it('keeps the successor refusal in the durable rollback outcome', async () => {
+      const refusal = 'Podium cannot upgrade its database: there is not enough free disk space.'
+      const { state } = await abortHandoverOn({ releaseHadMigrations: false, refusal })
+      expect(outcomeIn(state)).toMatchObject({
+        outcome: 'rolled-back',
+        why: expect.stringContaining(refusal),
+      })
     })
 
     it('KEEPS the arming and reports why when migrations forbid the rollback', async () => {
@@ -2020,7 +2162,7 @@ describe('delayed successor boot ownership', () => {
     await starting
     expect(parent.isBootHealthy()).toBe(false)
     expect(finalize).not.toHaveBeenCalled()
-    expect(notify).not.toHaveBeenCalled()
+    expect(notify.mock.calls.every(([state]) => state.startsWith('EXTEND_TIMEOUT_USEC='))).toBe(true)
     expect(confirmed).not.toHaveBeenCalled()
     expect(existsSync(join(state, 'run/supervisor-ready.json'))).toBe(false)
   })

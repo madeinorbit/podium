@@ -21,11 +21,14 @@ import { bootStage } from '../boot-timing'
 
 import { createLogger } from '@podium/logger'
 import { type IdPrefix, mintBrandedId } from '@podium/model'
+import { parseOperation } from '@podium/protocol'
+import { reportLifecycleProgress } from '@podium/runtime/lifecycle-channel'
 import { beginMachineUpdateMigrations } from '@podium/runtime/machine-update'
 import { MIGRATION_NAME_ALIASES as SHARED_MIGRATION_NAME_ALIASES } from '@podium/runtime/migration-ledger'
 import { bunSqliteClient, isBunRuntime, type SqlDatabase } from '@podium/runtime/sqlite'
 import { drizzle } from 'drizzle-orm/bun-sqlite'
 import { migrate } from 'drizzle-orm/bun-sqlite/migrator'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import { backupDatabase, freeDiskBytes, measureBackupSpace } from './backup'
 import { DRIZZLE_MIGRATIONS } from './drizzle-manifest.generated'
 import {
@@ -219,7 +222,7 @@ export function runDrizzleMigrations(
   // Snapshot before schema work. A retry with only retirement deferred keeps
   // the original pre-upgrade snapshot instead of ageing it out of retention.
   if (opts.dbPath !== undefined && opts.dbPath !== ':memory:' && hasAnyDataTable(db)) {
-    refuseWithoutFreeSpace(opts.dbPath, opts.freeBytes ?? freeDiskBytes)
+    refuseWithoutFreeSpace(db, opts.dbPath, opts.freeBytes ?? freeDiskBytes, opts.update?.grantId)
     const backupStarted = performance.now()
     backupDatabase(db, opts.dbPath, `drizzle-${applied.size}`)
     bootStage('backup', backupStarted)
@@ -325,19 +328,77 @@ export function runDrizzleMigrations(
  */
 const UPGRADE_SPACE_FACTOR = 2.5
 
-function refuseWithoutFreeSpace(dbPath: string, freeBytes: (dir: string) => number): void {
+function refuseWithoutFreeSpace(
+  db: SqlDatabase,
+  dbPath: string,
+  freeBytes: (dir: string) => number,
+  installedGrantId?: string,
+): void {
   // The backup's own measure (database and sidecars, `migrations/backup.ts`), so the two
   // checks read one number; the backup itself still asks for its copy with a margin.
   const space = measureBackupSpace(dbPath, freeBytes)
   const required = Math.ceil(UPGRADE_SPACE_FACTOR * space.needed)
   if (space.available >= required) return
   log.warn('refusing the upgrade: not enough free disk space', { dbPath, ...space })
-  throw new Error(
+  const reason =
     `Podium cannot upgrade its database: there is not enough free disk space. The upgrade ` +
-      `needs about ${megabytes(required)} free in ${space.dir} (a backup copy and ` +
-      `room to rewrite the tables), and ${megabytes(space.available)} is free. Free some ` +
-      `space and start Podium again. Nothing was changed.`,
-  )
+    `needs about ${megabytes(required)} free in ${space.dir} (a backup copy and ` +
+    `room to rewrite the tables), and ${megabytes(space.available)} is free. Free some ` +
+    `space and start Podium again. Nothing was changed.`
+  preserveUpgradeRefusal(db, installedGrantId, reason)
+  throw new Error(reason)
+}
+
+// LEGACY(remove-after: 2027-06): predecessors overwrite a boot refusal on rollback; preserve the installed grant's operation before exiting.
+function preserveUpgradeRefusal(
+  db: SqlDatabase,
+  installedGrantId: string | undefined,
+  reason: string,
+): void {
+  if (!installedGrantId || !hasTable(db, 'operations')) return
+  try {
+    // This runs before schema migration, without repositories or sync triggers.
+    // Old installs have no workspace column; newer ones must stay in the local workspace.
+    const scoped = (db.prepare('PRAGMA table_info(operations)').all() as { name: string }[]).some(
+      (column) => column.name === 'workspace_id',
+    )
+    const scope = scoped ? ' AND workspace_id = ?' : ''
+    const bindings = scoped ? [SELF_HOSTED_WORKSPACE_ID] : []
+    const row = db
+      .prepare(
+        `SELECT id, payload FROM operations WHERE kind = 'update' AND exclusion_group = 'lifecycle' AND state = 'running'${scope} LIMIT 1`,
+      )
+      .get(...bindings) as { id: string; payload: string } | undefined
+    if (!row) return
+    const operation = parseOperation(JSON.parse(row.payload))
+    if (
+      operation?.id !== row.id ||
+      operation.kind !== 'update' ||
+      operation.state !== 'running' ||
+      operation.details?.coordinatorSnapshotGrantId !== installedGrantId
+    )
+      return
+    const now = Date.now()
+    const error = { code: 'handover-failed', message: reason }
+    operation.state = 'failed'
+    operation.updatedAt = operation.finishedAt = now
+    operation.error = error
+    // Predecessors use either a server step or one fleet-wide machines step.
+    // The exact installed grant is the binding, not that step's presentation.
+    for (const step of operation.steps ?? []) {
+      if (step.state !== 'running' && step.state !== 'stalled') continue
+      step.state = 'failed'
+      step.finishedAt = step.lastProgressAt = now
+      step.error = error
+    }
+    // Compare the envelope too: never replace a concurrently changed operation.
+    db.prepare(
+      `UPDATE operations SET state = 'failed', updated_at = ?, finished_at = ?, payload = ? WHERE id = ? AND payload = ? AND state = 'running'${scope}`,
+    ).run(now, now, JSON.stringify(operation), row.id, row.payload, ...bindings)
+  } catch (error) {
+    // Failure to retain the UI error must never hide the original boot refusal.
+    log.warn('could not preserve the upgrade disk refusal', { err: error })
+  }
 }
 
 const megabytes = (bytes: number): string => `${Math.ceil(bytes / 1_000_000)} MB`
@@ -361,12 +422,13 @@ function reportingRebuilds<TClient extends object>(
   pending: readonly DrizzleMigration[],
 ): TClient {
   const total = pending.reduce((sum, m) => sum + (m.sql.match(REBUILD_START)?.length ?? 0), 0)
-  if (total === 0) return client
+  if (pending.length === 0) return client
   let done = 0
   let last = performance.now()
   // drizzle-kit writes the indexes of every rebuilt table after the rebuilds: one line says
   // how long they took, so the time is not counted against the table rebuilt next.
   let indexes = 0
+  let indexSteps = 0
   return new Proxy(client, {
     get(target, property) {
       const value = Reflect.get(target, property, target) as unknown
@@ -375,6 +437,7 @@ function reportingRebuilds<TClient extends object>(
       return (sql: string, ...rest: unknown[]) => {
         if (INDEX_STATEMENT.test(sql)) {
           indexes += 1
+          reportLifecycleProgress(`migration index ${++indexSteps}`)
         } else if (indexes > 0) {
           const now = performance.now()
           log.info('built indexes', { count: indexes, ms: Math.round(now - last) })
@@ -391,6 +454,7 @@ function reportingRebuilds<TClient extends object>(
             of: total,
             ms: Math.round(now - last),
           })
+          reportLifecycleProgress(`migration table ${done}/${total}: ${rebuilt}`)
           last = now
         }
         return value.call(target, sql, ...rest)

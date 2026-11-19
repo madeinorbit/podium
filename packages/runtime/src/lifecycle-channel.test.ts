@@ -311,6 +311,28 @@ describe('child end', () => {
     })
   })
 
+  it('flushes a startup refusal before its caller exits', () => {
+    const transport = new FakePeer()
+    transport.holdFlush = true
+    const client = connected(
+      connectLifecycleChannel({
+        role: 'server',
+        version: 'dev',
+        transport,
+        scheduler: manualScheduler(),
+      }),
+    )
+    const flushed = vi.fn()
+    expect(client.stopping('not enough free disk space', flushed)).toBe(true)
+    expect(flushed).not.toHaveBeenCalled()
+    expect(transport.sent).toContainEqual(
+      encodeLifecycle({ type: 'stopping', reason: 'not enough free disk space' }),
+    )
+    transport.held[0]?.(null)
+    expect(flushed).toHaveBeenCalledWith(null)
+    client.close()
+  })
+
   it('heartbeats on the contract cadence until closed', () => {
     const transport = new FakePeer()
     const scheduler = manualScheduler()
