@@ -1,4 +1,5 @@
 import { serviceWorkerContainer } from '@podium/client-core/service-worker'
+import { INTERFACE_REPAIR_TARGET_KEY } from '@podium/client-core/ui-state'
 import { createLogger } from '@podium/logger'
 import { parseServerVersion, sourceDigest } from '@podium/protocol'
 import { forceReload } from './force-reload'
@@ -11,7 +12,7 @@ import { readServedWorkerIdentity } from './sw-identity'
 import { workspaceFetch } from './workspace-request'
 
 const log = createLogger('web:boot-interface')
-export const INTERFACE_REPAIR_KEY = 'podium.interface-repair-target'
+export const INTERFACE_REPAIR_KEY = INTERFACE_REPAIR_TARGET_KEY
 export const INTERFACE_CHECK_MS = 3000
 
 /** Installed before sign-in, so a newly activated worker can identify this page. */

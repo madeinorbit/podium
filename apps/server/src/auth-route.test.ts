@@ -220,7 +220,7 @@ describe('POST /auth/login', () => {
     const response = await post(app, '/auth/login', { email: 'user:sole', password: PASSWORD })
     expect(response.status).toBe(200)
     const cookie = cookieOf(response)
-    expect(await (await get(app, '/auth/status', { cookie: cookie! })).json()).toMatchObject({
+    expect(await (await get(app, '/auth/status', { cookie: cookie ?? '' })).json()).toMatchObject({
       authed: true,
       memberId: admin,
     })
@@ -422,6 +422,9 @@ describe('POST /auth/login', () => {
         .status,
     ).toBe(401)
     expect((await post(app, '/auth/login', { email: 42, password: PASSWORD })).status).toBe(400)
+    expect(
+      (await post(app, '/auth/login', { email: 'user:sole', password: PASSWORD })).status,
+    ).toBe(401)
   })
 
   test('a disabled member cannot sign in, and can again once enabled', async () => {
