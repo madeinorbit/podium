@@ -154,18 +154,23 @@ it('resident, ordering and finished readers ignore a title change', () => {
 // A scalar must not allocate the rest of standing/own through eager rule
 // construction. Count the existing lazy slots and guard the shared facts:
 // answer equality alone would miss both unnecessary allocations and reads.
+// `shared` names the issue's lazy facts a scalar's own rule reads: rescuable
+// asks whether the issue is finished, and band asks for my pin (a pin record
+// since POD-6692, so a lazy of the issue model).
 it.each([
-  ['activeHuman', true, 0], ['sessionless', 'keep', 0],
-  ['rescuable', true, 1], ['band', 1, 0],
-  ['repoKey', machinePathKey('/synthetic'), 0], ['foldAt', stamp, 0],
-] as const)('allocates only the demanded %s field and releases it after the last observer', async (field, expected, sharedCount) => {
+  ['activeHuman', true, []], ['sessionless', 'keep', []],
+  ['rescuable', true, ['finished']], ['band', 1, ['pinned']],
+  ['repoKey', machinePathKey('/synthetic'), []], ['foldAt', stamp, []],
+] as const)('allocates only the demanded %s field and releases it after the last observer', async (field, expected, shared) => {
   const pool = fixture('demand'), root = pool.worklistRow('root')!
-  const issue = root.issue
+  const issue = root.issue, sharedNames: readonly string[] = shared
   const guards = ['excluded', 'awaitingMerge', 'parentRef', 'finishedMs', 'updatedMs',
-    'lastActivityAt', 'headlessStaffed', ...(field === 'rescuable' ? [] : ['finished'])]
+    'lastActivityAt', 'headlessStaffed', 'finished', 'pinned']
+    .filter(name => !sharedNames.includes(name))
     .map(name => vi.spyOn(issue, name as 'finished', 'get').mockImplementation(() => {
       throw new Error(`${field} demanded unrelated ${name}`)
     }))
+  const reads = sharedNames.map(name => vi.spyOn(issue, name as 'finished', 'get'))
   let value: unknown, runs = 0, failure: unknown
   expect([lazyKeptCount(root), lazyKeptCount(issue)]).toEqual([0, 0])
   const stop = autorun(() => {
@@ -174,7 +179,8 @@ it.each([
   try {
     if (failure) throw failure
     expect(value).toEqual(expected)
-    expect([lazyKeptCount(root), lazyKeptCount(issue)]).toEqual([1, sharedCount])
+    expect([lazyKeptCount(root), lazyKeptCount(issue)]).toEqual([1, sharedNames.length])
+    for (const read of reads) expect(read).toHaveBeenCalled()
     runInAction(() => pool.apply({ type: 'update', rows: [
       { kind: 'issue', id: 'root', value: issueRow('root', { title: 'Renamed' }) as never },
     ] }))
@@ -184,7 +190,7 @@ it.each([
     for (const guard of guards) expect(guard).not.toHaveBeenCalled()
   } finally {
     stop()
-    for (const guard of guards) guard.mockRestore()
+    for (const spy of [...guards, ...reads]) spy.mockRestore()
     pool.dispose()
   }
   await Promise.resolve()

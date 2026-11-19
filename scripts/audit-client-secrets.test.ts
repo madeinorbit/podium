@@ -29,9 +29,9 @@ import {
   collectSources,
   NAMED_SITES,
   SCRUB_CALLERS,
+  SCRUB_MODULE,
   SECRET_PATHS,
   secretTokens,
-  SCRUB_MODULE,
 } from './audit-client-secrets'
 
 const tokens = secretTokens()
@@ -81,6 +81,11 @@ describe('this gate can say NO', () => {
     expect(
       auditScrubDerives(
         file(SCRUB_MODULE, `export const P = settingsPathsInTier('server-secret')`),
+      ),
+    ).toEqual([])
+    expect(
+      auditScrubDerives(
+        file(SCRUB_MODULE, `export const P = pathsInSettingsTier('server-secret')`),
       ),
     ).toEqual([])
     const restated = auditScrubDerives(
