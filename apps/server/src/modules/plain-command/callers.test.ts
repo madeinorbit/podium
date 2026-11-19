@@ -1,5 +1,5 @@
 /**
- * EVERY CURRENT CALLER OF THE 31 NON-SYNC COMMANDS, THROUGH THE FRONT DOOR
+ * EVERY CURRENT CALLER OF THE NON-SYNC COMMANDS, THROUGH THE FRONT DOOR
  * (ADR 12 D8, POD-6360).
  *
  * Moving these commands onto the plain path made their contracts' role floors
@@ -53,6 +53,7 @@ import { MODEL_COMMANDS_TRPC } from '../models/registry'
 import { PERF_COMMANDS_TRPC } from '../perf/commands'
 import { SETTINGS_COMMANDS_TRPC } from '../settings/registry'
 import { VAULT_COMMANDS_TRPC } from '../vault/registry'
+import { plainCommands } from './commands'
 import type { PlainTargetCheck } from './entry'
 
 const CONTRACTS = new Map<string, AnyCommandContract>(
@@ -307,13 +308,8 @@ const CALLERS: readonly {
   { command: 'credentials.login', who: 'agent', caller: 'none today', expect: 'floor' },
 ]
 
-describe('every current caller of the 40 non-sync commands', () => {
-  it('covers the 40 commands, and only them', () => {
-    // 32 on the base, which pinned 31; + vault.reset (POD-6889); + eight credentials.* (POD-6891);
-    // + chatgptSignInStart and chatgptSignInComplete (POD-6901); + signInStart and
-    // signInCancel (POD-6896); - accounts.connect, disconnect, share, send and unsend
-    // (POD-6907: the old stored keys are credentials).
-    expect(CONTRACTS.size).toBe(40)
+describe('every current caller of the non-sync commands', () => {
+  it('covers registered plain contracts and rejects queued declarations', () => {
     // None is queued any more. The two that were moved onto synced record
     // edits on purpose:
     //  - settings.updatePersonal: records.userPreferences.edit (POD-6673);
@@ -321,7 +317,11 @@ describe('every current caller of the 40 non-sync commands', () => {
     const queued = [...CONTRACTS.values()].filter((c) => c.delivery.class === 'offline-eligible')
     expect(queued.map((c) => c.name)).toEqual([])
     const plain = [...CONTRACTS.values()].filter((c) => c.delivery.class !== 'offline-eligible')
-    expect(plain).toHaveLength(40)
+    for (const contract of plain) {
+      const registered = plainCommands().lookup(contract.name)
+      expect(registered, `${contract.name} has a real registration`).toBeDefined()
+      expect(registered?.door).toMatchObject(contractFrontDoor(contract))
+    }
     for (const row of CALLERS) expect(CONTRACTS.has(row.command), row.command).toBe(true)
   })
 

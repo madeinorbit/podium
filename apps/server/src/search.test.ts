@@ -9,13 +9,14 @@ import { SuperagentService } from './modules/superagent'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
+import { memberFacts } from './store/fixtures/test-support'
 import { OPERATOR } from './test-support/capabilities'
-import { forceFeature } from './test-support/features'
 import { fixtureInventory } from './test-support/daemon-inventory'
+import { forceFeature } from './test-support/features'
 import { attachHostDaemon, confirmingRetirement } from './test-support/host-daemon'
 import { openTestStore } from './test-support/open-test-store'
-import { countStatements, quietShipping, type StatementTally } from './test-support/statement-count'
 import { seedRows } from './test-support/seed-rows'
+import { countStatements, quietShipping, type StatementTally } from './test-support/statement-count'
 
 // Omni-search reads the full-text index, and whether a boot HAS one is the
 // `command-palette` flag (PDM-25). These tests are about the indexed path, so
@@ -48,7 +49,10 @@ async function attachFixtureDaemon(
     assignment: { server: false, agentExecution: true },
   })
   for (const path of ['/repo', '/private']) await store.repos.addRepo(path, asMachineId(machine))
-  await registry.gateway.attachDaemon(machine, confirmingRetirement(registry, machine, () => {}))
+  await registry.gateway.attachDaemon(
+    machine,
+    confirmingRetirement(registry, machine, () => {}),
+  )
 }
 
 /** Bob's own machine, in his custody: his agents run on his own login there
@@ -57,7 +61,17 @@ const BOB_MACHINE = 'm-bob'
 
 /** Admin's `m1` and Bob's own machine, both with an installed harness, so each
  *  member's agent session is placed on a machine they look after. */
-async function attachBothMembersMachines(registry: SessionRegistry, bob: ReturnType<typeof asUserId>) {
+async function attachBothMembersMachines(
+  registry: SessionRegistry,
+  bob: ReturnType<typeof asUserId>,
+) {
+  await memberFacts(registry.sessionStore).create({
+    id: bob,
+    displayName: 'Bob',
+    role: 'member',
+    createdAt: '2026-01-01T00:00:00.000Z',
+    disabledAt: null,
+  })
   await attachFixtureDaemon(registry)
   await attachFixtureDaemon(registry, BOB_MACHINE, bob)
   for (const machine of ['m1', BOB_MACHINE]) {
@@ -162,16 +176,20 @@ describe('MemoryService omni-search', () => {
       sessionId: conversationSessionId,
       resume: { kind: 'claude-session', value: 'native-conv' },
     })
-    await seedRows(store, async () => await store.conversations.index.upsert(fixtureWriteScope(), [
-      {
-        id: 'native-conv',
-        agentKind: 'claude-code',
-        providerId: 'claude-code-jsonl',
-        title: 'capacitor deep dive',
-        updatedAt: '2026-07-01T09:00:00.000Z',
-        machineId: asMachineId('m1'),
-      },
-    ]))
+    await seedRows(
+      store,
+      async () =>
+        await store.conversations.index.upsert(fixtureWriteScope(), [
+          {
+            id: 'native-conv',
+            agentKind: 'claude-code',
+            providerId: 'claude-code-jsonl',
+            title: 'capacitor deep dive',
+            updatedAt: '2026-07-01T09:00:00.000Z',
+            machineId: asMachineId('m1'),
+          },
+        ]),
+    )
 
     // Lake-indexed transcript messages (what the mirror-fed indexer writes).
     await store.conversations.registry.ensure({
@@ -359,15 +377,19 @@ describe('MemoryService omni-search', () => {
         sessionId,
         resume: { kind: 'claude-session', value: nativeId },
       })
-      await seedRows(store, async () => await store.conversations.index.upsert(fixtureWriteScope(), [
-        {
-          id: nativeId,
-          agentKind: 'claude-code',
-          providerId: 'claude-code-jsonl',
-          projectPath: '/repo',
-          machineId: asMachineId('m1'),
-        },
-      ]))
+      await seedRows(
+        store,
+        async () =>
+          await store.conversations.index.upsert(fixtureWriteScope(), [
+            {
+              id: nativeId,
+              agentKind: 'claude-code',
+              providerId: 'claude-code-jsonl',
+              projectPath: '/repo',
+              machineId: asMachineId('m1'),
+            },
+          ]),
+      )
       await store.conversations.registry.ensure({
         machineId: asMachineId('m1'),
         nativeId,
@@ -440,21 +462,28 @@ describe('search.query tRPC', () => {
       cwd: '/classifiedneedle',
       machineId: asMachineId(BOB_MACHINE),
     })
-    await registry.modules.sessions.renameSession(registry.modules.sessions.serverWriter, { sessionId, name: 'classifiedneedle session' })
+    await registry.modules.sessions.renameSession(registry.modules.sessions.serverWriter, {
+      sessionId,
+      name: 'classifiedneedle session',
+    })
     registry.gateway.routeDaemonFrame(BOB_MACHINE, {
       type: 'sessionResumeRef',
       sessionId,
       resume: { kind: 'claude-session', value: 'classified-native' },
     })
-    await seedRows(store, async () => await store.conversations.index.upsert(fixtureWriteScope(), [
-      {
-        id: 'classified-native',
-        agentKind: 'claude-code',
-        providerId: 'claude-code-jsonl',
-        machineId: asMachineId(BOB_MACHINE),
-        title: 'classifiedneedle conversation',
-      },
-    ]))
+    await seedRows(
+      store,
+      async () =>
+        await store.conversations.index.upsert(fixtureWriteScope(), [
+          {
+            id: 'classified-native',
+            agentKind: 'claude-code',
+            providerId: 'claude-code-jsonl',
+            machineId: asMachineId(BOB_MACHINE),
+            title: 'classifiedneedle conversation',
+          },
+        ]),
+    )
     await store.conversations.transcriptIndex.append(
       asMachineId(BOB_MACHINE),
       'classified-native',
@@ -474,13 +503,17 @@ describe('search.query tRPC', () => {
     })
     const issueRow = await store.issues.getIssue(issue.id)
     if (!issueRow) throw new Error('issue seed missing')
-    await seedRows(store, async () => await store.issues.upsertIssue(fixtureWriteScope(), {
-      ...issueRow,
-      id: asIssueId('iss_bob_private'),
-      seq: issueRow.seq + 1,
-      ownerUserId: bob,
-      title: 'classifiedneedle issue',
-    }))
+    await seedRows(
+      store,
+      async () =>
+        await store.issues.upsertIssue(fixtureWriteScope(), {
+          ...issueRow,
+          id: asIssueId('iss_bob_private'),
+          seq: issueRow.seq + 1,
+          ownerUserId: bob,
+          title: 'classifiedneedle issue',
+        }),
+    )
     await store.superagent.upsertSuperagentThread({
       id: 'private-thread',
       ownerUserId: bob,
@@ -495,7 +528,9 @@ describe('search.query tRPC', () => {
     // Bob's TASK is shared (design §2.2, POD-6288): it is the one hit another
     // member gets. His session, conversation, transcript and thread stay his.
     expect(
-      (await registry.modules.memory.search(READER, { text: 'classifiedneedle' })).map((hit) => hit.kind),
+      (await registry.modules.memory.search(READER, { text: 'classifiedneedle' })).map(
+        (hit) => hit.kind,
+      ),
     ).toEqual(['issue'])
     const bobHits = await registry.modules.memory.search(
       { kind: 'user', id: bob },

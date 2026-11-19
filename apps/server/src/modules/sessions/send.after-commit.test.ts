@@ -102,7 +102,13 @@ async function planeSend(
   input: { sessionId: SessionId; text: string; mutationId?: string },
 ): Promise<unknown> {
   return await dispatchSessionCommand(
-    await sessionCommandCtx(o.reg.modules, OPERATOR, false, 'trpc'),
+    await sessionCommandCtx(
+      o.reg.modules,
+      OPERATOR,
+      false,
+      'trpc',
+      o.reg.modules.sessions.serverWriter,
+    ),
     key,
     input,
   )
@@ -121,7 +127,7 @@ describe('chat send delivers after the commit (POD-6349)', () => {
     await vi.waitFor(() => expect(handOns(o.daemon, sessionId)).toHaveLength(1))
   })
 
-  it('the tRPC route runs the send in the entry point\'s unit: it replies queued and hands on once', async () => {
+  it("the tRPC route runs the send in the entry point's unit: it replies queued and hands on once", async () => {
     const o = await makeOracle()
     const sessionId = await liveSession(o)
 
@@ -231,7 +237,13 @@ describe('chat send delivers after the commit (POD-6349)', () => {
     const mutationId = newMessageId()
     await storeA.transact(async () => {
       await dispatchSessionCommand(
-        await sessionCommandCtx(regA.modules, OPERATOR, false, 'trpc'),
+        await sessionCommandCtx(
+          regA.modules,
+          OPERATOR,
+          false,
+          'trpc',
+          regA.modules.sessions.serverWriter,
+        ),
         'sendText',
         {
           sessionId,

@@ -8,7 +8,12 @@
  * yes and no, and the route is the walking skeleton's.
  */
 
-import { isExposedOn, sessionStateCommand } from '@podium/commands'
+import {
+  IMMEDIATE_SESSION_STATE_COMMANDS,
+  isExposedOn,
+  SESSION_STATE_COMMAND_TABLES,
+  sessionStateCommand,
+} from '@podium/commands'
 import { asSessionId, MemberId, type UserId } from '@podium/model'
 
 import { afterEach, describe, expect, it } from 'vitest'
@@ -176,18 +181,16 @@ describe('rename is served by the derived surface, on the target envelope', () =
     const presence = sessionSurfaceManifest()
       .filter((e) => e.source === 'session-state')
       .map((e) => e.name)
-    // `sessions.setIssueId` has no route: `sync.submit` is its only door (POD-6416).
-    expect(presence).toEqual([
-      'sessions.setArchived',
-      'sessions.setWorkState',
-      'sessions.dismissOffer',
-      'sessions.markRead',
-      'sessions.markUnread',
-      'snoozes.set',
-      'snoozes.clear',
-      'pins.set',
-      'tabs.setOrder',
-    ])
+    const submitOnly = new Set<string>(IMMEDIATE_SESSION_STATE_COMMANDS)
+    const declared = SESSION_STATE_COMMAND_TABLES.flatMap((table) =>
+      Object.keys(table.defs).map((key) => `${table.namespace}.${key}`),
+    ).filter(
+      (name) =>
+        name !== 'sessions.rename' &&
+        !submitOnly.has(name) &&
+        isExposedOn(sessionStateCommand(name) as never, 'trpc'),
+    )
+    expect(presence).toEqual(declared)
   })
 
   it('is still governed by its session-state contract’s exposure declaration', () => {

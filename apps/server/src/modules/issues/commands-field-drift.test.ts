@@ -50,6 +50,13 @@ describe('CLI table ↔ server registry FIELD drift (#347)', () => {
     // `--pinned` is not a field of the task: it creates or removes the caller's
     // human's own pin record of it (POD-6692).
     cliKeys.delete('pinned')
+    // Revision arbitration and close confirmation belong to the command
+    // envelope, not to the persisted issue patch.
+    for (const field of ['expectedRevision', 'confirmInterrupt']) {
+      expect(cliKeys.has(field), `CLI declares ${field}`).toBe(true)
+      expect(shapeKeys(serverInput).has(field), `server envelope declares ${field}`).toBe(true)
+      cliKeys.delete(field)
+    }
     expect([...cliKeys].sort()).toEqual([...patchKeys].sort())
   })
 

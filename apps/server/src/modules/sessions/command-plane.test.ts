@@ -32,6 +32,7 @@ import {
 } from '../../command-principal'
 import type { MachineOwnershipIndex, MachineOwnershipRow } from '../../machine-access'
 import { ownershipSnapshotFromMachines } from '../../machine-access'
+import { memberFacts } from '../../store/fixtures/test-support'
 import { seedLegacyKeyCredential } from '../../test-support/legacy-key-credential'
 import { DurableIssueAccessIndex } from '../issues/access-index'
 import { messageRecordOf } from '../message-feed/feed'
@@ -901,6 +902,13 @@ async function oracleWithPairedMachine(): Promise<{
  * is never used for them. Selected on the colleague's own coding role.
  */
 async function colleagueConnectionOnHost(o: Oracle): Promise<void> {
+  await memberFacts(o.store).create({
+    id: COLLEAGUE,
+    displayName: 'Colleague',
+    role: 'member',
+    createdAt: '2026-01-01T00:00:00.000Z',
+    disabledAt: null,
+  })
   const id = asAccountId('managed:openai')
   await seedLegacyKeyCredential(o.store, {
     owner: COLLEAGUE,
