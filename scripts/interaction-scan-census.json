@@ -34,18 +34,18 @@
       "file": "apps/mobile/src/client/test-replica.ts",
       "holder": "createMobileTestReplica/replica",
       "rule": "reader-summary",
-      "tokens": "8b126bebd7e3151e707284b5e05eda4d4c6f9cb1287e5d2a4c85029d09ca0a69",
+      "tokens": "2e579f7bd8c2c1bffef69ea573441b31349bd76b99bfe613c873333df194ee76",
       "gate": [],
       "origin": [
         "6a38dd81c5dae2ff245d1a2187718e0367d4b389f2610fbbf87b1b2efaae894a"
       ],
-      "fingerprint": "0a312fdd427d18bbd9430e99a4f7c4eb71f297cef7745caefa4d0b986d0c500c",
+      "fingerprint": "22fee6222a02bfbf4e46db9d43912b8baff6daff4e366864aae9f3fdddbe47fb",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5801",
       "trigger": "Opening a signed-in user's replica assembly, building a replica, or mounting one chat.",
       "bound": "Constant work: the per-user chat history store is created once and handed on by reference; no transcript collection is read or iterated at this site.",
-      "reason": "The scan follows transcript-named ports (TranscriptStore, the replica's transcripts cache) through composition and erase wiring; nothing here enumerates messages. POD-6778: normalized panel records change fixture/bootstrap payloads and remove the panel body request; the collection bound and classification are unchanged. POD-6772: per-kind replacement and IndexedDB range wiring change this composition fingerprint; transcript access and its collection bound are unchanged. POD-7086: the facade gains the device's collection reads (markers and stubs) and the assembly hands it the kernel Replica's, which changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7087: the facade gains the one loader (`loader()`, and `stubRows` among the collection reads) and the assembly builds it beside the kernel Replica and pipes it the Replica's events, which changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7122: the Replica gains a `load-installed` event (the first download is in memory) that the facade, the loader and the sync progress read, which changes this composition fingerprint; the collection bound and classification are unchanged.",
+      "reason": "The scan follows transcript-named ports (TranscriptStore, the replica's transcripts cache) through composition and erase wiring; nothing here enumerates messages. POD-6778: normalized panel records change fixture/bootstrap payloads and remove the panel body request; the collection bound and classification are unchanged. POD-6772: per-kind replacement and IndexedDB range wiring change this composition fingerprint; transcript access and its collection bound are unchanged. POD-7086: the facade gains the device's collection reads (markers and stubs) and the assembly hands it the kernel Replica's, which changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7087: the facade gains the one loader (`loader()`, and `stubRows` among the collection reads) and the assembly builds it beside the kernel Replica and pipes it the Replica's events, which changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7122: the Replica gains a `load-installed` event (the first download is in memory) that the facade, the loader and the sync progress read, which changes this composition fingerprint; the collection bound and classification are unchanged. POD-7159: the Replica gains its disk layer (disk reads, unload, the record-level disk load the loader batches, the unloaded event the facade reads), which changes this composition fingerprint; the collection bound and classification are unchanged.",
       "guard": "assembly.test.ts \"chat history database (POD-5801)\" opens one database per user and erases it on sign-out; transcript-log.stored.test.ts drives the wired cache end to end."
     },
     {
@@ -7933,20 +7933,20 @@
       "file": "apps/web/src/lib/kernelReplica.ts",
       "holder": "openKernelAssembly/assembly",
       "rule": "helper-consumer",
-      "tokens": "de3a49a1e25e40e721869df009ae72a4a919522cef2c4c70ade3edd5e9f16734",
+      "tokens": "b78826243d39814406d0b4d3b867984f5e11eb5f7e41ffbd8b1f6b154004ae15",
       "gate": [
         "exit:then:5e2a14e1fded6dcf5bd2bbeb0a38680fd681e01937e3beb0794cbfbe6fbfbbad"
       ],
       "origin": [
         "6eaa0385ee25575a2b8641ff25b6cd72ef2fa78aca967cd7f17f5c096194a7f4"
       ],
-      "fingerprint": "5019661e59e24f12a7692df3965bae8406081a9338b80796797459cf2aae7e49",
+      "fingerprint": "24b0a29510819cd71017adebac5b92db800eb0f39756654cb3da8fcebcbcff03",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5801",
       "trigger": "Opening a signed-in user's replica assembly, building a replica, or mounting one chat.",
       "bound": "Constant work: the per-user chat history store is created once and handed on by reference; no transcript collection is read or iterated at this site.",
-      "reason": "The scan follows transcript-named ports (TranscriptStore, the replica's transcripts cache) through composition and erase wiring; nothing here enumerates messages. POD-6778: normalized panel records change fixture/bootstrap payloads and remove the panel body request; the collection bound and classification are unchanged. POD-6772: per-kind replacement and IndexedDB range wiring change this composition fingerprint; transcript access and its collection bound are unchanged. POD-6947: the feed sink's access-move listener (onAccessMoved) in the assembly's feed port changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7086: the facade gains the device's collection reads (markers and stubs) and the assembly hands it the kernel Replica's, which changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7087: the facade gains the one loader (`loader()`, and `stubRows` among the collection reads) and the assembly builds it beside the kernel Replica and pipes it the Replica's events, which changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7122: the Replica gains a `load-installed` event (the first download is in memory) that the facade, the loader and the sync progress read, which changes this composition fingerprint; the collection bound and classification are unchanged. POD-7165: the Replica's `batchEvents` composes the loader's burst around the facade's (each kind of change told once per burst), which changes this composition fingerprint; transcript access and its collection bound are unchanged.",
+      "reason": "The scan follows transcript-named ports (TranscriptStore, the replica's transcripts cache) through composition and erase wiring; nothing here enumerates messages. POD-6778: normalized panel records change fixture/bootstrap payloads and remove the panel body request; the collection bound and classification are unchanged. POD-6772: per-kind replacement and IndexedDB range wiring change this composition fingerprint; transcript access and its collection bound are unchanged. POD-6947: the feed sink's access-move listener (onAccessMoved) in the assembly's feed port changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7086: the facade gains the device's collection reads (markers and stubs) and the assembly hands it the kernel Replica's, which changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7087: the facade gains the one loader (`loader()`, and `stubRows` among the collection reads) and the assembly builds it beside the kernel Replica and pipes it the Replica's events, which changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7122: the Replica gains a `load-installed` event (the first download is in memory) that the facade, the loader and the sync progress read, which changes this composition fingerprint; the collection bound and classification are unchanged. POD-7165: the Replica's `batchEvents` composes the loader's burst around the facade's (each kind of change told once per burst), which changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7159: the Replica gains its disk layer (disk reads, unload, the record-level disk load the loader batches, the unloaded event the facade reads), which changes this composition fingerprint; the collection bound and classification are unchanged.",
       "guard": "assembly.test.ts \"chat history database (POD-5801)\" opens one database per user and erases it on sign-out; transcript-log.stored.test.ts drives the wired cache end to end."
     },
     {
@@ -11345,18 +11345,18 @@
       "file": "packages/client-core/src/demo/demo-replica.ts",
       "holder": "createDemoReplica",
       "rule": "reader-summary",
-      "tokens": "74398b08366197413a39a6f7035c5c1896f69ecdffd27983651a3ce3029dfb25",
+      "tokens": "ee669d5f3b267ba8919bcc82c0494c23aeefb1e1e45a5d834ca385feb4c00244",
       "gate": [],
       "origin": [
         "6a38dd81c5dae2ff245d1a2187718e0367d4b389f2610fbbf87b1b2efaae894a"
       ],
-      "fingerprint": "caa2e71360ed098b35b8011c402b12fa78018a9fa95011341b6eff0d2ec71df4",
+      "fingerprint": "926bf8ce6469d7de62e023fbd3170d8a3963d16cbca0c84c3fef11ee67cf74da",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5801",
       "trigger": "Opening a signed-in user's replica assembly, building a replica, or mounting one chat.",
       "bound": "Constant work: the per-user chat history store is created once and handed on by reference; no transcript collection is read or iterated at this site.",
-      "reason": "The scan follows transcript-named ports (TranscriptStore, the replica's transcripts cache) through composition and erase wiring; nothing here enumerates messages. POD-6778: normalized panel records change fixture/bootstrap payloads and remove the panel body request; the collection bound and classification are unchanged. POD-6772: per-kind replacement and IndexedDB range wiring change this composition fingerprint; transcript access and its collection bound are unchanged. POD-7086: the facade gains the device's collection reads (markers and stubs) and the assembly hands it the kernel Replica's, which changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7087: the facade gains the one loader (`loader()`, and `stubRows` among the collection reads) and the assembly builds it beside the kernel Replica and pipes it the Replica's events, which changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7122: the Replica gains a `load-installed` event (the first download is in memory) that the facade, the loader and the sync progress read, which changes this composition fingerprint; the collection bound and classification are unchanged.",
+      "reason": "The scan follows transcript-named ports (TranscriptStore, the replica's transcripts cache) through composition and erase wiring; nothing here enumerates messages. POD-6778: normalized panel records change fixture/bootstrap payloads and remove the panel body request; the collection bound and classification are unchanged. POD-6772: per-kind replacement and IndexedDB range wiring change this composition fingerprint; transcript access and its collection bound are unchanged. POD-7086: the facade gains the device's collection reads (markers and stubs) and the assembly hands it the kernel Replica's, which changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7087: the facade gains the one loader (`loader()`, and `stubRows` among the collection reads) and the assembly builds it beside the kernel Replica and pipes it the Replica's events, which changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7122: the Replica gains a `load-installed` event (the first download is in memory) that the facade, the loader and the sync progress read, which changes this composition fingerprint; the collection bound and classification are unchanged. POD-7159: the Replica gains its disk layer (disk reads, unload, the record-level disk load the loader batches, the unloaded event the facade reads), which changes this composition fingerprint; the collection bound and classification are unchanged.",
       "guard": "assembly.test.ts \"chat history database (POD-5801)\" opens one database per user and erases it on sign-out; transcript-log.stored.test.ts drives the wired cache end to end."
     },
     {

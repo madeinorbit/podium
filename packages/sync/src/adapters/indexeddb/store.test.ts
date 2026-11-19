@@ -97,7 +97,7 @@ describe('IndexedDbSyncStore', () => {
       ),
     )
     store.close()
-    const db = await requestAsPromise(factory.open(REPLICA_DB_NAME, 1))
+    const db = await requestAsPromise(factory.open(REPLICA_DB_NAME, REPLICA_SCHEMA_VERSION))
     try {
       const tx = db.transaction([META_STORE], 'readwrite')
       const complete = new Promise<void>((resolve, reject) => {

@@ -435,9 +435,17 @@ describe('comes with, on the client', () => {
     server.chunkRows = 50
     server.put(ISSUE, 'X', issue('X', { stage: 'done', closedReason: 'completed' }))
     server.put(SESSION, 'SX', session('SX', { issueId: 'X', status: 'ended' }))
-    const d = device(await inMemoryInstantiation.open(), server)
+    const storage = await inMemoryInstantiation.open()
+    const d = device(storage, server)
     d.replica.connect()
     await settle(d)
+    // POD-7159: what X comes with is recorded on X (its comes-with complete via).
+    const sessionsHeld = () =>
+      storage
+        .viewFor('u-ada')
+        .cache.readDiskIndex()
+        .record(`${ISSUE}\u0000X`)
+        ?.cw.includes('issueProjection.sidebar') === true
     const sessionsOfX: InstanceSpec = {
       collection: 'session.ofIssue',
       args: { issueId: 'X' },
@@ -452,7 +460,7 @@ describe('comes with, on the client', () => {
     await d.replica.receive(server.frameSince(before))
     await settle(d)
     expect(d.replica.view(ISSUE, 'X')).toBeDefined()
-    expect(d.replica.isComplete(sessionsOfX)).toBeDefined()
+    expect(sessionsHeld()).toBe(true)
     expect(d.replica.view(SESSION, 'SX')).toBeDefined()
     expect(requestsNaming(server, sessionsOfX)).toBe(1)
 
@@ -462,7 +470,7 @@ describe('comes with, on the client', () => {
     await d.replica.receive(server.frameSince(again))
     await settle(d)
     await d.replica.trim()
-    expect(d.replica.isComplete(sessionsOfX)).toBeUndefined()
+    expect(sessionsHeld()).toBe(false)
     expect(d.replica.view(SESSION, 'SX')).toBeUndefined()
   })
 })

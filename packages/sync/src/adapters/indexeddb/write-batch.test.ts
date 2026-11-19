@@ -1,7 +1,7 @@
 import { asUserId } from '@podium/model'
 import { expect, it } from 'vitest'
 import { requestAsPromise } from './idb'
-import { ALL_STORES, ENTITY_STORE, META_STORE, OUTBOX_STORE, REPLICA_DB_NAME, upgradeSchema } from './schema'
+import { ALL_STORES, ENTITY_STORE, META_STORE, OUTBOX_STORE, REPLICA_DB_NAME, REPLICA_SCHEMA_VERSION, upgradeSchema } from './schema'
 import { FaultyIdbFactory, freshFactory, QuotaExceededDomError, readDurable } from './test-support'
 import { IndexedDbSyncStore } from './store'
 import { enqueueWrites } from './write-batch'
@@ -23,7 +23,7 @@ const ops = [
 
 async function fixture() {
   const factory = new FaultyIdbFactory(freshFactory())
-  const request = factory.open(REPLICA_DB_NAME, 1)
+  const request = factory.open(REPLICA_DB_NAME, REPLICA_SCHEMA_VERSION)
   request.onupgradeneeded = () => upgradeSchema(request.result)
   const db = await requestAsPromise(request)
   const tx = db.transaction([...ALL_STORES], 'readwrite')
@@ -71,7 +71,7 @@ it.each(['deny', 'after'] as const)('a failure in a later batch rolls back every
     expect(await done).toBe(false)
     expect(factory.writesIssued - before).toBeGreaterThan(256)
     expect(factory.denials).toBe(1)
-    expect(await readDurable(factory)).toEqual(pre)
+    expect(await readDurable(factory)).toEqual({ ...pre, 'disk-index': [] })
   } finally { db.close() }
 })
 

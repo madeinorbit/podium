@@ -153,7 +153,7 @@ describe('mobile SQLite adapter — store obligations', () => {
   })
 
   it('migrates a version-1 file in place: rows read whole, the outbox survives', async () => {
-    expect(REPLICA_SCHEMA_VERSION).toBe(2)
+    expect(REPLICA_SCHEMA_VERSION).toBe(3)
     const store = await open()
     const view = store.viewFor(ADA)
     await store.unitOfWork.transact(async (span) => {

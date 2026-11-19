@@ -326,7 +326,12 @@ function oldPlanTrim(input: Parameters<typeof planTrim>[0]) {
         input.now,
       )) {
         const k = instanceKey(spec)
-        if (input.instances.has(k)) keepInstance(k, work)
+        // POD-7159: what a kept record comes with is kept by its rule, marker or not.
+        if (spec.via !== undefined && !resolved.has(k)) {
+          const instance = resolveInstance(spec, args)
+          if (instance !== undefined) resolved.set(k, instance)
+        }
+        if (input.instances.has(k) || spec.via !== undefined) keepInstance(k, work)
       }
     }
   }

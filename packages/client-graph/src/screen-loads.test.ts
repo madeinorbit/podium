@@ -24,6 +24,7 @@ import {
   FETCH_MS,
   serverLoadingBudget,
 } from '../../sync/src/conformance/load-recorder'
+import { largeBudget } from '../../sync/src/conformance/test-budgets'
 import { ISSUE_SEARCH_DEBOUNCE_MS } from './issue-search'
 import {
   closedValue,
@@ -48,11 +49,15 @@ import {
 } from './test-support/screens.test.fixture'
 
 /**
- * POD-7159 turns these on: its unload test hook (`unloadForTest` on the
- * Replica, read by the device fixture's `unload()`) drops from memory what no
- * view reads and keeps it on disk. Replace `it.skip` with `it` there.
+ * POD-7159's unload test hook (`unloadForTest` on the Replica, read by the
+ * device fixture's `unload()`) drops from memory what no view reads and keeps
+ * it on disk. These cases run with a large budget: the legacy trim
+ * (`cacheCap`) still takes released instances off the device, and they test
+ * unloading and reopening, not that trim.
  */
-const PENDING_UNLOAD = it.skip
+const UNLOAD_BUDGET = largeBudget(
+  'these cases test unload and reopen, not the legacy trim; POD-7161 replaces the trim with memory-only unloading and moves them back to TEST_BUDGETS',
+)
 
 const disposers: (() => void)[] = []
 afterEach(() => {
@@ -193,10 +198,10 @@ const evidence = (opened: OpenedScreen, device: Device) =>
  * Chains the product still takes, reported to the POD-5910 coordinator
  * (POD-7163, 2026-11-19). `it.fails` keeps the check running: once the chain
  * is gone the test fails here, and the entry is removed.
- * - board: past its first page, the column reads each issue it ranks next by a
- *   lookup of its own (`issueProjection.one`), a second hop.
+ * - board: gone with POD-7159 (a lookup of a record whole on the device is
+ *   answered from it, so the column's next issues take no second hop).
  */
-const KNOWN_CHAINS: ReadonlySet<ScreenName> = new Set(['board'])
+const KNOWN_CHAINS: ReadonlySet<ScreenName> = new Set<ScreenName>()
 
 describe('opening a main screen chains no more loads than declared (ASYNC_WATERFALL)', () => {
   for (const screen of SCREENS) {
@@ -258,29 +263,34 @@ describe('a main screen shows LOADING no longer than its budget (LONG_HOLD)', ()
   })
 })
 
+/**
+ * Search is the one main screen that is not a reopen of instances on disk:
+ * its hit list is a server query's answer, and offline it says so
+ * (`IssueSearchResult.complete` is false: "offline results cover this device
+ * only", issue-search.ts). So it is not complete offline by design.
+ */
+const NOT_ON_DISK: ReadonlySet<ScreenName> = new Set(['search'])
+
 describe('open, leave, unload and reopen offline: complete with zero server requests', () => {
-  for (const screen of SCREENS) {
-    PENDING_UNLOAD(
-      `${screen.name}: reopened offline from the device, no request, LOADING under ${DISK_LOADING_BUDGET_MS} ms`,
-      async () => {
-        const d = await device(screen.options)
-        const first = await openScreen(d, screen.name, () => screen.readers(d))
-        expect(first.ready, evidence(first, d)).toBe(true)
-        first.close()
-        // Other reads crowd memory; then memory lets go of what no view reads.
-        for (let i = 1; i <= 30; i += 1) d.pool.row('issue', `C${i}`)
-        await d.settle()
-        await d.unload()
-        d.offline()
-        const again = await openScreen(d, `${screen.name} (offline)`, () => screen.readers(d))
-        try {
-          expect(again.ready, evidence(again, d)).toBe(true)
-          expect(again.requests, evidence(again, d)).toBe(0)
-          d.recorder.expectLoadingWithin(`${screen.name} (offline)`, DISK_LOADING_BUDGET_MS)
-        } finally {
-          again.close()
-        }
-      },
-    )
+  for (const screen of SCREENS.filter((entry) => !NOT_ON_DISK.has(entry.name))) {
+    it(`${screen.name}: reopened offline from the device, no request, LOADING under ${DISK_LOADING_BUDGET_MS} ms`, async () => {
+      const d = await device({ ...screen.options, budgets: UNLOAD_BUDGET })
+      const first = await openScreen(d, screen.name, () => screen.readers(d))
+      expect(first.ready, evidence(first, d)).toBe(true)
+      first.close()
+      // Other reads crowd memory; then memory lets go of what no view reads.
+      for (let i = 1; i <= 30; i += 1) d.pool.row('issue', `C${i}`)
+      await d.settle()
+      await d.unload()
+      d.offline()
+      const again = await openScreen(d, `${screen.name} (offline)`, () => screen.readers(d))
+      try {
+        expect(again.ready, evidence(again, d)).toBe(true)
+        expect(again.requests, evidence(again, d)).toBe(0)
+        d.recorder.expectLoadingWithin(`${screen.name} (offline)`, DISK_LOADING_BUDGET_MS)
+      } finally {
+        again.close()
+      }
+    })
   }
 })

@@ -542,7 +542,13 @@ export function planTrim(input: {
       const memberOf = membershipsOf(rowKeyOf(row), trial)
       for (const spec of comesWithOf(row.entity, row.value, memberOf, input.now)) {
         const key = instanceKey(spec)
-        if (known(key)) keepInstance(key, work, into, trial)
+        // POD-7159: what a record comes with has no marker of its own; a kept
+        // record keeps it by its rule.
+        if (spec.via !== undefined && !resolved.has(key)) {
+          const instance = resolveInstance(spec, args)
+          if (instance !== undefined) resolved.set(key, instance)
+        }
+        if (known(key) || spec.via !== undefined) keepInstance(key, work, into, trial)
       }
     }
   }
