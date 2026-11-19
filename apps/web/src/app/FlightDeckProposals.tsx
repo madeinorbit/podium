@@ -1,11 +1,12 @@
-import { useRequestClient, useCommands } from '@podium/client-core/react'
-import { issueWrites } from '@podium/commands/issues-synced'
+import { randomUUID } from '@podium/client-core/id'
+import { useCommands, useRequestClient } from '@podium/client-core/react'
+import type { StartIssueSession } from '@podium/client-core/spawn-agent'
 import { discoveredPlacement } from '@podium/client-core/values'
 import type { FullDeck, FullDeckTask } from '@podium/client-graph/mission-full-deck'
 import { requireLoaded, settled } from '@podium/client-graph/mission-view'
 import { observer } from '@podium/client-graph/react'
+import { issueWrites } from '@podium/commands/issues-synced'
 import { companion, lazy } from '@podium/mobx-helpers'
-import type { StartIssueSession } from '@podium/client-core/spawn-agent'
 import { asIssueId, asMutationId, type IssueId, type MutationId } from '@podium/model'
 import { Check, X } from 'lucide-react'
 import { action, compareShallow, observable, runInAction } from 'mobx'
@@ -70,8 +71,7 @@ class ProposalSubmissions {
     const previous = this.byId.get(id)
     // Synchronous guard: even two clicks in the same React turn issue one command.
     if (previous?.phase === 'pending' || previous?.phase === 'success') return
-    const mutationId =
-      previous?.action === verb ? previous.mutationId : asMutationId(crypto.randomUUID())
+    const mutationId = previous?.action === verb ? previous.mutationId : asMutationId(randomUUID())
     this.byId.set(id, { action: verb, mutationId, phase: 'pending' })
     try {
       const input = { id: asIssueId(id), mutationId }

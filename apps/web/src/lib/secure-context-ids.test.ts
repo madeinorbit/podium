@@ -19,7 +19,13 @@ const SAFE_HELPER = 'packages/client-core/src/id.ts'
  * agent drivers spawn and attach to CLI processes (node:child_process and friends), so a
  * browser bundle cannot contain them; Bun and Node always have crypto.randomUUID.
  */
-const NODE_ONLY = ['packages/harness/src/driver/']
+const NODE_ONLY = [
+  'packages/harness/src/driver/',
+  // Database adapters run on the server; identity/runtime owns Better Auth's
+  // server instance and imports node:async_hooks. Browser entrypoints do not export them.
+  'packages/sync/src/adapters/',
+  'packages/identity/src/runtime.ts',
+]
 
 function workspacePackages(): Map<string, string> {
   const byName = new Map<string, string>()
@@ -56,7 +62,11 @@ function sources(dir: string): string[] {
       if (entry === 'node_modules' || entry.startsWith('.')) continue
       const full = join(path, entry)
       if (statSync(full).isDirectory()) walk(full)
-      else if (/\.(ts|tsx)$/.test(entry) && !/\.(test|spec|bench)\.tsx?$/.test(entry) && !full.includes('test-support'))
+      else if (
+        /\.(ts|tsx)$/.test(entry) &&
+        !/\.(test|spec|bench)\.tsx?$/.test(entry) &&
+        !full.includes('test-support')
+      )
         out.push(full)
     }
   }
@@ -82,7 +92,10 @@ describe('browser code mints ids without crypto.randomUUID', () => {
       .filter((file) => {
         const text = readFileSync(join(ROOT, file), 'utf8')
         // A guarded use (`typeof crypto.randomUUID === 'function'`) is a feature check, not a call.
-        return /crypto\.randomUUID\(\)/.test(text) && !/typeof\s+crypto\.randomUUID\s*===\s*'function'/.test(text)
+        return (
+          /crypto\.randomUUID\(\)/.test(text) &&
+          !/typeof\s+crypto\.randomUUID\s*===\s*'function'/.test(text)
+        )
       })
     expect(offenders).toEqual([])
   })

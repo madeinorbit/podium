@@ -15,6 +15,7 @@ import type {
   DeltaFrame,
   InstanceRequest,
 } from '@podium/sync/replica'
+import { randomUUID } from '../id'
 import { toBootstrapChunk, toDeltaFrame, toMarkerChunk, toStubChunk } from '../replica/feed/frames'
 import {
   SyncAuthExpiredError,
@@ -210,7 +211,7 @@ export class HttpBootstrapSource {
   /** One id per replica, kept across its retries. The server cancels an older
    *  bootstrap only for the SAME id, so one client's restarted walk replaces its
    *  own transfer while other tabs and devices of the user never cancel each other. */
-  private readonly clientId = globalThis.crypto.randomUUID()
+  private readonly clientId = randomUUID()
   constructor(private readonly deps: HttpSyncSourceDeps) {}
   /**
    * The first download (POD-7085): the policy's collections in its order,
