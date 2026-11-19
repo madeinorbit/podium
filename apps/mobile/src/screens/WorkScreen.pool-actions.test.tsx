@@ -431,28 +431,27 @@ afterAll(() => {
 })
 
 describe('mobile pool work-list actions', () => {
-  it('opens the mission before the deferred mark-read, then restores unread on refusal', async () => {
+  it('keeps opened content seen when its durable read receipt is refused', async () => {
     await mount((f) => f.patchIssue(TARGET, { readAt: null }))
     expect(value().emphasizeUnread).toBe(true)
-    const navigation = vi.fn(() =>
-      expect(
-        requests.filter(
-          (request) => request.procedure === 'issues.markRead' && request.input.id === TARGET,
-        ),
-      ).toEqual([]),
-    )
-    router.push.mockImplementationOnce(navigation)
     fireEvent.click(button())
     await waitFor(() => expect(router.push).toHaveBeenCalledWith(`/mission/${TARGET}`))
-    expect(navigation).toHaveBeenCalledOnce()
+    expect(runtime.ui.selectedIssueId).toBe(TARGET)
+    expect(pool().issueObject(TARGET).readObservation.viewing).toBe(true)
     const write = await request('issues.markRead')
     expect(write.input).toMatchObject({ id: TARGET, mutationId: expect.any(String) })
     expect(Date.parse(value().issue.readAt ?? '')).toBeGreaterThanOrEqual(
       Date.parse(value().issue.updatedAt),
     )
     expect(value().emphasizeUnread).toBe(false)
-    await settled()
     await settle(write)
+    // The authority cursor rolls back, but this device still knows the user
+    // opened the content. A refused receipt must not restore its unread dot.
+    expect(value().issue.readAt).toBeNull()
+    expect(pool().issueObject(TARGET).readObservation.viewing).toBe(true)
+    expect(value().emphasizeUnread).toBe(false)
+    // A deliberate Mark unread is different: it overrides the local visit.
+    await runtime.commands.issues.markUnread(TARGET)
     expect(value().emphasizeUnread).toBe(true)
   })
 
