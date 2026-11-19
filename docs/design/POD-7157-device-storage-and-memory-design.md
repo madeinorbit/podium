@@ -99,9 +99,17 @@ operator size, separate markers made instances outnumber records 2.4 to 4 times 
 instances for 15,600 records), and grew the start heap with history. With the bit, the number of
 markers is bounded by views and policy collections, not by records.
 
-**The index on disk is bucketed.** It is stored as about 256 bucket rows (arrays), not one row per
-record and instance, so reading it at start is a few large reads. The instance state is folded
-into the marker rows that are already read.
+**The index on disk is bucketed and journaled.** It is stored as bucket rows of about 64 records
+each (arrays), not one row per record and instance. The number of buckets doubles as the disk
+grows, and the store is re-bucketed once when that happens, so a commit rewrites only the small
+buckets it touches (POD-7160). On top of the buckets, each commit appends ONE journal row holding
+only the entries it changed. At start the buckets and the journal rows are read with one `getAll`
+each and the journal is applied over the buckets; past 64 journal rows, or on an idle tick, the
+journal is folded into its buckets in one crash-safe transaction. Each changed key is hashed to its
+bucket once per commit. Each entry also carries its pointer edges (an issue's parent, a session's
+issue, a pending interaction's session), with the reverse kept in memory, so pruning and an
+offline reopen see them without disk reads (POD-7186). A record held only as a stub has no entity
+row on disk: the index carries its stub (POD-7170).
 
 Budgets, checked by POD-7159 and again by POD-7164: index read under 150 ms at operator size on
 vega2 web, and the start heap does not grow with what is on disk. It replaces today's in-memory
