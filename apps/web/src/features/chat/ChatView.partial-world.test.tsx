@@ -342,8 +342,13 @@ describe('no chat payload carries attribution', () => {
     // stale card cannot answer a newer question), not actor attribution — the
     // authority still stamps who answered (doc §3.1.3 A3). It is optional on the
     // wire and undefined for a transcript-only question with no pending row.
-    const keys = Object.keys(payload).sort()
-    expect(['choices,sessionId', 'choices,interactionId,sessionId']).toContain(keys.join(','))
+    expect(answerAsk.mock.calls[0]?.[0]).toBe(asSessionId('s1'))
+    expect(payload).toMatchObject({ via: 'menu', choices: [{ optionIndices: [0] }] })
+    expect(
+      Object.keys(payload).filter((key) => !['via', 'choices', 'interactionId'].includes(key)),
+    ).toEqual([])
+    for (const field of ['actor', 'actorKind', 'actorId', 'onBehalfOf', 'userId'])
+      expect(Object.hasOwn(payload, field)).toBe(false)
     expect(
       (payload as { interactionId?: unknown }).interactionId === undefined ||
         typeof (payload as { interactionId?: unknown }).interactionId === 'string',

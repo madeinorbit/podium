@@ -166,7 +166,8 @@ describe('the expand-only gate probes', () => {
 })
 
 describe('an approved contract step', () => {
-  const [path] = [...APPROVED_CONTRACT_STEPS.keys()]
+  const path =
+    'apps/server/src/migrations/drizzle/20260929145432_drop-legacy-message-status/migration.sql'
   const rebuild = (table: string) => `--> statement-breakpoint
 CREATE TABLE \`__new_${table}\` (id text PRIMARY KEY);
 --> statement-breakpoint

@@ -26,6 +26,7 @@ import { worklistView } from '@podium/client-graph/worklist/view-model'
 import { parseIssueUserStateRowId, pinRowId, spreadSortKeys } from '@podium/model'
 import { asArtifactId, asIssueId, asSessionId, asUserId } from '@podium/model/browser'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { autorun, observable } from 'mobx'
 import { useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { OperatorFocusProvider, useOperatorFocus } from '@/app/operator-focus'
@@ -429,25 +430,28 @@ describe('pool navigation uses the existing gesture semantics', () => {
       patchIssue(fixture, 'synthetic-3', { deferUntil: new Date(NOW - 1000).toISOString() }),
     )
     const calls: string[] = []
+    const changed = observable.box(0)
+    const stop = autorun(() => {
+      if (changed.get() > 0) calls.push('published')
+    })
     const store = {
       ...referenceState(runtime),
-      batchGesture: vi.fn((fn: () => void) => {
-        calls.push('batch')
-        fn()
-        calls.push('end')
-      }),
       navigateWorkspace: vi.fn(() => {
         calls.push('navigate')
+        changed.set(changed.get() + 1)
         return false
       }),
       markIssueRead: vi.fn(async () => {
         calls.push('issue-read')
+        changed.set(changed.get() + 1)
       }),
       deferIssue: vi.fn(async () => {
         calls.push('defer')
+        changed.set(changed.get() + 1)
       }),
       markSessionRead: vi.fn(async () => {
         calls.push('session-read')
+        changed.set(changed.get() + 1)
       }),
     }
     vi.mocked(beginSwitch).mockImplementation(() => {
@@ -463,14 +467,14 @@ describe('pool navigation uses the existing gesture semantics', () => {
       focus,
     )
     work.selectPanelForIssue('synthetic-3', asSessionId('synthetic-session-3'))
+    stop()
     expect(calls).toEqual([
       'trace',
-      'batch',
       'navigate',
       'issue-read',
       'defer',
       'session-read',
-      'end',
+      'published',
       'focus',
     ])
     expect(store.navigateWorkspace).toHaveBeenCalledExactlyOnceWith({
@@ -674,6 +678,9 @@ describe('pool navigation uses the existing gesture semantics', () => {
       fixtureRoot({ outbox: runtime.services.outbox.queue, ui, access: store }),
       focus,
     )
+    // Seed the current layout owner explicitly; paneA is a derived mirror.
+    ui.patch({ workspaces: store.workspaces, fileTabs: store.fileTabs })
+    expect(ui.workspaces[key]).toBe(store.workspaces[key])
     work.selectIssue('synthetic-3')
     expect(store.navigateWorkspace).toHaveBeenCalledWith(expect.objectContaining({ tabId: null }))
     expect(focus).toHaveBeenCalledWith('synthetic-3')

@@ -218,7 +218,7 @@ describe.each(Object.keys(CASES))('issues.%s on sync.submit', (name) => {
       appliedReply(missing)
       expect(await settled(o, missingId)).toMatchObject({
         status: 'failed',
-        error: { code: 'not-found', message: 'unknown issue missing-task' },
+        error: { code: 'NOT_FOUND', message: 'unknown issue missing-task' },
       })
       expect(run).toHaveBeenCalledTimes(4)
     } else {

@@ -71,12 +71,14 @@ describe('request answer lifetime', () => {
     view.open()
     await vi.waitFor(() => expect(roots).toBe(1))
     view.refresh()
+    // Refresh is serialized behind the in-flight read, with one trailing
+    // request. Its invalidated answer must never paint in the new generation.
+    expect(view.children).toEqual({})
+    old.resolve({ ok: true, path: '/repo', entries: [{ name: 'old', isDir: false }] })
     await vi.waitFor(() => expect(roots).toBe(2))
+    expect(view.children).toEqual({})
     current.resolve({ ok: true, path: '/repo', entries: [{ name: 'new', isDir: true }] })
     await vi.waitFor(() => expect(view.children['/repo']).toEqual([{ name: 'new', isDir: true }]))
-    old.resolve({ ok: true, path: '/repo', entries: [{ name: 'old', isDir: false }] })
-    await old.promise
-    await Promise.resolve()
     expect(view.children['/repo']).toEqual([{ name: 'new', isDir: true }])
     expect(listDir.mock.calls.every(([input]) => input.path === '/repo')).toBe(true)
     view.toggleDir('/repo/new')
