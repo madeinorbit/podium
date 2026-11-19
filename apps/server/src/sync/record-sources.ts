@@ -1,3 +1,4 @@
+// workspace-scoped (POD-6959)
 /**
  * WHERE EACH SYNCED RECORD COMES FROM (POD-6253 design §3, POD-6920).
  *
@@ -24,52 +25,45 @@
  * builder may read only the tables declared here, and changing or deleting
  * any row of those tables may change only records the capture of that change
  * names. A missing declaration fails there, not in production.
+ *
+ * ONE WORKSPACE'S ROWS (POD-7021, POD-6959 design 2.7, contract C9). Every
+ * source on a workspace table captures its rows with `workspace_id` as the
+ * first key column, so each captured row says whose it is: the helpers below
+ * put it there ({@link own}, {@link via}), and hand each source's mapping the
+ * key without it, so the mappings read the same columns at the same places as
+ * before. The drain (`record-source.ts`) refuses a captured row of a workspace
+ * other than its transaction's ({@link capturedWorkspace}). A row filter or a
+ * derived value that reads another workspace table joins it on the row's
+ * workspace. The one install table a kind reads (`meta`, the fleet's update
+ * context) captures no workspace: its change reaches the records of the
+ * workspace whose transaction wrote it.
  */
 
 import {
   asMachineId,
   canonicalShippingDestination,
-  checkoutRowId,
   FEED_EVENT_KINDS,
-  INSTANCE_PREFERENCES_ROW_ID,
   ISSUE_PANEL_KINDS,
   type IssueId,
   interactionRowId,
   isFeedEventKind,
-  issueDepId,
   issueEventRowId,
-  issueUserStateRowId,
-  layoutRowId,
-  type MachineId,
   machineAccessRowId,
   messageRecordRowId,
-  noticeRowId,
-  pinRowId,
-  readPositionRowId,
   type SessionId,
   sessionUserStateRowId,
   shipLaneId,
-  subscriptionRowId,
-  superagentThreadRowId,
-  tabOrderRowId,
   type UserId,
   userPreferencesRowId,
-  workflowBindingRowId,
 } from '@podium/model'
 import type { MetadataEntityKind } from '@podium/protocol'
 import type { CapturedRow } from '@podium/sync'
 import { type Column, getTableColumns, getTableName, type Table } from 'drizzle-orm'
 import {
-  agentProfiles,
-  automationRuns,
-  automations,
-  checkouts,
   conversationSegments,
   conversations,
   deliveryReceipts,
-  effects,
   grants,
-  issueDeps,
   issueGitStates,
   issueLabels,
   issuePanelArtifacts,
@@ -77,15 +71,12 @@ import {
   issuePanelStates,
   issuePanelTodos,
   issues,
-  issueUserState,
   labels,
   machines,
   messages,
   meta,
-  notices,
   offers,
   pendingInteractions,
-  pins,
   podiumEvents,
   queuedMessages,
   repoPrefixes,
@@ -99,24 +90,20 @@ import {
   shipOrderStackEdges,
   shipOrders,
   snoozes,
-  subscriptions,
-  superagentThreads,
-  tabOrder,
-  userLayout,
   userPreferences,
-  userReadPosition,
   users,
-  workflowBindings,
   workflowRevisions,
   workflowRunSteps,
   workflowRuns,
   workflows,
 } from '../migrations/schema'
-import { SYSTEM_EFFECT_KINDS_OFF_FEED } from '../modules/effects/published-input'
+
 import { FEED_WINDOW } from '../modules/issue-events/feed'
 import { CONFIRMED_PER_SESSION } from '../modules/message-feed/feed'
-import { RUNTIME_EVENT_LOG_KIND } from '../store/events'
+import { RUNTIME_EVENT_LOG_KIND } from '../store/runtime-event-kind'
 import type { RecordReads } from './record-builders'
+import { ROW_RECORDS } from './row-records'
+import { source, WORKSPACE_COLUMN } from './workspace-capture'
 
 // ---------------------------------------------------------------------------
 // The declaration
@@ -133,7 +120,10 @@ export interface SourceChange {
 /** One model table a kind reads. */
 export interface RecordSource {
   readonly table: Table
-  /** The columns the capture keeps, old and new. A change of one always fires. */
+  /**
+   * The columns the capture keeps, old and new. A change of one always fires.
+   * On a workspace table the first is its `workspace_id` (see the helpers).
+   */
   readonly keys: readonly Column[]
   /**
    * What the kind reads of a row: an update that changes none of these is not
@@ -156,7 +146,15 @@ export interface RecordSource {
    * issue's deletion) watches updates alone.
    */
   readonly ops?: readonly ('i' | 'u' | 'd')[]
-  /** The record ids these changes can have changed. */
+  /**
+   * The Postgres forms of {@link rows} and {@link derived} (POD-6982, POD-6958 design
+   * 2.5), where the SQLite SQL is not Postgres SQL: JSON read with `->>`, `#>>` and
+   * `json_array_elements` over the `json` columns, booleans as booleans. Absent, the
+   * SQLite text is portable and serves both engines. `capture-pg.ts` uses them in the
+   * capture forms, `capture-oracle.ts` in its test triggers.
+   */
+  readonly pg?: PgForms
+  /** The record ids these changes can have changed, from keys in {@link keys}' order. */
   ids(
     changes: readonly SourceChange[],
     reads: RecordReads,
@@ -164,6 +162,12 @@ export interface RecordSource {
 }
 
 export type RecordSources = Readonly<Record<MetadataEntityKind, readonly RecordSource[]>>
+
+/** A source's row filter and derived values in Postgres SQL, over `{row}` as on SQLite. */
+export interface PgForms {
+  readonly rows?: string
+  readonly derived?: readonly string[]
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -192,27 +196,27 @@ function own(
   table: Table,
   keys: readonly Column[],
   idOf: (key: readonly unknown[]) => string | null,
-  more: Partial<Pick<RecordSource, 'reads' | 'rows' | 'derived'>> = {},
+  more: Partial<Pick<RecordSource, 'reads' | 'rows' | 'derived' | 'pg'>> = {},
 ): RecordSource {
-  return {
+  return source(
     table,
     keys,
-    ...more,
-    ids: (changes) =>
+    (changes) =>
       unique(
         keysOf(changes).flatMap((key) => {
           const id = idOf(key)
           return id === null ? [] : [id]
         }),
       ),
-  }
+    more,
+  )
 }
 
 /** A table keyed by the record's own id in its first key column. */
 const byId = (
   table: Table,
   key: Column,
-  more: Partial<Pick<RecordSource, 'reads' | 'rows' | 'derived'>> = {},
+  more: Partial<Pick<RecordSource, 'reads' | 'rows' | 'derived' | 'pg'>> = {},
 ): RecordSource => own(table, [key], (k) => (k[0] == null ? null : str(k[0])), more)
 
 /** A parent table whose change reaches records found by a batched read. */
@@ -221,9 +225,9 @@ function via(
   keys: readonly Column[],
   reads: RecordSource['reads'],
   ids: RecordSource['ids'],
-  more: Partial<Pick<RecordSource, 'rows' | 'derived' | 'ops'>> = {},
+  more: Partial<Pick<RecordSource, 'rows' | 'derived' | 'ops' | 'pg'>> = {},
 ): RecordSource {
-  return { table, keys, reads, ids, ...more }
+  return source(table, keys, ids, { reads, ...more })
 }
 
 /** The person a chat message was sent for, from its attribution columns. */
@@ -408,6 +412,8 @@ async function messageIds(changes: readonly SourceChange[], reads: RecordReads):
 
 /** A session is a live conversation: not exited, archived or deleted. */
 const LIVE_CONVERSATION = `(coalesce({row}.${sessions.status.name}, '') <> 'exited' AND coalesce({row}.${sessions.archived.name}, 0) = 0 AND {row}.${sessions.deletedAt.name} IS NULL)`
+/** {@link LIVE_CONVERSATION} on Postgres, where `archived` is a boolean. */
+const LIVE_CONVERSATION_PG = `(coalesce({row}.${sessions.status.name}, '') <> 'exited' AND NOT coalesce({row}.${sessions.archived.name}, false) AND {row}.${sessions.deletedAt.name} IS NULL)`
 
 /** Every confirmed chat record of these sessions' tails, live or not. */
 async function confirmedTailIds(
@@ -564,6 +570,15 @@ const MACHINE_ROW_READS = {
     `CASE WHEN json_valid({row}.${machines.serviceReportJson.name}) THEN json_remove({row}.${machines.serviceReportJson.name}, '$.server.observedAt', '$.agentExecution.observedAt') ELSE {row}.${machines.serviceReportJson.name} END`,
     `CASE WHEN json_valid({row}.${machines.harnessVersionsJson.name}) THEN (SELECT json_group_array(json_remove(report.value, '$.lastSeen')) FROM json_each({row}.${machines.harnessVersionsJson.name}) AS report) ELSE {row}.${machines.harnessVersionsJson.name} END`,
   ],
+  // On Postgres the documents are `json`, always valid; the observation times come
+  // off through `jsonb`, so these compare semantically (a rewrite that only reorders
+  // keys is captured on SQLite and not here: design 2.3 rule 11). Each value is text.
+  pg: {
+    derived: [
+      `CASE WHEN json_typeof({row}.${machines.serviceReportJson.name}) = 'object' THEN ({row}.${machines.serviceReportJson.name}::jsonb #- '{server,observedAt}' #- '{agentExecution,observedAt}')::text ELSE {row}.${machines.serviceReportJson.name}::text END`,
+      `CASE json_typeof({row}.${machines.harnessVersionsJson.name}) WHEN 'object' THEN (SELECT coalesce(jsonb_agg(CASE WHEN jsonb_typeof(report.value) = 'object' THEN report.value - 'lastSeen' ELSE report.value END ORDER BY report.key COLLATE "C"), '[]'::jsonb)::text FROM jsonb_each({row}.${machines.harnessVersionsJson.name}::jsonb) AS report) WHEN 'array' THEN (SELECT coalesce(jsonb_agg(CASE WHEN jsonb_typeof(report.value) = 'object' THEN report.value - 'lastSeen' ELSE report.value END ORDER BY report.n), '[]'::jsonb)::text FROM jsonb_array_elements({row}.${machines.harnessVersionsJson.name}::jsonb) WITH ORDINALITY AS report(value, n)) ELSE {row}.${machines.harnessVersionsJson.name}::text END`,
+    ],
+  },
 } as const satisfies Partial<RecordSource>
 
 /**
@@ -573,19 +588,17 @@ const MACHINE_ROW_READS = {
  * logged out, so its first report of nothing logged out reaches no record.
  */
 const MACHINE_LOGGED_OUT = `CASE WHEN json_valid({row}.${machines.inventoryJson.name}) THEN (SELECT json_group_array(json_extract(agent.value, '$.kind')) FROM json_each({row}.${machines.inventoryJson.name}, '$.agents') AS agent WHERE json_extract(agent.value, '$.installed') = 1 AND json_extract(agent.value, '$.login.state') = 'out') ELSE '[]' END`
+/**
+ * {@link MACHINE_LOGGED_OUT} on Postgres. `installed` is SQLite's `= 1`: JSON `true` or
+ * the number 1. An inventory whose agents are not a list shows none, as one with none.
+ */
+const MACHINE_LOGGED_OUT_PG = `CASE WHEN json_typeof({row}.${machines.inventoryJson.name} -> 'agents') = 'array' THEN (SELECT coalesce(json_agg(agent.value ->> 'kind' ORDER BY agent.n)::text, '[]') FROM json_array_elements({row}.${machines.inventoryJson.name} -> 'agents') WITH ORDINALITY AS agent(value, n) WHERE CAST(agent.value -> 'installed' AS TEXT) IN ('true', '1') AND (agent.value #>> '{login,state}') COLLATE "C" = 'out') ELSE '[]' END`
 
 /**
  * A tombstoned row is on no record: its tombstoning (and a restore) is
  * captured, and what happens to it afterwards, a purge included, is not.
  */
 const notTombstoned = (deletedAt: Column): string => `{row}.${deletedAt.name} IS NULL`
-
-/**
- * An effect the server started for no one stays off the feed (`effectOnFeed`,
- * POD-6941): the connect scan's records reach no device, so their four moves
- * a scan are not captured. `created_by` and `kind` never change on a row.
- */
-const EFFECT_ON_FEED = `({row}.${effects.createdBy.name} IS NOT NULL OR {row}.${effects.kind.name} NOT IN (${SYSTEM_EFFECT_KINDS_OFF_FEED.map((kind) => `'${kind}'`).join(', ')}))`
 
 /**
  * WHAT A SESSION RECORD READS OF ITS OBSERVATION CHECKPOINT
@@ -604,15 +617,25 @@ const CHECKPOINT_ON_RECORD: readonly string[] = [
   `CASE WHEN json_valid(${CHECKPOINT_JSON}) THEN json_extract(${CHECKPOINT_JSON}, '$.turnState') END`,
   `CASE WHEN json_valid(${CHECKPOINT_JSON}) THEN json_extract(${CHECKPOINT_JSON}, '$.providerSessionId') IS NOT NULL END`,
 ]
+/**
+ * {@link CHECKPOINT_ON_RECORD} on Postgres, where `checkpoint_json` is `json`,
+ * always valid. The turn state comes off through `jsonb`, so it compares
+ * semantically (as the machine documents do); a JSON `null` thread id reads as
+ * none, as `json_extract` reads it on SQLite.
+ */
+const CHECKPOINT_ON_RECORD_PG: readonly string[] = [
+  `CASE WHEN json_typeof(${CHECKPOINT_JSON}) = 'object' THEN (${CHECKPOINT_JSON}::jsonb -> 'turnState')::text END`,
+  `CASE WHEN json_typeof(${CHECKPOINT_JSON}) = 'object' THEN coalesce(json_typeof(${CHECKPOINT_JSON} -> 'providerSessionId'), 'null') <> 'null' END`,
+]
 
 /**
  * A row of a session's satellite table can change only the record of a
  * session that is on the feed: one whose row exists and is not tombstoned.
  * (A satellite of a missing session would otherwise append a remove for a
- * record that never was.)
+ * record that never was.) The session is the row's own workspace's.
  */
 const ofLiveSession = (sessionId: Column): string =>
-  `EXISTS (SELECT 1 FROM ${getTableName(sessions)} WHERE ${sessions.id.name} = {row}.${sessionId.name} AND ${sessions.deletedAt.name} IS NULL)`
+  `EXISTS (SELECT 1 FROM ${getTableName(sessions)} WHERE ${sessions.workspaceId.name} = {row}.${WORKSPACE_COLUMN} AND ${sessions.id.name} = {row}.${sessionId.name} AND ${sessions.deletedAt.name} IS NULL)`
 
 /**
  * What a machine record reads of those rows: the channel's whole value, and
@@ -628,9 +651,23 @@ const MACHINE_CONTEXT_VALUE = `CASE WHEN {row}.${meta.key.name} = 'updates.execu
  */
 const MACHINE_CONTEXT_ROWS = `{row}.${meta.key.name} = 'machines.fleet-channel.v1' OR ({row}.${meta.key.name} = 'updates.execution.v1' AND (${MACHINE_CONTEXT_VALUE}) IS NOT NULL)`
 
+/**
+ * {@link MACHINE_CONTEXT_VALUE} on Postgres, where `meta.value` is text: `IS JSON`
+ * stands for `json_valid`, and only a list of targets is read (SQLite would also walk
+ * an object's values; the updates module writes a list).
+ */
+const MACHINE_CONTEXT_VALUE_PG = `CASE WHEN {row}.${meta.key.name} = 'updates.execution.v1' AND {row}.${meta.value.name} IS JSON THEN (SELECT string_agg(((target.value ->> 0) || '=' || coalesce(target.value #>> '{1,version}', '')) COLLATE "C", ',' ORDER BY target.n) FROM json_array_elements(CASE WHEN json_typeof({row}.${meta.value.name}::json -> 'targets') = 'array' THEN {row}.${meta.value.name}::json -> 'targets' END) WITH ORDINALITY AS target(value, n)) ELSE {row}.${meta.value.name} END`
+
+/** {@link MACHINE_CONTEXT_ROWS} on Postgres. */
+const MACHINE_CONTEXT_ROWS_PG = `{row}.${meta.key.name} = 'machines.fleet-channel.v1' OR ({row}.${meta.key.name} = 'updates.execution.v1' AND (${MACHINE_CONTEXT_VALUE_PG}) IS NOT NULL)`
+
 /** The machine context rows, captured by key and by {@link MACHINE_CONTEXT_VALUE}. */
 const machineContext = (ids: RecordSource['ids']): RecordSource =>
-  via(meta, [meta.key], [], ids, { rows: MACHINE_CONTEXT_ROWS, derived: [MACHINE_CONTEXT_VALUE] })
+  via(meta, [meta.key], [], ids, {
+    rows: MACHINE_CONTEXT_ROWS,
+    derived: [MACHINE_CONTEXT_VALUE],
+    pg: { rows: MACHINE_CONTEXT_ROWS_PG, derived: [MACHINE_CONTEXT_VALUE_PG] },
+  })
 
 /** The feed event kinds, as an SQL list. */
 const FEED_KINDS_SQL = FEED_EVENT_KINDS.map((kind) => `'${kind.replaceAll("'", "''")}'`).join(', ')
@@ -703,6 +740,7 @@ export const RECORD_SOURCES: RecordSources = {
         machines.installKind,
       ],
       derived: [MACHINE_LOGGED_OUT],
+      pg: { derived: [MACHINE_LOGGED_OUT_PG] },
     }),
     // The custodian is read from the machine's custody edge
     // (`custodianFromEdges`); its shares are the access rows'.
@@ -714,6 +752,9 @@ export const RECORD_SOURCES: RecordSources = {
         unique(keysOf(changes).flatMap((key) => (key[0] === 'machine' ? [str(key[1])] : []))),
       {
         rows: `{row}.${grants.resourceKind.name} = 'machine' AND {row}.${grants.verb.name} = 'manage' AND {row}.${grants.custody.name} = 1`,
+        pg: {
+          rows: `{row}.${grants.resourceKind.name} = 'machine' AND {row}.${grants.verb.name} = 'manage' AND {row}.${grants.custody.name}`,
+        },
       },
     ),
     // The fleet's update channel and published targets reach every machine.
@@ -738,7 +779,7 @@ export const RECORD_SOURCES: RecordSources = {
         ],
       },
       (changes, reads) => accessIds(firstKeys(changes), 'all', reads),
-      { derived: MACHINE_ROW_READS.derived },
+      { derived: MACHINE_ROW_READS.derived, pg: MACHINE_ROW_READS.pg },
     ),
     // A machine grant edge changes its grantee's row, and the rows that list
     // the machine's grants (its custodian's and the admins'); a custody edge
@@ -782,36 +823,12 @@ export const RECORD_SOURCES: RecordSources = {
   // An empty brief or description is no record (`issueBriefOf`,
   // `issueDescriptionOf`): a row whose body is empty before and after the
   // write (every new issue without one) reaches none.
-  issueBrief: [
-    byId(issues, issues.id, {
-      reads: [issues.brief],
-      rows: `coalesce({row}.${issues.brief.name}, '') <> ''`,
-    }),
-  ],
-  issueDescription: [
-    byId(issues, issues.id, {
-      reads: [issues.description],
-      rows: `coalesce({row}.${issues.description.name}, '') <> ''`,
-    }),
-  ],
+  issueBrief: ROW_RECORDS.issueBrief.sources,
+  issueDescription: ROW_RECORDS.issueDescription.sources,
   ...panelSources,
-  issueDep: [
-    own(issueDeps, [issueDeps.fromId, issueDeps.toId, issueDeps.type], (key) =>
-      issueDepId(str(key[0]), str(key[1]), str(key[2])),
-    ),
-  ],
-  issueUserState: [
-    own(issueUserState, [issueUserState.userId, issueUserState.issueId], (key) =>
-      issueUserStateRowId(key[0] as UserId, key[1] as IssueId),
-    ),
-  ],
-  subscription: [
-    own(
-      subscriptions,
-      [subscriptions.subscriberKind, subscriptions.subscriberId, subscriptions.id],
-      (key) => subscriptionRowId(key[0] as never, str(key[1]), str(key[2])),
-    ),
-  ],
+  issueDep: ROW_RECORDS.issueDep.sources,
+  issueUserState: ROW_RECORDS.issueUserState.sources,
+  subscription: ROW_RECORDS.subscription.sources,
   shipOrder: [
     byId(shipOrders, shipOrders.id),
     own(shipHolds, [shipHolds.orderId], (key) => str(key[0])),
@@ -831,39 +848,12 @@ export const RECORD_SOURCES: RecordSources = {
   ],
   // A run before its automation: a fire's commit finalizes the run, then
   // re-arms the automation, and one commit's rows come out in this order.
-  automationRun: [
-    byId(automationRuns, automationRuns.id, { rows: notTombstoned(automationRuns.deletedAt) }),
-  ],
-  automation: [byId(automations, automations.id, { rows: notTombstoned(automations.deletedAt) })],
-  userLayout: [
-    own(
-      userLayout,
-      [userLayout.userId, userLayout.key],
-      (key) => layoutRowId(key[0] as UserId, str(key[1])),
-      { reads: { allBut: [userLayout.updatedAt] } },
-    ),
-  ],
-  userReadPosition: [
-    own(
-      userReadPosition,
-      [userReadPosition.userId, userReadPosition.streamId],
-      (key) => readPositionRowId(key[0] as UserId, str(key[1])),
-      { reads: { allBut: [userReadPosition.updatedAt] } },
-    ),
-  ],
-  pin: [
-    own(pins, [pins.userId, pins.kind, pins.id], (key) =>
-      pinRowId(key[0] as UserId, key[1] as never, str(key[2])),
-    ),
-  ],
-  tabOrder: [
-    own(
-      tabOrder,
-      [tabOrder.userId, tabOrder.worktree],
-      (key) => tabOrderRowId(key[0] as UserId, str(key[1])),
-      { reads: { allBut: [tabOrder.updatedAt] } },
-    ),
-  ],
+  automationRun: ROW_RECORDS.automationRun.sources,
+  automation: ROW_RECORDS.automation.sources,
+  userLayout: ROW_RECORDS.userLayout.sources,
+  userReadPosition: ROW_RECORDS.userReadPosition.sources,
+  pin: ROW_RECORDS.pin.sources,
+  tabOrder: ROW_RECORDS.tabOrder.sources,
   // One record per person, folding all of the person's leaves.
   userPreferences: [
     own(userPreferences, [userPreferences.userId], (key) => userPreferencesRowId(key[0] as UserId)),
@@ -891,27 +881,8 @@ export const RECORD_SOURCES: RecordSources = {
         await reads.store.sessions.sessionUserStateIdsOf({ sessionIds: firstKeys(changes) }),
     ),
   ],
-  superagentThread: [
-    // Never on the record: the watermarks, the harness's own session id (the
-    // record says only whether there is one) and the terminal lock.
-    own(
-      superagentThreads,
-      [superagentThreads.ownerUserId, superagentThreads.id],
-      (key) => superagentThreadRowId(key[0] as UserId, str(key[1])),
-      {
-        reads: {
-          allBut: [
-            superagentThreads.watermarkItemId,
-            superagentThreads.watermarkTs,
-            superagentThreads.harnessSessionId,
-            superagentThreads.terminalSessionId,
-          ],
-        },
-        derived: [`{row}.${superagentThreads.harnessSessionId.name} IS NOT NULL`],
-      },
-    ),
-  ],
-  agentProfile: [byId(agentProfiles, agentProfiles.id)],
+  superagentThread: ROW_RECORDS.superagentThread.sources,
+  agentProfile: ROW_RECORDS.agentProfile.sources,
   workflow: [
     byId(workflows, workflows.id),
     // The workflow's record reads its revisions (its latest one).
@@ -919,12 +890,8 @@ export const RECORD_SOURCES: RecordSources = {
       key[0] == null ? null : str(key[0]),
     ),
   ],
-  workflowRevision: [byId(workflowRevisions, workflowRevisions.id)],
-  workflowBinding: [
-    own(workflowBindings, [workflowBindings.targetKind, workflowBindings.targetId], (key) =>
-      workflowBindingRowId(key[0] as never, str(key[1])),
-    ),
-  ],
+  workflowRevision: ROW_RECORDS.workflowRevision.sources,
+  workflowBinding: ROW_RECORDS.workflowBinding.sources,
   workflowRun: [
     byId(workflowRuns, workflowRuns.id),
     own(workflowRunSteps, [workflowRunSteps.runId], (key) => str(key[0])),
@@ -935,31 +902,12 @@ export const RECORD_SOURCES: RecordSources = {
       async (changes, reads) => await reads.store.workflows.runIdsOfRevisions(firstKeys(changes)),
     ),
   ],
-  instancePreferences: [
-    own(meta, [meta.key], () => INSTANCE_PREFERENCES_ROW_ID, {
-      rows: `{row}.${meta.key.name} = 'settings'`,
-    }),
-  ],
-  effect: [
-    byId(effects, effects.id, {
-      rows: `${notTombstoned(effects.deletedAt)} AND ${EFFECT_ON_FEED}`,
-    }),
-  ],
-  checkout: [
-    own(checkouts, [checkouts.machineId, checkouts.path], (key) =>
-      checkoutRowId(key[0] as MachineId, str(key[1])),
-    ),
-  ],
+  instancePreferences: ROW_RECORDS.instancePreferences.sources,
+  effect: ROW_RECORDS.effect.sources,
+  checkout: ROW_RECORDS.checkout.sources,
   // A notice is on its recipient's feed while it is open (POD-6881): resolving
   // it takes it off, and what is written to it afterwards reaches no record.
-  inboxNotice: [
-    own(
-      notices,
-      [notices.recipientUserId, notices.id],
-      (key) => noticeRowId(key[0] as UserId, str(key[1])),
-      { rows: `{row}.${notices.resolvedAt.name} IS NULL` },
-    ),
-  ],
+  inboxNotice: ROW_RECORDS.inboxNotice.sources,
   issueEvent: [
     via(
       podiumEvents,
@@ -999,16 +947,19 @@ export const RECORD_SOURCES: RecordSources = {
       [sessions.id],
       [],
       async (changes, reads) => await confirmedTailIds(firstKeys(changes), reads),
-      { derived: [LIVE_CONVERSATION] },
+      { derived: [LIVE_CONVERSATION], pg: { derived: [LIVE_CONVERSATION_PG] } },
     ),
   ],
   session: [
     // Not the activity and terminal counters and times, the unpublished
     // activity time or the terminal size: the record carries the published
     // activity time, and these are live topics, not record fields (POD-6764).
+    // Nor `asks_user`, which the record does not carry: its triggers derive it
+    // from the agent state, the offer and the checkpoints (POD-7104).
     byId(sessions, sessions.id, {
       reads: {
         allBut: [
+          sessions.asksUser,
           sessions.lastActiveAt,
           sessions.lastActivePublishAfter,
           sessions.terminalCols,
@@ -1026,6 +977,9 @@ export const RECORD_SOURCES: RecordSources = {
       // (`isNeverBound`: 'never', with the resume columns watched as read).
       derived: [`{row}.${sessions.conversationBinding.name} IS 'never'`],
       rows: notTombstoned(sessions.deletedAt),
+      pg: {
+        derived: [`{row}.${sessions.conversationBinding.name} IS NOT DISTINCT FROM 'never'`],
+      },
     }),
     own(offers, [offers.sessionId], (key) => str(key[0]), {
       rows: ofLiveSession(offers.sessionId),
@@ -1045,6 +999,7 @@ export const RECORD_SOURCES: RecordSources = {
         reads: [sessionObservationCheckpoints.provider],
         derived: CHECKPOINT_ON_RECORD,
         rows: `{row}.${sessionObservationCheckpoints.checkpointJson.name} IS NOT NULL AND ${ofLiveSession(sessionObservationCheckpoints.sessionId)}`,
+        pg: { derived: CHECKPOINT_ON_RECORD_PG },
       },
     ),
     own(runtimeEventCheckpoints, [runtimeEventCheckpoints.sessionId], (key) => str(key[0]), {
@@ -1055,6 +1010,9 @@ export const RECORD_SOURCES: RecordSources = {
     // items can change it.
     own(podiumEvents, [podiumEvents.subject], (key) => str(key[0]), {
       rows: `{row}.${podiumEvents.kind.name} = '${RUNTIME_EVENT_LOG_KIND}' AND json_extract({row}.${podiumEvents.payload.name}, '$.t') IN ('transcript-reset', 'item') AND ${ofLiveSession(podiumEvents.subject)}`,
+      pg: {
+        rows: `{row}.${podiumEvents.kind.name} = '${RUNTIME_EVENT_LOG_KIND}' AND ({row}.${podiumEvents.payload.name} ->> 't') COLLATE "C" IN ('transcript-reset', 'item') AND ${ofLiveSession(podiumEvents.subject)}`,
+      },
     }),
     // The queued message count.
     own(queuedMessages, [queuedMessages.sessionId], (key) => str(key[0]), {
@@ -1163,6 +1121,27 @@ export async function touchedRecords(
     if (list !== undefined && list.length > 0) ordered.set(kind, list)
   }
   return ordered
+}
+
+/**
+ * The workspace a captured row belongs to: the first key of a source on a
+ * workspace table, read from whichever of the old and new key the row has (a
+ * row's workspace never changes, and a change of it is captured with both).
+ * Undefined for a source on an install table, which captures no workspace.
+ */
+export function capturedWorkspace(
+  row: CapturedRow,
+  sources: RecordSources = RECORD_SOURCES,
+): { readonly old?: string; readonly new?: string } | undefined {
+  const declared = sources[row.kind as MetadataEntityKind]?.[row.source]
+  if (declared === undefined) {
+    throw new Error(`sync capture: no source ${row.source} declared for kind ${row.kind}`)
+  }
+  if (declared.keys[0]?.name !== WORKSPACE_COLUMN) return undefined
+  return {
+    ...(row.oldKey === null ? {} : { old: str(row.oldKey[0]) }),
+    ...(row.newKey === null ? {} : { new: str(row.newKey[0]) }),
+  }
 }
 
 /** The SQL name of every column a source watches, keys first. */

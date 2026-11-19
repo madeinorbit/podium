@@ -40,11 +40,12 @@ function shippingHistory(dbPath: string, count: number): void {
   const db = new Database(dbPath)
   try {
     const source = db
-      .prepare(`SELECT i.id AS issueId, i.repo_path AS repoPath,
+      .prepare(`SELECT i.workspace_id AS workspaceId, i.id AS issueId, i.repo_path AS repoPath,
       r.machine_id AS machineId, r.repo_id AS repoId, i.owner_user_id AS memberId
-      FROM issues i JOIN repos r ON r.path = i.repo_path
+      FROM issues i JOIN repos r ON r.workspace_id = i.workspace_id AND r.path = i.repo_path
       WHERE i.branch IS NOT NULL AND r.repo_id IS NOT NULL LIMIT 1`)
       .get() as {
+      workspaceId: string
       issueId: string
       repoPath: string
       machineId: string
@@ -52,30 +53,31 @@ function shippingHistory(dbPath: string, count: number): void {
       memberId: string
     } | null
     if (!source) throw new Error('standard corpus has no shipping source issue')
+    // The rows go to the source issue's workspace: no workspace column has a default (POD-7024).
     const order = db.prepare(`INSERT INTO ship_orders
-      (id, issue_id, repo_id, repo_path, machine_id, target_branch, destination,
+      (workspace_id, id, issue_id, repo_id, repo_path, machine_id, target_branch, destination,
        approved_base_sha, approved_head_sha, requested_by_actor_kind, requested_by_actor_id,
        requested_by_on_behalf_of, requested_at, policy_id, validation_profile,
        validation_profile_digest, close_mode, state, state_changed_at)
-      VALUES (?, ?, ?, ?, ?, 'main', 'local:main', 'base', 'head', 'user', ?, ?,
+      VALUES (?, ?, ?, ?, ?, ?, 'main', 'local:main', 'base', 'head', 'user', ?, ?,
        '2026-01-01T00:00:00Z', 'compatibility-local:main', ?, ?,
        'after-destination', 'shipped', '2026-01-01T00:00:00Z')`)
     const attempt = db.prepare(`INSERT INTO ship_attempts
-      (id, order_id, expected_source_base_sha, approved_head_sha, expected_target_sha,
+      (workspace_id, id, order_id, expected_source_base_sha, approved_head_sha, expected_target_sha,
        machine_id, lease_generation, started_at, finished_at, outcome, submitted_head_sha,
        tested_integration_sha, landed_ref_sha, destination_sha, validation_profile_id, validation_result)
-      VALUES (?, ?, 'base', 'head', 'base', ?, 1, 't0', 't1', 'succeeded', 'head',
+      VALUES (?, ?, ?, 'base', 'head', 'base', ?, 1, 't0', 't1', 'succeeded', 'head',
         'head', 'head', 'head', 'bench', 'passed')`)
     const step = db.prepare(`INSERT INTO ship_steps
-      (id, order_id, attempt_id, effect_key, idempotency_key, generation, input_fence,
+      (workspace_id, id, order_id, attempt_id, effect_key, idempotency_key, generation, input_fence,
        kind, state, outcome, summary, recorded_at, started_at, finished_at)
-      VALUES (?, ?, ?, 'verify:1', 'verify:1:succeeded', 1, ?, 'verify', 'succeeded',
+      VALUES (?, ?, ?, ?, 'verify:1', 'verify:1:succeeded', 1, ?, 'verify', 'succeeded',
         'proved', 'already acknowledged', 't1', 't0', 't1')`)
     const receipt = db.prepare(`INSERT INTO delivery_receipts
-      (id, order_id, approved_base_sha, approved_head_sha, result_commit_sha,
+      (workspace_id, id, order_id, approved_base_sha, approved_head_sha, result_commit_sha,
        tested_integration_sha, landed_ref_sha, destination_sha, validation_profile_id,
        validation_result, destination, completed_at)
-      VALUES (?, ?, 'base', 'head', 'head', 'head', 'head', 'head', 'bench', 'passed', 'local:main', 't1')`)
+      VALUES (?, ?, ?, 'base', 'head', 'head', 'head', 'head', 'head', 'bench', 'passed', 'local:main', 't1')`)
     const profile = JSON.stringify({
       id: 'bench',
       argv: ['true'],
@@ -87,6 +89,7 @@ function shippingHistory(dbPath: string, count: number): void {
     for (let i = 0; i < count; i++) {
       const id = `bench-ship-${String(i).padStart(6, '0')}`
       order.run(
+        source.workspaceId,
         id,
         source.issueId,
         source.repoId,
@@ -97,14 +100,15 @@ function shippingHistory(dbPath: string, count: number): void {
         profile,
         createHash('sha256').update(profile).digest('hex'),
       )
-      attempt.run(`attempt:${id}:1`, id, source.machineId)
+      attempt.run(source.workspaceId, `attempt:${id}:1`, id, source.machineId)
       step.run(
+        source.workspaceId,
         `step:${id}`,
         id,
         `attempt:${id}:1`,
         JSON.stringify({ sourceBaseSha: 'base', approvedHeadSha: 'head', targetSha: 'base' }),
       )
-      receipt.run(`receipt:${id}`, id)
+      receipt.run(source.workspaceId, `receipt:${id}`, id)
     }
     db.exec('COMMIT')
     db.exec('PRAGMA analysis_limit=1000; ANALYZE;')

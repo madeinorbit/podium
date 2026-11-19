@@ -45,7 +45,7 @@ import type { MobileClientVersions } from './mobile-client-versions'
  */
 
 import { createLogger } from '@podium/logger'
-import type { SessionId, UserId, UserRole } from '@podium/model'
+import type { SessionId, UserId, UserRole, WorkspaceId } from '@podium/model'
 import {
   CAP_METADATA_DELTA,
   CAP_SYNC_HTTP_V1,
@@ -183,6 +183,8 @@ export interface ClientMuxDeps {
   readonly mobileVersions?: Pick<MobileClientVersions, 'connected' | 'disconnected'>
   readonly ports: ClientFeaturePorts
   readonly registry: ClientRegistry
+  /** The workspace whose gateway this is: every connection it admits is that workspace's. */
+  readonly workspaceId: WorkspaceId
   /**
    * THE SERVING EDGE (POD-1203) — where entity truth leaves this server.
    *
@@ -260,6 +262,7 @@ export class ClientMux {
       // TRANSPORT-DERIVED, always. The connection id is minted above and is the
       // only input; nothing a client can send participates.
       principal,
+      workspaceId: this.deps.workspaceId,
       send: transport.send,
       ...(transport.terminate ? { terminate: transport.terminate } : {}),
       ...(transport.endSignIn ? { endSignIn: transport.endSignIn } : {}),

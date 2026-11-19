@@ -1,7 +1,9 @@
 import { spawnSync } from 'node:child_process'
-import { appendFileSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { blobKey } from '@podium/blob-store'
+import { LocalBlobStorage } from '@podium/blob-store/local'
 import {
   asAccountId,
   asArtifactId,
@@ -27,14 +29,15 @@ import { systemPrincipal, userCommandPrincipal } from './command-principal'
 import { sessionsForIssue } from './issue-util'
 import { MODEL_CATALOG_VERSION } from './model-catalog'
 import { complete } from './modules/inference/complete'
-import { IssueArtifactStore } from './modules/issues/artifact-store'
 import { PendingUploadStore } from './modules/issues/pending-uploads'
 import { type IssueDeps, IssueService } from './modules/issues/service'
 import { ARTIFACT_READ_CAP_BYTES } from './modules/issues/service/crud'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
 import { sameWorktreePath } from './modules/issues/service/worktree-safety'
+import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
 import type { SessionStore } from './store'
 import { memberFacts } from './store/fixtures/test-support'
+import { artifactStoreOnDisk } from './test-support/artifact-store'
 import { captureLogs } from './test-support/capture-logs'
 import { seedLegacyKeyCredential } from './test-support/legacy-key-credential'
 import { openTestStore } from './test-support/open-test-store'
@@ -93,6 +96,16 @@ async function harness(sessions: SessionMeta[] = [], opts: { originUrl?: string 
     setSessionArchived,
     clearSessionOffer,
     onWorktreesChanged,
+  }
+}
+
+/** A stored member as `IssueArtifactStore.readStream` answers it; null when absent. */
+function streamedMember(member: { bytes: Buffer; contentType: string } | undefined) {
+  if (!member) return null
+  return {
+    body: new Response(new Uint8Array(member.bytes)).body as ReadableStream<Uint8Array>,
+    contentType: member.contentType,
+    size: member.bytes.length,
   }
 }
 
@@ -4812,7 +4825,7 @@ describe('IssueService doctor/preflight (P2b)', () => {
     const raw = (store as unknown as { db: { exec(q: string): void } }).db
     raw.exec('PRAGMA foreign_keys = OFF')
     raw.exec(
-      `INSERT INTO issue_deps (from_id, to_id, type) VALUES ('${a.id}', 'iss_ghost', 'blocked-by')`,
+      `INSERT INTO issue_deps (workspace_id, from_id, to_id, type) VALUES ('${store.workspaceId}', '${a.id}', 'iss_ghost', 'blocked-by')`,
     )
     raw.exec('PRAGMA foreign_keys = ON')
     const d = await svc.reports.doctor('/r')
@@ -6789,11 +6802,11 @@ describe('IssueService panelArtifactAdd/Remove (permanent snapshots [spec:SP-0fc
     }))
     const remove = vi.fn(async () => {})
     // Stands in for the on-disk snapshot dir: keyed by the same
-    // (artifactId, relpath) pair `IssueArtifactStore.read` resolves.
+    // (artifactId, relpath) pair `IssueArtifactStore.readStream` resolves.
     const stored = new Map<string, { bytes: Buffer; contentType: string }>()
-    const read = vi.fn(async (_issueId: IssueId, artifactId: string, relPath: string) => {
-      return stored.get(`${artifactId}/${relPath}`) ?? null
-    })
+    const readStream = vi.fn(async (_issueId: IssueId, artifactId: string, relPath: string) =>
+      streamedMember(stored.get(`${artifactId}/${relPath}`)),
+    )
     const repoOp = vi.fn(async (op: string) =>
       op === 'lsFiles'
         ? { ok: true, output: 'shots/a.png\0a.png\0b.png\0' }
@@ -6807,12 +6820,12 @@ describe('IssueService panelArtifactAdd/Remove (permanent snapshots [spec:SP-0fc
         entry: o.filename,
         files: [{ path: o.filename, size: Buffer.from(o.dataBase64, 'base64').length }],
       })),
-      read,
+      readStream,
       remove,
       removeIssue: vi.fn(async () => {}),
     }
     const svc = await IssueService.create(h.deps)
-    return { ...h, svc, snapshot, remove, read, stored, repoOp, sessions }
+    return { ...h, svc, snapshot, remove, readStream, stored, repoOp, sessions }
   }
 
   it('add snapshots from the issue worktree and stores artifactId/entry/files', async () => {
@@ -7219,11 +7232,12 @@ describe('IssueService chat upload claims (POD-2148)', () => {
   async function claimHarness() {
     const base = mkdtempSync(join(tmpdir(), 'podium-chat-claim-'))
     const h = await harness([sess('/wt')])
-    const artifacts = new IssueArtifactStore(join(base, 'artifacts'), {
+    const artifacts = artifactStoreOnDisk(base, {
       readAsset: async () => ({ ok: false, error: 'no worktree reads here' }),
       listDir: async () => ({ ok: false, path: '', entries: [], error: 'not a directory' }),
     })
-    const pending = new PendingUploadStore(join(base, 'pending-uploads'))
+    const files = new LocalBlobStorage({ stateDir: base }).forWorkspace(SELF_HOSTED_WORKSPACE_ID)
+    const pending = new PendingUploadStore({ files, records: h.deps.store.pendingUploads })
     h.deps.artifacts = artifacts
     h.deps.pendingUploads = pending
     const svc = await IssueService.create(h.deps)
@@ -7244,7 +7258,7 @@ describe('IssueService chat upload claims (POD-2148)', () => {
       mediaType: 'image/png',
       bytes: new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
     })
-    return { base, svc, issue, other, owner, upload, pending }
+    return { base, svc, issue, other, owner, upload, pending, files }
   }
 
   it('moves the upload into the issue as a chat-upload artifact, once', async () => {
@@ -7277,10 +7291,88 @@ describe('IssueService chat upload claims (POD-2148)', () => {
       ])
       expect(await pending.meta(upload.id)).toMatchObject({ claimed: { issueId: issue.id } })
       expect(readdirSync(join(base, 'artifacts', issue.id))).toHaveLength(1)
+      // Copied, then the source deleted.
+      expect(await pending.bytes(upload)).toBeUndefined()
       expect(await svc.crud.chatUploadOwner(issue.id, upload.id)).toBe(owner)
       expect(await svc.crud.chatUploadBytes(issue.id, upload.id)).toEqual(
         new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
       )
+    } finally {
+      rmSync(base, { recursive: true, force: true })
+    }
+  })
+
+  it('a claim that crashed after its copy runs again to the same artifact key', async () => {
+    const { base, svc, issue, owner, upload, pending, files } = await claimHarness()
+    try {
+      // The first run recorded the claim and copied, then died before deleting the
+      // source or committing the panel entry.
+      const artifactId = asArtifactId('chatcrash1')
+      await pending.markClaimed(upload.id, { issueId: issue.id, artifactId })
+      await files.copy(
+        pending.fileKey(upload),
+        blobKey(`artifacts/${issue.id}/chatcrash1/shot.png`),
+      )
+
+      await svc.crud.panelChatUploadClaim(svc.reports.store.serverWriter, issue.id, {
+        uploadId: upload.id,
+        ownerUserId: owner,
+      })
+      const artifacts = (await svc.reports.get(issue.id))?.panel?.artifacts ?? []
+      expect(artifacts).toEqual([expect.objectContaining({ artifactId, chatUploadId: upload.id })])
+      expect(readdirSync(join(base, 'artifacts', issue.id))).toEqual(['chatcrash1'])
+      expect(await pending.bytes(upload)).toBeUndefined()
+      expect(await svc.crud.chatUploadBytes(issue.id, upload.id)).toEqual(
+        new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
+      )
+    } finally {
+      rmSync(base, { recursive: true, force: true })
+    }
+  })
+
+  it('a failed launch relinquishes the claim: the file is copied back and can be claimed again', async () => {
+    const { base, svc, issue, other, owner, upload, pending } = await claimHarness()
+    try {
+      await svc.crud.panelChatUploadClaim(svc.reports.store.serverWriter, issue.id, {
+        uploadId: upload.id,
+        ownerUserId: owner,
+      })
+      expect(await svc.crud.panelChatUploadRelease(issue.id)).toBe(true)
+      expect(await pending.meta(upload.id)).not.toHaveProperty('claimed')
+      expect(await pending.claimedBy(issue.id)).toEqual([])
+      expect(await pending.bytes(upload)).toEqual(new Uint8Array([0x89, 0x50, 0x4e, 0x47]))
+      // The emptied artifact directories go with the copy's delete.
+      expect(existsSync(join(base, 'artifacts', issue.id))).toBe(false)
+      // A second release finds nothing to return.
+      expect(await svc.crud.panelChatUploadRelease(issue.id)).toBe(true)
+      // The same ref is claimable again, by another task too.
+      await svc.crud.panelChatUploadClaim(svc.reports.store.serverWriter, other.id, {
+        uploadId: upload.id,
+        ownerUserId: owner,
+      })
+      expect(await pending.meta(upload.id)).toMatchObject({ claimed: { issueId: other.id } })
+      expect(await svc.crud.chatUploadBytes(other.id, upload.id)).toEqual(
+        new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
+      )
+    } finally {
+      rmSync(base, { recursive: true, force: true })
+    }
+  })
+
+  it('refuses a claim when another task recorded its claim first', async () => {
+    const { base, svc, issue, other, owner, upload, pending } = await claimHarness()
+    try {
+      await pending.markClaimed(upload.id, {
+        issueId: other.id,
+        artifactId: asArtifactId('elsewhere'),
+      })
+      await expect(
+        svc.crud.panelChatUploadClaim(svc.reports.store.serverWriter, issue.id, {
+          uploadId: upload.id,
+          ownerUserId: owner,
+        }),
+      ).rejects.toThrow('already sent with another task')
+      expect(await pending.bytes(upload)).toEqual(new Uint8Array([0x89, 0x50, 0x4e, 0x47]))
     } finally {
       rmSync(base, { recursive: true, force: true })
     }
@@ -7363,9 +7455,8 @@ describe('IssueService panelArtifactRead (reading a snapshot back — POD-1999)'
       return { artifactId: asArtifactId(`art${++n}`), entry: files[0]?.path as string, files }
     })
     const stored = new Map<string, { bytes: Buffer; contentType: string }>()
-    const read = vi.fn(
-      async (_issueId: IssueId, artifactId: string, relPath: string) =>
-        stored.get(`${artifactId}/${relPath}`) ?? null,
+    const readStream = vi.fn(async (_issueId: IssueId, artifactId: string, relPath: string) =>
+      streamedMember(stored.get(`${artifactId}/${relPath}`)),
     )
     h.deps.artifacts = {
       snapshot,
@@ -7374,7 +7465,7 @@ describe('IssueService panelArtifactRead (reading a snapshot back — POD-1999)'
         entry: o.filename,
         files: [{ path: o.filename, size: Buffer.from(o.dataBase64, 'base64').length }],
       })),
-      read,
+      readStream,
       remove: vi.fn(async () => {}),
       removeIssue: vi.fn(async () => {}),
     }
@@ -7385,7 +7476,7 @@ describe('IssueService panelArtifactRead (reading a snapshot back — POD-1999)'
       startNow: false,
     })
     await svc.crud.update(svc.reports.store.serverWriter, issue.id, { worktreePath: '/wt/issue-1' })
-    return { svc, issue, stored, read, snapshot }
+    return { svc, issue, stored, readStream, snapshot }
   }
 
   const text = (s: string, contentType = 'text/markdown; charset=utf-8') => ({
@@ -7480,7 +7571,7 @@ describe('IssueService panelArtifactRead (reading a snapshot back — POD-1999)'
   })
 
   /**
-   * THE ONE TEST WITH NO FAKE STORE: a real {@link IssueArtifactStore} over a
+   * THE ONE TEST WITH NO FAKE STORE: a real `IssueArtifactStore` over a
    * real directory, snapshotting real bytes pulled through a stub daemon RPC and
    * reading them back out. The fakes above pin the command's decisions; this
    * pins that the bytes a snapshot WRITES are the bytes a read RETURNS — the
@@ -7500,7 +7591,7 @@ describe('IssueService panelArtifactRead (reading a snapshot back — POD-1999)'
         listDir: async () => ({ ok: false, path: '', entries: [], error: 'not a directory' }),
       }
       const h = await harness([sess('/wt')])
-      h.deps.artifacts = new IssueArtifactStore(base, rpc)
+      h.deps.artifacts = artifactStoreOnDisk(base, rpc)
       const svc = await IssueService.create(h.deps)
       const issue = await svc.crud.create(svc.reports.store.serverWriter, {
         repoPath: '/r',

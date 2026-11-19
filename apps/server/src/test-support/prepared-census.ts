@@ -40,7 +40,33 @@ const BUILDER_STARTS = new Set([
   'with',
 ])
 const RAW_TERMINALS = new Set(['all', 'get', 'run', 'values'])
-const DEFINERS = new Set(['prepared', 'preparedFamily'])
+/**
+ * The calls that make a query definition: a workspace definition (`prepared`,
+ * `preparedFamily`), a global one (`preparedGlobal`) and a cross-workspace one
+ * (`preparedAcross(entry, build)`, whose build is its second argument) [POD-6959 design 2.4].
+ */
+const DEFINERS = new Set(['prepared', 'preparedFamily', 'preparedGlobal', 'preparedAcross'])
+
+/**
+ * A two-form definition, `dialectPrepared<Values, Row>()({ sqlite, pg })` [POD-6995]:
+ * the definition is the second call, and its build callbacks are the properties of
+ * the object it takes.
+ */
+const TWO_FORM_DEFINER = 'dialectPrepared'
+
+/** The definer a call is, or undefined: `prepared(…)`, or the second call of `dialectPrepared<…>()(…)`. */
+function definerOf(call: ts.CallExpression): string | undefined {
+  const callee = call.expression
+  if (ts.isIdentifier(callee)) return DEFINERS.has(callee.text) ? callee.text : undefined
+  if (
+    ts.isCallExpression(callee) &&
+    ts.isIdentifier(callee.expression) &&
+    callee.expression.text === TWO_FORM_DEFINER
+  ) {
+    return TWO_FORM_DEFINER
+  }
+  return undefined
+}
 
 function isDrizzleHandle(expression: ts.Expression): boolean {
   if (ts.isIdentifier(expression)) {
@@ -52,12 +78,27 @@ function isDrizzleHandle(expression: ts.Expression): boolean {
   return false
 }
 
-/** Inside the build callback of `prepared(...)` / `preparedFamily(...)`? */
+/** Inside the build callback of `prepared(...)` / `preparedFamily(...)`, or a form of `dialectPrepared`? */
 function insideDefinition(node: ts.Node): boolean {
   for (let current = node.parent; current; current = current.parent) {
     if (!ts.isArrowFunction(current) && !ts.isFunctionExpression(current)) continue
+    // A form of a two-form definition: `{ sqlite: (db, t) => …, pg: … }`, its one argument.
+    const form = current.parent
+    if (
+      form &&
+      ts.isPropertyAssignment(form) &&
+      form.initializer === current &&
+      ts.isObjectLiteralExpression(form.parent) &&
+      ts.isCallExpression(form.parent.parent) &&
+      form.parent.parent.arguments[0] === form.parent &&
+      definerOf(form.parent.parent) === TWO_FORM_DEFINER
+    ) {
+      return true
+    }
     const call = current.parent
-    if (!call || !ts.isCallExpression(call) || call.arguments[0] !== current) continue
+    if (!call || !ts.isCallExpression(call)) continue
+    // The build callback: the first argument, or the second of `preparedAcross(entry, build)`.
+    if (call.arguments[call.arguments.length - 1] !== current) continue
     const callee = call.expression
     const name = ts.isIdentifier(callee)
       ? callee.text
@@ -190,7 +231,10 @@ export function censusScope(paths: readonly string[]): string[] {
   )
 }
 
-/** One `prepared(...)` / `preparedFamily(...)` call in the source [POD-6148]. */
+/**
+ * One `prepared(...)`, `preparedFamily(...)`, `preparedGlobal(...)`,
+ * `preparedAcross(...)` or `dialectPrepared<…>()(...)` call in the source [POD-6148].
+ */
 export interface QueryDefinitionSite {
   readonly file: string
   /**
@@ -201,11 +245,12 @@ export interface QueryDefinitionSite {
    */
   readonly name: string
   readonly kind: 'prepared' | 'family'
-  /** First and last line of the call, 1-based, inclusive. */
+  /**
+   * First and last line of the call, 1-based, inclusive. A definition whose stack
+   * names a line in this range is this one.
+   */
   readonly startLine: number
   readonly endLine: number
-  /** False for a definition made inside a function or method rather than at module level. */
-  readonly moduleLevel: boolean
 }
 
 function definitionName(call: ts.CallExpression): string {
@@ -233,22 +278,8 @@ function definitionName(call: ts.CallExpression): string {
   return [owner, own ?? '<anonymous>'].filter(Boolean).join('.')
 }
 
-function atModuleLevel(node: ts.Node): boolean {
-  for (let current = node.parent; current; current = current.parent) {
-    if (
-      ts.isFunctionLike(current) &&
-      !(current.parent && ts.isCallExpression(current.parent) && isDefinerCall(current.parent))
-    ) {
-      return false
-    }
-    if (ts.isClassLike(current)) return false
-  }
-  return true
-}
-
 function isDefinerCall(node: ts.CallExpression): boolean {
-  const callee = node.expression
-  return ts.isIdentifier(callee) && DEFINERS.has(callee.text)
+  return definerOf(node) !== undefined
 }
 
 /** Every query definition in one source file, in source order. */
@@ -257,14 +288,12 @@ export function queryDefinitionSites(file: string, source: string): QueryDefinit
   const found: QueryDefinitionSite[] = []
   const visit = (node: ts.Node): void => {
     if (ts.isCallExpression(node) && isDefinerCall(node)) {
-      const callee = node.expression as ts.Identifier
       found.push({
         file,
         name: definitionName(node),
-        kind: callee.text === 'prepared' ? 'prepared' : 'family',
+        kind: definerOf(node) === 'preparedFamily' ? 'family' : 'prepared',
         startLine: sourceFile.getLineAndCharacterOfPosition(node.getStart()).line + 1,
         endLine: sourceFile.getLineAndCharacterOfPosition(node.getEnd()).line + 1,
-        moduleLevel: atModuleLevel(node),
       })
     }
     ts.forEachChild(node, visit)
@@ -331,10 +360,14 @@ export function rawSqlSites(file: string, source: string): RawSqlSite[] {
       const [first, second] = node.arguments
       if (ts.isPropertyAccessExpression(callee) && first) {
         const method = callee.name.text
-        const text = ts.isStringLiteral(first) || ts.isNoSubstitutionTemplateLiteral(first) ? first.text : undefined
+        const text =
+          ts.isStringLiteral(first) || ts.isNoSubstitutionTemplateLiteral(first)
+            ? first.text
+            : undefined
         // A statement prepare takes the SQL alone; other `prepare` methods take more.
         if (method === 'prepare' && node.arguments.length === 1) record(node, first)
-        else if (method === 'query' && text !== undefined && SQL_TEXT.test(text)) record(node, first)
+        else if (method === 'query' && text !== undefined && SQL_TEXT.test(text))
+          record(node, first)
       } else if (ts.isIdentifier(callee) && callee.text === 'iterate' && second) {
         record(node, second)
       }
@@ -342,5 +375,83 @@ export function rawSqlSites(file: string, source: string): RawSqlSite[] {
     ts.forEachChild(node, visit)
   }
   visit(sourceFile)
+  return found
+}
+
+/**
+ * THE TABLE BINDING CENSUS [POD-6977, POD-6958 design §2.1 and contract C2 (1)].
+ *
+ * A query definition takes its tables from the store's binding,
+ * `prepared((db, t) => … t.issues …)`, so the same source can be built on
+ * another engine's tables. This finds every place a census file names a table
+ * of a table module as a VALUE instead: a value import of a table (used in a
+ * definition body, in a helper a definition calls, or anywhere else, since a
+ * column read outside a definition can still be closed into one), or a
+ * namespace import of a table module. A type-only import (`import type`, or a
+ * `type` specifier, for `typeof issues.$inferSelect`) names no value and is
+ * allowed.
+ *
+ * `tableModules` maps each table module, as a repository path, to the names of
+ * the tables it exports. A relative specifier and a `@podium/<package>/<sub>`
+ * specifier are resolved to repository paths by `resolve`.
+ */
+export interface DirectTableReference {
+  readonly file: string
+  readonly line: number
+  /** The imported table, or `* as name` for a namespace import. */
+  readonly table: string
+  /** The table module it was imported from, as a repository path. */
+  readonly module: string
+}
+
+export function directTableReferences(
+  file: string,
+  source: string,
+  tableModules: ReadonlyMap<string, ReadonlySet<string>>,
+  resolve: (from: string, specifier: string) => string | undefined,
+): DirectTableReference[] {
+  const sourceFile = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true)
+  const found: DirectTableReference[] = []
+  const lineOf = (node: ts.Node) =>
+    sourceFile.getLineAndCharacterOfPosition(node.getStart()).line + 1
+  for (const statement of sourceFile.statements) {
+    const isImport = ts.isImportDeclaration(statement)
+    const isReexport = ts.isExportDeclaration(statement)
+    if (!isImport && !isReexport) continue
+    const specifier = statement.moduleSpecifier
+    if (!specifier || !ts.isStringLiteral(specifier)) continue
+    const module = resolve(file, specifier.text)
+    const tables = module === undefined ? undefined : tableModules.get(module)
+    if (module === undefined || tables === undefined) continue
+    if (isImport) {
+      const clause = statement.importClause
+      if (!clause || clause.isTypeOnly) continue
+      const bindings = clause.namedBindings
+      if (bindings && ts.isNamespaceImport(bindings)) {
+        found.push({ file, line: lineOf(bindings), table: `* as ${bindings.name.text}`, module })
+        continue
+      }
+      if (!bindings) continue
+      for (const element of bindings.elements) {
+        const name = (element.propertyName ?? element.name).text
+        if (!element.isTypeOnly && tables.has(name)) {
+          found.push({ file, line: lineOf(element), table: name, module })
+        }
+      }
+    } else if (!statement.isTypeOnly) {
+      const clause = statement.exportClause
+      if (!clause) {
+        found.push({ file, line: lineOf(statement), table: '*', module })
+        continue
+      }
+      if (!ts.isNamedExports(clause)) continue
+      for (const element of clause.elements) {
+        const name = (element.propertyName ?? element.name).text
+        if (!element.isTypeOnly && tables.has(name)) {
+          found.push({ file, line: lineOf(element), table: name, module })
+        }
+      }
+    }
+  }
   return found
 }

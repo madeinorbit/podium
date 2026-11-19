@@ -32,11 +32,13 @@
  */
 
 import type {
+  CollectionComplete,
   FeedBootstrapMessageLenient,
   FeedChangeRow,
   FeedDeltaMessageLenient,
   FeedRescopeMessage,
   FeedResyncRequiredMessage,
+  FeedStubsMessage,
   SyncKindTokens,
 } from '@podium/protocol'
 import type { BootstrapChunk, ChangeEnvelope, ServerFrame } from '@podium/sync/replica'
@@ -154,5 +156,47 @@ export function toBootstrapChunk(
     snapshotSeq: message.seq,
     changes: message.changes.map(toEnvelope),
     last: message.last,
+  }
+}
+
+/** A `feedStubs` chunk: issues at stub level, the same snapshot point as the records. */
+export function toStubChunk(message: FeedStubsMessage, kindTokens: SyncKindTokens): BootstrapChunk {
+  return {
+    kindTokens,
+    feedId: message.feedId,
+    epoch: message.epoch,
+    snapshotSeq: message.seq,
+    changes: [],
+    stubs: message.changes.map((change) => ({
+      seq: change.seq,
+      entity: change.entity,
+      entityId: change.entityId,
+      op: 'upsert' as const,
+      payload: change.value,
+    })),
+    last: false,
+  }
+}
+
+/** A `collectionComplete` line: the markers of the instances now complete. */
+export function toMarkerChunk(
+  message: CollectionComplete,
+  kindTokens: SyncKindTokens,
+): BootstrapChunk {
+  return {
+    kindTokens,
+    feedId: message.feedId,
+    epoch: message.epoch,
+    snapshotSeq: message.seq,
+    changes: [],
+    complete: message.instances.map((instance) => ({
+      collection: instance.collection,
+      part: instance.part,
+      ...(instance.args === undefined ? {} : { args: instance.args }),
+      ...(instance.via === undefined ? {} : { via: instance.via }),
+      ...(instance.range === undefined ? {} : { range: instance.range }),
+      ...(instance.total === undefined ? {} : { total: instance.total }),
+    })),
+    last: false,
   }
 }

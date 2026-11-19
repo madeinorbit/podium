@@ -13,7 +13,7 @@ import { transcriptRecordMapperFor } from '../../harness-manifest'
 import type { SessionStore } from '../../store'
 import type { ConversationPageCursor } from '../../store/conversations/index'
 import type { DaemonRequestPort } from '../daemon-request'
-import { type LakeReadSession, TranscriptLake } from './lake'
+import { type LakeReadSession, TranscriptLake, type TranscriptLakeStorage } from './lake'
 import { MemorySearchService } from './search'
 import type { MemoryReader } from './types'
 import { MemoryVisibilityPolicy } from './visibility'
@@ -66,7 +66,7 @@ export class MemoryService {
 
   constructor(
     private readonly deps: MemoryServiceDeps,
-    options: { mirrorLakeDir?: string } = {},
+    options: { transcriptLake?: TranscriptLakeStorage } = {},
   ) {
     this.visibility = new MemoryVisibilityPolicy(deps.store)
     this.searcher = new MemorySearchService(deps.store, this.visibility)

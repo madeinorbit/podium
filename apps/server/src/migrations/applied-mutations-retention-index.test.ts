@@ -30,14 +30,17 @@ beforeEach(() => {
   db = openDatabase(':memory:')
   runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
   const insert = db.prepare(
-    'INSERT INTO applied_mutations (mutation_id, proc, result, applied_at) VALUES (?, ?, ?, ?)',
+    "INSERT INTO applied_mutations (workspace_id, mutation_id, proc, result, applied_at) VALUES ('local', ?, ?, ?, ?)",
   )
   for (let i = 0; i < 500; i++) insert.run(`m-${i}`, 'issues.update', '{"ok":true}', 1000 + i)
 })
 
 describe('applied_mutations retention', () => {
   it('uses an index for the applied_at cutoff instead of scanning the table', () => {
-    const plan = planFor('DELETE FROM applied_mutations WHERE applied_at < 1200')
+    // The sweep runs per workspace (POD-7021), and the index leads with it (POD-7024).
+    const plan = planFor(
+      "DELETE FROM applied_mutations WHERE workspace_id = 'local' AND applied_at < 1200",
+    )
 
     expect(plan).toContain('idx_applied_mutations_applied_at')
     // The paired denial: naming the index is not enough if the planner still
@@ -47,7 +50,9 @@ describe('applied_mutations retention', () => {
   })
 
   it('still deletes exactly the rows below the cutoff', () => {
-    db.prepare('DELETE FROM applied_mutations WHERE applied_at < ?').run(1200)
+    db.prepare("DELETE FROM applied_mutations WHERE workspace_id = 'local' AND applied_at < ?").run(
+      1200,
+    )
 
     const left = db.prepare('SELECT COUNT(*) AS n FROM applied_mutations').get() as { n: number }
     const min = db.prepare('SELECT MIN(applied_at) AS m FROM applied_mutations').get() as {

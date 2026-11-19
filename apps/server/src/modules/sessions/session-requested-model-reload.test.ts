@@ -31,7 +31,9 @@ import { firstAdminMemberId } from '@podium/model'
 import { asMachineId, asSessionId } from '@podium/model'
 import { fixtureWriteScope } from '@podium/sync/testing'
 import { describe, expect, it, vi } from 'vitest'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import { createBunStoreExecutor } from '../../store/executor'
+import { legacyWorkspaceQueries } from '../../store/executor/sync-drizzle'
 import { SessionsRepository } from '../../store/sessions'
 import type { SessionRow } from '../../store/types'
 import { openMigratedTestDatabase } from '../../test-support/migrated-database'
@@ -47,7 +49,8 @@ import { Session } from './session'
 const stageQueries = (database: Parameters<typeof createBunStoreExecutor>[0]['database']) => {
   const stage = createBunStoreExecutor({ database }).queries
   if (!stage) throw new Error('the synchronous query capability is absent on this handle')
-  return stage
+  // The self-hosted workspace's queries, as `SessionStore` builds them (POD-7015).
+  return legacyWorkspaceQueries(stage, SELF_HOSTED_WORKSPACE_ID)
 }
 
 /** The stored row, asserted present rather than assumed. A `getSession` that

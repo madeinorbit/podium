@@ -5,7 +5,7 @@
  *
  * Before the vault, provider keys sat in plain text in `accounts.credential` and
  * in the `apiKeys.*` server secrets; the Linear key and the Telegram token sat in
- * plain text in `server_secrets` until they were sealed in place; a native login
+ * plain text in `server_secrets` (since the workspace split, `workspace_secrets`) until they were sealed in place; a native login
  * transfer could leave a login file there. The boot moves each key into the
  * vault (`importLegacyCredentials`); this step then:
  *
@@ -88,7 +88,7 @@ export function writeLegacyPlaintextState(db: SqlDatabase, state: LegacyPlaintex
 export function hasLegacyPlaintextRows(db: SqlDatabase): boolean {
   const accounts = db.prepare('SELECT 1 FROM accounts LIMIT 1').get()
   const apiKeys = db
-    .prepare("SELECT 1 FROM server_secrets WHERE substr(key, 1, 8) = 'apiKeys.' LIMIT 1")
+    .prepare("SELECT 1 FROM workspace_secrets WHERE substr(key, 1, 8) = 'apiKeys.' LIMIT 1")
     .get()
   return accounts !== undefined || apiKeys !== undefined
 }
@@ -132,7 +132,7 @@ export function applyLegacyDestruction(
       }
       const sends = db.prepare('DELETE FROM account_machine_sends WHERE account_id = ?')
       const account = db.prepare('DELETE FROM accounts WHERE id = ? AND credential = ?')
-      const secret = db.prepare('DELETE FROM server_secrets WHERE key = ? AND value = ?')
+      const secret = db.prepare('DELETE FROM workspace_secrets WHERE key = ? AND value = ?')
       for (const value of values) {
         if (value.kind === 'account-row') {
           const gone = Number(account.run(value.legacyId, value.value).changes)

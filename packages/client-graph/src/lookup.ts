@@ -34,3 +34,21 @@ export function requireHere<T>(answer: Lookup<T>): T {
   if (isGone(answer)) throw new Error(`Record is gone (${answer.reason})`)
   return answer
 }
+
+/**
+ * An issue's children and done children, or `undefined` while they are on
+ * their way. Over all history they come from the stubs (POD-7088, design
+ * "Counts"), so a model's counts answer LOADING until the stubs are
+ * complete; a screen then shows no progress rather than a short one.
+ */
+export function childProgressOf(issue: {
+  readonly childCount: number
+  readonly childDoneCount: number
+}): { childCount: number; childDoneCount: number } | undefined {
+  try {
+    return { childCount: issue.childCount, childDoneCount: issue.childDoneCount }
+  } catch (error) {
+    if (error === LOADING) return undefined
+    throw error
+  }
+}

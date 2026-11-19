@@ -106,8 +106,14 @@
  * sites that use it and drizzle's own method is still there to be reached for.
  */
 
+import type { WorkspaceId } from '@podium/model'
 import type { ColumnBuilderBase } from 'drizzle-orm'
-import type { ReferenceConfig, SQLiteColumn, SQLiteColumnBuilder } from 'drizzle-orm/sqlite-core'
+import {
+  foreignKey,
+  type ReferenceConfig,
+  type SQLiteColumn,
+  type SQLiteColumnBuilder,
+} from 'drizzle-orm/sqlite-core'
 
 /**
  * The data type a column builder will produce.
@@ -161,4 +167,67 @@ export function brandedRef<TBuilder extends SQLiteColumnBuilder, TTarget extends
   actions?: ReferenceConfig['actions'],
 ): TBuilder {
   return column.references(target as () => SQLiteColumn, actions)
+}
+
+/**
+ * A WORKSPACE TABLE'S FOREIGN KEY (POD-6959 design 2.2, POD-7024).
+ *
+ * Every key of a workspace table leads with `workspace_id`, so a foreign key between two of
+ * them is composite: `(workspace_id, issue_id)` references `issues (workspace_id, id)`. A
+ * child row can then never point at a parent in another workspace, which is the database's own
+ * guarantee of isolation (design 2.9). A single-column `.references()` cannot say that, and it
+ * cannot even be declared any more: the parent's id alone is no longer unique.
+ *
+ * The brand check of {@link brandedRef} holds for every pair, position by position, and the
+ * first pair must be the two workspace columns. Drizzle's own `foreignKey()` takes the columns
+ * untyped, so the pairing is checked here and the key is built by drizzle.
+ *
+ * NO `set null`. SQLite sets every child column of a key to NULL, the workspace too, which its
+ * NOT NULL refuses. The four references that cleared themselves when their target was deleted
+ * (`issues.parent_id`, `superseded_by`, `duplicate_of`, `workflow_runs.supersedes_run_id`) keep
+ * that behaviour through a trigger the keys migration writes, and their key takes no action.
+ */
+type DataOf<TColumn> = TColumn extends { _: { $type: infer TType } }
+  ? TType
+  : TColumn extends { _: { data: infer TData } }
+    ? TData
+    : never
+
+type PairedWith<TColumns extends readonly unknown[], TTargets extends readonly unknown[]> = {
+  readonly [K in keyof TTargets]: K extends keyof TColumns
+    ? Exact<DataOf<TColumns[K]>, DataOf<TTargets[K]>, TTargets[K]>
+    : TTargets[K]
+}
+
+type WorkspaceFirst<TColumns extends readonly unknown[]> = TColumns extends readonly [
+  infer TFirst,
+  ...unknown[],
+]
+  ? Exact<DataOf<TFirst>, WorkspaceId, TColumns>
+  : ForeignKeyBrandMismatch<TColumns, WorkspaceId>
+
+export function workspaceRef<
+  const TColumns extends readonly [SQLiteColumn, ...SQLiteColumn[]],
+  const TTargets extends readonly [SQLiteColumn, ...SQLiteColumn[]],
+>(config: {
+  readonly name: string
+  readonly columns: TColumns & WorkspaceFirst<TColumns>
+  readonly foreignColumns: TTargets & PairedWith<TColumns, TTargets>
+  readonly onDelete?: 'cascade' | 'restrict'
+}) {
+  const { name, columns, foreignColumns, onDelete } = config
+  if (columns.length !== foreignColumns.length) {
+    throw new Error(
+      `foreign key ${name} pairs ${columns.length} columns with ${foreignColumns.length}`,
+    )
+  }
+  if (columns[0].name !== 'workspace_id' || foreignColumns[0].name !== 'workspace_id') {
+    throw new Error(`foreign key ${name} must lead with workspace_id on both sides`)
+  }
+  const key = foreignKey({
+    name,
+    columns: [...columns] as unknown as [SQLiteColumn, ...SQLiteColumn[]],
+    foreignColumns: [...foreignColumns] as unknown as [SQLiteColumn, ...SQLiteColumn[]],
+  })
+  return onDelete === undefined ? key : key.onDelete(onDelete)
 }

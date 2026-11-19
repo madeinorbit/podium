@@ -37,6 +37,7 @@ import { codexRecordToItems } from '../adapters/codex/transcript.js'
 import { cursorRecordToItems } from '../adapters/cursor/transcript.js'
 import { grokRecordToItems } from '../adapters/grok/transcript.js'
 import { piRecordToItems } from '../adapters/pi/transcript.js'
+import { fileByteSource } from './byte-source.js'
 import { fileIdFor } from './file-chain.js'
 import * as storeBarrel from './index.js'
 import { readTranscriptSlice } from './slice.js'
@@ -216,7 +217,10 @@ describe('transcript identity goldens (POD-4471)', () => {
       await writeFile(moved, bytes)
       const fileId = fileIdFor('gold-conversation')
       const read = (path: string) =>
-        readTranscriptSlice([{ path, fileId }], grammar.parse, { direction: 'before', limit: 100 })
+        readTranscriptSlice([{ source: fileByteSource(path), fileId }], grammar.parse, {
+          direction: 'before',
+          limit: 100,
+        })
       const [liveSlice, mirrorSlice, movedSlice] = await Promise.all([
         read(live),
         read(mirror),
@@ -232,38 +236,54 @@ describe('transcript identity goldens (POD-4471)', () => {
       const path = join(dir, 'session.jsonl')
       const fileId = fileIdFor('gold-truncate')
       await writeFile(path, toJsonl(grammar.records()))
-      const before = await readTranscriptSlice([{ path, fileId }], grammar.parse, {
-        direction: 'before',
-        limit: 100,
-      })
+      const before = await readTranscriptSlice(
+        [{ source: fileByteSource(path), fileId }],
+        grammar.parse,
+        {
+          direction: 'before',
+          limit: 100,
+        },
+      )
       expect(before.items.length).toBeGreaterThan(0)
       const oldTail = before.tail
       const beforeIds = new Set(before.items.map((i) => i.id))
       await writeFile(path, toJsonl([grammar.extra()]))
       // The re-seed path reads WITHOUT an anchor: the new generation serves whole.
-      const reseeded = await readTranscriptSlice([{ path, fileId }], grammar.parse, {
-        direction: 'before',
-        limit: 100,
-      })
+      const reseeded = await readTranscriptSlice(
+        [{ source: fileByteSource(path), fileId }],
+        grammar.parse,
+        {
+          direction: 'before',
+          limit: 100,
+        },
+      )
       expect(reseeded.items.length).toBeGreaterThan(0)
       expect(JSON.stringify(reseeded.items)).toContain(grammar.extraText)
       // A control file holding only the new record reads identically — no ghosts
       // from the retired generation linger in the window.
       const control = join(dir, 'control.jsonl')
       await writeFile(control, toJsonl([grammar.extra()]))
-      const controlSlice = await readTranscriptSlice([{ path: control, fileId }], grammar.parse, {
-        direction: 'before',
-        limit: 100,
-      })
+      const controlSlice = await readTranscriptSlice(
+        [{ source: fileByteSource(control), fileId }],
+        grammar.parse,
+        {
+          direction: 'before',
+          limit: 100,
+        },
+      )
       const controlKeys = controlSlice.items.map((i) => [i.id, i.cursor])
       expect(reseeded.items.map((i) => [i.id, i.cursor])).toEqual(controlKeys)
       // The stale anchor either misses exactly (empty) or lands the new window —
       // every item it returns belongs to the new generation.
-      const stale = await readTranscriptSlice([{ path, fileId }], grammar.parse, {
-        ...(oldTail ? { anchor: oldTail } : {}),
-        direction: 'before',
-        limit: 100,
-      })
+      const stale = await readTranscriptSlice(
+        [{ source: fileByteSource(path), fileId }],
+        grammar.parse,
+        {
+          ...(oldTail ? { anchor: oldTail } : {}),
+          direction: 'before',
+          limit: 100,
+        },
+      )
       const controlIds = new Set(controlSlice.items.map((i) => i.id))
       for (const item of stale.items) expect(controlIds.has(item.id)).toBe(true)
       if (grammar.uuidStableIds) {
@@ -280,8 +300,8 @@ describe('transcript identity goldens (POD-4471)', () => {
       await writeFile(archived, toJsonl(archivedRecords))
       await writeFile(active, toJsonl(activeRecords))
       const chain = [
-        { path: archived, fileId: fileIdFor(ns, 1) },
-        { path: active, fileId: fileIdFor(ns) },
+        { source: fileByteSource(archived), fileId: fileIdFor(ns, 1) },
+        { source: fileByteSource(active), fileId: fileIdFor(ns) },
       ]
       const first = await readTranscriptSlice(chain, grammar.parse, {
         direction: 'before',
@@ -296,7 +316,7 @@ describe('transcript identity goldens (POD-4471)', () => {
       )
       // The active file under the lake chain reads exactly as the live file does.
       const liveActive = await readTranscriptSlice(
-        [{ path: active, fileId: fileIdFor(ns) }],
+        [{ source: fileByteSource(active), fileId: fileIdFor(ns) }],
         grammar.parse,
         {
           direction: 'before',
@@ -311,7 +331,7 @@ describe('transcript identity goldens (POD-4471)', () => {
       // share a position. (Item ids stay stable when the record carries its own
       // uuid: that stability across incarnations is the point of uuids.)
       const liveArchived = await readTranscriptSlice(
-        [{ path: archived, fileId: fileIdFor(ns) }],
+        [{ source: fileByteSource(archived), fileId: fileIdFor(ns) }],
         grammar.parse,
         {
           direction: 'before',
@@ -331,30 +351,46 @@ describe('transcript identity goldens (POD-4471)', () => {
       const [first, second] = grammar.records()
       const complete = `${JSON.stringify(first)}\n${JSON.stringify(second)}`
       await writeFile(path, complete) // no trailing newline: in-flight record
-      const open = await readTranscriptSlice([{ path, fileId }], grammar.parse, {
-        direction: 'before',
-        limit: 100,
-      })
+      const open = await readTranscriptSlice(
+        [{ source: fileByteSource(path), fileId }],
+        grammar.parse,
+        {
+          direction: 'before',
+          limit: 100,
+        },
+      )
       expect(open.items.length).toBeGreaterThan(0)
       const openCursors = open.items.map((i) => i.cursor)
       await writeFile(path, `${complete}\n`) // the newline lands
-      const closed = await readTranscriptSlice([{ path, fileId }], grammar.parse, {
-        direction: 'before',
-        limit: 100,
-      })
+      const closed = await readTranscriptSlice(
+        [{ source: fileByteSource(path), fileId }],
+        grammar.parse,
+        {
+          direction: 'before',
+          limit: 100,
+        },
+      )
       expect(closed.items.map((i) => i.cursor)).toEqual(openCursors)
       // A torn line between two good records is skipped but consumed.
       await writeFile(path, `${JSON.stringify(first)}\n{not json\n${JSON.stringify(second)}\n`)
-      const torn = await readTranscriptSlice([{ path, fileId }], grammar.parse, {
-        direction: 'before',
-        limit: 100,
-      })
+      const torn = await readTranscriptSlice(
+        [{ source: fileByteSource(path), fileId }],
+        grammar.parse,
+        {
+          direction: 'before',
+          limit: 100,
+        },
+      )
       const cleanPath = join(dir, 'clean.jsonl')
       await writeFile(cleanPath, `${JSON.stringify(first)}\n${JSON.stringify(second)}\n`)
-      const cleanAfter = await readTranscriptSlice([{ path: cleanPath, fileId }], grammar.parse, {
-        direction: 'before',
-        limit: 100,
-      })
+      const cleanAfter = await readTranscriptSlice(
+        [{ source: fileByteSource(cleanPath), fileId }],
+        grammar.parse,
+        {
+          direction: 'before',
+          limit: 100,
+        },
+      )
       // Same items as the clean file except the torn record's offset shifts what
       // follows it — so compare COUNT and the first record's identity only.
       expect(torn.items.length).toEqual(cleanAfter.items.length)
@@ -365,25 +401,37 @@ describe('transcript identity goldens (POD-4471)', () => {
       const path = join(dir, 'replay.jsonl')
       const fileId = fileIdFor('gold-replay')
       await writeFile(path, toJsonl(grammar.records()))
-      const first = await readTranscriptSlice([{ path, fileId }], grammar.parse, {
-        direction: 'before',
-        limit: 100,
-      })
+      const first = await readTranscriptSlice(
+        [{ source: fileByteSource(path), fileId }],
+        grammar.parse,
+        {
+          direction: 'before',
+          limit: 100,
+        },
+      )
       expect(first.items.length).toBeGreaterThan(0)
       expect(first.tail).toBeDefined()
       await appendFile(path, toJsonl([grammar.extra()]))
-      const delta = await readTranscriptSlice([{ path, fileId }], grammar.parse, {
-        ...(first.tail ? { anchor: first.tail } : {}),
-        direction: 'after',
-        limit: 100,
-      })
+      const delta = await readTranscriptSlice(
+        [{ source: fileByteSource(path), fileId }],
+        grammar.parse,
+        {
+          ...(first.tail ? { anchor: first.tail } : {}),
+          direction: 'after',
+          limit: 100,
+        },
+      )
       expect(delta.items.length).toBeGreaterThan(0)
       const firstIds = new Set(first.items.map((i) => i.id))
       for (const item of delta.items) expect(firstIds.has(item.id)).toBe(false)
-      const full = await readTranscriptSlice([{ path, fileId }], grammar.parse, {
-        direction: 'before',
-        limit: 100,
-      })
+      const full = await readTranscriptSlice(
+        [{ source: fileByteSource(path), fileId }],
+        grammar.parse,
+        {
+          direction: 'before',
+          limit: 100,
+        },
+      )
       expect(full.items.slice(0, first.items.length).map((i) => i.id)).toEqual(
         first.items.map((i) => i.id),
       )

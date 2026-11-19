@@ -25,7 +25,9 @@ import {
   FINGERPRINT_SECRET_KEY,
   importFingerprintKey,
 } from '../../fingerprint-key-import'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import { openTestStore } from '../../test-support/open-test-store'
+import { testStoreEngine } from '../../test-support/pg-test-database'
 import { FINGERPRINT_BYTES, secretFingerprint, secretPresence } from './secret-fingerprint'
 
 const SERVER_KEY = Buffer.from('a'.repeat(64), 'hex')
@@ -134,15 +136,11 @@ describe('database fingerprint key migration', () => {
     roots.push(root)
     const db = openDatabase(':memory:')
     databases.push(db)
-    db.exec(
-      'CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL); CREATE TABLE server_secrets (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL)',
-    )
+    db.exec('CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL); CREATE TABLE workspace_secrets (workspace_id TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY (workspace_id, key))')
     return { root, db, path: join(root, FINGERPRINT_KEY_FILE) }
   }
   function key(db: SqlDatabase): Buffer {
-    const row = db
-      .prepare('SELECT value FROM server_secrets WHERE key = ?')
-      .get(FINGERPRINT_SECRET_KEY) as { value: string }
+    const row = db.prepare('SELECT value FROM workspace_secrets WHERE workspace_id = ? AND key = ?').get(SELF_HOSTED_WORKSPACE_ID, FINGERPRINT_SECRET_KEY) as { value: string }
     return Buffer.from(row.value, 'hex')
   }
   afterEach(() => {
@@ -158,64 +156,56 @@ describe('database fingerprint key migration', () => {
   ])('preserves the legacy decoded key and fingerprint (%s)', (raw) => {
     const { root, db, path } = fixture()
     writeFileSync(path, raw)
-    const before = secretFingerprint(
-      'notifications.telegramBotToken',
-      MATERIAL,
-      Buffer.from(raw.trim(), 'hex'),
-    )
-    importFingerprintKey(db, root)
+    const before = secretFingerprint('notifications.telegramBotToken', MATERIAL, Buffer.from(raw.trim(), 'hex'))
+    importFingerprintKey(db, SELF_HOSTED_WORKSPACE_ID, root)
     expect(secretFingerprint('notifications.telegramBotToken', MATERIAL, key(db))).toBe(before)
     expect(existsSync(path)).toBe(false)
-    importFingerprintKey(db, root)
+    importFingerprintKey(db, SELF_HOSTED_WORKSPACE_ID, root)
     expect(secretFingerprint('notifications.telegramBotToken', MATERIAL, key(db))).toBe(before)
   })
 
   it('retains the file and rolls back the marker if the database write fails', () => {
     const { root, db, path } = fixture()
     writeFileSync(path, SERVER_KEY.toString('hex'))
-    db.exec(
-      "CREATE TRIGGER refuse_key BEFORE INSERT ON server_secrets BEGIN SELECT RAISE(ABORT, 'key failed'); END",
-    )
-    expect(() => importFingerprintKey(db, root)).toThrow('key failed')
+    db.exec("CREATE TRIGGER refuse_key BEFORE INSERT ON workspace_secrets BEGIN SELECT RAISE(ABORT, 'key failed'); END")
+    expect(() => importFingerprintKey(db, SELF_HOSTED_WORKSPACE_ID, root)).toThrow('key failed')
     expect(existsSync(path)).toBe(true)
     expect(db.prepare('SELECT * FROM meta').all()).toEqual([])
     db.exec('DROP TRIGGER refuse_key')
-    importFingerprintKey(db, root)
+    importFingerprintKey(db, SELF_HOSTED_WORKSPACE_ID, root)
     expect(key(db)).toEqual(SERVER_KEY)
     expect(existsSync(path)).toBe(false)
   })
 
   it('resumes committed cleanup without importing a replacement file', () => {
     const { root, db, path } = fixture()
-    db.prepare('INSERT INTO server_secrets VALUES (?, ?, ?)').run(
-      FINGERPRINT_SECRET_KEY,
-      SERVER_KEY.toString('hex'),
-      'now',
-    )
+    db.prepare('INSERT INTO workspace_secrets VALUES (?, ?, ?, ?)').run(SELF_HOSTED_WORKSPACE_ID, FINGERPRINT_SECRET_KEY, SERVER_KEY.toString('hex'), 'now')
     db.prepare('INSERT INTO meta VALUES (?, ?)').run(FINGERPRINT_IMPORT_MARKER, 'pending-cleanup')
     writeFileSync(path, OTHER_KEY.toString('hex'))
-    importFingerprintKey(db, root)
+    importFingerprintKey(db, SELF_HOSTED_WORKSPACE_ID, root)
     expect(key(db)).toEqual(SERVER_KEY)
     expect(existsSync(path)).toBe(false)
     writeFileSync(path, OTHER_KEY.toString('hex'))
-    importFingerprintKey(db, root)
+    importFingerprintKey(db, SELF_HOSTED_WORKSPACE_ID, root)
     expect(key(db)).toEqual(SERVER_KEY)
   })
 
   it('creates distinct persistent database keys without creating files', () => {
     const a = fixture()
     const b = fixture()
-    importFingerprintKey(a.db, a.root)
-    importFingerprintKey(b.db, b.root)
+    importFingerprintKey(a.db, SELF_HOSTED_WORKSPACE_ID, a.root)
+    importFingerprintKey(b.db, SELF_HOSTED_WORKSPACE_ID, b.root)
     const first = key(a.db)
     expect(first.length).toBe(32)
     expect(first).not.toEqual(key(b.db))
-    importFingerprintKey(a.db, a.root)
+    importFingerprintKey(a.db, SELF_HOSTED_WORKSPACE_ID, a.root)
     expect(key(a.db)).toEqual(first)
     expect(existsSync(a.path)).toBe(false)
   })
 
-  it('imports through store migration and reads the same key after reopening', async () => {
+  // The boot imports a legacy key file beside a self-hosted install's database; a Postgres
+  // install has no legacy files (POD-6958 design 2.9), so this case runs on SQLite only.
+  it.skipIf(testStoreEngine() === 'pg')('imports through store migration and reads the same key after reopening', async () => {
     const { root, path } = fixture()
     writeFileSync(path, SERVER_KEY.toString('hex'))
     const dbPath = join(root, 'podium.db')

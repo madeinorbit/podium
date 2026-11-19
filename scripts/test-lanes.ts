@@ -79,6 +79,15 @@ export const LANES: Record<string, Lane> = {
     admission: 'focused',
     summary: '@podium/server store shard',
   },
+  // The store shard's Postgres leg (POD-6980). `focused` like the SQLite store shard:
+  // the Postgres server is one shared container per host, started on demand by the
+  // config's globalSetup under its own host lock, so the lane itself needs no lease.
+  'server-store-pg': {
+    cwd: 'apps/server',
+    command: bunVitest('vitest.store-pg.config.ts'),
+    admission: 'focused',
+    summary: '@podium/server store shard on Postgres (starts the shared podium-test-pg container)',
+  },
   'server-services': {
     cwd: 'apps/server',
     command: bunVitest('vitest.services.config.ts'),
@@ -165,7 +174,8 @@ function nodeExecutable(): string {
   throw new Error('mobile test lane requires Node on PATH; Bun aliases do not qualify')
 }
 
-export function laneCommand(lane: Lane, root: string, extra: string[]): string[] {
+export function laneCommand(lane: Lane, root: string, given: string[]): string[] {
+  const extra = withoutSeparators(given)
   const entry = vitestEntry(lane, root)
   const filters = fileFilters(extra).length > 0 ? [] : (lane.filters ?? [])
   const command = lane.command.map((part) => (part === '<vitest>' ? entry : part))
@@ -173,9 +183,23 @@ export function laneCommand(lane: Lane, root: string, extra: string[]): string[]
   return [...command, ...filters, ...extra, '--passWithNoTests=false']
 }
 
+/**
+ * The caller's arguments without a bare `--` (POD-6980).
+ *
+ * `bun run test:lane -- <lane> -- <file>` is the natural way to write a lane call, and
+ * the second `--` used to reach vitest, whose parser ends option parsing there: the
+ * file became no filter at all, the focused runner's `--reporter=json` after it was
+ * ignored too, and the "focused" run executed the whole lane before failing to find
+ * its report. Vitest takes nothing after a `--`, so dropping it loses nothing.
+ */
+export function withoutSeparators(argv: string[]): string[] {
+  return argv.filter((arg) => arg !== '--')
+}
+
 /** Use the runner's parser so flag values (for example `-t name`) are not paths. */
 export function fileFilters(argv: string[]): string[] {
-  return parseCLI(['vitest', 'run', ...argv], { allowUnknownOptions: true }).filter
+  return parseCLI(['vitest', 'run', ...withoutSeparators(argv)], { allowUnknownOptions: true })
+    .filter
 }
 
 export type FileRunner = { kind: 'vitest'; lane: string } | { kind: 'bun-test' }
@@ -234,7 +258,7 @@ export function splitFileArgs(
   const extra: string[] = []
   const errors: string[] = []
   const filters = fileFilters(argv)
-  for (const arg of argv) {
+  for (const arg of withoutSeparators(argv)) {
     if (!filters.includes(arg)) {
       extra.push(arg)
       continue

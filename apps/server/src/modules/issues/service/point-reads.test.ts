@@ -11,6 +11,7 @@
 
 import { fixtureWriteScope } from '@podium/sync/testing'
 import { asIssueId, firstAdminMemberId } from '@podium/model'
+import { sql } from 'drizzle-orm'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { SessionStore } from '../../../store'
 import { type CorpusIssue, rawSql, rowOf, seededStore } from '../../../test-support/issue-corpus'
@@ -50,11 +51,7 @@ describe('issue point reads over the database', () => {
     const viewer = await firstAdminMemberId(store)
     await store.issues.setIssueUserState(fixtureWriteScope(), viewer, asIssueId('iss_1'), { readAt: '2026-10-01T00:00:00.000Z' })
     await store.issues.setIssueUserState(fixtureWriteScope(), viewer, asIssueId('iss_4'), { tuckedAt: '2026-10-01T00:00:00.000Z' })
-    rawSql(store, 'UPDATE issues SET repo_id = NULL WHERE id IN (?, ?)', 'iss_legacy_a', 'iss_legacy_b')
-    // Quarantined: SQLite allows a NULL in a TEXT primary key, and the boot
-    // load skips such a row (issues.boot-quarantine.test.ts); so do the reads.
-    await store.issues.upsertIssue(fixtureWriteScope(), rowOf(live(8, { id: 'iss_corrupt' }), '/a', store.hostMachineId))
-    rawSql(store, 'UPDATE issues SET id = NULL WHERE id = ?', 'iss_corrupt')
+    await rawSql(store, sql`UPDATE issues SET repo_id = NULL WHERE id IN (${'iss_legacy_a'}, ${'iss_legacy_b'})`)
     const issues = new IssueStore({ store } as IssueDeps)
 
     // Rows by id: deleted rows included, unknown ids absent.

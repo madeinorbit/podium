@@ -1,4 +1,3 @@
-import { executionFactsOf } from '../../test-support/execution-facts'
 import { ISSUE_COMMAND_NAMES, ISSUE_CONTRACTS } from '@podium/commands'
 import { asIssueId, asSessionId, asUserId, firstAdminMemberId, type UserId } from '@podium/model'
 import { afterAll, describe, expect, it, vi } from 'vitest'
@@ -6,6 +5,7 @@ import { z } from 'zod'
 import { SessionRegistry } from '../../relay'
 import { INLINE_BODY_MAX } from '../../store/messages'
 import { OPERATOR } from '../../test-support/capabilities'
+import { executionFactsOf } from '../../test-support/execution-facts'
 import { attachHostDaemon } from '../../test-support/host-daemon'
 import { ShippingOrderAccessError } from '../shipping/service'
 import { commandAccess } from './command-ctx'
@@ -938,12 +938,15 @@ describe('normalized palette search', () => {
         'search',
         { text: 'Normalized search' },
       )) as Array<Record<string, unknown>>
-      const normalized = (await registry.issueCommands.dispatch(
+      const page = (await registry.issueCommands.dispatch(
         { capability: OPERATOR },
         'issues',
         'searchNormalized',
         { text: 'Normalized search' },
-      )) as Array<Record<string, unknown>>
+      )) as { hits: Array<Record<string, unknown>>; next: string | null }
+      // One page by default (POD-7108); this answer is complete.
+      expect(page.next).toBeNull()
+      const normalized = page.hits
       expect(legacy.map((row) => row.id)).toEqual([issue.id])
       expect(normalized.map((row) => row.id)).toEqual([issue.id])
       expect(normalized[0]).toMatchObject({

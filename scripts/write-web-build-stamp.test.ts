@@ -429,8 +429,8 @@ describe('writeWebBuildStamp and the generated service worker', () => {
     expect(gunzipSync(readFileSync(join(dir, 'sw.js.gz'))).toString('utf8')).toBe(sw)
   })
 
-  // The phone export ships no service worker at all (checked: apps/mobile registers
-  // none and its export emits none), and the same script stamps both dists.
+  // Both production dists carry a worker now (the phone's since POD-7179), but a dist
+  // without one, such as a development export, still stamps.
   it('stamps a dist that has no service worker', () => {
     const dir = mkdtempSync(join(tmpdir(), 'podium-stamp-nosw-'))
     writeFileSync(join(dir, 'index.html'), BUILT_INDEX)

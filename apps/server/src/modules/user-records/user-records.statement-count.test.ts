@@ -72,7 +72,20 @@ async function fixture(size: number): Promise<Fixture> {
         ),
     )
   }
+  // The setup's own deliveries run before the count, not inside it (POD-7068).
+  await o.reg.changeLedger.authority.settled()
   return { o, session: sessionId }
+}
+
+/**
+ * The operation's own delivery runs inside the count, whole (POD-7068). It trails
+ * the commit and the submit does not await it, so a window that ended when the
+ * submit returned held as many of its reads as had started by then, a number that
+ * moved with the host's speed.
+ */
+async function delivered<T>(f: Fixture, result: T): Promise<T> {
+  await f.o.reg.changeLedger.authority.settled()
+  return result
 }
 
 const write = (name: string, envelopeOf: (f: Fixture, n: number) => ReturnType<typeof envelope>) =>
@@ -80,7 +93,7 @@ const write = (name: string, envelopeOf: (f: Fixture, n: number) => ReturnType<t
     name,
     setup: fixture,
     target: (f) => f.o.store,
-    run: async (f) => appliedReply(await submit(f.o, envelopeOf(f, ++seq))),
+    run: async (f) => await delivered(f, appliedReply(await submit(f.o, envelopeOf(f, ++seq)))),
     check: (reply) => expect((reply as ReturnType<typeof appliedReply>).replayed).toBe(false),
   }) satisfies StatementPin<Fixture>
 
@@ -133,7 +146,9 @@ describe('statement counts of the per-user record writes', () => {
   })
 
   it('a preference edit does not grow with the preferences the table holds', async () => {
-    await expectConstantStatements(preferencesEdit, 16)
+    // POD-7068: its delivery is counted whole; a window that ended when the submit
+    // returned could miss the delivery's scoping read of workspace_meta: 16 -> 17.
+    await expectConstantStatements(preferencesEdit, 17)
   })
 
   it('a read position edit does not grow with the positions the table holds', async () => {

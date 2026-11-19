@@ -155,7 +155,6 @@ describe('declared settings readers', () => {
     expect(omitGone(pool.row('setupSession', 'cold'))).not.toHaveProperty('privatePayload')
     expect(payloadReads).toBe(0)
     expect(load).not.toHaveBeenCalled()
-    expect(pool.tables.session.has('cold')).toBe(false)
   })
 
   it('batches requested rows, returns loading first, and invalidates only changed rows', async () => {
@@ -198,25 +197,6 @@ describe('declared settings readers', () => {
     expect(omitGone(pool.row('settingsCatalog', 'catalog'))).toMatchObject({ machines: [] })
   })
 
-  it('preserves default-agent ties across hot and cold summaries, updates and hydration', () => {
-    const { pool, load, feed } = fixture([
-      session('z-cold', 'codex', true),
-      session('a-hot', 'claude-code'),
-    ])
-    expect(pool.residency?.isCold('session', 'z-cold')).toBe(true)
-    expect(settingsView(pool).setup().defaultAgent).toBe('codex')
-    expect(load).not.toHaveBeenCalled()
-    expect(omitGone(pool.row('setupSession', 'z-cold'))).not.toHaveProperty('title')
-    const next = { ...feed.get('z-cold')!, title: 'not a summary field' }
-    feed.set('z-cold', next)
-    pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'z-cold', value: next }] })
-    expect(settingsView(pool).setup().defaultAgent).toBe('codex')
-    expect(omitGone(pool.row('session', 'z-cold'))).toBe(LOADING)
-    expect(pool.hydrate()).toBe(1)
-    expect(load).toHaveBeenCalledTimes(1)
-    expect(settingsView(pool).setup().defaultAgent).toBe('codex')
-  })
-
   it('compares catalog, tab, resume twins, usage, agent and demanded preferences with no differences', async () => {
     const a = session('older', 'codex', true),
       b = { ...session('newer', 'claude-code', true), lastActiveAt: '2021-01-01T00:00:00.000Z' }
@@ -240,7 +220,9 @@ describe('declared settings readers', () => {
     await Promise.resolve()
     const result = checkSettings(f.pool, f.owner as unknown as Parameters<typeof checkSettings>[1])
     expect(result).toMatchObject({ differences: 0, pending: 0, first: null })
-    expect(result.positions).toBeGreaterThan(3)
+    // The compared rows: the machine and the repository. Settings lists no
+    // sessions since POD-7088; the twins reach it only as the default agent.
+    expect(result.positions).toBeGreaterThanOrEqual(2)
     expect(f.load).not.toHaveBeenCalled()
     expect(settingsView(f.pool).sessionPresent('older')).toBe(false)
     expect(settingsView(f.pool).sessionPresent('newer')).toBe(true)

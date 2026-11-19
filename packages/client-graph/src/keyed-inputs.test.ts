@@ -23,7 +23,6 @@ import {
   writeTitleRename,
 } from '../../../tests/worklist/shared/src/scenarios'
 import { ChatContextSource } from './chat-context-source'
-import { COMMAND_SUMMARIES } from './command-launch-schema'
 import { CommandLaunchSource } from './command-launch-source'
 import { allResidentSessions } from './enumerate'
 import { attachHeaderSource } from './header-source'
@@ -64,7 +63,7 @@ async function fixture(scale: 1 | 4) {
     for (const stop of stops.splice(0).reverse()) stop()
   }
   cleanups.push(dispose)
-  const handle = createRuntimeWorklistPool(rt, { summaries: COMMAND_SUMMARIES })
+  const handle = createRuntimeWorklistPool(rt, {})
   stops.push(() => handle.dispose())
   for (let turn = 0; turn < 32 && handle.pool.hydrate(); turn++) {
     /* baseline boot */

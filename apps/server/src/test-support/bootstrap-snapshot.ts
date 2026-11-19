@@ -1,12 +1,6 @@
-/** Worker-backed snapshots for test assertions, including in-memory stores. */
-import { execFile } from 'node:child_process'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+/** Whole-world snapshots for test assertions, including in-memory stores. */
 import type * as Model from '@podium/model'
-import type { MetadataEntityKind, Principal } from '@podium/protocol'
-import { type SqlDatabase, serializeDatabase } from '@podium/runtime/sqlite'
+import type { MetadataEntityKind } from '@podium/protocol'
 import type { BootstrapChunk } from '@podium/sync/replica'
 import type { SessionRegistry } from '../relay'
 
@@ -88,54 +82,36 @@ export async function snapshotFromBootstrap(
   }
 }
 
-export async function workerSnapshot(
+/**
+ * Everything `principal` may see, every kind whole: the fixture's world, read
+ * in-process by the Authority with the builders the sync worker runs
+ * (`bootstrap-worker.bun.test.ts` holds the two to the same rows). The first
+ * download is the policy's collections (POD-7085) and kind-named loads are
+ * gone (POD-7086), so no wire route streams this any more. `kinds` narrows
+ * what the fixture looks at; it is not a request.
+ */
+export async function worldSnapshot(
   registry: SessionRegistry,
-  principal: Principal,
+  principal: Parameters<SessionRegistry['changeLedger']['authority']['bootstrap']>[0],
   kinds?: readonly MetadataEntityKind[],
 ): Promise<Snapshot> {
-  const dir = mkdtempSync(join(tmpdir(), 'worker-test-snapshot-'))
-  try {
-    const path = join(dir, 'snapshot.db')
-    // Test-only access to the fixture's physical image. The exclusive lane
-    // captures memory and file stores consistently without building any records.
-    const physical = registry.sessionStore as unknown as {
-      db: SqlDatabase
-      executor: { exclusive<T>(read: () => Promise<T>): Promise<T> }
-    }
-    await physical.executor.exclusive(async () => {
-      writeFileSync(path, serializeDatabase(physical.db))
-    })
-    const request = JSON.stringify({
-      dbPath: path,
-      now: (registry as unknown as { now(): number }).now(),
-      principal,
-      kinds,
-      identity: await registry.syncDelta.serving.identity(),
-      floor: await registry.syncDelta.serving.retentionFloor(),
-    })
-    // The Bun CLI condition reaches its worker too; Vitest's resolver-only
-    // condition and Worker.execArgv do not select source exports there.
-    const snapshot = await new Promise<Snapshot>((resolve, reject) => {
-      execFile(
-        process.execPath,
-        [
-          '--conditions=@podium/source',
-          fileURLToPath(new URL('./bootstrap-snapshot-worker.ts', import.meta.url)),
-          request,
-        ],
-        { maxBuffer: 64 * 1024 * 1024 },
-        (error, stdout, stderr) => {
-          if (error) return reject(new Error(stderr || error.message, { cause: error }))
-          try {
-            resolve(JSON.parse(stdout) as Snapshot)
-          } catch (error) {
-            reject(error)
-          }
-        },
-      )
-    })
-    return { ...snapshot, minAvailableSeq: await registry.syncDelta.serving.retentionFloor() }
-  } finally {
-    rmSync(dir, { recursive: true, force: true })
-  }
+  const world = await registry.changeLedger.authority.bootstrap(principal)
+  const identity = await registry.syncDelta.serving.identity()
+  const wanted = kinds === undefined ? undefined : new Set<string>(kinds)
+  const snapshot = await snapshotFromBootstrap(
+    (async function* () {
+      yield {
+        ...identity,
+        snapshotSeq: world.throughSeq,
+        kindTokens: {},
+        changes: world.changes.flatMap((change) =>
+          change.op === 'upsert' && (wanted === undefined || wanted.has(change.entity))
+            ? [{ ...change, payload: change.value }]
+            : [],
+        ),
+        last: true,
+      }
+    })(),
+  )
+  return { ...snapshot, minAvailableSeq: await registry.syncDelta.serving.retentionFloor() }
 }

@@ -788,14 +788,14 @@ describe('POD-384 parent-branch movement watch', () => {
     markLanded(script)
 
     await svc.crud.update(svc.reports.store.serverWriter, id, { parentBranch: 'main' })
-    // refreshGitState is fire-and-forget from update — wait for the coalesced probe.
-    for (let i = 0; i < 50; i++) {
-      const gs = (await svc.reports.get(id))?.gitState
-      if (gs?.ahead === 0 && gs.merged === true) break
-      await new Promise((r) => setTimeout(r, 10))
-    }
-
-    expect((await svc.reports.get(id))?.gitState).toMatchObject({ ahead: 0, merged: true })
+    // refreshGitState is fire-and-forget from update: wait for the coalesced probe. Bounded
+    // by time, not by a count of 10 ms polls, which a Postgres store's round trips can
+    // outlast on a loaded host (POD-6994).
+    await vi.waitFor(
+      async () =>
+        expect((await svc.reports.get(id))?.gitState).toMatchObject({ ahead: 0, merged: true }),
+      { timeout: 10_000, interval: 10 },
+    )
   })
 
   /**

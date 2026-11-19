@@ -1,3 +1,4 @@
+import { observableFixtureKeys } from '@podium/client-core/test-support/ui'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
 import { FLIGHT_DECK_FOLDS_KEY } from '@podium/client-core/ui-state'
 import { writeFlightDeckFolds } from '@podium/client-core/values'
@@ -22,7 +23,8 @@ function fixture() {
     subscribe: (listener) => { listeners.add(listener); return () => listeners.delete(listener) },
   }
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) })
-  attachPreferenceSource(pool, ui)
+  // The product's device preferences are observable (UiStore); so is this port.
+  attachPreferenceSource(pool, observableFixtureKeys(ui))
   const issue = (id: string, seq: number, parentId: string | null) => ({
     kind: 'issue' as const, id, value: { id, seq, title: `Task ${id}`, stage: 'in_progress', audience: 'human', parentId,
       deps: [], repoPath: '/synthetic', createdAt: stamp, updatedAt: stamp, readAt: stamp },

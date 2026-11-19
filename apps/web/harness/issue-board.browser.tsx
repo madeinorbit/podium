@@ -138,7 +138,6 @@ Object.assign(window, {
       issues: owner?.replica.rowCount('issueProjections'),
       sessions: owner?.replica.rowCount('sessions'),
       residentIssues: pool?.tables.issue.size,
-      coldIssues: pool?.residency?.ids('issue', true).length,
     }),
     reset: () => {
       storeStats.reset()

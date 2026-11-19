@@ -41,7 +41,7 @@ import type {
   WorkflowWire,
 } from '@podium/model'
 import type { PendingInteractionWire } from '@podium/protocol'
-import type { ExitKind } from '@podium/sync/replica'
+import type { CollectionLoader, ExitKind } from '@podium/sync/replica'
 import type { OutboxStorage } from '../outbox'
 import type { TranscriptCache } from '../transcript/contracts'
 import type { FeedCursor } from './feed'
@@ -313,6 +313,8 @@ export interface Replica {
   issueIdByRef?(ref: string): string | undefined
   /** Existing reference claimants in the same ID order as rows(), including cold rows. */
   issueIdsByRef?(ref: string): readonly string[]
+  /** POD-7087 — the one loader over the device's collections; absent without a kernel store. */
+  loader?(): CollectionLoader | undefined
   /** Optional committed address batch, including explicit whole-scope replacement. */
   subscribeAddressedBatch?(cb: (batch: ReplicaAddressedBatch) => void): () => void
   /** Non-React change seam (#262). Notifications are COALESCED per application:

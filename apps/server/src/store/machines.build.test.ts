@@ -1,22 +1,24 @@
-import { firstAdminMemberId, asUserId } from '@podium/model'
+import { asUserId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import type { SessionStore } from '../store'
-import { openTestStore } from '../test-support/open-test-store'
+import { openPeopleStoreSlice, type PeopleStoreSlice } from '../test-support/people-store-slice'
 
-async function seedMachine(store: SessionStore): Promise<void> {
+/** A member who holds the machine; any member id serves. */
+const OWNER = asUserId('mem_1FFFFFFFFFFFFFFFFFFFFFFFFFF')
+
+async function seedMachine(store: PeopleStoreSlice): Promise<void> {
   await store.machines.upsertMachine({
     id: 'm1',
     name: 'box',
     hostname: 'box.local',
     tokenHash: 'token-hash',
-    ownerUserId: firstAdminMemberId(),
+    ownerUserId: OWNER,
     assignment: { server: false, agentExecution: true },
   })
 }
 
 describe('machine build report', () => {
   it('reads as unreported for a machine that never sent one', async () => {
-    const store = await openTestStore()
+    const store = await openPeopleStoreSlice()
     await seedMachine(store)
     const m = await store.machines.getMachine('m1')
     expect(m?.appVersion).toBeNull()
@@ -26,7 +28,7 @@ describe('machine build report', () => {
   })
 
   it('records a reported build', async () => {
-    const store = await openTestStore()
+    const store = await openPeopleStoreSlice()
     await seedMachine(store)
     await store.machines.setMachineBuild(
       'm1',
@@ -43,7 +45,7 @@ describe('machine build report', () => {
   })
 
   it('overwrites a previous report on reconnect', async () => {
-    const store = await openTestStore()
+    const store = await openPeopleStoreSlice()
     await seedMachine(store)
     await store.machines.setMachineBuild(
       'm1',
@@ -62,7 +64,7 @@ describe('machine build report', () => {
   })
 
   it('records a partial report from an older daemon', async () => {
-    const store = await openTestStore()
+    const store = await openPeopleStoreSlice()
     await seedMachine(store)
     await store.machines.setMachineBuild(
       'm1',
@@ -78,7 +80,7 @@ describe('machine build report', () => {
 
   describe('supervisor-owned presence', () => {
     it('starts with the enrollment assignment and no presence source', async () => {
-      const store = await openTestStore()
+      const store = await openPeopleStoreSlice()
       await seedMachine(store)
       expect(await store.machines.getMachine('m1')).toMatchObject({
         presenceSource: null,
@@ -89,7 +91,7 @@ describe('machine build report', () => {
     })
 
     it('atomically records supervisor build, caps, services, and last seen', async () => {
-      const store = await openTestStore()
+      const store = await openPeopleStoreSlice()
       await seedMachine(store)
       const observedAt = '2026-08-04T00:00:00.000Z'
       await store.machines.setSupervisorPresence(

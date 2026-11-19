@@ -1,13 +1,29 @@
-import { SYNC_CONTENT_TYPE, SyncBootstrapRequired, type SyncMeta } from '@podium/protocol'
+import {
+  CLIENT_TYPE_HEADER,
+  type ClientType,
+  type CollectionInstance,
+  SYNC_CONTENT_TYPE,
+  SyncBootstrapRequired,
+  type SyncMeta,
+} from '@podium/protocol'
 import type {
   AuthorityReadPort,
   BootstrapChunk,
   BootstrapRequired,
+  CachePolicy,
   Cursor,
   DeltaFrame,
+  InstanceRequest,
 } from '@podium/sync/replica'
-import { toBootstrapChunk, toDeltaFrame } from '../replica/feed/frames'
-import { SyncAuthExpiredError, SyncCancelledError, SyncCorruptContentError, SyncFormatError, SyncNetworkError, SyncStreamFailed } from './errors'
+import { toBootstrapChunk, toDeltaFrame, toMarkerChunk, toStubChunk } from '../replica/feed/frames'
+import {
+  SyncAuthExpiredError,
+  SyncCancelledError,
+  SyncCorruptContentError,
+  SyncFormatError,
+  SyncNetworkError,
+  SyncStreamFailed,
+} from './errors'
 import { NdjsonLineReader } from './ndjson-reader'
 import { readSyncStream } from './read-sync-stream'
 import type { SyncTransferAttempt, SyncTransferTelemetry } from './transfer-telemetry'
@@ -21,6 +37,8 @@ export interface StreamingFetchPort {
 export interface HttpSyncSourceDeps {
   origin: string
   streamingFetch: StreamingFetchPort
+  /** What kind of app this is; the server's policy is per client type (POD-7085). */
+  clientType?: ClientType
   onMeta?: (totalRows: number | undefined) => void
   /** Per data record: rows and decoded UTF-8 bytes, excluding LF. */
   onChunk?: (rows: number, bytes: number) => void
@@ -36,8 +54,16 @@ export interface HttpSyncSourceDeps {
 }
 
 /** The `url` on the started line is the one the fetch below will really use. */
-function beginAttempt(deps: HttpSyncSourceDeps, mode: 'bootstrap' | 'delta', path: string): SyncTransferAttempt | undefined {
-  return deps.telemetry?.begin(mode, deps.origin.replace(/\/$/, '') + path, deps.streamingFetch.headers?.())
+function beginAttempt(
+  deps: HttpSyncSourceDeps,
+  mode: 'bootstrap' | 'delta' | 'collections',
+  path: string,
+): SyncTransferAttempt | undefined {
+  return deps.telemetry?.begin(
+    mode,
+    deps.origin.replace(/\/$/, '') + path,
+    deps.streamingFetch.headers?.(),
+  )
 }
 
 /**
@@ -56,13 +82,30 @@ function reasonOf(error: unknown): string {
 function checkAbort(signal?: AbortSignal): void {
   if (signal?.aborted) throw new SyncCancelledError()
 }
-async function request(deps: HttpSyncSourceDeps, path: string, attempt: SyncTransferAttempt | undefined, signal?: AbortSignal, extra?: Record<string, string>): Promise<Response> {
+async function request(
+  deps: HttpSyncSourceDeps,
+  path: string,
+  attempt: SyncTransferAttempt | undefined,
+  signal?: AbortSignal,
+  extra?: Record<string, string>,
+  body?: unknown,
+): Promise<Response> {
   checkAbort(signal)
   const port = deps.streamingFetch
   let response: Response
+  const headers: Record<string, string> = {
+    ...(port.headers?.() as Record<string, string> | undefined),
+    ...(deps.clientType === undefined ? {} : { [CLIENT_TYPE_HEADER]: deps.clientType }),
+    ...(body === undefined ? {} : { 'content-type': 'application/json' }),
+    ...extra,
+  }
   try {
     response = await port.fetch(deps.origin.replace(/\/$/, '') + path, {
-      method: 'GET', credentials: port.credentials, headers: { ...port.headers?.(), ...extra }, signal,
+      method: body === undefined ? 'GET' : 'POST',
+      credentials: port.credentials,
+      headers,
+      signal,
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     })
   } catch (cause) {
     checkAbort(signal)
@@ -80,7 +123,8 @@ async function request(deps: HttpSyncSourceDeps, path: string, attempt: SyncTran
   if (response.status === 409) return response
   if (!response.ok) {
     void response.body?.cancel().catch(() => undefined)
-    if (response.status === 401 || response.status === 403) throw new SyncAuthExpiredError(`http-${response.status}`)
+    if (response.status === 401 || response.status === 403)
+      throw new SyncAuthExpiredError(`http-${response.status}`)
     if (response.status === 426) throw new SyncFormatError('unsupported-version')
     if (response.status >= 500) throw new SyncNetworkError(`http-${response.status}`)
     throw new SyncFormatError(`http-${response.status}`)
@@ -95,7 +139,13 @@ function bodyOf(response: Response): ReadableStream<Uint8Array> {
   if (!response.body) throw new SyncFormatError('streaming-body-required')
   return response.body
 }
-async function* records(response: Response, deps: HttpSyncSourceDeps, attempt?: SyncTransferAttempt, signal?: AbortSignal) {
+async function* records(
+  response: Response,
+  deps: HttpSyncSourceDeps,
+  attempt?: SyncTransferAttempt,
+  signal?: AbortSignal,
+  finalChunk = true,
+) {
   let bytes = 0
   async function* lines() {
     const encoder = new TextEncoder()
@@ -104,13 +154,17 @@ async function* records(response: Response, deps: HttpSyncSourceDeps, attempt?: 
       yield line
     }
   }
-  for await (const record of readSyncStream(lines())) {
+  for await (const record of readSyncStream(lines(), { finalChunk })) {
     checkAbort(signal)
     if (record.type === 'syncMeta') {
       deps.onMeta?.(record.totalRows)
       attempt?.noteMeta(record.transferId, record.totalRows)
     }
-    if (record.type === 'feedBootstrap' || record.type === 'feedDelta') {
+    if (
+      record.type === 'feedBootstrap' ||
+      record.type === 'feedDelta' ||
+      record.type === 'feedStubs'
+    ) {
       deps.onChunk?.(record.changes.length, bytes)
       attempt?.noteData(record.changes.length)
     }
@@ -122,6 +176,35 @@ async function* records(response: Response, deps: HttpSyncSourceDeps, attempt?: 
     attempt?.enter('pipeline')
   }
 }
+/** The server accepts at most this many view instances on a bootstrap (routes.ts). */
+export const BOOTSTRAP_VIEW_MAX_INSTANCES = 50
+/** Keep the request line far below server header limits (431 seen at operator size). */
+export const BOOTSTRAP_VIEW_MAX_QUERY_CHARS = 6_000
+
+/**
+ * The bootstrap's optional view rides in the URL, so it must stay small: at most
+ * the server's instance cap and a bounded query length. Instances that do not fit
+ * are simply left out: they get no completeness marker from this transfer, so
+ * their readers load them through `POST /sync/collections` like any other
+ * unloaded instance. Returns undefined when nothing is sent.
+ */
+export function bootstrapViewQuery(
+  view: readonly InstanceRequest[] | undefined,
+): string | undefined {
+  if (view === undefined || view.length === 0) return undefined
+  const fitted: CollectionInstance[] = []
+  let query: string | undefined
+  for (const request of view) {
+    if (fitted.length >= BOOTSTRAP_VIEW_MAX_INSTANCES) break
+    const next = [...fitted, wireInstance(request)]
+    const candidate = new URLSearchParams({ view: JSON.stringify(next) }).toString()
+    if (candidate.length > BOOTSTRAP_VIEW_MAX_QUERY_CHARS) break
+    fitted.push(next[next.length - 1] as CollectionInstance)
+    query = candidate
+  }
+  return query
+}
+
 /** One fetch per attempt; the replica owns the bounded restart ladder. */
 export class HttpBootstrapSource {
   /** One id per replica, kept across its retries. The server cancels an older
@@ -129,15 +212,36 @@ export class HttpBootstrapSource {
    *  own transfer while other tabs and devices of the user never cancel each other. */
   private readonly clientId = globalThis.crypto.randomUUID()
   constructor(private readonly deps: HttpSyncSourceDeps) {}
+  /**
+   * The first download (POD-7085): the policy's collections in its order,
+   * with the visible view's instances as its second step.
+   */
   async *bootstrap(
     signal?: AbortSignal,
-    kinds?: readonly string[],
+    view?: readonly InstanceRequest[],
   ): AsyncGenerator<BootstrapChunk> {
-    const path =
-      kinds === undefined
-        ? '/sync/bootstrap'
-        : `/sync/bootstrap?${new URLSearchParams({ kinds: kinds.join(',') })}`
-    const attempt = beginAttempt(this.deps, 'bootstrap', path)
+    const query = bootstrapViewQuery(view)
+    const path = query === undefined ? '/sync/bootstrap' : `/sync/bootstrap?${query}`
+    yield* this.answer('bootstrap', path, signal, undefined)
+  }
+
+  /** `POST /sync/collections`: the named instances, records and stubs in chunks, a marker each. */
+  async *collections(
+    instances: readonly InstanceRequest[],
+    signal?: AbortSignal,
+  ): AsyncGenerator<BootstrapChunk> {
+    yield* this.answer('collections', '/sync/collections', signal, {
+      instances: instances.map(wireInstance),
+    })
+  }
+
+  private async *answer(
+    mode: 'bootstrap' | 'collections',
+    path: string,
+    signal: AbortSignal | undefined,
+    body: unknown,
+  ): AsyncGenerator<BootstrapChunk> {
+    const attempt = beginAttempt(this.deps, mode, path)
     // The DEFAULT is 'cancelled', because the commonest non-completion here is
     // the Replica breaking out of its `for await` when a walk is superseded —
     // which reaches this generator as a `return()`, not as an error. That is
@@ -145,18 +249,49 @@ export class HttpBootstrapSource {
     let outcome = 'cancelled'
     let reason: string | undefined
     try {
-      const response = await request(this.deps, path, attempt, signal, { 'Podium-Sync-Client': this.clientId })
+      const response = await request(
+        this.deps,
+        path,
+        attempt,
+        signal,
+        mode === 'bootstrap' ? { 'Podium-Sync-Client': this.clientId } : {},
+        body,
+      )
       if (response.status === 409) {
         void response.body?.cancel().catch(() => undefined)
         throw new SyncFormatError('unexpected-bootstrap-refusal')
       }
       let meta: SyncMeta | undefined
-      for await (const record of records(response, this.deps, attempt, signal)) {
+      let policy: CachePolicy | undefined
+      for await (const record of records(
+        response,
+        this.deps,
+        attempt,
+        signal,
+        mode === 'bootstrap',
+      )) {
         if (record.type === 'syncMeta') {
-          if (record.mode !== 'snapshot') throw new SyncCorruptContentError('snapshot-meta-required')
+          if (record.mode !== 'snapshot')
+            throw new SyncCorruptContentError('snapshot-meta-required')
           meta = record
+          policy = record.policy
         } else if (record.type === 'feedBootstrap') {
-          yield { ...toBootstrapChunk(record, meta!.kindTokens), last: false }
+          const chunk = toBootstrapChunk(record, meta!.kindTokens)
+          // The policy rides on the first chunk the Replica sees.
+          yield { ...chunk, last: false, ...(policy === undefined ? {} : { policy }) }
+          policy = undefined
+        } else if (record.type === 'feedStubs') {
+          yield {
+            ...toStubChunk(record, meta!.kindTokens),
+            ...(policy === undefined ? {} : { policy }),
+          }
+          policy = undefined
+        } else if (record.type === 'collectionComplete') {
+          yield {
+            ...toMarkerChunk(record, meta!.kindTokens),
+            ...(policy === undefined ? {} : { policy }),
+          }
+          policy = undefined
         } else if (record.type === 'syncComplete' && meta) {
           // Settled BEFORE the yield: the Replica breaks on `last`, so this
           // generator is never resumed and anything after the yield is dead code.
@@ -168,7 +303,7 @@ export class HttpBootstrapSource {
             changes: [],
             last: true,
             kindTokens: meta.kindTokens,
-            ...(meta.kinds && { kinds: meta.kinds }),
+            ...(policy === undefined ? {} : { policy }),
           }
         }
       }
@@ -182,10 +317,25 @@ export class HttpBootstrapSource {
   }
 }
 
+/** The wire spelling of one instance: the kernel's request, field by field. */
+function wireInstance(request: InstanceRequest): CollectionInstance {
+  return {
+    collection: request.collection,
+    ...(request.args === undefined ? {} : { args: request.args as CollectionInstance['args'] }),
+    ...(request.part === undefined ? {} : { part: request.part }),
+    ...(request.via === undefined ? {} : { via: request.via }),
+    ...(request.after === undefined
+      ? {}
+      : { after: request.after as unknown as NonNullable<CollectionInstance['after']> }),
+  }
+}
+
 /** Only refusals are JSON; cap them independently of the data-line budget. */
 async function refusal(response: Response, signal?: AbortSignal): Promise<BootstrapRequired> {
   const reader = bodyOf(response).getReader()
-  const cancel = (): void => { void reader.cancel().catch(() => undefined) }
+  const cancel = (): void => {
+    void reader.cancel().catch(() => undefined)
+  }
   signal?.addEventListener('abort', cancel, { once: true })
   const decoder = new TextDecoder('utf-8', { fatal: true })
   let json = ''
@@ -194,8 +344,12 @@ async function refusal(response: Response, signal?: AbortSignal): Promise<Bootst
     for (;;) {
       checkAbort(signal)
       let next: ReadableStreamReadResult<Uint8Array>
-      try { next = await reader.read() }
-      catch (cause) { checkAbort(signal); throw new SyncNetworkError('refusal-read-failed', { cause }) }
+      try {
+        next = await reader.read()
+      } catch (cause) {
+        checkAbort(signal)
+        throw new SyncNetworkError('refusal-read-failed', { cause })
+      }
       checkAbort(signal)
       if (next.done) break
       bytes += next.value.byteLength
@@ -222,13 +376,12 @@ export class HttpDeltaSource {
     cursor: Cursor,
     signal?: AbortSignal,
     onTarget?: Parameters<AuthorityReadPort['changesRange']>[2],
-    options?: Parameters<AuthorityReadPort['changesRange']>[3],
   ): Promise<AsyncIterable<DeltaFrame> | BootstrapRequired> {
-    const query = new URLSearchParams({ feedId: cursor.feedId, epoch: cursor.epoch, from: String(cursor.seq) })
-    if (options) {
-      query.set('to', String(options.to))
-      query.set('omitKinds', options.omitKinds.join(','))
-    }
+    const query = new URLSearchParams({
+      feedId: cursor.feedId,
+      epoch: cursor.epoch,
+      from: String(cursor.seq),
+    })
     const path = `/sync/delta?${query}`
     const attempt = beginAttempt(this.deps, 'delta', path)
     let response: Response
@@ -246,7 +399,10 @@ export class HttpDeltaSource {
         attempt?.finish('bootstrap-required', required.reason)
         return required
       } catch (error) {
-        attempt?.finish(error instanceof SyncCancelledError ? 'cancelled' : 'failed', reasonOf(error))
+        attempt?.finish(
+          error instanceof SyncCancelledError ? 'cancelled' : 'failed',
+          reasonOf(error),
+        )
         throw error
       }
     }
@@ -257,13 +413,25 @@ export class HttpDeltaSource {
       try {
         for await (const record of records(response, deps, attempt, signal)) {
           if (record.type === 'syncMeta') {
-            if (record.mode !== 'delta' || record.feedId !== cursor.feedId || record.epoch !== cursor.epoch || record.fromSeq !== cursor.seq) {
+            if (
+              record.mode !== 'delta' ||
+              record.feedId !== cursor.feedId ||
+              record.epoch !== cursor.epoch ||
+              record.fromSeq !== cursor.seq
+            ) {
               throw new SyncCorruptContentError('requested-cursor-mismatch')
             }
             const target = { feedId: record.feedId, epoch: record.epoch, seq: record.seq }
             onTarget?.(target, record.kindTokens)
             // Preserve the retention certificate for an equal-endpoint range.
-            if (record.seq === cursor.seq) yield { kind: 'delta', ...cursor, fromSeq: cursor.seq, minAvailableSeq: record.minAvailableSeq, changes: [] }
+            if (record.seq === cursor.seq)
+              yield {
+                kind: 'delta',
+                ...cursor,
+                fromSeq: cursor.seq,
+                minAvailableSeq: record.minAvailableSeq,
+                changes: [],
+              }
           } else if (record.type === 'feedDelta') yield toDeltaFrame(record)
         }
         outcome = 'complete'

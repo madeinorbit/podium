@@ -11,9 +11,10 @@
  *    the overlay steps aside rather than covering where they went.
  */
 import type { MainView } from '@podium/client-core/ui-state'
-import { type JSX, lazy, Suspense, useEffect } from 'react'
+import { type JSX, Suspense, useEffect } from 'react'
 import { closeNewTaskOverlay, newTaskOverlayOrigin } from '@/features/worklist/new-task-overlay'
 import { throughRestarts } from '@/lib/chunk-recovery'
+import { lazy } from '@/lib/lazy-surface'
 
 const ColdStartComposer = lazy(() =>
   throughRestarts(() => import('./ColdStartComposer')).then((module) => ({

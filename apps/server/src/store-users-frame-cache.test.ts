@@ -35,8 +35,14 @@ const readProbe = (store: SessionStore): (() => number) => {
     // occurs. Widened rather than replaced: an unconverted caller still emits the
     // old form and a builder-only matcher would go blind on it. Patch shape from
     // POD-3393, which mutation-checked it against the real file.
-    // Since POD-6218 the read is the per-operation loader's `id IN (…)` batch.
-    if (/from\s+"?users"?\s+where\s+(?:"users"\.)?"?id"?\s*(?:=|in\s*\()/i.test(observation.sql)) reads += 1
+    // Since POD-6218 the read is the per-operation loader's `id IN (…)` batch, and
+    // since POD-6959 it names its workspace first (`"workspace_id" = ? and "id" in`).
+    if (
+      /from\s+"?users"?\s+where\s+[^;]*?(?:"users"\.|\s|\()"?id"?\s*(?:=|in\s*\()/i.test(
+        observation.sql,
+      )
+    )
+      reads += 1
   })
   return () => reads
 }
@@ -90,7 +96,9 @@ describe('account scope read cache', () => {
       const first = await store.users.get(firstAdminMemberId())
       expect(first).toBeDefined()
       if (first) first.displayName = 'Mutated by its reader'
-      expect((await store.users.get(firstAdminMemberId()))?.displayName).not.toBe('Mutated by its reader')
+      expect((await store.users.get(firstAdminMemberId()))?.displayName).not.toBe(
+        'Mutated by its reader',
+      )
     })
   })
 
@@ -103,7 +111,7 @@ describe('account scope read cache', () => {
           id: 'user-minted',
           displayName: 'Minted',
           role: 'member',
-          createdAt: 't0',
+          createdAt: '2026-01-01T00:00:00.000Z',
           disabledAt: null,
         },
         'hash',

@@ -21,12 +21,13 @@
 import { getTableConfig } from 'drizzle-orm/sqlite-core'
 import { describe, expect, it } from 'vitest'
 import { FeedIdentityRegistry } from '../../feed'
-import { appliedMutations, changes, feedIdentity, syncCapture, syncFeed, syncKind } from './schema'
+import { appliedMutations, changes, syncCapture, syncFeed, syncKind } from './schema'
 import { SyncRepository } from './sync-repository'
 import {
   createTestSyncDatabase,
   createTestSyncQueries,
   createTestSyncRepository,
+  TEST_WORKSPACE_ID,
   testQueuedMessages,
   testSyncServerTables,
   testUpstreamOutbox,
@@ -58,10 +59,6 @@ describe('the test fixture mirrors the adapter-owned schema', () => {
 
   it('agrees on the receipt table’s columns', () => {
     expect(fixtureColumns('applied_mutations')).toEqual(declaredColumns(appliedMutations))
-  })
-
-  it('agrees on the feed-identity table’s columns (ADR 2 D1)', () => {
-    expect(fixtureColumns('feed_identity')).toEqual(declaredColumns(feedIdentity))
   })
 
   it('agrees on the change capture’s columns (POD-6920)', () => {
@@ -104,11 +101,11 @@ describe('the test fixture mirrors the adapter-owned schema', () => {
   })
 })
 
-describe('tenant sync keys', () => {
-  it('keys changes and kind generations by tenant', () => {
+describe('workspace sync keys', () => {
+  it('keys changes and kind generations by workspace', () => {
     for (const table of [changes, syncKind]) {
       expect(getTableConfig(table).primaryKeys[0]?.columns.map((c) => c.name)).toEqual([
-        'tenant_id',
+        'workspace_id',
         table === changes ? 'seq' : 'kind',
       ])
     }
@@ -150,7 +147,11 @@ describe('feed identity persists, and there is exactly one of it', () => {
     // row count is the assertion; equality of the read alone would pass against an
     // append-only table whose SELECT happened to return the newest row.
     const db = createTestSyncDatabase()
-    const repo = new SyncRepository(createTestSyncQueries(db), testSyncServerTables)
+    const repo = new SyncRepository(
+      createTestSyncQueries(db),
+      testSyncServerTables,
+      TEST_WORKSPACE_ID,
+    )
     await repo.writeFeedIdentity({ feedId: 'feed-a', epoch: '01JQ0P8Z3M4N5R6T7V8W9XAYBZ' }, 1)
     await repo.writeFeedIdentity({ feedId: 'feed-a', epoch: '01JQ0P9Q1C2D3E4F5G6H7J8K9M' }, 2)
 

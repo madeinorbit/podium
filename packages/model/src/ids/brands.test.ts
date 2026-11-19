@@ -12,6 +12,7 @@ import {
   agentIdentityFromSessionId,
   asSessionId,
   asUserId,
+  asWorkspaceId,
   InviteId,
   MachineId,
   MachineIdField,
@@ -26,6 +27,7 @@ import {
   sessionIdFromAgentIdentity,
   UserId,
   userIdFromMemberId,
+  WorkspaceId,
 } from './brands'
 
 /**
@@ -485,5 +487,22 @@ describe('MessageId is checked where a sender hands one in (POD-4763)', () => {
     ]) {
       expect(MessageId.safeParse(bad).success).toBe(false)
     }
+  })
+})
+
+/**
+ * The workspace brand (POD-6959 design 2.4): text whose shape belongs to whoever mints it —
+ * `'local'` on a self-hosted install, a `ws_` KSUID on hosted — so it checks only non-emptiness,
+ * and the minting helper changes nothing about the string.
+ */
+describe('the workspace brand', () => {
+  it('accepts the self-hosted and the hosted forms, and refuses the empty string', () => {
+    expect(WorkspaceId.safeParse('local').success).toBe(true)
+    expect(WorkspaceId.safeParse('ws_2M3kq9yVt0bU1d5nC8xWfZpL7aE').success).toBe(true)
+    expect(WorkspaceId.safeParse('').success).toBe(false)
+  })
+
+  it('mints without changing the string', () => {
+    expect(asWorkspaceId('local')).toBe('local')
   })
 })

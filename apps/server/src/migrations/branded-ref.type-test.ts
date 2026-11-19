@@ -21,9 +21,9 @@
  * declarations into `schema.ts` cannot break it.
  */
 
-import type { AutomationId, IssueId, SessionId } from '@podium/model'
-import { type AnySQLiteColumn, sqliteTable, text } from 'drizzle-orm/sqlite-core'
-import { brandedRef } from './branded-ref'
+import type { AutomationId, IssueId, SessionId, WorkspaceId } from '@podium/model'
+import { type AnySQLiteColumn, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+import { brandedRef, workspaceRef } from './branded-ref'
 
 const parents = sqliteTable('type_test_parents', {
   id: text().$type<AutomationId>().primaryKey(),
@@ -134,3 +134,68 @@ export const chainsThrough = sqliteTable('type_test_chains_through', {
     onDelete: 'cascade',
   }).primaryKey(),
 })
+
+// ---------------------------------------------------------------------------
+// workspaceRef: the composite key of two workspace tables (POD-7024)
+// ---------------------------------------------------------------------------
+
+const workspaceParents = sqliteTable(
+  'type_test_workspace_parents',
+  {
+    workspaceId: text('workspace_id').$type<WorkspaceId>().notNull(),
+    id: text().$type<AutomationId>().notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.workspaceId, table.id] })],
+)
+
+/** The pairs match, position by position, and both lead with the workspace. */
+export const workspaceMatching = sqliteTable(
+  'type_test_workspace_matching',
+  {
+    workspaceId: text('workspace_id').$type<WorkspaceId>().notNull(),
+    automationId: text('automation_id').$type<AutomationId>().notNull(),
+  },
+  (table) => [
+    workspaceRef({
+      name: 'fk_type_test_workspace_matching',
+      columns: [table.workspaceId, table.automationId],
+      foreignColumns: [workspaceParents.workspaceId, workspaceParents.id],
+      onDelete: 'cascade',
+    }),
+  ],
+)
+
+/** A SessionId column paired with an AutomationId key, behind a matching workspace pair. */
+export const workspaceWrongBrand = sqliteTable(
+  'type_test_workspace_wrong_brand',
+  {
+    workspaceId: text('workspace_id').$type<WorkspaceId>().notNull(),
+    automationId: text('automation_id').$type<SessionId>().notNull(),
+  },
+  (table) => [
+    workspaceRef({
+      name: 'fk_type_test_workspace_wrong_brand',
+      columns: [table.workspaceId, table.automationId],
+      // @ts-expect-error a SessionId column may not reference an AutomationId key
+      foreignColumns: [workspaceParents.workspaceId, workspaceParents.id],
+    }),
+  ],
+)
+
+/** A key that does not lead with the workspace: the reference could cross workspaces. */
+export const workspaceNotFirst = sqliteTable(
+  'type_test_workspace_not_first',
+  {
+    workspaceId: text('workspace_id').$type<WorkspaceId>().notNull(),
+    automationId: text('automation_id').$type<AutomationId>().notNull(),
+  },
+  (table) => [
+    workspaceRef({
+      name: 'fk_type_test_workspace_not_first',
+      // @ts-expect-error the first column must be the workspace (the pairing then makes the
+      // first referenced column the parent's workspace too)
+      columns: [table.automationId, table.workspaceId],
+      foreignColumns: [workspaceParents.id, workspaceParents.workspaceId],
+    }),
+  ],
+)

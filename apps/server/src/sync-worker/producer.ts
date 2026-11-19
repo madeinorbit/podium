@@ -2,51 +2,109 @@ import { setImmediate as yieldLoop } from 'node:timers/promises'
 import { createLogger } from '@podium/logger'
 import {
   CLIENT_WIRE_VERSION,
-  type MetadataEntityKind,
   SYNC_BATCH_MAX_ROWS,
   SYNC_BATCH_TARGET_BYTES,
   SYNC_LINE_MAX_BYTES,
   type SyncComplete,
   wireSchemaDigest,
 } from '@podium/protocol'
-import { openDatabase } from '@podium/runtime/sqlite'
-import type { RecordSourcePort } from '@podium/sync'
 import {
   ChangeRangeBootstrapRequired,
   FEED_RESCOPE_THRESHOLD,
   scopeChangesRange,
-  shapedValue,
 } from '@podium/sync/bootstrap-worker'
 import { perfPrincipal } from '../modules/perf/principal'
 import { perf } from '../modules/perf/registry'
+import { CollectionAnswer, type FetchOutput, resolveInstance } from '../sync/collection-fetch'
 import { readKindTokens } from '../sync/kind-tokens'
 import { pipeSyncBody } from '../sync/pipe-sync-body'
-import { type BootstrapMetrics, type SyncJob, type SyncMetaSummary, SyncWorkerError } from './types'
+import { firstDownload, policyFor } from '../sync/policy'
+import { openWorkerReadSession, type WorkerReadSession } from './read-session'
+import {
+  type BootstrapMetrics,
+  jobWorkspaceId,
+  SYNC_JOB_DEADLINE_MS,
+  type SyncJob,
+  type SyncMetaSummary,
+  SyncWorkerError,
+} from './types'
 import { type BootstrapVisibilityOptions, bootstrapVisibility } from './visibility'
 
 const log = createLogger('server:sync-bootstrap')
 const utf8 = new TextEncoder()
-/** Full loads share grouped reads; filtered loads read only the requested kinds. */
-async function* bootstrapPages(
-  source: RecordSourcePort,
-  kinds: readonly MetadataEntityKind[] | undefined,
-) {
-  if (kinds === undefined) {
-    yield* source.streamAllKinds()
-    return
-  }
-  for (const entity of kinds) {
-    for await (const records of source.streamAll(entity)) yield { entity, records }
-  }
+/** The range every line of one snapshot answer carries. */
+interface AnswerRange {
+  readonly feedId: string
+  readonly epoch: string
+  readonly fromSeq: number
+  readonly seq: number
+  readonly minAvailableSeq: number
 }
 
 /**
- * One read-only WAL connection per active job in the one worker. Holding the reader
- * for a transfer prevents checkpointing past its snapshot until completion/cancel;
- * the ten-minute admission deadline bounds this window (and consequent WAL growth).
+ * One output of the collection fetch as wire lines (POD-7085): whole records
+ * in `feedBootstrap` chunks, issue stubs in `feedStubs` chunks, markers in a
+ * `collectionComplete` line, every one stamped with the answer's feed number.
+ * A chunk's line is assembled from its changes' JSON, each change serialized
+ * once: the text that sizes it is the text that is sent (POD-7153).
+ */
+function outputLines(output: FetchOutput, range: AnswerRange): string[] {
+  if (output.type === 'complete') {
+    return [
+      JSON.stringify({
+        type: 'collectionComplete',
+        feedId: range.feedId,
+        epoch: range.epoch,
+        seq: range.seq,
+        instances: output.instances,
+      }),
+    ]
+  }
+  const stub = output.type === 'stubs'
+  // `{"type":…,"minAvailableSeq":…` without its closing brace.
+  const head = JSON.stringify({ type: stub ? 'feedStubs' : 'feedBootstrap', ...range }).slice(0, -1)
+  const tail = stub ? ']}' : '],"last":false}'
+  const lines: string[] = []
+  let batch: string[] = []
+  let bytes = 0
+  const close = () => {
+    if (batch.length === 0) return
+    lines.push(`${head},"changes":[${batch.join(',')}${tail}`)
+    batch = []
+    bytes = 0
+  }
+  for (const record of output.records) {
+    const change = JSON.stringify({
+      seq: range.seq,
+      entity: record.entity,
+      entityId: record.entityId,
+      op: 'upsert',
+      ...(stub ? { part: 'stub' } : {}),
+      value: record.value,
+    })
+    const size = Buffer.byteLength(change, 'utf8')
+    if (
+      batch.length > 0 &&
+      (batch.length >= SYNC_BATCH_MAX_ROWS || bytes + size > SYNC_BATCH_TARGET_BYTES)
+    )
+      close()
+    batch.push(change)
+    bytes += size + 1
+  }
+  close()
+  return lines
+}
+
+/**
+ * One read session per active job in the one worker (`read-session.ts`): on SQLite a
+ * read-only WAL connection of its own, on Postgres one pooled connection in a
+ * REPEATABLE READ READ ONLY transaction, chosen by the store's location. Holding the
+ * snapshot for a transfer prevents SQLite checkpointing past it (and Postgres vacuum
+ * from removing the row versions it sees) until completion/cancel; the ten-minute
+ * admission deadline bounds this window.
  */
 async function* produceRecords(
-  dbPath: string,
+  location: string,
   job: SyncJob,
   signal: AbortSignal,
   onMeta: (meta: SyncMetaSummary) => void,
@@ -54,7 +112,7 @@ async function* produceRecords(
   options: BootstrapVisibilityOptions = {},
 ): AsyncGenerator<Uint8Array> {
   const started = performance.now()
-  const attribution = perfPrincipal(job.principal)
+  const attribution = perfPrincipal(jobWorkspaceId(job), job.principal)
   const phases: BootstrapMetrics['phases'] = {}
   const heapBefore = process.memoryUsage().heapUsed
   let heapAfterPrefetch = heapBefore,
@@ -75,17 +133,16 @@ async function* produceRecords(
     if (Date.now() >= (job.deadlineMs ?? Infinity)) throw new SyncWorkerError('deadline')
   }
   check()
-  const db = openDatabase(dbPath, { readOnly: true })
-  let bundle: Awaited<ReturnType<typeof bootstrapVisibility>> | undefined
-  let transaction = false
+  let session: WorkerReadSession | undefined
   let rows = 0,
     records = 0,
     bytesBefore = 0,
     bytesAfter = 0
   let outcome = 'producer-failed'
+  /** One wire line: a record to serialize, or a line's JSON text already serialized. */
   const line = (record: unknown) => {
     const t = performance.now()
-    const bytes = utf8.encode(JSON.stringify(record) + '\n')
+    const bytes = utf8.encode(`${typeof record === 'string' ? record : JSON.stringify(record)}\n`)
     phase('encode', t, bytes.byteLength)
     if (bytes.byteLength - 1 > SYNC_LINE_MAX_BYTES) throw new SyncWorkerError('row-too-large')
     bytesBefore += bytes.byteLength
@@ -94,11 +151,20 @@ async function* produceRecords(
     return bytes
   }
   try {
-    db.exec('PRAGMA query_only = ON; PRAGMA busy_timeout = 1000; BEGIN')
-    transaction = true
+    // One snapshot per answer (POD-7085): the collections and the feed number
+    // they are complete as of are read in this one read session. The
+    // transaction may idle between pages while the client drains them; the
+    // job's deadline, not the engine's idle limit, ends it.
+    session = await openWorkerReadSession(location, {
+      idleBudgetMs: (job.deadlineMs ?? Date.now() + SYNC_JOB_DEADLINE_MS) - Date.now(),
+    })
     const capture = performance.now()
-    // This FIRST read fixes the SQLite snapshot; every visibility read shares it.
-    bundle = bootstrapVisibility(db, options)
+    // This FIRST read fixes the snapshot, on either engine; every visibility read
+    // shares it. Every read is the job's workspace's (POD-7021).
+    const bundle = bootstrapVisibility(session.executor, {
+      ...options,
+      workspaceId: jobWorkspaceId(job),
+    })
     const context = await bundle.context
     const { headSeq: seq, floorSeq: minAvailableSeq } = await context.sync.readFeedState()
     phase('capture', capture)
@@ -108,7 +174,6 @@ async function* produceRecords(
       if (minAvailableSeq > job.from + 1) throw new SyncWorkerError('compacted-or-unknown')
       const { policy, anchors, sync } = context
       const kindTokens = await readKindTokens(sync, options.effectKinds)
-      const omitted = job.omitKinds && new Set<string>(job.omitKinds)
       const iterator = scopeChangesRange(
         sync,
         { policy, anchors, rescopeThreshold: FEED_RESCOPE_THRESHOLD },
@@ -149,11 +214,7 @@ async function* produceRecords(
             })
             return
           }
-          // Scope the entire log batch first: an omitted row can still
-          // change visibility for a kind the replica is catching up.
-          const changes = omitted
-            ? delivery.changes.filter((change) => !omitted.has(change.entity))
-            : delivery.changes
+          const changes = delivery.changes
           rows += changes.length
           yield line({
             type: 'feedDelta',
@@ -163,6 +224,9 @@ async function* produceRecords(
             seq: delivery.throughSeq,
             minAvailableSeq,
             changes,
+            // The principal's access moved in this range (POD-6947): the same
+            // feed fact the main thread's frame carries.
+            ...(delivery.access ? { access: true } : {}),
           })
           await yieldLoop()
           check()
@@ -187,11 +251,14 @@ async function* produceRecords(
         await iterator.return?.()
       }
     }
-    // Stream the model tables a page at a time inside the snapshot fixed by
-    // the head read (design POD-6253 §4). Every row carries that head number.
-    const { policy: world, records: source, sync } = context
+    // Everything below reads inside the snapshot fixed by the head read
+    // (design POD-6253 §4, POD-7059 "One snapshot per answer"): every record
+    // and every marker is stamped with that head number.
+    const { policy: world, records: source, sync, collections } = context
     const kindTokens = await readKindTokens(sync, options.effectKinds)
     check()
+    // The first download is the policy's collections in its order (POD-7085).
+    const syncPolicy = policyFor(job.clientType)
     const meta: SyncMetaSummary = {
       type: 'syncMeta',
       formatVersion: 1,
@@ -204,7 +271,7 @@ async function* produceRecords(
       seq,
       minAvailableSeq,
       kindTokens,
-      ...(job.kinds && { kinds: job.kinds }),
+      ...(job.mode !== 'collections' && { policy: syncPolicy }),
       // No `totalRows`: the count is known only once every table is read, and
       // the load streams in one pass.
     }
@@ -213,71 +280,34 @@ async function* produceRecords(
     onMeta(JSON.parse(new TextDecoder().decode(metaBytes)) as SyncMetaSummary)
     yield metaBytes
     const range = { feedId: job.feedId, epoch: job.epoch, fromSeq: 0, seq, minAvailableSeq }
-    let batch: unknown[] = [],
-      batchBytes = 0
-    const frame = (changes: unknown[], last: boolean) => ({
-      type: 'feedBootstrap',
-      ...range,
-      changes,
-      last,
-      // The total, once it is known: on the last chunk.
-      ...(last ? { totalRows: rows } : {}),
+    const answer = new CollectionAnswer({
+      collections,
+      records: source,
+      visibility: world,
+      principal: job.principal,
+      now: options.now?.() ?? Date.now(),
+      policyArgs: { recentDays: syncPolicy.recentDays },
     })
-    const batchOverhead = utf8.encode(JSON.stringify(frame([], false)) + '\n').byteLength
-    const pages = bootstrapPages(source, job.kinds)[Symbol.asyncIterator]()
-    try {
-      for (;;) {
-        const build = performance.now()
-        const next = await pages.next()
-        phase('build', build)
-        if (next.done) break
-        const { entity, records: page } = next.value
-        refCount += page.length
+    const instances =
+      job.mode === 'collections' ? job.instances : firstDownload(syncPolicy, job.view ?? [])
+    for (const instance of instances) {
+      const outputs = answer.instance(resolveInstance(instance))
+      for await (const output of outputs) {
         check()
-        // The sharing rules' facts for exactly this page's records.
-        const prepare = performance.now()
-        const policy = await world.forBootstrap(
-          page.map((record) => ({ entity, entityId: record.id })),
-        )
-        phase('visibility', prepare)
-        check()
-        for (const record of page) {
-          const ref = { entity, entityId: record.id }
-          if (!policy.decide(job.principal, ref).visible) continue
-          const change = {
-            seq,
-            entity,
-            entityId: record.id,
-            op: 'upsert',
-            // The row as this principal may receive it (design §4.2, POD-6288).
-            value: shapedValue(policy, job.principal, ref, record.value),
-          }
-          const size = utf8.encode(JSON.stringify(change)).byteLength
-          if (utf8.encode(JSON.stringify(frame([change], false))).byteLength > SYNC_LINE_MAX_BYTES)
-            throw new SyncWorkerError('row-too-large')
-          if (
-            batch.length &&
-            (batch.length >= SYNC_BATCH_MAX_ROWS ||
-              batchOverhead + batchBytes + size + batch.length > SYNC_BATCH_TARGET_BYTES)
-          ) {
-            yield line(frame(batch, false))
-            batch = []
-            batchBytes = 0
-            await yieldLoop()
-            check()
-          }
-          batch.push(change)
-          batchBytes += size
-          rows++
+        for (const text of outputLines(output, range)) yield line(text)
+        if (output.type !== 'complete') {
+          rows += output.records.length
+          refCount += output.records.length
         }
         await yieldLoop()
         check()
       }
-    } finally {
-      await pages.return?.()
     }
     heapAfterPrefetch = process.memoryUsage().heapUsed
-    yield line(frame(batch, true))
+    // The first download ends as a start-up load does: one last chunk,
+    // carrying the total once it is known.
+    if (job.mode !== 'collections')
+      yield line({ type: 'feedBootstrap', ...range, changes: [], last: true, totalRows: rows })
     check()
     yield line({
       type: 'syncComplete',
@@ -295,18 +325,18 @@ async function* produceRecords(
           ? 'cancelled'
           : 'producer-failed'
     outcome = reason
+    // A failure the job does not name keeps its cause in the log: the client
+    // only learns `producer-failed`.
+    if (reason === 'producer-failed')
+      log.warn('sync job failed', { transferId: job.transferId, err: error })
     if (reason === 'row-too-large') {
       yield line({ type: 'syncError', transferId: job.transferId, reason })
       return // Let the content encoder finish its trailer before reporting the typed failure.
     }
     throw error instanceof SyncWorkerError ? error : new SyncWorkerError(reason)
   } finally {
-    try {
-      if (transaction) db.exec('ROLLBACK')
-    } finally {
-      if (bundle) await bundle.executor.close()
-      else db.close()
-    }
+    // Ends the snapshot and releases the connection.
+    if (session) await session.close()
     phases.compress = { ms: 0, bytes: bytesAfter }
     perf.record('phase', 'syncBootstrap.compress', 0, attribution, bytesAfter)
     phase('transfer', started, bytesAfter)
@@ -327,9 +357,12 @@ async function* produceRecords(
   }
 }
 
-/** The entire content-coding pipeline stays in this worker, including codec flushing. */
+/**
+ * The entire content-coding pipeline stays in this worker, including codec flushing.
+ * `location` is the store's: a SQLite file path or a `postgres://` URL.
+ */
 export async function* produceBootstrap(
-  dbPath: string,
+  location: string,
   job: SyncJob,
   signal: AbortSignal,
   onMeta: (meta: SyncMetaSummary) => void,
@@ -342,7 +375,7 @@ export async function* produceBootstrap(
   if (signal.aborted) abort()
   const telemetry: { metrics?: BootstrapMetrics } = {}
   const records = produceRecords(
-    dbPath,
+    location,
     job,
     lifetime.signal,
     onMeta,

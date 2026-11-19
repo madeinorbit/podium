@@ -51,6 +51,11 @@
       "types": "./src/adapters/sqlite/sync-repository.ts",
       "import": "./src/adapters/sqlite/sync-repository.ts"
     },
+    "./adapters/pg/schema": {
+      "@podium/source": "./src/adapters/pg/schema.ts",
+      "types": "./src/adapters/pg/schema.ts",
+      "import": "./src/adapters/pg/schema.ts"
+    },
     "./bootstrap-worker": {
       "@podium/source": "./src/bootstrap-worker.ts",
       "types": "./src/bootstrap-worker.ts",
@@ -60,6 +65,11 @@
       "@podium/source": "./src/record-builders.ts",
       "types": "./src/record-builders.ts",
       "import": "./src/record-builders.ts"
+    },
+    "./collections": {
+      "@podium/source": "./src/collections/rule-sql.ts",
+      "types": "./src/collections/rule-sql.ts",
+      "import": "./src/collections/rule-sql.ts"
     }
   },
   "scripts": {
@@ -68,6 +78,7 @@
     "test:perf:apply-scaling": "bun ../../scripts/validation-admission.ts heavy --label @podium/sync:test:perf -- bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.perf.config.ts"
   },
   "dependencies": {
+    "@podium/blob-store": "workspace:*",
     "@podium/commands": "workspace:*",
     "@podium/logger": "workspace:*",
     "@podium/model": "workspace:*",

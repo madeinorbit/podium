@@ -17,6 +17,12 @@ point-in-time restore. drizzle stays the query layer, with two drivers
 Postgres is not pursued. If a second dialect is ever needed, the Kysely path in the history
 document is the recorded fallback.
 
+> **Superseded, 2026-11-17:** "Postgres is not pursued" and decision 5 of section 7 are
+> superseded by [ADR 14](../adr/0014-postgres-store.md): hosted Podium runs on Postgres beside
+> self-hosted SQLite, with drizzle on each engine's own dialect (POD-6958). The hosted-Turso path
+> through libsql is closed (operator decision OD1). The rest of this specification (the async
+> executor, the scheduler, post-commit work) stands and is what both engines run on.
+
 **Two requirements govern every step.**
 
 1. Podium as it exists keeps running exactly as it does today on SQLite.

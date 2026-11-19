@@ -9,8 +9,10 @@ import type { SqlDatabase } from '@podium/runtime/sqlite'
 import { SyncRepository } from '@podium/sync'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { syncServerTables } from '../../migrations/sync-server-tables'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import { AgentProfilesRepository } from '../../store/agent-profiles'
 import { createBunStoreExecutor } from '../../store/executor'
+import { workspaceQueries } from '../../store/executor/sync-drizzle'
 import { installChangeCapture } from '../../sync/capture-triggers'
 import { RECORD_SOURCES, type RecordSources } from '../../sync/record-sources'
 import { openMigratedTestDatabase } from '../../test-support/migrated-database'
@@ -43,13 +45,15 @@ beforeEach(async () => {
         agentProfile: RECORD_SOURCES.agentProfile,
       } as unknown as RecordSources),
   )
+  // The feed is a workspace's: its writes run in the workspace's transaction.
+  const workspace = workspaceQueries(queries, SELF_HOSTED_WORKSPACE_ID)
   capture = {
-    sync: new SyncRepository(queries, syncServerTables),
-    transact: async (fn) => await queries.createOrJoinTransaction(fn),
+    sync: new SyncRepository(workspace, syncServerTables, SELF_HOSTED_WORKSPACE_ID),
+    transact: async (fn) => await workspace.createOrJoinTransaction(fn),
   }
   runnable = new Set(['claude-code', 'codex'])
   probes = []
-  profiles = new AgentProfilesRepository(queries)
+  profiles = new AgentProfilesRepository(workspace)
   service = new AgentProfileService({
     store: profiles,
     now: () => '2026-10-14T12:00:00.000Z',
@@ -66,9 +70,9 @@ beforeEach(async () => {
 
 const insertIssue = (seq: number, profileId: string, stage = 'in_progress'): void => {
   db.prepare(
-    `INSERT INTO issues (id, owner_user_id, created_by_actor, repo_path, seq, title, stage,
+    `INSERT INTO issues (workspace_id, id, owner_user_id, created_by_actor, repo_path, seq, title, stage,
        default_agent, agent_profile_id, created_at, updated_at)
-     VALUES (?, ?, ?, '/repo', ?, 't', ?, 'auto', ?, 't0', 't0')`,
+     VALUES ('local', ?, ?, ?, '/repo', ?, 't', ?, 'auto', ?, 't0', 't0')`,
   ).run(`iss_${seq}`, ADMIN, ADMIN, seq, stage, profileId)
 }
 

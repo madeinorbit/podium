@@ -1,7 +1,6 @@
 // @vitest-environment happy-dom
 
 import { MobxPool } from '@podium/client-graph'
-import { ISSUE_PAGE_SUMMARIES } from '@podium/client-graph/issue-page-schema'
 import { act, cleanup, render, renderHook, screen } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
@@ -40,7 +39,6 @@ const issue = makeIssue({ id: 'guard-issue', memberSessionIds: [] })
 function setup() {
   f.pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse('2026-10-05') }, undefined, {
     load: () => undefined,
-    summaries: ISSUE_PAGE_SUMMARIES,
     worklist: 'demand',
     schedule: () => () => {},
   })

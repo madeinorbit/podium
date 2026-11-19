@@ -15,10 +15,8 @@ import { IssueTargetSheet } from '../src/components/IssueTargetSheet'
 import { PodiumLinkHost } from '../src/components/PodiumLinkHost'
 import { RefChip } from '../src/components/RefChip'
 import { followPodiumLink } from '../src/lib/podium-link'
-import { InboxScreen } from '../src/screens/InboxScreen'
 import { IssuesScreen } from '../src/screens/IssuesScreen'
 import { ProposalScreeningScreen } from '../src/screens/ProposalScreeningScreen'
-import { SessionsScreen } from '../src/screens/SessionsScreen'
 import { usePulseFeed } from '../src/screens/usePulseFeed'
 import { WorkScreen } from '../src/screens/WorkScreen'
 import { createInboxFixture } from './inbox-fixture'
@@ -87,7 +85,7 @@ function Surface() {
   owner = useClientRuntime() as ClientRuntime
   pool = useMobilePool()
   const [screen, setScreen] = useState(
-    new URLSearchParams(location.search).get('scrollScreen') ?? 'inbox',
+    new URLSearchParams(location.search).get('scrollScreen') ?? 'work',
   )
   return (
     <main>
@@ -99,14 +97,11 @@ function Surface() {
           : 'Isolated proof: launch, storage and refresh siblings stubbed.'}
       </small>
       <nav>
-        <button type="button" onClick={() => setScreen('inbox')}>
-          Inbox
-        </button>
         <button type="button" onClick={() => setScreen('proposals')}>
           Proposals
         </button>
       </nav>
-      {['work', 'tasks', 'sessions', 'target'].map((name) => (
+      {['work', 'tasks', 'target'].map((name) => (
         <button key={name} onClick={() => setScreen(name)}>
           {name}
         </button>
@@ -119,11 +114,6 @@ function Surface() {
       {screen === 'tasks' && (
         <div className="surface">
           <IssuesScreen />
-        </div>
-      )}
-      {screen === 'sessions' && (
-        <div className="surface">
-          <SessionsScreen />
         </div>
       )}
       {screen === 'target' && (
@@ -145,9 +135,6 @@ function Surface() {
           commitMs += ms
         }}
       >
-        <div className="surface" style={{ display: screen === 'inbox' ? 'flex' : 'none' }}>
-          <InboxScreen />
-        </div>
         <div className="surface" style={{ display: screen === 'proposals' ? 'flex' : 'none' }}>
           <ProposalScreeningScreen />
         </div>
@@ -206,13 +193,13 @@ const driver = {
     pulse: pulseReady,
     screening: !!document.querySelector('[data-testid="screening-card"]'),
     attached: !!pool,
-    booting: pool ? mobileInboxViews(pool)?.inbox().booting : null,
+    booting: pool ? mobileInboxViews(pool)?.booting() : null,
   }),
   ready: () =>
     pulseReady &&
     !!document.querySelector('[data-testid="screening-card"]') &&
     !!pool &&
-    !mobileInboxViews(pool)?.inbox().booting,
+    !mobileInboxViews(pool)?.booting(),
   reset() {
     storeStats.reset()
     commits = 0

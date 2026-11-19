@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test'
+import { afterAll, describe, expect, it } from 'bun:test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -6,9 +6,18 @@ import { setTimeout as delay } from 'node:timers/promises'
 import { gunzipSync, zstdDecompressSync } from 'node:zlib'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { DEVICE_GRADE_PRINCIPAL } from '@podium/sync/bootstrap-worker'
+import postgres from 'postgres'
 import { applyBaselineSchema } from '../migrations'
+import { clonePgTestDatabase, testStoreEngine } from '../test-support/pg-test-database'
+import { pgBunTestRun } from '../test-support/pg-test-host'
 import type { BootstrapJob } from './types'
 import { SyncWorkerClient } from './worker-client'
+
+// With PODIUM_TEST_STORE_ENGINE=pg the worker reads a Postgres clone (POD-6994): the
+// read session it opens is the engine's own (`read-session.ts`).
+const pgTeardown = await pgBunTestRun()
+afterAll(async () => await pgTeardown())
+const ENGINE = testStoreEngine()
 
 const job = (id: string, deadlineMs?: number): BootstrapJob => ({
   transferId: id,
@@ -18,20 +27,97 @@ const job = (id: string, deadlineMs?: number): BootstrapJob => ({
   encoding: 'identity',
   ...(deadlineMs ? { deadlineMs } : {}),
 })
+
+/**
+ * The database the worker reads, written below the store: a WAL file on SQLite, a clone
+ * of the leg's template on Postgres. `snapshotHeld` says whether a reader still holds a
+ * snapshot open: SQLite's checkpoint cannot truncate the WAL past it, and on Postgres the
+ * reader's backend still has a transaction.
+ */
+interface Writer {
+  readonly location: string
+  run(sql: string, params?: (string | number)[]): Promise<void>
+  all<T>(sql: string, params?: (string | number)[]): Promise<T[]>
+  /** One transaction. */
+  transaction(
+    fn: (run: (sql: string, params?: (string | number)[]) => Promise<unknown[]>) => Promise<void>,
+  ): Promise<void>
+  snapshotHeld(): Promise<boolean>
+  close(): Promise<void>
+}
+
+/** `?` placeholders as Postgres's `$n`. */
+const numbered = (sql: string): string => {
+  let n = 0
+  return sql.replace(/\?/g, () => `$${++n}`)
+}
+
+function sqliteWriter(path: string): Writer {
+  const db: SqlDatabase = openDatabase(path)
+  applyBaselineSchema(db)
+  db.exec('PRAGMA journal_mode=WAL')
+  const exec = (sql: string, params: (string | number)[] = []) => db.prepare(sql).all(...params)
+  return {
+    location: path,
+    run: async (sql, params) => {
+      if (params === undefined) db.exec(sql)
+      else db.prepare(sql).run(...params)
+    },
+    all: async <T>(sql: string, params?: (string | number)[]) => exec(sql, params) as T[],
+    transaction: async (fn) => {
+      db.exec('BEGIN IMMEDIATE')
+      try {
+        await fn(async (sql, params) => exec(sql, params))
+        db.exec('COMMIT')
+      } catch (error) {
+        db.exec('ROLLBACK')
+        throw error
+      }
+    },
+    snapshotHeld: async () =>
+      (db.prepare('PRAGMA wal_checkpoint(TRUNCATE)').get() as { busy: number }).busy !== 0,
+    close: async () => db.close(),
+  }
+}
+
+async function pgWriter(): Promise<Writer> {
+  const { url } = await clonePgTestDatabase()
+  const sql = postgres(url, { max: 1, onnotice: () => {} })
+  return {
+    location: url,
+    run: async (text, params = []) => {
+      await sql.unsafe(params.length === 0 ? text : numbered(text), params)
+    },
+    all: async <T>(text: string, params: (string | number)[] = []) =>
+      (await sql.unsafe(numbered(text), params)) as unknown as T[],
+    transaction: async (fn) => {
+      await sql.begin(async (tx) => {
+        await fn(
+          async (text, params = []) => (await tx.unsafe(numbered(text), params)) as unknown[],
+        )
+      })
+    },
+    snapshotHeld: async () => {
+      const [row] = (await sql.unsafe(
+        'SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname = current_database() AND pid <> pg_backend_pid() AND xact_start IS NOT NULL',
+      )) as unknown as { n: number }[]
+      return (row?.n ?? 0) > 0
+    },
+    close: async () => await sql.end({ timeout: 5 }),
+  }
+}
+
 async function fixture(options: { monitorMs?: number; wedgedMs?: number } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'sync-worker-'))
-  const path = join(dir, 'test.db')
-  const writer = openDatabase(path)
-  applyBaselineSchema(writer)
-  writer.exec('PRAGMA journal_mode=WAL')
-  const client = new SyncWorkerClient({ dbPath: path, ...options })
+  const writer = ENGINE === 'pg' ? await pgWriter() : sqliteWriter(join(dir, 'test.db'))
+  const client = new SyncWorkerClient({ dbPath: writer.location, ...options })
   return {
-    path,
+    path: writer.location,
     writer,
     client,
     async close() {
       await client.close()
-      writer.close()
+      await writer.close()
       rmSync(dir, { recursive: true, force: true })
     },
   }
@@ -44,37 +130,43 @@ async function fixture(options: { monitorMs?: number; wedgedMs?: number } = {}) 
  * profiles of its own, so a fixture's are told apart by their id.
  */
 const FIXTURE = 'fixture-'
+const T0 = '2026-01-01T00:00:00.000Z'
 const fixtureRows = (changes: { entity: string; entityId: string }[]) =>
   changes.filter((r) => r.entity === 'agentProfile' && r.entityId.startsWith(FIXTURE))
-function append(writer: SqlDatabase, name: string, text = 'x') {
-  const id = `${FIXTURE}${name}`
-  writer.exec('BEGIN IMMEDIATE')
-  try {
-    writer
-      .prepare(
-        "INSERT INTO agent_profiles(id,name,instructions,created_at,updated_at) VALUES (?,?,?,'t0','t0')",
-      )
-      .run(id, `profile ${id}`, text)
-    const { head_seq: seq } = writer
-      .prepare(
-        "UPDATE sync_feed SET head_seq = head_seq + 1 WHERE tenant_id = 'local' RETURNING head_seq",
-      )
-      .get() as { head_seq: number }
-    writer
-      .prepare(
-        "INSERT INTO changes(tenant_id,seq,entity,entity_id,op,payload,event_time) VALUES ('local',?,'agentProfile',?,'upsert','{}',1)",
-      )
-      .run(seq, id)
-    writer.exec('COMMIT')
-  } catch (error) {
-    writer.exec('ROLLBACK')
-    throw error
-  }
+/**
+ * Each writer's appends, one at a time: a case may fire many without awaiting them
+ * (POD-7085), and the writer's transaction awaits each statement, on either engine.
+ */
+const appending = new WeakMap<Writer, Promise<unknown>>()
+function append(writer: Writer, name: string, text = 'x'): Promise<void> {
+  const next = (appending.get(writer) ?? Promise.resolve()).then(() =>
+    appendNow(writer, name, text),
+  )
+  appending.set(
+    writer,
+    next.catch(() => {}),
+  )
+  return next
 }
-async function checkpoint(writer: SqlDatabase) {
+async function appendNow(writer: Writer, name: string, text: string) {
+  const id = `${FIXTURE}${name}`
+  await writer.transaction(async (run) => {
+    await run(
+      "INSERT INTO agent_profiles(workspace_id,id,name,instructions,created_at,updated_at) VALUES ('local',?,?,?,?,?)",
+      [id, `profile ${id}`, text, T0, T0],
+    )
+    const [head] = (await run(
+      "UPDATE sync_feed SET head_seq = head_seq + 1 WHERE workspace_id = 'local' RETURNING head_seq",
+    )) as { head_seq: number }[]
+    await run(
+      "INSERT INTO changes(workspace_id,seq,entity,entity_id,op,payload,event_time) VALUES ('local',?,'agentProfile',?,'upsert','{}',1)",
+      [Number(head?.head_seq), id],
+    )
+  })
+}
+async function checkpoint(writer: Writer) {
   for (let i = 0; i < 100; i++) {
-    const row = writer.prepare('PRAGMA wal_checkpoint(TRUNCATE)').get() as { busy: number }
-    if (row.busy === 0) return
+    if (!(await writer.snapshotHeld())) return
     await delay(10)
   }
   throw new Error('read transaction was not released')
@@ -90,7 +182,7 @@ describe('real sync worker boundary', () => {
   ] as const)('produces complete %s bytes in the worker', async (encoding) => {
     const f = await fixture()
     try {
-      for (let i = 0; i < 300; i++) append(f.writer, String(i), 'x'.repeat(4096))
+      for (let i = 0; i < 300; i++) await append(f.writer, String(i), 'x'.repeat(4096))
       const transfer = f.client.bootstrap({ ...job(encoding), encoding })
       const encoded = Buffer.from(await new Response(transfer.body).arrayBuffer())
       const decoded = (
@@ -117,7 +209,7 @@ describe('real sync worker boundary', () => {
   it('replaces an active worker whose progress stalls despite a live heartbeat', async () => {
     const f = await fixture({ monitorMs: 10 })
     try {
-      append(f.writer, 'one')
+      await append(f.writer, 'one')
       const transfer = f.client.bootstrap(job('wedged'))
       await transfer.meta
       // Advance only the progress-age seam; a heartbeat timeout cannot explain
@@ -135,11 +227,19 @@ describe('real sync worker boundary', () => {
     const f = await fixture()
     let timer: ReturnType<typeof setInterval> | undefined
     try {
-      for (let i = 0; i < 600; i++) append(f.writer, String(i), 'x'.repeat(1024))
+      for (let i = 0; i < 600; i++) await append(f.writer, String(i), 'x'.repeat(1024))
       const transfer = f.client.bootstrap(job('consistent'))
       // This writer only appends new refs, so seq <= S is an independent exact oracle.
       let next = 600
-      timer = setInterval(() => append(f.writer, String(next++)), 1)
+      // One append at a time: the next starts only once the last committed.
+      let appending = false
+      timer = setInterval(() => {
+        if (appending) return
+        appending = true
+        void append(f.writer, String(next++)).finally(() => {
+          appending = false
+        })
+      }, 1)
       const meta = await transfer.meta
       const output = (await text(transfer.body))
         .trim()
@@ -152,9 +252,10 @@ describe('real sync worker boundary', () => {
       ) as { entity: string; entityId: string; seq: number }[]
       // The profiles whose append is at or below the head the load is stamped
       // with: each append writes its profile and its change in one transaction.
-      const expected = f.writer
-        .prepare('SELECT entity_id FROM changes WHERE seq <= ? ORDER BY entity_id')
-        .all(meta.seq) as { entity_id: string }[]
+      const expected = await f.writer.all<{ entity_id: string }>(
+        'SELECT entity_id FROM changes WHERE seq <= ? ORDER BY entity_id',
+        [meta.seq],
+      )
       expect(actual.map((r) => r.entityId).sort()).toEqual(expected.map((r) => r.entity_id))
       // Every row carries the head number.
       expect(actual.every((r) => r.seq === meta.seq)).toBe(true)
@@ -166,19 +267,60 @@ describe('real sync worker boundary', () => {
       await f.close()
     }
   }, 30_000)
+  it('answers a collection fetch in one snapshot while appends commit (POD-7085)', async () => {
+    const f = await fixture()
+    let timer: ReturnType<typeof setInterval> | undefined
+    try {
+      for (let i = 0; i < 600; i++) append(f.writer, String(i), 'x'.repeat(1024))
+      const transfer = f.client.collections({
+        ...job('collections'),
+        mode: 'collections',
+        instances: [{ collection: 'agentProfile.all' }],
+      })
+      let next = 600
+      timer = setInterval(() => append(f.writer, String(next++)), 1)
+      const meta = await transfer.meta
+      const output = (await text(transfer.body))
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line))
+      clearInterval(timer)
+      timer = undefined
+      expect(next).toBeGreaterThan(600)
+      const actual = fixtureRows(
+        output.filter((r) => r.type === 'feedBootstrap').flatMap((r) => r.changes),
+      ) as { entityId: string; seq: number }[]
+      // Every change at or below the answer's feed number is in it, none above.
+      const expected = await f.writer.all<{ entity_id: string }>(
+        'SELECT entity_id FROM changes WHERE seq <= ? ORDER BY entity_id',
+        [meta.seq],
+      )
+      expect(actual.map((r) => r.entityId).sort()).toEqual(expected.map((r) => r.entity_id))
+      expect(actual.every((r) => r.seq === meta.seq)).toBe(true)
+      // The instance is closed by its marker, at the same feed number.
+      expect(output.find((r) => r.type === 'collectionComplete')).toMatchObject({
+        seq: meta.seq,
+        instances: [{ collection: 'agentProfile.all', part: 'main' }],
+      })
+      expect(output.at(-1)).toMatchObject({ type: 'syncComplete', seq: meta.seq })
+      await checkpoint(f.writer)
+    } finally {
+      clearInterval(timer)
+      await f.close()
+    }
+  }, 30_000)
+
   it('aborts mid-pass-2 and expires a stalled transfer, releasing both snapshots', async () => {
     const f = await fixture()
     try {
-      for (let i = 0; i < 300; i++) append(f.writer, String(i), 'x'.repeat(4096))
+      for (let i = 0; i < 300; i++) await append(f.writer, String(i), 'x'.repeat(4096))
       const abort = new AbortController()
       const first = f.client.bootstrap(job('abort'), abort.signal)
       const reader = first.body.getReader()
       await reader.read()
       await reader.read()
-      append(f.writer, 'after-capture')
-      expect(
-        (f.writer.prepare('PRAGMA wal_checkpoint(TRUNCATE)').get() as { busy: number }).busy,
-      ).toBe(1)
+      await append(f.writer, 'after-capture')
+      expect(await f.writer.snapshotHeld()).toBe(true)
       abort.abort()
       expect(await reader.read()).toEqual({ done: true, value: undefined })
       expect(f.client.activeJobCount()).toBe(0)
@@ -197,7 +339,7 @@ describe('real sync worker boundary', () => {
   it('bounds admission and fails every transfer on worker termination and shutdown', async () => {
     const f = await fixture()
     try {
-      append(f.writer, 'one')
+      await append(f.writer, 'one')
       const transfers = Array.from({ length: 11 }, (_, i) => f.client.bootstrap(job(String(i))))
       await expect(transfers[10]!.meta).rejects.toMatchObject({ reason: 'queue-full' })
       for (const t of transfers) void t.body.cancel().catch(() => {})
@@ -283,7 +425,7 @@ it.each([
 ] as const)('pins delta rows and floor to its snapshot with %s', async (encoding) => {
   const f = await fixture()
   try {
-    for (let i = 0; i < 100; i++) append(f.writer, `delta-${i}`, 'x'.repeat(4096))
+    for (let i = 0; i < 100; i++) await append(f.writer, `delta-${i}`, 'x'.repeat(4096))
     const transfer = f.client.delta({
       ...job('delta-snapshot', Date.now() + 10_000),
       mode: 'delta',
@@ -297,10 +439,9 @@ it.each([
       seq: 100,
       minAvailableSeq: 1,
     })
-    append(f.writer, 'later')
-    f.writer.exec(
-      "DELETE FROM changes WHERE tenant_id = 'local' AND seq < 50; UPDATE sync_feed SET floor_seq = 50 WHERE tenant_id = 'local'",
-    )
+    await append(f.writer, 'later')
+    await f.writer.run("DELETE FROM changes WHERE workspace_id = 'local' AND seq < 50")
+    await f.writer.run("UPDATE sync_feed SET floor_seq = 50 WHERE workspace_id = 'local'")
     let bytes = Buffer.from(await new Response(transfer.body).arrayBuffer())
     if (encoding === 'gzip') bytes = gunzipSync(bytes)
     if (encoding === 'zstd') bytes = zstdDecompressSync(bytes)

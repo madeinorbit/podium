@@ -85,13 +85,11 @@ it('keeps new-task repository order and open, keystroke and machine-update work 
     })) as unknown as SessionView[]
     fixture.pool = new MobxPool({ selectedIssueId: null, coarseNow: now }, undefined, {
       load: (_kind, id) => sessions.find((session) => session.sessionId === id),
-      summaries: { session: ['sessionId', 'cwd', 'lastActiveAt', 'archived', 'status'] },
     })
     fixture.pool.apply({
       type: 'replace',
       rows: sessions.map((session) => ({ kind: 'session', id: session.sessionId, value: session })),
     })
-    expect(fixture.pool.tables.session.size, 'historical sessions stay cold').toBe(0)
     headerEntities(fixture.pool).apply(
       repositories.map((value) => ({ kind: 'repository', id: value.path, value })),
     )

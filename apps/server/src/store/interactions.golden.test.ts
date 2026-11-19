@@ -29,7 +29,7 @@
 import type { SessionId } from '@podium/model'
 import type { InteractionAnswer } from '@podium/protocol'
 import { expect, it } from 'vitest'
-import { openTestStore } from '../test-support/open-test-store'
+import { openEventStoreSlice } from '../test-support/event-store-slice'
 import type { InteractionInsert } from './interactions'
 
 const session = 'sess-1' as SessionId
@@ -50,7 +50,7 @@ function ask(overrides: Partial<InteractionInsert> = {}): InteractionInsert {
 }
 
 it('collapses a duplicate open ask onto the existing row and says it did not insert', async () => {
-  const store = await openTestStore(':memory:')
+  const store = await openEventStoreSlice()
   try {
     const first = await store.interactions.insert(ask())
     expect(first.inserted).toBe(true)
@@ -75,7 +75,7 @@ it('collapses a duplicate open ask onto the existing row and says it did not ins
 })
 
 it('re-asks after the first was resolved, because the dedupe index covers open rows only', async () => {
-  const store = await openTestStore(':memory:')
+  const store = await openEventStoreSlice()
   try {
     await store.interactions.insert(ask())
     expect(
@@ -103,7 +103,7 @@ it('re-asks after the first was resolved, because the dedupe index covers open r
 })
 
 it('answers exactly once, and records delivery only after the row was claimed', async () => {
-  const store = await openTestStore(':memory:')
+  const store = await openEventStoreSlice()
   try {
     await store.interactions.insert(ask())
 
@@ -147,7 +147,7 @@ it('answers exactly once, and records delivery only after the row was claimed', 
 })
 
 it('reopens only the class of answer it was aimed at, and clears every trace of that answer', async () => {
-  const store = await openTestStore(':memory:')
+  const store = await openEventStoreSlice()
   try {
     await store.interactions.insert(ask())
     await store.interactions.answer({
@@ -185,7 +185,7 @@ it('reopens only the class of answer it was aimed at, and clears every trace of 
 })
 
 it('retires a claimed row that close cannot reach, and close reaches the open one that retire cannot', async () => {
-  const store = await openTestStore(':memory:')
+  const store = await openEventStoreSlice()
   try {
     await store.interactions.insert(ask({ id: 'claimed', fingerprint: 'fp-claimed' }))
     await store.interactions.insert(ask({ id: 'open', fingerprint: 'fp-open' }))
@@ -205,10 +205,16 @@ it('retires a claimed row that close cannot reach, and close reaches the open on
     // And retire is guarded on who claimed it, exactly like reopen.
     expect(await store.interactions.retireClaimed('claimed', 'expired', at, 'human')).toBe(false)
     expect(await store.interactions.retireClaimed('claimed', 'expired', at, 'policy')).toBe(true)
-    expect(await store.interactions.get('claimed')).toMatchObject({ status: 'expired', expiredAt: at })
+    expect(await store.interactions.get('claimed')).toMatchObject({
+      status: 'expired',
+      expiredAt: at,
+    })
 
     expect(await store.interactions.close('open', 'superseded', at)).toBe(true)
-    expect(await store.interactions.get('open')).toMatchObject({ status: 'superseded', expiredAt: at })
+    expect(await store.interactions.get('open')).toMatchObject({
+      status: 'superseded',
+      expiredAt: at,
+    })
     // Both statuses share `expired_at`: it is when the row stopped being open.
     expect(await store.interactions.close('open', 'expired', at)).toBe(false)
   } finally {
@@ -217,7 +223,7 @@ it('retires a claimed row that close cannot reach, and close reaches the open on
 })
 
 it('closes every open ask on one session at once and returns exactly the ids that moved', async () => {
-  const store = await openTestStore(':memory:')
+  const store = await openEventStoreSlice()
   try {
     await store.interactions.insert(
       ask({ id: 'a', fingerprint: 'fp-a', askedAt: '2026-09-01T00:00:00.000Z' }),
@@ -232,7 +238,13 @@ it('closes every open ask on one session at once and returns exactly the ids tha
       ask({ id: 'other', sessionId: 'sess-2' as SessionId, fingerprint: 'fp-a' }),
     )
     const at = '2026-09-01T00:03:00.000Z'
-    await store.interactions.answer({ id: 'b', answer, answeredBy: 'human', deliveredVia: 'menu', at })
+    await store.interactions.answer({
+      id: 'b',
+      answer,
+      answeredBy: 'human',
+      deliveredVia: 'menu',
+      at,
+    })
 
     // The already-answered row is not returned and is not touched: the ids are
     // read from `listOpen` before the update, so they are exactly the movers.
@@ -251,7 +263,7 @@ it('closes every open ask on one session at once and returns exactly the ids tha
 })
 
 it('enumerates open asks oldest first and a session’s history newest first', async () => {
-  const store = await openTestStore(':memory:')
+  const store = await openEventStoreSlice()
   try {
     await store.interactions.insert(
       ask({ id: 'a', fingerprint: 'fp-a', askedAt: '2026-09-01T00:02:00.000Z' }),
@@ -270,15 +282,22 @@ it('enumerates open asks oldest first and a session’s history newest first', a
     // No session argument means every session's open asks.
     expect((await store.interactions.listOpen()).map((r) => r.id)).toEqual(['z', 'b', 'a', 'c'])
 
-    expect((await store.interactions.listForSession(session)).map((r) => r.id)).toEqual(['c', 'a', 'b'])
-    expect((await store.interactions.listForSession(session, 2)).map((r) => r.id)).toEqual(['c', 'a'])
+    expect((await store.interactions.listForSession(session)).map((r) => r.id)).toEqual([
+      'c',
+      'a',
+      'b',
+    ])
+    expect((await store.interactions.listForSession(session, 2)).map((r) => r.id)).toEqual([
+      'c',
+      'a',
+    ])
   } finally {
     await store.close()
   }
 })
 
 it('trims resolved rows by age and never trims an open ask, however old', async () => {
-  const store = await openTestStore(':memory:')
+  const store = await openEventStoreSlice()
   try {
     const old = '2026-01-01T00:00:00.000Z'
     await store.interactions.insert(ask({ id: 'ancient-open', fingerprint: 'fp-1', askedAt: old }))

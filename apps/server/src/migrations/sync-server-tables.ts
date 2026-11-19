@@ -12,6 +12,12 @@
  */
 
 import type { SyncServerTables } from '@podium/sync'
+import { captureWrite } from '../sync/capture-pg'
 import { queuedMessages, upstreamOutbox } from './schema'
 
-export const syncServerTables: SyncServerTables = { queuedMessages, upstreamOutbox }
+/** The adapter's inbox writes take the server's capture wrapper the same way (POD-6989). */
+export const syncServerTables: SyncServerTables = {
+  queuedMessages,
+  upstreamOutbox,
+  captureWrite: (write) => captureWrite(write),
+}

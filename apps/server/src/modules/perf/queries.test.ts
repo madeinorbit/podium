@@ -13,9 +13,11 @@
  *    bundle was built, because every host metrics push changes them.
  */
 
-import type { LoopMinuteWire, MachineId } from '@podium/model'
+import { asWorkspaceId, type LoopMinuteWire, type MachineId } from '@podium/model'
 import type { LoopAccountingHandle, LoopAccountingSnapshot } from '@podium/runtime/loop-accounting'
 import { describe, expect, it } from 'vitest'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
+import { workspaceWriteMetrics } from '../../store/executor/workspace-write-metrics'
 import type { PerfState } from './commands'
 import { PERF_QUERIES } from './queries'
 import { PerfRegistry } from './registry'
@@ -62,6 +64,7 @@ const handleWith = (snapshot: LoopAccountingSnapshot): LoopAccountingHandle =>
 
 const stateWith = (over: Partial<PerfState> = {}): PerfState => ({
   perf: new PerfRegistry(),
+  workspaceId: SELF_HOSTED_WORKSPACE_ID,
   loopMinutes: () => ({}),
   ...over,
 })
@@ -69,6 +72,16 @@ const stateWith = (over: Partial<PerfState> = {}): PerfState => ({
 const snapshotOf = (state: PerfState) => PERF_QUERIES.snapshot.run(state, {})
 
 describe('perf.snapshot loop section', () => {
+  it('reads workspace write metrics only for the transport-selected workspace', () => {
+    const own = asWorkspaceId('ws_perf_own')
+    const other = asWorkspaceId('ws_perf_other')
+    workspaceWriteMetrics.recordQueue(own, 3)
+    workspaceWriteMetrics.recordQueue(other, 9)
+    const writes = snapshotOf(stateWith({ workspaceId: own })).workspaceWrites
+    expect(Object.keys(writes?.byWorkspace ?? {})).toEqual([own])
+    expect(writes?.byWorkspace[own]?.schedulerQueueMs.p50).toBe(3)
+    expect(workspaceWriteMetrics.snapshot().byWorkspace[other]?.schedulerQueueMs.p50).toBe(9)
+  })
   it('omits the section entirely when nothing is accounting', () => {
     const snapshot = snapshotOf(
       // Level `off`: the composition root passes no handle, because at `off`

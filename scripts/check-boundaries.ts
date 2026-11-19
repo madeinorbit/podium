@@ -3134,6 +3134,19 @@ const CONSTANT_IDENTIFIER_STATEMENTS: ReadonlyMap<string, { token: string; deriv
         derivedBy: 'apps/server/src/store/shipping-lane-reads.test.ts',
       },
     ],
+    // The collection fetch (POD-7085): each statement's text is compiled from
+    // the record declarations and the schema (`sync/collection-shapes.ts`),
+    // one prepared statement per shape, and every value an instance carries is
+    // bound as a placeholder. The deriving test compiles every declared rule
+    // with a hostile argument and asserts it is bound, never in the text, and
+    // that every audited shape builds from its key alone.
+    [
+      'apps/server/src/store/collections.ts',
+      {
+        token: 'CONSTANT-IDENTIFIER STATEMENT POD-7085',
+        derivedBy: 'apps/server/src/sync/collection-fetch.test.ts',
+      },
+    ],
     // The same test's own plan probe (POD-5612): the EXPLAIN interpolates the
     // verified constant to prove the index serves that exact shape. Derived by
     // the assertions around it in the same file.

@@ -1,8 +1,13 @@
-import type { SqlDatabase } from '@podium/runtime/sqlite'
+// workspace-scoped (POD-6959)
+import type { WorkspaceId } from '@podium/model'
 import { GrantEdgeVisibilityPolicy, NoDelegationsGranted } from '@podium/sync/bootstrap-worker'
 import { makeFeedVisibility } from '../feed-visibility'
 import { effectPublication } from '../modules/effects/published-input'
-import { createBunStoreExecutor } from '../store/executor/bun-driver'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
+import { CollectionsRepository } from '../store/collections'
+import type { QueryClient } from '../store/executor/driver'
+import type { RootStoreExecutor } from '../store/executor/executor'
+import { legacyWorkspaceQueries } from '../store/executor/sync-drizzle'
 import { databaseRecords } from '../sync/record-source'
 import { recordReadsOf } from './record-reads'
 
@@ -12,23 +17,29 @@ export interface BootstrapVisibilityOptions {
   readonly effectKinds?: readonly string[]
   /** Test fixtures can preserve their record clock without changing deadlines. */
   readonly now?: () => number
+  /**
+   * The workspace whose records and feed are read (POD-7021); the self-hosted
+   * install's when omitted (see `BootstrapJob.workspaceId`).
+   */
+  readonly workspaceId?: WorkspaceId
 }
 
 /**
- * The sharing rules and the record builders over one read-only connection:
- * query repositories only, with no SessionStore, migrations, authority or
- * publication. The caller has already opened the read transaction, so every
- * read below belongs to that snapshot.
+ * The sharing rules and the record builders over one read session's executor
+ * (`read-session.ts`, on either engine): query repositories only, with no
+ * SessionStore, migrations, authority or publication. Every statement of that
+ * executor runs in the session's read transaction, so every read below belongs
+ * to its snapshot. The caller owns the session and closes it.
  */
 export function bootstrapVisibility(
-  database: SqlDatabase,
+  executor: RootStoreExecutor<QueryClient>,
   options: BootstrapVisibilityOptions = {},
 ) {
-  const executor = createBunStoreExecutor({ database })
   const context = (async () => {
     const reads = recordReadsOf(executor.queries, {
       effectExecutors: effectPublication(options.effectKinds ?? []),
       ...(options.now && { now: options.now }),
+      ...(options.workspaceId && { workspaceId: options.workspaceId }),
     })
     const { grants, sync } = reads.store
     // The start-up load streams these, and the sharing rules re-send current
@@ -46,14 +57,17 @@ export function bootstrapVisibility(
       anchors: visibility.anchors,
       sync,
       records,
+      // The collection fetch's reads (POD-7085), on the same snapshot and in
+      // the job's workspace.
+      collections: new CollectionsRepository(
+        legacyWorkspaceQueries(executor.queries, options.workspaceId ?? SELF_HOSTED_WORKSPACE_ID),
+      ),
     }
   })()
-  // Return ownership before the first async read can fail, so the caller always closes it.
   return {
     context,
     get policy() {
       return context.then((value) => value.policy)
     },
-    executor,
   }
 }

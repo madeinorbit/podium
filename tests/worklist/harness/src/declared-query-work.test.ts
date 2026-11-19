@@ -2,13 +2,10 @@ import { omitGone } from '@podium/client-graph/lookup'
 import { writeFileSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { createIssueBoardSource } from '@podium/client-graph/issue-board-source'
-import { ISSUE_BOARD_SUMMARIES } from '@podium/client-graph/issue-board-schema'
 import { issuePages } from '@podium/client-graph/issue-page'
-import { ISSUE_PAGE_SUMMARIES } from '@podium/client-graph/issue-page-schema'
 import { MobxPool } from '@podium/client-graph/pool'
 import { residentIds } from '@podium/client-graph/enumerate'
 import * as runtimePool from '@podium/client-graph/runtime-pool'
-import { mergePoolSummaries } from '@podium/client-graph/source-registry'
 import type { ReaderQuestion } from '@podium/client-graph/shared/reader-questions'
 import type { RowRecord } from '@podium/client-graph/shared/source'
 import { LOADING, type Loaded } from '@podium/client-graph/worklist/rollup'
@@ -116,7 +113,6 @@ function fixture(scale: number) {
   const values = new Map(rows.map((row) => [`${row.kind}:${row.id}`, row.value]))
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: now }, undefined, {
     load: (entity, id) => values.get(`${entity}:${id}`),
-    summaries: mergePoolSummaries(ISSUE_PAGE_SUMMARIES, ISSUE_BOARD_SUMMARIES),
     worklist: 'demand',
     schedule: () => () => {},
   })
@@ -147,7 +143,7 @@ async function measured(
           a.localeCompare(b),
       )
       .filter((id) => !f.pool.graph.isCollapsed('session', id))
-      .map((id) => omitGone(f.pool.row('session', id, 'summary')))
+      .map((id) => omitGone(f.pool.row('session', id)))
       .filter((value) => value !== undefined)
   try {
     if (mechanism === 'identity' && plant) {
@@ -188,12 +184,12 @@ async function measured(
           : rows
       })
     if (mechanism === 'count' && plant) {
-      vi.spyOn(f.pool.queries, 'count').mockImplementation((entity) => {
+      vi.spyOn(f.pool.queries, 'heldCount').mockImplementation((entity) => {
         if (plant === 'wrong') return 0
         // The exact original count correction, planted in the real reader.
         return (
-          f.pool.coldIndex().count(entity) +
-          residentIds(f.pool, entity).filter((id) => !f.pool.coldIndex().known(entity, id)).length
+          f.pool.deviceIndex().count(entity) +
+          residentIds(f.pool, entity).filter((id) => !f.pool.deviceIndex().known(entity, id)).length
         )
       })
     }
@@ -210,7 +206,7 @@ async function measured(
       async () => {
         if (mechanism === 'count')
           insideReader('count', () => {
-            actual = f.pool.queries.count('session')
+            actual = f.pool.queries.heldCount('session')
           })
         else
           insideArm(() => {
@@ -239,12 +235,12 @@ async function measured(
     )
     const expected =
       mechanism === 'count'
-        ? f.pool.coldIndex().count('session')
+        ? f.pool.deviceIndex().count('session')
         : mechanism === 'identity'
           ? [
               ...new Set([
                 ...residentIds(f.pool, 'issue'),
-                ...f.pool.coldIndex().readerIds({ kind: 'pageIssues' }),
+                ...f.pool.deviceIndex().readerIds({ kind: 'pageIssues' }),
               ]),
             ]
           : mechanism === 'roster'
@@ -347,7 +343,7 @@ describe('pool screens work ratios: declared query screen counters', () => {
       inputs.push(
         untracked(() =>
           ['guard-root', 'guard-child'].map((id) => {
-            const row = omitGone(pool!.row('issue', id, 'summary-fields'))
+            const row = omitGone(pool!.row('issue', id))
             const repoId = pool!.graph.one('issue', id, 'repo')
             const repo = repoId ? omitGone(pool!.row('repo', repoId)) : undefined
             if (!row || row === LOADING || repo === LOADING)

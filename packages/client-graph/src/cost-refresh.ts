@@ -14,7 +14,7 @@ export function costRefresh(pool: MobxPool | null, root: string | null): AnswerS
       while (id && !seen.has(id)) {
         if (id === root) return true
         seen.add(id)
-        id = pool ? here(pool.row('issue', id, 'summary-fields'))?.parentId : undefined
+        id = pool ? here(pool.row('issue', id))?.parentId : undefined
       }
       return false
     }
@@ -34,7 +34,7 @@ export function costRefresh(pool: MobxPool | null, root: string | null): AnswerS
                   change.current?.agentState?.phase === 'working'
                 )
                   return false
-                const issue = here(pool.row('session', change.sessionId, 'summary-fields'))?.issueId
+                const issue = here(pool.row('session', change.sessionId))?.issueId
                 return related(issue)
               })
             )

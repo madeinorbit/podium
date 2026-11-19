@@ -43,7 +43,6 @@ it('attaches the existing pool after mounting every reader without a legacy fall
       shipping = reads.useShellShipping(),
       window = reads.useShellWindow()
     const approvals = reads.useShellApprovals(),
-      sessions = reads.useShellSessions(),
       links = reads.useShellLinks()
     const close = reads.useShellClose(),
       machines = reads.useShellMachines(),
@@ -55,7 +54,8 @@ it('attaches the existing pool after mounting every reader without a legacy fall
           chrome.repoCount,
           shipping.unfinishedCount,
           approvals.length,
-          sessions.length,
+          // The shell lists no sessions (POD-7088); the device holds them.
+          pool ? pool.queries.heldCount('session') : 0,
           links.readIssue('synthetic-0')?.seq ?? 0,
           machines.length,
         ].join(':')}

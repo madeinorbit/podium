@@ -41,7 +41,9 @@ async function loadHost(): Promise<HostModules> {
     startServer: server.startServer,
     isAddressInUseError: server.isAddressInUseError,
     startDaemon: async (opts) => {
-      const { promoteMachineAssignment } = await import('../apps/server/src/transfer-machine-assignment')
+      const { promoteMachineAssignment } = await import(
+        '../apps/server/src/transfer-machine-assignment'
+      )
       return daemon.startDaemon({ ...opts, promoteMachineAssignment })
     },
   }
@@ -62,6 +64,15 @@ async function runEntry(): Promise<void> {
     '../apps/server/src/migrations/snapshot-verifier-child'
   )
   if (await runSnapshotVerifierChildIfRequested()) return
+  // `podium server migrate --database <url>`: the Postgres deploy step [POD-6981]. It is
+  // answered here, before the launcher, because it boots nothing, claims no instance
+  // state and needs no running server: it migrates the named database and exits.
+  const argv = process.argv.slice(2)
+  if (argv[0] === 'server' && argv[1] === 'migrate') {
+    const { pgMigrateCommand } = await import('../apps/server/src/migrations/pg/index')
+    process.exitCode = await pgMigrateCommand(argv.slice(2))
+    return
+  }
   await main()
 }
 

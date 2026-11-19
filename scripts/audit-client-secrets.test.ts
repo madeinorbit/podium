@@ -84,6 +84,11 @@ describe('this gate can say NO', () => {
         file(SCRUB_MODULE, `export const P = settingsPathsInTier('server-secret')`),
       ),
     ).toEqual([])
+    expect(
+      auditScrubDerives(
+        file(SCRUB_MODULE, `export const P = pathsInSettingsTier('server-secret')`),
+      ),
+    ).toEqual([])
     const restated = auditScrubDerives(
       file(SCRUB_MODULE, `export const P = ['apiKeys.openai', 'integrations.linearApiKey']`),
     )

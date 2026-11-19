@@ -24,8 +24,10 @@ import type { Lane } from './driver'
 import {
   ParallelNestedTransactionError,
   StaleTransactionError,
+  StoreExecutorError,
   TransactionPoisonedError,
 } from './errors'
+import type { StoreContext } from './executor'
 import type { PostCommitRegistry, PostCommitRunner } from './post-commit'
 import type { Lease } from './scheduler'
 
@@ -134,6 +136,15 @@ export interface TransactionFrame {
   readonly unit: TransactionUnit
   readonly postCommit: PostCommitRegistry
   /**
+   * WHICH WORKSPACE THIS TRANSACTION IS FOR, or the global context [POD-6959
+   * design 2.4]. Set when the top-level transaction opens and shared by every
+   * savepoint under it: a nested scope joins its parent's unit of work, so it is
+   * for the same workspace (see {@link assertJoinable}). A driver reads it at
+   * `begin` through {@link currentStoreContext} (POD-6958 takes the workspace's
+   * write lock from it), and a workspace statement checks it before it runs.
+   */
+  readonly context: StoreContext
+  /**
    * An EXTERNAL lifetime this frame is bound to, on top of its own token.
    *
    * A phase-3 transaction runs on the lease the post-commit drain holds, and
@@ -185,6 +196,85 @@ export function currentScope(): StoreScope {
   return storage.getStore() ?? ROOT
 }
 
+/**
+ * The store context of the transaction the caller is inside, or undefined
+ * outside one (at the root, and in a post-commit drain, whose transaction has
+ * committed) [POD-6959 design 2.4, contract C3].
+ *
+ * The frame's scope is current while its driver `begin` runs, so a driver
+ * reads the transaction's workspace here before the body's first statement.
+ */
+export function currentStoreContext(): StoreContext | undefined {
+  const scope = storage.getStore()
+  return scope?.kind === 'transaction' ? scope.frame.context : undefined
+}
+
+/**
+ * THE WORKSPACE OF A ROOT STATEMENT [POD-6979, POD-6958 design 2.4].
+ *
+ * A workspace handle's statement run outside any transaction has no frame, so
+ * {@link currentStoreContext} is undefined and a driver could not tell it from a
+ * global write. On Postgres the handle's bound view therefore runs such a statement
+ * inside {@link runRootStatementIn} (`sync-drizzle.ts` supplies the hook to Postgres
+ * stores only), and the driver reads {@link rootStatementContext} to take that
+ * workspace's lock in the root write's own pipeline.
+ *
+ * Separate from {@link currentStoreContext} on purpose: the workspace checks of the
+ * bound views and the join rules read only transaction frames and are unchanged.
+ * Work an execution starts and leaves running (a timer) inherits the value, which
+ * can cost a lock it did not need, never a missing one.
+ */
+const rootStatement = new AsyncLocalStorage<Extract<StoreContext, { kind: 'workspace' }>>()
+
+/** Run a root statement of `context`'s workspace, so the driver can lock that workspace. */
+export function runRootStatementIn<T>(
+  context: Extract<StoreContext, { kind: 'workspace' }>,
+  run: () => T,
+): T {
+  return rootStatement.run(context, run)
+}
+
+/** The workspace of the root statement being run, if it came through a workspace handle. */
+export function rootStatementContext(): Extract<StoreContext, { kind: 'workspace' }> | undefined {
+  return rootStatement.getStore()
+}
+
+/** A workspace transaction was asked to join a transaction of another workspace. */
+export class CrossWorkspaceTransactionError extends StoreExecutorError {}
+
+/** A workspace transaction was asked to join a global transaction, which holds no workspace. */
+export class WorkspaceTransactionInGlobalFrameError extends StoreExecutorError {}
+
+/**
+ * THE JOIN RULES [POD-6959 design 2.4]. May work for `requested` join `frame`?
+ *
+ *   - a workspace frame joins work of its own workspace only;
+ *   - a workspace frame runs global work (install tables) as part of its own;
+ *   - a global frame refuses workspace work: it holds no workspace's write slot
+ *     (on Postgres, no workspace lock), so the work would write unlocked.
+ *
+ * `undefined` is a caller that names no context (every caller until POD-7010
+ * moves the repositories onto handles): it joins whatever is open.
+ */
+export function assertJoinable(frame: TransactionFrame, requested: StoreContext | undefined): void {
+  if (requested === undefined || requested.kind === 'global') return
+  const open = frame.context
+  if (open.kind === 'global') {
+    throw new WorkspaceTransactionInGlobalFrameError(
+      `transaction ${frame.id} is global and cannot run work of workspace ` +
+        `${requested.workspaceId}: open the workspace's transaction at the top of the operation`,
+      { openedAt: frame.openedAt },
+    )
+  }
+  if (open.workspaceId !== requested.workspaceId) {
+    throw new CrossWorkspaceTransactionError(
+      `transaction ${frame.id} is for workspace ${open.workspaceId} and cannot run work of ` +
+        `workspace ${requested.workspaceId}`,
+      { openedAt: frame.openedAt },
+    )
+  }
+}
+
 export function runInScope<T>(scope: StoreScope, fn: () => T): T {
   return storage.run(scope, fn)
 }
@@ -210,6 +300,8 @@ export function createFrame(input: {
   lease: Lease
   parent: TransactionFrame | undefined
   postCommit: PostCommitRegistry
+  /** The top-level frame's context; a savepoint takes its parent's and ignores this. */
+  context: StoreContext
   alive?: () => boolean
   /** See {@link TransactionFrame.openedAt}. Captured by the CALLER, not here. */
   openedAt: string
@@ -224,6 +316,7 @@ export function createFrame(input: {
     parent: input.parent,
     unit: input.parent ? input.parent.unit : { poisoned: undefined, inFlight: createInFlight() },
     postCommit: input.postCommit,
+    context: input.parent ? input.parent.context : input.context,
     // A savepoint inherits its parent's: the whole unit dies with the lease.
     alive: input.alive ?? input.parent?.alive ?? ALWAYS_ALIVE,
     child: undefined,

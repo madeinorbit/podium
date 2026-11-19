@@ -105,7 +105,7 @@ describe('release approval flow', () => {
     }
   })
 
-  it('refuses a double approval without canceling or duplicating the in-flight build', async () => {
+  it('answers a repeated approval with the build in flight, never a second build', async () => {
     let current: ReleaseProposal | undefined = BASE
     let finish!: () => void
     const building = new Promise<void>((resolve) => {
@@ -128,12 +128,47 @@ describe('release approval flow', () => {
       approval: { approvedBy: 'user:admin', approvedAt: 123 },
     })
     await expect(flow.read()).resolves.toMatchObject({ state: 'building', headSha: BASE.headSha })
-    await expect(flow.approve('user:other-admin', TARGET)).rejects.toThrow(/already building/)
+    // A resent request or a second tab asks for the build that is already
+    // running: it gets that build back, approval and all, not a refusal.
+    await expect(flow.approve('user:other-admin', TARGET)).resolves.toMatchObject({
+      state: 'building',
+      approval: { approvedBy: 'user:admin', approvedAt: 123 },
+    })
     expect(release).toHaveBeenCalledOnce()
     expect(release).toHaveBeenCalledWith(expect.objectContaining({ headSha: 'aaaaaaa' }))
 
     finish()
     await vi.waitFor(() => expect(flow.read()).resolves.toBeUndefined())
+    expect(release).toHaveBeenCalledOnce()
+  })
+
+  it('answers copies of one approval that arrive while admission is still reading', async () => {
+    let answer!: (proposal: ReleaseProposal) => void
+    const reading = new Promise<ReleaseProposal>((resolve) => {
+      answer = resolve
+    })
+    const release = vi.fn(async (_proposal: ReleaseProposal) => new Promise<void>(() => {}))
+    const flow = createReleaseApprovalFlow({
+      proposal: () => reading,
+      release,
+      failureLogs: String,
+      now: () => 7,
+    })
+
+    // One press, its answer lost, and the same request arriving twice more
+    // before the proposal read finished (the 2026-11-18 update, POD-7154).
+    const copies = [
+      flow.approve('user:admin', TARGET),
+      flow.approve('user:admin', TARGET),
+      flow.approve('user:admin', TARGET),
+    ]
+    await expect(
+      flow.approve('user:admin', { headSha: 'bbbbbbb', version: '0.1.2-dev.2+bbbbbbb' }),
+    ).rejects.toThrow(/already building/)
+    answer(BASE)
+    for (const copy of copies) {
+      await expect(copy).resolves.toMatchObject({ state: 'building', headSha: BASE.headSha })
+    }
     expect(release).toHaveBeenCalledOnce()
   })
 

@@ -260,7 +260,7 @@ const ENCODING_SUFFIX: Record<Encoding, string> = { br: '.br', gzip: '.gz' }
  * Vite and Expo both emit content-hashed filenames (`index-RR9HhGf3.js`). Those
  * are immutable by construction: a new build is a new URL, so the browser never
  * needs to revalidate. Everything else (index.html, the service worker, manifest)
- * keeps its URL across builds and must revalidate every load.
+ * keeps its URL across builds and must never be retained by the HTTP cache.
  */
 function isImmutableAsset(filePath: string): boolean {
   const name = basename(filePath)
@@ -269,7 +269,7 @@ function isImmutableAsset(filePath: string): boolean {
 }
 
 function cacheControl(filePath: string): string {
-  return isImmutableAsset(filePath) ? 'public, max-age=31536000, immutable' : 'no-cache'
+  return isImmutableAsset(filePath) ? 'public, max-age=31536000, immutable' : 'no-store'
 }
 
 /**
@@ -379,6 +379,14 @@ export interface StaticWebOptions {
    * and must not inherit them — COOP would break its multi-window flows.
    */
   crossOriginIsolated?: boolean
+  /**
+   * The scope the dist's `sw.js` may claim, sent as `Service-Worker-Allowed`
+   * (POD-7179). A worker at `/mobile/sw.js` may by default control only
+   * `/mobile/…`; the phone website's own page is `/mobile`, one character
+   * outside that, so the phone's worker is registered with scope `/mobile`
+   * and needs the server's leave to.
+   */
+  serviceWorkerScope?: string
 }
 
 function contentType(p: string): string {
@@ -604,6 +612,10 @@ export function registerWebStatic(
 
   const basePath = normalizedBasePath(opts.basePath)
   const isolationHeaders = opts.crossOriginIsolated ? CROSS_ORIGIN_ISOLATION_HEADERS : undefined
+  const serviceWorkerPath = join(webDir, 'sw.js')
+  const serviceWorkerHeaders = opts.serviceWorkerScope
+    ? { ...isolationHeaders, 'Service-Worker-Allowed': opts.serviceWorkerScope }
+    : isolationHeaders
   const handler = async (c: Context) => {
     if (opts.lazy && !existsSync(indexPath)) return c.notFound()
     const pathname = new URL(c.req.url).pathname
@@ -620,7 +632,8 @@ export function registerWebStatic(
       statSync(filePath).isFile() &&
       filePath !== indexPath
     ) {
-      return await serveFile(filePath, accepted, undefined, isolationHeaders)
+      const headers = filePath === serviceWorkerPath ? serviceWorkerHeaders : isolationHeaders
+      return await serveFile(filePath, accepted, undefined, headers)
     }
     const icon = appleTouchIcon(webDir, inside)
     if (icon) return await serveFile(icon, accepted, undefined, isolationHeaders)

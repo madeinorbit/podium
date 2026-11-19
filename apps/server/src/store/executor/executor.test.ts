@@ -14,6 +14,7 @@
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { testStoreEngine } from '../../test-support/pg-test-database'
 import { createBunSqliteDriver } from './bun-driver'
 import type { DriverSession, QueryClient, Statement, StoreDriver } from './driver'
 import { NO_BUSY_RETRY, queryClientOver, UNBOUNDED_WRITE_BUDGET_MS } from './driver'
@@ -36,15 +37,40 @@ import {
   type Barrier,
   barrier,
   type Harness,
-  openHarness,
+  openEngineHarness,
+  type openHarness,
   settle,
 } from './harness'
 import { createScheduler, DEFAULT_WATCHDOG_BUDGET_MS, type WatchdogReport } from './scheduler'
 
 let harness: Harness | undefined
 
-function open(options: Parameters<typeof openHarness>[0] = {}): Harness {
-  harness = openHarness(options)
+/**
+ * THE ENGINE comes from the leg [POD-6979]: bun:sqlite on the store shard, the Postgres
+ * driver on `server-store-pg` (`openEngineHarness`). The few cases that drive the
+ * bun:sqlite handle or driver directly are `sqliteOnly`, each saying why.
+ */
+const engine = testStoreEngine()
+const sqliteOnly = it.skipIf(engine === 'pg')
+/** `?` on SQLite, `$n` on Postgres: each statement is written once per engine. */
+const placeholders = (text: string): string => {
+  if (engine === 'sqlite') return text
+  let n = 0
+  return text.replace(/\?/g, () => `$${++n}`)
+}
+
+/**
+ * Fake timers that leave `setImmediate` real: postgres.js flushes its socket writes on
+ * it, so faking it would park every Postgres statement. The executor's own timers (the
+ * watchdog, the drain) are `setTimeout`s and stay fake. Install them after `open()`:
+ * the Postgres harness connects its pool there.
+ */
+const DRIVER_SAFE_FAKE_TIMERS = {
+  toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] as const,
+} as Parameters<typeof vi.useFakeTimers>[0]
+
+async function open(options: Parameters<typeof openHarness>[0] = {}): Promise<Harness> {
+  harness = await openEngineHarness(options)
   return harness
 }
 
@@ -54,7 +80,7 @@ afterEach(async () => {
   await current?.close()
 })
 
-const insert = 'INSERT INTO notes (body) VALUES (?)'
+const insert = placeholders('INSERT INTO notes (body) VALUES (?)')
 const bodies = 'SELECT body FROM notes ORDER BY id'
 
 async function noteBodies(client: { all: (sql: string) => Promise<unknown[]> }): Promise<string[]> {
@@ -90,7 +116,7 @@ describe('serialisation', () => {
     // WOULD CATCH: a queue that admits the next body while the first is parked
     // on an await — the exact regression that turns "one writer" into two open
     // transactions on one connection.
-    const h = open()
+    const h = await open()
     const order: string[] = []
     const parked = barrier()
 
@@ -119,7 +145,7 @@ describe('serialisation', () => {
   })
 
   it('serialises a burst of writers started in one turn', async () => {
-    const h = open()
+    const h = await open()
     await Promise.all(
       Array.from(
         { length: 8 },
@@ -139,7 +165,7 @@ describe('serialisation', () => {
 
 describe('rollback isolation', () => {
   it('rolls back the body’s writes and rethrows the original error', async () => {
-    const h = open()
+    const h = await open()
     await h.executor.transact(async (tx) => {
       await tx.drizzle.run(insert, 'kept')
     })
@@ -160,7 +186,7 @@ describe('reads against an open body', () => {
     // WOULD CATCH: a read lane that runs concurrently on the write connection.
     // On one connection an uncommitted row IS visible, so nothing but the queue
     // stops the read from returning it.
-    const h = open()
+    const h = await open()
     const parked = barrier()
     const observed: string[][] = []
 
@@ -185,7 +211,7 @@ describe('reads against an open body', () => {
     // The one deliberate committed-view read. It must NOT see the body's own
     // writes: that is the whole reason it exists, and a version that queued on
     // the write lane would simply deadlock.
-    const h = open()
+    const h = await open()
     let seenOutside: string[] | undefined
     let seenInside: string[] | undefined
 
@@ -203,7 +229,7 @@ describe('reads against an open body', () => {
   })
 
   it('refuses the committed-view read when the driver has no reader connection', async () => {
-    const h = open({ withoutReader: true })
+    const h = await open({ withoutReader: true })
     await expect(
       h.executor.transact(async () => {
         await h.executor.outsideTransaction(async () => undefined)
@@ -213,13 +239,14 @@ describe('reads against an open body', () => {
 })
 
 describe('the prepared-statement cache', () => {
-  it('prepares each SQL text once per connection, across leases', async () => {
+  // SQLite only: counts bun:sqlite's own prepare calls; pg-driver.test.ts proves Postgres prepares once per connection.
+  sqliteOnly('prepares each SQL text once per connection, across leases', async () => {
     // WOULD CATCH the cache being owned by the LEASE: `session()` is built fresh
     // for every scheduler operation over the same connection, so a cache created
     // inside it re-prepares every statement on every root call — the opposite of
     // the claim, and a local regression once repository calls become async.
     const prepared: string[] = []
-    const h = open({ onPrepare: (sql) => prepared.push(sql) })
+    const h = await open({ onPrepare: (sql) => prepared.push(sql) })
 
     for (let i = 0; i < 3; i++) {
       await h.executor.transact(async (tx) => {
@@ -245,7 +272,7 @@ describe('re-entrancy', () => {
     // than on the caller's scope. Keyed on the handle, a nested call from a
     // DIFFERENT body would also see depth > 0 and silently join a transaction
     // it has nothing to do with.
-    const h = open()
+    const h = await open()
     await h.executor.transact(async (tx) => {
       await tx.drizzle.run(insert, 'outer')
       await tx.transact(async (inner) => {
@@ -262,8 +289,9 @@ describe('re-entrancy', () => {
     ])
   })
 
-  it('a callback-created savepoint cannot hijack the query helper boundary', async () => {
-    const h = open()
+  // SQLite only: opens savepoints on the bun:sqlite handle directly.
+  sqliteOnly('a callback-created savepoint cannot hijack the query helper boundary', async () => {
+    const h = await open()
     let callbackRan = false
     await h.executor.transact(async () => {
       h.raw.prepare('INSERT INTO notes (body) VALUES (?)').run('outer')
@@ -288,7 +316,7 @@ describe('re-entrancy', () => {
   })
 
   it('rolls the savepoint back without losing the outer transaction', async () => {
-    const h = open()
+    const h = await open()
     await h.executor.transact(async (tx) => {
       await tx.drizzle.run(insert, 'outer')
       await expect(
@@ -308,7 +336,7 @@ describe('re-entrancy', () => {
   it('refuses two nested scopes at once, and a parent statement under an open child', async () => {
     // Savepoints are a stack, not a tree: two branches would release each
     // other's boundaries.
-    const h = open()
+    const h = await open()
     const parked = barrier()
 
     await h.executor.transact(async (tx) => {
@@ -321,9 +349,7 @@ describe('re-entrancy', () => {
       await expect(tx.transact(async () => undefined)).rejects.toBeInstanceOf(
         ParallelNestedTransactionError,
       )
-      await expect(tx.drizzle.all(bodies)).rejects.toBeInstanceOf(
-        ParallelNestedTransactionError,
-      )
+      await expect(tx.drizzle.all(bodies)).rejects.toBeInstanceOf(ParallelNestedTransactionError)
       parked.release()
       await branch
       // Once the branch closes, the parent is addressable again.
@@ -352,7 +378,7 @@ describe('re-entrancy', () => {
  */
 describe('the repository query port', () => {
   it('opens a savepoint, not a second BEGIN, when a span nests inside a span', async () => {
-    const h = open()
+    const h = await open()
     const queries = h.executor.queries
 
     await queries.createOrJoinTransaction(async () => {
@@ -375,7 +401,7 @@ describe('the repository query port', () => {
     // The enclosing-span variant, and the one that separates a savepoint from
     // the alternatives. A second BEGIN cannot reach here at all; a port that
     // opened no span for the nested body would leave 'inner' in the table.
-    const h = open()
+    const h = await open()
     const queries = h.executor.queries
 
     await queries.createOrJoinTransaction(async () => {
@@ -401,7 +427,7 @@ describe('the repository query port', () => {
     // span already fell through to the ambient form. It is here because the two
     // are one stack: a port that resolved nesting from anything other than the
     // ambient scope would pass the two tests above and fail this one.
-    const h = open()
+    const h = await open()
 
     await h.executor.transact(async (tx) => {
       await tx.drizzle.run(insert, 'outer')
@@ -458,8 +484,8 @@ describe('asynchronous savepoint boundary failures', () => {
     })
     const executor = createStoreExecutor<QueryClient>({ driver })
 
-    const failure = await (
-      executor.transact(async (tx) => {
+    const failure = await executor
+      .transact(async (tx) => {
         await tx.drizzle.run(insert, 'outer')
         // The body catches the boundary failure and carries on, which is the
         // dangerous case: it must not be able to commit from here.
@@ -468,10 +494,10 @@ describe('asynchronous savepoint boundary failures', () => {
           TransactionPoisonedError,
         )
       })
-    ).then(
-      () => undefined,
-      (error: unknown) => error,
-    )
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      )
 
     expect(failure).toBeInstanceOf(TransactionPoisonedError)
     expect((failure as TransactionPoisonedError).cause).toBeInstanceOf(Error)
@@ -489,8 +515,8 @@ describe('asynchronous savepoint boundary failures', () => {
     })
     const executor = createStoreExecutor<QueryClient>({ driver })
 
-    const failure = await (
-      executor.transact(async (tx) => {
+    const failure = await executor
+      .transact(async (tx) => {
         await expect(
           tx.transact(async () => {
             throw new Error('nested failed')
@@ -499,10 +525,10 @@ describe('asynchronous savepoint boundary failures', () => {
           // failure is what decides the transaction's fate.
         ).rejects.toThrow('nested failed')
       })
-    ).then(
-      () => undefined,
-      (error: unknown) => error,
-    )
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      )
 
     expect(failure).toBeInstanceOf(TransactionPoisonedError)
     expect(driver.calls.filter((call) => /:(commit|rollback)$/.test(call))).toEqual(['s1:rollback'])
@@ -515,7 +541,7 @@ describe('the active transaction token', () => {
     // "Nothing runs after its commit" is enforced by the TOKEN, not by the
     // callback boundary: a promise the body never awaited resolves later, and
     // would otherwise run its statement in autocommit.
-    const h = open()
+    const h = await open()
     let escaped: StoreExecutor<QueryClient> | undefined
 
     await h.executor.transact(async (tx) => {
@@ -528,9 +554,7 @@ describe('the active transaction token', () => {
     await expect(stale.transact(async () => undefined)).rejects.toBeInstanceOf(
       StaleTransactionError,
     )
-    await expect(stale.read(async () => undefined)).rejects.toBeInstanceOf(
-      StaleTransactionError,
-    )
+    await expect(stale.read(async () => undefined)).rejects.toBeInstanceOf(StaleTransactionError)
     expect(await noteBodies(h.db)).toEqual(['committed'])
   })
 })
@@ -541,7 +565,7 @@ describe('ambient routing', () => {
     // the ROOT executor's repositories must see the transaction's own writes,
     // or every cached aggregate rebuilt inside a span would be built from the
     // pre-commit state.
-    const h = open()
+    const h = await open()
     let ambient: string[] | undefined
     await h.executor.transact(async (tx) => {
       await tx.drizzle.run(insert, 'own-write')
@@ -554,7 +578,7 @@ describe('ambient routing', () => {
   })
 
   it('runs a root-bound call on the root when no transaction is open', async () => {
-    const h = open()
+    const h = await open()
     await h.db.run(insert, 'ambient')
     expect(await noteBodies(h.db)).toEqual(['ambient'])
   })
@@ -564,7 +588,7 @@ describe('the exclusive lane', () => {
   it('refuses an exclusive request from a lease holder', async () => {
     // It would wait for the lane it is already holding. A deadlock is a worse
     // answer than a refusal.
-    const h = open()
+    const h = await open()
     await expect(
       h.executor.transact(async () => {
         await h.executor.exclusive(async () => undefined)
@@ -573,7 +597,7 @@ describe('the exclusive lane', () => {
   })
 
   it('runs alone: queued work waits for it and it waits for work in flight', async () => {
-    const h = open()
+    const h = await open()
     const order: string[] = []
     const parked = barrier()
 
@@ -628,46 +652,46 @@ function laneOnlyDriver(readConcurrency: number): StoreDriver<QueryClient> {
 }
 
 describe('the remote lane policy', () => {
-  it.each(['arriving', 'queued'] as const)(
-    'holds the %s read outside an active exclusive body',
-    async (arrival) => {
-      const scheduler = createScheduler({ driver: laneOnlyDriver(3) })
-      const precedingParked = barrier()
-      const exclusiveEntered = barrier()
-      const exclusiveParked = barrier()
-      const order: string[] = []
-      const preceding = scheduler.run('read', async () => {
-        await precedingParked.wait()
+  it.each([
+    'arriving',
+    'queued',
+  ] as const)('holds the %s read outside an active exclusive body', async (arrival) => {
+    const scheduler = createScheduler({ driver: laneOnlyDriver(3) })
+    const precedingParked = barrier()
+    const exclusiveEntered = barrier()
+    const exclusiveParked = barrier()
+    const order: string[] = []
+    const preceding = scheduler.run('read', async () => {
+      await precedingParked.wait()
+    })
+    const exclusive = scheduler.run('exclusive', async () => {
+      order.push('exclusive:start')
+      exclusiveEntered.release()
+      await exclusiveParked.wait()
+      order.push('exclusive:end')
+    })
+    let read: Promise<void> | undefined
+    const startRead = () =>
+      scheduler.run('read', async () => {
+        order.push('read')
       })
-      const exclusive = scheduler.run('exclusive', async () => {
-        order.push('exclusive:start')
-        exclusiveEntered.release()
-        await exclusiveParked.wait()
-        order.push('exclusive:end')
-      })
-      let read: Promise<void> | undefined
-      const startRead = () =>
-        scheduler.run('read', async () => {
-          order.push('read')
-        })
-      try {
-        if (arrival === 'queued') read = startRead()
-        precedingParked.release()
-        await exclusiveEntered.wait()
-        if (arrival === 'arriving') read = startRead()
-        await settle()
-        expect([...order], 'read must wait while the exclusive body is parked').toEqual([
-          'exclusive:start',
-        ])
-      } finally {
-        precedingParked.release()
-        exclusiveParked.release()
-        await Promise.all([preceding, exclusive, read])
-        await scheduler.close()
-      }
-      expect(order).toEqual(['exclusive:start', 'exclusive:end', 'read'])
-    },
-  )
+    try {
+      if (arrival === 'queued') read = startRead()
+      precedingParked.release()
+      await exclusiveEntered.wait()
+      if (arrival === 'arriving') read = startRead()
+      await settle()
+      expect([...order], 'read must wait while the exclusive body is parked').toEqual([
+        'exclusive:start',
+      ])
+    } finally {
+      precedingParked.release()
+      exclusiveParked.release()
+      await Promise.all([preceding, exclusive, read])
+      await scheduler.close()
+    }
+    expect(order).toEqual(['exclusive:start', 'exclusive:end', 'read'])
+  })
 
   it('still admits a read while an ordinary write body is parked', async () => {
     const scheduler = createScheduler({ driver: laneOnlyDriver(3) })
@@ -802,14 +826,14 @@ describe('scheduler liveness under driver failure', () => {
     })
     const scheduler = createScheduler({ driver })
 
-    const failure = await (
-      scheduler.run('write', async () => {
+    const failure = await scheduler
+      .run('write', async () => {
         throw new Error('body failed')
       })
-    ).then(
-      () => undefined,
-      (error: unknown) => error,
-    )
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      )
 
     expect(failure).toBeInstanceOf(AggregateError)
     expect((failure as AggregateError).errors.map((error: Error) => error.message)).toEqual([
@@ -866,7 +890,7 @@ describe('the batch capability', () => {
   })
 
   it('reaches the driver as ONE call, on the open transaction', async () => {
-    const h = open()
+    const h = await open()
     await h.executor.transact(async (tx) => {
       await tx.drizzle.batch([run('a'), run('b'), run('c')])
     })
@@ -879,13 +903,10 @@ describe('the batch capability', () => {
   })
 
   it('routes a root batch ambiently, on the write lane, atomically', async () => {
-    const h = open()
+    const h = await open()
     // The second statement violates NOT NULL, so the batch fails as a unit.
     await expect(
-      h.db.batch([
-        run('kept'),
-        { sql: insert, params: [null], method: 'run', intent: 'write' },
-      ]),
+      h.db.batch([run('kept'), { sql: insert, params: [null], method: 'run', intent: 'write' }]),
     ).rejects.toThrow()
     expect(await noteBodies(h.db), 'all of it or none of it').toEqual([])
 
@@ -899,7 +920,7 @@ describe('the batch capability', () => {
     // that CAUGHT the failure and carried on committed the prefix that had
     // already applied. "All of it applies or none of it does" is a property of
     // the batch, not of whatever transaction happens to be open around it.
-    const h = open()
+    const h = await open()
     await h.executor.transact(async (tx) => {
       await expect(
         tx.drizzle.batch([
@@ -968,7 +989,7 @@ describe('the batch capability', () => {
   it('refuses a batch on a transaction whose scope has ended', async () => {
     // The token rule is not per operation shape: a batch is as capable of
     // running after its commit as a statement is.
-    const h = open()
+    const h = await open()
     let escaped: StoreExecutor<QueryClient> | undefined
     await h.executor.transact(async (tx) => {
       escaped = tx
@@ -1046,9 +1067,7 @@ describe('the declared write budget and busy retry', () => {
     const slept: number[] = []
     const scheduler = createScheduler({ driver, sleep: async (ms) => void slept.push(ms) })
 
-    await expect(scheduler.run('write', async () => 'never')).rejects.toThrow(
-      'TRANSACTION_CLOSED',
-    )
+    await expect(scheduler.run('write', async () => 'never')).rejects.toThrow('TRANSACTION_CLOSED')
     expect(attempts).toBe(1)
     expect(slept).toEqual([])
     await scheduler.close()
@@ -1213,7 +1232,7 @@ describe('post-commit', () => {
     // N+1 to subscriber A before batch N ever reached subscriber B. Delta
     // clients apply `seq !== cursor + 1 -> heal`, so that reorder is a
     // permanent heal storm, not a cosmetic one.
-    const h = open()
+    const h = await open()
     const delivered: string[] = []
     const subscribers = ['A', 'B']
 
@@ -1250,7 +1269,7 @@ describe('post-commit', () => {
   })
 
   it('marks the store unhealthy when a commit application fails, and says the write committed', async () => {
-    const h = open()
+    const h = await open()
     await expect(
       h.executor.transact(async (tx) => {
         await tx.drizzle.run(insert, 'committed')
@@ -1262,11 +1281,9 @@ describe('post-commit', () => {
 
     // The row IS there: the rejection is not a rollback and must never be read
     // as one.
-    expect(h.raw.prepare(bodies).all()).toEqual([{ body: 'committed' }])
+    expect(await h.committed(bodies)).toEqual([{ body: 'committed' }])
     expect(h.executor.health.healthy).toBe(false)
-    await expect(h.executor.read(async () => undefined)).rejects.toBeInstanceOf(
-      StoreUnhealthyError,
-    )
+    await expect(h.executor.read(async () => undefined)).rejects.toBeInstanceOf(StoreUnhealthyError)
   })
 
   it('marks a mechanism-1 failure committed, and a later refusal not committed', async () => {
@@ -1274,29 +1291,31 @@ describe('post-commit', () => {
     // it matters: a caller handling the rejection of a mechanism-1 failure can
     // otherwise not tell it from a rollback, and retrying it duplicates a
     // durable write (spec §3.3, rule 7).
-    const h = open()
-    const failure = await (
-      h.executor.transact(async (tx) => {
+    const h = await open()
+    const failure = await h.executor
+      .transact(async (tx) => {
         await tx.drizzle.run(insert, 'committed')
         postCommit().applyCommit(() => {
           throw new Error('baseline fold failed')
         }, 'baseline')
       })
-    ).then(
-      () => undefined,
-      (error: unknown) => error,
-    )
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      )
 
     expect(failure).toBeInstanceOf(StoreUnhealthyError)
     expect((failure as StoreUnhealthyError).committed).toBe(true)
-    expect(h.raw.prepare(bodies).all()).toEqual([{ body: 'committed' }])
+    expect(await h.committed(bodies)).toEqual([{ body: 'committed' }])
 
     // The REFUSAL afterwards is the opposite case and must say so: the store is
     // unhealthy, the work never ran, and nothing committed.
-    const refusal = await h.executor.read(async () => undefined).then(
-      () => undefined,
-      (error: unknown) => error,
-    )
+    const refusal = await h.executor
+      .read(async () => undefined)
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      )
     expect(refusal).toBeInstanceOf(StoreUnhealthyError)
     expect((refusal as StoreUnhealthyError).committed).toBe(false)
   })
@@ -1306,7 +1325,7 @@ describe('post-commit', () => {
     // failure into the transaction's rejection — and an unmarked one, so the
     // caller reads a committed write as a failed one.
     const lastResort: string[] = []
-    const h = open({
+    const h = await open({
       effectSink: () => {
         throw new Error('sink failed')
       },
@@ -1338,24 +1357,24 @@ describe('post-commit', () => {
 
   it('keeps a throwing unhealthy reporter from replacing the committed error', async () => {
     const lastResort: string[] = []
-    const h = open({
+    const h = await open({
       onUnhealthy: () => {
         throw new Error('logger failed')
       },
       onReportFailure: (_error, label) => lastResort.push(label),
     })
 
-    const failure = await (
-      h.executor.transact(async (tx) => {
+    const failure = await h.executor
+      .transact(async (tx) => {
         await tx.drizzle.run(insert, 'committed')
         postCommit().applyCommit(() => {
           throw new Error('baseline fold failed')
         }, 'baseline')
       })
-    ).then(
-      () => undefined,
-      (error: unknown) => error,
-    )
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      )
 
     // The reporter's own failure must not become the caller's error: that would
     // lose both the mechanism and the committed marker.
@@ -1366,10 +1385,10 @@ describe('post-commit', () => {
   })
 
   it('reports a durable follow-up failure as a committed failure and still drains the rest', async () => {
-    const h = open()
+    const h = await open()
     const ran: string[] = []
-    const failure = await (
-      h.executor.transact(async (tx) => {
+    const failure = await h.executor
+      .transact(async (tx) => {
         await tx.drizzle.run(insert, 'committed')
         postCommit().followUp(() => {
           ran.push('first')
@@ -1379,10 +1398,10 @@ describe('post-commit', () => {
           ran.push('second')
         }, 'nudge')
       })
-    ).then(
-      () => undefined,
-      (error: unknown) => error,
-    )
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      )
 
     expect(failure).toBeInstanceOf(PostCommitError)
     expect((failure as PostCommitError).committed).toBe(true)
@@ -1393,7 +1412,7 @@ describe('post-commit', () => {
 
   it('isolates an external effect: it is reported, not rethrown, and the next effect still runs', async () => {
     const reported: string[] = []
-    const h = open({ effectSink: (_error, label) => reported.push(label) })
+    const h = await open({ effectSink: (_error, label) => reported.push(label) })
     const ran: string[] = []
 
     await h.executor.transact(async (tx) => {
@@ -1414,7 +1433,7 @@ describe('post-commit', () => {
   it('discards a rolled-back savepoint’s post-commit work and keeps the parent’s', async () => {
     // A savepoint release is not a commit: its tail belongs to whoever commits,
     // and a rolled-back branch must publish nothing.
-    const h = open()
+    const h = await open()
     const ran: string[] = []
     await h.executor.transact(async (tx) => {
       postCommit().applyCommit(() => {
@@ -1555,7 +1574,9 @@ describe('the token during an asynchronous commit', () => {
     // what identifies the lease cycle as the cause. It fails in `grace` ms
     // instead of hanging for the suite timeout.
     const grace = 1_500
-    const settlesWhileEffectRuns = async (effect: (ex: StoreExecutor<QueryClient>) => Promise<void>) => {
+    const settlesWhileEffectRuns = async (
+      effect: (ex: StoreExecutor<QueryClient>) => Promise<void>,
+    ) => {
       const driver = asyncFakeDriver()
       const executor = createStoreExecutor<QueryClient>({ driver })
       // NO barrier: the effect is dispatched immediately, so the only thing
@@ -1575,9 +1596,10 @@ describe('the token during an asynchronous commit', () => {
     const takesALease = await settlesWhileEffectRuns(async (ex) => {
       await ex.drizzle.run(insert, 'from-effect')
     })
-    expect(takesALease.verdict, 'an effect that issues a root write must not wedge its own transact').toBe(
-      'settled',
-    )
+    expect(
+      takesALease.verdict,
+      'an effect that issues a root write must not wedge its own transact',
+    ).toBe('settled')
     await takesALease.executor.effectsSettled()
     await takesALease.executor.close()
 
@@ -1854,15 +1876,17 @@ describe('scopes that outlive the lease they run on', () => {
     // transaction that is still OPEN; a continuation the body left in flight
     // carries that context with it and would otherwise read the committed view
     // successfully, long after "nothing runs after its commit".
-    const h = open()
+    const h = await open()
     const escaped = barrier()
     let leaked: Promise<unknown> | undefined
 
     await h.executor.transact(async (tx) => {
-      leaked = escaped.wait().then(
-        async () =>
-          await h.executor.outsideTransaction(async (view) => await noteBodies(view.drizzle)),
-      )
+      leaked = escaped
+        .wait()
+        .then(
+          async () =>
+            await h.executor.outsideTransaction(async (view) => await noteBodies(view.drizzle)),
+        )
       await tx.drizzle.run(insert, 'committed')
     })
 
@@ -1881,7 +1905,7 @@ describe('post-commit runner retention', () => {
     // ever added to. One runner, queue, effect set and option closure per root
     // write — including writes with no post-commit work at all — kept for the
     // life of the process, with `effectsSettled()` scanning all of them.
-    const h = open()
+    const h = await open()
     for (let i = 0; i < 12; i++) {
       await h.executor.transact(async (tx) => {
         await tx.drizzle.run(insert, `sequential-${i}`)
@@ -1908,7 +1932,7 @@ describe('post-commit runner retention', () => {
     // The other half: removal must not race `effectsSettled()`, which would
     // make the executor stop waiting for effects still in flight.
     const parked = barrier()
-    const h = open()
+    const h = await open()
     const ran: string[] = []
 
     await h.executor.transact(async (tx) => {
@@ -1936,7 +1960,7 @@ describe('frames per burst', () => {
     // commit awaited, a microtask-boundary flush turns a burst of N commits
     // into N frames per connection. The flush signal is the scheduler going
     // idle, so a burst is one frame however many commits it contains.
-    const h = open()
+    const h = await open()
     const frames: number[][] = []
     const flusher = createFrameFlusher<number>({
       scheduler: h.executor.scheduler,
@@ -2022,7 +2046,7 @@ describe('the watchdog', () => {
     const reported = new Promise<void>((resolve) => {
       announce = resolve
     })
-    const h = open({
+    const h = await open({
       watchdog: {
         budgetMs: 1,
         report: (report) => {
@@ -2043,11 +2067,13 @@ describe('the watchdog', () => {
   })
 
   it('reports the parked caller stack at the default budget and clears normal-body timers', async () => {
-    vi.useFakeTimers()
     const reports: WatchdogReport[] = []
     const parked = barrier()
     const entered = barrier()
-    const h = open({ watchdog: { report: (report) => reports.push(report) } })
+    const h = await open({ watchdog: { report: (report) => reports.push(report) } })
+    // After open: a Postgres pool connects through setTimeout(0), which fake timers
+    // would park. Nothing of the watchdog exists before the first lease.
+    vi.useFakeTimers(DRIVER_SAFE_FAKE_TIMERS)
     try {
       await h.executor.transact(async (tx) => {
         await tx.drizzle.run(insert, 'normal')
@@ -2085,12 +2111,11 @@ describe('the watchdog', () => {
   })
 
   it('isolates a failing watchdog sink without rolling back its holder', async () => {
-    vi.useFakeTimers()
     const failure = new Error('report transport failed')
     const failures: unknown[] = []
     const entered = barrier()
     const parked = barrier()
-    const h = open({
+    const h = await open({
       watchdog: {
         budgetMs: 10,
         report: () => {
@@ -2102,6 +2127,7 @@ describe('the watchdog', () => {
         },
       },
     })
+    vi.useFakeTimers(DRIVER_SAFE_FAKE_TIMERS)
     try {
       const running = h.executor.transact(async (tx) => {
         await tx.drizzle.run(insert, 'committed despite sink failure')
@@ -2178,10 +2204,7 @@ describe('the watchdog', () => {
     const parked = barrier()
     const { scheduler, reports } = watched(60, { execute: async () => await parked.wait() })
 
-    const running = scheduler.run(
-      'write',
-      async (lease) => await lease.session.execute(statement),
-    )
+    const running = scheduler.run('write', async (lease) => await lease.session.execute(statement))
     await parked.reached()
     await delay(400)
     expect(reports).toEqual([])
@@ -2236,7 +2259,7 @@ describe('the watchdog', () => {
 
 describe('shutdown', () => {
   it('drains queued work, then refuses new work', async () => {
-    const h = open()
+    const h = await open()
     const parked = barrier()
     const first = h.executor.transact(async (tx) => {
       await parked.wait()
@@ -2262,7 +2285,7 @@ describe('shutdown', () => {
   // it ran outside the drain's permission, so the read was refused and the
   // refusal had no catch.
   async function readDuringClose(start: (step: () => Promise<void>) => void): Promise<unknown> {
-    const h = open()
+    const h = await open()
     await h.executor.transact(async (tx) => {
       await tx.drizzle.run(insert, 'committed')
     })
@@ -2300,12 +2323,15 @@ describe('shutdown', () => {
 
   it('reports a root effect that fails to the effect sink instead of rejecting', async () => {
     const effectSink = vi.fn()
-    const h = open({ effectSink })
+    const h = await open({ effectSink })
     h.executor.effect(async () => {
       throw new Error('subscriber socket closed')
     }, 'delivery')
     await h.executor.effectsSettled()
-    expect(effectSink).toHaveBeenCalledWith(expect.objectContaining({ message: 'subscriber socket closed' }), 'delivery')
+    expect(effectSink).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'subscriber socket closed' }),
+      'delivery',
+    )
   })
 })
 
@@ -2318,7 +2344,7 @@ describe('shutdown', () => {
  * is the shape `store/notification-facts.ts` already writes.
  */
 describe('declared write intent', () => {
-  const claim = 'INSERT INTO notes (body) VALUES (?) RETURNING id'
+  const claim = placeholders('INSERT INTO notes (body) VALUES (?) RETURNING id')
   /** What drizzle emits for it: a WRITE whose result decodes like a read. */
   const claimStatement = (body: string): Statement => ({
     sql: claim,
@@ -2480,24 +2506,23 @@ describe('declared write intent', () => {
     await executor.close()
   })
 
-  it('refuses a write on a bun session that is not the owner', async () => {
+  // SQLite only: tests the bun:sqlite driver's own sessions; pg-driver.test.ts covers the Postgres reader.
+  sqliteOnly('refuses a write on a bun session that is not the owner', async () => {
     // The driver's own half of the same rule. `shared-read` is the SAME
     // connection as the owner, so the engine would autocommit the write rather
     // than refusing it — there is no self-healing here to lean on.
-    const h = open()
+    const h = await open()
     const driver = createBunSqliteDriver({ database: h.raw })
     const session = await driver.open('read')
     await expect(
       session.execute({ sql: insert, params: ['sneaked'], method: 'run', intent: 'write' }),
     ).rejects.toThrow(/cannot write on a shared-read session/)
     await expect(
-      session.executeBatch([
-        { sql: claim, params: ['sneaked'], method: 'all', intent: 'write' },
-      ]),
+      session.executeBatch([{ sql: claim, params: ['sneaked'], method: 'all', intent: 'write' }]),
       'and through the batch door too',
     ).rejects.toThrow(/cannot write on a shared-read session/)
     await session.close()
-    expect((h.raw.prepare(bodies).all() as { body: string }[]).map((row) => row.body)).toEqual([])
+    expect(((await h.committed(bodies)) as { body: string }[]).map((row) => row.body)).toEqual([])
   })
 })
 
@@ -2730,7 +2755,7 @@ describe('scope fencing over admitted work', () => {
 describe('idle publication failure isolation', () => {
   it('keeps a throwing idle flush out of the committing operation’s promise', async () => {
     const reported: { error: unknown; label: string }[] = []
-    const h = open({ effectSink: (error, label) => reported.push({ error, label }) })
+    const h = await open({ effectSink: (error, label) => reported.push({ error, label }) })
     const flushed: number[][] = []
     const failing = createFrameFlusher<number>({
       scheduler: h.executor.scheduler,
@@ -2756,7 +2781,7 @@ describe('idle publication failure isolation', () => {
     expect(reported.map((entry) => entry.label)).toEqual(['scheduler-idle'])
     expect(flushed, 'a throwing listener must not take out the ones after it').toEqual([[2]])
     expect(
-      (h.raw.prepare(bodies).all() as { body: string }[]).map((row) => row.body),
+      ((await h.committed(bodies)) as { body: string }[]).map((row) => row.body),
       'and the row really is committed',
     ).toEqual(['committed'])
     failing.stop()
@@ -2766,7 +2791,7 @@ describe('idle publication failure isolation', () => {
   it('isolates a max-delay flush that throws from the timer', async () => {
     // The other unattended path, and the only one the flusher owns: a throw
     // from `setTimeout` is an uncaught exception with no caller to reject.
-    const h = open()
+    const h = await open()
     const failures: unknown[] = []
     let attempts = 0
     const flushed: number[][] = []
@@ -2875,8 +2900,9 @@ describe('transaction caller contract', () => {
     return (db.prepare('SELECT v FROM t ORDER BY v').all() as { v: number }[]).map((r) => r.v)
   }
 
-  it('commits at depth 0 and returns the callback result', async () => {
-    const h = open({ schema: 'CREATE TABLE t (v INTEGER)' })
+  // SQLite only: its schema and assertions use the bun:sqlite handle.
+  sqliteOnly('commits at depth 0 and returns the callback result', async () => {
+    const h = await open({ schema: 'CREATE TABLE t (v INTEGER)' })
     const db = h.raw
     const out = await h.executor.transact(async (tx) => {
       await tx.drizzle.run('INSERT INTO t VALUES (?)', 1)
@@ -2888,8 +2914,9 @@ describe('transaction caller contract', () => {
     db.exec('COMMIT')
   })
 
-  it('rolls back at depth 0 on throw, rethrowing the original error', async () => {
-    const h = open({ schema: 'CREATE TABLE t (v INTEGER)' })
+  // SQLite only: its schema and assertions use the bun:sqlite handle.
+  sqliteOnly('rolls back at depth 0 on throw, rethrowing the original error', async () => {
+    const h = await open({ schema: 'CREATE TABLE t (v INTEGER)' })
     const db = h.raw
     let caught: unknown
     try {
@@ -2908,27 +2935,31 @@ describe('transaction caller contract', () => {
 })
 
 describe('transaction rollback failure reporting', () => {
-  it('reports the original error when the body commits the transaction itself', async () => {
-    const h = open()
-    const original = new Error('THE-ORIGINAL-ERROR')
-    const thrown = await h.executor
-      .transact(async (tx) => {
-        await tx.drizzle.run(insert, 'committed underneath')
-        h.raw.exec('COMMIT')
-        throw original
-      })
-      .catch((error: unknown) => error)
+  // SQLite only: commits through the bun:sqlite handle under the executor.
+  sqliteOnly(
+    'reports the original error when the body commits the transaction itself',
+    async () => {
+      const h = await open()
+      const original = new Error('THE-ORIGINAL-ERROR')
+      const thrown = await h.executor
+        .transact(async (tx) => {
+          await tx.drizzle.run(insert, 'committed underneath')
+          h.raw.exec('COMMIT')
+          throw original
+        })
+        .catch((error: unknown) => error)
 
-    expect(String(thrown)).toContain('THE-ORIGINAL-ERROR')
-    expect(String(thrown)).not.toMatch(/cannot rollback/i)
-    expect(thrown).toBeInstanceOf(AggregateError)
-    expect((thrown as AggregateError).cause).toBe(original)
-    const failures = (thrown as AggregateError).errors
-    expect(failures).toHaveLength(2)
-    expect(failures[0]).toBe(original)
-    expect(String(failures[1])).toMatch(/cannot rollback/i)
-    expect(await noteBodies(h.db)).toEqual(['committed underneath'])
-  })
+      expect(String(thrown)).toContain('THE-ORIGINAL-ERROR')
+      expect(String(thrown)).not.toMatch(/cannot rollback/i)
+      expect(thrown).toBeInstanceOf(AggregateError)
+      expect((thrown as AggregateError).cause).toBe(original)
+      const failures = (thrown as AggregateError).errors
+      expect(failures).toHaveLength(2)
+      expect(failures[0]).toBe(original)
+      expect(String(failures[1])).toMatch(/cannot rollback/i)
+      expect(await noteBodies(h.db)).toEqual(['committed underneath'])
+    },
+  )
 
   it.each([
     new Error('THE-ORIGINAL-ERROR'),

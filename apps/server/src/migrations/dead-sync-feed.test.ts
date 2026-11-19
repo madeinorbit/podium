@@ -110,12 +110,16 @@ describe('the dead sync_feed migration', () => {
     })
     expect(issueRevision(reopened)).toEqual(expectedIssueRevision)
     expect(restored.feedId).toBe('live-feed')
-    expect(restored.previousEpoch).toBe(feedIdentity(reopened).epoch)
+    // The restore migrated the file to this build before re-minting (later migrations
+    // bump the epoch, and the keys migration dropped feed_identity, POD-7024): it reports
+    // the epoch it replaced, and the one it minted is new.
+    expect(restored.previousEpoch).toEqual(expect.any(String))
+    expect(restored.previousEpoch).not.toBe(restored.epoch)
     expect(restored.epoch).not.toBe('live-epoch')
 
     expect(runDrizzleMigrations(reopened, DRIZZLE_MIGRATIONS)).toEqual([])
     expect(hasTable(reopened, 'sync_feed')).toBe(true)
-    expect(hasTable(reopened, 'feed_identity')).toBe(true)
+    expect(hasTable(reopened, 'feed_identity')).toBe(false)
     expect(issueRevision(reopened)).toEqual(expectedIssueRevision)
     reopened.close()
   })

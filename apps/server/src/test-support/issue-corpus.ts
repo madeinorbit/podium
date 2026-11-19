@@ -17,9 +17,11 @@ import {
   type UserId,
 } from '@podium/model'
 import { fixtureWriteScope } from '@podium/sync/testing'
+import { type SQL, sql } from 'drizzle-orm'
 import type { IssueRow, SessionStore } from '../store'
 import { issueRowFixture } from './issue-row'
 import { openTestStore } from './open-test-store'
+import { storeSql } from './store-sql'
 
 export interface CorpusIssue {
   id: string
@@ -175,16 +177,18 @@ export async function grantIssue(
     verb,
     owner,
     visibility: 'personal',
-    createdAt: '2026-10-01T00:00:00Z',
+    createdAt: '2026-10-01T00:00:00.000Z',
     actorKind: 'user',
     actorId: owner,
     onBehalfOf: owner,
   })
 }
 
-/** SQL straight to the store's connection, for rows no repository writes. */
-export function rawSql(store: SessionStore, statement: string, ...args: unknown[]): void {
-  ;(store as unknown as { db: { prepare(q: string): { run(...a: unknown[]): unknown } } }).db
-    .prepare(statement)
-    .run(...args)
+/**
+ * One raw write on the store's database, on the run's engine (`storeSql`), for rows no
+ * repository writes. Written with drizzle's `sql` template, so values render as each
+ * engine's placeholders.
+ */
+export async function rawSql(store: SessionStore, statement: SQL): Promise<void> {
+  await storeSql(store).run(statement)
 }

@@ -31,7 +31,7 @@
 
 import { asIssueId, asRepoId, type SessionId } from '@podium/model'
 import { expect, it } from 'vitest'
-import { openTestStore } from '../test-support/open-test-store'
+import { openEventStoreSlice } from '../test-support/event-store-slice'
 import { type LockRow, type LockSessionKey, OPERATOR_LOCK_SESSION } from './locks'
 
 const repo = asRepoId('repo-1')
@@ -54,7 +54,7 @@ function lock(overrides: Partial<LockRow> = {}): LockRow {
 }
 
 it('reads a lock back exactly as it was written, and reports a missing one as null', async () => {
-  const store = await openTestStore(':memory:')
+  const store = await openEventStoreSlice()
   try {
     expect(await store.locks.getLock(repo, 'build')).toBeNull()
 
@@ -79,14 +79,18 @@ it('reads a lock back exactly as it was written, and reports a missing one as nu
 })
 
 it('lists one repo’s locks by name, and leaves another repo’s alone', async () => {
-  const store = await openTestStore(':memory:')
+  const store = await openEventStoreSlice()
   try {
     await store.locks.upsertLock(lock({ name: 'ship' }))
     await store.locks.upsertLock(lock({ name: 'build' }))
     await store.locks.upsertLock(lock({ name: 'merge' }))
     await store.locks.upsertLock(lock({ repoId: other, name: 'aardvark' }))
 
-    expect((await store.locks.listLocks(repo)).map((l) => l.name)).toEqual(['build', 'merge', 'ship'])
+    expect((await store.locks.listLocks(repo)).map((l) => l.name)).toEqual([
+      'build',
+      'merge',
+      'ship',
+    ])
     expect((await store.locks.listLocks(other)).map((l) => l.name)).toEqual(['aardvark'])
     expect(await store.locks.listLocks(asRepoId('repo-none'))).toEqual([])
   } finally {
@@ -95,7 +99,7 @@ it('lists one repo’s locks by name, and leaves another repo’s alone', async 
 })
 
 it('treats a lease expiring exactly at the sweep instant as expired, and one a millisecond later as live', async () => {
-  const store = await openTestStore(':memory:')
+  const store = await openEventStoreSlice()
   try {
     const now = '2026-09-01T00:10:00.000Z'
     await store.locks.upsertLock(lock({ name: 'past', expiresAt: '2026-09-01T00:09:59.999Z' }))
@@ -104,10 +108,7 @@ it('treats a lease expiring exactly at the sweep instant as expired, and one a m
 
     // BOTH EDGES, because the comparison is `<=` and a conversion to `lt` would
     // leave the boundary lock held forever by exactly one millisecond.
-    const expired = (await store.locks
-      .listExpiredLocks(repo, now))
-      .map((l) => l.name)
-      .sort()
+    const expired = (await store.locks.listExpiredLocks(repo, now)).map((l) => l.name).sort()
     expect(expired).toEqual(['exactly', 'past'])
   } finally {
     await store.close()
@@ -115,7 +116,7 @@ it('treats a lease expiring exactly at the sweep instant as expired, and one a m
 })
 
 it('finds the locks a session holds across repos, and does not count an operator lock as anyone’s', async () => {
-  const store = await openTestStore(':memory:')
+  const store = await openEventStoreSlice()
   try {
     await store.locks.upsertLock(lock({ name: 'build', holderSessionId: s1 }))
     await store.locks.upsertLock(lock({ repoId: other, name: 'ship', holderSessionId: s1 }))
@@ -136,7 +137,7 @@ it('finds the locks a session holds across repos, and does not count an operator
 })
 
 it('replaces every lease column on a second acquire of the same lock', async () => {
-  const store = await openTestStore(':memory:')
+  const store = await openEventStoreSlice()
   try {
     await store.locks.upsertLock(lock())
     const taken = lock({
@@ -158,7 +159,7 @@ it('replaces every lease column on a second acquire of the same lock', async () 
 })
 
 it('renews only for the session that holds the lock, and for the operator whose holder is null', async () => {
-  const store = await openTestStore(':memory:')
+  const store = await openEventStoreSlice()
   try {
     await store.locks.upsertLock(lock())
     const later = '2026-09-01T00:20:00.000Z'
@@ -185,7 +186,7 @@ it('renews only for the session that holds the lock, and for the operator whose 
 })
 
 it('deletes one lock and leaves the rest, and deleting an absent lock is not an error', async () => {
-  const store = await openTestStore(':memory:')
+  const store = await openEventStoreSlice()
   try {
     await store.locks.upsertLock(lock({ name: 'build' }))
     await store.locks.upsertLock(lock({ name: 'ship' }))
@@ -202,7 +203,7 @@ it('deletes one lock and leaves the rest, and deleting an absent lock is not an 
 })
 
 it('keeps the waiter queue in arrival order, per lock', async () => {
-  const store = await openTestStore(':memory:')
+  const store = await openEventStoreSlice()
   try {
     const waiter = (sessionId: LockSessionKey, name = 'build') => ({
       repoId: repo,
@@ -231,7 +232,7 @@ it('keeps the waiter queue in arrival order, per lock', async () => {
 })
 
 it('re-queueing a waiter updates its ttl and note in place and moves nothing else', async () => {
-  const store = await openTestStore(':memory:')
+  const store = await openEventStoreSlice()
   try {
     const first = {
       repoId: repo,
@@ -275,7 +276,7 @@ it('re-queueing a waiter updates its ttl and note in place and moves nothing els
 })
 
 it('removes a waiter by row id and by session, and lists every lock a session waits on', async () => {
-  const store = await openTestStore(':memory:')
+  const store = await openEventStoreSlice()
   try {
     const waiter = (sessionId: LockSessionKey, name: string, repoId = repo) => ({
       repoId,

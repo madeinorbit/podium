@@ -212,6 +212,13 @@ export interface SyncUnitOfWork {
    * both halves owe it.
    */
   transact<T>(body: (span: SyncSpan) => Promise<T>): Promise<T>
+  /**
+   * POD-7168/POD-7169: resolves once every write enqueued before the call is
+   * durable. Stages nothing, opens no span and queues nothing, so no later
+   * commit waits on it. An adapter whose writes are durable by the time they
+   * return omits it.
+   */
+  durable?(): Promise<void>
 }
 
 /**

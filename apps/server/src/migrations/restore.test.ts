@@ -18,7 +18,8 @@ import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { type FeedIdentity, FeedIdentityRegistry, Ledger, SyncRepository } from '@podium/sync'
 import { testLedgerWriter } from '@podium/sync/testing'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { syncQueriesOver } from '../store/executor/sync-drizzle'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
+import { syncQueriesOver, workspaceQueries } from '../store/executor/sync-drizzle'
 import { backupDatabase } from './backup'
 import { DRIZZLE_MIGRATIONS } from './drizzle-manifest.generated'
 import { appliedDrizzleNames, applyBaselineSchema, runDrizzleMigrations } from './index'
@@ -68,8 +69,8 @@ const fixtureRecords = new WeakMap<Ledger, ModelRecords>()
 type LedgerWithIdentity = Ledger & { feedIdentity: () => FeedIdentity }
 
 async function ledgerOver(db: SqlDatabase): Promise<LedgerWithIdentity> {
-  const queries = syncQueriesOver(db)
-  const repo = new SyncRepository(queries, syncServerTables)
+  const queries = workspaceQueries(syncQueriesOver(db), SELF_HOSTED_WORKSPACE_ID)
+  const repo = new SyncRepository(queries, syncServerTables, SELF_HOSTED_WORKSPACE_ID)
   const records = new ModelRecords()
   const ledger = new Ledger({
     repo,
@@ -132,7 +133,11 @@ describe('the migration creates the feed-identity table', () => {
     expect(identity.feedId).toBeTruthy()
     expect(identity.epoch).toBeTruthy()
     expect(
-      await new SyncRepository(syncQueriesOver(db), syncServerTables).readFeedIdentity(),
+      await new SyncRepository(
+        workspaceQueries(syncQueriesOver(db), SELF_HOSTED_WORKSPACE_ID),
+        syncServerTables,
+        SELF_HOSTED_WORKSPACE_ID,
+      ).readFeedIdentity(),
     ).toEqual(identity)
   })
 
@@ -176,17 +181,22 @@ describe('the migration creates the feed-identity table', () => {
 
   it('one database is one feed — a bump REPLACES the identity rather than appending', async () => {
     const { db } = authority()
-    const repo = new SyncRepository(syncQueriesOver(db), syncServerTables)
+    const repo = new SyncRepository(
+      workspaceQueries(syncQueriesOver(db), SELF_HOSTED_WORKSPACE_ID),
+      syncServerTables,
+      SELF_HOSTED_WORKSPACE_ID,
+    )
     await repo.writeFeedIdentity({ feedId: 'feed_a', epoch: 'epoch_1' }, 1)
     await repo.writeFeedIdentity({ feedId: 'feed_a', epoch: 'epoch_2' }, 2)
 
+    // One row per workspace: a second feed for the same workspace is refused by the key.
     expect(() =>
       db
         .prepare(
-          'INSERT INTO feed_identity (singleton, feed_id, epoch, minted_at) VALUES (2, ?, ?, ?)',
+          "INSERT INTO sync_feed (workspace_id, feed_id, epoch, minted_at, head_seq, floor_seq) VALUES ('local', ?, ?, ?, 0, 1)",
         )
         .run('feed_b', 'epoch_1', 3),
-    ).toThrow(/feed_identity_singleton/)
+    ).toThrow(/UNIQUE constraint failed/)
 
     const rows = db.prepare('SELECT feed_id, epoch FROM sync_feed').all()
     expect(rows).toEqual([{ feed_id: 'feed_a', epoch: 'epoch_2' }])
@@ -285,7 +295,11 @@ describe('restore re-mints the epoch (ADR 2 D1)', () => {
     const r = await restoreDatabase({ backupPath, dbPath, freeBytes: PLENTY })
     const db2 = openDatabase(dbPath)
     expect(
-      await new SyncRepository(syncQueriesOver(db2), syncServerTables).readFeedIdentity(),
+      await new SyncRepository(
+        workspaceQueries(syncQueriesOver(db2), SELF_HOSTED_WORKSPACE_ID),
+        syncServerTables,
+        SELF_HOSTED_WORKSPACE_ID,
+      ).readFeedIdentity(),
     ).toEqual({
       feedId: r.feedId,
       epoch: r.epoch,
@@ -307,8 +321,13 @@ describe('restore re-mints the epoch (ADR 2 D1)', () => {
     // single-use, and the second rollback attempt would find a lie.
     const backupDb = openDatabase(backupPath)
     expect(
-      (await new SyncRepository(syncQueriesOver(backupDb), syncServerTables).readFeedIdentity())
-        ?.epoch,
+      (
+        await new SyncRepository(
+          workspaceQueries(syncQueriesOver(backupDb), SELF_HOSTED_WORKSPACE_ID),
+          syncServerTables,
+          SELF_HOSTED_WORKSPACE_ID,
+        ).readFeedIdentity()
+      )?.epoch,
     ).toBe(backupEpoch)
     backupDb.close()
   })
@@ -349,7 +368,13 @@ describe('restore re-mints the epoch (ADR 2 D1)', () => {
     const db2 = openDatabase(dbPath)
     expect(await (await ledgerOver(db2)).cursor()).toBe(cursorBefore)
     expect(
-      (await new SyncRepository(syncQueriesOver(db2), syncServerTables).readFeedIdentity())?.epoch,
+      (
+        await new SyncRepository(
+          workspaceQueries(syncQueriesOver(db2), SELF_HOSTED_WORKSPACE_ID),
+          syncServerTables,
+          SELF_HOSTED_WORKSPACE_ID,
+        ).readFeedIdentity()
+      )?.epoch,
     ).toBe(epochBefore)
     db2.close()
   })
@@ -428,7 +453,11 @@ describe('restoreCliMain (the command-shaped entry)', () => {
     expect(out).toContain(before)
     const db2 = openDatabase(dbPath)
     const after = (
-      await new SyncRepository(syncQueriesOver(db2), syncServerTables).readFeedIdentity()
+      await new SyncRepository(
+        workspaceQueries(syncQueriesOver(db2), SELF_HOSTED_WORKSPACE_ID),
+        syncServerTables,
+        SELF_HOSTED_WORKSPACE_ID,
+      ).readFeedIdentity()
     )?.epoch as string
     db2.close()
     expect(after).not.toBe(before)
@@ -498,19 +527,22 @@ describe('restoring a backup from before feed identity existed', () => {
     return database(DRIZZLE_MIGRATIONS.slice(0, feedIdentityCut()))
   }
 
-  /** Exercise SQLite enforcement, so a present but unconstrained table fails. */
+  /**
+   * The chain created `feed_identity` and the keys migration (POD-7024) dropped it again: the
+   * identity is the workspace's `sync_feed` row, one per workspace, which the key enforces.
+   */
   function expectSingletonConstraints(db: SqlDatabase): void {
-    const before = db.prepare('SELECT * FROM feed_identity').all()
-    for (const singleton of [0, 2]) {
-      expect(() =>
-        db
-          .prepare(
-            'INSERT INTO feed_identity (singleton, feed_id, epoch, minted_at) VALUES (?, ?, ?, ?)',
-          )
-          .run(singleton, 'invalid_feed', 'invalid_epoch', 1),
-      ).toThrow(/feed_identity_singleton/)
-    }
-    expect(db.prepare('SELECT * FROM feed_identity').all()).toEqual(before)
+    expect(hasTable(db, 'feed_identity')).toBe(false)
+    const before = db.prepare('SELECT * FROM sync_feed').all()
+    expect(before).toHaveLength(1)
+    expect(() =>
+      db
+        .prepare(
+          "INSERT INTO sync_feed (workspace_id, feed_id, epoch, minted_at, head_seq, floor_seq) VALUES ('local', ?, ?, ?, 0, 1)",
+        )
+        .run('invalid_feed', 'invalid_epoch', 1),
+    ).toThrow(/UNIQUE constraint failed/)
+    expect(db.prepare('SELECT * FROM sync_feed').all()).toEqual(before)
   }
 
   it('the fixture is faithful: the migration really is pending and re-appliable', () => {
@@ -528,11 +560,10 @@ describe('restoring a backup from before feed identity existed', () => {
     const reopened = openDatabase(dbPath)
     expect(applyBaselineSchema(reopened)).toEqual(
       DRIZZLE_MIGRATIONS.slice(feedIdentityCut())
-        .filter(m => !m.sql.startsWith('-- after-local-identity-import'))
+        .filter((m) => !m.sql.startsWith('-- after-local-identity-import'))
         .map((migration) => migration.name)
         .sort(),
     )
-    expect(hasTable(reopened, 'feed_identity')).toBe(true)
     expectSingletonConstraints(reopened)
     reopened.close()
   })
@@ -575,12 +606,16 @@ describe('restoring a backup from before feed identity existed', () => {
     expect(() =>
       booted
         .prepare(
-          "INSERT INTO sync_feed (tenant_id, feed_id, epoch, minted_at, head_seq, floor_seq) VALUES ('local', ?, ?, ?, 0, 1)",
+          "INSERT INTO sync_feed (workspace_id, feed_id, epoch, minted_at, head_seq, floor_seq) VALUES ('local', ?, ?, ?, 0, 1)",
         )
         .run('duplicate_feed', 'duplicate_epoch', 1),
     ).toThrow(/UNIQUE constraint failed/)
     expect(
-      await new SyncRepository(syncQueriesOver(booted), syncServerTables).readFeedIdentity(),
+      await new SyncRepository(
+        workspaceQueries(syncQueriesOver(booted), SELF_HOSTED_WORKSPACE_ID),
+        syncServerTables,
+        SELF_HOSTED_WORKSPACE_ID,
+      ).readFeedIdentity(),
     ).toEqual(identity)
     booted.close()
   })
@@ -610,7 +645,11 @@ describe('restoring a backup from before feed identity existed', () => {
     expect(fresh.feedId).toBeTruthy()
     expect(fresh.epoch).toBeTruthy()
     expect(
-      await new SyncRepository(syncQueriesOver(booted), syncServerTables).readFeedIdentity(),
+      await new SyncRepository(
+        workspaceQueries(syncQueriesOver(booted), SELF_HOSTED_WORKSPACE_ID),
+        syncServerTables,
+        SELF_HOSTED_WORKSPACE_ID,
+      ).readFeedIdentity(),
     ).toEqual(fresh)
     expect(fresh.feedId).not.toBe(staleFeedId)
     expect(fresh.epoch).not.toBe(staleEpoch)

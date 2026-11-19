@@ -66,6 +66,16 @@ per-user state row or grant edge. An implementer who reads "multi-user" and reac
 tenant columns has misread this document. The dimension this ADR adds is **owner**, not
 tenant.
 
+> **Note, 2026-11-17 (POD-6959).** This still holds for multi-user: owner and visibility
+> partition people inside one workspace, and multi-user adds no tenant column. Hosting has
+> since added a tenant dimension of its own: [ADR 13](0013-tenant-sync-feeds.md) adopted a
+> shared multi-tenant store, and POD-6959 partitioned the model tables by **`workspace_id`**,
+> the identity workspace
+> ([ADR 13 Amendment 1](0013-tenant-sync-feeds.md#amendment-1--the-model-tables-are-partitioned-pod-6959)).
+> It is never `instance_id`: an `InstanceId` stays a deployment partition (ADR 1 D5, whose
+> note under D5.3 says the same). The rule code follows is in
+> [server-data.md § Workspaces](../agents/server-data.md#workspaces).
+
 ### 1.3 What is true today (verified on tip `2ddfec21`, 2026-07-29)
 
 There is no user identity anywhere in the system. Three facts, each read in the code:

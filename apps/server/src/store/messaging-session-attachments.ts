@@ -1,3 +1,4 @@
+// workspace-scoped (POD-6959)
 /**
  * Telegram conversation ↔ directly attached session (POD-6212) — which of the
  * bound user's own sessions a chat (or one forum topic of it) talks to, across
@@ -5,10 +6,14 @@
  */
 
 import type { SessionId, UserId } from '@podium/model'
-import { and, eq, sql } from 'drizzle-orm'
-import { messagingSessionAttachments } from '../migrations/schema'
-import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
-import { param, prepared } from './executor/sync-drizzle'
+import { eq, sql } from 'drizzle-orm'
+import type {
+  StoreTables,
+  TransactionRunner,
+  WorkspaceDb,
+  WorkspaceQueries,
+} from './executor/sync-drizzle'
+import { inWorkspace, param, prepared, WORKSPACE } from './executor/sync-drizzle'
 
 export interface MessagingSessionAttachmentRow {
   chatId: string
@@ -24,39 +29,57 @@ export interface MessagingSessionAttachmentRow {
 
 // Every query this repository runs, prepared once per store [POD-6147].
 
-const attachmentOfConversation = prepared((db: StoreDrizzle) =>
+/** The row's own columns: a read hands back no `workspace_id` (POD-6959). */
+const attachmentColumns = (t: StoreTables) => ({
+  chatId: t.messagingSessionAttachments.chatId,
+  threadRef: t.messagingSessionAttachments.threadRef,
+  userId: t.messagingSessionAttachments.userId,
+  sessionId: t.messagingSessionAttachments.sessionId,
+  attachedAt: t.messagingSessionAttachments.attachedAt,
+  relayedItemId: t.messagingSessionAttachments.relayedItemId,
+})
+
+const attachmentOfConversation = prepared((db, t) =>
   db
-    .select()
-    .from(messagingSessionAttachments)
+    .select(attachmentColumns(t))
+    .from(t.messagingSessionAttachments)
     .where(
-      and(
-        eq(messagingSessionAttachments.chatId, param(messagingSessionAttachments.chatId, 'chatId')),
+      inWorkspace(
+        t.messagingSessionAttachments,
         eq(
-          messagingSessionAttachments.threadRef,
-          param(messagingSessionAttachments.threadRef, 'threadRef'),
+          t.messagingSessionAttachments.chatId,
+          param(t.messagingSessionAttachments.chatId, 'chatId'),
+        ),
+        eq(
+          t.messagingSessionAttachments.threadRef,
+          param(t.messagingSessionAttachments.threadRef, 'threadRef'),
         ),
       ),
     )
     .prepare(),
 )
 
-const attachmentsOfSession = prepared((db: StoreDrizzle) =>
+const attachmentsOfSession = prepared((db, t) =>
   db
-    .select()
-    .from(messagingSessionAttachments)
+    .select(attachmentColumns(t))
+    .from(t.messagingSessionAttachments)
     .where(
-      eq(
-        messagingSessionAttachments.sessionId,
-        param(messagingSessionAttachments.sessionId, 'sessionId'),
+      inWorkspace(
+        t.messagingSessionAttachments,
+        eq(
+          t.messagingSessionAttachments.sessionId,
+          param(t.messagingSessionAttachments.sessionId, 'sessionId'),
+        ),
       ),
     )
     .prepare(),
 )
 
-const upsertAttachment = prepared((db: StoreDrizzle) =>
+const upsertAttachment = prepared((db, t) =>
   db
-    .insert(messagingSessionAttachments)
+    .insert(t.messagingSessionAttachments)
     .values({
+      workspaceId: WORKSPACE,
       chatId: sql.placeholder('chatId'),
       threadRef: sql.placeholder('threadRef'),
       userId: sql.placeholder('userId'),
@@ -65,7 +88,11 @@ const upsertAttachment = prepared((db: StoreDrizzle) =>
       relayedItemId: sql.placeholder('relayedItemId'),
     })
     .onConflictDoUpdate({
-      target: [messagingSessionAttachments.chatId, messagingSessionAttachments.threadRef],
+      target: [
+        t.messagingSessionAttachments.workspaceId,
+        t.messagingSessionAttachments.chatId,
+        t.messagingSessionAttachments.threadRef,
+      ],
       set: {
         userId: sql.placeholder('userId'),
         sessionId: sql.placeholder('sessionId'),
@@ -76,15 +103,19 @@ const upsertAttachment = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
-const deleteAttachment = prepared((db: StoreDrizzle) =>
+const deleteAttachment = prepared((db, t) =>
   db
-    .delete(messagingSessionAttachments)
+    .delete(t.messagingSessionAttachments)
     .where(
-      and(
-        eq(messagingSessionAttachments.chatId, param(messagingSessionAttachments.chatId, 'chatId')),
+      inWorkspace(
+        t.messagingSessionAttachments,
         eq(
-          messagingSessionAttachments.threadRef,
-          param(messagingSessionAttachments.threadRef, 'threadRef'),
+          t.messagingSessionAttachments.chatId,
+          param(t.messagingSessionAttachments.chatId, 'chatId'),
+        ),
+        eq(
+          t.messagingSessionAttachments.threadRef,
+          param(t.messagingSessionAttachments.threadRef, 'threadRef'),
         ),
       ),
     )
@@ -93,20 +124,24 @@ const deleteAttachment = prepared((db: StoreDrizzle) =>
 
 /** Guarded by the session id: a relay that finishes after the conversation was
  *  re-attached elsewhere must not stamp its watermark on the new attachment. */
-const markRelayed = prepared((db: StoreDrizzle) =>
+const markRelayed = prepared((db, t) =>
   db
-    .update(messagingSessionAttachments)
+    .update(t.messagingSessionAttachments)
     .set({ relayedItemId: sql.placeholder('relayedItemId') })
     .where(
-      and(
-        eq(messagingSessionAttachments.chatId, param(messagingSessionAttachments.chatId, 'chatId')),
+      inWorkspace(
+        t.messagingSessionAttachments,
         eq(
-          messagingSessionAttachments.threadRef,
-          param(messagingSessionAttachments.threadRef, 'threadRef'),
+          t.messagingSessionAttachments.chatId,
+          param(t.messagingSessionAttachments.chatId, 'chatId'),
         ),
         eq(
-          messagingSessionAttachments.sessionId,
-          param(messagingSessionAttachments.sessionId, 'sessionId'),
+          t.messagingSessionAttachments.threadRef,
+          param(t.messagingSessionAttachments.threadRef, 'threadRef'),
+        ),
+        eq(
+          t.messagingSessionAttachments.sessionId,
+          param(t.messagingSessionAttachments.sessionId, 'sessionId'),
         ),
       ),
     )
@@ -114,17 +149,17 @@ const markRelayed = prepared((db: StoreDrizzle) =>
 )
 
 export class MessagingSessionAttachmentsRepository {
-  private readonly rootDb: StoreDrizzle
+  private readonly scope: WorkspaceDb
   protected readonly createOrJoinTransaction: TransactionRunner
 
-  constructor(queries: StoreQueries) {
-    this.rootDb = queries.rootDb
+  constructor(queries: WorkspaceQueries) {
+    this.scope = queries.db
     this.createOrJoinTransaction = queries.createOrJoinTransaction
   }
 
   /** The query builder, resolved on every access [POD-3221 spec rule 34a]. */
-  private get db(): StoreDrizzle {
-    return this.rootDb
+  private get db(): WorkspaceDb {
+    return this.scope
   }
 
   async get(chatId: string, threadRef: string): Promise<MessagingSessionAttachmentRow | undefined> {

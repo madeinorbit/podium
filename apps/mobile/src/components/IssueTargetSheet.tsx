@@ -113,7 +113,7 @@ function IssueTargetRow({
 }) {
   const read = useCallback(
     (pool: MobxPool): IssueTarget | typeof LOADING | undefined => {
-      const row = omitGone(pool.row('issue', id, 'summary-fields')) as
+      const row = omitGone(pool.row('issue', id)) as
         | Pick<IssueViewModel, 'seq' | 'title' | 'stage' | 'repoId'>
         | typeof LOADING
         | undefined

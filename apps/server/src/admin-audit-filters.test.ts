@@ -46,7 +46,7 @@ beforeAll(async () => {
       id: bob,
       displayName: 'Bob',
       role: 'member',
-      createdAt: '2026-11-01T00:00:00Z',
+      createdAt: '2026-11-01T00:00:00.000Z',
       disabledAt: null,
     },
     'hash',
@@ -62,13 +62,15 @@ beforeAll(async () => {
       onBehalfOf: person,
       detail: { input: { key: 'apiKeys.test', value: 'never-send-this' }, text: 'private comment' },
       redactedPaths: [],
-      createdAt: '2026-11-09T12:00:00Z',
+      createdAt: '2026-11-09T12:00:00.000Z',
     })
   }
   for (const row of await store.settingsAudit.securityEvents(100)) ids.set(row.command, row.id)
   app = new Hono()
   registerAdminRoutes(app, {
     users: store.users,
+    settings: store.settings,
+    sessions: store.sessions,
     identity: (await openTestIdentity(store)).workspace,
     audit: store.settingsAudit,
     machineNames: async () => new Map(),

@@ -117,9 +117,8 @@ function setup() {
   let feed: LiveFeed | undefined
   const live = new LiveStore({
     now: () => 1_000,
-    onMetricsDemand: (id, on) => feed?.watchMetrics(id, on),
+    onRecordDemand: (kind, id, on) => feed?.watchRecord(kind, id, on),
     onUsageDemand: (on) => feed?.watchUsage(on),
-    onSessionDemand: (kind, id, on) => feed?.watchSession(kind, id, on),
   })
   // The machines the feed follows are the replica's machine records (POD-6644).
   const machines = new FakeMachines()

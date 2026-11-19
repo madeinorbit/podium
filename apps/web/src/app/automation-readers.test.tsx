@@ -6,7 +6,7 @@ import { machineViewsFromWire } from '@podium/client-core/values'
 import { AUTOMATION_ENTITIES } from '@podium/client-graph/automation-schema'
 import { AutomationSource } from '@podium/client-graph/automation-source'
 import { automationViews } from '@podium/client-graph/automation-views'
-import { attachPoolScreens, type PoolScreen, screenOptions } from '@podium/client-graph/host'
+import { attachPoolScreens, type PoolScreen, } from '@podium/client-graph/host'
 import { omitGone } from '@podium/client-graph/lookup'
 import { MobxPool } from '@podium/client-graph/pool'
 import { PoolSources } from '@podium/client-graph/source-registry'
@@ -78,19 +78,6 @@ it('screen registry releases late attachments after principal teardown', async (
   await Promise.resolve()
   expect(stop).toHaveBeenCalledTimes(1)
   expect(error).not.toHaveBeenCalled()
-  expect(
-    screenOptions(
-      [
-        {
-          options: () => ({ summaries: { session: ['title'] } }),
-        },
-        {
-          options: () => ({ summaries: { session: ['title', 'name'] } }),
-        },
-      ],
-      {} as never,
-    ),
-  ).toMatchObject({ summaries: { session: ['title', 'name'] } })
 })
 
 it('pool launch choices preserve scoped rights, duplicate paths, recency and an unavailable saved target', async () => {

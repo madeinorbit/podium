@@ -14,8 +14,8 @@
  *             makes ambient routing possible at all; a client that closed over a
  *             connection could not do it.
  *   transact/read — methods, never the raw handle.
- *   context — the tenant seam. Empty today; multi-tenancy is a later epic and
- *             this slot is what keeps it a context value rather than a redesign.
+ *   context — the workspace the scope is for, or the global context [POD-6959
+ *             design 2.4]. Every transaction carries one (see {@link StoreContext}).
  *
  * The prototype's client is `QueryClient` because no query layer exists yet —
  * this issue lands before it, deliberately, so the interfaces stop moving. What
@@ -23,18 +23,19 @@
  * scope-bound.
  */
 
-import { storeQueriesOver, type StoreQueries } from './sync-drizzle'
+import type { WorkspaceId } from '@podium/model'
 import {
   ALWAYS_ALIVE,
   assertAddressable,
+  assertJoinable,
   closeFrame,
   createFrame,
   createInFlight,
   currentScope,
   poisonUnit,
   runInScope,
-  settleInFlight,
   type StoreScope,
+  settleInFlight,
   type TransactionFrame,
 } from './context'
 import type {
@@ -66,6 +67,7 @@ import {
   type PostCommitStep,
 } from './post-commit'
 import { createScheduler, type Lease, type Scheduler, type WatchdogOptions } from './scheduler'
+import { type QueryLayer, type StoreQueries, storeQueriesOver } from './sync-drizzle'
 
 /**
  * Register an external effect (mechanism 3) that must not run inside an open
@@ -191,8 +193,33 @@ function addressable(frame: TransactionFrame): boolean {
   }
 }
 
-/** The tenant seam. Empty today, by decision (spec §1, tenancy postponed). */
-export type StoreContext = Readonly<Record<string, never>>
+/**
+ * WHAT A TRANSACTION IS FOR [POD-6959 design 2.4, contract C3]: one workspace,
+ * or the install as a whole.
+ *
+ * Every transaction frame records one. A repository's transaction runner opens
+ * with its handle's context; a caller that names none opens a global
+ * transaction at the root and joins whatever is open when nested. The join rules
+ * are {@link assertJoinable}'s. A driver reads the context at `begin` through
+ * `currentStoreContext()` (POD-6958's Postgres driver takes the workspace's write
+ * lock from it), and the per-workspace write slot reads it at admission.
+ *
+ * A global context may write only `meta`, `server_secrets`, `maintenance_leases`
+ * and the provisioning insert of a workspace's `sync_feed` row (C3).
+ */
+export type StoreContext =
+  | { readonly kind: 'workspace'; readonly workspaceId: WorkspaceId }
+  | { readonly kind: 'global' }
+
+/** The context of work that belongs to no workspace. */
+export const GLOBAL_CONTEXT: StoreContext = Object.freeze({ kind: 'global' })
+
+/** The context of `workspaceId`'s work. */
+export function workspaceContext(
+  workspaceId: WorkspaceId,
+): Extract<StoreContext, { kind: 'workspace' }> {
+  return Object.freeze({ kind: 'workspace', workspaceId })
+}
 
 export interface StoreExecutor<TClient = QueryClient> {
   readonly drizzle: TClient
@@ -208,9 +235,15 @@ export interface StoreExecutor<TClient = QueryClient> {
    * either way, which is what makes the existing suite the flip's oracle.
    */
   readonly queries: StoreQueries
+  /** The context of the scope this executor is bound to; the root's is the global context. */
   readonly context: StoreContext
-  transact<T>(fn: (tx: StoreExecutor<TClient>) => Promise<T>): Promise<T>
-  read<T>(fn: (tx: StoreExecutor<TClient>) => Promise<T>): Promise<T>
+  /**
+   * Open a write transaction, or join the one open. `context` is what the
+   * transaction is for: at the root it opens with it (the global context when
+   * omitted); nested, it must be joinable ({@link assertJoinable}).
+   */
+  transact<T>(fn: (tx: StoreExecutor<TClient>) => Promise<T>, context?: StoreContext): Promise<T>
+  read<T>(fn: (tx: StoreExecutor<TClient>) => Promise<T>, context?: StoreContext): Promise<T>
 }
 
 export interface StoreDiagnostics {
@@ -295,6 +328,11 @@ export interface StoreRefusal {
 
 export interface StoreExecutorOptions<TClient> {
   driver: StoreDriver<TClient>
+  /**
+   * The drizzle dialect and tables the store's queries build on [POD-6979]. Defaults
+   * to SQLite's; it must match the driver's `dialect` (absent means `sqlite`).
+   */
+  queryLayer?: QueryLayer
   startOpen?: boolean
   /** One second preserves a fast restart while giving ordinary effects time to finish. */
   effectDrainGraceMs?: number
@@ -354,6 +392,15 @@ export function createStoreExecutor<TClient>(
   options: StoreExecutorOptions<TClient>,
 ): RootStoreExecutor<TClient> {
   const { driver } = options
+  const driverDialect = driver.dialect ?? 'sqlite'
+  if (options.queryLayer !== undefined && options.queryLayer.dialect !== driverDialect) {
+    throw new Error(
+      `a ${options.queryLayer.dialect} query layer cannot run on a ${driverDialect} driver`,
+    )
+  }
+  // A driver of another engine with no layer still runs raw statements; only the
+  // repository query capability needs the layer, so that refuses when asked for.
+  const layerMissing = options.queryLayer === undefined && driverDialect !== 'sqlite'
   const effectSink =
     options.effectSink ??
     (() => {
@@ -644,9 +691,9 @@ export function createStoreExecutor<TClient>(
       get queries() {
         return root.queries
       },
-      context: {},
-      transact: async (fn) => await transactOn(frame, fn),
-      read: async (fn) => await readOn(frame, fn),
+      context: frame.context,
+      transact: async (fn, context) => await transactOn(frame, fn, captureOpenSite(), context),
+      read: async (fn, context) => await readOn(frame, fn, context),
     }
     boundExecutors.set(frame, bound)
     return bound
@@ -692,6 +739,7 @@ export function createStoreExecutor<TClient>(
     lease: Lease,
     lane: Lane,
     openedAt: string,
+    context: StoreContext,
     fn: (tx: StoreExecutor<TClient>) => Promise<T>,
     runner: PostCommitRunner | undefined,
     /**
@@ -707,6 +755,7 @@ export function createStoreExecutor<TClient>(
       lease,
       parent: undefined,
       postCommit: registry,
+      context,
       alive,
       openedAt,
     })
@@ -731,8 +780,10 @@ export function createStoreExecutor<TClient>(
     alive: () => boolean,
   ): Promise<T> {
     // Through the LEASE, so the driver's bounded busy retry applies: this is
-    // the last point at which nothing of the body has run.
-    await lease.begin(lane)
+    // the last point at which nothing of the body has run. Inside the frame's
+    // scope, so the driver reads the transaction's context at begin
+    // (`currentStoreContext()`, POD-6959 contract C3).
+    await runInScope({ kind: 'transaction', frame }, async () => await lease.begin(lane))
     if (!alive()) {
       // `begin` was issued while the drain still held the lease and resolved
       // after it ended. The body has not run, and the session is no longer ours
@@ -891,6 +942,7 @@ export function createStoreExecutor<TClient>(
       lease: parent.lease,
       parent,
       postCommit: registry,
+      context: parent.context,
       openedAt,
     })
     // Claimed before the first await, so a second branch opened in the same
@@ -989,10 +1041,12 @@ export function createStoreExecutor<TClient>(
     // turn, so `tx.transact(fn)` captures its own site and the ambient form
     // passes the one it already took.
     openedAt: string = captureOpenSite(),
+    context?: StoreContext,
   ): Promise<T> {
     try {
       assertHealthy()
       assertAddressable(frame)
+      assertJoinable(frame, context)
       if (frame.lane === 'read') {
         throw new WriteInsideReadLeaseError(
           'transact() inside a read lease: a read lease has no write to commit. Open the write ' +
@@ -1015,10 +1069,12 @@ export function createStoreExecutor<TClient>(
   async function readOn<T>(
     frame: TransactionFrame,
     fn: (tx: StoreExecutor<TClient>) => Promise<T>,
+    context?: StoreContext,
   ): Promise<T> {
     try {
       assertHealthy()
       assertAddressable(frame)
+      assertJoinable(frame, context)
     } catch (error) {
       reportRefusal(error, 'read', frame)
       throw error
@@ -1033,13 +1089,17 @@ export function createStoreExecutor<TClient>(
    * refusal is a rejection, never a synchronous throw, so a caller never has to
    * guard the call site as well as the promise.
    */
-  async function transact<T>(fn: (tx: StoreExecutor<TClient>) => Promise<T>): Promise<T> {
+  async function transact<T>(
+    fn: (tx: StoreExecutor<TClient>) => Promise<T>,
+    context?: StoreContext,
+  ): Promise<T> {
     // FIRST, before any await: this is the caller's own turn and the only place
     // the site that opens the scope is still on the stack.
     const openedAt = captureOpenSite()
     assertHealthy()
     const scope = currentScope()
-    if (scope.kind === 'transaction') return await transactOn(scope.frame, fn, openedAt)
+    if (scope.kind === 'transaction') return await transactOn(scope.frame, fn, openedAt, context)
+    const opens = context ?? GLOBAL_CONTEXT
     if (scope.kind === 'post-commit') {
       // A follow-up committing durably: the same lease, a fresh transaction,
       // and its own post-commit work queued behind the batch being drained.
@@ -1048,17 +1108,23 @@ export function createStoreExecutor<TClient>(
       // wait for what a step returns, so a follow-up that starts a transaction
       // and drops its promise would otherwise go on begin-ing, writing and
       // committing on a lease the scheduler has taken back.
-      return await runTopLevel(scope.lease, 'write', openedAt, fn, scope.runner, () =>
+      return await runTopLevel(scope.lease, 'write', openedAt, opens, fn, scope.runner, () =>
         scope.active(),
       )
     }
     let runner: PostCommitRunner | undefined
     try {
-      return await scheduler.run('write', async (lease) => {
-        assertHealthy()
-        runner = newRunner(lease.active)
-        return await runTopLevel(lease, 'write', openedAt, fn, runner)
-      })
+      // The context picks the write slot: one per workspace on a driver that
+      // declares per-workspace writes (POD-6996), the single slot otherwise.
+      return await scheduler.run(
+        'write',
+        async (lease) => {
+          assertHealthy()
+          runner = newRunner(lease.active)
+          return await runTopLevel(lease, 'write', openedAt, opens, fn, runner)
+        },
+        opens,
+      )
     } finally {
       // NOT awaited: effects need the released lane for their root operations.
       // Retire outside the body as well: a revoked, parked body may never return.
@@ -1066,34 +1132,51 @@ export function createStoreExecutor<TClient>(
     }
   }
 
-  async function read<T>(fn: (tx: StoreExecutor<TClient>) => Promise<T>): Promise<T> {
+  async function read<T>(
+    fn: (tx: StoreExecutor<TClient>) => Promise<T>,
+    context?: StoreContext,
+  ): Promise<T> {
     const openedAt = captureOpenSite()
     assertHealthy()
     const scope = currentScope()
-    if (scope.kind === 'transaction') return await readOn(scope.frame, fn)
+    if (scope.kind === 'transaction') return await readOn(scope.frame, fn, context)
+    const opens = context ?? GLOBAL_CONTEXT
     if (scope.kind === 'post-commit') {
       assertDraining(scope)
-      return await runTopLevel(scope.lease, 'read', openedAt, fn, undefined, () => scope.active())
+      return await runTopLevel(scope.lease, 'read', openedAt, opens, fn, undefined, () =>
+        scope.active(),
+      )
     }
     return await scheduler.run('read', async (lease) => {
       assertHealthy()
-      return await runTopLevel(lease, 'read', openedAt, fn, undefined)
+      return await runTopLevel(lease, 'read', openedAt, opens, fn, undefined)
     })
   }
 
   const rootClient = driver.client(ambientRouter, ambientBatchRouter)
-  const rootQueries = isQueryClient(rootClient)
-    ? storeQueriesOver(rootClient, async (fn) => await transact(async () => await fn()))
-    : undefined
+  const rootQueries =
+    isQueryClient(rootClient) && !layerMissing
+      ? storeQueriesOver(
+          rootClient,
+          async (fn, context) => await transact(async () => await fn(), context),
+          options.queryLayer,
+        )
+      : undefined
   const root: RootStoreExecutor<TClient> = {
     drizzle: rootClient,
     get queries() {
+      if (layerMissing) {
+        throw new Error(
+          `the repository query capability of a ${driverDialect} driver needs its query layer ` +
+            '(StoreExecutorOptions.queryLayer)',
+        )
+      }
       if (!rootQueries) {
         throw new Error('the repository query capability requires the executor QueryClient')
       }
       return rootQueries
     },
-    context: {},
+    context: GLOBAL_CONTEXT,
     transact,
     read,
     async exclusive(fn) {
@@ -1127,6 +1210,8 @@ export function createStoreExecutor<TClient>(
           lease: detachedLease(session),
           parent: undefined,
           postCommit: new PostCommitRegistry(),
+          // The caller's: a look at the committed view is still that work's look.
+          context: caller.context,
           openedAt,
           // BOUND TO THE CALLER'S SCOPE, not just checked on the way in. The
           // reader frame is a fresh top-level frame, so its own token stays
@@ -1167,7 +1252,10 @@ export function createStoreExecutor<TClient>(
       // Effects are dispatched, never awaited, so the drain cannot fail; the
       // runner stays owned until they settle, which is what close() counts.
       const runner = newRunner(() => true)
-      void runner.drain(registry).finally(() => retire(runner)).catch(() => undefined)
+      void runner
+        .drain(registry)
+        .finally(() => retire(runner))
+        .catch(() => undefined)
     },
     async close(persist) {
       if (currentScope().kind !== 'root') {

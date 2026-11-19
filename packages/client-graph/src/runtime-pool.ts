@@ -1,12 +1,13 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionPhaseChange } from '@podium/client-core/sound'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
-import { asUserId, layoutRowId } from '@podium/model'
+import { asUserId, layoutRowId, matchesWhere, SIDEBAR_WHERE } from '@podium/model'
 import { Reaction, runInAction, untracked } from 'mobx'
 import { _observerFinalizationRegistry } from 'mobx-react-lite'
 import { DeadlineClock } from './clock'
 import { createWorklistPool, type WorklistPoolHandle } from './create'
 import { attachHeaderSource } from './header-source'
+import { issueSearch } from './issue-search'
 import { omitGone } from './lookup'
 import type { MobxPool } from './pool'
 import { attachPreferenceSource } from './preference-source'
@@ -14,7 +15,6 @@ import { sessionPaneView } from './session-pane-view'
 import { attachSettingsSource } from './settings-source'
 import { createRowSource, type RowSourceRuntime } from './shared/row-source'
 import { shellViews } from './shell-views'
-import type { PoolSummaryFields } from './source-registry'
 import { draftSortKey } from './write/launch-rows'
 import { startEffects } from './write/start-effects'
 import {
@@ -224,7 +224,7 @@ function releaseProjection<T>(state: ProjectionState<T>): void {
 export type WorklistRuntime = RowSourceRuntime &
   Pick<
     import('@podium/client-core/runtime-root').ClientRuntime,
-    'ui' | 'services' | 'replica' | 'pool' | 'attachPool'
+    'ui' | 'services' | 'replica' | 'pool' | 'attachPool' | 'api'
   > & {
     readonly live?: import('@podium/client-core/live').LiveStore
     /** Historical corpus harness only; production supplies no manual clock. */
@@ -275,6 +275,14 @@ export function createRuntimeTransactions(runtime: WorklistRuntime): PoolTransac
       await outbox.enqueue(kind, input, opts)
     },
     addressed: subscribeAddressed,
+    // POD-7087: a command on a record the device does not hold makes no
+    // optimistic change; its result arrives through the feed.
+    holds: (entity, id) => {
+      const replica = runtime.replica
+      if (replica.row === undefined) return true
+      // untracked-read: command-target-held
+      return untracked(() => replica.row!(entity, id) !== undefined)
+    },
     // A new record's placement guess (POD-6400): the held repos whose field
     // matches (an issue's repo by its path). Repos only: a handful of rows, read
     // when a create is reduced, never observed. Any other table answers none.
@@ -305,7 +313,20 @@ export function createRuntimeTransactions(runtime: WorklistRuntime): PoolTransac
             })
             // untracked-read: spawn-sort-peek
             .map((id) => omitGone(pool.row('issue', id, 'peek')))
-            .filter((row) => row && typeof row !== 'symbol')
+            // The top of the list a new task joins is the sidebar's: open
+            // issues that are not proposed, which the device holds whole
+            // (POD-7088, design "Position of a new task"). Closed history,
+            // which the device does not hold, never takes part.
+            .filter(
+              (row) =>
+                row &&
+                typeof row !== 'symbol' &&
+                // The sidebar rule tests no time, so no clock is read.
+                matchesWhere(SIDEBAR_WHERE, row as unknown as Record<string, unknown>, {
+                  now: 0,
+                  args: {},
+                }),
+            )
           return draftSortKey(issues as unknown as IssueViewModel[], target.repoPath, target.repoId)
         }),
     },
@@ -331,7 +352,6 @@ export function createRuntimeWorklistPool(
     preferences?: boolean
     settings?: boolean
     header?: boolean
-    summaries?: PoolSummaryFields
   } = {},
 ): WorklistPoolHandle & { readonly transactions: PoolTransactions } {
   const transactions = createRuntimeTransactions(runtime)
@@ -365,9 +385,7 @@ export function createRuntimeWorklistPool(
       // POD-5423: the worklist's lanes are filed only while a screen that
       // draws them holds them (its pool screen's attachment) or reads them.
       {
-        header: options.header,
         settings: options.settings,
-        summaries: options.summaries,
         worklist: 'demand',
         ...(runtime.fixtureClock ? { clock: new DeadlineClock(runtime.fixtureClock.now()) } : {}),
       },
@@ -375,6 +393,7 @@ export function createRuntimeWorklistPool(
     )
     if (runtime.live) handle.pool.bindLive(runtime.live)
     const pool = handle.pool
+    issueSearch(pool).bind((input) => runtime.api.issues.searchNormalized.query(input))
     const principal = runtime.principal
     let stopLayout: () => void = () => {}
     if (runtime.layout && principal) {

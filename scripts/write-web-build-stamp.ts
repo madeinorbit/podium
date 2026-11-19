@@ -59,7 +59,7 @@
  */
 
 import { createHash } from 'node:crypto'
-import { existsSync, lstatSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { brotliCompressSync, gzipSync, constants as zlibConstants } from 'node:zlib'
@@ -67,10 +67,10 @@ import {
   BUILD_STAMP_FILE,
   type BuildStamp,
   bundleVersionFromHtml,
+  CLIENT_WIRE_VERSION,
   PRODUCT_VERSION_META,
   resolveProductVersion,
   SOURCE_DIGEST_META,
-  CLIENT_WIRE_VERSION,
   wireSchemaDigest,
 } from '../packages/protocol/src/index'
 import { developmentSourceSha } from '../packages/runtime/src/source-version'
@@ -323,9 +323,9 @@ export function writeWebBuildStamp(
   writeFileSync(indexPath, stamped)
   refreshCompressedSiblings(indexPath, stamped)
   // The generated service worker precaches that page by revision, so it has to be
-  // rewritten with it — see `rewriteServiceWorkerIndexRevision`. Only the desktop
-  // shell has one: the phone export ships no service worker, so the phone dist takes
-  // this branch not at all rather than being excused from it.
+  // rewritten with it — see `rewriteServiceWorkerIndexRevision`. Both dists have one:
+  // the desktop's from vite-plugin-pwa, the phone's from
+  // apps/mobile/scripts/generate-service-worker.ts (POD-7179), the same workbox output.
   const swPath = join(distDir, 'sw.js')
   if (existsSync(swPath)) {
     const rewritten = rewriteServiceWorkerIndexRevision(readFileSync(swPath, 'utf8'), stamped)

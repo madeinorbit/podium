@@ -138,9 +138,12 @@ function indexShape(
   return { table: row.tableName, columns, ...(where === undefined ? {} : { where }) }
 }
 
-function expectMigrated(db: SqlDatabase): void {
-  for (const [name, expected] of Object.entries(ADDED))
-    expect(indexShape(db, name), name).toEqual(expected)
+/** `keyed`: at the head, where the keys migration (POD-7024) put workspace_id in front of each. */
+function expectMigrated(db: SqlDatabase, keyed = false): void {
+  for (const [name, expected] of Object.entries(ADDED)) {
+    const columns = keyed ? ['workspace_id', ...expected.columns] : expected.columns
+    expect(indexShape(db, name), name).toEqual({ ...expected, columns })
+  }
   for (const name of REPLACED) expect(indexShape(db, name), name).toBeUndefined()
 }
 
@@ -193,10 +196,12 @@ describe('POD-6148 — the query-plan indexes migration', () => {
     expect(THIS).toBeGreaterThan(0)
   })
 
-  it('creates every index on a fresh database', () => {
+  it('creates every index on a fresh database, and the keys migration keeps each behind the workspace', () => {
     const db = openDatabase(':memory:')
-    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS.slice(0, THIS + 1))
     expectMigrated(db)
+    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+    expectMigrated(db, true)
     db.close()
   })
 
@@ -210,7 +215,9 @@ describe('POD-6148 — the query-plan indexes migration', () => {
     const before = counts(db)
 
     // Up to and including this migration; later ones have their own tests.
-    expect(runDrizzleMigrations(db, DRIZZLE_MIGRATIONS.slice(0, THIS + 1))).toEqual([DRIZZLE_MIGRATIONS[THIS]!.name])
+    expect(runDrizzleMigrations(db, DRIZZLE_MIGRATIONS.slice(0, THIS + 1))).toEqual([
+      DRIZZLE_MIGRATIONS[THIS]!.name,
+    ])
     expectMigrated(db)
     expect(counts(db)).toEqual(before)
     expect(db.prepare('PRAGMA integrity_check').get()).toEqual({ integrity_check: 'ok' })

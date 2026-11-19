@@ -18,9 +18,15 @@
  *   - `lastSpawnedSessions` picks the latest run by MAX(rowid), NOT by
  *     MAX(fired_at), because two fires can share a timestamp. A conversion that
  *     reads "latest" as the timestamp is right in every test where the fires
- *     differ and wrong exactly when the overlap check matters.
- *   - `listRuns` breaks a fired_at tie by rowid DESC, so its order is total.
- *     Without the tie-break the page is whatever the engine returns.
+ *     differ and wrong exactly when the overlap check matters. That is SQLite's
+ *     answer; Postgres keeps no insertion order (no rowid, and the table has no
+ *     insertion counter), so there the latest is the newest `fired_at`, a tie
+ *     broken by the run id. The test that tells the two apart names each engine's.
+ *   - `listRuns` breaks a fired_at tie by rowid DESC (by the run id on
+ *     Postgres), so its order is total. Without the tie-break the page is
+ *     whatever the engine returns.
+ *
+ * Every test runs on both engines (`openEventStoreSlice`).
  *   - `update` writes a null cron as the empty string and the mapper reads the
  *     empty string back as null. Neither half is meaningful alone, so a
  *     conversion has to move both or neither.
@@ -35,7 +41,7 @@ import type {
 } from '@podium/model'
 import { fixtureWriteScope } from '@podium/sync/testing'
 import { expect, it } from 'vitest'
-import { openTestStore } from '../test-support/open-test-store'
+import { openEventStoreSlice } from '../test-support/event-store-slice'
 import type { AutomationRow, AutomationRunRow } from './automations'
 
 const owner = 'user-1' as UserId
@@ -81,7 +87,7 @@ function run(overrides: Partial<AutomationRunRow> = {}): AutomationRunRow {
 }
 
 it('round-trips an automation through insert, including the boolean and the nullable columns', async () => {
-  const store = await openTestStore(':memory:')
+  const store = await openEventStoreSlice()
   try {
     expect(await store.automations.get('auto-1')).toBeUndefined()
 
@@ -124,7 +130,7 @@ it('round-trips an automation through insert, including the boolean and the null
 })
 
 it('lists live automations oldest first and hides the tombstoned ones', async () => {
-  const store = await openTestStore(':memory:')
+  const store = await openEventStoreSlice()
   try {
     await store.automations.insert(
       fixtureWriteScope(),
@@ -164,7 +170,7 @@ it('lists live automations oldest first and hides the tombstoned ones', async ()
 })
 
 it('answers ownership through the tombstone, which is the one fact that outlives an automation', async () => {
-  const store = await openTestStore(':memory:')
+  const store = await openEventStoreSlice()
   try {
     await store.automations.insert(fixtureWriteScope(), automation())
     await store.automations.insert(
@@ -218,7 +224,7 @@ it('answers ownership through the tombstone, which is the one fact that outlives
 })
 
 it('updates every mutable column and round-trips a null cron through the empty string', async () => {
-  const store = await openTestStore(':memory:')
+  const store = await openEventStoreSlice()
   try {
     await store.automations.insert(fixtureWriteScope(), automation())
     const patched = automation({
@@ -254,7 +260,7 @@ it('updates every mutable column and round-trips a null cron through the empty s
 })
 
 it('pages an automation’s runs newest first with a total order, and lists all runs oldest first', async () => {
-  const store = await openTestStore(':memory:')
+  const store = await openEventStoreSlice()
   try {
     await store.automations.insert(fixtureWriteScope(), automation())
     await store.automations.insert(
@@ -283,7 +289,8 @@ it('pages an automation’s runs newest first with a total order, and lists all 
       }),
     )
 
-    // r3 was inserted after r2 and shares its timestamp, so it comes first.
+    // r3 was inserted after r2, its id sorts after r2's, and it shares r2's
+    // timestamp, so it comes first on both engines.
     expect((await store.automations.listRuns('auto-1' as AutomationId)).map((r) => r.id)).toEqual([
       'r3',
       'r2',
@@ -309,7 +316,7 @@ it('pages an automation’s runs newest first with a total order, and lists all 
 })
 
 it('tombstones an automation’s runs with it, and refuses to finalize a tombstoned run', async () => {
-  const store = await openTestStore(':memory:')
+  const store = await openEventStoreSlice()
   try {
     await store.automations.insert(fixtureWriteScope(), automation())
     await store.automations.addRun(
@@ -347,8 +354,8 @@ it('tombstones an automation’s runs with it, and refuses to finalize a tombsto
   }
 })
 
-it('names the last spawned session per automation by insertion order, not by timestamp', async () => {
-  const store = await openTestStore(':memory:')
+it('names the last spawned session per automation by insertion order on SQLite, by timestamp on Postgres', async () => {
+  const store = await openEventStoreSlice()
   try {
     await store.automations.insert(fixtureWriteScope(), automation())
     await store.automations.insert(
@@ -399,15 +406,16 @@ it('names the last spawned session per automation by insertion order, not by tim
     )
 
     const last = await store.automations.lastSpawnedSessions()
-    // The last INSERTED run, even though its timestamp is the older of the two.
-    expect(last.get('auto-1' as AutomationId)).toBe('sess-second')
+    // On SQLite the last INSERTED run, even though its timestamp is the older of
+    // the two. Postgres has no insertion order to read, so there it is the run
+    // with the newer timestamp (see the file comment).
+    const latest = store.engine === 'pg' ? 'sess-first' : 'sess-second'
+    expect(last.get('auto-1' as AutomationId)).toBe(latest)
     // An automation that never spawned with a session is ABSENT, not null.
     expect(last.has('auto-2' as AutomationId)).toBe(false)
     expect(last.has('auto-3' as AutomationId)).toBe(false)
     // The one-automation read gives the same answers (POD-6172).
-    expect(await store.automations.lastSpawnedSessionOf('auto-1' as AutomationId)).toBe(
-      'sess-second',
-    )
+    expect(await store.automations.lastSpawnedSessionOf('auto-1' as AutomationId)).toBe(latest)
     expect(await store.automations.lastSpawnedSessionOf('auto-2' as AutomationId)).toBeUndefined()
     expect(await store.automations.lastSpawnedSessionOf('auto-3' as AutomationId)).toBeUndefined()
     expect((await store.automations.liveRunIdsOf('auto-1' as AutomationId)).sort()).toEqual([

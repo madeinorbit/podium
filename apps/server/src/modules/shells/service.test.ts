@@ -18,7 +18,9 @@ import {
 } from '@podium/model'
 import { fixtureCommitWriter } from '@podium/sync/testing'
 import { beforeEach, describe, expect, it } from 'vitest'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import { createBunStoreExecutor } from '../../store/executor'
+import { workspaceQueries } from '../../store/executor/sync-drizzle'
 import { UserDockShellRepository } from '../../store/user-layout'
 import { openMigratedTestDatabase } from '../../test-support/migrated-database'
 import {
@@ -94,7 +96,7 @@ beforeEach(() => {
   const db = openMigratedTestDatabase()
   const stage = createBunStoreExecutor({ database: db }).queries
   if (!stage) throw new Error('the test database is not bun-backed')
-  shells = new UserDockShellRepository(stage)
+  shells = new UserDockShellRepository(workspaceQueries(stage, SELF_HOSTED_WORKSPACE_ID))
   sessions = makeStub()
   service = new DockShellService({ dockShells: shells, sessions })
 })
@@ -317,7 +319,7 @@ describe('resolveSampledShellOwners (POD-4627: one host sample, many shells)', (
     const db = openMigratedTestDatabase()
     const stage = createBunStoreExecutor({ database: db }).queries
     if (!stage) throw new Error('the test database is not bun-backed')
-    const repo = new UserDockShellRepository(stage)
+    const repo = new UserDockShellRepository(workspaceQueries(stage, SELF_HOSTED_WORKSPACE_ID))
     const sessions: Array<{
       sessionId: SessionId
       agentKind: string

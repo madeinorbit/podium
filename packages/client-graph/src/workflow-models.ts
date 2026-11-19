@@ -74,10 +74,6 @@ function record(
       ),
     },
     relations: {},
-    cold: {
-      kind: 'never' as const,
-      why: 'An instance holds tens of these, not thousands: always resident.',
-    },
   }
 }
 

@@ -31,12 +31,10 @@ import { isFinished, isExcluded } from '../shared/predicates'
  * each other in a cycle: every cross-issue read goes one way (children up,
  * ancestors down, spin-offs across). Rescue within a raw parent cycle reads
  * only own-row/member facts, never another cycle member's presence.
- * - facts (`issueFactsOf`): the own row, hot OR cold (a cold row is read by
- *   id through the feed, `VisibleInputs.issueRow`), and the clock: the
- *   standing (structural exclusion, finished, the sessionless keep's inputs,
- *   the raw parent), the row view's own part and the settled placement. Under
- *   the declared cold rule no visible row is cold, so a cold read answers the
- *   hidden side without loading the row.
+ * - facts (`issueFactsOf`): the own row (`VisibleInputs.issueRow`), and the
+ *   clock: the standing (structural exclusion, finished, the sessionless
+ *   keep's inputs, the raw parent), the row view's own part and the settled
+ *   placement.
  * - rank: L1b `rankOf` over the own part (the order and the group lanes read
  *   every visible row's rank, so it is cached apart from the facts).
  * - members (`membersOf`): R2's seats (`issue.sessions`, the maintained
@@ -61,21 +59,21 @@ import { isFinished, isExcluded } from '../shared/predicates'
  * row's nest children are the present rows whose `nestParent` it is. They
  * are found down the raw parent edge (`issue.treeChildren`, through ANY
  * issue, as the nest walk goes up through any issue): a present child is
- * one, a hidden child passes on the present rows below it. Each candidate is kept only when its own `nestParent` names this row, so
+ * one, a child that is not present passes on the present rows below it. Each candidate is kept only when its own `nestParent` names this row, so
  * the one rule (`nestParentPartOf`) decides and the derivation only finds.
  * The formal children, which the progress roll-up composes over, are the
  * relation engine's own `issue.children` bucket.
  *
- * THE COLLECTION IS MAINTAINED, ONE ROW AT A TIME. Every eligible issue in memory
- * is a filing candidate (`VisibleCollection.track`, taken when its row enters
- * the table and released when it leaves) and, while a list is on screen
+ * THE COLLECTION IS MAINTAINED, ONE ROW AT A TIME. Every issue in memory the
+ * rule can show is a filing candidate (`VisibleCollection.track`, taken when
+ * its row or a session that can keep it enters the table and released when
+ * it leaves: `SIDEBAR_CANDIDATES`) and, while a list is on screen
  * (POD-5423), holds ONE reaction on what it files: its placement and rank
  * while it is visible, nothing while it is not. The effect moves
  * that row alone in the visible order and in the groups' lanes
- * (`sorted-lanes.ts`, `groups.ts`). A row not in memory is hidden by the
- * cold rule, so it files nothing and holds no reaction; its object is still
- * built on first read when another issue's walk reaches it (a cold ancestor,
- * a cold child).
+ * (`sorted-lanes.ts`, `groups.ts`). A row not in memory files nothing and
+ * holds no reaction; its object is still built on first read when another
+ * issue's walk reaches it.
  *
  * CROSS-ISSUE READS STAY TRACKED. A group that looks up another issue asks
  * the pool for it (`VisibleInputs.issue`), which answers the issue's object
@@ -90,6 +88,7 @@ import { isFinished, isExcluded } from '../shared/predicates'
 
 import { compareStructural, createAtom, reaction, runInAction } from 'mobx'
 import { type SeatInteractions, type SeatSessionFacts, sessionErrorFact, sessionWorkingFact } from '@podium/model/browser'
+import { matchesWhere, SIDEBAR_STAGES, type Where } from '@podium/model'
 import { debugName } from '../debug-name'
 import { type RelationLinks, refs } from '../shared/links'
 import { compareRank, type RowRank } from '../shared/row-view'
@@ -133,9 +132,9 @@ export interface VisibleInputs {
   readonly issueSessionFact?: IssueSessionFactReader
   /** Every relation, by typed name (POD-4758, `shared/src/links.ts`). */
   readonly links: RelationLinks
-  /** An issue's row, hot or cold (a cold one read by id through the feed); undefined when unknown. */
+  /** An issue's row as the pool holds it; undefined when unknown. */
   issueRow(id: string): SliceIssue | undefined
-  /** A session's row, hot or cold; undefined when unknown. */
+  /** A session's row as the pool holds it; undefined when unknown. */
   sessionRow(id: string): SliceSession | undefined
   /** Another known issue's parts (its object in the live pool); undefined when unknown. */
   issue(id: string): Omit<IssueVisibility, 'unread'> | undefined
@@ -155,9 +154,9 @@ export interface VisibleInputs {
   passed(t: number): boolean
   /** `coarseNow >= t`. */
   reached(t: number): boolean
-  /** A RESIDENT issue row; `LOADING` when cold (the read queues its load): the roll-ups' read. */
+  /** A RESIDENT issue row; `LOADING` while it is on its way (the read starts its load): the roll-ups' read. */
   loadedIssue(id: string): Loaded<SliceIssue>
-  /** A RESIDENT session row; `LOADING` when cold (queued). */
+  /** A RESIDENT session row; `LOADING` while it is on its way. */
   loadedSession(id: string): Loaded<SliceSession>
   /** Whether a session reads as reconnecting: its model's derived condition
    *  (ADR 12 D1). Rows never carry it. Absent: not known, so not reconnecting. */
@@ -229,42 +228,6 @@ export interface Standing {
   readonly formalParent: string | null
 }
 
-/**
- * POD-4753 — what visibility reads of a HIDDEN issue: one the complete cold
- * rule keeps out of memory. The raw parent and exclusion fields let nesting
- * pass through it and rescue compose below it. An unplaced agent ancestor
- * can still attract a live child before nesting; its compact `flatUntil`
- * keeper bound decides whether that child needs the ancestor loaded. Cold
- * leaves read none of their sessions. These fields and the derived deadline
- * are the declared summary, never the full row.
- */
-export const HIDDEN_ISSUE_FIELDS = ['parentId', 'audience', 'archived', 'deletedAt', 'stage'] as const
-
-/** A hidden issue's declared summary (`HIDDEN_ISSUE_FIELDS`). */
-export type HiddenIssue = Partial<Pick<SliceIssue, (typeof HIDDEN_ISSUE_FIELDS)[number]>> & {
-  /** Declared derived summary, from existing own/member/lane deadlines (`coldFlatUntil`). */
-  readonly flatUntil?: number
-}
-
-/** The presence of a hidden issue, from its summary and the rows below it: never flat or present. */
-export function hiddenPresenceOf(
-  input: VisibleInputs,
-  id: string,
-  hidden: HiddenIssue,
-  self: Pick<IssueVisibility, 'parentRef'>,
-): Presence {
-  rescueWalkOf(input)?.paths.delete(self)
-  const keeps = !isExcluded(hidden) && keptBelowPartOf(input, id, childIdsPartOf(input, id), self, true)
-  // An unplaced agent row may still have pre-nesting presence from a seat.
-  // A live descendant needs that verdict: it might nest under this row and
-  // disappear with it. Load through the normal window only when needed,
-  // rather than observing all the historical row's member sessions.
-  if (keeps && hidden.audience === 'agent' && hidden.flatUntil !== undefined && !input.passed(hidden.flatUntil)) {
-    void input.loadedIssue(id)
-  }
-  return { flat: false, keeps, present: false }
-}
-
 export function standingOf(issue: SliceIssue, facts?: Pick<Standing,
   'excluded' | 'finished' | 'awaitingMerge' | 'parentId' | 'finishedMs' | 'updatedMs' | 'formalParent' |
   'replicaActivityMs' | 'headlessStaffed' | 'pinned'>, sessionFact?: IssueSessionFactReader,
@@ -322,7 +285,7 @@ function issueFactsOf(
   }
 }
 
-/** The facts group of issue `id`, hot or cold; undefined when unknown. */
+/** The facts group of issue `id`; undefined when unknown. */
 export function issueFactsPartOf(input: VisibleInputs, id: string): IssueFacts | undefined {
   const issue = input.issueRow(id)
   return issue === undefined ? undefined : issueFactsOf(issue, input)
@@ -456,7 +419,7 @@ export function activityMsOf(session: SliceSession | undefined): number | null {
 export interface SessionVisibility {
   readonly retention: Retention | null
   readonly activityMs: number | null
-  /** The seat's roll-up verdict, from the RESIDENT row; `LOADING` while it is cold. */
+  /** The seat's roll-up verdict, from the RESIDENT row; `LOADING` while it is on its way. */
   readonly verdict: Loaded<SeatVerdict>
 }
 
@@ -481,7 +444,7 @@ export function withLiveBusy<T extends SliceSession>(
   return input.sessionBusy?.(id) === true ? { ...row, busy: true } : row
 }
 
-/** A seat's verdict from the resident row (the roll-ups never read a cold session). */
+/** A seat's verdict from the resident row. */
 export function verdictPartOf(
   input: Pick<VisibleInputs, 'loadedSession' | 'openInteractions' | 'issueRow' | 'sessionReconnecting' | 'sessionBusy'>,
   id: string,
@@ -537,9 +500,7 @@ export interface Members {
 /** One issue's parts (see the header), and its roll-up parts (`rollup.ts`). */
 export interface IssueVisibility extends RollupParts, Members {
   readonly standing: Standing | undefined
-  /** A cold hidden issue's declared summary; absent in the plain rebuild. */
-  readonly hidden?: HiddenIssue
-  /** The raw `parentId` the nesting walk follows (`standing.parentId`; a hidden issue's from its summary). */
+  /** The raw `parentId` the nesting walk follows (`standing.parentId`). */
   readonly parentRef: string | null
   readonly childIds: readonly string[]
   /** `issue.spinOffs` (R4, the inverse edge), id order: the roll-ups' vacated and continuation tests. */
@@ -940,14 +901,9 @@ function flatKeptBelow(input: VisibleInputs, childIds: readonly string[]): boole
     seen.add(childId)
     const child = input.issue(childId)
     if (child === undefined) continue
-    const hidden = child.hidden
-    if (hidden !== undefined) {
-      if (isExcluded(hidden)) continue
-    } else {
-      const standing = child.standing
-      if (standing === undefined || standing.excluded) continue
-      if (flatOf(input, childId, standing, child)) return true
-    }
+    const standing = child.standing
+    if (standing === undefined || standing.excluded) continue
+    if (flatOf(input, childId, standing, child)) return true
     pending.push(...childIdsPartOf(input, childId))
   }
   return false
@@ -1382,6 +1338,94 @@ export function sortByRank(
 export interface HeldIssue extends Omit<IssueVisibility, 'unread'> {
   readonly id: string
   readonly placement: Placement | undefined
+}
+
+// ------------------------------------------------------------ candidates
+
+/** Not excluded (`isExcluded`): an absent flag reads as unset, as the rule reads it. */
+const NOT_EXCLUDED = { archived: { not: true }, deletedAt: { empty: true } } as const
+/** Not `proposed` and not `shipping` (system custody): stages the rule excludes. */
+const SHOWN_STAGE = { not: { in: ['proposed', 'shipping'] } } as const
+/** Finished (`isFinished`): done, or closed with a reason. */
+const FINISHED = [{ stage: 'done' }, { stage: SHOWN_STAGE, closedReason: { not: { empty: true } } }] as const
+
+/**
+ * THE SIDEBAR'S FILING CANDIDATES (POD-7148), DECLARED AS DATA: the issues
+ * the rule above can show, and no others. The device holds far more issues
+ * than the sidebar shows (recent history, open trees, pages, lookups: design
+ * POD-7059), and a candidate pays for standing, nesting, presence and rank
+ * while the list is on screen, so only an issue that can earn a row is one.
+ * Both rules are the declared rule vocabulary (`@podium/model` `Where`), read
+ * by one generic read ({@link isSidebarCandidate}, {@link sidebarKeeperOf}).
+ *
+ * - `issue`, by the issue's own row: the sidebar collection's rule
+ *   (`SIDEBAR_WHERE`: open, not proposed), and the finished rows the rule keeps
+ *   by their own fields, which reach the device through the recent collection:
+ *   a human issue (the closed fold, a finished child's window) and one with a
+ *   private branch (awaiting merge). The clock decides inside those windows,
+ *   so neither tests a time: the device's holdings already bound recency, and
+ *   a time here would hide a row the rule shows.
+ * - `keeper`, a session the device holds: R-VIS 2's seat (not archived, not
+ *   a shell). Its issue is a candidate while one is held, whatever its own row
+ *   says: a closed issue that a live, asking or recent session brought along
+ *   (its declared comes-with) stays shown while the session keeps it. The
+ *   pool also asks the seat's retention at its clock (`sidebarKeeperOf`): an
+ *   ended session past R-VIS's window keeps nothing (POD-7181), so a deck of
+ *   old trees files no rows.
+ *
+ * Every other issue files nothing: an agent task that is done and has no
+ * held seat, a proposed, archived or deleted one, whatever collection (a
+ * tree, a page, a lookup) brought it. Pending local writes are in the row the
+ * pool holds (the transaction log writes the rebased row into the table), so
+ * a local create or edit is judged like any other row.
+ *
+ * A superset, never a subset, of what shows: the rule still decides. One case
+ * is left to the seat: a finished agent issue kept only by an issueless
+ * session in its checkout (R3, `laneMemberIds`) files once a seat or its row
+ * makes it a candidate; the residency rule this replaces counted none
+ * (POD-4745).
+ */
+export const SIDEBAR_CANDIDATES = {
+  issue: [
+    // The sidebar collection's rule, the stages the worklist excludes aside.
+    {
+      ...NOT_EXCLUDED,
+      stage: { in: SIDEBAR_STAGES.filter((stage) => stage !== 'shipping') },
+      closedReason: { empty: true },
+    },
+    ...FINISHED.map((finished) => ({ ...NOT_EXCLUDED, ...finished, audience: 'human' }) as const),
+    ...FINISHED.map((finished) => ({ ...NOT_EXCLUDED, ...finished, branch: { not: { empty: true } } }) as const),
+  ],
+  keeper: { archived: { not: true }, agentKind: { not: 'shell' }, issueId: { not: { empty: true } } },
+} as const satisfies { readonly issue: Where; readonly keeper: Where }
+
+/** Neither rule tests a time or an argument. */
+const NO_CLOCK = { now: 0, args: {} } as const
+
+/** Whether an issue's own row makes it a filing candidate (`SIDEBAR_CANDIDATES.issue`). */
+export function isSidebarCandidate(row: SliceIssue): boolean {
+  return matchesWhere(SIDEBAR_CANDIDATES.issue, row as unknown as Readonly<Record<string, unknown>>, NO_CLOCK)
+}
+
+/**
+ * The issue a held session keeps a filing candidate (`SIDEBAR_CANDIDATES.keeper`), or undefined.
+ * At a clock (`now`, epoch ms), only a seat that R-VIS 2 retains then (`retains`): a finished
+ * session past its window keeps nothing (POD-7181). Retention only lapses as time passes, so
+ * an answer judged earlier is a superset of the rule's later one, never a subset; an idle
+ * finished turn, which the rule times from its issue, is kept without the issue.
+ */
+export function sidebarKeeperOf(session: SliceSession | undefined, now?: number): string | undefined {
+  if (
+    session === undefined ||
+    !matchesWhere(SIDEBAR_CANDIDATES.keeper, session as unknown as Readonly<Record<string, unknown>>, NO_CLOCK)
+  )
+    return undefined
+  if (now !== undefined) {
+    const retention = retentionOf(session)
+    if (retention !== null && !retains(retention, undefined, undefined, { passed: (t) => now > t }))
+      return undefined
+  }
+  return session.issueId as string
 }
 
 /** What the collection reads from the pool. */

@@ -4,10 +4,12 @@ import '@/test-support/mock-pool-fixture'
 import '@/test-support/mock-command-launch'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { issueSearch } from '@podium/client-graph/issue-search'
 import type { SessionMeta, UnbrandIds } from '@podium/model'
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
+import { syncPoolFixture } from '@/test-support/pool-fixture'
 
 /**
  * THIS SUITE EXISTS BECAUSE OF THE SETTINGS TDZ (see SettingsView.tsx's own
@@ -30,7 +32,7 @@ const fixture = vi.hoisted(() => ({
   store: {
     trpc: {
       settings: { get: { query: vi.fn(async () => ({})) } },
-      issues: { searchNormalized: { query: vi.fn(async () => []) } },
+      issues: { searchNormalized: { query: vi.fn(async () => ({ hits: [], next: null })) } },
       sessions: { handoff: { mutate: vi.fn() } },
     },
     repos: [],
@@ -323,5 +325,64 @@ describe('settings page commands', () => {
       expect(labels).toContain(label)
     for (const label of ['Access', 'Audit log', 'Privacy', 'Labs'])
       expect(labels).not.toContain(`Settings · ${label}`)
+  })
+})
+
+describe('palette device/server issue identities', () => {
+  it('finds an absent archived issue by its server body match and keeps the shared model', async () => {
+    fixture.issues = [makeIssue({ id: 'local-search', title: 'Needle local' })]
+    render(<CommandPalette />)
+    const pool = syncPoolFixture({
+      ...fixture.store,
+      issues: fixture.issues,
+      sessions: [],
+      paneA: null,
+    } as never)
+    const remote = makeIssue({
+      id: 'remote-search',
+      title: 'Historical task',
+      archived: true,
+      stage: 'done',
+      closedReason: 'done',
+    })
+    // The server answers the hit; the device installs its record (the loader's part).
+    const query = vi.fn(async () => {
+      pool.apply({
+        type: 'update',
+        rows: [{ kind: 'issue' as const, id: remote.id, value: remote }],
+      })
+      return { hits: [{ id: remote.id }], next: null }
+    })
+    issueSearch(pool).bind(query)
+    const hold = vi.spyOn(pool.collections, 'holdRecords')
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'needle' } })
+    expect(screen.getByText('Needle local')).toBeTruthy()
+    expect(screen.queryByText('Historical task')).toBeNull()
+    await waitFor(() => expect(screen.getByText('Historical task')).toBeTruthy())
+    expect(query).toHaveBeenCalledWith({ text: 'needle' })
+    expect(hold).toHaveBeenCalledWith('issue', [remote.id])
+    expect(pool.issueObject(remote.id).title).toBe('Historical task')
+    fireEvent.click(screen.getByRole('option', { name: /Historical task/ }))
+    expect(fixture.store.setOpenIssueId).toHaveBeenCalledWith(remote.id)
+    hold.mockRestore()
+  })
+
+  it('shows device matches when the server is unavailable', async () => {
+    fixture.issues = [makeIssue({ id: 'local-search', title: 'Needle offline' })]
+    render(<CommandPalette />)
+    const pool = syncPoolFixture({
+      ...fixture.store,
+      issues: fixture.issues,
+      sessions: [],
+      paneA: null,
+    } as never)
+    const query = vi.fn(async () => {
+      throw new Error('offline')
+    })
+    issueSearch(pool).bind(query)
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'needle' } })
+    expect(screen.getByText('Needle offline')).toBeTruthy()
+    await waitFor(() => expect(query).toHaveBeenCalledTimes(1))
+    expect(screen.getByText('Needle offline')).toBeTruthy()
   })
 })

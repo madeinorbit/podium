@@ -56,20 +56,28 @@
  * rather than a devDependency.
  */
 
-import type { MutationId } from '@podium/model'
-import { sql } from 'drizzle-orm'
-import {
-  check,
-  foreignKey,
-  index,
-  integer,
-  primaryKey,
-  sqliteTable,
-  text,
-} from 'drizzle-orm/sqlite-core'
+import type { MutationId, WorkspaceId } from '@podium/model'
+import { foreignKey, index, integer, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
-/** One instance is one tenant, matching PDM-107's self-hosted identity workspace. */
-export const SELF_HOSTED_TENANT_ID = 'local'
+/**
+ * THE WORKSPACE COLUMN (POD-6959 design 2.2 and 2.6, tasks POD-7012 and POD-7024).
+ *
+ * Every table the workspace manifest (`apps/server/src/store/workspace-manifest.ts`)
+ * classes `workspace` spreads this into its columns, here and in the server's
+ * schema, so the column is declared once. Every key, unique constraint and index
+ * of such a table leads with it, and a foreign key between two of them is
+ * composite (`migrations/branded-ref.ts`, `workspaceRef`).
+ *
+ * NO DEFAULT. The column migration (POD-7012) added it with `DEFAULT 'local'` so
+ * the queries could be scoped repository group by repository group; the keys
+ * migration (POD-7024) rebuilt every workspace table without the default. An
+ * insert that does not name its workspace now fails instead of landing in the
+ * self-hosted one. It is spread LAST, so the declared column order stays the
+ * physical one the column migration's ADD COLUMN produced.
+ */
+export const workspaceColumn = () => ({
+  workspaceId: text('workspace_id').notNull().$type<WorkspaceId>(),
+})
 
 /** The feed row assigns seqs transactionally; pruning never resets its head. */
 /**
@@ -112,7 +120,7 @@ const changeProvenanceColumns = {
 export const changes = sqliteTable(
   'changes',
   {
-    tenantId: text('tenant_id').notNull(),
+    workspaceId: text('workspace_id').$type<WorkspaceId>().notNull(),
     seq: integer().notNull(),
     ...changeTargetColumns,
     op: text().notNull(),
@@ -120,9 +128,9 @@ export const changes = sqliteTable(
     ...changeProvenanceColumns,
   },
   (table) => [
-    primaryKey({ columns: [table.tenantId, table.seq] }),
-    index('changes_entity').on(table.tenantId, table.entity, table.entityId, table.seq),
-    index('changes_event_time').on(table.tenantId, table.eventTime, table.seq),
+    primaryKey({ columns: [table.workspaceId, table.seq] }),
+    index('changes_entity').on(table.workspaceId, table.entity, table.entityId, table.seq),
+    index('changes_event_time').on(table.workspaceId, table.eventTime, table.seq),
   ],
 )
 
@@ -135,67 +143,43 @@ export const changes = sqliteTable(
  * replays as a fresh command — and the covered procedures include `sendText`,
  * where a replay types into a live agent's terminal twice.
  */
+// FEED IDENTITY. The legacy `feed_identity` singleton (ADR 2 D1) was dropped by the keys
+// migration (POD-7024, design 2.1): a workspace's feed id and epoch live in its `sync_feed`
+// row, which travels with the log exactly as D1 requires.
+
 /**
- * FEED IDENTITY — `(feedId, epoch)`, persisted ALONGSIDE the log (ADR 2 D1).
- *
- * "Alongside the log" is the load-bearing phrase and the reason this table lives
- * here rather than in a config file or an env var. D1's whole argument is about
- * BACKUP RESTORE: the epoch must travel with the data it describes, so that
- * restoring `podium.db` restores the epoch that was true of those seqs. An epoch
- * kept anywhere else would survive a restore unchanged while the seqs underneath
- * it rolled back — a feed whose identity says "same generation" over content that
- * is a different timeline, which is worse than no epoch because it LOOKS checked.
- *
- * ONE ROW, pinned by a constant primary key rather than by convention. A `singleton`
- * column with a CHECK-shaped default is how "there is exactly one feed identity"
- * becomes a property of the schema instead of a rule every writer must remember;
- * a second row here would mean two answers to "which generation is this?", and
- * whichever one a query happened to return would be the one clients trusted.
- *
- * NOT NULL on both columns: an identity with a missing epoch is the fails-open
- * value the kernel's `assertOpaqueEpoch` exists to refuse, and letting NULL into
- * the column would put that value one `?? ''` away from being published.
- *
- * D1's hard part, restated so nobody looks for the hook: THERE IS NO RESTORE CODE
- * PATH. A restore is an operator copying a file, so nothing runs and nothing can
- * bump the epoch automatically. This table makes the epoch RESTORABLE and
- * INSPECTABLE; the bump itself is an operator action from [spec:SP-4428]'s
- * runbook, and `FeedIdentityRegistry.bump` is what that action calls.
+ * The identity and cursor bounds travel with each workspace's durable log; the
+ * row is also the workspace's provisioning record (POD-6959 contract C4).
+ * `tenant_id` was renamed `workspace_id` in place (POD-7012): ADR 13's tenant
+ * is the workspace, and one name means one thing.
  */
-// LEGACY(remove-after: 2027-02): retained singleton table for a later contract migration; live identity is in sync_feed.
-export const feedIdentity = sqliteTable(
-  'feed_identity',
+export const syncFeed = sqliteTable(
+  'sync_feed',
   {
-    /** Always 1. The schema's way of saying "there is exactly one of these". */
-    singleton: integer().primaryKey(),
+    workspaceId: text('workspace_id').$type<WorkspaceId>().notNull(),
     feedId: text('feed_id').notNull(),
     epoch: text().notNull(),
-    /** When this generation began. Diagnostics only — never compared, never ordered. */
     mintedAt: integer('minted_at').notNull(),
+    headSeq: integer('head_seq').notNull(),
+    /** Oldest retained seq; head + 1 when empty. Cursor + 1 must reach it. */
+    floorSeq: integer('floor_seq').notNull(),
   },
-  (table) => [check('feed_identity_singleton', sql`${table.singleton} = 1`)],
+  // NOT NULL since the keys migration (POD-7024, POD-7012's finding): a text primary key alone
+  // lets SQLite store NULL, and a feed row with no workspace would be no workspace's
+  // provisioning record. Declared at table level because drizzle-kit drops NOT NULL from a
+  // column-level primary key.
+  (table) => [primaryKey({ columns: [table.workspaceId], name: 'sync_feed_pk' })],
 )
 
-/** The identity and cursor bounds travel with each tenant's durable log. */
-export const syncFeed = sqliteTable('sync_feed', {
-  tenantId: text('tenant_id').primaryKey(),
-  feedId: text('feed_id').notNull(),
-  epoch: text().notNull(),
-  mintedAt: integer('minted_at').notNull(),
-  headSeq: integer('head_seq').notNull(),
-  /** Oldest retained seq; head + 1 when empty. Cursor + 1 must reach it. */
-  floorSeq: integer('floor_seq').notNull(),
-})
-
-/** Absent kinds are at generation zero within their tenant. */
+/** Absent kinds are at generation zero within their workspace. */
 export const syncKind = sqliteTable(
   'sync_kind',
   {
-    tenantId: text('tenant_id').notNull(),
+    workspaceId: text('workspace_id').$type<WorkspaceId>().notNull(),
     kind: text().notNull(),
     generation: integer().notNull(),
   },
-  (table) => [primaryKey({ columns: [table.tenantId, table.kind] })],
+  (table) => [primaryKey({ columns: [table.workspaceId, table.kind] })],
 )
 
 /**
@@ -247,14 +231,18 @@ export const syncCapture = sqliteTable(
 export const appliedMutations = sqliteTable(
   'applied_mutations',
   {
-    mutationId: text('mutation_id').$type<MutationId>().primaryKey(),
+    mutationId: text('mutation_id').$type<MutationId>().notNull(),
     proc: text().notNull(),
     result: text().notNull(),
     appliedAt: integer('applied_at').notNull(),
+    ...workspaceColumn(),
   },
   (table) => [
+    // Mutation ids come from clients, so the dedupe is per workspace (design 2.7): a global key
+    // would let one workspace make another's mutation look applied (POD-7021).
+    primaryKey({ columns: [table.workspaceId, table.mutationId], name: 'applied_mutations_pk' }),
     /**
-     * The retention sweep's ONLY predicate (POD-1638).
+     * The retention sweep's ONLY predicate (POD-1638), within its workspace.
      *
      * `pruneAppliedMutationsBatch` (the janitor's prune, POD-7035) deletes the
      * oldest batch by `applied_at < cutoff`, and without this
@@ -266,6 +254,6 @@ export const appliedMutations = sqliteTable(
      * cutoff range, so the steady-state "nothing to prune" case touches no rows
      * at all.
      */
-    index('idx_applied_mutations_applied_at').on(table.appliedAt),
+    index('idx_applied_mutations_applied_at').on(table.workspaceId, table.appliedAt),
   ],
 )

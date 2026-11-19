@@ -32,7 +32,7 @@ controls = [
     ('pending-blocked', READER, 'blocked: rows.length > 0', 'blocked: false', PARITY, FILE),
     ('record-order', READER, 'records.push(row)', 'records.unshift(row)', PARITY, FILE),
     ('mention-order', READER, 'issues.push(row)', 'issues.unshift(row)', PARITY, FILE),
-    ('cold-summary', READER, "pool.row('session', id, 'summary')", "pool.row('session', id)", 'reports missing cold summaries', FILE),
+    ('cold-summary', READER, "pool.row('session', id)", "pool.row('session', id)", 'reports missing cold summaries', FILE),
     ('resume-dedupe', READER, 'sessions: dedupeSessionsByResume(sessions)', 'sessions', 'collapses parked resume twins', FILE),
     ('addressed-updates', SOURCE, 'const present = !!owner.replica.row!(kind, address.id)', 'const present = true', 'updates addressed records', FILE),
     ('rescope', SOURCE, 'this.dirtyOrders.add(entity)', 'this.dirtyOrders.delete(entity)', 'clears rescope inputs', FILE),

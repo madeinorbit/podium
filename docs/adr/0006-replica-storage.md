@@ -212,6 +212,11 @@ Three version lines stay **strictly separate** (ADR 2 must also enforce the wire
 
 #### D5.3 Server remains the sole drizzle-kit consumer (today)
 
+> **Amended by [ADR 14](0014-postgres-store.md) (2026-11-17, POD-6994):** the server store runs on
+> SQLite or on Postgres from the same repositories, each definition built on the engine's own
+> drizzle dialect; the libsql remote driver is no longer a hosted path. Postgres has its own
+> migration chain from a baseline (POD-6981) beside the SQLite journal below.
+
 **Decision — amended 2026-09-07 (POD-3221 / POD-3266):** The query-layer
 confirmation in POD-3221 step 0.0 chose **drizzle with the SQLite dialect**. Server
 repositories now use typed builder queries over the existing schema, replacing the

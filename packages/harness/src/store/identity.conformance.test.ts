@@ -10,6 +10,7 @@ import { grokRecordToItems } from '../adapters/grok/transcript.js'
 import type { OpencodeMessagePartRow } from '../adapters/opencode/transcript.js'
 import { opencodeFileId } from '../adapters/opencode/transcript.js'
 import { piRecordToItems } from '../adapters/pi/transcript.js'
+import { fileByteSource } from './byte-source'
 import { decodeCursor, encodeCursor, recordUuid, stampCursors } from './cursor-codec'
 import { fileIdFor } from './file-chain'
 import { readFileItems, readTranscriptSlice } from './slice'
@@ -58,16 +59,20 @@ for (const [family, mapper, record] of families) {
           const bytes = `${JSON.stringify(record)}\n`.repeat(3)
           await writeFile(a, bytes)
           await writeFile(b, bytes)
-          const first = await readFileItems(a, fileId, mapper)
+          const first = await readFileItems(fileByteSource(a), fileId, mapper)
           expect(first).toHaveLength(3)
           expect(new Set(ids(first)).size).toBe(3)
           expect(first.map((item) => item.text)).toEqual(['same words', 'same words', 'same words'])
-          expect(coordinates(await readFileItems(a, fileId, mapper))).toEqual(coordinates(first))
-          expect(coordinates(await readFileItems(b, fileId, mapper))).toEqual(coordinates(first))
+          expect(coordinates(await readFileItems(fileByteSource(a), fileId, mapper))).toEqual(
+            coordinates(first),
+          )
+          expect(coordinates(await readFileItems(fileByteSource(b), fileId, mapper))).toEqual(
+            coordinates(first),
+          )
           for (const item of first) expect(decodeCursor(item.cursor ?? '')?.fileId).toBe(fileId)
           const anchor = first[1]?.cursor
           expect(anchor).toBeDefined()
-          const page = await readTranscriptSlice([{ path: b, fileId }], mapper, {
+          const page = await readTranscriptSlice([{ source: fileByteSource(b), fileId }], mapper, {
             anchor,
             direction: 'after',
             limit: 10,
@@ -81,15 +86,19 @@ for (const [family, mapper, record] of families) {
             uuid: null,
             sub: 0,
           })
-          const foreign = await readTranscriptSlice([{ path: b, fileId }], mapper, {
-            anchor: foreignAnchor,
-            direction: 'after',
-            limit: 10,
-          })
+          const foreign = await readTranscriptSlice(
+            [{ source: fileByteSource(b), fileId }],
+            mapper,
+            {
+              anchor: foreignAnchor,
+              direction: 'after',
+              limit: 10,
+            },
+          )
           expect(coordinates(foreign.items)).toEqual(coordinates(first))
           // Editing text in place must not remint the first positional identity.
           await writeFile(a, bytes.replaceAll('same words', 'other text'))
-          expect(ids(await readFileItems(a, fileId, mapper))).toEqual(ids(first))
+          expect(ids(await readFileItems(fileByteSource(a), fileId, mapper))).toEqual(ids(first))
         } finally {
           await rm(directory, { recursive: true, force: true })
         }
@@ -124,9 +133,11 @@ for (const [family, mapper, record] of families) {
         }))
         const bytes = `${records.map((value) => JSON.stringify(value)).join('\n')}\n`
         await writeFile(path, bytes)
-        const first = await readFileItems(path, fileId, mapper)
+        const first = await readFileItems(fileByteSource(path), fileId, mapper)
         expect(first).toHaveLength(3)
-        expect(coordinates(await readFileItems(path, fileId, mapper))).toEqual(coordinates(first))
+        expect(coordinates(await readFileItems(fileByteSource(path), fileId, mapper))).toEqual(
+          coordinates(first),
+        )
         const anchor = first[1]?.cursor
         expect(anchor).toBeDefined()
         // A new ignored record makes the old offset point at different bytes.
@@ -134,20 +145,28 @@ for (const [family, mapper, record] of families) {
           path,
           `${JSON.stringify({ ignored: 'prefix changes all byte offsets' })}\n${bytes}`,
         )
-        const rewritten = await readFileItems(path, fileId, mapper)
-        expect(coordinates(await readFileItems(path, fileId, mapper))).toEqual(
+        const rewritten = await readFileItems(fileByteSource(path), fileId, mapper)
+        expect(coordinates(await readFileItems(fileByteSource(path), fileId, mapper))).toEqual(
           coordinates(rewritten),
         )
-        const after = await readTranscriptSlice([{ path, fileId }], mapper, {
-          anchor,
-          direction: 'after',
-          limit: 10,
-        })
-        const before = await readTranscriptSlice([{ path, fileId }], mapper, {
-          anchor,
-          direction: 'before',
-          limit: 10,
-        })
+        const after = await readTranscriptSlice(
+          [{ source: fileByteSource(path), fileId }],
+          mapper,
+          {
+            anchor,
+            direction: 'after',
+            limit: 10,
+          },
+        )
+        const before = await readTranscriptSlice(
+          [{ source: fileByteSource(path), fileId }],
+          mapper,
+          {
+            anchor,
+            direction: 'before',
+            limit: 10,
+          },
+        )
         expect(coordinates(after.items)).toEqual(coordinates(rewritten.slice(2)))
         expect(coordinates(before.items)).toEqual(coordinates(rewritten.slice(0, 1)))
         expect(rewritten[1]?.cursor).not.toBe(anchor)

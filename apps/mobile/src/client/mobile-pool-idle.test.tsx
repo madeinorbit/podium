@@ -10,7 +10,8 @@ import { observer } from 'mobx-react-lite'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { createHeaderFixture } from '../../../web/test/header-fixture'
 import { attachMobilePool, useMobilePool } from './mobile-pool'
-import { useSessionContextSession, useSessionContextSessions } from './use-session-context'
+import { useSessionContextSession } from './use-session-context'
+import { useSessionContextSessions } from '../../test/roster-hooks'
 
 beforeEach(() => localStorage.clear())
 afterEach(() => {

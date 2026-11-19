@@ -1,0 +1,21 @@
+/* Expo registers these family names on the device. Use the same Geist faces here. */
+@font-face {
+  font-family: Geist_400Regular;
+  src: url("@fontsource-variable/geist/files/geist-latin-wght-normal.woff2");
+  font-weight: 400;
+}
+@font-face {
+  font-family: Geist_600SemiBold;
+  src: url("@fontsource-variable/geist/files/geist-latin-wght-normal.woff2");
+  font-weight: 600;
+}
+@font-face {
+  font-family: GeistMono_400Regular;
+  src: url("@fontsource-variable/geist-mono/files/geist-mono-latin-wght-normal.woff2");
+  font-weight: 400;
+}
+@font-face {
+  font-family: GeistMono_600SemiBold;
+  src: url("@fontsource-variable/geist-mono/files/geist-mono-latin-wght-normal.woff2");
+  font-weight: 600;
+}

@@ -1,8 +1,8 @@
+// workspace-scoped (POD-6959)
 import { MaintenanceCommandReply, type MaintenanceCommandReply as Reply } from '@podium/protocol'
-import { and, asc, eq, inArray, lt, sql } from 'drizzle-orm'
-import { maintenanceCommands, maintenanceLeases } from '../migrations/schema'
-import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
-import { param, prepared } from './executor/sync-drizzle'
+import { asc, eq, lt, sql } from 'drizzle-orm'
+import type { TransactionRunner, WorkspaceDb, WorkspaceQueries } from './executor/sync-drizzle'
+import { inWorkspace, param, prepared, preparedGlobal, WORKSPACE } from './executor/sync-drizzle'
 
 export interface MaintenanceLeaseRow {
   name: string
@@ -16,14 +16,22 @@ export interface MaintenanceLeaseRow {
 
 /** Server-owned durable fence and maintenance idempotency ledger [spec:SP-c29e]. */
 // Every query this repository runs, prepared once per store [POD-6147].
+//
+// TWO KINDS OF ROW (POD-6959 design 2.1). The lease is the installation's (an
+// install table, so its definitions are global); the idempotency ledger is the
+// workspace's, so a job's receipts and their prune are this workspace's only.
 
-const leaseByName = prepared((db: StoreDrizzle) =>
-  db.select().from(maintenanceLeases).where(eq(maintenanceLeases.name, param(maintenanceLeases.name, 'name'))).prepare(),
+const leaseByName = preparedGlobal((db, t) =>
+  db
+    .select()
+    .from(t.maintenanceLeases)
+    .where(eq(t.maintenanceLeases.name, param(t.maintenanceLeases.name, 'name')))
+    .prepare(),
 )
 
-const upsertLease = prepared((db: StoreDrizzle) =>
+const upsertLease = preparedGlobal((db, t) =>
   db
-    .insert(maintenanceLeases)
+    .insert(t.maintenanceLeases)
     .values({
       name: sql.placeholder('name'),
       generationId: sql.placeholder('generationId'),
@@ -34,7 +42,7 @@ const upsertLease = prepared((db: StoreDrizzle) =>
       updatedAt: sql.placeholder('updatedAt'),
     })
     .onConflictDoUpdate({
-      target: maintenanceLeases.name,
+      target: t.maintenanceLeases.name,
       set: {
         generationId: sql.placeholder('generationId'),
         fencingToken: sql.placeholder('fencingToken'),
@@ -47,21 +55,25 @@ const upsertLease = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
-const commandResult = prepared((db: StoreDrizzle) =>
+const commandResult = prepared((db, t) =>
   db
-    .select({ resultJson: maintenanceCommands.resultJson })
-    .from(maintenanceCommands)
-    .where(and(
-      eq(maintenanceCommands.jobKind, param(maintenanceCommands.jobKind, 'jobKind')),
-      eq(maintenanceCommands.runKey, param(maintenanceCommands.runKey, 'runKey')),
-    ))
+    .select({ resultJson: t.maintenanceCommands.resultJson })
+    .from(t.maintenanceCommands)
+    .where(
+      inWorkspace(
+        t.maintenanceCommands,
+        eq(t.maintenanceCommands.jobKind, param(t.maintenanceCommands.jobKind, 'jobKind')),
+        eq(t.maintenanceCommands.runKey, param(t.maintenanceCommands.runKey, 'runKey')),
+      ),
+    )
     .prepare(),
 )
 
-const insertCommand = prepared((db: StoreDrizzle) =>
+const insertCommand = prepared((db, t) =>
   db
-    .insert(maintenanceCommands)
+    .insert(t.maintenanceCommands)
     .values({
+      workspaceId: WORKSPACE,
       jobKind: sql.placeholder('jobKind'),
       runKey: sql.placeholder('runKey'),
       fencingToken: sql.placeholder('fencingToken'),
@@ -71,26 +83,45 @@ const insertCommand = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
-const pruneOldestCommands = prepared((db: StoreDrizzle) => {
+const pruneOldestCommands = prepared((db, t) => {
   const oldest = db
-    .select({ rowid: sql<number>`rowid` })
-    .from(maintenanceCommands)
-    .where(lt(maintenanceCommands.appliedAt, param(maintenanceCommands.appliedAt, 'cutoffAppliedAt')))
+    .select({ jobKind: t.maintenanceCommands.jobKind, runKey: t.maintenanceCommands.runKey })
+    .from(t.maintenanceCommands)
+    .where(
+      inWorkspace(
+        t.maintenanceCommands,
+        lt(
+          t.maintenanceCommands.appliedAt,
+          param(t.maintenanceCommands.appliedAt, 'cutoffAppliedAt'),
+        ),
+      ),
+    )
     .orderBy(
-      asc(maintenanceCommands.appliedAt),
-      asc(maintenanceCommands.jobKind),
-      asc(maintenanceCommands.runKey),
+      asc(t.maintenanceCommands.appliedAt),
+      asc(t.maintenanceCommands.jobKind),
+      asc(t.maintenanceCommands.runKey),
     )
     .limit(sql.placeholder('batchSize'))
-  return db.delete(maintenanceCommands).where(inArray(sql`rowid`, oldest)).prepare()
+  return (
+    db
+      .delete(t.maintenanceCommands)
+      // The victims by their key (a row value), not by `rowid`, which Postgres has not.
+      .where(
+        inWorkspace(
+          t.maintenanceCommands,
+          sql`(${t.maintenanceCommands.jobKind}, ${t.maintenanceCommands.runKey}) IN ${oldest}`,
+        ),
+      )
+      .prepare()
+  )
 })
 
 export class MaintenanceRepository {
-  private readonly rootDb: StoreDrizzle
+  private readonly scope: WorkspaceDb
   protected readonly createOrJoinTransaction: TransactionRunner
 
-  constructor(queries: StoreQueries) {
-    this.rootDb = queries.rootDb
+  constructor(queries: WorkspaceQueries) {
+    this.scope = queries.db
     this.createOrJoinTransaction = queries.createOrJoinTransaction
   }
 
@@ -102,8 +133,8 @@ export class MaintenanceRepository {
    * access, and a field frozen at construction never could. B1 changes this one
    * line; no call site moves.
    */
-  protected get db() {
-    return this.rootDb
+  protected get db(): WorkspaceDb {
+    return this.scope
   }
 
   async getLease(name: string): Promise<MaintenanceLeaseRow | undefined> {
@@ -148,7 +179,7 @@ export class MaintenanceRepository {
    * Bounded head prune of the maintenance idempotency ledger [POD-845 residual].
    * Deletes oldest rows with applied_at strictly before cutoff, in batches.
    *
-   * STILL ONE STATEMENT. The bound and the order live in a SUBQUERY over `rowid`,
+   * STILL ONE STATEMENT. The bound and the order live in a SUBQUERY over the key,
    * exactly as the raw form did: selecting the victims first and deleting them
    * second would be two statements with a window between them, and after the flip
    * that window contains awaits.

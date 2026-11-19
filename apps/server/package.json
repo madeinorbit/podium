@@ -10,6 +10,7 @@
   "dependencies": {
     "@hono/node-server": "^1.13.7",
     "@hono/trpc-server": "^0.3.4",
+    "@podium/blob-store": "workspace:*",
     "@podium/commands": "workspace:*",
     "@podium/logger": "workspace:*",
     "@podium/harness": "workspace:*",
@@ -26,6 +27,7 @@
     "dataloader": "2.2.3",
     "drizzle-orm": "1.0.0-rc.4",
     "hono": "^4.6.14",
+    "postgres": "3.4.7",
     "ws": "^8.18.0",
     "zod": "^3.24.0",
     "@podium/terminal-client": "workspace:*"

@@ -1,54 +1,13 @@
 import { asIssueId, asSessionId, asThreadId } from '@podium/model'
-import type { SqlDatabase, SqlParam } from '@podium/runtime/sqlite'
 import { describe, expect, it } from 'vitest'
 import type { MessageRow } from '../../../store'
-import { createBunStoreExecutor } from '../../../store/executor'
-import { MessagesRepository } from '../../../store/messages'
 import { openTestStore } from '../../../test-support/open-test-store'
-import { countContextAwarePendingMail } from './mail-pending'
 import { seedMessage } from '../../../test-support/seed-message'
+import { countStatements } from '../../../test-support/statement-count'
+import { countContextAwarePendingMail } from './mail-pending'
 
-/**
- * Stage A's synchronous drizzle seam, built the way `SessionStore` asserts it
- * [POD-3221 spec rule 27b]. Local to this file on purpose: hoisting it into
- * `test-support` would put several parallel conversion waves in one shared file.
- */
-const stageQueries = (database: Parameters<typeof createBunStoreExecutor>[0]['database']) => {
-  const stage = createBunStoreExecutor({ database }).queries
-  if (!stage) throw new Error('the synchronous query capability is absent on this handle')
-  return stage
-}
-
-function counting(db: SqlDatabase, counts: Map<string, number>): SqlDatabase {
-  const bump = (sql: string): void => {
-    counts.set(sql, (counts.get(sql) ?? 0) + 1)
-  }
-  return {
-    prepare(sql) {
-      const statement = db.prepare(sql)
-      return {
-        run: (...params: SqlParam[]) => {
-          bump(sql)
-          return statement.run(...params)
-        },
-        get: (...params: SqlParam[]) => {
-          bump(sql)
-          return statement.get(...params)
-        },
-        all: (...params: SqlParam[]) => {
-          bump(sql)
-          return statement.all(...params)
-        },
-        values: (...params: SqlParam[]) => {
-          bump(sql)
-          return statement.values(...params)
-        },
-      }
-    },
-    exec: (sql) => db.exec(sql),
-    close: () => db.close(),
-  }
-}
+const T0 = '2026-01-01T00:00:00.000Z'
+const T1 = '2026-01-01T00:00:01.000Z'
 
 function message(input: {
   id: string
@@ -70,7 +29,7 @@ function message(input: {
     lifecycle: 'wait',
     body: input.id,
     expiresAt: null,
-    createdAt: 't0',
+    createdAt: T0,
     deliveryStatus: input.deliveryStatus ?? 'stored',
     deliveredAt: null,
     deliveredTo: null,
@@ -92,23 +51,26 @@ describe('countContextAwarePendingMail', () => {
   it('uses one grouped messages read while preserving reader visibility', async () => {
     const store = await openTestStore(':memory:')
     try {
-      const db = (store as unknown as { db: SqlDatabase }).db
-      const counts = new Map<string, number>()
-      const messages = new MessagesRepository(stageQueries(counting(db, counts)))
+      const { messages } = store
 
-      await seedMessage(store.messages, 
+      await seedMessage(
+        store.messages,
         message({ id: 'msg-peer-1', fromIssue: 'iss_peer', fromSession: 'peer-session' }),
       )
-      await seedMessage(store.messages, 
+      await seedMessage(
+        store.messages,
         message({ id: 'msg-peer-2', fromIssue: 'iss_peer', fromSession: 'peer-session' }),
       )
-      await seedMessage(store.messages, 
+      await seedMessage(
+        store.messages,
         message({ id: 'msg-session', fromIssue: null, fromSession: 'peer-session-2' }),
       )
-      await seedMessage(store.messages, 
+      await seedMessage(
+        store.messages,
         message({ id: 'msg-own', fromIssue: 'iss_reader', fromSession: 'reader-session' }),
       )
-      await seedMessage(store.messages, 
+      await seedMessage(
+        store.messages,
         message({
           id: 'msg-seen',
           fromIssue: 'iss_peer',
@@ -116,28 +78,33 @@ describe('countContextAwarePendingMail', () => {
           deliveryStatus: 'confirmed',
         }),
       )
-      await store.messages.recordRead('msg-seen', asSessionId('reader-session'), 't1')
-      counts.clear()
+      await store.messages.recordRead('msg-seen', asSessionId('reader-session'), T1)
 
-      const baselineSenders = await messages.listPendingSendersForSession(
-        asIssueId('iss_target'),
-        asSessionId('reader-session'),
-      )
-      const baselineCount = await messages.countPendingForSession(
-        asIssueId('iss_target'),
-        asSessionId('reader-session'),
-      )
-      expect(baselineCount).toBe(3)
-      expect(baselineSenders).toHaveLength(2)
-      expect([...counts].reduce((total, [, count]) => total + count, 0)).toBe(2)
-      counts.clear()
+      const baseline = await countStatements(store, async () => ({
+        senders: await messages.listPendingSendersForSession(
+          asIssueId('iss_target'),
+          asSessionId('reader-session'),
+        ),
+        count: await messages.countPendingForSession(
+          asIssueId('iss_target'),
+          asSessionId('reader-session'),
+        ),
+      }))
+      expect(baseline.result.count).toBe(3)
+      expect(baseline.result.senders).toHaveLength(2)
+      expect(baseline.statements).toBe(2)
 
-      const result = await countContextAwarePendingMail(
-        { messages, issues: store.issues },
-        asIssueId('iss_target'),
-        (fromIssue) => `issue:${fromIssue}`,
-        asSessionId('reader-session'),
+      const { result, byQuery } = await countStatements(
+        store,
+        async () =>
+          await countContextAwarePendingMail(
+            { messages, issues: store.issues },
+            asIssueId('iss_target'),
+            (fromIssue) => `issue:${fromIssue}`,
+            asSessionId('reader-session'),
+          ),
       )
+      const counts = [...byQuery]
 
       expect(result).toEqual({
         unread: 3,
@@ -153,7 +120,7 @@ describe('countContextAwarePendingMail', () => {
       const norm = (sql: string): string =>
         sql.replace(/"/g, '').replace(/\s+/g, ' ').trim().toLowerCase()
 
-      const groupedReads = [...counts].filter(([sql]) =>
+      const groupedReads = counts.filter(([sql]) =>
         norm(sql).includes('from_kind, from_issue, from_session, count(*)'),
       )
       // Also the canary for this whole assertion: a probe that observed nothing
@@ -162,7 +129,7 @@ describe('countContextAwarePendingMail', () => {
       expect(groupedReads).toHaveLength(1)
       expect(groupedReads[0]?.[1]).toBe(1)
 
-      const oldSeparateReads = [...counts].filter(([sql]) => {
+      const oldSeparateReads = counts.filter(([sql]) => {
         const q = norm(sql)
         // `startsWith` on the count arm, because the GROUPED read also contains
         // `count(*) from messages` and an `includes` would match it here.
@@ -187,7 +154,7 @@ describe('countContextAwarePendingMail', () => {
           fromSession: 'peer-session',
           deliveryStatus: 'confirmed',
         }),
-        deliveredAt: 't1',
+        deliveredAt: T1,
         deliveredTo: asSessionId('reader-session'),
       })
 

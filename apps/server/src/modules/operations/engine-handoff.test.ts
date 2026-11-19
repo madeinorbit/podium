@@ -1,5 +1,5 @@
 import type { Operation } from '@podium/protocol'
-import { syncQueriesOver } from '../../store/executor/sync-drizzle'
+import { selfHostedQueriesOver } from '../../test-support/self-hosted-queries'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it, vi } from 'vitest'
 import { runDrizzleMigrations } from '../../migrations'
@@ -16,7 +16,7 @@ import { OperationStore } from './store'
 function harness() {
   const db = openDatabase(':memory:')
   runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
-  const store = new OperationStore(syncQueriesOver(db))
+  const store = new OperationStore(selfHostedQueriesOver(db))
   const registry = new OperationKindRegistry()
   const pending = new Map<number, () => void>()
   let timerId = 0

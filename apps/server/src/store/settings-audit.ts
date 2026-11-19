@@ -1,3 +1,4 @@
+// workspace-scoped (POD-6959)
 /**
  * THE SETTINGS AUDIT TRAIL (POD-421, 3.7d) — the append-only record of who
  * changed what on the settings family, and what they were refused.
@@ -46,9 +47,9 @@
 import type { RedactionReport } from '@podium/commands'
 import { and, asc, desc, eq, gte, inArray, lt, or, sql } from 'drizzle-orm'
 import { attributionOf, type CommandPrincipal } from '../command-principal'
-import { settingsAuditEvents } from '../migrations/schema'
-import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
-import { param, prepared, preparedFamily } from './executor/sync-drizzle'
+import type { settingsAuditEvents } from '../migrations/schema'
+import type { TransactionRunner, WorkspaceDb, WorkspaceQueries } from './executor/sync-drizzle'
+import { inWorkspace, param, prepared, preparedFamily, WORKSPACE } from './executor/sync-drizzle'
 import { prefixUpperBound } from './prefix-range'
 
 /** Whether the command was carried out or refused. A refusal is an audit fact:
@@ -122,10 +123,11 @@ export function settingsAuditRow(input: {
 
 // Every query this repository runs, prepared once per store [POD-6147].
 
-const appendAudit = prepared((db: StoreDrizzle) =>
+const appendAudit = prepared((db, t) =>
   db
-    .insert(settingsAuditEvents)
+    .insert(t.settingsAuditEvents)
     .values({
+      workspaceId: WORKSPACE,
       command: sql.placeholder('command'),
       outcome: sql.placeholder('outcome'),
       actorKind: sql.placeholder('actorKind'),
@@ -138,11 +140,12 @@ const appendAudit = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
-const auditInOrder = prepared((db: StoreDrizzle) =>
+const auditInOrder = prepared((db, t) =>
   db
     .select()
-    .from(settingsAuditEvents)
-    .orderBy(asc(settingsAuditEvents.id))
+    .from(t.settingsAuditEvents)
+    .where(inWorkspace(t.settingsAuditEvents))
+    .orderBy(asc(t.settingsAuditEvents.id))
     .limit(sql.placeholder('limit'))
     .prepare(),
 )
@@ -173,44 +176,45 @@ export interface SecurityEventFilters {
 
 type SecurityEventShape = `${SecurityEventKind | 'all'}|${0 | 1}|${0 | 1}`
 
-const securityEventsNewestFirst = preparedFamily((db: StoreDrizzle, shape: SecurityEventShape) => {
+const securityEventsNewestFirst = preparedFamily((db, t, shape: SecurityEventShape) => {
   const [kind, actor, refused] = shape.split('|')
   const prefix = (value: string) =>
     and(
-      gte(settingsAuditEvents.command, value),
-      lt(settingsAuditEvents.command, prefixUpperBound(value)),
+      gte(t.settingsAuditEvents.command, value),
+      lt(t.settingsAuditEvents.command, prefixUpperBound(value)),
     )
   const commands =
     kind === 'people'
       ? prefix('members.')
       : kind === 'machines'
-        ? or(prefix('machines.'), eq(settingsAuditEvents.command, 'takeover'))
+        ? or(prefix('machines.'), eq(t.settingsAuditEvents.command, 'takeover'))
         : kind === 'credentials'
-          ? inArray(settingsAuditEvents.command, [
+          ? inArray(t.settingsAuditEvents.command, [
               'settings.setSecret',
               'settings.clearSecret',
               'accounts.unsend',
             ])
           : kind === 'comments'
-            ? inArray(settingsAuditEvents.command, ['issues.editComment', 'issues.deleteComment'])
+            ? inArray(t.settingsAuditEvents.command, ['issues.editComment', 'issues.deleteComment'])
             : or(
                 ...SECURITY_EVENT_PREFIXES.map(prefix),
-                inArray(settingsAuditEvents.command, [...SECURITY_EVENT_COMMANDS]),
+                inArray(t.settingsAuditEvents.command, [...SECURITY_EVENT_COMMANDS]),
               )
   return db
     .select()
-    .from(settingsAuditEvents)
+    .from(t.settingsAuditEvents)
     .where(
-      and(
-        lt(settingsAuditEvents.id, param(settingsAuditEvents.id, 'beforeId')),
+      inWorkspace(
+        t.settingsAuditEvents,
+        lt(t.settingsAuditEvents.id, param(t.settingsAuditEvents.id, 'beforeId')),
         commands,
         actor === '1'
-          ? eq(settingsAuditEvents.onBehalfOf, param(settingsAuditEvents.onBehalfOf, 'actor'))
+          ? eq(t.settingsAuditEvents.onBehalfOf, param(t.settingsAuditEvents.onBehalfOf, 'actor'))
           : undefined,
-        refused === '1' ? eq(settingsAuditEvents.outcome, 'refused') : undefined,
+        refused === '1' ? eq(t.settingsAuditEvents.outcome, 'refused') : undefined,
       ),
     )
-    .orderBy(desc(settingsAuditEvents.id))
+    .orderBy(desc(t.settingsAuditEvents.id))
     .limit(sql.placeholder('limit'))
     .prepare()
 })
@@ -221,18 +225,18 @@ export interface SecurityEventRow extends SettingsAuditRow {
 }
 
 export class SettingsAuditRepository {
-  private readonly rootDb: StoreDrizzle
+  private readonly scope: WorkspaceDb
   protected readonly createOrJoinTransaction: TransactionRunner
 
-  constructor(queries: StoreQueries) {
-    this.rootDb = queries.rootDb
+  constructor(queries: WorkspaceQueries) {
+    this.scope = queries.db
     this.createOrJoinTransaction = queries.createOrJoinTransaction
   }
 
   /** The query builder, resolved on every access so B1 changes this line and nothing else
    *  [POD-3221 spec rule 34a]. */
-  protected get db() {
-    return this.rootDb
+  protected get db(): WorkspaceDb {
+    return this.scope
   }
 
   /**

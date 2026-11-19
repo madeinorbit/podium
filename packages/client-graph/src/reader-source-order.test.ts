@@ -2,8 +2,8 @@
 import { autorun } from 'mobx'
 import { expect, it, vi, type MockInstance } from 'vitest'
 import { MobxPool } from './pool'
-import { createColdIndex } from './shared/cold-index'
-import { SCHEMA, type ModelSchema } from './shared/schema'
+import { createDeviceIndex } from './shared/device-index'
+import { SCHEMA } from './shared/schema'
 import * as sessionQuestions from './shared/session-questions'
 import type { RowRecord, RowSourceEvent } from './shared/source'
 
@@ -25,23 +25,22 @@ const seed = () => [
 const difference = (after: Readonly<Record<string, number>>, before: Readonly<Record<string, number>>) =>
   Object.fromEntries(Object.entries(after).map(([key, count]) => [key, count - before[key]!]))
 
-it.each([false, true])('counts order-only incidence and family work before equality barriers (external: %s)', external => {
+it('counts order-only incidence and family work before equality barriers', () => {
   let coldQuestions: sessionQuestions.SessionQuestions | undefined
   const create = sessionQuestions.createSessionQuestions
   const spy = vi.spyOn(sessionQuestions, 'createSessionQuestions').mockImplementation((...args) => {
     coldQuestions = create(...args)
     return coldQuestions
   })
-  const source = external ? createColdIndex(SCHEMA) : undefined
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) }, undefined, {
-    ...(source ? { cold: () => source } : {}), load: () => undefined, schedule: () => () => {},
+    load: () => undefined, schedule: () => () => {},
   })
-  const apply = (event: RowSourceEvent) => { source?.apply(event); pool.apply(event) }
+  const apply = (event: RowSourceEvent) => { pool.apply(event) }
   const incidence = { publications: 0, heartbeatPublications: 0, orderOnlyPublications: 0,
     orderOnlyAddresses: 0, visibilityFlips: 0 }
   try {
     apply({ type: 'replace', rows: seed() })
-    const index = source ?? pool.coldIndex()
+    const index = pool.deviceIndex()
     expect(coldQuestions).toBeDefined()
     for (let turn = 0; turn < 4; turn++) {
       for (let heartbeat = 0; heartbeat < 32; heartbeat++) {
@@ -55,10 +54,14 @@ it.each([false, true])('counts order-only incidence and family work before equal
       }
       // Moving a loser between two collapsed groups preserves every visibility
       // verdict but changes z's canonical order between a and z.
+      // The device index files what it holds when asked (POD-7181): ask it
+      // before each count, so each counts one publication's filing.
+      index.sessionQuestionFact('z')
       const beforeCold = { ...coldQuestions!.updates }, beforeResident = pool.queries.residentUpdates
       const event: RowSourceEvent = { type: 'update', rows: [session('a', turn % 2 ? 'primary' : 'other', { status: 'exited' })] }
       apply(event)
       const delta = index.changes(event)
+      index.sessionQuestionFact('z')
       incidence.publications++
       incidence.visibilityFlips += delta.flips.length
       expect(delta.flips).toEqual([])
@@ -66,13 +69,13 @@ it.each([false, true])('counts order-only incidence and family work before equal
       incidence.orderOnlyPublications++; incidence.orderOnlyAddresses += delta.orders.length
       const cold = difference(coldQuestions!.updates, beforeCold)
       const resident = difference(pool.queries.residentUpdates, beforeResident)
-      console.info('[source order family work]', JSON.stringify({ external, turn, cold, resident }))
+      console.info('[source order family work]', JSON.stringify({ turn, cold, resident }))
       const expected = { close: 0, setupCount: 0, setupAgent: 0, reference: 1,
         triage: 0, recent: 0, machine: 1, activity: 0 }
       expect(cold).toEqual(expected)
       expect(resident).toEqual({ sessionFacets: 0, ...expected })
     }
-    console.info('[source order incidence: deterministic replay]', JSON.stringify({ external, ...incidence }))
+    console.info('[source order incidence: deterministic replay]', JSON.stringify(incidence))
     expect(incidence).toEqual({ publications: 132, heartbeatPublications: 128,
       orderOnlyPublications: 4, orderOnlyAddresses: 4, visibilityFlips: 0 })
   } finally { pool.dispose(); spy.mockRestore() }
@@ -104,15 +107,10 @@ function answers(q: sessionQuestions.SessionQuestions, now: number) {
   }
 }
 
-it.each(['own', 'resident', 'cold'] as const)('matches complete rebuilds and observed answers through source transitions (%s)', mode => {
-  const schema: ModelSchema = mode === 'cold' ? { ...SCHEMA, session: { ...SCHEMA.session, cold: {
-    kind: 'unlessShown', when: 'fixture holds all sessions cold', dependsOn: [], predicate: () => true,
-    shownUntil: () => -Infinity, finishOf: () => null, keptBy: [], why: 'Exercise source-only questions.',
-  } } } : SCHEMA
-  const source = mode === 'own' ? undefined : createColdIndex(schema)
+it.each(['own', 'resident'] as const)('matches complete rebuilds and observed answers through source transitions (%s)', mode => {
   const now = Date.parse(stamp)
-  const pool = new MobxPool({ selectedIssueId: null, coarseNow: now }, schema, source ? {
-    cold: () => source, load: () => undefined, schedule: () => () => {},
+  const pool = new MobxPool({ selectedIssueId: null, coarseNow: now }, SCHEMA, mode === 'resident' ? {
+    load: () => undefined, schedule: () => () => {},
   } : undefined)
   const rows = new Map<string, RowRecord>(), positions = new Map<string, number>()
   let sequence = 0, observed: unknown, stop: (() => void) | undefined
@@ -133,9 +131,9 @@ it.each(['own', 'resident', 'cold'] as const)('matches complete rebuilds and obs
       if (!record.value) positions.delete(record.id)
       else if (!positions.has(record.id)) positions.set(record.id, ++sequence)
     }
-    source?.apply(event); pool.apply(event)
-    const index = source ?? pool.coldIndex()
-    const rebuilt = createColdIndex(schema)
+    pool.apply(event)
+    const index = pool.deviceIndex()
+    const rebuilt = createDeviceIndex(SCHEMA)
     rebuilt.apply({ type: 'replace', rows: [...rows.values()] })
     const full = sessionQuestions.createSessionQuestions(id => rebuilt.sessionCollapsed(id),
       id => rebuilt.sessionOrderKey(id), undefined, id => positions.get(id) ?? 0)
@@ -159,7 +157,6 @@ it.each(['own', 'resident', 'cold'] as const)('matches complete rebuilds and obs
     }))
     if (stop) expect(observed).toEqual(expected)
     else stop = autorun(() => { observed = publicAnswers() })
-    if (mode === 'cold') expect(pool.tables.session.size).toBe(0)
     return index.changes(event)
   }
   const update = (...changes: RowRecord[]) => apply({ type: 'update', rows: changes })
@@ -267,12 +264,18 @@ it('files a simultaneous visibility and order change once in each index', () => 
     for (const { visibility, order } of tracked) { visibility.mockClear(); order.mockClear() }
     const event: RowSourceEvent = { type: 'update', rows: [session('a', 'primary', { lastActiveAt: '2026-10-02' })] }
     pool.apply(event)
-    const delta = pool.coldIndex().changes(event)
+    const delta = pool.deviceIndex().changes(event)
     expect(delta.flips).toContainEqual(['session', 'z'])
     expect(delta.orders).toContainEqual(['session', 'z'])
     const calls = (kind: 'visibility' | 'order') => tracked.flatMap(spies => spies[kind].mock.calls)
       .filter(([id]) => id === 'z').length
-    expect(calls('visibility')).toBe(2) // cold source and effective resident fork
+    // POD-7181: the publication files the effective resident fork only; the
+    // device index files the change once, when something asks it.
+    expect(calls('visibility')).toBe(1)
+    pool.deviceIndex().sessionQuestionFact('z')
+    expect(calls('visibility')).toBe(2) // the device index and the effective resident fork
     expect(calls('order')).toBe(0)
+    pool.deviceIndex().sessionQuestionFact('z')
+    expect(calls('visibility')).toBe(2)
   } finally { pool.dispose(); restores.forEach(restore => restore()); spy.mockRestore() }
 })

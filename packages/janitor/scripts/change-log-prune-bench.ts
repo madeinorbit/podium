@@ -50,15 +50,15 @@ async function bench(rows: number) {
       PRAGMA journal_mode = DELETE;
       PRAGMA cache_size = -16384;
       CREATE TABLE changes (
-        tenant_id TEXT NOT NULL, seq INTEGER NOT NULL, entity TEXT NOT NULL,
+        workspace_id TEXT NOT NULL, seq INTEGER NOT NULL, entity TEXT NOT NULL,
         entity_id TEXT NOT NULL, op TEXT NOT NULL, payload TEXT,
         event_time INTEGER NOT NULL, origin_id TEXT, causation_id TEXT, mutation_id TEXT,
-        PRIMARY KEY (tenant_id, seq)
+        PRIMARY KEY (workspace_id, seq)
       );
-      CREATE INDEX changes_entity ON changes (tenant_id, entity, entity_id, seq);
-      CREATE INDEX changes_event_time ON changes (tenant_id, event_time);
+      CREATE INDEX changes_entity ON changes (workspace_id, entity, entity_id, seq);
+      CREATE INDEX changes_event_time ON changes (workspace_id, event_time);
       CREATE TABLE sync_feed (
-        tenant_id TEXT PRIMARY KEY, feed_id TEXT NOT NULL, epoch TEXT NOT NULL,
+        workspace_id TEXT PRIMARY KEY, feed_id TEXT NOT NULL, epoch TEXT NOT NULL,
         minted_at INTEGER NOT NULL, head_seq INTEGER NOT NULL, floor_seq INTEGER NOT NULL
       );
     `)

@@ -60,8 +60,19 @@ async function fixture(size: number): Promise<Fixture> {
     await o.store.effects.claim(fixtureWriteScope(), id, clock)
     await o.store.effects.settle(fixtureWriteScope(), id, 'succeeded', {}, clock)
   }
-  await effects.runner.idle()
+  // The setup's own deliveries run before the count, not inside it (POD-7068):
+  // its 3 x size commits queue as many delivery passes, and at 200 records the
+  // last of them still ran inside the counted window, which read as a query
+  // that grows with the table.
+  await settled({ o, runner: effects.runner })
   return { o, runner: effects.runner }
+}
+
+/** Every delivery pass queued so far has run, and so has the work it started. */
+async function settled(f: Fixture): Promise<void> {
+  await f.runner.idle()
+  await f.o.reg.changeLedger.authority.settled()
+  await f.runner.idle()
 }
 
 const createAndRun: StatementPin<Fixture> = {
@@ -80,7 +91,9 @@ const createAndRun: StatementPin<Fixture> = {
         ),
       ),
     )
-    await f.runner.idle()
+    // Its deliveries are counted whole: they trail the commits after the
+    // caller resumes, so without this the window ended part way through them.
+    await settled(f)
     return id
   },
   check: async (id, f) => {
@@ -94,17 +107,22 @@ const idleSweep: StatementPin<Fixture> = {
   target: (f) => f.o.store,
   run: async (f) => {
     await f.runner.sweep()
-    await f.runner.idle()
+    await settled(f)
   },
 }
 
 describe('statement counts of effect records', () => {
   it('a create and its run do not grow with the records the table holds', async () => {
-    await expectConstantStatements(createAndRun, 22)
+    // POD-7068: the window now holds the operation's own delivery passes whole and
+    // none of the setup's. Measured at 3d7eb8ad6c, 22 held part of the deliveries
+    // by timing (a grants, two effects-by-id and two issues reads) and the
+    // change_latest statements; since then change capture (sync_capture) replaced
+    // change_latest, and the count is 25 at 5 and 200 records.
+    await expectConstantStatements(createAndRun, 25)
   })
 
   it('is armed: a read per stored record on the run path fails it', async () => {
-    await expectArmed(createAndRun, 22, (f, size) => {
+    await expectArmed(createAndRun, 25, (f, size) => {
       const repo = f.o.store.effects
       const original = repo.get.bind(repo)
       repo.get = async (id) => {
@@ -118,8 +136,11 @@ describe('statement counts of effect records', () => {
   })
 
   it('a sweep with nothing due does not grow with the records the table holds', async () => {
-    // Twelve on the base this was written against (the pin said ten); the
-    // thirteenth is the purge of the server's own ended scans (POD-6970).
-    await expectConstantStatements(idleSweep, 13)
+    // POD-7068: 10 at 3d7eb8ad6c held five delivery reads of the setup's writes
+    // by timing (grants, two effects-by-id, two issues). With the setup settled
+    // the sweep is its own statements only: its delete, two updates, two effects
+    // reads and the change-capture drain of its three commits (8). The ninth is
+    // the purge of the server's own ended scans (POD-6970).
+    await expectConstantStatements(idleSweep, 9)
   })
 })

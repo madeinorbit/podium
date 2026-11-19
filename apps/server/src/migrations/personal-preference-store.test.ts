@@ -41,6 +41,8 @@ import { firstAdminMemberId, primeFirstAdminMember, settingsPathsInTier } from '
 import { earliestAdminMember } from '@podium/runtime/earliest-admin'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it } from 'vitest'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
+import { workspaceQueries } from '../store/executor/sync-drizzle'
 import { UserPreferencesRepository } from '../store/user-preferences'
 import { stageASeam } from '../test-support/stage-a-seam'
 import { DRIZZLE_MIGRATIONS } from './drizzle-manifest.generated'
@@ -235,6 +237,19 @@ const migrated = (blob?: unknown): Db => {
   return db
 }
 
+/**
+ * The live repository over a migrated fixture. It reads the current schema (its queries name
+ * the workspace column, POD-7015), so the rest of the chain runs first. No later migration
+ * changes a `user_preferences` value; one re-keys the solo user to a minted member, so the
+ * first admin is primed again from the migrated members.
+ */
+const livePreferences = (db: Db): UserPreferencesRepository => {
+  runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+  const admin = earliestAdminMember(db)
+  if (admin) primeFirstAdminMember(admin)
+  return new UserPreferencesRepository(workspaceQueries(stageASeam(db), SELF_HOSTED_WORKSPACE_ID))
+}
+
 describe('the migration moves the keys the model classifies — no second list', () => {
   it('the literals the SQL spells out ARE POD-418’s shipped classification', () => {
     // The frozen-history literals plus the explicitly post-migration keys are
@@ -289,7 +304,7 @@ describe('the COPY happens, and lands under the right key with the right type', 
   it('keeps JSON TYPES — booleans are booleans and the array is an array', async () => {
     // The `->` vs `->>` property, asserted as types rather than as values so it
     // cannot pass on a stringified `"true"`.
-    const prefs = new UserPreferencesRepository(stageASeam(migrated()))
+    const prefs = livePreferences(migrated())
     expect(await prefs.get(firstAdminMemberId(), 'autoContinue.enabled')).toBe(true)
     expect(await prefs.get(firstAdminMemberId(), 'notifications.web')).toBe(true)
     expect(await prefs.get(firstAdminMemberId(), 'autoContinue.promptDismissed')).toBe(false)
@@ -338,7 +353,7 @@ describe('the COPY happens, and lands under the right key with the right type', 
     // Unlike POD-419's secrets, where `''` meant "not configured": an empty ntfy
     // topic means "mobile push off", which is a choice this person made.
     const db = migrated(nestedBlob({ notifications: { ntfyTopic: '', web: true } }))
-    const prefs = new UserPreferencesRepository(stageASeam(db))
+    const prefs = livePreferences(db)
     expect(await prefs.get(firstAdminMemberId(), 'notifications.ntfyTopic')).toBe('')
   })
 
@@ -382,8 +397,9 @@ describe('the CLEAR happens, and takes exactly the personal leaves', () => {
     // Deleting the INSERT..SELECT leaves the DDL, the CLEAR and three green
     // structural checks — and fails this.
     const db = migrated()
-    const prefs = new UserPreferencesRepository(stageASeam(db))
+    // The blob as this migration left it, read before the later migrations move it.
     const blob = rawBlob(db)
+    const prefs = livePreferences(db)
     for (const key of LIFTED_KEYS) {
       const segments = key.split('.')
       let cursor: unknown = blob

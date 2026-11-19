@@ -23,7 +23,7 @@ import { testAccount } from '../driver/testing/harness-context.js'
 import { declaredValue, type TranscriptSourceInput } from '../manifest.js'
 import { manifestFor } from '../registry.js'
 import { decodeCursor } from './cursor-codec.js'
-import { type ChainEntry, fileIdFor } from './file-chain.js'
+import { fileIdFor } from './file-chain.js'
 import type { SliceResult } from './slice.js'
 import { transcriptSourceFromGrammar } from './store.js'
 
@@ -43,7 +43,12 @@ const withAccount = (agentKind: string, input: ReadInput): TranscriptSourceInput
   return { ...rest, account: testAccount(agentKind, homeDir ?? '/nonexistent-podium-home', env) }
 }
 
-async function resolveChain(agentKind: string, read: ReadInput): Promise<ChainEntry[]> {
+/** The grammar's resolved chain as paths: what `chainPaths` locates, before the
+ *  Store wraps each path in a file byte source. */
+async function resolveChain(
+  agentKind: string,
+  read: ReadInput,
+): Promise<Array<{ path: string; fileId: string }>> {
   const transcript = manifestFor(agentKind)?.transcript
   const grammar = transcript ? declaredValue(transcript) : undefined
   if (!grammar) return []

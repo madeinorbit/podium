@@ -25,6 +25,7 @@ import { IssueCloseSheet } from '../components/IssueCloseSheet'
 import { MoreVertical, SquareTerminal } from '../components/icons'
 import { BootstrapCrossfade, DetailSkeleton } from '../components/LaunchPlaceholders'
 import { MissionBar } from '../components/MissionBar'
+import { MissionNotFound } from '../components/MissionNotFound'
 import { HeaderButton, Screen } from '../components/Screen'
 import { SessionConversation } from '../components/SessionConversation'
 import { TaskSheet } from '../components/TaskSheet'
@@ -180,6 +181,7 @@ export const MissionScreen = observer(function MissionScreen() {
 
   return (
     <Screen
+      refreshing={screen?.refreshing ?? false}
       title={headerIssue ? headerIssue.title : 'Mission'}
       onBack={() => (router.canGoBack() ? router.back() : router.replace('/work'))}
       bareBack
@@ -231,8 +233,14 @@ export const MissionScreen = observer(function MissionScreen() {
               )
             }
           />
+        ) : resolved ? (
+          <MissionNotFound />
         ) : (
-          <EmptyState title="Mission not found." />
+          // POD-7169: on its way. The crossfade keeps its content mounted under
+          // the placeholder, and once settled it shows it without one, so this
+          // branch must never be the not-found answer: that is only ever the
+          // lookup's settled "gone".
+          <DetailSkeleton />
         )}
       </BootstrapCrossfade>
 

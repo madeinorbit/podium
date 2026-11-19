@@ -62,6 +62,7 @@ async function world(shipped: number): Promise<{ store: SessionStore; service: S
     ledger: testLedgerWriter(ledger),
   })
   const service = new ShippingService({
+    workspaceId: store.workspaceId,
     repository: store.shipping,
     issues: {
       get: async (id) => (await issues.reports.get(id))!,

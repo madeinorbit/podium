@@ -17,28 +17,6 @@ export function createSettingsViews(pool: MobxPool) {
     { equals: compareStructural },
   )
   const memo = <T>(key: string, read: () => T): T => cache(key, read) as T
-  function sessions() {
-    return pool.queries.summarize(
-      { kind: 'setupSessions' },
-      'settings.sessions',
-      (id) => omitGone(pool.row('setupSession', id)),
-      {
-        // Resume winners occupy their group's first source position, including
-        // ties across cold/hot partitions. Headless rows remain independent.
-        order: (id) => String(pool.sourcePosition('session', id) ?? 0).padStart(16, '0'),
-        collapse: {
-          key: (row) =>
-            row.resume && !row.headless
-              ? JSON.stringify([row.resume.kind, row.resume.value])
-              : undefined,
-          keepsGroup: (row) => ['live', 'starting'].includes(row.status),
-          compare: (a, b) =>
-            resumeRank(b) - resumeRank(a) ||
-            (a.lastActiveAt > b.lastActiveAt ? -1 : a.lastActiveAt < b.lastActiveAt ? 1 : 0),
-        },
-      },
-    )
-  }
   function setup(paths: readonly string[] = []) {
     return memo(`setup:${JSON.stringify(paths.map(machinePathKey))}`, () => {
       const usage = new Map<string, number>()
@@ -62,7 +40,6 @@ export function createSettingsViews(pool: MobxPool) {
   }
   return {
     setup,
-    sessions,
     sessionPresent,
     sessionCount: () => pool.queries.setupSessionCount(),
     clear: () => cache.clear(),
@@ -77,7 +54,7 @@ export function settingsView(pool: MobxPool): ReturnType<typeof createSettingsVi
 
 /** Setup decoration and the first-task decision belong to the setup screen. */
 export function readSetupSession(pool: MobxPool, id: string): Loaded<SetupSession> {
-  const row = omitGone(pool.row('session', id, 'summary-fields'))
+  const row = omitGone(pool.row('session', id))
   return row && row !== LOADING
     ? setupSessionSummary(
         row as unknown as Readonly<Record<string, unknown>>,
@@ -85,15 +62,9 @@ export function readSetupSession(pool: MobxPool, id: string): Loaded<SetupSessio
       )
     : row
 }
-function resumeRank(row: SetupSession): number {
-  return row.status === 'live'
-    ? 3
-    : row.status === 'starting'
-      ? 2
-      : row.status === 'hibernated'
-        ? 1
-        : 0
-}
+/** Any undeleted issue: one the device holds answers at once, else the stubs (POD-7088). */
 export function settingsHasFirstTask(pool: MobxPool): Loaded<boolean> {
-  return pool.undeletedIssueCount > 0
+  if (pool.heldUndeletedIssueCount > 0) return true
+  const count = pool.undeletedIssueCount
+  return count === LOADING ? LOADING : count > 0
 }

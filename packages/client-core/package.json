@@ -55,6 +55,11 @@
       "types": "./src/outbox.ts",
       "import": "./src/outbox.ts"
     },
+    "./service-worker": {
+      "@podium/source": "./src/service-worker/index.ts",
+      "types": "./src/service-worker/index.ts",
+      "import": "./src/service-worker/index.ts"
+    },
     "./command-reducers": {
       "@podium/source": "./src/command-reducers.ts",
       "types": "./src/command-reducers.ts",
@@ -119,6 +124,11 @@
       "@podium/source": "./src/conversation/index.ts",
       "types": "./src/conversation/index.ts",
       "import": "./src/conversation/index.ts"
+    },
+    "./conversation/transcript-graph": {
+      "@podium/source": "./src/conversation/transcript-graph.ts",
+      "types": "./src/conversation/transcript-graph.ts",
+      "import": "./src/conversation/transcript-graph.ts"
     },
     "./runtime-root": {
       "@podium/source": "./src/runtime-root/index.ts",

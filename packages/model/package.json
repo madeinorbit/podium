@@ -29,6 +29,11 @@
       "@podium/source": "./src/shipping-projection.ts",
       "types": "./src/shipping-projection.ts",
       "import": "./src/shipping-projection.ts"
+    },
+    "./pending-interaction": {
+      "@podium/source": "./src/entities/pending-interaction.ts",
+      "types": "./src/entities/pending-interaction.ts",
+      "import": "./src/entities/pending-interaction.ts"
     }
   },
   "files": [

@@ -66,7 +66,7 @@ api.sessions = {
   },
 }
 api.issues = {
-  searchNormalized: { query: async () => [] },
+  searchNormalized: { query: async () => ({ hits: [], next: null }) },
   create: {
     mutate: async (input: unknown) => {
       calls.push({ kind: 'issue', input })

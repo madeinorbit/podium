@@ -23,9 +23,15 @@ import {
   type TranscriptIdbKeyRange,
 } from '@podium/client-core/transcript-store'
 import { createLogger } from '@podium/logger'
-import { type IdbFactoryLike, IndexedDbSyncStore } from '@podium/sync/adapters/indexeddb'
+import {
+  type IdbFactoryLike,
+  IndexedDbSyncStore,
+  REPLICA_SCHEMA_VERSION,
+} from '@podium/sync/adapters/indexeddb'
+import { browserMemorySignals } from '@podium/sync/replica'
 import type { Trpc } from '@/app/trpc'
 import { expireSignedInRuntime } from './account-context'
+import { nativeDesktopBridge } from './nativeDesktop'
 import { type SyncProgressStore, WebSyncProgressStore } from './sync-progress'
 import { workspaceFetch } from './workspace-request'
 
@@ -147,15 +153,26 @@ export async function openKernelAssembly(
   const assembly = await openReplicaAssembly({
     api: options.trpc,
     principal: options.principal,
+    // POD-7161: memory lets go of the screens left on the browser's idle
+    // moments and when the tab is hidden.
+    memorySignals: browserMemorySignals(),
     evidence: options.evidence,
-    openStore: (onDegraded) =>
-      IndexedDbSyncStore.open({
+    openStore: async (onDegraded) => {
+      log.debug('opening client storage', { schemaVersion: REPLICA_SCHEMA_VERSION })
+      const store = await IndexedDbSyncStore.open({
         factory: options.factory ?? (globalThis.indexedDB as unknown as IdbFactoryLike),
         keyRange: options.factory === undefined ? globalThis.IDBKeyRange : undefined,
         databaseName,
         retainEntity: retainReplicaEntity,
         onDegraded,
-      }),
+        onSchemaUpgrade: (event) => log.info('client storage schema upgraded', event),
+      })
+      log.debug('client storage ready', {
+        schemaVersion: REPLICA_SCHEMA_VERSION,
+        durability: store.durability(),
+      })
+      return store
+    },
     settings: {
       storage: globalThis.localStorage,
       enumerateKeys: () => Object.keys(globalThis.localStorage),
@@ -164,6 +181,9 @@ export async function openKernelAssembly(
     },
     httpSync: {
       origin: options.httpOrigin ?? '',
+      // The server's policy is per client type (POD-7085): the desktop shell
+      // keeps more cache than a browser tab.
+      clientType: nativeDesktopBridge() === undefined ? 'browser' : 'desktop',
       // The member fence (POD-6292): the feed this assembly stores is only ever
       // read as the member it was opened for.
       streamingFetch: {

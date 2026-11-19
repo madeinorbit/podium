@@ -56,10 +56,6 @@ function record(
     key,
     components: {},
     relations: {},
-    cold: {
-      kind: 'never',
-      why: 'Only the requested working set is resident in the principal-owned pool.',
-    },
     why: 'One shared identity for a public requested record.',
     fields: Object.fromEntries(
       Object.entries(fields).map(([property, type]) => [

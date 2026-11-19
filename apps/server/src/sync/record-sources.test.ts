@@ -27,17 +27,27 @@ import {
   asThreadId,
   firstAdminMemberId,
   type IssueId,
+  primeFirstAdminMember,
+  RECORDS,
   type SessionId,
   type UserId,
 } from '@podium/model'
 import type { MetadataEntityKind } from '@podium/protocol'
+import type { SyncRepository } from '@podium/sync'
+import {
+  collectRecords,
+  type RecordBuilder,
+  RecordBuilderRegistry,
+} from '@podium/sync/record-builders'
 import { fixtureWriteScope } from '@podium/sync/testing'
 import { getTableColumns, getTableName, is, sql } from 'drizzle-orm'
 import { SQLiteTable } from 'drizzle-orm/sqlite-core'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { userCommandPrincipal } from '../command-principal'
 import * as schema from '../migrations/schema'
+import { effectPublication } from '../modules/effects/published-input'
 import { SessionRegistry } from '../relay'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import type { SessionStore } from '../store'
 import type { DriverSession } from '../store/executor/driver'
 import { probeStatements, type StatementProbeHolder } from '../store/executor/statement-probe'
@@ -45,17 +55,22 @@ import type { StoreDrizzle } from '../store/executor/sync-drizzle'
 import type { MessageRow } from '../store/types'
 import { attachHostDaemon } from '../test-support/host-daemon'
 import { openTestStore } from '../test-support/open-test-store'
+import { testStoreEngine } from '../test-support/pg-test-database'
 import { seedRows } from '../test-support/seed-rows'
 import { quietShipping } from '../test-support/statement-count'
 import type { WriteContexts } from '../write-contexts'
-import { installChangeCapture } from './capture-triggers'
+import frozen from './__fixtures__/one-row-oracles.json'
+import { captureTriggerStatements, installChangeCapture } from './capture-triggers'
+import { readKindTokens } from './kind-tokens'
 import { type RecordReads, serverRecordBuilders } from './record-builders'
 import {
   RECORD_SOURCES,
   type RecordSources,
+  type SourceChange,
   sourceTableName,
   touchedRecords,
 } from './record-sources'
+import { ROW_RECORDS } from './row-records'
 
 // ---------------------------------------------------------------------------
 // The corpus
@@ -163,7 +178,12 @@ async function buildCorpus(): Promise<Corpus> {
     },
   })
   await store.messages.addMessage(fixtureWriteScope(), chat('msg_done', sessionId, owner, 1))
-  await store.messages.markDelivered(fixtureWriteScope(), 'msg_done', sessionId, 't')
+  await store.messages.markDelivered(
+    fixtureWriteScope(),
+    'msg_done',
+    sessionId,
+    '2026-11-17T00:00:00.000Z',
+  )
   await store.messages.addMessage(fixtureWriteScope(), chat('msg_open', sessionId, owner, 2))
   const writes = (reg as unknown as { writes: WriteContexts }).writes
   await reg.modules.automations.create(
@@ -228,12 +248,23 @@ async function buildCorpus(): Promise<Corpus> {
   // own connect scan, which no device receives and the log never carries.
   const db = (store as unknown as { queries: { rootDb: StoreDrizzle } }).queries.rootDb
   await seedRows(store, async () => {
+    await db.run(sql`INSERT INTO automation_runs (workspace_id, id, on_behalf_of, automation_id, fired_at, session_id, outcome, detail)
+      SELECT workspace_id, 'run-row-1', ${owner}, id, ${AT}, ${sessionId}, 'spawned', NULL FROM automations LIMIT 1`)
+    await db.run(sql`INSERT INTO workflow_revisions (workspace_id, id, workflow_id, version, instructions, steps_json, created_by_kind, created_at)
+      VALUES (${SELF_HOSTED_WORKSPACE_ID}, 'rev-row-1', 'wf-6920', 1, 'Review', '[{"id":"review","title":"Review"}]', 'operator', ${AT})`)
+    await db.run(sql`INSERT INTO workflow_bindings (workspace_id, target_kind, target_id, revision_id, updated_by_kind, updated_at, owner_user_id)
+      VALUES (${SELF_HOSTED_WORKSPACE_ID}, 'global', 'default', 'rev-row-1', 'operator', ${AT}, ${owner})`)
+    await db.run(sql`INSERT INTO checkouts (workspace_id, machine_id, path, root, kind, branch, updated_at)
+      VALUES (${SELF_HOSTED_WORKSPACE_ID}, ${store.hostMachineId}, '/row-checkout', '/row-checkout', 'repository', 'main', ${AT})`)
+    await db.run(sql`INSERT INTO subscriptions (workspace_id, id, subscriber_kind, subscriber_id, event, source_kind, source_ref, deliver_nudge, deliver_notify, origin, enabled, created_at)
+      VALUES (${SELF_HOSTED_WORKSPACE_ID}, 'sub-row-1', 'issue', ${first}, 'issue.closed', 'issue', ${second}, ${true}, ${false}, 'custom', ${true}, ${AT})`)
     for (const [id, createdBy] of [
       ['eff_person_scan', owner],
       ['eff_system_scan', null],
     ] as const) {
       await db.run(
-        sql`INSERT INTO effects (id, kind, target_kind, target_id, input_json, result_json, status, attempts, created_by, created_at, updated_at) VALUES (${id}, 'machine.scan', 'machine', ${store.hostMachineId}, '{"deep":false}', '{"repos":[]}', 'succeeded', 1, ${createdBy}, 1, 2)`,
+        // The workspace has no default since the keys migration (POD-7024).
+        sql`INSERT INTO effects (workspace_id, id, kind, target_kind, target_id, input_json, result_json, status, attempts, created_by, created_at, updated_at) VALUES ('local', ${id}, 'machine.scan', 'machine', ${store.hostMachineId}, '{"deep":false}', '{"repos":[]}', 'succeeded', 1, ${createdBy}, 1, 2)`,
       )
     }
   })
@@ -465,8 +496,9 @@ async function withSources<T>(
   sources: RecordSources,
   run: () => Promise<T>,
 ): Promise<T> {
+  // The executor lives on the StoreDatabase the workspace's store belongs to.
   const executor = (
-    store as unknown as {
+    store.database as unknown as {
       executor: { exclusive<R>(fn: (session: DriverSession) => Promise<R>): Promise<R> }
     }
   ).executor
@@ -482,6 +514,33 @@ async function withSources<T>(
 // The tests
 // ---------------------------------------------------------------------------
 
+/**
+ * A case that probes SQLite's capture TRIGGERS: it writes below the repositories with raw
+ * SQL (and reads `sqlite_master`), which a trigger catches. On Postgres there are no
+ * triggers by design, so a raw statement captures nothing; the Postgres capture forms are
+ * proved against SQLite's triggers and the oracle by `capture-pg.test.ts` (POD-6982), and
+ * the declarations cases below run on both engines (POD-6994).
+ */
+const onSqliteTriggers = it.runIf(testStoreEngine() !== 'pg')
+
+/** Where a frozen table's rows live now: the settings blob moved to `workspace_meta`. */
+const replayedTable = (table: string): string => (table === 'meta' ? 'workspace_meta' : table)
+
+/**
+ * A capture trigger with the workspace's additions (POD-7021, POD-7013) taken out:
+ * the key column, the test for a move between workspaces, each lookup's workspace
+ * term, and the table the settings blob moved to.
+ */
+function withoutWorkspaceTerms(trigger: string): string {
+  return trigger
+    .replaceAll('OLD."workspace_id", ', '')
+    .replaceAll('NEW."workspace_id", ', '')
+    .replaceAll('OLD."workspace_id" IS NOT NEW."workspace_id" OR ', '')
+    .replace(/"?workspace_id"? = (OLD|NEW)\."?workspace_id"? AND /g, '')
+    .replace(/(\w+)\."workspace_id" = (OLD|NEW)\."workspace_id" AND /g, '')
+    .replace(' ON "workspace_meta" ', ' ON "meta" ')
+}
+
 describe('record sources (POD-6920)', () => {
   let corpus: Corpus
   beforeAll(async () => {
@@ -489,6 +548,177 @@ describe('record sources (POD-6920)', () => {
   }, 60_000)
   afterAll(async () => {
     await corpus?.store.close()
+  })
+
+  // The frozen evidence was captured on SQLite (`__fixtures__/README.md`) and is
+  // replayed with SQLite's deferred foreign keys: the group runs on SQLite. The
+  // record bytes on Postgres are held by record-payloads.pg.test.ts (POD-7118).
+  describe.runIf(testStoreEngine() !== 'pg')('one-row generation (POD-7091)', () => {
+    const after = serverRecordBuilders()
+    const kinds = Object.keys(frozen.records) as (keyof typeof ROW_RECORDS)[]
+    const bytes = (rows: readonly unknown[]) => JSON.stringify(rows)
+    const byId = (streamed: string): string =>
+      JSON.stringify(
+        (JSON.parse(streamed) as { id: string }[]).sort((a, b) =>
+          a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
+        ),
+      )
+    let replay: Corpus
+
+    beforeAll(async () => {
+      const store = await openTestStore(':memory:')
+      // openTestStore primes the ambient admin; the outer live corpus still
+      // belongs to its original store. These row readers need no principal.
+      primeFirstAdminMember(await firstAdminMemberId(corpus.store))
+      try {
+        const db = (store as unknown as { queries: { rootDb: StoreDrizzle } }).queries.rootDb
+        const tables = Object.entries(frozen.tables) as [
+          string,
+          Record<string, string | number | null>[],
+        ][]
+        await seedRows(store, async () => {
+          // The captured inputs are in parent-first order. Deferral also
+          // allows self-referencing rows to be replayed in their stored order.
+          // The frozen rows come from a store with no workspaces (POD-7118): each
+          // is replayed into the self-hosted workspace, and `meta`'s settings blob
+          // into `workspace_meta`, where the meta split moved it.
+          await db.run(sql`PRAGMA defer_foreign_keys = ON`)
+          for (const [table] of [...tables].reverse())
+            await db.run(sql`DELETE FROM ${sql.identifier(replayedTable(table))}`)
+          for (const [table, rows] of tables) {
+            for (const row of rows) {
+              const columns = Object.entries({ workspace_id: SELF_HOSTED_WORKSPACE_ID, ...row })
+              await db.run(
+                sql`INSERT INTO ${sql.identifier(replayedTable(table))} (${sql.join(
+                  columns.map(([name]) => sql.identifier(name)),
+                  sql`, `,
+                )}) VALUES (${sql.join(
+                  columns.map(([, value]) => sql`${value}`),
+                  sql`, `,
+                )})`,
+              )
+            }
+          }
+        })
+        expect(await db.all(sql`PRAGMA foreign_key_check`)).toEqual([])
+        replay = {
+          store,
+          reads: {
+            store,
+            effectExecutors: effectPublication(frozen.effectKinds),
+            now: () => frozen.now,
+          },
+        }
+      } catch (error) {
+        await store.close()
+        throw error
+      }
+    })
+    afterAll(async () => {
+      await replay?.store.close()
+    })
+
+    it('generates every row declaration and keeps genuinely joined kinds explicit', () => {
+      const rowKinds = RECORDS.filter((record) => record.builderShape === 'row').map(
+        (record) => record.kind,
+      )
+      expect(Object.keys(ROW_RECORDS).sort()).toEqual([...rowKinds].sort())
+      expect([...kinds].sort()).toEqual([...rowKinds].sort())
+      for (const binding of Object.values(ROW_RECORDS)) {
+        expect(after.get(binding.declaration.kind)).toBe(binding.builder)
+        expect(RECORD_SOURCES[binding.declaration.kind]).toBe(binding.sources)
+      }
+      for (const kind of [
+        'workflow',
+        'issuePanelTodo',
+        'issuePanelArtifact',
+        'issuePanelDeferred',
+        'issuePanelState',
+      ] as const)
+        expect(after.get(kind).shape, kind).toBe('row-and-reads')
+    })
+
+    it('produces byte-equal builds and streams for every converted kind on SQLite', async () => {
+      for (const kind of kinds) {
+        const expected = frozen.records[kind]
+        expect(
+          JSON.parse(expected.streamBytes).length,
+          `${kind}: frozen records must be nonempty`,
+        ).toBeGreaterThan(0)
+        // A stream is a set of records: the reads name no order, and the workspace
+        // key leads SQLite through the key index instead of the table's row order
+        // (POD-7118; Postgres has its own). Each record's bytes are compared, by id.
+        expect(
+          byId(bytes(await collectRecords(after.streamAll(replay.reads, kind)))),
+          `${kind}: stream`,
+        ).toBe(byId(expected.streamBytes))
+        expect(bytes(await after.build(replay.reads, kind, expected.ids)), `${kind}: build`).toBe(
+          expected.buildBytes,
+        )
+        expect(bytes(await after.build(replay.reads, kind, [])), `${kind}: no ids`).toBe(
+          expected.emptyBytes,
+        )
+        expect(
+          bytes(await after.build(replay.reads, kind, ['no-such-record'])),
+          `${kind}: missing`,
+        ).toBe(expected.missingBytes)
+      }
+    })
+
+    it('the byte comparison fails for a wrong generated answer', async () => {
+      for (const kind of kinds) {
+        const expected = frozen.records[kind]
+        const original = after.get(kind)
+        const wrong: RecordBuilder<RecordReads> = {
+          ...original,
+          build: async (reads, ids) =>
+            (await original.build(reads, ids)).map((row) => ({
+              ...row,
+              value: { ...(row.value as object), wrong: true },
+            })),
+        }
+        const mutated = new RecordBuilderRegistry([wrong])
+        const wrongBytes = bytes(await mutated.build(replay.reads, kind, expected.ids))
+        expect(() => expect(wrongBytes, kind).toBe(expected.buildBytes), kind).toThrow()
+      }
+    })
+
+    // The frozen triggers predate the workspace (POD-7118): the integration's
+    // capture keys lead with `workspace_id`, a move of a row's workspace is a
+    // change, every lookup a filter makes matches the row's workspace, and the
+    // settings blob is captured on `workspace_meta`. With exactly those taken out,
+    // every trigger is the frozen text; and every trigger keys its row's workspace.
+    it('keeps every generated capture trigger textually equal to before, with the workspace added', () => {
+      const triggers = captureTriggerStatements()
+      expect(triggers.map(withoutWorkspaceTerms)).toEqual(frozen.triggers)
+      // `meta` is an install table: its fleet keys capture no workspace.
+      for (const trigger of triggers.filter((text) => !text.includes(' ON "meta" '))) {
+        expect(trigger, trigger.slice(0, 80)).toMatch(/json_array\((OLD|NEW)\."workspace_id", /)
+      }
+    })
+
+    it('keeps captured record identities for inserts, moves and deletes', async () => {
+      for (const kind of kinds) {
+        const source = ROW_RECORDS[kind].sources[0]
+        if (!source) throw new Error(`${kind}: missing capture source`)
+        const expected = frozen.captures[kind]
+        // The captured keys lead with the row's workspace (POD-7118).
+        const changes = (expected.changes as SourceChange[]).map((change) => ({
+          ...change,
+          old: change.old === null ? null : [SELF_HOSTED_WORKSPACE_ID, ...change.old],
+          new: change.new === null ? null : [SELF_HOSTED_WORKSPACE_ID, ...change.new],
+        }))
+        expect([...(await source.ids(changes, replay.reads))], kind).toEqual(expected.ids)
+      }
+    })
+
+    it('keeps all shape tokens unchanged', async () => {
+      const sync = { readKindGenerations: async () => frozen.generations } as Pick<
+        SyncRepository,
+        'readKindGenerations'
+      > as SyncRepository
+      expect(await readKindTokens(sync, frozen.effectKinds)).toEqual(frozen.tokens)
+    })
   })
 
   it('declares every kind the server builds, with at least one source', () => {
@@ -543,37 +773,47 @@ describe('record sources (POD-6920)', () => {
     expect(await undeclaredTableReads(corpus, RECORD_SOURCES)).toEqual([])
   })
 
-  it('every change to a row a record reads is captured for that record', async () => {
-    const { missed, tried, unread } = await missedChanges(corpus, RECORD_SOURCES)
-    // Over-declaration costs redundant log rows, not lost changes: reported,
-    // not failed. A row the corpus holds may simply not move the record's
-    // value for this perturbation.
-    console.log('record-sources: captured without a record change', JSON.stringify(unread, null, 1))
-    expect(tried).toBeGreaterThan(100)
-    expect(missed).toEqual([])
-  }, 300_000)
+  onSqliteTriggers(
+    'every change to a row a record reads is captured for that record',
+    async () => {
+      const { missed, tried, unread } = await missedChanges(corpus, RECORD_SOURCES)
+      // Over-declaration costs redundant log rows, not lost changes: reported,
+      // not failed. A row the corpus holds may simply not move the record's
+      // value for this perturbation.
+      console.log(
+        'record-sources: captured without a record change',
+        JSON.stringify(unread, null, 1),
+      )
+      expect(tried).toBeGreaterThan(100)
+      expect(missed).toEqual([])
+    },
+    300_000,
+  )
 
-  it('refuses a write of a synced row that no commit drains, and keeps nothing of it', async () => {
-    const { store } = corpus
-    const db = (store as unknown as { queries: { rootDb: StoreDrizzle } }).queries.rootDb
-    const before = (await db.all(sql`SELECT title FROM issues ORDER BY seq LIMIT 1`)) as {
-      title: string
-    }[]
-    await expect(
-      store.transact(async () => {
-        await db.run(
-          sql`UPDATE issues SET title = 'bypassed' WHERE seq = (SELECT min(seq) FROM issues)`,
-        )
-      }),
-    ).rejects.toThrow(/outside a change-log commit/)
-    await expect(
-      db.run(sql`UPDATE issues SET title = 'bypassed' WHERE seq = (SELECT min(seq) FROM issues)`),
-    ).rejects.toThrow()
-    expect(await db.all(sql`SELECT title FROM issues ORDER BY seq LIMIT 1`)).toEqual(before)
-    expect(await db.all(sql`SELECT id FROM sync_capture`)).toEqual([])
-  })
+  onSqliteTriggers(
+    'refuses a write of a synced row that no commit drains, and keeps nothing of it',
+    async () => {
+      const { store } = corpus
+      const db = (store as unknown as { queries: { rootDb: StoreDrizzle } }).queries.rootDb
+      const before = (await db.all(sql`SELECT title FROM issues ORDER BY seq LIMIT 1`)) as {
+        title: string
+      }[]
+      await expect(
+        store.transact(async () => {
+          await db.run(
+            sql`UPDATE issues SET title = 'bypassed' WHERE seq = (SELECT min(seq) FROM issues)`,
+          )
+        }),
+      ).rejects.toThrow(/outside a change-log commit/)
+      await expect(
+        db.run(sql`UPDATE issues SET title = 'bypassed' WHERE seq = (SELECT min(seq) FROM issues)`),
+      ).rejects.toThrow()
+      expect(await db.all(sql`SELECT title FROM issues ORDER BY seq LIMIT 1`)).toEqual(before)
+      expect(await db.all(sql`SELECT id FROM sync_capture`)).toEqual([])
+    },
+  )
 
-  it('a write that leaves every column as it was captures nothing', async () => {
+  onSqliteTriggers('a write that leaves every column as it was captures nothing', async () => {
     const { store } = corpus
     const db = (store as unknown as { queries: { rootDb: StoreDrizzle } }).queries.rootDb
     const captured: string[] = []
@@ -606,16 +846,20 @@ describe('record sources (POD-6920)', () => {
     expect(captured).toEqual([])
   })
 
-  it('fails both checks when a kind loses a declaration', async () => {
-    // issueDep without its own table: its builder reads `issue_deps`, and a
-    // change to an edge is captured for no record.
-    const without: RecordSources = { ...RECORD_SOURCES, issueDep: [] }
-    expect(await undeclaredTableReads(corpus, without)).toContain('issueDep reads issue_deps')
-    const { missed } = await withSources(
-      corpus.store,
-      without,
-      async () => await missedChanges(corpus, without, ['issue_deps']),
-    )
-    expect(missed.some((line) => line.includes('-> issueDep/'))).toBe(true)
-  }, 120_000)
+  onSqliteTriggers(
+    'fails both checks when a kind loses a declaration',
+    async () => {
+      // issueDep without its own table: its builder reads `issue_deps`, and a
+      // change to an edge is captured for no record.
+      const without: RecordSources = { ...RECORD_SOURCES, issueDep: [] }
+      expect(await undeclaredTableReads(corpus, without)).toContain('issueDep reads issue_deps')
+      const { missed } = await withSources(
+        corpus.store,
+        without,
+        async () => await missedChanges(corpus, without, ['issue_deps']),
+      )
+      expect(missed.some((line) => line.includes('-> issueDep/'))).toBe(true)
+    },
+    120_000,
+  )
 })

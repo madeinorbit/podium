@@ -1,4 +1,9 @@
-import { isCatchingUp, isPaused, type SyncSignals } from '@podium/client-graph/sync-status'
+import {
+  isCatchingUp,
+  isPaused,
+  reviewWords,
+  type SyncSignals,
+} from '@podium/client-graph/sync-status'
 import { CircleAlert } from 'lucide-react'
 import type { JSX } from 'react'
 import { MessageNoticeList } from '@/features/chat/MessageNotices'
@@ -134,6 +139,6 @@ function summary(
   else if (signals.connection === 'degraded') parts.push('Slow connection')
   else if (catchingUp) parts.push('Catching up')
   else if (signals.queued > 0) parts.push('Sending')
-  if (review > 0) parts.push(`${review} need review`)
+  if (review > 0) parts.push(reviewWords(review))
   return parts.length > 0 ? parts.join(' · ') : 'Up to date'
 }

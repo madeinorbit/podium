@@ -193,6 +193,17 @@ export const searchInput = z.object({
   parentId: IssueIdField.optional(),
 })
 
+/** The page a search answer holds when the caller names none (POD-7108). */
+export const ISSUE_SEARCH_PAGE_DEFAULT = 50
+export const ISSUE_SEARCH_PAGE_MAX = 200
+
+/** `issues.searchNormalized`: one page at a time. `cursor` is the previous
+ *  page's opaque `next`. */
+export const searchPageInput = searchInput.extend({
+  limit: z.number().int().min(1).max(ISSUE_SEARCH_PAGE_MAX).default(ISSUE_SEARCH_PAGE_DEFAULT),
+  cursor: z.string().min(1).max(2000).optional(),
+})
+
 export const countInput = repoScoped
 
 /** The label vocabulary is server-wide (POD-6106), so the list takes no scope. */
@@ -1007,10 +1018,11 @@ export const issueSearchContract = {
   conflict: 'n/a',
 } as const satisfies CommandContract
 
-/** Additive normalized search response; legacy clients keep issues.search. */
+/** Normalized search, one page per call (POD-7108); the CLI keeps issues.search. */
 export const issueSearchNormalizedContract = {
   ...issueSearchContract,
   name: 'issues.searchNormalized',
+  input: searchPageInput,
   exposure: SERVED_ON_WIRE,
   conflict: 'n/a',
 } as const satisfies CommandContract

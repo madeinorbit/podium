@@ -3,7 +3,8 @@
  * user's preference row is never visible to another").
  *
  * This is the file that would have caught the defect the issue exists to fix. It
- * is written against the REAL repository over a REAL migrated database — not a
+ * is written against the REAL repository over a REAL migrated database, on both
+ * engines — not a
  * fake — because the property under test is a WHERE clause and a fake would have
  * to re-implement it, then agree with itself.
  *
@@ -23,36 +24,52 @@
  * must resolve identically for everybody.
  */
 
-import { asUserId, firstAdminMemberId, type UserId } from '@podium/model'
+import { asUserId, type UserId } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
-import type { openDatabase } from '@podium/runtime/sqlite'
-import { beforeEach, describe, expect, it } from 'vitest'
-import { openMigratedTestDatabase } from '../test-support/migrated-database'
-import { createBunStoreExecutor } from './executor'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
+import { drainedRepository, seedSliceRow } from '../test-support/drained-repository'
+import { openSliceStore, type SliceStore } from '../test-support/pg-slice-tables'
 import { SettingsRepository } from './settings'
 
 /** The second person. POD-315 mints real accounts; the storage is keyed for them
  *  NOW, which is exactly why a second id can be written today and must not be
  *  visible to the first. */
-const ALICE: UserId = firstAdminMemberId()
+// A person's id; these tables name no member row, and a Postgres clone seeds none.
+const ALICE: UserId = asUserId('user:alice')
 const BOB: UserId = asUserId('user:bob')
 
 const AT = '2026-07-31T04:00:00.000Z'
 
 let settings: SettingsRepository
-let db: ReturnType<typeof openDatabase>
+let prefs: SettingsRepository['userPreferences']
+let slice: SliceStore
 
-beforeEach(() => {
-  db = openMigratedTestDatabase()
-  const stage = createBunStoreExecutor({ database: db }).queries
-  if (!stage) throw new Error('the test database is not bun-backed')
-  settings = new SettingsRepository(stage)
+// On the run's engine: SQLite on the store shard, Postgres on `server-store-pg` (POD-6983).
+beforeEach(async () => {
+  slice = await openSliceStore()
+  settings = drainedRepository(slice, new SettingsRepository(slice.queries))
+  prefs = drainedRepository(slice, settings.userPreferences)
 })
+
+afterEach(async () => {
+  await slice.close()
+})
+
+/** A `user_preferences` row written as an older build or a hand edit left it. */
+async function seedPreference(userId: UserId, key: string, value: string): Promise<void> {
+  await seedSliceRow(slice, (db, t) =>
+    db
+      .insert(t.userPreferences)
+      .values({ workspaceId: SELF_HOSTED_WORKSPACE_ID, userId, key, value, updatedAt: AT })
+      .prepare(),
+  )
+}
 
 describe('a preference row belongs to one person', () => {
   it('two people hold DIFFERENT values at the same path, and each reads their own', async () => {
-    await settings.userPreferences.set(ALICE, 'roles.coding.model', 'alice-model', AT)
-    await settings.userPreferences.set(BOB, 'roles.coding.model', 'bob-model', AT)
+    await prefs.set(ALICE, 'roles.coding.model', 'alice-model', AT)
+    await prefs.set(BOB, 'roles.coding.model', 'bob-model', AT)
 
     // The load-bearing pair. Removing the `user_id` filter from either read
     // makes these two assertions read one row and disagree with one of them.
@@ -63,8 +80,8 @@ describe('a preference row belongs to one person', () => {
   it("a person who has set NOTHING does not inherit the other person's choice", async () => {
     // The leak, stated directly: Alice configures her notification routing, and Bob —
     // who has never opened the settings screen — must not be served it.
-    await settings.userPreferences.set(ALICE, 'notifications.ntfyTopic', 'alice-secret-topic', AT)
-    await settings.userPreferences.set(ALICE, 'notifications.telegramChatId', '-100alice', AT)
+    await prefs.set(ALICE, 'notifications.ntfyTopic', 'alice-secret-topic', AT)
+    await prefs.set(ALICE, 'notifications.telegramChatId', '-100alice', AT)
 
     const bob = await settings.getSettingsFor(BOB)
     expect(bob.notifications.ntfyTopic).toBe('')
@@ -81,24 +98,24 @@ describe('a preference row belongs to one person', () => {
     // every other case in this file green, because they all resolve through the
     // bulk read. `preferenceFor` goes through THIS method, so an unscoped
     // single-key read is the same leak reached by a different door.
-    await settings.userPreferences.set(ALICE, 'notifications.telegramChatId', '-100alice', AT)
-    await settings.userPreferences.set(BOB, 'notifications.telegramChatId', '-100bob', AT)
-    expect(await settings.userPreferences.get(ALICE, 'notifications.telegramChatId')).toBe('-100alice')
-    expect(await settings.userPreferences.get(BOB, 'notifications.telegramChatId')).toBe('-100bob')
+    await prefs.set(ALICE, 'notifications.telegramChatId', '-100alice', AT)
+    await prefs.set(BOB, 'notifications.telegramChatId', '-100bob', AT)
+    expect(await prefs.get(ALICE, 'notifications.telegramChatId')).toBe('-100alice')
+    expect(await prefs.get(BOB, 'notifications.telegramChatId')).toBe('-100bob')
 
     // …and a person with NO row reads absent even while someone else has one —
     // the direction that fails when the filter is gone and the other person's
     // row is the only one in the table.
-    await settings.userPreferences.set(ALICE, 'roles.superagent.model', 'alice-superagent', AT)
-    expect(await settings.userPreferences.get(BOB, 'roles.superagent.model')).toBeUndefined()
+    await prefs.set(ALICE, 'roles.superagent.model', 'alice-superagent', AT)
+    expect(await prefs.get(BOB, 'roles.superagent.model')).toBeUndefined()
     expect(await settings.preferenceFor(BOB, 'roles.superagent.model')).toBe('auto')
     expect(await settings.preferenceFor(ALICE, 'roles.superagent.model')).toBe('alice-superagent')
   })
 
   it('a write for one person creates no row for the other', async () => {
-    await settings.userPreferences.set(ALICE, 'sidebar.repoSort', 'alphabetical', AT)
-    expect(await settings.userPreferences.keysFor(ALICE)).toEqual(['sidebar.repoSort'])
-    expect(await settings.userPreferences.keysFor(BOB)).toEqual([])
+    await prefs.set(ALICE, 'sidebar.repoSort', 'alphabetical', AT)
+    expect(await prefs.keysFor(ALICE)).toEqual(['sidebar.repoSort'])
+    expect(await prefs.keysFor(BOB)).toEqual([])
   })
 
   it('a whole-blob save by one person does not write the other person’s view', async () => {
@@ -110,7 +127,7 @@ describe('a preference row belongs to one person', () => {
       ALICE,
       normalizeSettings({
         ...alice,
-        sidebar: { ...alice.sidebar, repoSort: 'alphabetical', },
+        sidebar: { ...alice.sidebar, repoSort: 'alphabetical' },
         autoContinue: { ...alice.autoContinue, enabled: true },
       }),
       AT,
@@ -147,43 +164,41 @@ describe('the instance tier stays shared — this moved 24 leaves, not the blob'
 
   it('an instance-tier leaf never becomes a per-user row', async () => {
     await settings.applyPreferencePatch(ALICE, { 'gitWorkflow.defaultParentBranch': 'next' }, AT)
-    expect(await settings.userPreferences.keysFor(ALICE)).toEqual([])
+    expect(await prefs.keysFor(ALICE)).toEqual([])
     expect((await settings.getSettings()).gitWorkflow.defaultParentBranch).toBe('next')
   })
 
   it('the repository REFUSES a per-user row for a key that is not personal', async () => {
     // The refusal that keeps the two homes from both holding one key. A silent
     // ignore would make a mis-tiered write look identical to a successful one.
-    await expect(settings.userPreferences.set(ALICE, 'gitWorkflow.defaultParentBranch', 'pr', AT)).rejects.toThrow(
+    await expect(prefs.set(ALICE, 'gitWorkflow.defaultParentBranch', 'pr', AT)).rejects.toThrow(
       /not a personal preference/,
     )
-    await expect(settings.userPreferences.set(ALICE, 'apiKeys.openai', 'sk-x', AT)).rejects.toThrow(
+    await expect(prefs.set(ALICE, 'apiKeys.openai', 'sk-x', AT)).rejects.toThrow(
       /not a personal preference/,
     )
     // …and it ACCEPTS a personal one, or the refusal above would be satisfied by
     // a method that refuses everything.
-    await settings.userPreferences.set(ALICE, 'sidebar.repoSort', 'custom', AT)
+    await prefs.set(ALICE, 'sidebar.repoSort', 'custom', AT)
     expect((await settings.getSettingsFor(ALICE)).sidebar.repoSort).toBe('custom')
   })
 })
 
 describe('absence is the row being absent', () => {
   it('writing undefined removes an optional preference instead of storing null', async () => {
-    await settings.userPreferences.set(ALICE, 'roles.superagent.harness', 'codex', AT)
-    await settings.userPreferences.set(BOB, 'roles.superagent.harness', 'grok', AT)
-    await settings.userPreferences.set(ALICE, 'roles.superagent.harness', undefined, AT)
-    expect(await settings.userPreferences.keysFor(ALICE)).not.toContain('roles.superagent.harness')
-    expect(await settings.userPreferences.get(ALICE, 'roles.superagent.harness')).toBeUndefined()
+    await prefs.set(ALICE, 'roles.superagent.harness', 'codex', AT)
+    await prefs.set(BOB, 'roles.superagent.harness', 'grok', AT)
+    await prefs.set(ALICE, 'roles.superagent.harness', undefined, AT)
+    expect(await prefs.keysFor(ALICE)).not.toContain('roles.superagent.harness')
+    expect(await prefs.get(ALICE, 'roles.superagent.harness')).toBeUndefined()
     expect((await settings.getSettingsFor(ALICE)).roles.superagent).not.toHaveProperty('harness')
     expect((await settings.getSettingsFor(BOB)).roles.superagent.harness).toBe('grok')
   })
 
   it('a stored harness null reads as absent while other preferences still load', async () => {
-    db.prepare(
-      'INSERT INTO user_preferences (user_id, key, value, updated_at) VALUES (?, ?, ?, ?)',
-    ).run(ALICE, 'roles.superagent.harness', 'null', AT)
-    await settings.userPreferences.set(ALICE, 'roles.superagent.model', 'saved-model', AT)
-    await settings.userPreferences.set(ALICE, 'sidebar.repoSort', 'alphabetical', AT)
+    await seedPreference(ALICE, 'roles.superagent.harness', 'null')
+    await prefs.set(ALICE, 'roles.superagent.model', 'saved-model', AT)
+    await prefs.set(ALICE, 'sidebar.repoSort', 'alphabetical', AT)
 
     const loaded = await settings.getSettingsFor(ALICE)
     expect(loaded.roles.superagent).not.toHaveProperty('harness')
@@ -192,12 +207,18 @@ describe('absence is the row being absent', () => {
   })
 
   it('a legacy blob harness null does not discard the rest of the stored settings', async () => {
-    db.prepare('INSERT INTO meta (key, value) VALUES (?, ?)').run(
-      'settings',
-      JSON.stringify({
-        roles: { superagent: { harness: null, model: 'saved-model' } },
-        gitWorkflow: { defaultParentBranch: 'release' },
-      }),
+    await seedSliceRow(slice, (db, t) =>
+      db
+        .insert(t.workspaceMeta)
+        .values({
+          workspaceId: SELF_HOSTED_WORKSPACE_ID,
+          key: 'settings',
+          value: JSON.stringify({
+            roles: { superagent: { harness: null, model: 'saved-model' } },
+            gitWorkflow: { defaultParentBranch: 'release' },
+          }),
+        })
+        .prepare(),
     )
     const loaded = await settings.getSettingsFor(ALICE)
     expect(loaded.roles.superagent).not.toHaveProperty('harness')
@@ -209,14 +230,14 @@ describe('absence is the row being absent', () => {
     // The fallback direction. `getSettingsFor` must not zero out what nobody has
     // chosen — that would be a different way to lose every preference.
     expect((await settings.getSettingsFor(ALICE)).sidebar.repoSort).toBe('lastUsed')
-    await settings.userPreferences.set(ALICE, 'sidebar.repoSort', 'custom', AT)
+    await prefs.set(ALICE, 'sidebar.repoSort', 'custom', AT)
     expect((await settings.getSettingsFor(ALICE)).sidebar.repoSort).toBe('custom')
   })
 
   it('clearing a preference restores the fallback rather than storing a default', async () => {
-    await settings.userPreferences.set(ALICE, 'sidebar.repoSort', 'custom', AT)
-    await settings.userPreferences.clear(ALICE, 'sidebar.repoSort')
-    expect(await settings.userPreferences.keysFor(ALICE)).toEqual([])
+    await prefs.set(ALICE, 'sidebar.repoSort', 'custom', AT)
+    await prefs.clear(ALICE, 'sidebar.repoSort')
+    expect(await prefs.keysFor(ALICE)).toEqual([])
     expect((await settings.getSettingsFor(ALICE)).sidebar.repoSort).toBe('lastUsed')
   })
 
@@ -225,22 +246,20 @@ describe('absence is the row being absent', () => {
     // load — the posture `getSettings` already takes for a corrupt blob. Written
     // through the raw database because the repository cannot produce one, which
     // is the point: the row can only arrive from an older build or a hand edit.
-    db.prepare(
-      'INSERT INTO user_preferences (user_id, key, value, updated_at) VALUES (?, ?, ?, ?)',
-    ).run(ALICE, 'sidebar.repoSort', 'not json', AT)
-    await settings.userPreferences.set(ALICE, 'notifications.ntfyTopic', 'still-mine', AT)
+    await seedPreference(ALICE, 'sidebar.repoSort', 'not json')
+    await prefs.set(ALICE, 'notifications.ntfyTopic', 'still-mine', AT)
 
     // The unparseable leaf falls back; the person's OTHER preferences still
     // resolve, so one bad row does not cost them the rest.
     expect((await settings.getSettingsFor(ALICE)).sidebar.repoSort).toBe('lastUsed')
     expect((await settings.getSettingsFor(ALICE)).notifications.ntfyTopic).toBe('still-mine')
-    expect(await settings.userPreferences.get(ALICE, 'sidebar.repoSort')).toBeUndefined()
+    expect(await prefs.get(ALICE, 'sidebar.repoSort')).toBeUndefined()
   })
 
   it('JSON types survive the round trip — a boolean is not a 1', async () => {
-    await settings.userPreferences.set(ALICE, 'autoContinue.enabled', true, AT)
-    await settings.userPreferences.set(ALICE, 'sidebar.repoOrder', ['/a', '/b'], AT)
-    expect(await settings.userPreferences.get(ALICE, 'autoContinue.enabled')).toBe(true)
+    await prefs.set(ALICE, 'autoContinue.enabled', true, AT)
+    await prefs.set(ALICE, 'sidebar.repoOrder', ['/a', '/b'], AT)
+    expect(await prefs.get(ALICE, 'autoContinue.enabled')).toBe(true)
     expect((await settings.getSettingsFor(ALICE)).sidebar.repoOrder).toEqual(['/a', '/b'])
   })
 })

@@ -1,6 +1,4 @@
-import type { Trpc } from '@/app/trpc'
-import { useCommands } from '@podium/client-core/react'
-import { useUiValue } from '@podium/client-core/react'
+import { useCommands, useUiValue } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
 import {
   type DeckIssueState,
@@ -36,7 +34,9 @@ import {
 import type { JSX, MouseEvent as ReactMouseEvent, ReactNode, RefObject } from 'react'
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
+import type { Trpc } from '@/app/trpc'
 import { GhostBar, GhostDot, GhostPreview, GhostSquare } from '@/components/GhostPreview'
+import { ScreenRefreshMark } from '@/components/ScreenRefreshMark'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -55,6 +55,7 @@ import {
   CapabilityAgentItem,
   candidateFromAvailability,
 } from '@/lib/agent-capability'
+import { forceReload } from '@/lib/force-reload'
 import { type IssueAgentKind, issueAgentOptions, issueDefaultAgentKind } from '@/lib/issue-agents'
 import { renderReadoutMarkdown } from '@/lib/markdown'
 import type { ContextMenuAnchor } from '@/lib/session-context-menu'
@@ -710,7 +711,32 @@ export function ReviewSignpost({
  * strip deep, and a ghost that COLLAPSES on resolve reads worse than no ghost
  * at all.
  */
+export const DECK_LOAD_LIMIT_MS = 60_000
+
 export function SettlingDeck(): JSX.Element {
+  const [expired, setExpired] = useState(false)
+  const [failure, setFailure] = useState<string>()
+  useEffect(() => {
+    const timer = setTimeout(() => setExpired(true), DECK_LOAD_LIMIT_MS)
+    return () => clearTimeout(timer)
+  }, [])
+  if (expired)
+    return (
+      <div className="m-6 flex flex-col items-start gap-3 text-sm" role="alert">
+        <p>The deck could not finish loading.</p>
+        {failure && <p>{failure}</p>}
+        <Button
+          variant="outline"
+          onClick={() => {
+            void forceReload('deck-load-timeout').catch((error: unknown) =>
+              setFailure(error instanceof Error ? error.message : String(error)),
+            )
+          }}
+        >
+          Retry
+        </Button>
+      </div>
+    )
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-testid="flight-settling">
       <GhostPreview
@@ -1377,16 +1403,19 @@ export const FlightDeckContent = observer(function FlightDeckContent({
    * width modes (POD-6245): its edge resizes it.
    */
   const columnControls = (
-    <Button
-      variant="ghost"
-      size="icon-sm"
-      className="deck-eyebrow-chevron size-6 flex-none text-text-faint"
-      aria-label="Collapse Flight Deck"
-      title="Collapse Flight Deck"
-      onClick={onCollapse}
-    >
-      <ChevronLeft size={14} aria-hidden="true" />
-    </Button>
+    <>
+      <ScreenRefreshMark refreshing={screen.refreshing} />
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        className="deck-eyebrow-chevron size-6 flex-none text-text-faint"
+        aria-label="Collapse Flight Deck"
+        title="Collapse Flight Deck"
+        onClick={onCollapse}
+      >
+        <ChevronLeft size={14} aria-hidden="true" />
+      </Button>
+    </>
   )
   const fullActions: FlightDeckV6Actions = {
     activeSessionId,

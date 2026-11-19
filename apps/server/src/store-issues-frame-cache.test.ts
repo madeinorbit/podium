@@ -1,10 +1,10 @@
-import { fixtureWriteScope } from '@podium/sync/testing'
 import { asIssueId, firstAdminMemberId } from '@podium/model'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { describe, expect, it } from 'vitest'
 import type { SessionStore } from './store'
-import { type StatementProbeHolder, probeStatements } from './store/executor'
-import type { IssueRow } from './store/types'
+import { probeStatements, type StatementProbeHolder } from './store/executor'
 import { withReadScope } from './store/executor/read-scope'
+import type { IssueRow } from './store/types'
 import { openTestStore } from './test-support/open-test-store'
 
 /**
@@ -40,13 +40,16 @@ import { openTestStore } from './test-support/open-test-store'
  * spelling made this counter read zero and the assertions below fail LOUDLY,
  * which is the right way for a text proxy to break; both spellings are matched
  * so the counter measures the read rather than the era it was written in.
+ * Since POD-6959 the read names its workspace first
+ * (`where ("issues"."workspace_id" = ? and "issues"."id" = ?)`), so the builder
+ * spelling allows other conditions before the id, as the users probe does.
  */
 const readProbe = (store: SessionStore): (() => number) => {
   let reads = 0
   probeStatements(store as unknown as StatementProbeHolder, (observation) => {
     const sql = observation.sql
     const rawById = sql.includes('FROM issues WHERE id')
-    const builderById = sql.includes('from "issues" where "issues"."id"')
+    const builderById = /from "issues" where [^;]*?"issues"\."id" (?:=|in \()/.test(sql)
     if (rawById || builderById) reads += 1
   })
   return () => reads
@@ -95,8 +98,8 @@ const issue = (id: string, over: Partial<IssueRow> = {}): IssueRow =>
     estimateMin: null,
     needsHuman: false,
     humanQuestion: null,
-    createdAt: 't0',
-    updatedAt: 't0',
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
     archived: false,
     ...over,
   }) as IssueRow
@@ -176,7 +179,10 @@ describe('issue scope read cache', () => {
 
       await expect(
         store.transact(async () => {
-          await store.issues.upsertIssue(fixtureWriteScope(), issue('iss_a', { stage: 'in_progress' }))
+          await store.issues.upsertIssue(
+            fixtureWriteScope(),
+            issue('iss_a', { stage: 'in_progress' }),
+          )
           // The read that would fill the cache from inside the transaction.
           expect((await store.issues.getIssue('iss_a'))?.stage).toBe('in_progress')
           throw new Error('rolled back')

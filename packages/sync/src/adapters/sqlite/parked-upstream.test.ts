@@ -17,6 +17,7 @@ import { SyncRepository } from './sync-repository'
 import {
   createTestSyncDatabase,
   createTestSyncQueries,
+  TEST_WORKSPACE_ID,
   testSyncServerTables,
 } from './test-support'
 
@@ -25,16 +26,30 @@ function parkRow(
   mutationId: string,
   proc: string,
   queuedAt: number,
+  queueOrder: number,
 ): void {
   db.prepare(
-    'INSERT INTO upstream_outbox (mutation_id, proc, input, queued_at) VALUES (?, ?, ?, ?)',
-  ).run(mutationId, proc, JSON.stringify({ id: 'iss_1', mutationId }), queuedAt)
+    'INSERT INTO upstream_outbox (workspace_id, mutation_id, proc, input, queued_at, queue_order) VALUES (?, ?, ?, ?, ?, ?)',
+  ).run(
+    TEST_WORKSPACE_ID,
+    mutationId,
+    proc,
+    JSON.stringify({ id: 'iss_1', mutationId }),
+    queuedAt,
+    queueOrder,
+  )
 }
 
 describe('listParkedUpstreamMutations — the archived outbox, read-only', () => {
   it('reports nothing on a database with an empty outbox', async () => {
     const db = createTestSyncDatabase()
-    expect(await new SyncRepository(createTestSyncQueries(db), testSyncServerTables).listParkedUpstreamMutations()).toEqual([])
+    expect(
+      await new SyncRepository(
+        createTestSyncQueries(db),
+        testSyncServerTables,
+        TEST_WORKSPACE_ID,
+      ).listParkedUpstreamMutations(),
+    ).toEqual([])
   })
 
   /**
@@ -42,14 +57,21 @@ describe('listParkedUpstreamMutations — the archived outbox, read-only', () =>
    * returned `[]` unconditionally — a typo'd table name, a WHERE that matches nothing —
    * satisfies the empty case above perfectly, so the empty case alone is not evidence
    * that anything works. Rows are inserted OUT of queue order so FIFO is measured
-   * rather than coincidental with insertion order.
+   * rather than coincidental with insertion order. The order is the `queue_order` the
+   * queue-order migration numbered them with from (queued_at, rowid) (POD-7075).
    */
-  it('returns every parked row, oldest queue time first, with its proc', async () => {
+  it('returns every parked row in queue order, with its proc', async () => {
     const db = createTestSyncDatabase()
-    parkRow(db, 'm-late', 'close', 3_000)
-    parkRow(db, 'm-early', 'update', 1_000)
-    parkRow(db, 'm-mid', 'claim', 2_000)
-    expect(await new SyncRepository(createTestSyncQueries(db), testSyncServerTables).listParkedUpstreamMutations()).toEqual([
+    parkRow(db, 'm-late', 'close', 3_000, 3)
+    parkRow(db, 'm-early', 'update', 1_000, 1)
+    parkRow(db, 'm-mid', 'claim', 2_000, 2)
+    expect(
+      await new SyncRepository(
+        createTestSyncQueries(db),
+        testSyncServerTables,
+        TEST_WORKSPACE_ID,
+      ).listParkedUpstreamMutations(),
+    ).toEqual([
       { mutationId: 'm-early', proc: 'update', queuedAt: 1_000 },
       { mutationId: 'm-mid', proc: 'claim', queuedAt: 2_000 },
       { mutationId: 'm-late', proc: 'close', queuedAt: 3_000 },
@@ -66,7 +88,11 @@ describe('listParkedUpstreamMutations — the archived outbox, read-only', () =>
    * a repository that failed to construct.
    */
   it('exposes a reader and NO writer for the archived table', () => {
-    const repo = new SyncRepository(createTestSyncQueries(), testSyncServerTables)
+    const repo = new SyncRepository(
+      createTestSyncQueries(),
+      testSyncServerTables,
+      TEST_WORKSPACE_ID,
+    )
     const surface = repo as unknown as Record<string, unknown>
     expect(typeof surface.listParkedUpstreamMutations).toBe('function')
     for (const writer of [

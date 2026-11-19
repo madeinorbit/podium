@@ -19,16 +19,21 @@
  * (§2.2b). An unstamped page reports the honest `dev` and never offers anything:
  * a page that cannot say what it is running cannot claim something newer exists.
  *
- * WHY REFRESH IS JUST A RELOAD. `/mobile` ships no service worker: the Expo
- * export registers none, and the desktop app's worker explicitly refuses to
- * answer `/mobile` navigations (`NAVIGATION_FALLBACK_DENYLIST`). The server
- * serves `index.html` as `no-cache` and every asset under a content-hashed
- * name, so a reload IS the swap here — there is no waiting worker to hand over
- * to. If the phone ever gets its own worker, this is the one place that changes.
+ * WHAT REFRESH DOES (POD-7179). `/mobile` has its own precaching service
+ * worker now (`phone-service-worker.ts`), so a reload alone would only reload
+ * the precached old page. Refresh runs the desktop's reload handshake: it
+ * revalidates the worker, hands over to the one that installed the served
+ * build, and reloads once that one controls the page. A page no worker serves
+ * still just reloads: the server serves `index.html` as `no-cache` and every
+ * asset under a content-hashed name.
+ *
+ * The stamp itself is never precached (the worker precaches no JSON), so the
+ * `no-store` read below always reaches the server, or fails offline.
  */
 import { useCallback, useEffect, useState } from 'react'
 import { Platform } from 'react-native'
 import { appVersion } from './logging'
+import { refreshPhoneBuild } from './phone-service-worker'
 
 /** The stamp file the built dist carries, as far as this comparison cares. */
 export interface ServedBuild {
@@ -73,16 +78,10 @@ export async function readServedBuild(
   }
 }
 
-/**
- * Take the refresh. A reload is the whole mechanism here (see the header), so
- * this is one line plus the guard that keeps it out of a native build.
- */
-export function refreshToServedBuild(
-  target: { location: { reload(): void } } | undefined = typeof window === 'undefined'
-    ? undefined
-    : window,
-): void {
-  target?.location.reload()
+/** Take the refresh: the worker handshake on the web (see the header). */
+export function refreshToServedBuild(): void {
+  if (Platform.OS !== 'web' || typeof window === 'undefined') return
+  void refreshPhoneBuild()
 }
 
 export interface ServedBuildRefresh {

@@ -14,24 +14,27 @@
  * invisible forever, and every other assertion about the upsert would pass.
  */
 
-import { asSessionId, asThreadId, firstAdminMemberId } from '@podium/model'
-import { beforeEach, describe, expect, it } from 'vitest'
-import { openMigratedTestDatabase } from '../test-support/migrated-database'
-import { syncQueriesOver } from './executor/sync-drizzle'
-import { SuperagentRepository } from './superagent'
+import { asSessionId, asThreadId, asUserId } from '@podium/model'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { type EventStoreSlice, openEventStoreSlice } from '../test-support/event-store-slice'
+import type { SuperagentRepository } from './superagent'
 
+let store: EventStoreSlice
 let superagent: SuperagentRepository
 
-const OWNER = firstAdminMemberId()
+// An owner of the test's own, not the first admin: the Postgres baseline seeds no
+// member, so the fixture's first admin is not primed on that leg.
+const OWNER = asUserId('user:archive-owner')
 
-/** The owner's listed thread ids, less the first admin's `global` thread the
- *  migration seeds in every migrated database (POD-6675, sync without boot
- *  reconcile). */
+/** The owner's listed thread ids, less any `global` thread (a migrated SQLite
+ *  database seeds the first admin's: POD-6675, sync without boot reconcile). */
 const listed = async () =>
   (await superagent.listSuperagentThreads(OWNER)).map((t) => t.id).filter((id) => id !== 'global')
 
+// On both engines (`openEventStoreSlice`).
 beforeEach(async () => {
-  superagent = new SuperagentRepository(syncQueriesOver(openMigratedTestDatabase()))
+  store = await openEventStoreSlice()
+  superagent = store.superagent
   await superagent.upsertSuperagentThread({
     id: 'thread-1',
     ownerUserId: OWNER,
@@ -40,6 +43,10 @@ beforeEach(async () => {
     title: 'first',
   })
   await superagent.upsertSuperagentThread({ id: 'thread-2', ownerUserId: OWNER, kind: 'global' })
+})
+
+afterEach(async () => {
+  await store.close()
 })
 
 describe('SuperagentRepository.archiveSuperagentThread', () => {

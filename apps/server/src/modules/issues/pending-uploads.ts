@@ -1,30 +1,41 @@
 import { randomUUID } from 'node:crypto'
-import { mkdir, open, readdir, readFile, rename, rm, stat } from 'node:fs/promises'
-import { join, resolve, sep } from 'node:path'
-import type { ArtifactId, IssueId, UserId } from '@podium/model'
-import type { PortableStateWriteFence } from '../server-transfer/portable-fence'
+import { type BlobKey, type BlobStore, joinKey, keySegment } from '@podium/blob-store'
+import type { IssueId, UserId } from '@podium/model'
+import type { PendingUploadRow, PendingUploadsRepository } from '../../store/pending-uploads'
+import { artifactContentType } from './artifact-store'
 
 /**
  * FILES PICKED IN A CHAT OR NEW-TASK COMPOSER, HELD ON THE SERVER UNTIL THE
- * MESSAGE THAT CARRIES THEM IS SENT (POD-2148).
+ * MESSAGE THAT CARRIES THEM IS SENT (POD-2148), on the workspace's blob store
+ * (POD-6963 design 2.5, POD-7055).
  *
  * Picking a file stores it here, owned by the person who picked it, and answers
  * a small ref (`id`, name, type). Nothing touches the agent's machine yet, so a
  * file can be attached for a hibernated agent, or before the new task's session
  * and issue exist. Sending the message (or creating the task) CLAIMS the upload:
- * its bytes are renamed into the issue's artifact store, and the server stages
- * them on the agent's machine when the message is delivered.
+ * its bytes are copied into the issue's artifact store and the source deleted,
+ * and the server stages them on the agent's machine when the message is
+ * delivered.
  *
- * Layout: `<base>/<id>/meta.json` and `<base>/<id>/file/<entry>`. A claim
- * records the issue in the meta before it moves the file, so a claim retried
- * after a crash finishes the same move and a different issue is refused. An
- * upload nobody claimed, and a claimed one's leftover meta, go after a day.
+ * The bytes are one object at `pending-uploads/<id>/file/<entry>`; the record is
+ * a row of `pending_uploads`. A claim records the issue and artifact in the row
+ * before the copy, by a conditional update, so a claim retried after a crash
+ * copies to the same artifact key, two processes claiming one upload agree on
+ * one artifact, and a different issue is refused. An upload nobody claimed, and
+ * a claimed one's row and leftover source, go after a day.
+ *
+ * Blob writes are fenced by the local adapter during a server transfer (design
+ * 2.8); this store does not call the fence.
  */
 
 export const PENDING_UPLOAD_MAX_AGE_MS = 24 * 60 * 60 * 1000
 export const PENDING_UPLOAD_SWEEP_MS = 60 * 60 * 1000
+/** Rows the sweep reads per query. */
+const SWEEP_BATCH = 200
 
-/** Upload ids name directories here and staged files on the agent's machine,
+const PENDING_UPLOADS = 'pending-uploads'
+
+/** Upload ids name blob keys here and staged files on the agent's machine,
  *  which accepts only UUIDs, so nothing else is ever looked up. */
 const UPLOAD_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
@@ -32,21 +43,31 @@ export function isPendingUploadId(id: string): boolean {
   return UPLOAD_ID.test(id)
 }
 
-export interface PendingUploadMeta {
-  id: string
-  ownerUserId: UserId
-  /** The name the person's file had. */
-  filename: string
-  /** The stored file's name: `filename` when that is a plain name. */
-  entry: string
-  mediaType: string
-  size: number
-  createdAt: number
-  /** Set by the first claim, before the file moves. */
-  claimed?: { issueId: IssueId; artifactId: ArtifactId }
+/** One held upload, as its row records it. */
+export type PendingUploadMeta = PendingUploadRow
+
+/** The records this store needs (`PendingUploadsRepository`, structurally). */
+export type PendingUploadRecords = Pick<
+  PendingUploadsRepository,
+  | 'insert'
+  | 'get'
+  | 'claimedBy'
+  | 'claim'
+  | 'unclaim'
+  | 'deleteUnclaimed'
+  | 'delete'
+  | 'createdBefore'
+>
+
+export interface PendingUploadStoreOptions {
+  /** This workspace's user files. */
+  files: BlobStore
+  /** This workspace's `pending_uploads` rows. */
+  records: PendingUploadRecords
+  now?: () => number
 }
 
-function plainFilename(name: string): string {
+export function plainFilename(name: string): string {
   return name &&
     name !== '.' &&
     name !== '..' &&
@@ -57,27 +78,36 @@ function plainFilename(name: string): string {
     : 'attachment'
 }
 
+/** The key of an upload's file. Throws for an entry too long to store as a key segment. */
+export function pendingUploadKey(upload: { id: string; entry: string }): BlobKey {
+  if (!isPendingUploadId(upload.id)) throw new Error('bad upload id')
+  return joinKey(PENDING_UPLOADS, upload.id, 'file', keySegment(upload.entry))
+}
+
+async function bytesOf(body: ReadableStream<Uint8Array>): Promise<Uint8Array> {
+  return new Uint8Array(await new Response(body).arrayBuffer())
+}
+
 export class PendingUploadStore {
-  constructor(
-    private readonly baseDir: string,
-    private readonly writeFence?: PortableStateWriteFence,
-    private readonly now: () => number = () => Date.now(),
-  ) {}
+  private readonly files: BlobStore
+  private readonly records: PendingUploadRecords
+  private readonly now: () => number
 
-  private dir(id: string): string {
-    if (!isPendingUploadId(id)) throw new Error('bad upload id')
-    return join(this.baseDir, id)
+  constructor(options: PendingUploadStoreOptions) {
+    this.files = options.files
+    this.records = options.records
+    this.now = options.now ?? Date.now
   }
 
-  /** Where a claim moves the file from: the dir holding only the file. */
-  fileDir(id: string): string {
-    return join(this.dir(id), 'file')
+  /** Where the upload's bytes are; what a claim copies from and a relinquish back to. */
+  fileKey(upload: { id: string; entry: string }): BlobKey {
+    return pendingUploadKey(upload)
   }
 
-  private async write<T>(writer: () => Promise<T>): Promise<T> {
-    return this.writeFence ? await this.writeFence.runWriter(writer) : await writer()
-  }
-
+  /**
+   * Hold a file: the bytes first, then the row, so a row always names stored
+   * bytes. A name too long to store as a key is refused.
+   */
   async put(input: {
     ownerUserId: UserId
     filename: string
@@ -93,117 +123,99 @@ export class PendingUploadStore {
       size: input.bytes.length,
       createdAt: this.now(),
     }
-    const dir = this.dir(meta.id)
-    const target = join(this.fileDir(meta.id), meta.entry)
-    if (!resolve(target).startsWith(resolve(this.baseDir) + sep))
-      throw new Error('path escapes store')
-    await this.write(async () => {
-      try {
-        await mkdir(this.fileDir(meta.id), { recursive: true })
-        const fh = await open(target, 'w')
-        try {
-          await fh.writeFile(input.bytes)
-          await fh.sync()
-        } finally {
-          await fh.close()
-        }
-        await this.writeMeta(meta)
-      } catch (error) {
-        await rm(dir, { recursive: true, force: true }).catch(() => {})
-        throw error
-      }
-    })
+    let key: BlobKey
+    try {
+      key = this.fileKey(meta)
+    } catch {
+      throw new Error(`the file name ${meta.entry} is too long to store`)
+    }
+    await this.files.put(key, input.bytes, { contentType: artifactContentType(meta.entry) })
+    try {
+      await this.records.insert(meta)
+    } catch (error) {
+      await this.files.delete(key).catch(() => {})
+      throw error
+    }
     return meta
   }
 
   async meta(id: string): Promise<PendingUploadMeta | undefined> {
     if (!isPendingUploadId(id)) return undefined
-    try {
-      return JSON.parse(
-        await readFile(join(this.dir(id), 'meta.json'), 'utf8'),
-      ) as PendingUploadMeta
-    } catch {
-      return undefined
-    }
+    return await this.records.get(id)
   }
 
-  /** Record the claim before the file moves (see the class note). */
-  async markClaimed(id: string, claimed: NonNullable<PendingUploadMeta['claimed']>): Promise<void> {
-    const meta = await this.meta(id)
-    if (!meta) throw new Error(`no pending upload ${id}`)
-    await this.write(async () => await this.writeMeta({ ...meta, claimed }))
+  /** The held bytes; undefined when they are gone (claimed, or swept). */
+  async bytes(upload: { id: string; entry: string }): Promise<Uint8Array | undefined> {
+    const stored = await this.files.get(this.fileKey(upload))
+    return stored === undefined ? undefined : await bytesOf(stored.body)
   }
 
-  /** Every upload whose meta records a claim into this issue. */
+  /**
+   * Record a claim before the file is copied (see the class note), and answer
+   * the claim the row holds afterwards: this one, or the one a concurrent claim
+   * recorded first, which may name another issue. Undefined when the upload is
+   * gone.
+   */
+  async markClaimed(
+    id: string,
+    claimed: NonNullable<PendingUploadMeta['claimed']>,
+  ): Promise<PendingUploadMeta['claimed']> {
+    if (!isPendingUploadId(id)) return undefined
+    if (await this.records.claim(id, claimed.issueId, claimed.artifactId)) return claimed
+    return (await this.records.get(id))?.claimed
+  }
+
+  /** Every upload whose row records a claim into this issue. */
   async claimedBy(issueId: IssueId): Promise<PendingUploadMeta[]> {
-    let names: string[]
-    try {
-      names = await readdir(this.baseDir)
-    } catch {
-      return []
-    }
-    const out: PendingUploadMeta[] = []
-    for (const name of names) {
-      const meta = isPendingUploadId(name) ? await this.meta(name) : undefined
-      if (meta?.claimed?.issueId === issueId) out.push(meta)
-    }
-    return out
+    return await this.records.claimedBy(issueId)
   }
 
-  /** Forget a claim whose file was moved back (a task that failed to launch). */
-  async markUnclaimed(id: string): Promise<void> {
-    const meta = await this.meta(id)
-    if (!meta?.claimed) return
-    const { claimed: _claimed, ...rest } = meta
-    await this.write(async () => await this.writeMeta(rest))
+  /** Forget this issue's claim on a file that was copied back (a task that
+   *  failed to launch). */
+  async markUnclaimed(id: string, issueId: IssueId): Promise<void> {
+    if (!isPendingUploadId(id)) return
+    await this.records.unclaim(id, issueId)
   }
 
   /** Drop an upload the composer no longer carries. A claimed one stays: its
-   *  meta is what refuses a second issue. */
+   *  row is what refuses a second issue. The row goes first, so a claim that
+   *  won the race keeps its source. */
   async discard(id: string, ownerUserId: UserId): Promise<boolean> {
     const meta = await this.meta(id)
     if (!meta || meta.ownerUserId !== ownerUserId || meta.claimed) return false
-    await this.write(async () => await rm(this.dir(id), { recursive: true, force: true }))
+    if (!(await this.records.deleteUnclaimed(id, ownerUserId))) return false
+    await this.files.delete(this.fileKey(meta))
     return true
   }
 
-  /** Delete everything older than `maxAgeMs`. A server-transfer fence skips the
-   *  pass rather than failing it: the next one picks up the rest. */
+  /**
+   * Delete everything older than `maxAgeMs`: the bytes (a claimed upload's
+   * leftover source included), then the row. A failed delete, such as a
+   * server-transfer fence on the local disk, ends the pass rather than failing
+   * it: the next one picks up the rest.
+   */
   async sweep(maxAgeMs = PENDING_UPLOAD_MAX_AGE_MS): Promise<number> {
-    let names: string[]
-    try {
-      names = await readdir(this.baseDir)
-    } catch {
-      return 0
-    }
     const cutoff = this.now() - maxAgeMs
     let removed = 0
-    for (const name of names) {
-      if (!isPendingUploadId(name)) continue
-      const meta = await this.meta(name)
-      const createdAt =
-        meta?.createdAt ?? (await stat(join(this.baseDir, name)).catch(() => undefined))?.mtimeMs
-      if (createdAt === undefined || createdAt > cutoff) continue
-      try {
-        await this.write(async () => await rm(this.dir(name), { recursive: true, force: true }))
-        removed += 1
-      } catch {
-        return removed
+    for (;;) {
+      const batch = await this.records.createdBefore(cutoff, SWEEP_BATCH)
+      for (const upload of batch) {
+        // A row naming no storable key (it was never written) has only itself to go.
+        let key: BlobKey | undefined
+        try {
+          key = this.fileKey(upload)
+        } catch {
+          key = undefined
+        }
+        try {
+          if (key !== undefined) await this.files.delete(key)
+          await this.records.delete(upload.id)
+          removed += 1
+        } catch {
+          return removed
+        }
       }
+      if (batch.length < SWEEP_BATCH) return removed
     }
-    return removed
-  }
-
-  private async writeMeta(meta: PendingUploadMeta): Promise<void> {
-    const path = join(this.dir(meta.id), 'meta.json')
-    const tmp = `${path}.${randomUUID()}.tmp`
-    const fh = await open(tmp, 'w')
-    try {
-      await fh.writeFile(JSON.stringify(meta))
-      await fh.sync()
-    } finally {
-      await fh.close()
-    }
-    await rename(tmp, path)
   }
 }

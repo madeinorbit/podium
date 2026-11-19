@@ -9,6 +9,7 @@ import {
 } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import type { ClientConn } from '../../gateway/client-registry'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import { testClientPrincipal } from '../../test-support/client-principal'
 import { conditionOf } from './live-topics'
 import { Session } from './session'
@@ -50,6 +51,7 @@ function makeClient(id: string): ClientConn & { sent: ServerMessage[] } {
     id,
     principal: testClientPrincipal(id),
     send: (m: ServerMessage) => sent.push(m),
+    workspaceId: SELF_HOSTED_WORKSPACE_ID,
     viewports: new Map(),
     attached: new Set(),
     caps: new Set(),

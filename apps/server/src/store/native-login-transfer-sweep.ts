@@ -6,6 +6,12 @@ const log = createLogger('server:secrets')
 /** The key prefix of the plaintext transfer rows versions before POD-7044 wrote. */
 export const OLD_NATIVE_LOGIN_TRANSFER_PREFIX = 'native-login-transfer:'
 
+/**
+ * Where such a row can be: `server_secrets`, and `workspace_secrets`, where the
+ * workspace split (POD-7013) moved every row of the prefix.
+ */
+const TRANSFER_TABLES = ['workspace_secrets', 'server_secrets'] as const
+
 // LEGACY(remove-after: 2027-05): moves keys stored before the vault into it; removing it ends direct upgrades from versions before 2026-11 and drops the accounts table
 /**
  * Delete the native login transfer rows an older version left in
@@ -24,20 +30,27 @@ export const OLD_NATIVE_LOGIN_TRANSFER_PREFIX = 'native-login-transfer:'
  * anything else is open on the file. Returns how many rows it deleted.
  */
 export function sweepOldNativeLoginTransfers(db: SqlDatabase): number {
-  const { count } = db
-    .prepare('SELECT count(*) AS count FROM server_secrets WHERE substr(key, 1, ?) = ?')
-    .get(OLD_NATIVE_LOGIN_TRANSFER_PREFIX.length, OLD_NATIVE_LOGIN_TRANSFER_PREFIX) as {
-    count: number
+  let count = 0
+  for (const table of TRANSFER_TABLES) {
+    count += (
+      db
+        .prepare(`SELECT count(*) AS count FROM ${table} WHERE substr(key, 1, ?) = ?`)
+        .get(OLD_NATIVE_LOGIN_TRANSFER_PREFIX.length, OLD_NATIVE_LOGIN_TRANSFER_PREFIX) as {
+        count: number
+      }
+    ).count
   }
   if (count === 0) return 0
   const previous = (db.prepare('PRAGMA secure_delete').get() as { secure_delete: number })
     .secure_delete
   db.exec('PRAGMA secure_delete = ON')
   try {
-    db.prepare('DELETE FROM server_secrets WHERE substr(key, 1, ?) = ?').run(
-      OLD_NATIVE_LOGIN_TRANSFER_PREFIX.length,
-      OLD_NATIVE_LOGIN_TRANSFER_PREFIX,
-    )
+    for (const table of TRANSFER_TABLES) {
+      db.prepare(`DELETE FROM ${table} WHERE substr(key, 1, ?) = ?`).run(
+        OLD_NATIVE_LOGIN_TRANSFER_PREFIX.length,
+        OLD_NATIVE_LOGIN_TRANSFER_PREFIX,
+      )
+    }
     const checkpoint = db.prepare('PRAGMA wal_checkpoint(TRUNCATE)').get() as
       | { busy: number }
       | undefined

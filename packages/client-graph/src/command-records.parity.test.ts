@@ -11,7 +11,7 @@ import { LOADING } from './loading'
 
 it('reads the existing licensed command summaries without promoting historical payloads', async () => {
   const ctx = await startScenarioEngine(1)
-  const handle = createRuntimeWorklistPool(ctx.engine, { summaries: COMMAND_SUMMARIES })
+  const handle = createRuntimeWorklistPool(ctx.engine, { })
   let step = 'boot'
   try {
     for (let turn = 0; turn < 32 && handle.pool.hydrate(); turn++) {}

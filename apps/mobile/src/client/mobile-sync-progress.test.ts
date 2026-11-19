@@ -152,3 +152,18 @@ it('resets HTTP counters on every attempt and waits for committed events', () =>
     totalRows: null,
   })
 })
+
+it('a record a screen fetches once the workspace is ready never shows "Refreshing workspace" (POD-7169)', () => {
+  const store = new MobileSyncProgressStore()
+  store.begin('live')
+  expect(store.getSnapshot().phase).toBe('ready')
+  // The mission's tree, fetched on a tap: the screen's loading, not the workspace's.
+  store.noteMeta(9)
+  store.noteReceived(9)
+  expect(store.getSnapshot()).toMatchObject({ phase: 'ready', rowsSeen: 0, totalRows: null })
+  // A sync under way still counts what its transfers bring.
+  store.noteEvent({ type: 'posture', posture: 'healing', previous: 'live' })
+  store.noteMeta(20)
+  store.noteReceived(5)
+  expect(store.getSnapshot()).toMatchObject({ phase: 'downloading', rowsSeen: 5, totalRows: 20 })
+})

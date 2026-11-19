@@ -20,9 +20,6 @@ import { asIssueId, asSessionId } from '@podium/model/browser'
 import { asUserId, type IssueProjection, pinRowId } from '@podium/model'
 import { MobxPool } from '@podium/client-graph/pool'
 import { issuePages } from '@podium/client-graph/issue-page'
-import { menuIssues } from '@podium/client-graph/issue-page-menu.before.test.fixture'
-import { ISSUE_PAGE_SUMMARIES } from '@podium/client-graph/issue-page-schema'
-import { MISSION_SUMMARIES } from '@podium/client-graph/mission-schema'
 import { relationLinks } from '@podium/client-graph/shared/links'
 import {
   checkIssuePages,
@@ -78,10 +75,6 @@ const seat = (
   agentKind: 'codex',
   ...patch,
 })
-const summaries = {
-  issue: [...new Set([...ISSUE_PAGE_SUMMARIES.issue, ...MISSION_SUMMARIES.issue])],
-  session: ISSUE_PAGE_SUMMARIES.session,
-}
 const ME = asUserId('me')
 /** A pinned task's `pin` record, or its removal. */
 const pinRecord = (row: PageInput): RowRecord => {
@@ -116,7 +109,7 @@ function open(issues: PageInput[], seats: SliceSession[] = [], lazy = false) {
   const pool = new MobxPool(
     { selectedIssueId: null, coarseNow: NOW },
     undefined,
-    lazy ? { load, summaries, schedule: () => () => {} } : undefined,
+    lazy ? { load, schedule: () => () => {} } : undefined,
   )
   pools.push(pool)
   pool.apply({
@@ -215,24 +208,6 @@ function open(issues: PageInput[], seats: SliceSession[] = [], lazy = false) {
   }
 }
 
-/**
- * POD-5407: a cold row's declared summary fields that are not rule inputs
- * the cold index holds are read through the one per-row reader (`load`),
- * never kept by the pool. Every read since `from` was such a read: of cold
- * rows only, none of them installed.
- */
-function expectSummaryReadsOnly(
-  ctx: { pool: MobxPool; load: { mock: { calls: unknown[][] } } },
-  from = 0,
-): void {
-  for (const [kind, id] of ctx.load.mock.calls.slice(from) as ['issue' | 'session', string][]) {
-    expect(
-      tracked(() => ctx.pool.tables[kind].has(id)),
-      `${kind}:${id} read as a summary, not installed`,
-    ).toBe(false)
-  }
-}
-
 describe('declared issue page', () => {
   it('compares the stored visibility class in the page parity diagnostic', () => {
     const ctx = open([task('root', { visibility: 'personal' })])
@@ -244,82 +219,6 @@ describe('declared issue page', () => {
     })
   })
 
-  it('reads cold menu fields without computing presence bounds', () => {
-    const ctx = open(
-      Array.from({ length: 1024 }, (_, index) =>
-        task(`cold-${index}`, {
-          seq: index + 1,
-          archived: true,
-          labels: index === 1 ? ['initial'] : [],
-          deps: index === 1 ? [{ id: 'cold-0', type: 'relates' }] : [],
-        }),
-      ),
-      [],
-      true,
-    )
-    const summaryReads = vi.spyOn(ctx.pool.residency!, 'summary')
-    const rowReads = vi.spyOn(ctx.pool, 'row')
-    const snapshots: IssueViewModel[][] = []
-    const stop = reaction(
-      () => ctx.views.issues(),
-      (next) => {
-        if (!next || next === LOADING) throw new Error('Missing cold menu world')
-        snapshots.push(next)
-      },
-      { fireImmediately: true },
-    )
-    try {
-      expect(snapshots[0]).toHaveLength(1024)
-      expect(snapshots[0]?.find((row) => row.id === 'cold-0')?.dependents).toEqual([
-        { id: 'cold-1', type: 'relates' },
-      ])
-      // Count the screen read before apply() calculates its own cold bounds.
-      expect(
-        summaryReads.mock.calls.filter(
-          ([kind, , decorate]) => kind === 'issue' && decorate !== false,
-        ),
-      ).toHaveLength(0)
-      expect(rowReads.mock.calls.filter(([kind]) => kind === 'repo')).toHaveLength(1)
-      ctx.patch(
-        'issue',
-        'cold-1',
-        task('cold-1', {
-          seq: 2,
-          archived: true,
-          labels: ['changed'],
-          deps: [{ id: 'cold-2', type: 'custom' }],
-        }),
-      )
-      expect(snapshots).toHaveLength(2)
-      expect(snapshots[1]?.find((row) => row.id === 'cold-1')?.labels).toEqual(['changed'])
-      expect(snapshots[1]?.find((row) => row.id === 'cold-0')?.dependents).toEqual([])
-      expect(snapshots[1]?.find((row) => row.id === 'cold-2')?.dependents).toEqual([
-        { id: 'cold-1', type: 'custom' },
-      ])
-      ctx.pool.apply({
-        type: 'update',
-        rows: [
-          {
-            kind: 'worktree',
-            id: '/synthetic',
-            value: {
-              path: '/synthetic',
-              repoId: 'R',
-              repoName: 'Synthetic',
-              repoPath: '/synthetic',
-              prefix: 'NEW',
-            },
-          },
-        ],
-      })
-      expect(snapshots).toHaveLength(3)
-      expect(snapshots[2]?.every((row) => row.prefix === 'NEW')).toBe(true)
-      expectSummaryReadsOnly(ctx)
-      expect(tracked(() => omitGone(ctx.pool.row('issue', 'cold-0', 'mark')))).toBe(LOADING)
-    } finally {
-      stop()
-    }
-  })
   it('keeps the menu world quiet for body edits and reactive to labels and inverse edge changes', () => {
     const ctx = open([task('root'), task('other')])
     const snapshots: IssueViewModel[][] = []
@@ -434,7 +333,7 @@ describe('declared issue page', () => {
     expect(tracked(() => ctx.views.summary('root'))).toMatchObject({ ready: true, deferred: false })
     expect(ctx.check()).toMatchObject({ differences: 0 })
   })
-  it.each([false, true])('summary and shared model agree on deferral (cold=%s)', cold => {
+  it.each([false, true])('summary and shared model agree on deferral (archived=%s)', cold => {
     const deadline = NOW + 1000
     const ctx = open([
       task('next-message', { archived: cold, deferUntil: 'next-message' }),
@@ -466,11 +365,6 @@ describe('declared issue page', () => {
     expectAgreement('none', false)
     ctx.patch('issue', 'next-message', task('next-message', { archived: cold, deferUntil: null }))
     expectAgreement('next-message', false)
-    if (cold) {
-      expectSummaryReadsOnly(ctx)
-      for (const id of ['next-message', 'dated', 'none'])
-        expect(tracked(() => omitGone(ctx.pool.row('issue', id, 'mark')))).toBe(LOADING)
-    }
   })
   it('preserves the legacy answer for non-date defers without registering an invalid deadline', () => {
     // `next-message` is a recognized defer sentinel, not an invalid date.
@@ -671,72 +565,6 @@ describe('declared issue page', () => {
       const actual = tracked(() => ctx.views.destination(id))
       expect(actual && actual !== LOADING ? actual.id : null).toBe(expected?.id ?? null)
     }
-  })
-
-  it('loads issue identity before demanding its raw member fields', () => {
-    const ctx = open(
-      [task('arch', { archived: true })],
-      [seat('old', 'arch', { archived: true, status: 'exited' })],
-      true,
-    )
-    expect(tracked(() => ctx.views.issue('arch'))).toBe(LOADING)
-    expect(ctx.load).not.toHaveBeenCalled()
-    expect(ctx.pool.hydrate()).toBe(1)
-    expect(tracked(() => ctx.views.issue('arch'))).toMatchObject({ id: 'arch' })
-    expect(tracked(() => ctx.views.row('arch').memberSessions)).toBe(LOADING)
-    expect(ctx.pool.hydrate()).toBe(1)
-    expect(tracked(() => poolIssuePageFields(ctx.pool, 'arch'))).toMatchObject({ sessionSummary: { total: 1 } })
-  })
-
-  it('uses cold summaries for menus and batches page payload loads without peek', () => {
-    const ctx = open(
-      [
-        task('arch', { archived: true, deps: [{ id: 'cold', type: 'custom' }] }),
-        task('cold', { archived: true, parentId: 'arch' }),
-        task('cold-2', { archived: true, parentId: 'arch' }),
-        task('remote', { archived: true }),
-      ],
-      [
-        seat('old', 'arch', { archived: true, status: 'exited' }),
-        seat('old-child', 'cold-2', { archived: true, status: 'exited' }),
-        seat('born-a', 'remote', { refIssueId: 'arch', archived: true, status: 'exited' }),
-        seat('born-b', 'remote', { refIssueId: 'arch', archived: true, status: 'exited' }),
-      ],
-      true,
-    )
-    const read = vi.spyOn(ctx.pool, 'row'),
-      before = ctx.load.mock.calls.length
-    expect(tracked(() => omitGone(ctx.pool.row('session', 'born-a', 'mark')))).toBe(LOADING)
-    expect(tracked(() => omitGone(ctx.pool.row('session', 'born-a', 'summary')))).toMatchObject({
-      refIssueId: 'arch',
-    })
-    expect(tracked(() => [...ctx.pool.graph.many('issue', 'arch', 'bornSessions')])).toEqual([
-      'born-a',
-      'born-b',
-    ])
-    expect(tracked(() => menuIssues(ctx.pool))).not.toBe(LOADING)
-    expectSummaryReadsOnly(ctx, before)
-    expect(tracked(() => ctx.views.issue('arch'))).toBe(LOADING)
-    expect(tracked(() => ctx.views.panelIssue({ issueId: 'arch', cwd: '/synthetic' }))).toBe(
-      LOADING,
-    )
-    expectSummaryReadsOnly(ctx, before)
-    expect(ctx.pool.hydrate()).toBe(1)
-    const page = tracked(() => ctx.views.issue('arch'))
-    expect(page && page !== LOADING ? page.id : null).toBe('arch')
-    expect(ctx.check()).toMatchObject({ differences: 0 })
-    ctx.pool.hydrate()
-    expect(ctx.check()).toMatchObject({ differences: 0, pending: 0 })
-    expect(read.mock.calls.some((call) => String(call[2]) === 'peek')).toBe(false)
-    // POD-5407: a row is read at most twice: once for its declared summary
-    // (the one reader, never installed) and once when the window installs it.
-    const reads = new Map<string, number>()
-    for (const call of ctx.load.mock.calls.slice(before))
-      reads.set(`${call[0]}:${call[1]}`, (reads.get(`${call[0]}:${call[1]}`) ?? 0) + 1)
-    expect(
-      [...reads.values()].every((count) => count <= 2),
-      JSON.stringify([...reads]),
-    ).toBe(true)
   })
 
   it('updates markers, fields, raw membership and relations without stale derived values', () => {

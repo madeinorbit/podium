@@ -318,6 +318,7 @@ const IssueContent = observer(function IssueContent({
   return (
     <Screen
       title={issueDisplayRef(issue)}
+      refreshing={detail?.refreshing ?? false}
       // The desktop header's breadcrumb, at phone width: repo, then the parent's
       // ref when there is one. A nested task whose only mention of its parent
       // was inside a collapsed fold read as top-level work — the same confusion

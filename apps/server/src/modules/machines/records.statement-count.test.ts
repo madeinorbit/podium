@@ -92,18 +92,32 @@ async function fixture(size: number): Promise<Fixture> {
   return { o, machine, scan }
 }
 
+/**
+ * The operation's own delivery passes run inside the count, whole (POD-7068).
+ * They trail its commit and are not awaited by the write, so a window that
+ * ended when the write returned held as many of their reads as had started by
+ * then, a number that moved with every await on the write's return path.
+ */
+async function delivered<T>(f: Fixture, result: T): Promise<T> {
+  await f.o.reg.changeLedger.authority.settled()
+  return result
+}
+
 const rename: StatementPin<Fixture> = {
   name: 'records.machine.edit (rename)',
   setup: fixture,
   target: (f) => f.o.store,
   run: async (f) =>
-    appliedReply(
-      await submit(
-        f.o,
-        envelope(
-          'records.machine.edit',
-          { id: f.machine, patch: { name: `renamed-${++seq}` } },
-          asMutationId(`rename-${seq}`),
+    await delivered(
+      f,
+      appliedReply(
+        await submit(
+          f.o,
+          envelope(
+            'records.machine.edit',
+            { id: f.machine, patch: { name: `renamed-${++seq}` } },
+            asMutationId(`rename-${seq}`),
+          ),
         ),
       ),
     ),
@@ -117,7 +131,7 @@ const republish: StatementPin<Fixture> = {
   run: async (f) => {
     // The repository source write carries the record comparison.
     await f.o.store.machines.renameMachine(f.machine, `direct-${++seq}`)
-    return f.machine
+    return await delivered(f, f.machine)
   },
 }
 
@@ -125,7 +139,7 @@ const unchangedScan: StatementPin<Fixture> = {
   name: 'checkouts.rescan (nothing moved)',
   setup: fixture,
   target: (f) => f.o.store,
-  run: async (f) => await f.o.reg.modules.checkouts.rescan(f.machine),
+  run: async (f) => await delivered(f, await f.o.reg.modules.checkouts.rescan(f.machine)),
 }
 
 const grantWrite: StatementPin<Fixture> = {
@@ -146,6 +160,7 @@ const grantWrite: StatementPin<Fixture> = {
       actorId: actor,
       onBehalfOf: actor,
     })
+    await delivered(f, undefined)
   },
 }
 
@@ -164,7 +179,8 @@ const memberRole: StatementPin<Fixture> = {
       byQuery,
     }
   },
-  run: async (f) => await memberFacts(f.o.store).setRole(asUserId('user:member-0'), 'admin'),
+  run: async (f) =>
+    await delivered(f, await memberFacts(f.o.store).setRole(asUserId('user:member-0'), 'admin')),
 }
 
 // Keep the reach writes visible while POD-6771 separately batches change_latest.
@@ -204,7 +220,7 @@ const oneNewWorktree: StatementPin<Fixture> = {
   run: async (f) => {
     const repo = f.scan.repositories[0]!
     repo.worktrees = [...repo.worktrees, { path: `/home/u/.worktrees/new-${++seq}`, branch: 'new' }]
-    return await f.o.reg.modules.checkouts.rescan(f.machine)
+    return await delivered(f, await f.o.reg.modules.checkouts.rescan(f.machine))
   },
 }
 
@@ -218,7 +234,9 @@ describe('statement counts of the machine record writes', () => {
 
   it('the server rewriting one machine’s records does not grow with the members or the fleet', async () => {
     // POD-6920: derived change capture (no build before the write; one drain after it): stored machine rename (every member) 16 -> 9.
-    await expectConstantStatements(republish, 9)
+    // POD-7068: its delivery is counted whole; the window had ended before the
+    // delivery's folder-owner (issues) and grant_audiences reads: 9 -> 11.
+    await expectConstantStatements(republish, 11)
   })
 
   it('a grant write does not grow with the members or the fleet', async () => {
@@ -227,13 +245,18 @@ describe('statement counts of the machine record writes', () => {
     // POD-6920: derived change capture (no build before the write; one drain after it): machine grant source write 24 -> 21.
     // A share is not the custody edge, so it reaches the access rows and not the machine record: 21 -> 18.
     // POD-6934: the setup's own deliveries now run before the count (they had spilled into it): 18 -> 16.
-    await expectConstantStatements(grantWrite, 16)
+    // POD-7068: its delivery is counted whole; the window had ended before the
+    // delivery's checkouts read and the second checkout_lost and checkout_reach reads: 16 -> 19.
+    await expectConstantStatements(grantWrite, 19)
   })
 
   it('a member role comparison reads a fixed number of times across the fleet', async () => {
     // POD-6920: derived change capture (no build before the write; one drain after it): member role comparison reads (every machine) 12 -> 11.
     // POD-6934: the role change is applied through dev/mw's membership writer: 11 -> 12.
-    await expectConstantStatements(memberRole, 12)
+    // POD-7068: its delivery is counted whole; the window had ended before the
+    // delivery's admins, grants and three checkouts reads and the second
+    // checkout_lost and checkout_reach reads: 12 -> 19.
+    await expectConstantStatements(memberRole, 19)
   })
 
   it('a member role change batches checkout_reach writes at 5 and 200 machines', async () => {
@@ -267,7 +290,13 @@ describe('statement counts of the machine record writes', () => {
     // place of one read of the stored copy (6 -> 7).
     // POD-6920: derived change capture (no build before the write; one drain after it): checkouts.rescan (one new worktree) 7 -> 8.
     // POD-6934: the setup's own deliveries now run before the count (they had spilled into it): 8 -> 7.
-    await expectConstantStatements(oneNewWorktree, 7)
+    // POD-7068: the run now holds its delivery whole: 7 -> 9, the 7 for the
+    // rescan plus its delivery's reads of the machine's grants (the checkout
+    // record's visibility) and of the machine's checkouts. The 7 was a timing
+    // artefact from before the store split: the delivery is not awaited by the
+    // write, its grants read started one microtask after the window closed, and
+    // the split's extra await on the transaction's return moved it inside (8).
+    await expectConstantStatements(oneNewWorktree, 9)
   })
 })
 

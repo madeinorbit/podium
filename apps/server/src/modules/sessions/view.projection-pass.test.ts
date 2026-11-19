@@ -2,7 +2,6 @@ import { asIssueId, asMachineId, asSessionId, asUserId } from '@podium/model'
 import { formatSessionRef } from '@podium/protocol'
 import { fixtureWriteScope } from '@podium/sync/testing'
 import { afterAll, describe, expect, it, vi } from 'vitest'
-import { memberFacts } from '../../store/fixtures/test-support'
 
 // Resolve profiling before importing the store/driver instrumentation.
 const previousProfile = vi.hoisted(() => {
@@ -18,6 +17,7 @@ afterAll(() => {
 import { queryAttributionSnapshot, resetQueryAttribution } from '@podium/runtime/sqlite'
 import { systemPrincipal } from '../../command-principal'
 import { harnessCapabilitiesFor } from '../../harness-manifest'
+import { memberFacts } from '../../store/fixtures/test-support'
 import { openTestStore } from '../../test-support/open-test-store'
 import { residentRecords } from '../../test-support/session-records'
 import { expectConstantStatements, type StatementPin } from '../../test-support/statement-count'
@@ -67,8 +67,8 @@ async function fixture(count: number) {
     blockedBy: [],
     dependencyNote: null,
     prUrl: null,
-    createdAt: 't',
-    updatedAt: 't',
+    createdAt: '2026-09-11T00:00:00.000Z',
+    updatedAt: '2026-09-11T00:00:00.000Z',
     archived: false,
     priority: 2,
     type: 'task',
@@ -255,25 +255,22 @@ describe('one projection pass', () => {
       // owner, issue owner (different from session owner), and unrelated reader.
       // Account status and actor kind are admission concerns: this API consumes
       // an admitted principal and historically consults neither user rows nor roles.
-      await memberFacts(f.store).create(
-        {
-          id: reader,
-          displayName: 'Reader',
-          role: 'member',
-          createdAt: '2026-09-10T00:00:00.000Z',
-          disabledAt: null,
-        },
-        'test-only',
-      )
+      // The reader's member row, through the two-engine member fixture (the one member
+      // writer underneath): active, later disabled.
+      const members = memberFacts(f.store)
+      await members.create({
+        id: reader,
+        displayName: 'Reader',
+        role: 'member',
+        createdAt: '2026-09-10T00:00:00.000Z',
+        disabledAt: null,
+      })
       expect(await f.store.users.get(reader)).toBeDefined()
       expect(
         await Promise.all(f.rows.map((s) => f.state.canReadSession(principal, s.sessionId))),
       ).toEqual([true, true, true, true, false])
-      // Test-only revocation: no user lifecycle write API exists yet.
-      // @ts-expect-error test-only access to the private database connection
-      await f.store.db
-        .prepare('UPDATE users SET disabled_at = ? WHERE id = ?')
-        .run('2026-09-11T00:00:00.000Z', reader)
+      await members.disable(reader)
+      expect(await f.store.users.get(reader)).toBeUndefined()
       // A previously admitted principal keeps this method's historical outcome.
       // The transport admission layer, not this visibility method, rejects it.
       expect(

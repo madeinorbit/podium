@@ -36,6 +36,12 @@ export type {
   CursorParts,
 } from './store/cursor-codec.js'
 export {
+  fileByteSource,
+} from './store/byte-source.js'
+export type {
+  ByteSource,
+} from './store/byte-source.js'
+export {
   fileIdFor,
 } from './store/file-chain.js'
 export type {

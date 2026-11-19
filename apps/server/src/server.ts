@@ -35,6 +35,7 @@ import {
   resolveConnectBaseUrl,
   resolveConnectProbeKeys,
   resolveDevArtifactOrigin,
+  resolveFileStorage,
   resolveInstanceId,
   resolveMode,
   resolveProfileOnStall,
@@ -100,8 +101,9 @@ import { captureServerBuildVersion, serverBuildSourceDigest } from './build-vers
 import { createCloudRuntimeProviderFromEnv } from './cloud-runtime'
 import { userCommandPrincipal } from './command-principal'
 import { controlSocketHandler } from './control-socket'
-import { registerArtifactRoute } from './file-artifact-route'
+import { registerArtifactRoute, selfHostedArtifacts } from './file-artifact-route'
 import { registerAssetRoute } from './file-asset-route'
+import { createServerFileStorage } from './file-storage'
 import { adoptStagedFirstAdminPassword, applyEnvFirstAdminPassword } from './first-admin-password'
 import { daemonLinkFactsOf, IN_PROCESS_DAEMON_LINK } from './gateway/daemon-link-kind'
 import {
@@ -135,6 +137,11 @@ import { registerLocateProofRoute } from './locate-proof-route'
 import { registerMcpRoute } from './mcp-route'
 import { memberLinks } from './member-links'
 import { registerMemberRoutes } from './member-routes'
+import {
+  convertArtifactKeys,
+  convertPendingUploadRecords,
+} from './migrations/artifact-key-conversion'
+import { convertLakeToParts } from './migrations/lake-parts-conversion'
 import { registerMobilePairingRoutes } from './mobile-pairing-route'
 import { connectClient } from './modules/connect/client'
 import { ConnectPublisher } from './modules/connect/publisher'
@@ -171,10 +178,7 @@ import { startLocalUpdateParticipant } from './modules/updates/local-participant
 import type { UpdateReality } from './modules/updates/operation'
 import type { ChannelFeed } from './modules/updates/release-target'
 import type { ServerPlacement } from './modules/updates/service'
-import {
-  readOrCreateDevArtifactToken,
-  readOrCreateUpdateSigningKey,
-} from './modules/updates/signing-key'
+import { readOrCreateDevArtifactToken } from './modules/updates/signing-key'
 import { createSourceRedeployRequest } from './modules/updates/source-redeploy'
 import {
   refreshTargetsOnBoot,
@@ -198,6 +202,7 @@ import { clientAddressForRequest } from './request-scheme'
 import { compressHttpResponse } from './response-compression'
 import { resolveServerRole, type ServerRoleConfig } from './roles'
 import { appRouter } from './router'
+import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
 import { createServerReadiness } from './server-readiness'
 import { adoptLegacyHostMachine, completePreauthorizedSetup } from './setup-enrollment'
 import { registerSetupRoute } from './setup-route'
@@ -205,7 +210,7 @@ import { closeServerFast } from './shutdown'
 import { createSignInCarryOver, type SignInCarryOver } from './sign-in-carry-over'
 import { registerSignInRoutes } from './sign-in-routes'
 import { registerDesktopWebStatic, registerMobileRouting, registerWebStatic } from './static-web'
-import { defaultDbPath, SessionStore } from './store'
+import { StoreDatabase, storeLocation, storeMigratesAtBoot } from './store'
 import { syncFeedPrincipal } from './sync/route-support'
 import { registerSyncRoutes } from './sync/routes'
 import type { SyncWorkerClient } from './sync-worker/worker-client'
@@ -705,9 +710,58 @@ export async function startServer(
   if (!recoveryOnly) assertWritableServerBoot(stateDir())
   const portableStateFence = new PortableStateFence()
   if (recoveryOnly) await portableStateFence.acquire()
-  const store = await SessionStore.open(undefined, asMachineId(hostMachineId), {
-    queryOnly: recoveryOnly,
+  // WHERE USER FILES LIVE (POD-6963 design 2.8): the state directory or one
+  // bucket, resolved once from PODIUM_FILE_STORAGE_* → config.fileStorage. A
+  // misconfigured bucket fails the boot here, before anything listens. Each
+  // workspace's service graph takes its own handle (`forWorkspace`) below.
+  const fileStorage = createServerFileStorage(resolveFileStorage(config, process.env), {
+    stateDir: stateDir(),
+    fence: portableStateFence,
   })
+  if (!recoveryOnly) {
+    const removed = await fileStorage.removeLeftoverTempFiles()
+    if (removed > 0) log.info('removed temp files left by interrupted file writes', { removed })
+  }
+  // One database, and this install's one workspace over it (POD-7010). Its
+  // location names its engine (POD-6994): the state directory's SQLite file, or
+  // the Postgres database PODIUM_DATABASE_URL names. The sync worker and the
+  // janitor open their read sessions on the same location.
+  const databaseLocation = storeLocation(process.env, config)
+  const database = await StoreDatabase.open(databaseLocation, asMachineId(hostMachineId), {
+    queryOnly: recoveryOnly,
+    bootWorkspace: SELF_HOSTED_WORKSPACE_ID,
+    migrateAtBoot: storeMigratesAtBoot(),
+  })
+  const store = await database.workspace(SELF_HOSTED_WORKSPACE_ID)
+  // Artifacts stored before the blob store under names that are not key segments move to
+  // their encoded keys, once, before anything serves them (POD-7054).
+  if (!recoveryOnly && fileStorage.backend === 'local') {
+    await convertArtifactKeys({ stateDir: stateDir(), log, fence: portableStateFence })
+    // Composer uploads kept their records in meta.json files; those become rows (POD-7055).
+    await convertPendingUploadRecords({
+      stateDir: stateDir(),
+      records: store.pendingUploads,
+      log,
+      fence: portableStateFence,
+    })
+  }
+  const workspaceFiles = fileStorage.storage.forWorkspace(SELF_HOSTED_WORKSPACE_ID)
+  // A lake mirrored before the parted lake kept one file per segment incarnation;
+  // split those into parts, once, before the mirror (built with the registry
+  // below) writes any (POD-6963 design 2.3.1). Blocking: it takes as long as it
+  // takes, and a failed run leaves its marker unwritten so the next boot resumes.
+  if (!recoveryOnly) {
+    await convertLakeToParts({
+      stateDir: stateDir(),
+      rows: store.conversations.mirror,
+      blobs: workspaceFiles,
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
+      log,
+      fence: portableStateFence,
+      // Parts on a bucket take no local disk, so there is nothing to preflight.
+      ...(fileStorage.backend === 'local' ? {} : { freeBytes: undefined }),
+    })
+  }
   // The installation identity follows server authority across transfers.
   const installation = await store.secrets.installationIdentity()
   const installationPublicKey = installationPublicKeyWire(installation)
@@ -731,7 +785,8 @@ export async function startServer(
     log: createLogger('server:connect'),
     baseUrl: resolveConnectBaseUrl(config, process.env),
   })
-  const updateSigningKey = readOrCreateUpdateSigningKey(stateDir(), {
+  // In the store's server_secrets, read through its lifecycle port (POD-6994).
+  const updateSigningKey = await database.updateSigningKey({
     allowCreate: !recoveryOnly && (await store.machines.listMachines()).length === 0,
   })
   const activeServerMove = (await store.operations.active()).find(
@@ -786,9 +841,6 @@ export async function startServer(
         process.env,
       )) === 'on'
 
-  // The transcript lake lives in the state dir next to podium.db (transcript-mirror
-  // spec §2.1). Passing the dir opts the registry into mirroring; tests that construct
-  // SessionRegistry without it produce no mirror traffic.
   /**
    * LATE-BOUND, because the two halves are constructed in this order and cannot
    * be reordered: the updates service (inside the registry) owns the resolver,
@@ -827,7 +879,13 @@ export async function startServer(
     // TranscriptLake already supports — the mirror and the indexer are simply
     // never constructed. Spread rather than `undefined` so its absence keeps
     // meaning exactly what it means for every test that omits it today.
-    ...(lakeEnabled ? { mirrorLakeDir: join(stateDir(), 'transcripts') } : {}),
+    // The lake keeps its parts in this workspace's files (transcript-mirror
+    // spec §2.1, POD-6963 design 2.3): `<state>/transcripts` on local disk, the
+    // workspace's prefix on a bucket.
+    ...(lakeEnabled
+      ? { transcriptLake: { blobs: workspaceFiles, workspaceId: SELF_HOSTED_WORKSPACE_ID } }
+      : {}),
+    files: workspaceFiles,
     portableStateFence,
     // Inbound daemon pairing is a HUB capability, injected here (the composition
     // root) so core (relay/machines) never imports hub/pairing — see roles.ts.
@@ -1796,6 +1854,8 @@ export async function startServer(
   // The admin area's viewer, Access and Audit reads (POD-6299).
   registerAdminRoutes(app, {
     users: store.users,
+    settings: store.settings,
+    sessions: store.sessions,
     identity: identity.workspace,
     audit: store.settingsAudit,
     machineNames: async (ids) =>
@@ -1856,7 +1916,7 @@ export async function startServer(
       )) !== undefined,
   })
   // Permanent artifact snapshots ([spec:SP-0fc9] #441) — server-local, no daemon hop.
-  registerArtifactRoute(app, registry.modules.issueArtifacts)
+  registerArtifactRoute(app, selfHostedArtifacts(registry.modules.issueArtifacts))
   // In-process MCP server exposing the superagent's orchestrator tools to a
   // harness-backed superagent (Claude via --mcp-config). Token-gated.
   // One `podium` MCP surface composes the superagent's tools (first, so they win
@@ -2041,6 +2101,8 @@ export async function startServer(
       basePath: '/mobile',
       lazy: true,
       crossOriginIsolated: true,
+      // The phone's worker controls `/mobile` itself, for an offline reload (POD-7179).
+      serviceWorkerScope: '/mobile',
     })
   }
 
@@ -2191,7 +2253,7 @@ export async function startServer(
       if (!opts.janitorWorkerForTests && !janitorHostClosing) {
         const { SyncWorkerClient } = await import('./sync-worker/worker-client')
         syncWorker = new SyncWorkerClient({
-          dbPath: defaultDbPath(),
+          dbPath: databaseLocation,
           // The worker builds effect records from the table and holds no
           // executor: it is told which kinds this server serves (POD-6770).
           effectKinds: () => registry.modules.effects?.executors.kinds() ?? [],
@@ -2201,6 +2263,7 @@ export async function startServer(
       const startedJanitorHost = await startJanitorHost({
         port: boundPort,
         token: maintenanceToken,
+        dbPath: databaseLocation,
         ...(opts.janitorWorkerForTests ? { start: opts.janitorWorkerForTests } : {}),
       })
       if (janitorHostClosing) {

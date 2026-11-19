@@ -19,6 +19,7 @@
 import { asMachineId, firstAdminMemberId, type IssueId, type UserId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { userCommandPrincipal } from './command-principal'
+import type { ControlSend } from './gateway/daemon-ports'
 import { FEED_WINDOW } from './modules/issue-events/feed'
 import { SuperagentService } from './modules/superagent'
 import { SessionRegistry } from './relay'
@@ -28,6 +29,8 @@ import type { SessionStore } from './store'
 import { OPERATOR } from './test-support/capabilities'
 import { attachHostDaemon } from './test-support/host-daemon'
 import { openTestStore } from './test-support/open-test-store'
+import { testStoreEngine } from './test-support/pg-test-database'
+import { expectConstantRoundTrips } from './test-support/round-trip-count'
 import {
   expectArmed,
   expectConstantStatements,
@@ -53,10 +56,27 @@ async function settle(reg: SessionRegistry): Promise<void> {
 }
 
 /** `size` running sessions, `size` issues and `size` other machines (offline). */
+/**
+ * A fake daemon that answers the connect scan as a real one does: each root it was asked
+ * about is a repository. Unanswered, the scan waits out its 10 s timeout and writes the
+ * root's checkout then, inside the measured run once the 200-row fixture takes longer.
+ */
+function answeringRepoScans(reg: SessionRegistry): ControlSend {
+  return (message) => {
+    if (message.type !== 'scanReposRequest') return
+    void reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'scanReposResult',
+      requestId: message.requestId,
+      repositories: message.roots.map((path) => ({ path, kind: 'repository', worktrees: [] })),
+      diagnostics: [],
+    })
+  }
+}
+
 async function fixture(size: number): Promise<Fixture> {
   const store = await openTestStore(':memory:')
   const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
-  await attachHostDaemon(reg, () => {}, { repos: ['/repo'] })
+  await attachHostDaemon(reg, answeringRepoScans(reg), { repos: ['/repo'] })
   await quietShipping(reg)
   const owner = firstAdminMemberId()
   for (let i = 0; i < size; i++) {
@@ -192,6 +212,14 @@ describe('session create: pinned statement counts at 5 and 200', () => {
     await expectArmed(draft, 41, plantPerSession)
   })
 
+  // ROUND TRIPS ON HOSTED POSTGRES [POD-6992, POD-6958 design 2.11]: the driver calls that
+  // wait for the server, counted by the Postgres driver's pipelining (BEGIN with the first
+  // statement or with the workspace lock, one per statement, one per COMMIT). About 2.6 ms
+  // each on hosted Postgres; docs/measurements/pod-6958-hosted-round-trips.md.
+  it('in process, a draft session in a repo: round trips', async () => {
+    await expectConstantRoundTrips(draft, 49)
+  }, 60_000)
+
   it('in process, a session on an issue', async () => {
     await expectConstantStatements(
       pin(
@@ -213,12 +241,30 @@ describe('session create: pinned statement counts at 5 and 200', () => {
     async (f) => await f.call.sessions.create({ agentKind: 'codex', cwd: '/repo/new' }),
   )
 
-  it('over tRPC', async () => {
+  // SQLite only (POD-6994): on Postgres the feed publications that follow the create's seven
+  // commits are coalesced per microtask, so how many there are depends on I/O timing (a
+  // commit that lands alone is published alone). Their retention-floor and record reads
+  // vary from run to run: 106 to 110 statements and 144 to 146 round trips seen, at either
+  // size. On SQLite the commits coalesce the same way every run, and the round-trip pin
+  // there is the Postgres driver's model of the same calls.
+  const onSqliteFeedTiming = it.runIf(testStoreEngine() !== 'pg')
+
+  onSqliteFeedTiming('over tRPC', async () => {
     // POD-6920: derived change capture (no build before the write; one drain after it): tRPC sessions.create 103 -> 106.
     await expectConstantStatements(trpc, 106)
   })
 
-  it('tRPC pin is armed', async () => {
+  onSqliteFeedTiming('tRPC pin is armed', async () => {
     await expectArmed(trpc, 106, plantPerSession)
   })
+
+  onSqliteFeedTiming(
+    'over tRPC: round trips (POD-6992)',
+    async () => {
+      // The session's activity publication runs on a timer the create starts; at 200 rows
+      // the create outlasts its delay, and its root read lands inside the window.
+      await expectConstantRoundTrips(trpc, 144, undefined, /idx_sessions_pending_activity/)
+    },
+    60_000,
+  )
 })

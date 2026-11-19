@@ -95,10 +95,19 @@ export class SyncProgressStore {
       failure: null,
     })
   }
+  /**
+   * POD-7169: a transfer's meta and rows add to a sync under way (the first
+   * download, a reload, a heal, a resumed load) and never start one. A record
+   * a screen fetched once the workspace was ready is that screen's loading;
+   * read as the workspace's, it showed "Refreshing workspace" with nothing
+   * left to end it.
+   */
   noteMeta(totalRows: number | undefined): void {
+    if (this.snapshot.phase === 'ready') return
     this.publish({ phase: 'downloading', totalRows: totalRows ?? null })
   }
   noteReceived(rows: number, bytes = 0): void {
+    if (this.snapshot.phase === 'ready') return
     this.publish({
       phase: 'downloading',
       rowsSeen: this.snapshot.rowsSeen + rows,
@@ -159,7 +168,10 @@ export class SyncProgressStore {
     })
   }
   noteEvent(event: ReplicaEvent): void {
-    if (event.type === 'bootstrap-installed') this.noteInstalled(event.entityCount)
+    // POD-7122: the device opens when the load is in memory; its durable commit
+    // (`bootstrap-installed`) follows without a splash.
+    if (event.type === 'load-installed') this.noteInstalled()
+    else if (event.type === 'bootstrap-installed') this.noteInstalled(event.entityCount)
     else if (event.type === 'heal-progress')
       this.noteCommitted(event.framesCommitted, event.seq, event.targetSeq, event.fromSeq)
     else if (event.type === 'bootstrap-failed') {

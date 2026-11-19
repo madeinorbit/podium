@@ -1,8 +1,17 @@
 import { parseSyncRecord, validateFeedFrame, CLIENT_WIRE_VERSION, type SyncComplete, type SyncMeta, type SyncRecordLenient } from '@podium/protocol'
 import { SyncCancelledError, SyncCorruptContentError, SyncFormatError, SyncNetworkError, SyncStreamFailed } from './errors'
 
-/** The consumer vocabulary retains unknown entity kinds, as the feed parser does. */
-export async function* readSyncStream(lines: AsyncIterable<string>): AsyncGenerator<SyncRecordLenient> {
+/**
+ * The consumer vocabulary retains unknown entity kinds, as the feed parser does.
+ *
+ * A collection answer (`POST /sync/collections`, POD-7085) is a snapshot with
+ * no final `last: true` chunk; pass `finalChunk: false` for it.
+ */
+export async function* readSyncStream(
+  lines: AsyncIterable<string>,
+  options: { readonly finalChunk?: boolean } = {},
+): AsyncGenerator<SyncRecordLenient> {
+  const finalChunk = options.finalChunk ?? true
   let meta: SyncMeta | undefined
   let complete: SyncComplete | undefined
   let records = 0
@@ -55,9 +64,20 @@ export async function* readSyncStream(lines: AsyncIterable<string>): AsyncGenera
       if (record.seq !== meta.seq) fail('complete-seq-mismatch')
       if (record.records !== records || record.rows !== rows) fail('count-mismatch')
       if (meta.mode === 'delta' && cursor !== meta.seq) fail('incomplete-range')
-      if (meta.mode === 'snapshot' && (!last || records === 0)) fail('final-bootstrap-required')
+      if (meta.mode === 'snapshot' && finalChunk && (!last || records === 0)) fail('final-bootstrap-required')
       if (meta.totalRows !== undefined && meta.totalRows !== rows) fail('total-rows-mismatch')
       complete = record
+      continue
+    }
+    if (record.type === 'feedStubs' || record.type === 'collectionComplete') {
+      // Stubs and markers (POD-7085) belong to a snapshot and count as its data lines.
+      if (meta.mode !== 'snapshot') fail('bootstrap-required')
+      if (last) fail('data-after-last')
+      if (record.feedId !== meta.feedId || record.epoch !== meta.epoch) fail('identity-mismatch')
+      if (record.seq !== meta.seq) fail('snapshot-range-mismatch')
+      records++
+      if (record.type === 'feedStubs') rows += record.changes.length
+      yield record
       continue
     }
     if (record.type !== 'feedBootstrap' && record.type !== 'feedDelta') continue

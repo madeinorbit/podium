@@ -1,44 +1,13 @@
+import type { IssueBriefWire, IssueDescriptionWire, IssuePanelTodoWire, IssuePanelArtifactWire, IssuePanelDeferredWire, IssuePanelStateWire } from '@podium/model'
+import type { LayoutWire } from '@podium/model'
+import { type IssueNavigationModel, issuePendingDecision, missionTaskBucket, type MissionTaskBucket } from '@podium/client-core/values'
 import { type LiveStore, lastValue } from '@podium/client-core/live'
-import {
-  type IssueNavigationModel,
-  issuePendingDecision,
-  type MissionTaskBucket,
-  missionTaskBucket,
-} from '@podium/client-core/values'
-import type {
-  EffectError,
-  EffectRecordWire,
-  EffectStatus,
-  InstancePreferences,
-  IssueBriefWire,
-  IssueDescriptionWire,
-  IssueGitState,
-  IssuePanel,
-  IssuePanelArtifact,
-  IssuePanelArtifactWire,
-  IssuePanelDeferredWire,
-  IssuePanelStateWire,
-  IssuePanelTodoWire,
-  IssueProjection,
-  LayoutWire,
-  NoticeWire,
-  PersonalPreferences,
-  PinKind,
-  PinWire,
-  ReadPositionWire,
-  SuperagentThreadWire,
-  TabOrderWire,
-} from '@podium/model'
-import {
-  type FeatureId,
-  type FeatureStates,
-  OFFLINE_FEATURE_FACTS,
-  resolveFeatureStates,
-} from '@podium/protocol'
+import type { EffectError, EffectRecordWire, EffectStatus, InstancePreferences, IssueGitState, IssuePanel, IssuePanelArtifact, IssueProjection, NoticeWire, PersonalPreferences, PinKind, PinWire, ReadPositionWire, SuperagentThreadWire, TabOrderWire } from '@podium/model'
 import { type PodiumSettings, resolveRole } from '@podium/runtime'
 import { here, isGone, type Lookup, omitGone } from './lookup'
 import type { MessageModel, PendingInteractionModel } from './message-models'
 import { ReadObservation } from './read-observation'
+import { type FeatureId, type FeatureStates, OFFLINE_FEATURE_FACTS, resolveFeatureStates } from '@podium/protocol'
 import type { CredentialModel, DeviceModel, MemberModel, RepositoryModel } from './requested-models'
 import type { AutomationModel, AutomationRunModel, MachineModel } from './synced-models'
 
@@ -51,9 +20,19 @@ export type {
   WorkflowRevisionModel,
   WorkflowRunModel,
 } from './workflow-models'
+import type {
+  AgentProfileModel,
+  SubscriptionModel,
+  WorkflowBindingModel,
+  WorkflowModel,
+  WorkflowRevisionModel,
+  WorkflowRunModel,
+} from './workflow-models'
 
 import { attentionGroup, effectiveRecency } from '@podium/client-core/focus'
 import type { SessionLiveFields, SessionView } from '@podium/client-core/session-values'
+import { groupRelations, type IssueCloseMemberCounts, type IssueCloseScalarSubject, type ReferentExit, motionPhase as sessionMotion, type TaskProgress } from '@podium/client-core/values'
+import { type AccessRefusal, APPROVAL_EFFECT_KIND, credentialRefusalOfCode, isTurnOpen, readEffectStatus, SESSION_INTERRUPT_KIND } from '@podium/model/browser'
 import {
   ISSUE_ADD_SESSION_KIND,
   ISSUE_BEGIN_KIND,
@@ -63,48 +42,9 @@ import {
   SESSION_HANDOFF_KIND,
   SESSION_LAUNCH_KIND,
 } from '@podium/client-core/spawn-agent'
-import {
-  groupRelations,
-  type IssueCloseMemberCounts,
-  type IssueCloseScalarSubject,
-  type ReferentExit,
-  motionPhase as sessionMotion,
-  type TaskProgress,
-} from '@podium/client-core/values'
-import {
-  type AccessRefusal,
-  APPROVAL_EFFECT_KIND,
-  asSessionId,
-  type CoordinatedSeat,
-  coordinatedSeat,
-  credentialRefusalOfCode,
-  inPersonalSet,
-  isExcluded,
-  isFinished,
-  isSessionReconnecting,
-  isTurnOpen,
-  NO_INTERACTIONS,
-  readEffectStatus,
-  SESSION_INTERRUPT_KIND,
-  type SeatInteractions,
-  type SeatRole,
-  type SeatSessionFacts,
-  type SessionWord,
-  type SessionWordFacts,
-  sessionWord,
-  sessionWorkingFact,
-  wordWantsAttention,
-} from '@podium/model/browser'
+import { asSessionId, type CoordinatedSeat, coordinatedSeat, isSessionReconnecting, sessionWorkingFact, inPersonalSet, isExcluded, isFinished, NO_INTERACTIONS, type SeatInteractions, type SeatRole, type SeatSessionFacts, type SessionWord, type SessionWordFacts, sessionWord, wordWantsAttention } from '@podium/model/browser'
 import type { ReaderQueries } from './reader-queries'
 import type { IssueSessionFactReader } from './shared/issue-session-facts'
-import type {
-  AgentProfileModel,
-  SubscriptionModel,
-  WorkflowBindingModel,
-  WorkflowModel,
-  WorkflowRevisionModel,
-  WorkflowRunModel,
-} from './workflow-models'
 
 /** One shared object per server record. Schema fields and relations are installed
  * once; derived entity facts use @lazy. Views own their per-record companions. */
@@ -120,56 +60,22 @@ import { awaitingMergeOf, type EntityName, type ModelSchema, SCHEMA } from './sh
 import { computingDeadlineOf } from './shared/session-facts'
 import type { SliceIssue, SliceSession, SliceWorktree } from './shared/slice-types'
 import type { StoredRow } from './tables'
-import {
-  activityMsOf,
-  DEFER_NEXT_MESSAGE,
-  displayRefOf,
-  originRefPartOf,
-  parseMs,
-  prefixPartOf,
-  type RepoRow,
-  repoTargetPartOf,
-  type ViewInputs,
-} from './views'
-import {
-  isSessionWorking,
-  LOADING,
-  type Loaded as LoadedRow,
-  type OwnFacts,
-  ownFactsOf,
-  type RollupInputs,
-} from './worklist/rollup'
+import { activityMsOf, DEFER_NEXT_MESSAGE, displayRefOf, originRefPartOf, parseMs, prefixPartOf, type RepoRow, repoTargetPartOf, type ViewInputs } from './views'
+import { isSessionWorking, LOADING, type Loaded as LoadedRow, type OwnFacts, ownFactsOf, type RollupInputs } from './worklist/rollup'
 import { fleetOf, type SidebarSessionFacts, unstarted } from './worklist/sidebar-row'
 import type { VisibleInputs } from './worklist/visible'
-import {
-  EDITABLE_FIELDS,
-  type EditableStage,
-  type EditPatch,
-  type TxId,
-  type WritableKind,
-} from './write/commands'
+import type { IssueChildCounts } from './shared/issue-questions'
+import { EDITABLE_FIELDS, type EditableStage, type EditPatch, type TxId, type WritableKind } from './write/commands'
 
 const EMPTY_DEPENDENTS: readonly { id: string; type: string }[] = Object.freeze([])
 
 // Direct work-row paint readers need scalar equality when an unrelated stored
 // field changes. Other installed stored getters stay plain.
 const ISSUE_PAINT_FIELDS: ReadonlySet<string> = new Set([
-  'title',
-  'audience',
-  'linearIdentifier',
-  'seq',
-  'acceptance',
-  'stage',
-  'closedReason',
-  'blocked',
-  'branch',
-  'gitState',
-  'parentBranch',
-  'landedAt',
-  'landedSha',
-  'updatedAt',
-  'closedAt',
-  'tuckedAt',
+  'title', 'audience', 'linearIdentifier', 'seq', 'acceptance',
+  'stage', 'closedReason', 'blocked', 'branch', 'gitState', 'parentBranch',
+  'landedAt', 'landedSha',
+  'updatedAt', 'closedAt', 'tuckedAt',
 ])
 
 /** What a model reads from its pool. */
@@ -187,34 +93,20 @@ export interface ModelHost {
 
   readonly issueSessionFact: IssueSessionFactReader
   /** The pool's one row reader (`MobxPool.row`): pending edits overlaid, `LOADING` when not in memory. */
-  row(
-    entity: EntityName,
-    id: string,
-    absent?: 'mark' | 'summary' | 'summary-fields',
-  ): Lookup<object>
+  row(entity: EntityName, id: string, absent?: 'mark'): Lookup<object>
   /** Did I pin this thing? My `pin` record of that kind (POD-6692). */
   isPinned(kind: PinKind, entityId: string): boolean
-  /** The pool's shared session object, including an addressed cold session. */
+  /** The pool's shared session object, including an addressed absent session. */
   sessionObject(id: string): SessionModel
   issueObject(id: string): IssueModel
   /** Addressed raw archived field, independent of payload/residency. */
   sessionArchiveField(id: string): boolean | undefined
   /** Open pending interactions addressed to a session (`MobxPool.sessionOpenInteractions`). */
   sessionOpenInteractions(id: string): SeatInteractions
-  /** Whether the cutoff declares a stored session field, even when optional. */
-  sessionSummaryField(property: string): boolean
-  issueSummaryField(property: string): boolean
   issueExitKind(id: string): ReferentExit | undefined
-  readonly queries: Pick<
-    ReaderQueries,
-    'issueCloseCounts' | 'issueChildCounts' | 'collapsed' | 'orderKey'
-  >
+  readonly queries: Pick<ReaderQueries, 'issueCloseCounts' | 'issueChildCounts' | 'collapsed' | 'orderKey'>
   /** Borrow the data layer's archive partition without copying its IDs. */
-  sessionSeatIds(
-    relation: SeatRelation,
-    issueId: string,
-    archived: boolean,
-  ): readonly string[] | typeof LOADING
+  sessionSeatIds(relation: SeatRelation, issueId: string, archived: boolean): readonly string[] | typeof LOADING
   /** The declared parent key, tracked without reading the source or target payload. */
   formalParent(id: string): string | null
   /** What the row view's parts read. */
@@ -229,8 +121,8 @@ export interface ModelHost {
   readonly relations: RelationReader
   /** The addressed model: here, loading, or gone. */
   model<E extends EntityName>(entity: E, id: string): Lookup<ModelOf[E]>
-  /** Where a row stands; a cold one answers `loading` and is queued (first access). */
-  resident(entity: EntityName, id: string, absent?: 'load' | 'summary-fields'): Residence
+  /** Where a row stands; an absent one answers `loading` and its load starts (first access). */
+  resident(entity: EntityName, id: string): Residence
 }
 
 function documentText(value: unknown): string {
@@ -238,6 +130,7 @@ function documentText(value: unknown): string {
     ? value
     : ((value as { value?: string } | undefined)?.value ?? '')
 }
+
 
 export class EntityModel {
   /**
@@ -312,22 +205,11 @@ function installFields(
     }
     // Immutable identity keys need no computed boundary or observable dependency.
     // Only direct paint readers need another scalar equality boundary.
-    const get =
-      answered ??
-      (field !== spec.key &&
-      (entity === 'session' || (entity === 'issue' && ISSUE_PAINT_FIELDS.has(field)))
-        ? (entity === 'session' && spec.fields[field]?.type === 'object'
-            ? lazy({ equals: compareStructural })
-            : lazy)(stored, {
-            kind: 'getter',
-            name: field,
-            static: false,
-            private: false,
-            access: { has: (target) => field in target, get: (target) => stored.call(target) },
-            addInitializer() {},
-            metadata: {},
-          })
-        : stored)
+    const get = answered ?? (field !== spec.key && (entity === 'session' || entity === 'issue' && ISSUE_PAINT_FIELDS.has(field)) ? (entity === 'session' && spec.fields[field]?.type === 'object' ? lazy({ equals: compareStructural }) : lazy)(stored, {
+      kind: 'getter', name: field, static: false, private: false,
+      access: { has: target => field in target, get: target => stored.call(target) },
+      addInitializer() {}, metadata: {},
+    }) : stored)
     Object.defineProperty(prototype, field, {
       configurable: false,
       enumerable: false,
@@ -367,8 +249,7 @@ function installRelations(prototype: EntityModel, entity: EntityName): void {
     class Members extends ModelCollection {}
     const members = (host: ModelHost, owner: string) => host.relations.many(entity, owner, name)
     for (const subset of spec.kind === 'hasMany' ? Object.keys(spec.subsets ?? {}) : []) {
-      const subsetMembers = (host: ModelHost, owner: string) =>
-        host.relations.subset(entity, owner, name, subset)
+      const subsetMembers = (host: ModelHost, owner: string) => host.relations.subset(entity, owner, name, subset)
       Object.defineProperty(Members.prototype, subset, {
         configurable: false,
         enumerable: false,
@@ -394,13 +275,9 @@ function installRelations(prototype: EntityModel, entity: EntityName): void {
  * class fields. The handle reads live lists, rather than storing its first answer. */
 function collectionGetter<T extends object, V>(name: string, get: (this: T) => V): (this: T) => V {
   return lazy<V>({ equals: compareShallow })(get, {
-    kind: 'getter',
-    name,
-    static: false,
-    private: false,
-    access: { has: (target) => name in target, get: (target) => get.call(target) },
-    addInitializer() {},
-    metadata: {},
+    kind: 'getter', name, static: false, private: false,
+    access: { has: target => name in target, get: target => get.call(target) },
+    addInitializer() {}, metadata: {},
   })
 }
 
@@ -408,7 +285,7 @@ export function hostOf(model: EntityModel): ModelHost {
   return (model as unknown as { readonly host: ModelHost }).host
 }
 
-/** `to:id`'s object when its row is in memory, `LOADING` when cold (its load queued), else null. */
+/** `to:id`'s object when its row is in memory, `LOADING` while it is on its way (its load started), else null. */
 function objectOrLoading(
   host: ModelHost,
   to: EntityName,
@@ -419,8 +296,8 @@ function objectOrLoading(
 }
 
 /** A live collection (Rule L). `ready` is the shallow-equal list of shared
- * models in bucket order (unordered, M3 F1); `loading` counts cold members and
- * queues their loads. Retaining the handle never retains a stale answer. */
+ * models in bucket order (unordered, M3 F1); `loading` counts absent members and
+ * starts their loads. Retaining the handle never retains a stale answer. */
 export interface LazyCollection<M> {
   readonly ready: readonly M[]
   readonly loading: number
@@ -495,15 +372,12 @@ export class IssueModel extends EntityModel {
     return this.host.edit('issue', this.id, patch)
   }
 
-  // Stored fields: display summaries never promote an undisplayed child.
+
+  // Stored fields
   override storedField(property: string): unknown {
     if (property === 'readAt') return this.host.visibleInputs.issueRead(this.id)
     const resident = omitGone(this.host.row('issue', this.id, 'mark'))
     if (resident !== LOADING) return (resident as Record<string, unknown> | undefined)?.[property]
-    if (this.host.issueSummaryField(property)) {
-      const summary = omitGone(this.host.row('issue', this.id, 'summary-fields'))
-      if (summary !== LOADING) return (summary as Record<string, unknown> | undefined)?.[property]
-    }
     const row = omitGone(this.host.row('issue', this.id))
     if (row === LOADING) throw LOADING
     return (row as Record<string, unknown> | undefined)?.[property]
@@ -553,12 +427,8 @@ export class IssueModel extends EntityModel {
   @lazy get panel(): IssuePanel {
     return { todos: this.panelTodos, artifacts: this.panelArtifacts, deferred: this.panelDeferred }
   }
-  @lazy get activityNotes(): string | undefined {
-    return this.panelStateRecords.ready[0]?.text
-  }
-  @lazy get notesUpdatedAt(): string | undefined {
-    return this.panelStateRecords.ready[0]?.updatedAt
-  }
+  @lazy get activityNotes(): string | undefined { return this.panelStateRecords.ready[0]?.text }
+  @lazy get notesUpdatedAt(): string | undefined { return this.panelStateRecords.ready[0]?.updatedAt }
 
   // Chat uploads (POD-2148): the stored copy of each file attached in one of
   // this issue's chats, by the attachment id it was staged under. The chat
@@ -594,20 +464,12 @@ export class IssueModel extends EntityModel {
     return action?.inFlight === true ? action.kind : undefined
   }
 
-  // Activity and headless presence: raw ownership maxima/counters include
-  // cold history and never replace the stored issue record.
-  @lazy get lastActivityAt(): string | undefined {
-    return this.host.issueSessionFact(this.id, 'replicaActivityAt')
-  }
-  @lazy get tipActivityAt(): string | undefined {
-    return this.host.issueSessionFact(this.id, 'tipActivityAt')
-  }
-  @lazy get headlessStaffed(): boolean {
-    return this.host.issueSessionFact(this.id, 'headlessStaffed')
-  }
-  @lazy get headlessOccupied(): boolean {
-    return this.host.issueSessionFact(this.id, 'headlessOccupied')
-  }
+  // Activity and headless presence: raw ownership maxima/counters from the
+  // feed's session facts; they never replace the stored issue record.
+  @lazy get lastActivityAt(): string | undefined { return this.host.issueSessionFact(this.id, 'replicaActivityAt') }
+  @lazy get tipActivityAt(): string | undefined { return this.host.issueSessionFact(this.id, 'tipActivityAt') }
+  @lazy get headlessStaffed(): boolean { return this.host.issueSessionFact(this.id, 'headlessStaffed') }
+  @lazy get headlessOccupied(): boolean { return this.host.issueSessionFact(this.id, 'headlessOccupied') }
 
   // Links: exit evidence is an addressed source read, never a neighbour map.
   @lazy get exitKind(): ReferentExit | undefined {
@@ -661,21 +523,30 @@ export class IssueModel extends EntityModel {
   get closeMembers(): IssueCloseMemberCounts {
     return this.host.queries.issueCloseCounts(this.id)
   }
-  get closeChildren() {
+  /** Children and done children over all history, from the stubs (POD-7088). */
+  get childProgress(): IssueChildCounts | typeof LOADING {
     return this.host.queries.issueChildCounts(this.id)
+  }
+  /** Throws LOADING until the stubs answer; readers settle it. */
+  get closeChildren(): IssueChildCounts {
+    const value = this.childProgress
+    if (value === LOADING) throw LOADING
+    return value
   }
   /** Existing scalar consumers share the raw member fact, without another cache. */
   get sessionSummary() {
     return this.memberSummary
   }
 
+
+
   // Stored fields and presence
-  /** Declared issue facts, usable without loading a historical payload. */
+  /** The issue's row as the pool holds it; undefined while it is on its way. */
   private readFacts(): SliceIssue | undefined {
     const resident = omitGone(this.host.row('issue', this.id, 'mark'))
     if (resident !== LOADING) return resident as SliceIssue | undefined
-    const summary = omitGone(this.host.row('issue', this.id, 'summary-fields'))
-    return summary === LOADING ? undefined : (summary as SliceIssue | undefined)
+    const row = omitGone(this.host.row('issue', this.id))
+    return row === LOADING ? undefined : row as SliceIssue | undefined
   }
 
   @lazy get excluded(): boolean {
@@ -683,13 +554,9 @@ export class IssueModel extends EntityModel {
     return row !== undefined && isExcluded(row)
   }
 
-  @lazy get inMemory(): boolean {
-    return this.host.resident('issue', this.id) === 'resident'
-  }
-  /** Availability of the declared summary, without promoting a historical payload. */
-  @lazy get summaryResidence(): Residence {
-    return this.host.resident('issue', this.id, 'summary-fields')
-  }
+  @lazy get inMemory(): boolean { return this.host.resident('issue', this.id) === 'resident' }
+  /** Where the issue stands: here, on its way (its load started), or absent. */
+  @lazy get residence(): Residence { return this.host.resident('issue', this.id) }
   @lazy get finished(): boolean | undefined {
     const row = this.readFacts()
     return row === undefined ? undefined : isFinished(row)
@@ -702,60 +569,40 @@ export class IssueModel extends EntityModel {
     const row = this.readFacts()
     return row ? issuePendingDecision(row as unknown as IssueNavigationModel) : null
   }
-  @lazy get updatedMs(): number | null {
-    return parseMs(this.readFacts()?.updatedAt)
-  }
+  @lazy get updatedMs(): number | null { return parseMs(this.readFacts()?.updatedAt) }
   @lazy get finishedMs(): number {
     const row = this.readFacts()
     return parseMs(row?.closedAt ?? row?.updatedAt) ?? 0
   }
 
   // Links and reference: independent of any screen's row label or nesting
-  /** The declared `seq` answers a cold row too, without loading its payload. */
+  /** The issue's number, read from its row. */
   @lazy get displayRef(): string {
     const seq = this.readFacts()?.seq
     return seq === undefined ? '' : displayRefOf(seq, this.prefix)
   }
-  @lazy get repoTarget(): string | null {
-    return repoTargetPartOf(this.host.inputs, this.id)
-  }
-  @lazy get prefix(): string | null {
-    return prefixPartOf(this.host.inputs, this.repoTarget)
-  }
-  @lazy get originRef(): string | null {
-    return originRefPartOf(this.host.inputs, this.id)
-  }
-  @lazy get parentRef(): string | null {
-    return this.readFacts()?.parentId || null
-  }
-  get formalParent(): string | null {
-    return this.host.formalParent(this.id)
-  }
-  /** The parent is archived or deleted, read from its declared summary (`CloseFacts.parentGone`). */
+  @lazy get repoTarget(): string | null { return repoTargetPartOf(this.host.inputs, this.id) }
+  @lazy get prefix(): string | null { return prefixPartOf(this.host.inputs, this.repoTarget) }
+  @lazy get originRef(): string | null { return originRefPartOf(this.host.inputs, this.id) }
+  @lazy get parentRef(): string | null { return this.readFacts()?.parentId || null }
+  get formalParent(): string | null { return this.host.formalParent(this.id) }
+  /** The parent is archived or deleted (`CloseFacts.parentGone`). */
   @lazy get parentGone(): boolean {
     const parentId = this.parentRef
     if (parentId === null) return false
-    const parent = omitGone(this.host.row('issue', parentId, 'summary-fields'))
+    // Pool filing observes this after a view closes: a maintenance read
+    // must neither request the parent nor inherit the view's lookup hold.
+    const parent = omitGone(this.host.row('issue', parentId, 'mark'))
     if (parent === LOADING || parent === undefined) return false
     const { archived, deletedAt } = parent as Pick<SliceIssue, 'archived' | 'deletedAt'>
     return archived === true || deletedAt != null
   }
 
-  private readOwnFacts(): OwnFacts {
-    return ownFactsOf(this.host.rollupInputs.loadedIssue(this.id))
-  }
+  private readOwnFacts(): OwnFacts { return ownFactsOf(this.host.rollupInputs.loadedIssue(this.id)) }
 
   // Presence: archive/deletion is independent of the sidebar's `placed` rule.
-  // Both fields are the issue cold rule's canShow fields, so every pool's
-  // declared summary holds them: a resident row or the cold summary decides,
-  // a hidden member never loads its payload, and only an undecided row loads.
   @lazy
   get visible(): boolean {
-    if (this.host.issueSummaryField('archived') && this.host.issueSummaryField('deletedAt')) {
-      const facts = this.host.row('issue', this.id, 'summary-fields')
-      if (facts !== LOADING && !isGone(facts))
-        return !(facts as SliceIssue).archived && !(facts as SliceIssue).deletedAt
-    }
     const row = omitGone(this.host.row('issue', this.id))
     if (row === LOADING) throw LOADING
     return Boolean(row && !(row as SliceIssue).archived && !(row as SliceIssue).deletedAt)
@@ -763,15 +610,10 @@ export class IssueModel extends EntityModel {
 
   @lazy
   get live(): boolean {
-    let live = false,
-      pending = false
+    let live = false, pending = false
     for (const id of this.host.relations.many('issue', this.id, 'missionSessions')) {
-      try {
-        live ||= this.host.sessionObject(id).open
-      } catch (error) {
-        if (error !== LOADING) throw error
-        pending = true
-      }
+      try { live ||= this.host.sessionObject(id).open }
+      catch (error) { if (error !== LOADING) throw error; pending = true }
     }
     if (!live && pending) throw LOADING
     return live
@@ -795,24 +637,14 @@ export class IssueModel extends EntityModel {
   // Launch history: a stage, checkout, or present agent proves work has begun.
   @lazy
   get workBegun(): boolean {
-    if (
-      this.worktreePath ||
-      this.stage === 'planning' ||
-      this.stage === 'in_progress' ||
-      this.stage === 'review' ||
-      this.stage === 'shipping'
-    )
-      return true
+    if (this.worktreePath || this.stage === 'planning' || this.stage === 'in_progress' ||
+      this.stage === 'review' || this.stage === 'shipping') return true
     const ids = this.host.sessionSeatIds('pageSessions', this.id, false)
     if (ids === LOADING) throw LOADING
     let pending = false
     for (const id of ids) {
-      try {
-        if (this.host.sessionObject(id).open) return true
-      } catch (error) {
-        if (error !== LOADING) throw error
-        pending = true
-      }
+      try { if (this.host.sessionObject(id).open) return true }
+      catch (error) { if (error !== LOADING) throw error; pending = true }
     }
     if (pending) throw LOADING
     return false
@@ -835,17 +667,10 @@ export class IssueModel extends EntityModel {
         if (session.headless || session.status === 'exited') continue
         if (id === coordinator) return id
         at = session.lastActiveAt ?? ''
-      } catch (error) {
-        if (error !== LOADING) throw error
-        continue
-      }
+      } catch (error) { if (error !== LOADING) throw error; continue }
       const order = best ? at.localeCompare(best.at) : 1
-      if (
-        order > 0 ||
-        (order === 0 &&
-          best &&
-          this.host.queries.orderKey(id).localeCompare(this.host.queries.orderKey(best.id)) < 0)
-      )
+      if (order > 0 || (order === 0 && best &&
+        this.host.queries.orderKey(id).localeCompare(this.host.queries.orderKey(best.id)) < 0))
         best = { id, at }
     }
     return best?.id
@@ -857,11 +682,7 @@ export class IssueModel extends EntityModel {
   @lazy
   get seatHolderId(): string | null {
     const seen = new Set<string>()
-    for (
-      let id: string | null = this.id;
-      id && !seen.has(id);
-      id = this.host.relations.one('issue', id, 'treeParent')
-    ) {
+    for (let id: string | null = this.id; id && !seen.has(id); id = this.host.relations.one('issue', id, 'treeParent')) {
       seen.add(id)
       if (this.host.resident('issue', id) !== 'resident') return null
       if (this.host.issueObject(id).liveSeatId) return id
@@ -870,9 +691,7 @@ export class IssueModel extends EntityModel {
   }
 
   // Links: raw page membership includes headless, history and resume twins.
-  get memberCount(): number {
-    return this.host.relations.size('issue', this.id, 'pageSessions')
-  }
+  get memberCount(): number { return this.host.relations.size('issue', this.id, 'pageSessions') }
 
   @lazy({ equals: compareStructural })
   get memberSessionIds(): ReturnType<typeof asSessionId>[] {
@@ -882,34 +701,25 @@ export class IssueModel extends EntityModel {
   // History: scalar session fields stop display-only changes at each member.
   @lazy({ equals: compareStructural })
   get memberSummary(): { total: number; byPhase: Record<string, number> } {
-    const present = this.presentMemberPhases,
-      archived = this.archivedMemberPhases
+    const present = this.presentMemberPhases, archived = this.archivedMemberPhases
     if (present === LOADING || archived === LOADING) throw LOADING
     const phases = new Map(present)
     for (const [phase, value] of archived) {
       const previous = phases.get(phase)
-      phases.set(
-        phase,
-        previous
-          ? {
-              count: previous.count + value.count,
-              first: previous.first < value.first ? previous.first : value.first,
-            }
-          : value,
-      )
+      phases.set(phase, previous ? { count: previous.count + value.count,
+        first: previous.first < value.first ? previous.first : value.first } : value)
     }
     const byPhase: Record<string, number> = {}
     let total = 0
-    for (const [phase, value] of [...phases].sort((a, b) => (a[1].first < b[1].first ? -1 : 1))) {
+    for (const [phase, value] of [...phases].sort((a, b) => a[1].first < b[1].first ? -1 : 1)) {
       byPhase[phase] = value.count
       total += value.count
     }
     return { total, byPhase }
   }
 
-  /** Present non-shell members, by session id: unarchived, known from a
-   * resident row or declared summary (no payload load), and not folded into a
-   * resumed twin. A heartbeat never re-sorts this list. */
+  /** Present non-shell members, by session id: unarchived, held by the pool
+   * (no load), and not folded into a resumed twin. A heartbeat never re-sorts this list. */
   @lazy({ equals: compareShallow })
   get presentMembers(): readonly SessionModel[] {
     const present: SessionModel[] = []
@@ -931,46 +741,32 @@ export class IssueModel extends EntityModel {
     const seen = this.readObservation.seenAt
     const read = parseMs(seen && (!durable || seen > durable) ? seen : durable)
     if (read === null) return true
-    const updated = this.updatedMs,
-      active = parseMs(this.lastActivityAt)
+    const updated = this.updatedMs, active = parseMs(this.lastActivityAt)
     if ((updated !== null && updated > read) || (active !== null && active > read)) return true
     // Standalone row feeds can omit replica metadata. Borrow the maintained
     // non-shell member activity, as the old raw unread answer did.
     const inputs = this.host.visibleInputs
     const memberActivity = inputs.seatSummary
-      ? inputs.seatList(this.id).length === 0
-        ? null
-        : inputs.seatSummary(this.id).activity
+      ? inputs.seatList(this.id).length === 0 ? null : inputs.seatSummary(this.id).activity
       : this.memberLatestActivity
     return memberActivity !== null && memberActivity > read
   }
 
   @lazy
   get memberLatestActivity(): number {
-    const present = this.presentMemberActivity,
-      archived = this.archivedMemberActivity
+    const present = this.presentMemberActivity, archived = this.archivedMemberActivity
     if (present === LOADING || archived === LOADING) throw LOADING
     return Math.max(present, archived)
   }
 
   // Archive contributions stay observed independently: a live heartbeat or
   // phase change never walks the issue's unchanged historical members.
-  @lazy private get presentMemberPhases() {
-    return this.readMemberPhases(false)
-  }
-  @lazy private get archivedMemberPhases() {
-    return this.readMemberPhases(true)
-  }
-  @lazy private get presentMemberActivity() {
-    return this.readMemberActivity(false)
-  }
-  @lazy private get archivedMemberActivity() {
-    return this.readMemberActivity(true)
-  }
+  @lazy private get presentMemberPhases() { return this.readMemberPhases(false) }
+  @lazy private get archivedMemberPhases() { return this.readMemberPhases(true) }
+  @lazy private get presentMemberActivity() { return this.readMemberActivity(false) }
+  @lazy private get archivedMemberActivity() { return this.readMemberActivity(true) }
 
-  private readMemberPhases(
-    archived: boolean,
-  ): ReadonlyMap<string, { count: number; first: string }> | typeof LOADING {
+  private readMemberPhases(archived: boolean): ReadonlyMap<string, { count: number; first: string }> | typeof LOADING {
     const ids = this.host.sessionSeatIds('pageSessions', this.id, archived)
     if (ids === LOADING) return LOADING
     const phases = new Map<string, { count: number; first: string }>()
@@ -981,16 +777,9 @@ export class IssueModel extends EntityModel {
         if (!session.exists) continue
         const phase = session.phase
         const previous = phases.get(phase)
-        phases.set(
-          phase,
-          previous
-            ? { count: previous.count + 1, first: previous.first < id ? previous.first : id }
-            : { count: 1, first: id },
-        )
-      } catch (error) {
-        if (error !== LOADING) throw error
-        pending = true
-      }
+        phases.set(phase, previous ? { count: previous.count + 1,
+          first: previous.first < id ? previous.first : id } : { count: 1, first: id })
+      } catch (error) { if (error !== LOADING) throw error; pending = true }
     }
     return pending ? LOADING : phases
   }
@@ -998,16 +787,12 @@ export class IssueModel extends EntityModel {
   private readMemberActivity(archived: boolean): number | typeof LOADING {
     const ids = this.host.sessionSeatIds('pageSessions', this.id, archived)
     if (ids === LOADING) return LOADING
-    let latest = -Infinity,
-      pending = false
+    let latest = -Infinity, pending = false
     for (const id of ids) {
       try {
         const at = this.host.sessionObject(id).activityMs
         if (at !== null && at > latest) latest = at
-      } catch (error) {
-        if (error !== LOADING) throw error
-        pending = true
-      }
+      } catch (error) { if (error !== LOADING) throw error; pending = true }
     }
     return pending ? LOADING : latest
   }
@@ -1025,27 +810,14 @@ export class IssueModel extends EntityModel {
   @lazy get missionBucket(): MissionTaskBucket | null {
     const bucket = missionTaskBucket(this, false, false)
     if (bucket === null || bucket === 'done' || bucket === 'working') return bucket
-    return missionTaskBucket(
-      this,
-      this.host.relations.size('issue', this.id, 'bornSessions') > 0 ||
-        this.host.relations.size('issue', this.id, 'missionSessions') > 0,
-      this.missionWorking,
-    )
+    return missionTaskBucket(this, this.host.relations.size('issue', this.id, 'bornSessions') > 0 || this.host.relations.size('issue', this.id, 'missionSessions') > 0, this.missionWorking)
   }
 
   // Task progress: formal descendants, independent of sidebar/mission placement.
-  get childCount(): number {
-    return this.host.relations.size('issue', this.id, 'treeChildren')
-  }
+  /** Over all history from the stubs; throws LOADING until they answer (`childProgress`). */
+  get childCount(): number { return this.closeChildren.childCount }
 
-  get childDoneCount(): number {
-    return this.childCount ? this.finishedChildren : 0
-  }
-
-  @lazy
-  private get finishedChildren(): number {
-    return this.host.queries.issueChildCounts(this.id).childDoneCount
-  }
+  get childDoneCount(): number { return this.closeChildren.childDoneCount }
 
   get confirmedWorkingAgents(): number {
     return this.memberCount ? this.confirmedWorkerCount : 0
@@ -1054,8 +826,7 @@ export class IssueModel extends EntityModel {
   @lazy
   private get confirmedWorkerCount(): number {
     let count = 0
-    for (const id of this.livePageSessionIds())
-      if (this.host.sessionObject(id).confirmedWorking) count++
+    for (const id of this.livePageSessionIds()) if (this.host.sessionObject(id).confirmedWorking) count++
     return count
   }
 
@@ -1065,22 +836,17 @@ export class IssueModel extends EntityModel {
     return this.host.relations.subset('issue', this.id, 'pageSessions', 'unarchived')
   }
 
-  get taskProgress(): TaskProgress | null {
-    return this.childCount ? this.descendantTaskProgress : null
-  }
+  get taskProgress(): TaskProgress | null { return this.childCount ? this.descendantTaskProgress : null }
 
   @lazy({ equals: compareStructural })
   private get descendantTaskProgress(): TaskProgress | null {
-    let total = 0,
-      done = 0,
-      liveAgents = 0
-    const seen = new Set([this.id]),
-      stack = [...this.host.relations.many('issue', this.id, 'treeChildren')]
+    let total = 0, done = 0, liveAgents = 0
+    const seen = new Set([this.id]), stack = [...this.host.relations.many('issue', this.id, 'treeChildren')]
     while (stack.length) {
       const id = stack.pop()!
       if (seen.has(id)) continue
       seen.add(id)
-      const row = omitGone(this.host.row('issue', id, 'summary')) as LoadedRow<SliceIssue>
+      const row = omitGone(this.host.row('issue', id)) as LoadedRow<SliceIssue>
       if (row === LOADING) throw LOADING
       if (!row || row.archived || row.deletedAt || row.isDraftVessel) continue
       total++
@@ -1093,16 +859,14 @@ export class IssueModel extends EntityModel {
 
   // Links: all reverse dependency edges, including their declared type.
   get dependents(): readonly { id: string; type: string }[] {
-    return this.host.relations.size('issue', this.id, 'pageDependents')
-      ? this.dependencySources
-      : EMPTY_DEPENDENTS
+    return this.host.relations.size('issue', this.id, 'pageDependents') ? this.dependencySources : EMPTY_DEPENDENTS
   }
 
   @lazy({ equals: compareStructural })
   private get dependencySources(): readonly { id: string; type: string }[] {
     const result: { id: string; type: string }[] = []
     for (const id of [...this.host.relations.many('issue', this.id, 'pageDependents')].sort()) {
-      const row = omitGone(this.host.row('issue', id, 'summary')) as LoadedRow<SliceIssue>
+      const row = omitGone(this.host.row('issue', id)) as LoadedRow<SliceIssue>
       if (row === LOADING) throw LOADING
       for (const dep of row?.deps ?? []) if (dep.id === this.id) result.push({ id, type: dep.type })
     }
@@ -1114,30 +878,14 @@ export class IssueModel extends EntityModel {
   get ownFacts(): Omit<OwnFacts, 'order'> {
     const model = this
     return {
-      get state() {
-        return model.ownState
-      },
-      get finished() {
-        return model.ownFactFinished
-      },
-      get decision() {
-        return model.ownFactDecision
-      },
-      get requests() {
-        return model.ownFactRequests
-      },
-      get continuedByField() {
-        return model.ownFactContinuedByField
-      },
-      get updatedAt() {
-        return model.ownFactUpdatedAt
-      },
-      get closedAt() {
-        return model.ownFactClosedAt
-      },
-      get coordinatorSessionId() {
-        return model.ownFactCoordinatorSessionId
-      },
+      get state() { return model.ownState },
+      get finished() { return model.ownFactFinished },
+      get decision() { return model.ownFactDecision },
+      get requests() { return model.ownFactRequests },
+      get continuedByField() { return model.ownFactContinuedByField },
+      get updatedAt() { return model.ownFactUpdatedAt },
+      get closedAt() { return model.ownFactClosedAt },
+      get coordinatorSessionId() { return model.ownFactCoordinatorSessionId },
     }
   }
 
@@ -1184,20 +932,13 @@ export class IssueModel extends EntityModel {
     const row = this.host.rollupInputs.loadedIssue(this.id)
     return row === LOADING || row === undefined ? undefined : row.coordinatorSessionId
   }
+
 }
 
 /** THE session: its row, and what its issues read of it. */
 export class SessionModel extends EntityModel {
   readonly readObservation = new ReadObservation()
-  static override readonly answers = new Set([
-    'archived',
-    'unread',
-    'cwd',
-    'issueId',
-    'machineId',
-    'status',
-    'messageDraft',
-  ])
+  static override readonly answers = new Set(['archived', 'unread', 'cwd', 'issueId', 'machineId', 'status', 'messageDraft'])
 
   constructor(id: string, host: ModelHost) {
     super('session', id, host)
@@ -1207,22 +948,14 @@ export class SessionModel extends EntityModel {
   @lazy get agentPhase() {
     return this.agentState?.phase
   }
-  @lazy get agentSince(): string | undefined {
-    return this.agentState?.since
-  }
-  @lazy({ equals: compareStructural }) get agentError() {
-    return this.agentState?.error
-  }
-  @lazy({ equals: compareStructural }) get agentNeed() {
-    return this.agentState?.need
-  }
+  @lazy get agentSince(): string | undefined { return this.agentState?.since }
+  @lazy({ equals: compareStructural }) get agentError() { return this.agentState?.error }
+  @lazy({ equals: compareStructural }) get agentNeed() { return this.agentState?.need }
   @lazy get agentNativeSubagentCount(): number {
     return this.agentState?.nativeSubagentCount ?? this.agentState?.nativeSubagents?.length ?? 1
   }
   /** The turn the agent state belongs to, as the daemon marked it (POD-6397). */
-  @lazy get turnStartedAt(): string | undefined {
-    return this.agentState?.turnStartedAt
-  }
+  @lazy get turnStartedAt(): string | undefined { return this.agentState?.turnStartedAt }
   /** The Stop asked for most recently on this session, as its effect record (POD-6397). */
   @lazy get interrupt(): EffectModel | undefined {
     let latest: EffectModel | undefined
@@ -1233,9 +966,7 @@ export class SessionModel extends EntityModel {
     return latest
   }
   /** A Stop is on its way: waiting to start, or waiting for its turn to end. */
-  @lazy get interrupting(): boolean {
-    return this.interrupt?.inFlight === true
-  }
+  @lazy get interrupting(): boolean { return this.interrupt?.inFlight === true }
   /**
    * The Stop failed, expired or lost track while the turn it named still runs:
    * when the app offers Kill (POD-6397). A later turn, or none, means the agent
@@ -1302,28 +1033,16 @@ export class SessionModel extends EntityModel {
   }
 
   // Stored session document, published by Draft Sync v2 rather than the meta feed.
-  @lazy get messageDraft(): string {
-    return this.host.sessionDrafts?.get(asSessionId(this.id)) ?? ''
-  }
-  @action setMessageDraft(text: string): void {
-    this.host.sessionDrafts?.set(asSessionId(this.id), text)
-  }
+  @lazy get messageDraft(): string { return this.host.sessionDrafts?.get(asSessionId(this.id)) ?? '' }
+  @action setMessageDraft(text: string): void { this.host.sessionDrafts?.set(asSessionId(this.id), text) }
 
   // Placement and lifecycle: one scalar per question. A heartbeat replaces the
   // row with only activity changed; these answers stay equal, so their readers
   // (pane stamp, dock routing, dock shell lifecycle) do not run again.
-  @lazy get cwd(): string {
-    return this.storedField('cwd') as string
-  }
-  @lazy get issueId(): SessionView['issueId'] {
-    return this.storedField('issueId') as SessionView['issueId']
-  }
-  @lazy get machineId(): SessionView['machineId'] {
-    return this.storedField('machineId') as SessionView['machineId']
-  }
-  @lazy get status(): SessionView['status'] {
-    return this.storedField('status') as SessionView['status']
-  }
+  @lazy get cwd(): string { return this.storedField('cwd') as string }
+  @lazy get issueId(): SessionView['issueId'] { return this.storedField('issueId') as SessionView['issueId'] }
+  @lazy get machineId(): SessionView['machineId'] { return this.storedField('machineId') as SessionView['machineId'] }
+  @lazy get status(): SessionView['status'] { return this.storedField('status') as SessionView['status'] }
   /**
    * Running, and its machine is known to be offline right now (ADR 12 D1,
    * POD-6646): a condition read from this user's LiveStore, never a stored
@@ -1332,10 +1051,7 @@ export class SessionModel extends EntityModel {
    */
   @lazy get reconnecting(): boolean {
     const machineId = this.machineId
-    return isSessionReconnecting(
-      this.status,
-      machineId ? this.host.live?.onlineOf(machineId) : undefined,
-    )
+    return isSessionReconnecting(this.status, machineId ? this.host.live?.onlineOf(machineId) : undefined)
   }
 
   // Live readings (POD-6764): conditions from this user's LiveStore, never
@@ -1375,36 +1091,24 @@ export class SessionModel extends EntityModel {
     return lastValue(this.liveReadings?.sessionTerminalStateOf(this.id))?.geometry
   }
 
-  // Stored fields: declared summaries can answer a field without promoting it.
+  // Stored fields
   @lazy private get residentRow(): StoredRow | typeof LOADING | undefined {
-    return omitGone(this.host.row('session', this.id, 'mark')) as
-      | StoredRow
-      | typeof LOADING
-      | undefined
+    return omitGone(this.host.row('session', this.id, 'mark')) as StoredRow | typeof LOADING | undefined
   }
 
+  /** The row as the pool holds it, or its load started when the feed is about to bring it. */
   @lazy
   private get declaredRow(): StoredRow | typeof LOADING | undefined {
     return this.residentRow === LOADING
-      ? (omitGone(this.host.row('session', this.id, 'summary-fields')) as
-          | StoredRow
-          | typeof LOADING
-          | undefined)
+      ? omitGone(this.host.row('session', this.id)) as StoredRow | typeof LOADING | undefined
       : this.residentRow
   }
 
-  /** A resident record or its declared summary, without requesting its payload. */
-  @lazy get known(): boolean {
-    return this.declaredRow !== undefined && this.declaredRow !== LOADING
-  }
+  /** The pool holds the session's record (without asking for an absent one). */
+  @lazy get known(): boolean { return this.residentRow !== undefined && this.residentRow !== LOADING }
 
   override storedField(property: string): unknown {
-    if (this.residentRow !== LOADING)
-      return (this.residentRow as Readonly<Record<string, unknown>> | undefined)?.[property]
-    const summary = this.declaredRow
-    if (summary !== LOADING && this.host.sessionSummaryField(property)) {
-      return (summary as Readonly<Record<string, unknown>> | undefined)?.[property]
-    }
+    if (this.residentRow !== LOADING) return (this.residentRow as Readonly<Record<string, unknown>> | undefined)?.[property]
     const row = omitGone(this.host.row('session', this.id))
     if (row === LOADING) throw LOADING
     return (row as Record<string, unknown> | undefined)?.[property]
@@ -1412,19 +1116,7 @@ export class SessionModel extends EntityModel {
 
   @lazy
   get exists(): boolean {
-    const resident = omitGone(this.host.row('session', this.id, 'mark'))
-    if (resident !== LOADING) return resident !== undefined
-    const summary = omitGone(this.host.row('session', this.id, 'summary'))
-    // A complete declared display summary is a usable session object; a
-    // partial cutoff still spends the shared batched load window.
-    if (
-      summary &&
-      summary !== LOADING &&
-      ['sessionId', 'cwd', 'status', 'lastActiveAt', 'title'].every((field) =>
-        Object.hasOwn(summary, field),
-      )
-    )
-      return true
+    if (this.residentRow !== LOADING) return this.residentRow !== undefined
     const row = omitGone(this.host.row('session', this.id))
     if (row === LOADING) throw LOADING
     return row !== undefined
@@ -1441,19 +1133,13 @@ export class SessionModel extends EntityModel {
   }
 
   @lazy
-  get open(): boolean {
-    return !this.archived && this.exists && this.status !== 'exited'
-  }
+  get open(): boolean { return !this.archived && this.exists && this.status !== 'exited' }
 
   @lazy
-  get onRoster(): boolean {
-    return !this.archived && this.rosterEligible
-  }
+  get onRoster(): boolean { return !this.archived && this.rosterEligible }
 
   @lazy
-  get rosterEligible(): boolean {
-    return this.exists && !this.headless && this.agentKind !== 'shell'
-  }
+  get rosterEligible(): boolean { return this.exists && !this.headless && this.agentKind !== 'shell' }
 
   @lazy get workingFact(): boolean {
     return this.exists && !this.archived && sessionWorkingFact(this)
@@ -1465,30 +1151,22 @@ export class SessionModel extends EntityModel {
     return this.open && (this.status === 'starting' || this.reconnecting || this.workingMotion)
   }
 
-  @lazy // Motion lets an offer/question override execution; verdict.working reports execution alone.
-  get motion(): ReturnType<typeof sessionMotion> {
-    return this.exists ? sessionMotion(this as SessionView) : 'queued'
-  }
+  @lazy
+  // Motion lets an offer/question override execution; verdict.working reports execution alone.
+  get motion(): ReturnType<typeof sessionMotion> { return this.exists ? sessionMotion(this as SessionView) : 'queued' }
 
   @lazy
-  get workingMotion(): boolean {
-    return this.motion === 'working'
-  }
+  get workingMotion(): boolean { return this.motion === 'working' }
 
   @lazy
-  get settled(): boolean {
-    return !this.open || this.motion === 'done'
-  }
-
-  @lazy // Execution can read a declared cold summary; the sidebar verdict still waits for residency.
-  get executing(): boolean {
-    return this.exists && isSessionWorking(this as unknown as SliceSession)
-  }
+  get settled(): boolean { return !this.open || this.motion === 'done' }
 
   @lazy
-  get stateSinceMs(): number {
-    return Date.parse(this.agentState?.since ?? this.lastActivity)
-  }
+  // Execution alone; the sidebar verdict reads more.
+  get executing(): boolean { return this.exists && isSessionWorking(this as unknown as SliceSession) }
+
+  @lazy
+  get stateSinceMs(): number { return Date.parse(this.agentState?.since ?? this.lastActivity) }
 
   @lazy
   get executionSinceMs(): number | null {
@@ -1501,9 +1179,7 @@ export class SessionModel extends EntityModel {
     return fleetOf([this as unknown as SliceSession], () => this.open)
   }
 
-  @lazy get workingMsTotal(): number | undefined {
-    return this.agentState?.workingMsTotal
-  }
+  @lazy get workingMsTotal(): number | undefined { return this.agentState?.workingMsTotal }
 
   @lazy get unread(): SessionView['unread'] {
     if (this.readObservation.blocked) return true
@@ -1516,33 +1192,24 @@ export class SessionModel extends EntityModel {
   @lazy({ equals: compareStructural })
   get workingTimer(): SidebarSessionFacts['working'] {
     if (!this.executing) return undefined
-    return {
-      stateSince: this.stateSinceMs,
-      sinceMs: this.stateSinceMs,
-      ...(this.workingMsTotal !== undefined ? { baseMs: this.workingMsTotal } : {}),
-    }
+    return { stateSince: this.stateSinceMs, sinceMs: this.stateSinceMs,
+      ...(this.workingMsTotal !== undefined ? { baseMs: this.workingMsTotal } : {}) }
   }
 
   @lazy({ equals: compareStructural })
   get waitingTimer(): NonNullable<SidebarSessionFacts['waitingOpen']> {
-    return {
-      stateSince: this.stateSinceMs,
-      sinceMs: Date.parse(this.offer?.createdAt ?? '') || this.stateSinceMs,
-    }
+    return { stateSince: this.stateSinceMs,
+      sinceMs: Date.parse(this.offer?.createdAt ?? '') || this.stateSinceMs }
   }
 
-  @lazy get doneSinceMs(): number {
-    return this.stateSinceMs || 0
-  }
+  @lazy get doneSinceMs(): number { return this.stateSinceMs || 0 }
 
   // A seat on a coordinated task (POD-2171): one derivation (`coordinatedSeat`)
   // per role, which every coordinated surface reads. Uncoordinated readers keep
   // `word`, `motion` and the rest above, as they were.
   /** Open pending interactions addressed to this session: how many, and the earliest asked. */
   @lazy({ equals: compareStructural })
-  get openInteractions(): SeatInteractions {
-    return this.exists ? this.host.sessionOpenInteractions(this.id) : NO_INTERACTIONS
-  }
+  get openInteractions(): SeatInteractions { return this.exists ? this.host.sessionOpenInteractions(this.id) : NO_INTERACTIONS }
 
   /** Its own task is open: a closed task asks nothing of its seats. */
   @lazy get taskOpen(): boolean {
@@ -1551,33 +1218,20 @@ export class SessionModel extends EntityModel {
   }
 
   @lazy({ equals: compareStructural })
-  get coordinatorSeat(): CoordinatedSeat {
-    return this.roleSeat('coordinator')
-  }
+  get coordinatorSeat(): CoordinatedSeat { return this.roleSeat('coordinator') }
 
   @lazy({ equals: compareStructural })
-  get delegateSeat(): CoordinatedSeat {
-    return this.roleSeat('delegate')
-  }
+  get delegateSeat(): CoordinatedSeat { return this.roleSeat('delegate') }
 
   private roleSeat(role: SeatRole): CoordinatedSeat {
-    return coordinatedSeat(
-      this as unknown as SeatSessionFacts,
-      role,
-      this.openInteractions,
-      this.taskOpen,
-    )
+    return coordinatedSeat(this as unknown as SeatSessionFacts, role, this.openInteractions, this.taskOpen)
   }
 
   @lazy get errorClass(): string | null {
-    return this.open && this.phase === 'errored'
-      ? (this.agentState?.error?.class ?? 'unknown')
-      : null
+    return this.open && this.phase === 'errored' ? this.agentState?.error?.class ?? 'unknown' : null
   }
 
-  @lazy get unstarted(): boolean {
-    return unstarted(this as unknown as SliceSession)
-  }
+  @lazy get unstarted(): boolean { return unstarted(this as unknown as SliceSession) }
 
   // State word (D5): the one answer the deck, the phone and the CLI give.
   @lazy
@@ -1589,9 +1243,7 @@ export class SessionModel extends EntityModel {
   }
 
   /** Error or Needs you: the two words that carry the colour and the dot. */
-  @lazy get attention(): boolean {
-    return wordWantsAttention(this.word)
-  }
+  @lazy get attention(): boolean { return wordWantsAttention(this.word) }
 
   /** Fresh execution evidence is a session fact; views decide which agents to show.
    *  A reconnecting session has none: its machine's link is down, so its preserved
@@ -1600,7 +1252,7 @@ export class SessionModel extends EntityModel {
   get computingDeadline(): number | undefined {
     if (this.reconnecting) return undefined
     const row = this.declaredRow
-    return computingDeadlineOf(row === LOADING ? undefined : (row as SessionView | undefined))
+    return computingDeadlineOf(row === LOADING ? undefined : row as SessionView | undefined)
   }
 
   @lazy
@@ -1616,57 +1268,37 @@ export class SessionModel extends EntityModel {
 
   // History: one scalar per question, shared by navigation and every mission.
   @lazy
-  get phase(): string {
-    return this.exists ? (this.agentState?.phase ?? 'unknown') : 'unknown'
-  }
+  get phase(): string { return this.exists ? this.agentState?.phase ?? 'unknown' : 'unknown' }
 
   @lazy
-  get moved(): boolean {
-    return Boolean(this.handoffTarget)
-  }
+  get moved(): boolean { return Boolean(this.handoffTarget) }
 
   @lazy
-  get lastActivity(): string {
-    return this.lastActiveAt ?? ''
-  }
+  get lastActivity(): string { return this.lastActiveAt ?? '' }
 
   @lazy
-  get lastInput(): string | undefined {
-    return this.lastInputAt
-  }
+  get lastInput(): string | undefined { return this.lastInputAt }
 
   @lazy
-  get transcript(): boolean | undefined {
-    return this.transcriptAvailable
-  }
+  get transcript(): boolean | undefined { return this.transcriptAvailable }
 
   @lazy
-  get historyKind(): SessionView['agentKind'] {
-    return this.agentKind
-  }
+  get historyKind(): SessionView['agentKind'] { return this.agentKind }
 
   // Display joins: these are resolved from linked rows, not stored SessionMeta fields.
   @lazy
-  get machineName(): SessionView['machineName'] {
-    return this.storedField('machineName') as SessionView['machineName']
-  }
+  get machineName(): SessionView['machineName'] { return this.storedField('machineName') as SessionView['machineName'] }
 
   @lazy
-  get condition(): SessionView['condition'] {
-    return this.storedField('condition') as SessionView['condition']
-  }
+  get condition(): SessionView['condition'] { return this.storedField('condition') as SessionView['condition'] }
 
   // Attention and ordering are session facts shared by the phone inbox and roster.
-  @lazy get attentionGroup() {
-    return attentionGroup(this as SessionView)
-  }
+  @lazy get attentionGroup() { return attentionGroup(this as SessionView) }
 
   @lazy get recency(): string {
     const deadline = Date.parse(this.snoozedUntil ?? '')
-    return effectiveRecency(
-      this as SessionView,
-      Number.isFinite(deadline) && this.host.inputs.reached(deadline) ? deadline : -Infinity,
-    )
+    return effectiveRecency(this as SessionView,
+      Number.isFinite(deadline) && this.host.inputs.reached(deadline) ? deadline : -Infinity)
   }
 
   // Activity: the same timestamp answers activityMs and raw member history.
@@ -1685,6 +1317,8 @@ export class SessionModel extends EntityModel {
   get worktreeLink(): string | null {
     return this.host.visibleInputs.links.session.worktree(this.id)
   }
+
+
 }
 
 export class WorktreeModel extends EntityModel {
@@ -1694,18 +1328,15 @@ export class WorktreeModel extends EntityModel {
    */
   @lazy get repoName(): string {
     const repoId = this.storedField('repoId')
-    const name =
-      typeof repoId === 'string'
-        ? (here(this.host.row('repo', repoId)) as RepoRow | undefined)?.name
-        : undefined
+    const name = typeof repoId === 'string' ? (here(this.host.row('repo', repoId)) as RepoRow | undefined)?.name : undefined
     return typeof name === 'string' && name ? name : String(this.storedField('repoName') ?? '')
   }
-  @lazy get branch(): string | null | undefined {
-    return this.storedField('branch') as string | null | undefined
-  }
+  @lazy get branch(): string | null | undefined { return this.storedField('branch') as string | null | undefined }
   constructor(id: string, host: ModelHost) {
     super('worktree', id, host)
   }
+
+
 }
 
 /**
@@ -1719,19 +1350,11 @@ export class EffectModel extends EntityModel {
   }
 
   // Progress and outcome
-  @lazy get status(): EffectStatus {
-    return readEffectStatus(String(this.effect?.status ?? 'unknown'))
-  }
-  @lazy get stage(): string | undefined {
-    return this.effect?.stage
-  }
-  @lazy({ equals: compareStructural }) get error(): EffectError | undefined {
-    return this.effect?.error
-  }
+  @lazy get status(): EffectStatus { return readEffectStatus(String(this.effect?.status ?? 'unknown')) }
+  @lazy get stage(): string | undefined { return this.effect?.stage }
+  @lazy({ equals: compareStructural }) get error(): EffectError | undefined { return this.effect?.error }
   /** Still on its way: waiting to start, or running. */
-  @lazy get inFlight(): boolean {
-    return this.status === 'pending' || this.status === 'running'
-  }
+  @lazy get inFlight(): boolean { return this.status === 'pending' || this.status === 'running' }
   /** A start: a draft agent's `session.launch`, a named task's `issue.start`
    *  (POD-6408, POD-6410), or a session on an existing issue, `issue.begin` or
    *  `issue.addSession` (POD-6526), which the launch paint reads (POD-6411). */
@@ -1751,23 +1374,15 @@ export class EffectModel extends EntityModel {
 
   // A human gate (POD-6674)
   /** An agent's request for a management operation, which waits for its person. */
-  @lazy get isApproval(): boolean {
-    return this.kind === APPROVAL_EFFECT_KIND
-  }
+  @lazy get isApproval(): boolean { return this.kind === APPROVAL_EFFECT_KIND }
   /** Waiting for its person to decide: pending, and nobody has. */
-  @lazy get awaitingDecision(): boolean {
-    return this.decision === null && this.status === 'pending'
-  }
+  @lazy get awaitingDecision(): boolean { return this.decision === null && this.status === 'pending' }
   /** The request as the agent filed it: the operation and where it came from.
    *  `op` is checked by the screen that shows it (the catalog grows). */
   @lazy({ equals: compareStructural }) get approvalRequest(): ApprovalRequestView | undefined {
     if (!this.isApproval) return undefined
-    const input = this.input as
-      | Partial<Record<'op' | 'machineId' | 'sessionId' | 'issueId', unknown>>
-      | null
-      | undefined
-    if (!input || typeof input.sessionId !== 'string' || typeof input.machineId !== 'string')
-      return undefined
+    const input = this.input as Partial<Record<'op' | 'machineId' | 'sessionId' | 'issueId', unknown>> | null | undefined
+    if (!input || typeof input.sessionId !== 'string' || typeof input.machineId !== 'string') return undefined
     return {
       op: input.op,
       machineId: input.machineId,
@@ -1784,9 +1399,7 @@ export interface ApprovalRequestView {
   readonly sessionId: string
   readonly issueId: string | null
 }
-export interface EffectModel
-  extends Readonly<Omit<EffectRecordWire, 'id'>>,
-    RelationGetters<'effect'> {
+export interface EffectModel extends Readonly<Omit<EffectRecordWire, 'id'>>, RelationGetters<'effect'> {
   /** Stamped at the row-source boundary: the record is routed to the viewer. */
   readonly forViewer?: boolean
 }
@@ -1822,18 +1435,10 @@ interface IssueEdits {
  */
 // Schema-installed session fields are typed by their wire contract. Derived
 // presence fields above keep their scalar types, and no row is stored here.
-export interface SessionModel
-  extends Readonly<
-      Omit<SessionView, 'archived' | 'condition' | 'messageDraft' | keyof SessionLiveFields>
-    >,
-    RelationGetters<'session'> {}
+export interface SessionModel extends Readonly<Omit<SessionView, 'archived' | 'condition' | 'messageDraft' | keyof SessionLiveFields>>, RelationGetters<'session'> {}
 
-export interface IssueModel
-  extends Readonly<Pick<IssueProjection, 'priority' | 'visibility' | 'acceptance' | 'assignee'>>,
-    Readonly<Omit<SliceIssue, 'title' | 'stage' | 'readAt' | 'description' | 'gitState'>>,
-    IssueEdits,
-    RelationGetters<'issue'> {
-  /** The stored projection uses the full wire contract; summaries only gate loading. */
+export interface IssueModel extends Readonly<Pick<IssueProjection, 'priority' | 'visibility' | 'acceptance' | 'assignee'>>, Readonly<Omit<SliceIssue, 'title' | 'stage' | 'readAt' | 'description' | 'gitState'>>, IssueEdits, RelationGetters<'issue'> {
+  /** The stored projection uses the full wire contract. */
   readonly gitState?: IssueGitState | null
 }
 
@@ -1965,13 +1570,10 @@ export class InstancePreferencesModel extends EntityModel {
    * (an app started offline) each flag follows its saved toggle.
    */
   @lazy({ equals: compareStructural }) get features(): FeatureStates {
-    return resolveFeatureStates(
-      this.host.live?.connection.serverFeatures ?? OFFLINE_FEATURE_FACTS,
-      {
-        experimental: this.experimental,
-        updateChannel: this.deployment.updateChannel,
-      },
-    )
+    return resolveFeatureStates(this.host.live?.connection.serverFeatures ?? OFFLINE_FEATURE_FACTS, {
+      experimental: this.experimental,
+      updateChannel: this.deployment.updateChannel,
+    })
   }
   /** Whether one feature is on for this install. */
   featureEnabled(id: FeatureId): boolean {
@@ -1980,64 +1582,39 @@ export class InstancePreferencesModel extends EntityModel {
 }
 export interface InstancePreferencesModel extends Readonly<InstancePreferences> {}
 
-const panelOrder = (a: { position: number; id: string }, b: { position: number; id: string }) =>
-  a.position - b.position || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+const panelOrder = (a: { position: number; id: string }, b: { position: number; id: string }) => a.position - b.position || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
 export class IssuePanelTodoModel extends EntityModel {
   declare readonly id: import('@podium/model').IssuePanelItemId
-  constructor(id: string, host: ModelHost) {
-    super('issuePanelTodo', id, host)
-  }
+  constructor(id: string, host: ModelHost) { super('issuePanelTodo', id, host) }
 }
-export interface IssuePanelTodoModel
-  extends Readonly<Omit<IssuePanelTodoWire, 'id'>>,
-    RelationGetters<'issuePanelTodo'> {}
+export interface IssuePanelTodoModel extends Readonly<Omit<IssuePanelTodoWire, 'id'>>, RelationGetters<'issuePanelTodo'> {}
 export class IssuePanelArtifactModel extends EntityModel {
   declare readonly id: import('@podium/model').IssuePanelItemId
-  constructor(id: string, host: ModelHost) {
-    super('issuePanelArtifact', id, host)
-  }
+  constructor(id: string, host: ModelHost) { super('issuePanelArtifact', id, host) }
 }
-export interface IssuePanelArtifactModel
-  extends Readonly<Omit<IssuePanelArtifactWire, 'id'>>,
-    RelationGetters<'issuePanelArtifact'> {}
+export interface IssuePanelArtifactModel extends Readonly<Omit<IssuePanelArtifactWire, 'id'>>, RelationGetters<'issuePanelArtifact'> {}
 export class IssuePanelDeferredModel extends EntityModel {
   declare readonly id: import('@podium/model').IssuePanelItemId
-  constructor(id: string, host: ModelHost) {
-    super('issuePanelDeferred', id, host)
-  }
+  constructor(id: string, host: ModelHost) { super('issuePanelDeferred', id, host) }
 }
-export interface IssuePanelDeferredModel
-  extends Readonly<Omit<IssuePanelDeferredWire, 'id'>>,
-    RelationGetters<'issuePanelDeferred'> {}
+export interface IssuePanelDeferredModel extends Readonly<Omit<IssuePanelDeferredWire, 'id'>>, RelationGetters<'issuePanelDeferred'> {}
 export class IssuePanelStateModel extends EntityModel {
   declare readonly id: import('@podium/model').IssueId
-  constructor(id: string, host: ModelHost) {
-    super('issuePanelState', id, host)
-  }
+  constructor(id: string, host: ModelHost) { super('issuePanelState', id, host) }
 }
-export interface IssuePanelStateModel
-  extends Readonly<Omit<IssuePanelStateWire, 'id'>>,
-    RelationGetters<'issuePanelState'> {}
+export interface IssuePanelStateModel extends Readonly<Omit<IssuePanelStateWire, 'id'>>, RelationGetters<'issuePanelState'> {}
 /** An issue's brief, its own synced record keyed by the issue id (POD-6921). */
 export class IssueBriefModel extends EntityModel {
   declare readonly id: import('@podium/model').IssueId
-  constructor(id: string, host: ModelHost) {
-    super('issueBrief', id, host)
-  }
+  constructor(id: string, host: ModelHost) { super('issueBrief', id, host) }
 }
-export interface IssueBriefModel
-  extends Readonly<Omit<IssueBriefWire, 'id'>>,
-    RelationGetters<'issueBrief'> {}
+export interface IssueBriefModel extends Readonly<Omit<IssueBriefWire, 'id'>>, RelationGetters<'issueBrief'> {}
 /** An issue's description, its own synced record keyed by the issue id (POD-6921). */
 export class IssueDescriptionModel extends EntityModel {
   declare readonly id: import('@podium/model').IssueId
-  constructor(id: string, host: ModelHost) {
-    super('issueDescription', id, host)
-  }
+  constructor(id: string, host: ModelHost) { super('issueDescription', id, host) }
 }
-export interface IssueDescriptionModel
-  extends Readonly<Omit<IssueDescriptionWire, 'id'>>,
-    RelationGetters<'issueDescription'> {}
+export interface IssueDescriptionModel extends Readonly<Omit<IssueDescriptionWire, 'id'>>, RelationGetters<'issueDescription'> {}
 
 export type ModelOf = {
   issueBrief: IssueBriefModel
@@ -2084,16 +1661,9 @@ export type ModelOf = {
 
 /** The installed class registry. Deferred kinds join it before their first model
  * is constructed; generic tables can already ingest all schema entities. */
-export type ModelClass = (new (
-  id: string,
-  host: ModelHost,
-) => EntityModel) &
-  Pick<typeof EntityModel, 'answers'>
+export type ModelClass = (new (id: string, host: ModelHost) => EntityModel) & Pick<typeof EntityModel, 'answers'>
 export const MODEL_CLASSES: Readonly<Partial<Record<EntityName, ModelClass>>> = {
-  issue: IssueModel,
-  session: SessionModel,
-  worktree: WorktreeModel,
-  repo: RepoModel,
+  issue: IssueModel, session: SessionModel, worktree: WorktreeModel, repo: RepoModel,
   effect: EffectModel,
   issueBrief: IssueBriefModel,
   issueDescription: IssueDescriptionModel,
@@ -2102,9 +1672,7 @@ export const MODEL_CLASSES: Readonly<Partial<Record<EntityName, ModelClass>>> = 
   issuePanelDeferred: IssuePanelDeferredModel,
   issuePanelState: IssuePanelStateModel,
   pin: PinModel,
-  userLayout: UserLayoutModel,
-  tabOrder: TabOrderModel,
-  userPreferences: UserPreferencesModel,
+  userLayout: UserLayoutModel, tabOrder: TabOrderModel, userPreferences: UserPreferencesModel,
   userReadPosition: UserReadPositionModel,
   superagentThread: SuperagentThreadModel,
   inboxNotice: InboxNoticeModel,
@@ -2120,18 +1688,13 @@ for (const [entity, Model] of Object.entries(MODEL_CLASSES) as [EntityName, Mode
 const deferredClasses = observable.map<EntityName, ModelClass | Error>(undefined, { deep: false })
 let deferredRequest: Promise<unknown> | undefined
 export function loadSyncedModels(): Promise<unknown> {
-  return (deferredRequest ??= Promise.all([
-    import('./synced-models'),
-    import('./message-models'),
-    import('./requested-models'),
-    import('./workflow-models'),
-  ]).catch((cause) => {
+  return deferredRequest ??= Promise.all([import('./synced-models'), import('./message-models'), import('./requested-models'), import('./workflow-models')]).catch(cause => {
     const error = cause instanceof Error ? cause : new Error(String(cause))
     runInAction(() => {
       for (const entity of Object.keys(SCHEMA) as EntityName[])
         if (!MODEL_CLASSES[entity]) deferredClasses.set(entity, error)
     })
-  }))
+  })
 }
 
 /** A deferred model read subscribes to its kind until the import settles. No
@@ -2146,10 +1709,7 @@ export function modelClass(entity: EntityName): ModelClass | typeof LOADING {
 
 /** Install complete schema fields using the same generic installer as the
  * startup kinds, then wake pending model readers together. */
-export function registerModels(
-  schema: Partial<ModelSchema>,
-  models: Partial<Record<EntityName, ModelClass>>,
-): void {
+export function registerModels(schema: Partial<ModelSchema>, models: Partial<Record<EntityName, ModelClass>>): void {
   Object.assign(SCHEMA, schema)
   const entries = Object.entries(models) as [EntityName, ModelClass][]
   for (const [entity, Model] of entries) {

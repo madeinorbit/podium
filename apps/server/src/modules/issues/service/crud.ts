@@ -885,7 +885,7 @@ export class IssueCrudModule {
    * Undo a discarded draft's claims before its purge deletes its artifacts
    * (POD-2148): each chat upload's file moves back to pending and forgets the
    * claim, so retrying the same create claims it again. Claims are found from
-   * the panel AND from the pending metas naming this issue, so one whose panel
+   * the panel AND from the pending rows naming this issue, so one whose panel
    * commit never landed is returned too. Answers whether every one came back;
    * when not, the caller keeps the artifact dir, which may hold its only copy.
    * Only for a draft whose launch failed with no session on it.
@@ -912,9 +912,9 @@ export class IssueCrudModule {
           await store.relinquish?.({
             issueId,
             artifactId: meta.claimed.artifactId,
-            toDir: pending.fileDir(uploadId),
+            to: pending.fileKey(meta),
           })
-          await pending.markUnclaimed(uploadId)
+          await pending.markUnclaimed(uploadId, issueId)
         })
       } catch {
         returned = false
@@ -947,15 +947,26 @@ export class IssueCrudModule {
         'this attachment was already sent with another task; attach the file again',
       )
     }
-    const claimed = meta.claimed ?? {
-      issueId,
-      artifactId: asArtifactId(randomBytes(6).toString('hex')),
+    // Recorded before the copy, by a conditional update: a claim another
+    // process recorded first wins, and this one copies to its artifact.
+    const claimed =
+      meta.claimed ??
+      (await pending.markClaimed(input.uploadId, {
+        issueId,
+        artifactId: asArtifactId(randomBytes(6).toString('hex')),
+      }))
+    if (!claimed) {
+      throw new IssueRefusal('this attachment is no longer available; attach the file again')
     }
-    if (!meta.claimed) await pending.markClaimed(input.uploadId, claimed)
+    if (claimed.issueId !== issueId) {
+      throw new IssueRefusal(
+        'this attachment was already sent with another task; attach the file again',
+      )
+    }
     const snap = await store.adopt({
       issueId,
       artifactId: claimed.artifactId,
-      fromDir: pending.fileDir(input.uploadId),
+      from: pending.fileKey(meta),
       entry: meta.entry,
     })
     try {
@@ -972,15 +983,15 @@ export class IssueCrudModule {
     } catch (error) {
       // No entry names the moved file: put it back in pending and forget the
       // claim (still under this upload's lock), so the same ref can be claimed
-      // again. If that fails too, the meta still names this issue, and a draft
-      // discard finds it there and keeps the dir rather than purge it.
+      // again. If that fails too, the row still names this issue, and a draft
+      // discard finds it there and keeps the artifact rather than purge it.
       try {
         await store.relinquish?.({
           issueId,
           artifactId: snap.artifactId,
-          toDir: pending.fileDir(input.uploadId),
+          to: pending.fileKey(meta),
         })
-        await pending.markUnclaimed(input.uploadId)
+        await pending.markUnclaimed(input.uploadId, issueId)
       } catch {}
       throw error
     }
@@ -1011,12 +1022,12 @@ export class IssueCrudModule {
       (a) => a.chatUploadId === uploadId && a.artifactId,
     )
     if (!entry?.artifactId) return undefined
-    const found = await store.read(
+    const found = await store.readStream(
       issueId,
       entry.artifactId,
       entry.entry ?? machinePathBasename(entry.path) ?? '',
     )
-    return found ? new Uint8Array(found.bytes) : undefined
+    return found ? new Uint8Array(await new Response(found.body).arrayBuffer()) : undefined
   }
 
   /** artifact-remove that also deletes the snapshot's store dir ([spec:SP-0fc9]).
@@ -1092,20 +1103,23 @@ export class IssueCrudModule {
       )
     }
     const file = input.file ?? entryRow.entry ?? machinePathBasename(entryRow.path) ?? entryRow.path
-    const found = await store.read(row.id, entryRow.artifactId, file)
+    const found = await store.readStream(row.id, entryRow.artifactId, file)
     if (!found) {
       const known = (entryRow.files ?? []).map((f) => f.path).join(', ')
       throw new IssueRefusal(
         `artifact ${at + 1} has no stored file ${file}${known ? ` (bundle holds: ${known})` : ''}`,
       )
     }
-    if (found.bytes.length > ARTIFACT_READ_CAP_BYTES) {
+    // The size is known before any byte is read: over the cap, nothing is buffered.
+    if (found.size > ARTIFACT_READ_CAP_BYTES) {
+      void found.body.cancel().catch(() => {})
       throw new IssueRefusal(
-        `${file} is ${found.bytes.length} bytes — over the ${
+        `${file} is ${found.size} bytes — over the ${
           ARTIFACT_READ_CAP_BYTES / (1024 * 1024)
         }MB command-read cap; fetch it from the server at ${artifactUrl(row.id, entryRow.artifactId, file)}`,
       )
     }
+    const bytes = Buffer.from(await new Response(found.body).arrayBuffer())
     return {
       index: at + 1,
       path: entryRow.path,
@@ -1113,12 +1127,12 @@ export class IssueCrudModule {
       addedAt: entryRow.addedAt,
       artifactId: entryRow.artifactId,
       entry: entryRow.entry ?? file,
-      files: entryRow.files ?? [{ path: file, size: found.bytes.length }],
+      files: entryRow.files ?? [{ path: file, size: bytes.length }],
       file,
       contentType: found.contentType,
-      size: found.bytes.length,
+      size: bytes.length,
       url: artifactUrl(row.id, entryRow.artifactId, file),
-      dataBase64: found.bytes.toString('base64'),
+      dataBase64: bytes.toString('base64'),
     }
   }
 

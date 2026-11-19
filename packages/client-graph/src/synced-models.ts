@@ -229,7 +229,6 @@ const schema = {
 
     },
     relations: {},
-    cold: { kind: 'never', why: 'The currently synced fleet stays resident, as before.' },
   },
   automation: {
     key: 'id',
@@ -265,7 +264,6 @@ const schema = {
       sessionMode: { type: 'enum', source: automationWire() },
     },
     relations: {},
-    cold: { kind: 'never', why: 'The currently synced definitions stay resident, as before.' },
   },
   automationRun: {
     key: 'id',
@@ -290,10 +288,6 @@ const schema = {
       detail: { type: 'string', nullable: true, source: automationRunWire() },
     },
     relations: {},
-    cold: {
-      kind: 'never',
-      why: 'The currently synced run set stays resident; history windows keep only IDs.',
-    },
   },
 } satisfies Pick<ModelSchema, 'machine' | 'automation' | 'automationRun'>
 

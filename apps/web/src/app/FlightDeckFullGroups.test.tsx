@@ -1,5 +1,7 @@
 // @vitest-environment happy-dom
+
 import { readFileSync, writeFileSync } from 'node:fs'
+import { observableFixtureKeys } from '@podium/client-core/test-support/ui'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
 import type { FullDeckTask } from '@podium/client-graph/mission-full-deck'
 import { coldMissionRowFixture } from '@podium/client-graph/mission-row-loading.test.fixture'
@@ -7,20 +9,20 @@ import { MissionScreen } from '@podium/client-graph/mission-screen'
 import { settled } from '@podium/client-graph/mission-view'
 import { MobxPool } from '@podium/client-graph/pool'
 import { attachPreferenceSource } from '@podium/client-graph/preference-source'
-import { act, cleanup, fireEvent, render, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { autorun } from 'mobx'
 import { createRef } from 'react'
 import { afterAll, afterEach, expect, it, vi } from 'vitest'
+import { fixtureRuntimeRender } from '@/test-support/fixture-runtime-render'
 import { FlightDeckFullControls } from './FlightDeckFullControls'
 import { FlightDeckFullGroups } from './FlightDeckFullGroups'
 import { FlightDeckFullCoordinator } from './FlightDeckFullSeats'
 import { FlightDeckProposals } from './FlightDeckProposals'
 import { MissionGauge } from './MissionGauge'
 
-vi.mock('./store', () => ({
-  readFixture: (read: (value: unknown) => unknown) => read({ renameSession: vi.fn() }),
-}))
+// The deck reads its commands from the runtime root (792821bc50).
+const render = fixtureRuntimeRender({ renameSession: vi.fn() })
 vi.mock('@/lib/use-harness-descriptors', () => ({
   useHarnessDescriptors: () => ({ served: undefined }),
 }))
@@ -83,7 +85,8 @@ async function open(issues = mixed(), sessions: Row[] = []) {
       return () => listeners.delete(listener)
     },
   }
-  attachPreferenceSource(pool, uiState)
+  // The product's device preferences are observable (UiStore); so is this port.
+  attachPreferenceSource(pool, observableFixtureKeys(uiState))
   pool.apply({
     type: 'replace',
     rows: [
@@ -636,7 +639,7 @@ it('uses the existing loading placeholder until the coordinator roster settles',
     expect(ui.getByRole('status', { name: 'Loading coordinator' })).toBeDefined()
     expect(ui.container.querySelector('[data-flight-session]')).toBeNull()
     await act(async () => {
-      f.pool.hydrate()
+      f.arrive()
     })
     await waitFor(() => expect(ui.queryByRole('status')).toBeNull())
     // Stopped sessions retain their shared Done word and conversation access.

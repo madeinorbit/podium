@@ -2,7 +2,6 @@ import { autorun, observable, runInAction } from 'mobx'
 import { expect, it, vi } from 'vitest'
 import { issueBoardStats } from '../../../tests/worklist/harness/src/perf/issue-board'
 import { boardCards } from './issue-board-cards'
-import { ISSUE_BOARD_SUMMARIES } from './issue-board-schema'
 import { createIssueBoardSource } from './issue-board-source'
 import { MobxPool } from './pool'
 import { LOADING } from './worklist/rollup'
@@ -40,7 +39,6 @@ function setup(rows = [row('hot'), row('cold', { archived: true, stage: 'done' }
   const load = vi.fn((_entity: string, id: string) => rows.find((row) => row.id === id))
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: now }, undefined, {
     load,
-    summaries: ISSUE_BOARD_SUMMARIES,
     schedule: () => () => {},
   })
   pool.apply({
@@ -110,7 +108,9 @@ it('releases board query demand without a resident reverse index', () => {
   }
 })
 
-it('retains catalogue metadata across stage, heartbeat and title changes without a resident index', () => {
+it('reads the filter menu projects from repository records, never from the issues (POD-7088)', () => {
+  // The fixture holds issues and no repository record: no walk over the
+  // issues may invent a project, and issue edits never rebuild the menu.
   const f = setup([row('one', { assignee: 'owner', labels: ['bug'] })])
   let value: ReturnType<typeof f.source.catalog>
   const stop = autorun(() => {
@@ -118,22 +118,11 @@ it('retains catalogue metadata across stage, heartbeat and title changes without
   })
   try {
     const before = value!
-    expect(before).toEqual({
-      scope: ['one'],
-      projectPaths: ['/fixture'],
-      assignees: ['owner'],
-      labels: ['bug'],
-    })
+    expect(before).toEqual({ projectPaths: [] })
     f.paint('one', { stage: 'planning', updatedAt: new Date(now).toISOString(), title: 'Renamed' })
+    f.paint('one', { assignee: 'reviewer', labels: ['feature'] })
     expect(value!).toBe(before)
     expect(f.source.stats().residentRows).toBe(0)
-    f.paint('one', { assignee: 'reviewer', labels: ['feature'] })
-    expect(value!).toEqual({
-      scope: ['one'],
-      projectPaths: ['/fixture'],
-      assignees: ['reviewer'],
-      labels: ['feature'],
-    })
     stop()
     expect(f.source.stats().cached).toBe(0)
   } finally {
@@ -156,28 +145,6 @@ it('releases demanded ID results on filter change and unmount', () => {
     expect(source.stats().demandKeys).toBe(0)
   } finally {
     unmount()
-    stop()
-  }
-})
-it('uses declared cold summaries without promoting cards or hydrating the world', () => {
-  const { source, pool, load, stop } = setup([
-    row('hot'),
-    row('cold', { archived: true, stage: 'done', defaultAgent: 'codex' }),
-  ])
-  try {
-    expect(source.queryIds({ kind: 'board', filter: { archived: true } })).toEqual({
-      ids: ['cold', 'hot'],
-    })
-    expect(source.issue('cold')).toMatchObject({
-      id: 'cold',
-      stage: 'done',
-      defaultAgent: 'codex',
-    })
-    expect(pool.tables.issue.has('cold')).toBe(false)
-    expect(source.stats().residentRows).toBe(0)
-    expect(pool.hydrate()).toBe(0)
-    expect(load).not.toHaveBeenCalled()
-  } finally {
     stop()
   }
 })
@@ -261,19 +228,6 @@ it('orders a virtual fleet by declared member IDs after resume collapse', () => 
   try {
     const value = cardOf(pool, 'root')
     expect(value.fleet).toEqual(['m', 'z'])
-  } finally {
-    stop()
-  }
-})
-it('answers a missing summary with LOADING and one batched load', () => {
-  const { source, pool, load, stop } = setup()
-  try {
-    vi.spyOn(pool.residency!, 'summary').mockReturnValue(undefined)
-    expect(source.issue('cold')).toBe(LOADING)
-    expect(source.issue('cold')).toBe(LOADING)
-    expect(load).not.toHaveBeenCalled()
-    expect(pool.hydrate()).toBe(1)
-    expect(load).toHaveBeenCalledTimes(1)
   } finally {
     stop()
   }

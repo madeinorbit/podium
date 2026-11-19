@@ -24,21 +24,51 @@
  * takes, so the ambient opener seam in `store-database.ts` — and with it the
  * pre-migrated image and its `globalSetup` env channel — applies here unchanged.
  * The seam stays synchronous at the flip and is called from inside `open()`.
+ *
+ * THE ENGINE SWITCH [POD-6980]. Under `PODIUM_TEST_STORE_ENGINE=pg` (the
+ * `server-store-pg` lane) an in-memory store becomes a store on a fresh Postgres
+ * database cloned from the run's template: one database per store, so two stores in
+ * one test share no rows, exactly as two `':memory:'` SQLite stores do not. The store
+ * opens it from its URL; choosing the engine from the location is the store's job
+ * (POD-6979). A file path stands for one database for the rest of the test file, so a
+ * test that reopens its store file reopens the same database (POD-6994); a file the test
+ * wrote itself is SQLite, refused with the list where such a test belongs.
  */
 
-import { primeFirstAdminMember, firstAdminMemberId, type MachineId } from '@podium/model'
+import { existsSync, statSync } from 'node:fs'
+import { resolve } from 'node:path'
+import {
+  clearFirstAdminMember,
+  type MachineId,
+  primeFirstAdminMember,
+  type WorkspaceId,
+} from '@podium/model'
 import type { SnapshotVerifierDeps } from '../migrations/snapshot-verifier'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import { SessionStore } from '../store'
+import {
+  clonePgTestDatabase,
+  closeBeforeDrop,
+  type PgTestDatabase,
+  pgTestDatabasesCreated,
+  testStoreEngine,
+} from './pg-test-database'
 
 /**
  * Build a `SessionStore` for a test. The parameters are the constructor's, in
  * its order: the database path (`':memory:'` unless the test needs a file), the
- * host machine identity, and the snapshot-verifier seam.
+ * host machine identity, and the snapshot-verifier seam; then the options.
+ *
+ * `workspace` is the workspace the store is for, and the one its database boots
+ * (POD-7010). The self-hosted install's when absent; a test that must not lean
+ * on that id passes another (POD-6959 task C2 runs the boot-wiring files so).
+ * Several workspaces over one database: `openWorkspaceStores`.
  */
 export async function openTestStore(
   path?: string,
   hostMachineId?: MachineId,
   snapshotVerifierDeps?: SnapshotVerifierDeps,
+  options: { workspace?: WorkspaceId } = {},
 ): Promise<SessionStore> {
   // Every parameter of the constructor has a default and an explicit `undefined`
   // selects it, so forwarding all three keeps the state-dir path, the freshly
@@ -46,10 +76,63 @@ export async function openTestStore(
   // would have them.
   // No change capture until the test attaches a change log (POD-6920): a
   // store-level fixture seeds with no log to bypass.
-  const store = await SessionStore.open(path, hostMachineId, {
+  const clone = testStoreEngine() === 'pg' ? await postgresDatabase(path) : undefined
+  const location = clone?.url ?? path
+  const store = await SessionStore.open(location, hostMachineId, {
     ...snapshotVerifierDeps,
     changeCapture: 'whenLogAttaches',
+    workspace: options.workspace ?? SELF_HOSTED_WORKSPACE_ID,
+    // A test file may hold many stores at once; the leg's server has 300 connections.
+    ...(clone === undefined ? {} : { poolSize: 3 }),
   })
-  primeFirstAdminMember(await firstAdminMemberId(store))
+  // A store left open would still be querying when its database is dropped.
+  if (clone !== undefined) closeBeforeDrop(clone.name, async () => await store.close())
+  // The workspace's own first admin (POD-7019: members are the workspace's). A workspace the
+  // image does not seed (its people are the self-hosted workspace's) has none, and then no
+  // earlier store's admin stays primed.
+  const admin = await store.users.earliestAdmin()
+  if (admin) primeFirstAdminMember(admin.id)
+  else clearFirstAdminMember()
   return store
+}
+
+/**
+ * The Postgres databases standing in for store FILES this test file opened, by path. A
+ * SQLite test that names a file does so to open the same store again (a restart, a second
+ * process's view): on Postgres the same path opens the same database, for the rest of the
+ * file, as the file would stay on disk.
+ */
+const databasesByPath = new Map<string, Promise<PgTestDatabase>>()
+
+/** The Postgres database of a test store standing in for `path`. */
+async function postgresDatabase(path: string | undefined): Promise<PgTestDatabase> {
+  if (path === undefined || path === ':memory:') return await clonePgTestDatabase()
+  const key = resolve(path)
+  const known = await databasesByPath.get(key)
+  // Still there: the harness drops a file's databases when the file ends.
+  if (known !== undefined && pgTestDatabasesCreated().includes(known.name)) return known
+  // A file the test wrote itself is a SQLite database it built on purpose (an older
+  // schema to upgrade, a fixture image): that tests SQLite, not the store.
+  if (existsSync(key) && statSync(key).size > 0) {
+    throw new Error(
+      `openTestStore: ${path} is a SQLite file this test wrote, and this run uses Postgres. A ` +
+        'test that builds a store file tests SQLite itself: list it under sqliteOnly in ' +
+        'apps/server/test-store-engines.json.',
+    )
+  }
+  const made = clonePgTestDatabase('file')
+  databasesByPath.set(key, made)
+  return await made
+}
+
+/**
+ * Where a store a test opened at `path` lives, for a reader that opens the database by its
+ * location rather than through the store (the sync worker's producer): on Postgres the URL of
+ * the database standing for the path (POD-7103), on SQLite the path itself.
+ */
+export async function testStoreLocation(path: string): Promise<string> {
+  if (testStoreEngine() !== 'pg') return path
+  const known = databasesByPath.get(resolve(path))
+  if (known === undefined) throw new Error(`testStoreLocation: no test store was opened at ${path}`)
+  return (await known).url
 }

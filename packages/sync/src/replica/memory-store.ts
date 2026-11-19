@@ -22,16 +22,25 @@
  */
 
 import type { MutationId } from '@podium/model'
+import { ChangedKeyDraft } from '../adapters/changed-key-draft'
 import {
-  certifyPersonalRowsCompleteAt,
+  type CacheMeta,
   cursorTriple,
-  nextCacheCompleteness,
-  nextPersonalRowsCompleteAt,
-  type PersonalRowsCompleteness,
-  type ScopedCacheCursor,
-  snapshotCacheCursor,
-  trustedPersonalRowsCompleteAt,
-} from './cache-completeness'
+  EMPTY_CACHE_META,
+  isMainRow,
+  nextCacheMeta,
+} from './cache-state'
+import {
+  DiskIndex,
+  DiskIndexDraft,
+  type DiskIndexReader,
+  DiskOnlyWrites,
+  installResidentRows,
+  stageIndexComesWith,
+  stageIndexInstances,
+  stageRow,
+  unloadResident,
+} from './disk-index'
 import type { RetirementIntent } from './overlay'
 import type {
   CacheMutation,
@@ -43,7 +52,9 @@ import type {
   SyncUnitOfWork,
 } from './ports'
 import { ReplicaStoreCorruptError } from './ports'
-import type { Cursor, EntityRecord, KindTokens } from './types'
+import { RowMirror } from './row-mirror'
+import type { StubTableReader } from './stub-table'
+import type { CachePolicy, Cursor, EntityRecord, InstanceRecord, KindTokens } from './types'
 
 const key = (entity: string, entityId: string): string => `${entity}\u0000${entityId}`
 
@@ -119,21 +130,33 @@ export class InMemoryOutbox {
   }
 }
 
-/** The staged post-state of the cache region inside one span. */
+/**
+ * The staged post-state of the cache region inside one span: the keys it
+ * changes over the published rows (or, for an install, the rows replacing
+ * them), never a copy of every row.
+ */
 interface CacheDraft {
-  rows: Map<string, EntityRecord>
-  cursor: ScopedCacheCursor | null
-  personalRowsCompleteAt: PersonalRowsCompleteness | null
+  rows: ChangedKeyDraft<EntityRecord, RowMirror>
+  disk: ChangedKeyDraft<EntityRecord>
+  index: DiskIndexDraft
+  /** POD-7160 — rows written to disk and not to memory. */
+  diskOnly: DiskOnlyWrites
+  meta: CacheMeta
 }
 
+/**
+ * POD-7159 — this adapter's "disk" is a map of every row it holds, beside
+ * the resident set in memory (`rows`), so the two layers behave here as on
+ * the durable adapters: an unloaded instance leaves memory and stays here.
+ */
 class InMemoryCache implements ReplicaCacheStore {
-  private rows = new Map<string, EntityRecord>()
-  private cursorValue: ScopedCacheCursor | null = null
-  private personalRowsCompleteAt: PersonalRowsCompleteness | null = null
+  // POD-7115: a stub is kept only in its record type's stub table.
+  private rows = new RowMirror()
+  private disk = new Map<string, EntityRecord>()
+  private index = new DiskIndex()
+  private meta: CacheMeta = EMPTY_CACHE_META
   private readonly drafts = new Map<SyncSpan, CacheDraft>()
-  /** Flipped by tests to exercise D7 rung 5 / ADR 6 D4.5. */
   corrupt = false
-  /** Vetoes the NEXT span commit this region takes part in, at the serialized point. */
   failNextPrepare: string | null = null
   mode: 'durable' | 'degraded-memory' | 'unavailable' = 'degraded-memory'
 
@@ -141,29 +164,90 @@ class InMemoryCache implements ReplicaCacheStore {
 
   readCursor(): Cursor | null {
     this.guard()
-    return cursorTriple(this.cursorValue)
+    return cursorTriple(this.meta.cursor)
   }
 
   readKindTokens(): KindTokens | undefined {
     this.guard()
-    return this.cursorValue?.kindTokens
+    return this.meta.cursor?.kindTokens
   }
 
-  readPersonalRowsCompleteAt(): Cursor | null {
+  readInstances(): ReadonlyMap<string, InstanceRecord> {
     this.guard()
-    return cursorTriple(
-      trustedPersonalRowsCompleteAt(this.cursorValue, this.personalRowsCompleteAt),
+    return this.meta.instances
+  }
+
+  readPolicy(): CachePolicy | null {
+    this.guard()
+    return this.meta.policy
+  }
+
+  readLoadingSince(): number | null {
+    this.guard()
+    return this.meta.loadingSince
+  }
+
+  readDiskIndex(): DiskIndexReader {
+    this.guard()
+    return this.index
+  }
+
+  async readDiskRows(keys: readonly string[]): Promise<readonly EntityRecord[]> {
+    this.guard()
+    const out: EntityRecord[] = []
+    for (const key of keys) {
+      const row = this.disk.get(key)
+      if (row !== undefined) out.push(row)
+    }
+    return out
+  }
+
+  installResident(rows: readonly EntityRecord[]): readonly EntityRecord[] {
+    this.guard()
+    return installResidentRows(this.rows, this.index, rows)
+  }
+
+  markInMemory(instanceKeys: readonly string[]): void {
+    this.guard()
+    this.index.setInMemory(
+      instanceKeys.filter((key) => this.meta.instances.has(key)),
+      true,
     )
+  }
+
+  unload(instanceKeys: readonly string[]): readonly Pick<EntityRecord, 'entity' | 'entityId'>[] {
+    this.guard()
+    return unloadResident(this.rows, this.index, instanceKeys)
+  }
+
+  touchInstance(instanceKey: string, at: number): void {
+    this.index.touch(instanceKey, at)
   }
 
   readEntities(): readonly EntityRecord[] {
     this.guard()
-    return [...this.rows.values()]
+    return this.rows.mainRows()
   }
 
   read(entity: string, entityId: string): EntityRecord | undefined {
     this.guard()
+    const row = this.rows.getMain(key(entity, entityId))
+    return row === undefined || !isMainRow(row) ? undefined : row
+  }
+
+  readRow(entity: string, entityId: string): EntityRecord | undefined {
+    this.guard()
     return this.rows.get(key(entity, entityId))
+  }
+
+  readStubs(): readonly EntityRecord[] {
+    this.guard()
+    return this.rows.stubRows()
+  }
+
+  readStubTable(entity: string): StubTableReader | undefined {
+    this.guard()
+    return this.rows.stubTable(entity)
   }
 
   beginSpan(): OwnedSyncSpan {
@@ -176,28 +260,38 @@ class InMemoryCache implements ReplicaCacheStore {
   applyAtomic(mutation: CacheMutation, span?: SyncSpan): void {
     this.guard()
     if (span === undefined) {
-      // Build the post-state first and swap once: a throw part-way through leaves
-      // the pre-operation snapshot, never a torn mix (ADR 6 D4.1).
-      const completeness = nextCacheCompleteness(
-        this.cursorValue,
-        this.personalRowsCompleteAt,
-        mutation,
-      )
-      const next = new Map(this.rows)
-      applyInto(next, mutation)
-      this.rows = next
-      this.cursorValue = completeness.cursor
-      this.personalRowsCompleteAt = completeness.marker
+      // Stage the post-state first and publish once: a throw part-way through
+      // leaves the pre-operation rows, never a torn mix (ADR 6 D4.1).
+      const draft = this.newDraft()
+      applyInto(draft, this.rows, this.disk, mutation)
+      const meta = nextCacheMeta(this.meta, mutation).meta
+      this.publishDraft(draft, meta)
       this.physical.countTransaction()
       return
     }
     const draft = this.draftFor(span)
-    const completeness = nextCacheCompleteness(draft.cursor, draft.personalRowsCompleteAt, mutation)
     // EXTENDS the one draft. A second call must not restage from the live map, or
     // the first call's operations would be silently dropped at publish.
-    applyInto(draft.rows, mutation)
-    draft.cursor = completeness.cursor
-    draft.personalRowsCompleteAt = completeness.marker
+    applyInto(draft, this.rows, this.disk, mutation)
+    draft.meta = nextCacheMeta(draft.meta, mutation).meta
+  }
+
+  private newDraft(): CacheDraft {
+    return {
+      rows: new ChangedKeyDraft<EntityRecord, RowMirror>(),
+      disk: new ChangedKeyDraft<EntityRecord>(),
+      index: new DiskIndexDraft(this.index),
+      diskOnly: new DiskOnlyWrites(),
+      meta: this.meta,
+    }
+  }
+
+  private publishDraft(draft: CacheDraft, meta: CacheMeta): void {
+    this.rows = draft.rows.publish(this.rows)
+    draft.diskOnly.publish(this.rows)
+    this.disk = draft.disk.publish(this.disk)
+    this.index.publish(draft.index)
+    this.meta = meta
   }
 
   installSnapshot(
@@ -208,39 +302,52 @@ class InMemoryCache implements ReplicaCacheStore {
     versions: SnapshotVersions = {},
   ): void {
     this.guard()
-    // Reject invalid buffered certification before staging any snapshot writes.
-    for (const mutation of buffered) nextPersonalRowsCompleteAt(null, mutation)
     // The atomic swap of ADR 2 D6.4: the staged slice REPLACES the cache (this is
     // the D7 "discard the cache"), the buffered deltas apply on top, and the
     // cursor commits — one transaction, no half-installed replica, and no window
     // in which the replica holds a mixture of two principals' slices.
     const draft = span === undefined ? undefined : this.draftFor(span)
-    const next = new Map<string, EntityRecord>()
-    if (versions.kinds) {
-      for (const [key, row] of draft?.rows ?? this.rows) {
-        if (!versions.kinds.has(row.entity)) next.set(key, row)
-      }
+    const replacement = RowMirror.of(rows)
+    const diskRows = new Map<string, EntityRecord>()
+    const index = new DiskIndexDraft(this.index)
+    index.clearAll()
+    for (const row of rows) {
+      const at = key(row.entity, row.entityId)
+      diskRows.set(at, row)
+      index.row(at, row)
     }
-    for (const row of rows) next.set(key(row.entity, row.entityId), row)
-    let head = cursor
+    const next: CacheDraft = {
+      rows: new ChangedKeyDraft<EntityRecord, RowMirror>(replacement),
+      disk: new ChangedKeyDraft<EntityRecord>(diskRows),
+      index,
+      diskOnly: new DiskOnlyWrites(),
+      meta: EMPTY_CACHE_META,
+    }
+    let meta = nextCacheMeta(EMPTY_CACHE_META, {
+      operations: [],
+      cursor,
+      ...(versions.kindTokens === undefined ? {} : { kindTokens: versions.kindTokens }),
+    }).meta
     for (const mutation of buffered) {
-      applyInto(next, mutation)
-      if (mutation.cursor !== undefined) head = mutation.cursor
+      applyInto(next, replacement, diskRows, mutation)
+      meta = nextCacheMeta(meta, mutation).meta
     }
-    const completeAt = certifyPersonalRowsCompleteAt(head)
-    const installed = snapshotCacheCursor(completeAt, versions.kindTokens)
     if (draft === undefined) {
-      this.rows = next
-      this.cursorValue = installed
-      this.personalRowsCompleteAt = completeAt
+      this.rows = replacement
+      next.diskOnly.publish(replacement)
+      this.disk = diskRows
+      this.index.publish(index)
+      this.meta = meta
       this.physical.countTransaction()
       return
     }
     // An install REPLACES rather than extends, so it overwrites the draft's rows
     // outright — the replacement IS the semantics, unlike applyAtomic's extension.
-    draft.rows = next
-    draft.cursor = installed
-    draft.personalRowsCompleteAt = completeAt
+    draft.rows = next.rows
+    draft.disk = next.disk
+    draft.index = index
+    draft.diskOnly = next.diskOnly
+    draft.meta = meta
   }
 
   discardCache(): void {
@@ -248,9 +355,10 @@ class InMemoryCache implements ReplicaCacheStore {
     // Reaches entities and the cursor. There is no outbox here to reach, and no
     // span either: a discard is a lone single-region operation (D10 clause 2), so
     // it cannot be composed into a transaction that also touches the outbox.
-    this.rows = new Map()
-    this.cursorValue = null
-    this.personalRowsCompleteAt = null
+    this.rows = new RowMirror()
+    this.disk = new Map()
+    this.index.clear()
+    this.meta = EMPTY_CACHE_META
     this.physical.countTransaction()
   }
 
@@ -261,11 +369,7 @@ class InMemoryCache implements ReplicaCacheStore {
   private draftFor(span: SyncSpan): CacheDraft {
     const existing = this.drafts.get(span)
     if (existing !== undefined) return existing
-    const draft: CacheDraft = {
-      rows: new Map(this.rows),
-      cursor: this.cursorValue,
-      personalRowsCompleteAt: this.personalRowsCompleteAt,
-    }
+    const draft = this.newDraft()
     this.drafts.set(span, draft)
     span.join({
       prepare: () => {
@@ -277,9 +381,7 @@ class InMemoryCache implements ReplicaCacheStore {
         }
       },
       publish: () => {
-        this.rows = draft.rows
-        this.cursorValue = draft.cursor
-        this.personalRowsCompleteAt = draft.personalRowsCompleteAt
+        this.publishDraft(draft, draft.meta)
         this.drafts.delete(span)
       },
       discard: () => {
@@ -294,31 +396,40 @@ class InMemoryCache implements ReplicaCacheStore {
   }
 }
 
-function applyInto(rows: Map<string, EntityRecord>, mutation: CacheMutation): void {
+function applyInto(
+  draft: CacheDraft,
+  base: RowMirror,
+  disk: ReadonlyMap<string, EntityRecord>,
+  mutation: CacheMutation,
+): void {
   // IN ORDER. Never grouped by kind: a frame carrying remove(seq 1) then
   // upsert(seq 2) for one entity must leave the entity PRESENT, and any adapter
   // that batches by type gets that backwards (ADR 2 D9/D13 — order is the
   // correctness property). POD-374/POD-375 inherit this obligation.
   for (const op of mutation.operations) {
-    if (op.kind === 'upsert') {
-      rows.set(key(op.entity, op.entityId), {
-        entity: op.entity,
-        entityId: op.entityId,
-        value: op.value,
-        revision: op.revision,
-        provenance: op.provenance,
-      })
-      continue
-    }
+    const at = key(op.entity, op.entityId)
+    // POD-7160: newest wins against the row in memory or, only on disk, its index entry.
+    const staged = stageRow(at, op, draft.rows.get(at, base), draft.diskOnly, draft.index)
+    if (staged === undefined) continue
+    const next = staged.row
     // A tombstone and an eviction both drop the row from the CACHE. They stay
     // separate op kinds so the layer above can still tell them apart
     // (Amendment 1 D14.5) — merging them here would make the distinction
     // unrecoverable exactly where it matters.
-    rows.delete(key(op.entity, op.entityId))
+    if (next === null) {
+      draft.rows.delete(at)
+      if (draft.disk.get(at, disk) !== undefined) draft.disk.delete(at)
+      draft.index.row(at, null)
+    } else {
+      if (staged.memory) draft.rows.set(at, next)
+      draft.disk.set(at, next)
+      draft.index.row(at, next, op.kind === 'upsert' ? op.holders : undefined)
+    }
   }
+  stageIndexInstances(draft.index, mutation.instances)
+  stageIndexComesWith(draft.index, mutation.comesWith)
 }
 
-/** One principal's pair of ports over the shared physical store. */
 export interface StoreView {
   readonly cache: ReplicaCacheStore & {
     corrupt: boolean

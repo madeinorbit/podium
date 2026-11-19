@@ -1,8 +1,10 @@
 import { asMachineId } from '@podium/model'
 import { fixtureWriteScope } from '@podium/sync/testing'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import type { SessionStore } from '../store'
-import { openTestStore } from '../test-support/open-test-store'
+import {
+  type ConversationStoreSlice,
+  openConversationStoreSlice,
+} from '../test-support/conversation-store-slice'
 import type { ConversationPageCursor } from './conversations/index'
 import type { ConversationIndexRow } from './types'
 
@@ -14,13 +16,11 @@ import type { ConversationIndexRow } from './types'
  * `idx_conversations_top_level_updated`, newest first. These pin the order
  * (ties broken by id, rows with no `updated_at` last), that walking the pages
  * by the last row's cursor neither repeats nor skips a row, and that the
- * subagent and project path filters still apply.
+ * subagent and project path filters still apply. On both engines: the
+ * repository over the run's engine (`openConversationStoreSlice`).
  */
 describe('ConversationIndexRepository.recentPage', () => {
-  let store: SessionStore
-  beforeEach(async () => {
-    store = await openTestStore(':memory:')
-  })
+  let store: ConversationStoreSlice
   afterEach(() => store.close())
 
   const conversation = (id: string, over: Partial<ConversationIndexRow> = {}) => ({
@@ -54,6 +54,7 @@ describe('ConversationIndexRepository.recentPage', () => {
   }
 
   beforeEach(async () => {
+    store = await openConversationStoreSlice()
     await store.conversations.index.upsert(fixtureWriteScope(), [
       conversation('old', { updatedAt: '2026-10-01T00:00:00.000Z' }),
       conversation('tie-a', { updatedAt: '2026-10-02T00:00:00.000Z' }),

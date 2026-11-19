@@ -70,7 +70,16 @@ const instanceEdit = {
         ),
       ),
     ),
-  check: (reply) => expect((reply as ReturnType<typeof appliedReply>).replayed).toBe(false),
+  // The edit must PUBLISH its record, not only write the blob: a source that stops
+  // capturing the settings row costs about as many statements as the move that
+  // broke it, so the count alone did not show the lost change (POD-7061).
+  check: async (reply, o) => {
+    expect((reply as ReturnType<typeof appliedReply>).replayed).toBe(false)
+    const head = await o.store.sync.maxChangeSeq()
+    expect(await o.store.sync.changesSince(head - 1)).toContainEqual(
+      expect.objectContaining({ entity: 'instancePreferences', op: 'upsert' }),
+    )
+  },
 } satisfies StatementPin<Oracle>
 
 describe('statement counts of the instance settings edit', () => {
@@ -78,11 +87,15 @@ describe('statement counts of the instance settings edit', () => {
     // POD-6769: the record is built before and after the blob write (+1). The
     // base ran 16 against its pin of 15 at f4053a3909.
     // POD-6920: derived change capture adds the commit's capture mark: 17 -> 18.
-    await expectConstantStatements(instanceEdit, 18)
+    // RE-PINNED 18 -> 21 FOR POD-7061: the settings blob moved to workspace_meta
+    // (POD-7013) while its record source still named meta, so the edit published
+    // no change and still ran 18. With the source on workspace_meta it publishes
+    // again: the change row, the feed head and the record's read of the new blob.
+    await expectConstantStatements(instanceEdit, 21)
   })
 
   it('is armed: a read per member on the edit path fails it', async () => {
-    await expectArmed(instanceEdit, 18, (o, size) => {
+    await expectArmed(instanceEdit, 21, (o, size) => {
       const users = o.store.users
       const original = users.roleOf.bind(users)
       users.roleOf = async (user) => {

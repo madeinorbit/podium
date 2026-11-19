@@ -2,10 +2,7 @@ import { autorun, runInAction } from 'mobx'
 import { expect, it, vi } from 'vitest'
 import { insideReader, measureWork } from '../../../tests/worklist/harness/src/work-meter'
 import { issuePages } from './issue-page'
-import { ISSUE_PAGE_SUMMARIES } from './issue-page-schema'
 import { MobxPool } from './pool'
-import { createColdIndex } from './shared/cold-index'
-import { SCHEMA } from './shared/schema'
 import type { RowRecord, RowSourceEvent } from './shared/source'
 import { LOADING } from './worklist/rollup'
 
@@ -51,15 +48,11 @@ const session = (id: string, patch: object = {}): RowRecord =>
   }) as RowRecord
 function fixture(rows: RowRecord[]) {
   const values = new Map(rows.map((row) => [`${row.kind}:${row.id}`, row.value]))
-  let source = createColdIndex(SCHEMA, ISSUE_PAGE_SUMMARIES)
-  source.apply({ type: 'replace', rows })
   const pool = new MobxPool(
     { selectedIssueId: null, coarseNow: Date.parse('2026-10-05') },
     undefined,
     {
-      cold: () => source,
       load: (kind, id) => values.get(`${kind}:${id}`),
-      summaries: ISSUE_PAGE_SUMMARIES,
       worklist: 'demand',
       schedule: () => () => {},
     },
@@ -72,12 +65,9 @@ function fixture(rows: RowRecord[]) {
         if (row.value) values.set(`${row.kind}:${row.id}`, row.value)
         else values.delete(`${row.kind}:${row.id}`)
       }
-      source.apply(event)
       pool.apply(event)
     },
     fresh(rows: RowRecord[]) {
-      source = createColdIndex(SCHEMA, ISSUE_PAGE_SUMMARIES)
-      source.apply({ type: 'replace', rows })
       pool.apply({ type: 'replace', rows })
     },
   }

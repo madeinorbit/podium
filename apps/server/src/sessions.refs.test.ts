@@ -5,6 +5,7 @@
  */
 import { CHANGE_LOG_OBSERVER } from '@podium/sync'
 import { fixtureWriteScope } from '@podium/sync/testing'
+import { sql } from 'drizzle-orm'
 import { describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
 import { feedDelta } from './test-support/feed-delta'
@@ -201,7 +202,10 @@ describe('session birth naming (#474)', () => {
     })
     // The backfill runs once per database, behind its receipt; a database from
     // before #474 has none.
-    rawSql(store, 'DELETE FROM meta WHERE key = ?', 'data_migration:session-birth-refs-v1')
+    await rawSql(
+      store,
+      sql`DELETE FROM workspace_meta WHERE key = ${'data_migration:session-birth-refs-v1'}`,
+    )
     const reg2 = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     await reg2.modules.sessions.loadFromStore()
     const row = (await store.sessions.loadSessions()).find((r) => r.id === a)

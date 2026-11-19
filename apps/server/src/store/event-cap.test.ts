@@ -10,6 +10,7 @@
 
 import type { SqlDatabase } from '@podium/runtime/sqlite'
 import { afterEach, describe, expect, it } from 'vitest'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import type { SessionStore } from '../store'
 import { openTestStore } from '../test-support/open-test-store'
 import { probeStatements, type StatementProbeHolder } from './executor'
@@ -24,10 +25,14 @@ async function seeded(rows: number): Promise<{ store: SessionStore; db: SqlDatab
   store = await openTestStore(':memory:')
   const db = (store as unknown as { db: SqlDatabase }).db
   const insert = db.prepare(
-    "INSERT INTO podium_events (ts, kind, subject, payload) VALUES (?, ?, 'subject', '{}')",
+    "INSERT INTO podium_events (workspace_id, ts, kind, subject, payload) VALUES (?, ?, ?, 'subject', '{}')",
   )
   for (let i = 0; i < rows; i += 1) {
-    insert.run(`2099-01-01T00:00:${String(i % 60).padStart(2, '0')}Z`, i % 3 === 0 ? 'a' : 'b')
+    insert.run(
+      SELF_HOSTED_WORKSPACE_ID,
+      `2099-01-01T00:00:${String(i % 60).padStart(2, '0')}Z`,
+      i % 3 === 0 ? 'a' : 'b',
+    )
   }
   return { store, db }
 }
@@ -35,9 +40,11 @@ async function seeded(rows: number): Promise<{ store: SessionStore; db: SqlDatab
 /** The old statement, kept here as the oracle the seek must agree with. */
 const walkedCut = (db: SqlDatabase, maxRows: number): number =>
   (
-    db.prepare('SELECT id FROM podium_events ORDER BY id DESC LIMIT 1 OFFSET ?').get(maxRows) as
-      | { id: number }
-      | undefined
+    db
+      .prepare(
+        'SELECT id FROM podium_events WHERE workspace_id = ? ORDER BY id DESC LIMIT 1 OFFSET ?',
+      )
+      .get(SELF_HOSTED_WORKSPACE_ID, maxRows) as { id: number } | undefined
   )?.id ?? 0
 
 const cutOf = async (s: SessionStore, maxRows: number): Promise<number> =>

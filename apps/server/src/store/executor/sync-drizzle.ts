@@ -1,26 +1,115 @@
 /** Async query builders and transaction ports bound to the store executor. */
 
+import type { WorkspaceId } from '@podium/model'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
+import {
+  bindTables,
+  boundTables,
+  type CrossWorkspaceEntry,
+  type FillValues,
+  type FleetHandle,
+  fleetHandle,
+  type PreparedAccessor,
+  type PreparedFamilyAccessor,
+  preparedAcross as preparedAcrossOn,
+  preparedFamily as preparedFamilyOn,
+  preparedGlobal as preparedGlobalOn,
+  prepared as preparedOn,
+  type QueryHandle,
+  queryHandle,
+  type WorkspaceHandle,
+} from '@podium/sync/adapters/sqlite/prepared'
 import type { EmptyRelations } from 'drizzle-orm'
 import type { BatchItem, BatchResponse } from 'drizzle-orm/batch'
-import { SQLiteDialect } from 'drizzle-orm/sqlite-core'
-import { SqliteRemoteDatabase, type AsyncRemoteCallback } from 'drizzle-orm/sqlite-proxy'
-import { SQLiteRemoteSession, type PreparedQueryConfig } from 'drizzle-orm/sqlite-proxy/session'
 import type { SQLiteAsyncRaw } from 'drizzle-orm/sqlite-core'
+import { SQLiteDialect } from 'drizzle-orm/sqlite-core'
+import { type AsyncRemoteCallback, SqliteRemoteDatabase } from 'drizzle-orm/sqlite-proxy'
+import { type PreparedQueryConfig, SQLiteRemoteSession } from 'drizzle-orm/sqlite-proxy/session'
+import type { InstallTableExport } from '../workspace-manifest'
+import { bindingFor, type StoreDialect, type StoreTables } from './binding'
+import { currentStoreContext, runRootStatementIn } from './context'
 import type { QueryClient, SqlRunResult, StatementIntent } from './driver'
+import { GLOBAL_CONTEXT, type StoreContext, workspaceContext } from './executor'
 
 export {
+  type Bound,
+  CallerWorkspaceValueError,
+  type CrossWorkspaceEntry,
+  CrossWorkspaceStatementError,
+  type FillValues,
   inListOf,
   inListSize,
   inListValues,
+  inWorkspace,
   notInListOf,
   param,
   placeholdersFor,
-  prepared,
-  preparedFamily,
   preparedFamilyOverflows,
+  sameWorkspace,
   shapeOf,
+  WORKSPACE,
+  WorkspaceScopeError,
+  WorkspaceStatementInGlobalTransactionError,
 } from '@podium/sync/adapters/sqlite/prepared'
+export type { StoreTables } from './binding'
+
+/**
+ * The install tables only: what a global definition's `t` carries, so a global
+ * definition that names a workspace table does not compile [POD-6959 design
+ * 2.4]. The same object as {@link StoreTables}, typed narrower.
+ */
+export type GlobalTables = Pick<StoreTables, InstallTableExport>
+
+/**
+ * A query handle: the store's drizzle instance with the context its repository
+ * was built for. A global repository holds one with the global context.
+ */
+export type StoreDb = QueryHandle<StoreDrizzle>
+
+/**
+ * A workspace's query handle. It extends {@link StoreDb}, so a workspace
+ * repository may run global definitions; a workspace definition takes only this.
+ */
+export type WorkspaceDb = WorkspaceHandle<StoreDrizzle>
+
+/** The fleet handle: the only handle a cross-workspace read runs on. */
+export type FleetDb = FleetHandle<StoreDrizzle>
+
+/**
+ * ONE QUERY, PREPARED ONCE PER STORE, BUILT FROM THE STORE'S TABLES [POD-6147,
+ * POD-6977]. `prepared((db, t) => db.select().from(t.issues)…)`: `t` is the
+ * table set bound to the store's drizzle instance (`./binding.ts`), so a
+ * definition names no table it imports. The package's function under the
+ * store's types; it is the same function, so each definition's registered site
+ * stays its own line (the query-plan audit maps definitions by it).
+ */
+export const prepared: <P>(
+  build: (db: StoreDrizzle, t: StoreTables) => P,
+) => PreparedAccessor<StoreDrizzle, P> = preparedOn
+
+/** A bounded set of prepared queries, one per shape; see the package's `preparedFamily`. */
+export const preparedFamily: <K extends string | number, P>(
+  build: (db: StoreDrizzle, t: StoreTables, key: K) => P,
+) => PreparedFamilyAccessor<StoreDrizzle, K, P> = preparedFamilyOn
+
+/** A global definition: install tables only, run on any store handle (POD-6959 design 2.4). */
+export const preparedGlobal: <P>(
+  build: (db: StoreDrizzle, t: GlobalTables) => P,
+) => (db: StoreDb) => P = preparedGlobalOn
+
+/** A cross-workspace read, named by its allowlist entry, run on the fleet handle. */
+export const preparedAcross: <P>(
+  entry: CrossWorkspaceEntry,
+  build: (db: StoreDrizzle, t: StoreTables) => P,
+) => (db: FleetDb) => P = preparedAcrossOn
+
+/**
+ * The tables bound to `db`, for the rare call site outside a definition that
+ * needs a column of the same engine (a guard another helper builds).
+ */
+export function storeTables(db: StoreDrizzle): StoreTables {
+  return boundTables(db) as StoreTables
+}
 
 /**
  * WHAT A REPOSITORY IS HANDED: a query builder and a transaction, together.
@@ -79,13 +168,19 @@ class StoreRemoteSession extends SQLiteRemoteSession<EmptyRelations> {
   ) {
     super(remoteCallback(queryClient, 'write', false), dialect, {})
     this.readingSession = new SQLiteRemoteSession(
-      remoteCallback(queryClient, 'read', false), dialect, {},
+      remoteCallback(queryClient, 'read', false),
+      dialect,
+      {},
     )
     this.arrayReadingSession = new SQLiteRemoteSession(
-      remoteCallback(queryClient, 'read', true), dialect, {},
+      remoteCallback(queryClient, 'read', true),
+      dialect,
+      {},
     )
     this.arrayWritingSession = new SQLiteRemoteSession(
-      remoteCallback(queryClient, 'write', true), dialect, {},
+      remoteCallback(queryClient, 'write', true),
+      dialect,
+      {},
     )
   }
 
@@ -93,14 +188,13 @@ class StoreRemoteSession extends SQLiteRemoteSession<EmptyRelations> {
     this.preparations += 1
     const intent = args[5]?.type === 'select' ? 'read' : 'write'
     const arrays = args[1] === 'arrays'
-    const prepared =
-      arrays
-        ? (intent === 'read'
-            ? this.arrayReadingSession
-            : this.arrayWritingSession).prepareQuery<T>(...args)
-        : intent === 'read'
-          ? this.readingSession.prepareQuery<T>(...args)
-          : super.prepareQuery<T>(...args)
+    const prepared = arrays
+      ? (intent === 'read' ? this.arrayReadingSession : this.arrayWritingSession).prepareQuery<T>(
+          ...args,
+        )
+      : intent === 'read'
+        ? this.readingSession.prepareQuery<T>(...args)
+        : super.prepareQuery<T>(...args)
     this.intents.set(prepared, intent)
     if (arrays) this.arrayQueries.add(prepared)
     return prepared
@@ -170,9 +264,10 @@ function remoteCallback(
       // Upstream types even a raw get result as an array. In raw mode its
       // executor returns this named row directly, without a positional mapper.
       return {
-        rows: row === undefined
-          ? (undefined as unknown as unknown[])
-          : (resultRow(row, arrayRows) as unknown[]),
+        rows:
+          row === undefined
+            ? (undefined as unknown as unknown[])
+            : (resultRow(row, arrayRows) as unknown[]),
       }
     }
     const rows =
@@ -181,10 +276,31 @@ function remoteCallback(
   }
 }
 
-function buildStoreDrizzle(client: QueryClient) {
+function buildStoreDrizzle(client: QueryClient): StoreDrizzle {
   const dialect = new SQLiteDialect()
-  return new SqliteRemoteDatabase('async', dialect, new StoreRemoteSession(client, dialect), {})
+  return bindTables(
+    new SqliteRemoteDatabase('async', dialect, new StoreRemoteSession(client, dialect), {}),
+    bindingFor('sqlite'),
+  ) as unknown as StoreDrizzle
 }
+
+/**
+ * THE ENGINE'S QUERY LAYER [POD-6979]: which drizzle dialect, over which tables, a
+ * store's one drizzle instance is built on. Chosen with the driver: the executor
+ * refuses a layer whose dialect is not its driver's. The Postgres layer is
+ * `pgQueryLayer` (`pg-drizzle.ts`), passed in by the Postgres opener, so a SQLite
+ * store never loads drizzle's Postgres modules.
+ */
+export interface QueryLayer {
+  readonly dialect: StoreDialect
+  build(client: QueryClient): StoreDrizzle
+}
+
+/** The SQLite query layer: sqlite-proxy over the SQLite schema. */
+export const SQLITE_QUERY_LAYER: QueryLayer = Object.freeze({
+  dialect: 'sqlite' as const,
+  build: buildStoreDrizzle,
+})
 
 export type StoreDrizzle = Omit<
   import('drizzle-orm/sqlite-core').SQLiteAsyncDatabase<
@@ -213,21 +329,109 @@ export function preparationsOf(db: StoreDrizzle): number {
  * values as `undefined`; this is the one cast.
  */
 export async function executeRaw<T>(
-  raw: SQLiteAsyncRaw<T>,
+  raw: SQLiteAsyncRaw<T> | { readonly execute: (values?: FillValues) => Promise<T> },
   values: Record<string, unknown> = {},
 ): Promise<T> {
-  return await raw.execute(values as Record<string, undefined>)
+  // A bound view (a workspace handle's) fills the workspace; a bare raw
+  // statement takes the values as they are. A method call either way, so the
+  // bare statement keeps its receiver.
+  return await (raw as { execute(values: Record<string, unknown>): Promise<T> }).execute(values)
 }
 
-export interface StoreQueries {
-  /** The ambient async drizzle instance a repository queries through. */
-  readonly rootDb: StoreDrizzle
+/**
+ * WHAT A GLOBAL REPOSITORY IS HANDED [POD-6959 design 2.4]: the global handle
+ * and a transaction runner that opens with the global context (and joins any
+ * open transaction, since a workspace's work may include install tables).
+ */
+export interface GlobalQueries {
+  readonly db: StoreDb
   /** Creates a root transaction or joins the enclosing transaction when nested. */
+  readonly createOrJoinTransaction: TransactionRunner
+  /**
+   * LEGACY until POD-7010 moves the repositories onto handles: the bare drizzle
+   * instance, which a workspace definition's accessor still takes unbound.
+   */
+  readonly rootDb: StoreDrizzle
+}
+
+/**
+ * WHAT A WORKSPACE REPOSITORY IS HANDED: the workspace's handle, which fills the
+ * `workspaceId` of every workspace statement, and a transaction runner that
+ * opens with the workspace's context and joins only that workspace's work.
+ * Made by {@link workspaceQueries}, once per workspace's repository set.
+ */
+export interface WorkspaceQueries {
+  readonly db: WorkspaceDb
   readonly createOrJoinTransaction: TransactionRunner
 }
 
-/** The executor's ambient transaction: it opens a root transaction or a savepoint under the current one. */
-export type ExecutorTransaction = <T>(fn: () => Promise<T>) => Promise<T>
+/**
+ * WHAT A WORKSPACE REPOSITORY IS HANDED UNTIL ITS SCOPING TASK LANDS (POD-7015
+ * to POD-7023): its workspace's queries, plus the bare drizzle instance its
+ * definitions still run on unbound.
+ *
+ * The transaction runner is the workspace's, so every transaction such a
+ * repository opens is for its workspace already. Its statements bind once the
+ * repository reads `db` instead of `rootDb`; that task also narrows the
+ * repository's constructor from {@link StoreQueries} to {@link WorkspaceQueries}.
+ * It satisfies {@link StoreQueries} structurally, which is how the repositories
+ * accept it with no change to their files.
+ */
+export type LegacyWorkspaceQueries = WorkspaceQueries & Pick<GlobalQueries, 'rootDb'>
+
+/**
+ * LEGACY until each repository's scoping task narrows its constructor to
+ * {@link GlobalQueries} or {@link WorkspaceQueries}: the shape every repository
+ * constructor names today. A {@link LegacyWorkspaceQueries} satisfies it.
+ */
+export type StoreQueries = GlobalQueries
+
+/** {@link workspaceQueries} with the legacy `rootDb`, for the repository set of one workspace. */
+export function legacyWorkspaceQueries(
+  base: GlobalQueries,
+  workspaceId: WorkspaceId,
+): LegacyWorkspaceQueries {
+  return Object.freeze({ ...workspaceQueries(base, workspaceId), rootDb: base.rootDb })
+}
+
+/**
+ * The executor's ambient transaction: it opens a root transaction with
+ * `context` (global when omitted) or joins the current one under the join rules.
+ */
+export type ExecutorTransaction = <T>(fn: () => Promise<T>, context?: StoreContext) => Promise<T>
+
+/** The executor transaction behind each store's queries, for {@link workspaceQueries}. */
+const transactionsOf = new WeakMap<GlobalQueries, ExecutorTransaction>()
+
+/** The dialect of each store's queries, for {@link workspaceQueries}. */
+const dialectsOf = new WeakMap<GlobalQueries, StoreDialect>()
+
+/**
+ * One workspace's queries over the store's drizzle instance: the same prepared
+ * statements as every other workspace, bound to this one. Called once per
+ * workspace repository set (POD-7010's `StoreDatabase.workspace(id)`); a bound
+ * view is cached per handle, so a handle made per call would rebind every call.
+ */
+export function workspaceQueries(base: GlobalQueries, workspaceId: WorkspaceId): WorkspaceQueries {
+  const transact = transactionsOf.get(base)
+  if (transact === undefined) {
+    throw new Error('workspace queries are made from the queries a store executor built')
+  }
+  const context = workspaceContext(workspaceId)
+  // On Postgres a root statement of this workspace tells the driver its workspace,
+  // so a root write takes the workspace's lock (POD-6958 design 2.4). SQLite's
+  // single connection serialises every write, so its handles run statements as is.
+  const runAtRoot = dialectsOf.get(base) === 'pg' ? runRootStatementIn : undefined
+  return Object.freeze({
+    db: queryHandle(base.rootDb, context, currentStoreContext, runAtRoot),
+    createOrJoinTransaction: async <T>(fn: () => Promise<T>) => await transact(fn, context),
+  })
+}
+
+/** The fleet handle over the store's drizzle instance, for cross-workspace reads. */
+export function fleetDb(base: GlobalQueries): FleetDb {
+  return fleetHandle(base.rootDb)
+}
 
 /**
  * ONE DRIZZLE INSTANCE FOR THE STORE'S LIFE, INSIDE TRANSACTIONS AND OUT
@@ -251,9 +455,15 @@ export type ExecutorTransaction = <T>(fn: () => Promise<T>) => Promise<T>
  * so even queries prepared once per instance (`preparedPerDb`, POD-3854) were
  * prepared again in every transaction.
  */
-export function storeQueriesOver(client: QueryClient, transact: ExecutorTransaction): StoreQueries {
-  return {
-    rootDb: buildStoreDrizzle(client) as unknown as StoreDrizzle,
+export function storeQueriesOver(
+  client: QueryClient,
+  transact: ExecutorTransaction,
+  layer: QueryLayer = SQLITE_QUERY_LAYER,
+): GlobalQueries {
+  const rootDb = layer.build(client)
+  const queries: GlobalQueries = {
+    db: queryHandle(rootDb, GLOBAL_CONTEXT, currentStoreContext),
+    rootDb,
     /**
      * ROOT AND NESTED ARE THE SAME CALL [POD-3498].
      *
@@ -263,8 +473,11 @@ export function storeQueriesOver(client: QueryClient, transact: ExecutorTransact
      * `transactOn(scope.frame, fn)` — which opens a SAVEPOINT under the enclosing
      * frame. Joining is what the executor already does; the port only has to ask.
      */
-    createOrJoinTransaction: async (fn) => await transact(fn),
+    createOrJoinTransaction: async (fn) => await transact(fn, GLOBAL_CONTEXT),
   }
+  transactionsOf.set(queries, transact)
+  dialectsOf.set(queries, layer.dialect)
+  return queries
 }
 
 /** The synchronous query capability over `database`, or undefined when it is not bun-backed. */
@@ -280,5 +493,8 @@ export function syncQueriesOver(database: SqlDatabase): StoreQueries {
     writeAll: async (sql, ...params) => await (await executor).drizzle.writeAll(sql, ...params),
     batch: async (statements) => await (await executor).drizzle.batch(statements),
   }
-  return storeQueriesOver(client, async (fn) => await (await executor).transact(async () => await fn()))
+  return storeQueriesOver(
+    client,
+    async (fn, context) => await (await executor).transact(async () => await fn(), context),
+  )
 }

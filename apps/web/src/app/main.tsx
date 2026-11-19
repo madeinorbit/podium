@@ -1,11 +1,13 @@
 import { configureDevelopmentChecks, setClockWakeSource } from '@podium/mobx-helpers'
-import { browserClockWakeSource } from '@/lib/clock-wake-source'
 import type { JSX } from 'react'
-import { lazy, StrictMode, Suspense, useRef, useState } from 'react'
+import { StrictMode, Suspense, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { LoginGate } from '@/features/setup/LoginGate'
 import { restartPodiumShell } from '@/features/setup/restart-shell'
+import { installInterfaceIdentityResponder } from '@/lib/boot-interface'
 import { throughRestarts } from '@/lib/chunk-recovery'
+import { browserClockWakeSource } from '@/lib/clock-wake-source'
+import { lazy } from '@/lib/lazy-surface'
 import { startWebLogging } from '@/lib/logging'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 import { navigateReload } from '@/lib/navigate'
@@ -17,6 +19,7 @@ import { BootScreen } from './BootScreen'
 import { WebDemoApp } from './demo-mode'
 import '@/index.css'
 import '@/styles.css'
+import { CurrentInterface } from './CurrentInterface'
 import { DaemonPairingBanner } from './DaemonPairingBanner'
 import { redirectPhoneToMobileApp } from './mobile-entry-redirect'
 import { installVitePreloadErrorRecovery } from './preload-error-recovery'
@@ -154,6 +157,7 @@ function ServerTransportBlockedPage({ reason }: { reason?: string }): JSX.Elemen
 // are what turn a crash during boot into a report on the user's own server
 // [spec: 2026-08-11-logging-strategy-design, "Crash capture (end-to-end)"].
 installVitePreloadErrorRecovery()
+installInterfaceIdentityResponder()
 startWebLogging()
 configureDevelopmentChecks(import.meta.env.DEV)
 restoreReloadRoute()
@@ -227,7 +231,9 @@ if (!redirectPhoneToMobileApp()) {
             ) : showDemo ? (
               <WebDemoApp />
             ) : (
-              <AuthenticatedPodiumApp initialPodiumHref={initialPodiumHref} />
+              <CurrentInterface>
+                <AuthenticatedPodiumApp initialPodiumHref={initialPodiumHref} />
+              </CurrentInterface>
             )}
           </>
         )}

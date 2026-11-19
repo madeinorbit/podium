@@ -1,6 +1,5 @@
 import { createWorklistPool } from '@podium/client-graph/create'
 import { attachMobileScreens } from '@podium/client-graph/mobile-screens'
-import { MOBILE_SCREEN_SUMMARIES } from '@podium/client-graph/mobile-screens-schema'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { onReactionError } from 'mobx'
 import { expect, it, vi } from 'vitest'
@@ -10,13 +9,13 @@ import { FIXED_NOW } from '../../../../tests/worklist/harness/src/fixture/corpus
 import { startScenarioEngine } from '../../../../tests/worklist/shared/src/scenarios'
 import { mostRelevantSession } from '../lib/mission-session'
 
-it('keeps loading inside the phone mission boundary for cold corpus root i938', async () => {
+it('settles the phone mission for the closed corpus root i938', async () => {
   vi.useFakeTimers({ toFake: ['Date'] })
   vi.setSystemTime(FIXED_NOW)
   const errors: unknown[] = []
   const stopErrors = onReactionError(error => errors.push(error))
   const ctx = await startScenarioEngine(1), feeds = openFenceFeeds(ctx, 'pooled')
-  const handle = createWorklistPool(feeds.rows.source, feeds.locals.source, { summaries: MOBILE_SCREEN_SUMMARIES })
+  const handle = createWorklistPool(feeds.rows.source, feeds.locals.source)
   const input = { selectedId: 'i938', mode: 'full' as const, tasks: null, selectSession: mostRelevantSession }
   let stop = () => {}
   try {
@@ -34,7 +33,7 @@ it('keeps loading inside the phone mission boundary for cold corpus root i938', 
         return
       }
     }
-    throw new Error('Cold mission did not settle within the diagnostic ceiling')
+    throw new Error('The mission did not settle within the diagnostic ceiling')
   } finally {
     stop(); stopErrors(); handle.dispose(); feeds.dispose(); ctx.dispose(); vi.useRealTimers()
   }

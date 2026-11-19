@@ -101,10 +101,10 @@ describe('SessionStore queued_messages', () => {
     await store.close()
   })
 
-  it('lists FIFO by queued_at, then insertion order for ties', async () => {
+  it('lists in the order the rows were queued, whatever their clock (POD-7075)', async () => {
     const store = await openTestStore(':memory:')
-    // Inserted out of time order + a same-timestamp pair to prove BOTH sort keys
-    // (queued_at first, rowid as the tiebreaker).
+    // Inserted out of time order + a same-timestamp pair: the queue's order is its
+    // `queue_order` column, not the clock and not an engine's row order.
     expect(
       await store.sync.enqueueMessage({
         id: 'q-b',
@@ -130,9 +130,9 @@ describe('SessionStore queued_messages', () => {
       }),
     ).toBe(true)
     expect((await store.sync.listQueuedMessages(asSessionId('s1'))).map((m) => m.text)).toEqual([
-      'a',
       'b',
       'c',
+      'a',
     ])
   })
 

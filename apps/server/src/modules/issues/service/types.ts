@@ -1,3 +1,4 @@
+import type { BlobKey } from '@podium/blob-store'
 import type {
   AccountId,
   ArtifactId,
@@ -485,25 +486,20 @@ export interface IssueDeps {
       files: { path: string; size: number }[]
       sourcePaths?: string[]
     }>
-    /** Read one snapshotted file back out (POD-1999) — server-local, so it
+    /** Stream one snapshotted file back out (POD-1999) — server-local, so it
      *  answers with the owning machine offline. Null = no such stored file. */
-    read(
+    readStream(
       issueId: IssueId,
       artifactId: ArtifactId,
       relPath: string,
-    ): Promise<{ bytes: Buffer; contentType: string } | null>
+    ): Promise<{ body: ReadableStream<Uint8Array>; contentType: string; size: number } | null>
     remove(issueId: IssueId, artifactId: ArtifactId): Promise<void>
     removeIssue(issueId: IssueId): Promise<void>
-    /** Move an artifact dir back out to `toDir` — a chat upload whose task
-     *  failed to launch returns to pending (POD-2148). */
-    relinquish?(o: { issueId: IssueId; artifactId: ArtifactId; toDir: string }): Promise<void>
-    /** Move a claimed chat upload's file dir in as an artifact (POD-2148). */
-    adopt?(o: {
-      issueId: IssueId
-      artifactId: ArtifactId
-      fromDir: string
-      entry: string
-    }): Promise<{
+    /** Move a chat upload's artifact back to `to`, its pending key — a chat
+     *  upload whose task failed to launch returns to pending (POD-2148). */
+    relinquish?(o: { issueId: IssueId; artifactId: ArtifactId; to: BlobKey }): Promise<void>
+    /** Move a claimed chat upload's file, at `from`, in as an artifact (POD-2148). */
+    adopt?(o: { issueId: IssueId; artifactId: ArtifactId; from: BlobKey; entry: string }): Promise<{
       artifactId: ArtifactId
       entry: string
       files: { path: string; size: number }[]
@@ -513,7 +509,7 @@ export interface IssueDeps {
    *  (POD-2148). Absent ⇒ chat uploads cannot be claimed. */
   pendingUploads?: Pick<
     PendingUploadStore,
-    'meta' | 'markClaimed' | 'markUnclaimed' | 'fileDir' | 'claimedBy'
+    'meta' | 'markClaimed' | 'markUnclaimed' | 'fileKey' | 'claimedBy'
   >
 }
 

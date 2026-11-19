@@ -1,4 +1,6 @@
 // LEGACY(remove-after: 2027-06): every statement of the sign-in carry-over on `client_sessions` and `carried_sign_ins`; removing it signs out whoever still holds only a cookie from before shared sign-in.
+// workspace-scoped (POD-6959)
+
 /**
  * THE STATEMENTS OF THE SIGN-IN CARRY-OVER (POD-6751;
  * docs/design/sign-in-carry-over.md, sections 4, 5 and 7).
@@ -11,44 +13,50 @@
  * No statement here returns a token, and the hash of one is only ever a key.
  */
 import type { UserId } from '@podium/model'
-import { and, eq, gt, inArray, lte, sql } from 'drizzle-orm'
-import { carriedSignIns, clientSessions, meta } from '../migrations/schema'
+import { eq, gt, inArray, lte, sql } from 'drizzle-orm'
+import { captureWrite } from '../sync/capture-pg'
 import {
+  inWorkspace,
   param,
   prepared,
-  type StoreDrizzle,
-  type StoreQueries,
   type TransactionRunner,
+  WORKSPACE,
+  type WorkspaceDb,
+  type WorkspaceQueries,
 } from './executor/sync-drizzle'
 
 /** The labels of old sign-ins a person held. Nothing else is ever honoured (R8). */
 export const HONOURED_LABELS = ['login', 'mobile', 'break-glass'] as const
 export type HonouredLabel = (typeof HONOURED_LABELS)[number]
 
-/** `meta` key: the instant after which nothing is carried on this server. Written once. */
+/**
+ * Workspace key (`workspace_meta`, POD-7013): the instant after which nothing is
+ * carried in this workspace. Written once.
+ */
 export const CARRY_OVER_ENDS_AT_KEY = 'signInCarryOver.endsAt'
 
 /**
  * CONSUME (section 4.2, step 1): the old row leaves the table in the statement
  * that reads it, so two requests can never both find it (R10).
  */
-const consumeOldSignIn = prepared((db: StoreDrizzle) =>
+const consumeOldSignIn = prepared((db, t) =>
   db
-    .delete(clientSessions)
+    .delete(t.clientSessions)
     .where(
-      and(
-        eq(clientSessions.tokenHash, param(clientSessions.tokenHash, 'tokenHash')),
-        inArray(clientSessions.label, [...HONOURED_LABELS]),
-        gt(clientSessions.expiresAt, sql.placeholder('now')),
+      inWorkspace(
+        t.clientSessions,
+        eq(t.clientSessions.tokenHash, param(t.clientSessions.tokenHash, 'tokenHash')),
+        inArray(t.clientSessions.label, [...HONOURED_LABELS]),
+        gt(t.clientSessions.expiresAt, sql.placeholder('now')),
       ),
     )
     .returning({
-      userId: clientSessions.userId,
-      label: clientSessions.label,
-      expiresAt: clientSessions.expiresAt,
-      deviceId: clientSessions.deviceId,
-      deviceName: clientSessions.deviceName,
-      platform: clientSessions.platform,
+      userId: t.clientSessions.userId,
+      label: t.clientSessions.label,
+      expiresAt: t.clientSessions.expiresAt,
+      deviceId: t.clientSessions.deviceId,
+      deviceName: t.clientSessions.deviceName,
+      platform: t.clientSessions.platform,
     })
     .prepare(),
 )
@@ -58,24 +66,26 @@ const consumeOldSignIn = prepared((db: StoreDrizzle) =>
  * read by primary key. A request whose old cookie matches nothing must cause
  * no write (R14), so the transaction that consumes is opened only after this.
  */
-const honouredOldSignIn = prepared((db: StoreDrizzle) =>
+const honouredOldSignIn = prepared((db, t) =>
   db
-    .select({ tokenHash: clientSessions.tokenHash })
-    .from(clientSessions)
+    .select({ tokenHash: t.clientSessions.tokenHash })
+    .from(t.clientSessions)
     .where(
-      and(
-        eq(clientSessions.tokenHash, param(clientSessions.tokenHash, 'tokenHash')),
-        inArray(clientSessions.label, [...HONOURED_LABELS]),
-        gt(clientSessions.expiresAt, sql.placeholder('now')),
+      inWorkspace(
+        t.clientSessions,
+        eq(t.clientSessions.tokenHash, param(t.clientSessions.tokenHash, 'tokenHash')),
+        inArray(t.clientSessions.label, [...HONOURED_LABELS]),
+        gt(t.clientSessions.expiresAt, sql.placeholder('now')),
       ),
     )
     .prepare(),
 )
 
-const insertCarryRecord = prepared((db: StoreDrizzle) =>
+const insertCarryRecord = prepared((db, t) =>
   db
-    .insert(carriedSignIns)
+    .insert(t.carriedSignIns)
     .values({
+      workspaceId: WORKSPACE,
       oldTokenHash: sql.placeholder('oldTokenHash'),
       deviceSignInId: sql.placeholder('deviceSignInId'),
       sealed: sql.placeholder('sealed'),
@@ -87,101 +97,145 @@ const insertCarryRecord = prepared((db: StoreDrizzle) =>
 )
 
 /** The unexpired carry record of one old token, by primary key. */
-const carryRecordOf = prepared((db: StoreDrizzle) =>
+const carryRecordOf = prepared((db, t) =>
   db
-    .select({ sealed: carriedSignIns.sealed })
-    .from(carriedSignIns)
+    .select({ sealed: t.carriedSignIns.sealed })
+    .from(t.carriedSignIns)
     .where(
-      and(
-        eq(carriedSignIns.oldTokenHash, param(carriedSignIns.oldTokenHash, 'tokenHash')),
-        gt(carriedSignIns.expiresAt, sql.placeholder('now')),
+      inWorkspace(
+        t.carriedSignIns,
+        eq(t.carriedSignIns.oldTokenHash, param(t.carriedSignIns.oldTokenHash, 'tokenHash')),
+        gt(t.carriedSignIns.expiresAt, sql.placeholder('now')),
       ),
     )
     .prepare(),
 )
 
-const deleteCarryRecord = prepared((db: StoreDrizzle) =>
+const deleteCarryRecord = prepared((db, t) =>
   db
-    .delete(carriedSignIns)
-    .where(eq(carriedSignIns.oldTokenHash, param(carriedSignIns.oldTokenHash, 'tokenHash')))
+    .delete(t.carriedSignIns)
+    .where(
+      inWorkspace(
+        t.carriedSignIns,
+        eq(t.carriedSignIns.oldTokenHash, param(t.carriedSignIns.oldTokenHash, 'tokenHash')),
+      ),
+    )
     .prepare(),
 )
 
-const deleteOldSignIn = prepared((db: StoreDrizzle) =>
+const deleteOldSignIn = prepared((db, t) =>
   db
-    .delete(clientSessions)
-    .where(eq(clientSessions.tokenHash, param(clientSessions.tokenHash, 'tokenHash')))
+    .delete(t.clientSessions)
+    .where(
+      inWorkspace(
+        t.clientSessions,
+        eq(t.clientSessions.tokenHash, param(t.clientSessions.tokenHash, 'tokenHash')),
+      ),
+    )
     .prepare(),
 )
 
-const deleteOldSignInsOfMember = prepared((db: StoreDrizzle) =>
+const deleteOldSignInsOfMember = prepared((db, t) =>
   db
-    .delete(clientSessions)
-    .where(eq(clientSessions.userId, param(clientSessions.userId, 'memberId')))
+    .delete(t.clientSessions)
+    .where(
+      inWorkspace(
+        t.clientSessions,
+        eq(t.clientSessions.userId, param(t.clientSessions.userId, 'memberId')),
+      ),
+    )
     .prepare(),
 )
 
-const deleteCarryRecordsOfMember = prepared((db: StoreDrizzle) =>
+const deleteCarryRecordsOfMember = prepared((db, t) =>
   db
-    .delete(carriedSignIns)
-    .where(eq(carriedSignIns.memberId, param(carriedSignIns.memberId, 'memberId')))
+    .delete(t.carriedSignIns)
+    .where(
+      inWorkspace(
+        t.carriedSignIns,
+        eq(t.carriedSignIns.memberId, param(t.carriedSignIns.memberId, 'memberId')),
+      ),
+    )
     .prepare(),
 )
 
-const deleteOldSignInsOfLabel = prepared((db: StoreDrizzle) =>
+const deleteOldSignInsOfLabel = prepared((db, t) =>
   db
-    .delete(clientSessions)
-    .where(eq(clientSessions.label, param(clientSessions.label, 'label')))
+    .delete(t.clientSessions)
+    .where(
+      inWorkspace(
+        t.clientSessions,
+        eq(t.clientSessions.label, param(t.clientSessions.label, 'label')),
+      ),
+    )
     .prepare(),
 )
 
-const deleteCarryRecordsOfLabel = prepared((db: StoreDrizzle) =>
+const deleteCarryRecordsOfLabel = prepared((db, t) =>
   db
-    .delete(carriedSignIns)
-    .where(eq(carriedSignIns.oldLabel, param(carriedSignIns.oldLabel, 'label')))
+    .delete(t.carriedSignIns)
+    .where(
+      inWorkspace(
+        t.carriedSignIns,
+        eq(t.carriedSignIns.oldLabel, param(t.carriedSignIns.oldLabel, 'label')),
+      ),
+    )
     .prepare(),
 )
 
 // THE SWEEP (section 7). Through idx_client_sessions_expires and
 // idx_carried_sign_ins_expires.
-const deleteExpiredOldSignIns = prepared((db: StoreDrizzle) =>
+const deleteExpiredOldSignIns = prepared((db, t) =>
   db
-    .delete(clientSessions)
-    .where(lte(clientSessions.expiresAt, sql.placeholder('now')))
+    .delete(t.clientSessions)
+    .where(inWorkspace(t.clientSessions, lte(t.clientSessions.expiresAt, sql.placeholder('now'))))
     .prepare(),
 )
 
-const deleteExpiredCarryRecords = prepared((db: StoreDrizzle) =>
+const deleteExpiredCarryRecords = prepared((db, t) =>
   db
-    .delete(carriedSignIns)
-    .where(lte(carriedSignIns.expiresAt, sql.placeholder('now')))
+    .delete(t.carriedSignIns)
+    .where(inWorkspace(t.carriedSignIns, lte(t.carriedSignIns.expiresAt, sql.placeholder('now'))))
     .prepare(),
 )
 
 // THE END OF THE PERIOD: both tables are emptied, whatever a row says.
-const deleteEveryOldSignIn = prepared((db: StoreDrizzle) => db.delete(clientSessions).prepare())
-const deleteEveryCarryRecord = prepared((db: StoreDrizzle) => db.delete(carriedSignIns).prepare())
+const deleteEveryOldSignIn = prepared((db, t) =>
+  db.delete(t.clientSessions).where(inWorkspace(t.clientSessions)).prepare(),
+)
+const deleteEveryCarryRecord = prepared((db, t) =>
+  db.delete(t.carriedSignIns).where(inWorkspace(t.carriedSignIns)).prepare(),
+)
 
 /** How many old sign-ins could still be carried: for the boot log and the period. */
-const countHonouredOldSignIns = prepared((db: StoreDrizzle) =>
+const countHonouredOldSignIns = prepared((db, t) =>
   db
     .select({ count: sql<number>`count(*)` })
-    .from(clientSessions)
-    .where(inArray(clientSessions.label, [...HONOURED_LABELS]))
+    .from(t.clientSessions)
+    .where(inWorkspace(t.clientSessions, inArray(t.clientSessions.label, [...HONOURED_LABELS])))
     .prepare(),
 )
 
-const periodEnd = prepared((db: StoreDrizzle) =>
-  db.select({ value: meta.value }).from(meta).where(eq(meta.key, CARRY_OVER_ENDS_AT_KEY)).prepare(),
+const periodEnd = prepared((db, t) =>
+  db
+    .select({ value: t.workspaceMeta.value })
+    .from(t.workspaceMeta)
+    .where(inWorkspace(t.workspaceMeta, eq(t.workspaceMeta.key, CARRY_OVER_ENDS_AT_KEY)))
+    .prepare(),
 )
 
 /** Written once: a later start never moves the end of the period. */
-const insertPeriodEnd = prepared((db: StoreDrizzle) =>
-  db
-    .insert(meta)
-    .values({ key: CARRY_OVER_ENDS_AT_KEY, value: sql.placeholder('value') })
-    .onConflictDoNothing()
-    .prepare(),
+const insertPeriodEnd = prepared((db, t) =>
+  captureWrite(
+    db
+      .insert(t.workspaceMeta)
+      .values({
+        workspaceId: WORKSPACE,
+        key: CARRY_OVER_ENDS_AT_KEY,
+        value: sql.placeholder('value'),
+      })
+      .onConflictDoNothing({ target: [t.workspaceMeta.workspaceId, t.workspaceMeta.key] }),
+  ).prepare(),
 )
 
 /** What the consuming statement hands back: enough to describe the new device, never a token. */
@@ -204,11 +258,13 @@ export interface CarryRecord {
 }
 
 export class SignInCarryOverRepository {
-  private readonly db: StoreDrizzle
+  /** The workspace's handle: the old sign-ins, the carry records and the end of the
+   *  period are all the workspace's (POD-7013, POD-7019). */
+  private readonly db: WorkspaceDb
   private readonly createOrJoinTransaction: TransactionRunner
 
-  constructor(queries: StoreQueries) {
-    this.db = queries.rootDb
+  constructor(queries: WorkspaceQueries) {
+    this.db = queries.db
     this.createOrJoinTransaction = queries.createOrJoinTransaction
   }
 

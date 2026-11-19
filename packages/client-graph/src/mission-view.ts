@@ -11,6 +11,7 @@ import {
   type IssueNavigationModel,
   type IssueNote,
   issueAbandoned,
+  issueClosed,
   issueNeedsHuman,
   issueOwnContentUnread,
   type MissionDeparture,
@@ -20,7 +21,7 @@ import {
   subtreeUnread,
   tallyMissionBuckets,
 } from '@podium/client-core/values'
-import { companion, lazy } from '@podium/mobx-helpers'
+import { companion, keyedComputed, lazy } from '@podium/mobx-helpers'
 import {
   coordinatorLive,
   machinePathsEqual,
@@ -34,10 +35,12 @@ import {
   type asSessionId,
   DRAFT_ISSUE_TITLE,
   HANDOFF_HARNESS_KINDS,
+  isFinished,
   leafTasks,
 } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import { compareShallow, compareStructural } from 'mobx'
+import { debugName } from './debug-name'
 import { headerEntities } from './header-entities'
 import { headerView } from './header-views'
 import { here, omitGone } from './lookup'
@@ -52,6 +55,13 @@ import { LOADING, type Loaded } from './worklist/rollup'
 
 const joinedIssueRef = (issue: { seq: number; prefix?: string | null }): string =>
   displayRefOf(issue.seq, issue.prefix)
+
+/** Another issue as a row names it: its reference and whether it is finished. */
+export interface IssueReference {
+  readonly id: string
+  readonly displayRef: string
+  readonly finished: boolean
+}
 
 const issueRefOverlay = createRowOverlay()
 const issueNavigationOverlay = createRowOverlay()
@@ -138,6 +148,7 @@ export function settledAll<T, R>(
   }
   return pending ? LOADING : values
 }
+const NO_CHILDREN: readonly string[] = Object.freeze([])
 interface DeckTopology {
   readonly scope: ReadonlySet<string>
   readonly children: ReadonlyMap<string, readonly string[]>
@@ -153,13 +164,17 @@ const topology = (deck: MissionDeckModel): DeckTopology | typeof LOADING =>
     const scope = new Set<string>(),
       children = new Map<string, string[]>()
     let pending = false
+    // POD-7178: each member's visibility and order are read once per
+    // recompute, not once per sibling comparison: the operator's flat root
+    // sorts 969 children on every burst of its tree.
+    const shown = new Map<string, boolean | undefined>()
     const visible = (id: string) => {
+      if (shown.has(id)) return shown.get(id)
       const value = settled(() => view.facts(id).visible)
-      if (value === LOADING) {
-        pending = true
-        return undefined
-      }
-      return value
+      const answer = value === LOADING ? undefined : value
+      if (value === LOADING) pending = true
+      shown.set(id, answer)
+      return answer
     }
     const stack = [...members]
     while (stack.length) {
@@ -189,10 +204,20 @@ const topology = (deck: MissionDeckModel): DeckTopology | typeof LOADING =>
       if (!siblings.includes(id)) siblings.push(id)
       children.set(parent, siblings)
     }
+    const order = new Map<string, Pick<MissionIssue, 'sortKey' | 'seq'>>()
+    const orderOf = (id: string) => {
+      let key = order.get(id)
+      if (key === undefined) {
+        const facts = view.facts(id)
+        key = { sortKey: facts.sortKey, seq: facts.seq }
+        order.set(id, key)
+      }
+      return key
+    }
     for (const siblings of children.values())
       siblings.sort((left, right) => {
-        const a = view.facts(left),
-          b = view.facts(right)
+        const a = orderOf(left),
+          b = orderOf(right)
         return a.sortKey && b.sortKey && a.sortKey !== b.sortKey
           ? a.sortKey.localeCompare(b.sortKey)
           : a.seq - b.seq || (left < right ? -1 : left > right ? 1 : 0)
@@ -281,6 +306,13 @@ const ownCount = (name: Count) => (row: MissionDeckIssueModel) => {
   if (name === 'run')
     return Number(!facts.finished && (underway(facts.stage) || facts.stage === 'review'))
   row.view.stats.onRollup?.(row.id)
+  // POD-7178: a closed task never needs you (`issueNeedsHuman`), whatever its
+  // crew, so a closed row answers before building its roster and its
+  // dependents overlay: most of a large deck's rows are closed.
+  if (name === 'needsYou') {
+    const catalog = row.view.catalogIssue(row.id)
+    if (catalog !== LOADING && catalog !== undefined && issueClosed(catalog)) return 0
+  }
   // Counts do not need the presentation roster's coordinator-first ordering.
   // Keep that additional computed lazy until a row actually draws its crew.
   const crew = requireLoaded(row.view.roster(row.id))
@@ -310,14 +342,14 @@ const deriveSum = Object.fromEntries(
     (row: MissionDeckIssueModel) =>
       settled(() => {
         row.view.stats.onRollup?.(row.id)
-        const shape = requireLoaded(row.deck.topology)
+        const overlap = requireLoaded(row.deck.overlap)
         let total = 0,
           pending = false
         const add = (value: number | typeof LOADING) => {
           if (value === LOADING) pending = true
           else total += value
         }
-        if (shape.overlap) {
+        if (overlap) {
           add(settled(() => own[name](row)))
           for (const id of row.descendantIds)
             add(settled(() => own[childCount(row, name)](row.deck.model(id))))
@@ -333,24 +365,22 @@ const deriveSum = Object.fromEntries(
 const sum = Object.fromEntries(
   COUNTS.map((name) => [name, (row: MissionDeckIssueModel) => row.totalCount(name)]),
 ) as Record<Count, (row: MissionDeckIssueModel) => number | typeof LOADING>
+// POD-7178: the walk reads each row's own children, never the whole shape, so
+// a burst that leaves a subtree's children as they were re-walks nothing.
 const descendants = (row: MissionDeckIssueModel) => {
-  const shape = requireLoaded(row.deck.topology),
-    seen = new Set<string>([row.id]),
+  const seen = new Set<string>([row.id]),
     ids: string[] = []
-  const stack = [...(shape.children.get(row.id) ?? [])].reverse()
+  const stack = [...requireLoaded(row.deckChildren)].reverse()
   while (stack.length) {
     const id = stack.pop()!
     if (seen.has(id)) continue
     seen.add(id)
     ids.push(id)
-    stack.push(...[...(shape.children.get(id) ?? [])].reverse())
+    stack.push(...[...requireLoaded(row.deck.model(id).deckChildren)].reverse())
   }
   return ids
 }
-const childrenOf = (row: MissionDeckIssueModel) => {
-  const shape = row.deck.topology
-  return shape === LOADING ? LOADING : (shape.children.get(row.id) ?? [])
-}
+const childrenOf = (row: MissionDeckIssueModel) => row.deck.childrenIn(row.id)
 const crewIds = (row: MissionDeckIssueModel) => {
   const { view, facts } = row
   return [...view.pool.graph.many('issue', row.id, 'missionSessions')]
@@ -372,9 +402,14 @@ const rowState = (row: MissionDeckIssueModel): DeckIssueState => {
     const state = row.deck.model(id).state
     return { word: state.state, delegated: state.delegated }
   })
-  const issue = settled(() => row.issue),
+  // The state reads the issue's own fields (stage, close, blocked, deps, its
+  // coordinator): the catalog row has them, without the drawn row's member,
+  // child and dependent overlays every one of a deck's rows would build
+  // (POD-7168). The roster settles before the crew does.
+  const issue = row.view.catalogIssue(row.id),
     crew = settled(() => row.sessions)
   if (words === LOADING || issue === LOADING || crew === LOADING) throw LOADING
+  if (!issue) throw LOADING
   return row.view.deckState(issue, crew, words)
 }
 const presentation = (row: MissionDeckIssueModel): MissionRowPresentation =>
@@ -395,8 +430,8 @@ const collapsedCrew: (row: MissionDeckIssueModel) => SessionView[] = (
     const facts = row.view.pool.sessionObject(session.sessionId)
     return facts.open && facts.workingMotion ? 0 : facts.settled ? 2 : 1
   }
-  const shape = requireLoaded(row.deck.topology)
-  const below = shape.overlap
+  const overlap = requireLoaded(row.deck.overlap)
+  const below = overlap
     ? settledAll(row.descendantIds, (id) => row.deck.model(id).sessions)
     : settledAll(requireLoaded(row.deckChildren), (id) => row.deck.model(id).collapsedCrew)
   const own = settled(() => row.sessions)
@@ -415,8 +450,8 @@ const collapsedCrew: (row: MissionDeckIssueModel) => SessionView[] = (
 }
 const kindCodes: (row: MissionDeckIssueModel) => string = (row: MissionDeckIssueModel): string => {
   const kinds = new Set<SessionView['agentKind']>()
-  const shape = requireLoaded(row.deck.topology)
-  const ownCrew = shape.overlap
+  const overlap = requireLoaded(row.deck.overlap)
+  const ownCrew = overlap
     ? [row.id, ...row.descendantIds].flatMap((id) => row.deck.model(id).sessions)
     : row.sessions
   for (const session of ownCrew) {
@@ -426,7 +461,7 @@ const kindCodes: (row: MissionDeckIssueModel) => string = (row: MissionDeckIssue
   // A pending child cannot stop the walk early: its kinds come first, and
   // the siblings after it are asked for in the same window.
   let pending = false
-  if (!shape.overlap)
+  if (!overlap)
     for (const id of requireLoaded(row.deckChildren)) {
       const codes = settled(() => row.deck.model(id).kindCodes)
       if (codes === LOADING) {
@@ -444,8 +479,7 @@ const kindCodes: (row: MissionDeckIssueModel) => string = (row: MissionDeckIssue
 const kindsOf = (row: MissionDeckIssueModel) =>
   JSON.parse(row.kindCodes) as SessionView['agentKind'][]
 const latestBelow = (row: MissionDeckIssueModel): string => {
-  const shape = requireLoaded(row.deck.topology)
-  if (shape.overlap)
+  if (requireLoaded(row.deck.overlap))
     return [row.id, ...row.descendantIds].reduce(
       (at, id) => (row.view.facts(id).updatedAt > at ? row.view.facts(id).updatedAt : at),
       '',
@@ -782,6 +816,10 @@ export class MissionDeckIssueModel implements FlightDeckRow {
   get depth() {
     return this.path ? this.path.length - 1 : this.deck.depth(this.id)
   }
+  /** The row's parent in the drawn tree (a graft's placement), or undefined. */
+  get parentId(): string | undefined {
+    return this.deck.parentIn(this.id)
+  }
   // Full mode is a plain value; filtered modes read their lazy predicates.
   get matched() {
     return this.matches(this.deck.mode)
@@ -885,6 +923,9 @@ export class MissionDeckIssueModel implements FlightDeckRow {
 
 const progress = (deck: MissionDeckModel): MissionProgress | typeof LOADING =>
   settled(() => {
+    // Progress counts the closed members too: on its way until the tree is
+    // held whole, never a smaller number from the open members (POD-7088).
+    if (!deck.treeHeld) return LOADING
     const { view } = deck,
       members = requireLoaded(deck.members)
     let pending = false
@@ -913,13 +954,7 @@ const progress = (deck: MissionDeckModel): MissionProgress | typeof LOADING =>
       if (settled(() => view.facts(id).live) === LOADING) pending = true
     }
     if (pending) return LOADING
-    const units = leaves.filter((id) => {
-      const facts = view.facts(id)
-      return (
-        facts.visible &&
-        (facts.live || (view.tipIds(id, true).length === 0 && !view.hasSpinOffDependent(id)))
-      )
-    })
+    const units = leaves.filter((id) => view.node(id).progressUnit)
     return tallyMissionBuckets(units, (id) => view.facts(id).missionBucket)
   })
 
@@ -957,6 +992,11 @@ const rootPresence = (deck: MissionDeckModel) => {
 }
 const rootDepartures = (deck: MissionDeckModel) => deck.view.departures(deck)
 
+/** A deck's last row placements, by path: reused while their path holds. Weak,
+ * so a closed deck keeps none (companions hold no registries of their own). */
+const placementsByPath = new WeakMap<MissionDeckModel, ReadonlyMap<string, MissionDeckIssueModel>>()
+const NO_PLACEMENTS: ReadonlyMap<string, MissionDeckIssueModel> = new Map()
+
 /** Root questions contain IDs and mission-wide numbers. MobX owns every cache
  * lifetime; unobserved row/model questions keep no computed allocations. */
 export class MissionDeckModel {
@@ -972,11 +1012,59 @@ export class MissionDeckModel {
   @lazy get archivedCount() {
     return this.view.readArchiveCount(this)
   }
+  /**
+   * The deck shows a tree (POD-7088, design "Where each question gets its
+   * answer": flight deck): reading its members asks for the tree whole, at
+   * the front of the queue. The members the device holds (the open ones are
+   * in the sidebar collection) paint at once; the closed ones arrive with
+   * the tree. `treeHeld` says when they all have.
+   */
   @lazy get members() {
+    void this.treeHeld
     return missions(this.view.pool).members(this.id)
+  }
+  /** Whether the device holds every member of the deck's tree whole. */
+  @lazy get treeHeld(): boolean {
+    return this.view.pool.collections.treeHeld(this.id)
   }
   @lazy get topology() {
     return topology(this)
+  }
+  /*
+   * POD-7178 — EACH ROW READS ITS OWN PART OF THE SHAPE. Every burst of a
+   * large tree's answer builds a new topology. Rows that read the whole shape
+   * (their children, parent, depth, or only whether the tree overlaps) all
+   * re-derived on every burst: about fifteen roll-ups on each of 970 rows.
+   * These narrow reads answer per row and keep an equal answer, so a burst
+   * re-derives only the rows whose place in the tree it moved.
+   */
+  @lazy get overlap(): boolean | typeof LOADING {
+    const shape = this.topology
+    return shape === LOADING ? LOADING : shape.overlap
+  }
+  private readonly childrenKey = keyedComputed(
+    (id: string) => debugName(() => `MissionDeckModel@${this.id}.children@${id}`),
+    (id: string): readonly string[] | typeof LOADING => {
+      const shape = this.topology
+      return shape === LOADING ? LOADING : (shape.children.get(id) ?? NO_CHILDREN)
+    },
+    { equals: compareShallow },
+  )
+  private readonly parentKey = keyedComputed(
+    (id: string) => debugName(() => `MissionDeckModel@${this.id}.parent@${id}`),
+    (id: string): string | undefined => requireLoaded(this.topology).parent.get(id),
+  )
+  private readonly depthKey = keyedComputed(
+    (id: string) => debugName(() => `MissionDeckModel@${this.id}.depth@${id}`),
+    (id: string): number => requireLoaded(this.topology).depths.get(id) ?? 0,
+  )
+  /** The row's children in the drawn tree, LOADING until the shape settles. */
+  childrenIn(id: string): readonly string[] | typeof LOADING {
+    return this.childrenKey(id)
+  }
+  /** The row's parent in the drawn tree. Throws LOADING until the shape settles. */
+  parentIn(id: string): string | undefined {
+    return this.parentKey(id)
   }
   @lazy get progress() {
     return progress(this)
@@ -1041,10 +1129,22 @@ export class MissionDeckModel {
         .map((path) => path[path.length - 1]!),
     )
   }
+  // POD-7178: a burst that adds rows keeps every other row's placement (and
+  // the answers cached on it); one placement object per path and issue.
   @lazy private get rowPlacements() {
-    return requireLoaded(this.paths).map(
-      (path) => new MissionDeckIssueModel(this.view.facts(path[path.length - 1]!), this, path),
-    )
+    const previous = placementsByPath.get(this) ?? NO_PLACEMENTS,
+      next = new Map<string, MissionDeckIssueModel>()
+    const rows = requireLoaded(this.paths).map((path) => {
+      const entity = this.view.facts(path[path.length - 1]!),
+        key = path.join('\u0000')
+      let row = previous.get(key)
+      if (row === undefined || row.entity !== entity)
+        row = new MissionDeckIssueModel(entity, this, path)
+      next.set(key, row)
+      return row
+    })
+    placementsByPath.set(this, next)
+    return rows
   }
   rows() {
     return this.rowPlacements
@@ -1053,7 +1153,7 @@ export class MissionDeckModel {
     return this.card(this.view.facts(id))
   }
   depth(id: string) {
-    return requireLoaded(this.topology).depths.get(id) ?? 0
+    return this.depthKey(id)
   }
   ancestorPath(id: string) {
     const shape = requireLoaded(this.topology),
@@ -1105,6 +1205,36 @@ class MissionIssueReader {
   }
   @lazy get catalog() {
     return this.view.readCatalogIssue(this.id)
+  }
+  /** A visible leaf counts as a unit of progress: it is live, or it hands off
+   * nothing (no local tip, no spin-off waiting on it). POD-7178: one cached
+   * answer per issue, so the deck's progress folds answers, not tip walks. */
+  @lazy get progressUnit(): boolean {
+    const facts = this.view.facts(this.id)
+    return (
+      facts.visible &&
+      (facts.live ||
+        (this.view.tipIds(this.id, true).length === 0 && !this.spinOffDependent))
+    )
+  }
+  /** A spin-off (`discovered-from`) waits on this issue: the rules row's
+   * dependents, read without building that row (POD-7178). */
+  @lazy get spinOffDependent(): boolean {
+    const raw = this.view.catalogIssue(this.id)
+    if (!raw) return false
+    let pending = raw === LOADING,
+      found = false
+    for (const sourceId of this.view.pool.graph.many('issue', this.id, 'pageDependents')) {
+      const source = this.view.catalogIssue(sourceId)
+      if (source === LOADING) pending = true
+      else if (source?.deps?.some((dep) => dep.id === this.id && dep.type === 'discovered-from'))
+        found = true
+    }
+    if (pending) throw LOADING
+    return found
+  }
+  @lazy({ equals: compareStructural }) get reference() {
+    return this.view.readReference(this.id)
   }
   @lazy get rules() {
     return this.view.readRulesIssue(this.id)
@@ -1190,6 +1320,9 @@ export class MissionViewReader {
   readMenuIssue(id: string): Loaded<IssueNavigationModel> {
     const row = this.menuCatalogIssue(id)
     if (!row || row === LOADING) return row
+    // Over all history from the stubs: LOADING until they answer (POD-7088).
+    const children = this.pool.queries.issueChildCounts(id)
+    if (children === LOADING) return LOADING
     const readAt = this.pool.readCursor(id) ?? null,
       readTime = Date.parse(readAt ?? '')
     return menuIssueOverlay(
@@ -1202,7 +1335,7 @@ export class MissionViewReader {
           (!Number.isFinite(readTime) ||
             Date.parse(row.updatedAt) > readTime ||
             (this.pool.visibleInputs.seatSummary?.(id).activity ?? 0) > readTime),
-        ...this.pool.queries.issueChildCounts(id),
+        ...children,
         sessionSummary: { total: this.pool.graph.size('issue', id, 'pageSessions'), byPhase: {} },
       },
       MENU_OMISSIONS,
@@ -1216,9 +1349,7 @@ export class MissionViewReader {
   /** Menu metadata is already declared in the cold summary. Reading it does
    * not promote a closed issue and initialize its full display roster. */
   menuCatalogIssue(id: string): Loaded<IssueNavigationModel> {
-    const row = omitGone(
-      this.pool.row('issue', id, 'summary-fields'),
-    ) as Loaded<IssueNavigationModel>
+    const row = omitGone(this.pool.row('issue', id)) as Loaded<IssueNavigationModel>
     if (!row || row === LOADING) return row
     const repoId = this.pool.graph.one('issue', id, 'repo')
     const repo = repoId
@@ -1237,6 +1368,28 @@ export class MissionViewReader {
   /** Menu catalogs use authored labels and references, not other tasks' crew. */
   catalogIssue(id: string): Loaded<IssueNavigationModel> {
     return this.node(id).catalog
+  }
+  /**
+   * Another issue as a row names it (a dependency, a related issue, the task
+   * a proposal came from): its reference and whether it is finished. Stub
+   * fields only (POD-7168, design "Lookup"): the device holds every issue's
+   * stub, so a target outside the mission is never loaded whole for a
+   * reference. Before the stubs are on the device it loads like any lookup.
+   */
+  reference(id: string): Loaded<IssueReference> {
+    return this.node(id).reference
+  }
+  readReference(id: string): Loaded<IssueReference> {
+    const stub = omitGone(this.pool.stub(id))
+    if (!stub || stub === LOADING) return stub
+    const repo = stub.repoId
+      ? (omitGone(this.pool.row('repo', stub.repoId)) as { prefix?: string } | undefined)
+      : undefined
+    return {
+      id,
+      displayRef: joinedIssueRef({ seq: stub.seq ?? 0, prefix: repo?.prefix }),
+      finished: isFinished(stub),
+    }
   }
   readCatalogIssue(id: string): Loaded<IssueNavigationModel> {
     const raw = omitGone(this.pool.row('issue', id))
@@ -1472,7 +1625,8 @@ export class MissionViewReader {
     const members = this.issueMembers(id)
     let pending = members === LOADING
     const childIds = [...this.pool.graph.many('issue', id, 'treeChildren')]
-    const { childDoneCount } = this.pool.queries.issueChildCounts(id)
+    const children = this.pool.queries.issueChildCounts(id)
+    if (children === LOADING) pending = true
     // One declared inverse yields source IDs. Reading each source's declared
     // edge list preserves custom types, duplicate edges and per-source order.
     const dependents: IssueNavigationModel['dependents'] = []
@@ -1505,8 +1659,9 @@ export class MissionViewReader {
       readAt,
       memberSessionIds: members.ids,
       childIds: [...childIds].sort().map(asIssueId),
-      childCount: childIds.length,
-      childDoneCount,
+      // Over all history from the stubs; the child ids are the device's.
+      childCount: children === LOADING ? 0 : children.childCount,
+      childDoneCount: children === LOADING ? 0 : children.childDoneCount,
       deferred,
       ready: !row.blocked && !deferred && !this.facts(id).finished,
       dependents,
@@ -1532,7 +1687,7 @@ export class MissionViewReader {
     while (id && !seen.has(id)) {
       seen.add(id)
       const currentId = id
-      const facts = omitGone(this.pool.row('issue', id, 'summary')) as Loaded<{
+      const facts = omitGone(this.pool.row('issue', id)) as Loaded<{
         archived?: boolean
         deletedAt?: string
       }>
@@ -1638,7 +1793,7 @@ export class MissionViewReader {
     return issueNavigationOverlay(raw, { dependents }) as IssueNavigationModel
   }
   hasSpinOffDependent(id: string) {
-    return this.rulesIssue(id)?.dependents.some((dep) => dep.type === 'discovered-from') ?? false
+    return this.node(id).spinOffDependent
   }
   tipIds(id: string, local = false) {
     return this.tips(id, local).map((issue) => issue.id as string)
@@ -1798,12 +1953,10 @@ export class MissionViewReader {
     const targets = requireLoaded(
       settledAll(
         issue.deps.filter((dep) => dep.type === 'blocked-by'),
-        (dep) => this.catalogIssue(dep.id),
+        (dep) => this.reference(dep.id),
       ),
     )
-    return targets.flatMap((target) =>
-      target && !this.facts(target.id).finished ? [issueDisplayRef(target)] : [],
-    )
+    return targets.flatMap((target) => (target && !target.finished ? [target.displayRef] : []))
   }
   blockLabel(issue: IssueNavigationModel) {
     const refs = this.waiting(issue)
@@ -1848,8 +2001,8 @@ export class MissionViewReader {
       const spin = originId(issue),
         sourceId = spin ?? issue.parentId
       if (sourceId) {
-        const source = requireLoaded(this.catalogIssue(sourceId)),
-          ref = source ? issueDisplayRef(source) : null
+        const source = requireLoaded(this.reference(sourceId)),
+          ref = source ? source.displayRef : null
         return spin
           ? {
               kind: 'shape-own',
@@ -1877,15 +2030,18 @@ export class MissionViewReader {
       'caused-by': 'Caused by',
       validates: 'Validates',
     }
-    for (const dep of issue.deps) {
-      if (dep.type === 'blocked-by' || dep.type === 'parent-child') continue
-      const target = requireLoaded(this.catalogIssue(dep.id))
-      if (!target) continue
-      const label = verbs[dep.type] ?? dep.type,
-        ref = issueDisplayRef(target)
-      return { kind: 'relation', label, short: ref, full: `${label} ${ref}` }
-    }
-    return null
+    // Every relation's target is read before answering, so a pending one
+    // never keeps the next out of the same load window.
+    const relations = issue.deps.filter(
+      (dep) => dep.type !== 'blocked-by' && dep.type !== 'parent-child',
+    )
+    const targets = requireLoaded(settledAll(relations, (dep) => this.reference(dep.id)))
+    const at = targets.findIndex((target) => target !== undefined)
+    if (at < 0) return null
+    const dep = relations[at]!,
+      label = verbs[dep.type] ?? dep.type,
+      ref = targets[at]!.displayRef
+    return { kind: 'relation', label, short: ref, full: `${label} ${ref}` }
   }
   /** `sessions` is a drawn roster; `roster` names the issue whose whole
    * roster (archived included) answers which session moved. */

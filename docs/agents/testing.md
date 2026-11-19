@@ -11,8 +11,9 @@ At the end of an ordinary runtime-affecting task, run:
     bun run test
 
 This is the lean confidence gate. The root `test` script in `package.json` runs cached,
-lock-free typecheck and static checks, including the span-effect lint, then four exact hermetic
-boot/configuration files with one worker:
+lock-free typecheck and static checks, including the span-effect lint, then seven exact hermetic
+files with one worker: four boot/configuration probes and the Postgres store's three
+database-free checks:
 
 | Test file | What it cheaply protects |
 | --- | --- |
@@ -20,6 +21,9 @@ boot/configuration files with one worker:
 | `apps/server/src/router.setup.test.ts` | Server router construction and required wiring |
 | `apps/daemon/src/connection-state.test.ts` | Daemon connection-state startup contract |
 | `scripts/test-configuration.test.ts` | Lane membership, exclusions, hermetic setup, and the lean gate's own composition |
+| `apps/server/src/migrations/pg/schema-parity.test.ts` | The Postgres schema twin matches the SQLite schema table for table, in the native types of each column's class (POD-6978) |
+| `apps/server/src/store/dialect-census.test.ts` | Every store query definition builds on the Postgres tables; the ones that still need a Postgres form are listed with their task (POD-6978) |
+| `apps/server/src/migrations/pg/chain-parity.test.ts` | The Postgres baseline migration is what the schema twin renders, and the SQLite and Postgres chains name the same changes (POD-6981) |
 
 It does not run the package sweep, repository rewrite audits, real processes, PTYs,
 ports, browsers, performance probes, or agent CLIs. It deliberately does not take `test:heavy`: this bounded one-worker probe neither waits behind
@@ -32,11 +36,13 @@ and closes with the ratio it actually covered:
     ────────────────────────────────────────────────
     LEAN GATE PASSED — this is NOT the test suite.
 
-    Ran 4 of the 955 files vitest.unit.config.ts collects in its `node` project (0.4%), 79 tests executed:
+    Ran 6 of the 955 files vitest.unit.config.ts collects in its `node` project (0.6%), 102 tests executed:
       packages/runtime/src/boot.test.ts — 16 tests
       apps/server/src/router.setup.test.ts — 19 tests
       apps/daemon/src/connection-state.test.ts — 11 tests
       scripts/test-configuration.test.ts — 33 tests
+      apps/server/src/migrations/pg/schema-parity.test.ts — 15 tests
+      apps/server/src/store/dialect-census.test.ts — 8 tests
     ...
 
 (955 is illustrative — every number in that footer is read back out of the runner's own
@@ -45,7 +51,7 @@ reconcile against Vitest's `Tests N passed (N)` line directly above them; if the
 disagree, trust neither and say so.)
 
 **`LEAN GATE INCOMPLETE` means you have no gate result at all**, and it exits non-zero.
-The run was narrower than the four files — a `--shard`, a `-t` filter that matched nothing,
+The run was narrower than the gate's files — a `--shard`, a `-t` filter that matched nothing,
 or a `.skip` sitting in one of them. Vitest exits 0 for all three, which is why this is
 checked against what executed rather than against what was asked for. Re-run as plain
 `bun run test`; do not report the partial run.
@@ -54,7 +60,7 @@ That footer exists because agents were reporting `bun run test` green — correc
 faith — as though the trailing `Tests 76 passed (76)` were a suite result. It is not. Report
 a green here as **“lean gate green”**, never as “tests pass”; if a change needs suite-level
 evidence, the sweep is `bun run test:full` and the lane map is below. The same runner
-**refuses to start** when any of its four files is no longer collected by that config — a
+**refuses to start** when any of its files is no longer collected by that config — a
 gate that had silently narrowed to three files used to exit 0, and one that had lost all
 four printed `No test files found, exiting with code 0`.
 Docs, copy, fonts, formatting, and generated artifacts may skip it when they cannot affect
@@ -161,12 +167,12 @@ diagnostics before attributing it to the change.
 
 | Command | Tests live in / selection rule | Also executed by | Run when |
 | --- | --- | --- | --- |
-| `bun run test` | Cached lock-free workspace typecheck, then `scripts/test-lean.ts`: the four exact files above via the `node` project in `vitest.unit.config.ts`, with a footer built from the runner's own tally, a refusal if any of the four is no longer collected, and a non-zero exit if the run executed less than all four | `test:agent` compatibility alias | Default end-of-task gate for ordinary runtime code |
+| `bun run test` | Cached lock-free workspace typecheck, then `scripts/test-lean.ts`: the exact files above via the `node` project in `vitest.unit.config.ts`, with a footer built from the runner's own tally, a refusal if any of them is no longer collected, and a non-zero exit if the run executed less than all of them | `test:agent` compatibility alias | Default end-of-task gate for ordinary runtime code |
 | `bun run test:agent` | Exactly the same command and scope as `test` | Alias only | Compatibility only; prefer the conventional `bun run test` |
 | `bun run test:full -- --full-because="<reason>"` | Cached typecheck, then package-owned `*.test.*` / `*.spec.*` under `apps/*`, `packages/*`, `scripts/*`, and `tests/worklist`; one Turbo `test` task per owner; server expands to five shards; exclusions come from `vitest.unit.config.ts`. **A bare `test:full` is refused**: it prints every task the sweep would run and the focused lane that usually answers instead, and runs only once the reason is stated (same shape as `--uncached-because`) | `oracle` as its `unit` component; CI `unit-tests` | Scheduled CI, merge batches, release validation, or explicit request—not ordinary agent work |
 | `bun run test:unit -- --full-because="<reason>"` | The exhaustive package sweep without the leading typecheck; same refusal | `test:full` tail | Compatibility/diagnosis only; prefer `test:full` when a full sweep is intentionally required |
 | `bun run test:file -- <test files...> [vitest args]` | Exactly the named files. Integration/process files (including server integration and PTY files) use the root integration config before package unit routing; `tests/e2e` uses that config with only the named files. Server/web unit files use `bun --bun`, mobile uses Node, and `*.bun.test.ts` uses `bun test`. Groups run sequentially with admission. Extra arguments (`-t <pattern>`, `--reporter`) go to vitest. A missing file, a Vitest file excluded by its config, or a named Vitest file executing zero tests exits non-zero. Collection is checked before execution to refuse extra files | No parent command | A regression or a new test needs exact evidence from named files — this replaces every hand-rolled vitest command |
-| `bun run test:lane -- <lane> [vitest args]` | One named lane from `scripts/test-lanes.ts`: `node`, `normalized-wire`, `server`, `server-contracts`, `server-store`, `server-services`, `server-boundary`, `server-normalized-wire`, `web`, `mobile`, `worklist`, `worklist-native`, `scripts`, `integration`, `acceptance`, `e2e`. `--list` prints them with their admission class; heavy lanes take `test:heavy` and build the clients first. An e2e path filter replaces the default `tests/e2e` directory filter; `-t` alone retains the directory. Named files get the same collection and execution checks as `test:file` | No parent command | A change matches one lane's trigger and you need that lane with a filter or name pattern |
+| `bun run test:lane -- <lane> [vitest args]` | One named lane from `scripts/test-lanes.ts`: `node`, `normalized-wire`, `server`, `server-contracts`, `server-store`, `server-store-pg`, `server-services`, `server-boundary`, `server-normalized-wire`, `web`, `mobile`, `worklist`, `worklist-native`, `scripts`, `integration`, `acceptance`, `e2e`. `--list` prints them with their admission class; heavy lanes take `test:heavy` and build the clients first. An e2e path filter replaces the default `tests/e2e` directory filter; `-t` alone retains the directory. Named files get the same collection and execution checks as `test:file` | No parent command | A change matches one lane's trigger and you need that lane with a filter or name pattern |
 | `bun run test:lane -- worklist [paths or vitest args]` | Worklist fixtures, diagnostics, product regressions and native renderer tests through `tests/worklist/vitest.config.ts`, with happy-dom and the work measurement plugins. `test:file` routes worklist files to this same config; `worklist-native` remains a compatibility name | `test:full` via `@podium/worklist-tests#test`; CI unit sweep | Worklist fixture, reader, join, lifecycle or work-measurement changes; prefer bounded named files while working |
 | `bun run test:web` | `apps/web/**/*.{test,spec}.*` through `apps/web/vitest.config.ts` | `test:cached`; full `test:full` | A broad web package change where a few exact tests cannot represent the risk |
 | `bun run test:mobile` | `apps/mobile/**/*.{test,spec}.*` through `apps/mobile/vitest.config.ts` | `test:cached`; full `test:full` | A broad mobile package change |
@@ -188,10 +194,141 @@ use the `test:lane` form, which is the same command with admission taken from th
 | --- | --- | --- | --- |
 | `bun run test:lane -- server-contracts` | Generated contracts roster; `apps/server/vitest.contracts.config.ts` | Server aggregate → full `test:full` | Request/response contracts, schemas, command parsing, validation |
 | `bun run test:lane -- server-store` | Generated store roster; `apps/server/vitest.store.config.ts` | Server aggregate → full `test:full` | Database access, migrations, repositories, durable state |
+| `bun run test:lane -- server-store-pg` | The store roster less `apps/server/test-store-engines.json`'s two lists, on Postgres; `apps/server/vitest.store-pg.config.ts` | CI job `store-pg` only; not in `test:full` | A store change that must hold on Postgres, or a file you move off the pending list (see [Postgres store lane](#postgres-store-lane)) |
 | `bun run test:lane -- server-services` | Generated services roster; `apps/server/vitest.services.config.ts` | Server aggregate → full `test:full` | Server service logic without a real process boundary |
 | `bun run test:lane -- server-boundary` | Generated boundary roster; `apps/server/vitest.boundary.config.ts` | Server aggregate → full `test:full` | Routers, auth boundaries, external-facing composition |
 | `bun run test:lane -- server-normalized-wire` | Generated normalized-wire roster; `apps/server/vitest.normalized-wire.config.ts` | Server aggregate → full `test:full` | Normalized wire encoding and its bounded benchmark guard |
 | `bun run test:lane -- server` | The whole-package config (every file the five shards split between them) | No parent command | Diagnose a suspected shard/configuration discrepancy only |
+
+### Postgres store lane
+
+`bun run test:lane -- server-store-pg [files]` runs the store shard on Postgres
+[POD-6980, design `docs/design/POD-6958-postgres-store-design.md` §2.10]. It is a
+specialized lane like `server-store`: run it for a store change that must hold on Postgres,
+one lane at a time, never stacked, and never as part of `bun run test` (the lean gate starts
+no database). Name files to run a few; with no files it runs the whole Postgres leg.
+
+**What it runs.** Every store-shard file except the two lists in
+`apps/server/test-store-engines.json`: `sqliteOnly` (the file tests SQLite itself; each entry
+gives the reason) and `pending` (meant for both engines, not yet passing on Postgres). Making
+a file pass on Postgres means deleting it from `pending`; the list is empty when the Postgres
+store is complete (POD-6994). A new store test file runs on both engines by default:
+`openTestStore()` opens a whole store on a fresh clone of the run's template, and a file that
+tests the executor or driver directly gets the leg's engine from `openEngineHarness()`
+(`store/executor/harness.ts`) or `createPgStoreExecutor`. A file outside the store shard that
+must also hold on Postgres (a boot-wiring file, a server started on a Postgres URL) is listed
+under `beyondStoreShard` with the reason.
+`src/store/test-store-engines.test.ts` refuses a list entry that is not a store-shard file,
+a SQLite-only entry without a reason, a file in both lists, and a `beyondStoreShard` entry
+that is a store-shard file, is missing or has no reason. Every store-shard file is on the leg
+unless a list names it, so one that fails on Postgres fails the leg by name. To see which
+pending files pass now, run the leg with `PODIUM_TEST_STORE_PG_LEG=pending`.
+
+**Workers and the tmpfs.** The local test server keeps its data on a 2,048 MiB tmpfs. Each
+worker holds the clones of its file, about 13 MB each, until they are dropped: a test's own
+at the test's end when nothing still uses them, the rest at the file's end. A whole-leg run
+peaked at 1,246 MB at four workers (about 300 MB a worker), so the harness budgets 320 MiB
+a worker, and a lane on an otherwise idle server runs at most **six workers**
+(`PODIUM_TEST_WORKERS=6`). At start the lane compares its workers' budget with the space
+actually free (other lanes on the host share the server) and refuses to run when it does
+not fit, naming the worker count that would. Running out mid-run instead fails tests with
+"No space left on device". The numbers live in `pg-test-host.ts`
+(`PG_TEST_TMPFS_MIB`, `PG_TEST_TMPFS_MIB_PER_WORKER`); a larger tmpfs is a new container
+settings generation. CI's service container has the same 2 GB tmpfs (`ci.yml`, job
+`store-pg`) and runs two workers, a 640 MiB budget, so it fits; the start check reads only
+the local container's disk, so it does not run there.
+
+**How it gets Postgres.** The config's globalSetup (`src/test-support/pg-test-host.ts`):
+
+- *Locally:* one container per host, `podium-test-pg` (`postgres:17-bookworm`, glibc
+  collation, data on a 2 GB tmpfs, `127.0.0.1:56432`, password `podium-test`, durability
+  settings off). The lane starts it when it is missing or stopped and leaves it running, so
+  lanes in every worktree share it. Starting it and building templates happen under a host
+  lock file, `~/.cache/podium/<host>/test-pg.lock`; a second lane waits there ("waiting for
+  … test-pg.lock") and then reuses the container. Free the memory with
+  `docker rm -f podium-test-pg` when no lane is running. `PODIUM_TEST_PG_PORT` moves the
+  port; a container with other settings is refused, not replaced.
+- *CI, or your own server:* `PODIUM_TEST_PG_URL=postgres://…/postgres` skips Docker and the
+  lock.
+- *Template:* one database per migration-chain digest, `podium_tpl_<digest>`, built once by
+  the real Postgres runner (`migrations/pg/index.ts`, POD-6981) and never connected to, so
+  every clone starts at the head of the chain with its ledger. A test that needs a database
+  without the store schema (it creates its own tables, or migrates the database itself)
+  takes `emptyPgTestDatabase()` instead of a clone.
+- *Per test:* every database is a `CREATE DATABASE … TEMPLATE … STRATEGY FILE_COPY` clone,
+  named `t_<run>_<pool>_<pid>_<n>`. Each worker has one (`pgWorkerDatabase()`), and
+  `openTestStore()` clones one per store, so two stores never share rows, as two
+  `':memory:'` SQLite stores do not. A clone made in a test or its `beforeEach` is dropped
+  when that test ends; one made in `beforeAll` or at module scope when the file ends
+  (`pg-test-worker-setup.ts`); the lane's teardown drops what a killed worker left, and the
+  next lane drops runs older than 12 hours.
+
+**The engine switch.** The globalSetup sets `PODIUM_TEST_STORE_ENGINE=pg`. `openTestStore()`
+then opens its store from the clone's URL (and refuses a file path: that test is SQLite-only),
+the pre-migrated SQLite image is not installed, and `expectConstantStatements(pin, n)` pins
+`n` on both engines. A count that differs by design is written
+`{ sqlite, pg, reason }`; failure messages on Postgres name the engine.
+
+**Writing a test that runs on Postgres** [POD-6979]:
+
+- *A failed statement ends the transaction.* Postgres aborts the whole transaction on any
+  statement error (later statements fail with `25P02`), where SQLite carries on, and the
+  driver refuses the commit with `PgTransactionAbortedError`. A test or repository that
+  expects a statement to fail inside a transaction catches it inside a nested transaction
+  (a savepoint) or a batch.
+- *Fake timers after the pool connects.* postgres.js opens a connection through
+  `setTimeout(connect, 0)` and flushes its socket writes on `setImmediate`. Install fake
+  timers only after the store has connected (the harness warms its pool), and leave
+  `setImmediate` real (`toFake` without it).
+- *Placeholders are `$n`.* Raw SQL in a two-engine test is written once per engine; no
+  SQL is translated at runtime.
+
+**Two workers.** Focused lanes default to one worker. The isolation pair
+(`src/store/pg-test-isolation-{1,2}.test.ts`, which proves two workers of one run see
+different databases) needs two and skips with one:
+`PODIUM_TEST_WORKERS=2 bun run test:lane -- server-store-pg`. CI sets it.
+
+**CI.** Job `store-pg` in `.github/workflows/ci.yml` runs the whole leg against a
+`postgres:17-bookworm` service container, on pull requests that touch the store,
+migrations, sync, the harness or the lane files, and on every merge-group run.
+The same job then runs the Bun suites that need a store on Postgres:
+`server.postgres.bun.test.ts` (the server started on a Postgres URL), and the sync worker's
+`worker.bun.test.ts` and `bootstrap-worker.bun.test.ts` under `PODIUM_TEST_STORE_ENGINE=pg`.
+Run those locally the same way:
+`PODIUM_TEST_STORE_ENGINE=pg bun run test:file -- apps/server/src/sync-worker/worker.bun.test.ts`.
+
+**Measured cost** (2026-11-16, a shared 7 vCPU development host, load average 80 to 220 during the
+runs, harness commit after `bddcd1b1e0`; the leg held only the five harness files):
+
+| What | Measured |
+| --- | --- |
+| Container memory, idle | 42 MiB (`docker stats`); 47 MB of data on tmpfs (template, `postgres`, `template0/1`) |
+| Container memory under the lane (two workers, whole leg) | 60 to 86 MiB cgroup `memory.current`, sampled every 250 ms |
+| Each live database | 7.9 MiB of tmpfs (40 clones held at once) |
+| Each open connection | 1.7 MiB |
+| Clone (`FILE_COPY`) | 15 to 18 ms one at a time; 8 at once in 70 ms |
+| Drop (`WITH (FORCE)`) | 9 ms each |
+| globalSetup, container running and template built | 70 ms |
+| Cold start (container absent) | Docker run plus initdb about 4 s when the Docker daemon answers promptly; one run under load average 220 waited 4 minutes for the daemon to create the container |
+| Lane wall time, same two database-free files, three interleaved rounds | `server-store` 7.0 to 7.8 s, `server-store-pg` 6.5 to 8.5 s: no overhead above the noise |
+
+**Store files on Postgres** (2026-11-17, the same host, load average 6 to 9, branch
+`issue/6995-two-engine-vertical-slice`): `read-watermarks.test.ts` and `quota-history.test.ts`
+(26 tests, 28 stores opened) through the two-engine slice's store
+(`test-support/pg-slice-tables.ts`), three interleaved rounds, one lane at a time:
+
+| What | `server-store` | `server-store-pg` |
+| --- | --- | --- |
+| Lane wall time | 10.5, 15.8, 15.5 s | 13.1, 14.6, 14.5 s |
+| Vitest `tests` time (both files) | 0.66 to 0.72 s | 3.6 to 4.2 s |
+| `quota-history.test.ts` / `read-watermarks.test.ts` | 0.55 to 0.58 s / 0.11 to 0.14 s | 2.8 to 3.5 s / 0.74 to 0.79 s |
+
+For a few files the lane's wall time is transform and import, and Postgres adds nothing above
+the noise. The tests themselves take 5 to 6 times as long: most of it is the store each test
+opens (a template clone, the slice's DDL, a pool connecting, a drop at the end, about 100 ms
+against about 15 ms on SQLite), not the statements. That is above the design's estimate of 1.5
+to 3 times, and it falls where a file opens many stores. Re-measure on a whole-shard run once
+the leg holds more files (POD-6981 replaces the slice's DDL with the migrated template).
 
 ### Explicit process, browser, rewrite, and performance lanes
 
@@ -211,6 +348,7 @@ use the `test:lane` form, which is the same command with admission taken from th
 | `bun run test:rearch` | Runs the `audit:rearch` baseline check, then exact file `scripts/rearch-audit.test.ts` via `scripts/vitest.rearch.config.ts` | No default/package parent | Only rewrite migration/audit implementation or baseline changes; never ordinary product work |
 | `bun run test:perf:frontend` | Frontend large-state benchmark in `apps/web/vitest.frontend-perf.config.ts` | CI unit job | Large-state rendering/projection work or scheduled performance monitoring |
 | `bun run test:perf:sync` | Sync scaling benchmark in `packages/sync/vitest.perf.config.ts` | No parent command | Explicit sync scaling investigation on a bounded/dedicated host; deliberately quadratic |
+| `bun run test:live:s3` | `packages/blob-store/src/s3.live.test.ts` via `packages/blob-store/vitest.live.config.ts`: the blob store contract against a real S3-compatible bucket | No parent; `*.live.test.ts` is excluded from every unit lane | Only with a scratch bucket's `PODIUM_FILE_STORAGE_*` credentials in the environment, after changing the S3 adapter; fails rather than skips without them |
 | `bun run perf:typing` | `tests/e2e/typing-latency-bench.ts` against a live environment | No parent command | Typing/terminal latency work only |
 | `bun run oracle` | Sequential full `test:full`, `test:integration`, `test:e2e`, `test:multi-instance` from `scripts/oracle.ts` | No parent command | Rewrite phase boundary, release candidate, or explicit request; never a normal merge gate |
 

@@ -3,7 +3,7 @@ import { CONFIRMED_AGENT_ACTIVITY_MAX_AGE_MS } from '@podium/model/browser'
 import { autorun, runInAction } from 'mobx'
 import { afterEach, expect, it, vi } from 'vitest'
 import { attachMobileScreens } from './mobile-screens'
-import { MOBILE_SCREEN_SUMMARIES, type MobileTasksOptions } from './mobile-screens-schema'
+import type { MobileTasksOptions } from './mobile-screens-schema'
 import { MobxPool } from './pool'
 import { LOADING } from './worklist/rollup'
 import { MobileTasksBoard } from './mobile-tasks'
@@ -42,7 +42,6 @@ async function setup(
 ) {
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: now }, undefined, {
     load: vi.fn(),
-    summaries: MOBILE_SCREEN_SUMMARIES,
     schedule: () => () => {},
   })
   pool.apply({

@@ -20,25 +20,24 @@
  * so a test of the delegate proves nothing about a conversion that reimplements
  * the roots list.
  *
- * These assert against a real migrated database and, where the claim is about
+ * These assert against a real migrated database, on both engines, and, where the claim is about
  * how many times a statement runs, against the executor's statement probe —
  * a counted read is the mechanism, and the returned rows are the same either way
  * (spec section 6 rule 14).
  */
 
 import { asMachineId } from '@podium/model'
-import type { SqlDatabase } from '@podium/runtime/sqlite'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { sql } from 'drizzle-orm'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { deriveRepoId } from '../repo-id'
-import { openMigratedTestDatabase } from '../test-support/migrated-database'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
+import { openPeopleStoreSlice, type PeopleStoreSlice } from '../test-support/people-store-slice'
 import { probeStatements } from './executor'
-import { syncQueriesOver } from './executor/sync-drizzle'
-import { ReposRepository } from './repos'
-import { TableWrites } from './table-writes'
+import type { ReposRepository } from './repos'
 
 const HOST = asMachineId('machine-host')
 
-let rawDb: SqlDatabase
+let slice: PeopleStoreSlice
 let repos: ReposRepository
 let counts: Map<string, number>
 
@@ -55,13 +54,17 @@ const registryReads = (): number =>
     0,
   )
 
-beforeEach(() => {
-  rawDb = openMigratedTestDatabase()
+beforeEach(async () => {
+  slice = await openPeopleStoreSlice()
   counts = new Map()
-  probeStatements({ db: rawDb }, (observation) => {
+  probeStatements(slice.probeTarget, (observation) => {
     counts.set(observation.sql, (counts.get(observation.sql) ?? 0) + 1)
   })
-  repos = new ReposRepository(syncQueriesOver(rawDb), () => {}, new TableWrites())
+  repos = slice.repos
+})
+
+afterEach(async () => {
+  await slice.close()
 })
 
 describe('ReposRepository.invalidateRegistry', () => {
@@ -89,11 +92,10 @@ describe('ReposRepository.invalidateRegistry', () => {
     // the query layer runs through the executor has, from this class's point of
     // view. The read is STALE until something drops it, and saying so is the
     // point — the seam is cooperative, not a guarantee (POD-3362).
-    rawDb
-      .prepare(
-        'INSERT INTO repos (machine_id, path, origin_url, repo_name, repo_id, added_at) VALUES (?, ?, ?, ?, ?, ?)',
-      )
-      .run('machine-host', '/home/u/beta', null, 'beta', 'repo_beta', '2026-01-01T00:00:00.000Z')
+    // Inserted after alpha, so it is dated after alpha, as any insert is.
+    await slice.run(
+      sql`INSERT INTO repos (workspace_id, machine_id, path, origin_url, repo_name, repo_id, added_at) VALUES (${SELF_HOSTED_WORKSPACE_ID}, ${'machine-host'}, ${'/home/u/beta'}, ${null}, ${'beta'}, ${'repo_beta'}, ${new Date(Date.now() + 1).toISOString()})`,
+    )
 
     expect((await repos.listRepos()).map((r) => r.path)).toEqual(['/home/u/alpha'])
 
@@ -107,9 +109,9 @@ describe('ReposRepository.invalidateRegistry', () => {
     const repoId = (await repos.listRepos())[0]?.repoId
     expect(repoId).not.toBeNull()
 
-    rawDb
-      .prepare('UPDATE repo_prefixes SET prefix = ? WHERE repo_id = ?')
-      .run('ZZ', repoId as string)
+    await slice.run(
+      sql`UPDATE repo_prefixes SET prefix = ${'ZZ'} WHERE repo_id = ${repoId as string}`,
+    )
 
     expect((await repos.listRepos())[0]?.prefix).toBe('AL')
 
@@ -178,8 +180,8 @@ describe('ReposRepository.repoIdResolver', () => {
     await repos.addRepo('/same', remote, undefined, 'BB')
     const rows = await repos.listRepos()
     const resolve = await repos.repoIdResolver()
-    expect(resolve('/same', HOST)).toBe(rows.find(r => r.machineId === HOST)?.repoId)
-    expect(resolve('/same', remote)).toBe(rows.find(r => r.machineId === remote)?.repoId)
+    expect(resolve('/same', HOST)).toBe(rows.find((r) => r.machineId === HOST)?.repoId)
+    expect(resolve('/same', remote)).toBe(rows.find((r) => r.machineId === remote)?.repoId)
     expect(resolve('/same', HOST)).not.toBe(resolve('/same', remote))
   })
 
@@ -237,7 +239,9 @@ describe('ReposRepository.issueRepoIdResolver', () => {
     expect(resolve('/r', PIN)).toBe(reported)
     expect(resolve('/r/sub', PIN)).toBe(reported)
     // The session-side rule is unchanged: scoped to the pin, it still derives.
-    expect((await repos.repoIdResolver())('/r', PIN)).toBe(deriveRepoId({ machineId: PIN, path: '/r' }))
+    expect((await repos.repoIdResolver())('/r', PIN)).toBe(
+      deriveRepoId({ machineId: PIN, path: '/r' }),
+    )
   })
 
   it("prefers the pin's own report of the same path", async () => {
@@ -246,7 +250,7 @@ describe('ReposRepository.issueRepoIdResolver', () => {
     await repos.addRepo('/same', HOST, 'https://example.test/a.git', 'AA')
     await repos.addRepo('/same', PIN, 'https://example.test/b.git', 'BB')
     const rows = await repos.listRepos()
-    const pinned = rows.find(r => r.machineId === PIN)?.repoId
+    const pinned = rows.find((r) => r.machineId === PIN)?.repoId
     const resolve = await repos.issueRepoIdResolver()
 
     expect(pinned).not.toBe(deriveRepoId({ machineId: PIN, path: '/same' }))

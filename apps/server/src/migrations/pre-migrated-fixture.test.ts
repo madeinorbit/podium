@@ -114,6 +114,15 @@ function allRows(db: SqlDatabase): Record<string, unknown[]> {
             // Each independent boot mints its installation secrets. Validate
             // their shape before normalizing only generated identity values;
             // all other DML values and secret rows still compare byte for byte.
+            // The fingerprint key is a workspace's own secret since POD-7013.
+            if (
+              table === 'workspace_secrets' &&
+              column === 'value' &&
+              row.key === 'settings.fingerprintKey'
+            ) {
+              expect(value).toMatch(/^[a-f0-9]{64}$/)
+              return [column, '<generated-fingerprint-key>']
+            }
             if (table === 'server_secrets' && column === 'value') {
               if (row.key === 'settings.fingerprintKey') {
                 expect(value).toMatch(/^[a-f0-9]{64}$/)

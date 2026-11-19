@@ -162,8 +162,12 @@ describe('principal replica storage', () => {
     })
     expect(openLegacyDeviceKeys(bob.deviceStorage()).get('podium.view')).toBeNull()
     expect(bob.outboxStorage().load()).toEqual([])
-    // Theme is mirrored deliberately: cosmetic, identity-free, and pre-auth.
-    expect(openLegacyDeviceKeys(bob.deviceStorage()).get('podium.theme.mode')).toBe('dark')
+    // Theme's one home is the raw pre-auth key: cosmetic, identity-free, and read
+    // before sign-in. Neither principal's import takes it into its ui-state
+    // (7e4ba6f6c4 deleted that copy), so it survives both.
+    expect(openLegacyDeviceKeys(alice.deviceStorage()).get('podium.theme.mode')).toBeNull()
+    expect(openLegacyDeviceKeys(bob.deviceStorage()).get('podium.theme.mode')).toBeNull()
+    expect(memory.api.getItem('podium.theme.mode')).toBe('dark')
     alice.dispose()
     bob.dispose()
   })

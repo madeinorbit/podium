@@ -1,10 +1,10 @@
-import { identityInvitation } from '@podium/identity/schema/sqlite'
 import { asUserId, firstAdminMemberId } from '@podium/model'
-import { eq } from 'drizzle-orm'
+import { sql } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { memberLinks } from '../member-links'
 import type { SessionStore } from '../store'
 import { openTestStore } from '../test-support/open-test-store'
+import { storeSql } from '../test-support/store-sql'
 import { openTestIdentity, type TestIdentity } from '../test-support/test-identity'
 
 let store: SessionStore
@@ -26,12 +26,9 @@ const links = () => memberLinks({ identity: identity.workspace, users: store.use
 describe('member invitations on shared identity', () => {
   test('creates a hashed invitation and completes it with a password exactly once', async () => {
     const { invitation, membership } = await create({ email: ' Anna@EXAMPLE.com ' })
-    const database = store.identityDatabase()
-    if (database.dialect !== 'sqlite') throw new Error('expected the SQLite test store')
-    const [stored] = await database.db
-      .select({ token_hash: identityInvitation.tokenHash })
-      .from(identityInvitation)
-      .where(eq(identityInvitation.id, invitation.id))
+    const stored = await storeSql(store).get<{ token_hash: string }>(
+      sql`SELECT token_hash FROM identity_invitation WHERE id = ${invitation.id}`,
+    )
     expect(stored?.token_hash).not.toBe(invitation.token)
     expect(stored?.token_hash).toMatch(/^[a-f0-9]{64}$/)
     expect(JSON.stringify(await identity.workspace.memberships.list())).not.toContain(

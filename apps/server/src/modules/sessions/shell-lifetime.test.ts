@@ -16,6 +16,7 @@ import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ClientConn } from '../../gateway/client-registry'
 import { SessionRegistry } from '../../relay'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import { testClientPrincipal } from '../../test-support/client-principal'
 import { attachHostDaemon } from '../../test-support/host-daemon'
 import { openTestStore } from '../../test-support/open-test-store'
@@ -86,6 +87,7 @@ function stubClient(id: string): ClientConn & { sent: ServerMessage[] } {
     id,
     principal: testClientPrincipal(id),
     send: (m: ServerMessage) => sent.push(m),
+    workspaceId: SELF_HOSTED_WORKSPACE_ID,
     viewports: new Map(),
     attached: new Set(),
     caps: new Set(),

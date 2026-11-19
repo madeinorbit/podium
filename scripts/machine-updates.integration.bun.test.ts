@@ -15,7 +15,8 @@ import {
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openDatabase } from '@podium/runtime/sqlite'
-import { syncQueriesOver } from '../apps/server/src/store/executor/sync-drizzle'
+import { SELF_HOSTED_WORKSPACE_ID } from '../apps/server/src/self-hosted-workspace'
+import { syncQueriesOver, workspaceQueries } from '../apps/server/src/store/executor/sync-drizzle'
 import { OperationStore } from '../apps/server/src/modules/operations/store'
 import type { UpdateGrantMessage, UpdateTarget } from '@podium/protocol'
 import { requestMachineUpdate } from '../packages/runtime/src/machine-update-control'
@@ -72,7 +73,7 @@ class Group {
   async operation(operationId: string) {
     const db = openDatabase(join(this.state('coordinator'), 'operations.db'), { readOnly: true })
     try {
-      return (await new OperationStore(syncQueriesOver(db)).get(operationId))?.operation
+      return (await new OperationStore(workspaceQueries(syncQueriesOver(db), SELF_HOSTED_WORKSPACE_ID)).get(operationId))?.operation
     } finally {
       db.close()
     }

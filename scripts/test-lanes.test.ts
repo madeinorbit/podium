@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
+  fileFilters,
   LANES,
   laneCommand,
   planFiles,
@@ -51,7 +52,6 @@ describe('test lanes', () => {
     ['tests/worklist/shared/src/overlay-row.test.ts', 'worklist'],
     ['tests/worklist/harness/src/heartbeat-ancestors.test.ts', 'worklist'],
     ['tests/worklist/harness/src/perf/header-work.test.ts', 'worklist'],
-    ['tests/worklist/harness/src/cold-structures.test.ts', 'worklist'],
     ['tests/worklist/harness/src/mission-screen-work.test.ts', 'worklist'],
     ['tests/worklist/product/mission-pane.work.test.ts', 'worklist'],
     ['scripts/loop-split-load.integration.test.ts', 'acceptance'],
@@ -88,6 +88,20 @@ describe('test lanes', () => {
       expect(command).not.toContain('tests/e2e')
       expect(command.slice(-args.length - 1)).toEqual([...args, '--passWithNoTests=false'])
     }
+  })
+
+  it('drops a second -- so a named file stays a filter (POD-6980)', () => {
+    const file = 'apps/server/src/store/test-store-engines.test.ts'
+    const lane = LANES['server-store'] as (typeof LANES)[string]
+    const command = laneCommand(lane, root, ['--', file, '--reporter=json'])
+    expect(command).not.toContain('--')
+    expect(command.slice(-3)).toEqual([file, '--reporter=json', '--passWithNoTests=false'])
+    expect(fileFilters(['--', file])).toEqual([file])
+    expect(splitFileArgs(['--', file], root, false, 'apps/server')).toEqual({
+      files: [file],
+      extra: [],
+      errors: [],
+    })
   })
 
   it('overrides permissive zero-collection defaults for every lane', () => {

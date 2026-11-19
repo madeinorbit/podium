@@ -1,20 +1,18 @@
-import { readIssue, readIssues } from './modules/issues/issue-reader'
+import { readIssue, readIssueAccess, readIssues } from './modules/issues/issue-reader'
 /**
  * THE FEED'S VISIBILITY POLICY (POD-418).
  *
  * Moved out of the composition root verbatim — LOGIC UNCHANGED. This is the
  * implementation of two ports the sync kernel already declares,
- * {@link VisibilityStatePort} and {@link VisibilityAnchorPort}, plus the
- * per-bootstrap read tracing the perf registry wants from around them. The root
- * used to hold all three inline, which made ~300 lines of *policy* — who may
- * read which row, and how few queries it takes to answer — live inside a
- * constructor whose entire claim is that it decides nothing and only wires.
+ * {@link VisibilityStatePort} and {@link VisibilityAnchorPort}. The root used
+ * to hold them inline, which made ~300 lines of *policy* — who may read which
+ * row, and how few queries it takes to answer — live inside a constructor whose
+ * entire claim is that it decides nothing and only wires.
  *
- * It is one job with one piece of protected state: `traces` is the stack a
- * bootstrap pushes so every store read it causes is attributed to a phase. It
- * does not escape this module, and nothing here reaches back into a service —
- * the whole surface is store reads. Since POD-6156 nothing here holds rows
- * either: the anchor port reads the rows a batch names from the database.
+ * Nothing here reaches back into a service — the whole surface is store reads —
+ * and since POD-6156 nothing here holds rows: the anchor port reads the rows a
+ * batch names from the database. (The per-bootstrap read tracing that once
+ * lived here lost its caller with the legacy sync paths and was removed.)
  *
  * WHY IT ALSO REPAIRED THE CONSTRUCTION-ORDER GATE. `forBootstrap` declares a
  * local `const issues` for the prefetched issue rows. Inside the root that name
@@ -63,7 +61,7 @@ import {
   withoutHiddenEventFields,
   withoutHiddenExecutionFields,
 } from '@podium/model'
-import type { MetadataEntityKind, Principal } from '@podium/protocol'
+import type { MetadataEntityKind } from '@podium/protocol'
 import type {
   AnchorRef,
   EntityRef,
@@ -72,41 +70,18 @@ import type {
   VisibilityStatePort,
 } from '@podium/sync'
 import { type CheckoutReach, checkoutReaders, covers } from './checkout-reach'
-import type { FeedVisibilityStore, GrantRow, IssueRow, SessionRow } from './hot-path-ports'
+import type {
+  FeedVisibilityStore,
+  GrantRow,
+  IssueAccessRow,
+  IssueRow,
+  SessionRow,
+} from './hot-path-ports'
 import { FEED_WINDOW } from './modules/issue-events/feed'
 import { custodianFromEdges, executionPointersOf } from './modules/issues/execution-visibility'
 import { INSTANCE_EFFECT_KINDS } from './modules/operations/instance-effect-kinds'
-import { perfPrincipal } from './modules/perf/principal'
-import { perf } from './modules/perf/registry'
 import type { EffectAudience } from './store/effects'
 import type { WorkflowVisibilityFacts } from './store/workflows'
-
-/**
- * The store reads a feed bootstrap can cause, named so each is separately
- * attributable. These are the strings `feedBootstrap.<phase>` is built from —
- * renaming one renames a perf series.
- */
-type BootstrapReadPhase =
-  | 'visibility.issue.getIssue'
-  | 'visibility.session.getSession'
-  | 'visibility.conversation.findSessionByResumeValue'
-  | 'visibility.automation.ownerOf'
-  | 'visibility.automationRun.runOwnerOf'
-  | 'visibility.effect.audiencesOf'
-  | 'visibility.effect.adminIds'
-  | 'visibility.effect.liveOnTargets'
-  | 'visibility.shipOrder.issueIdForOrder'
-  | 'visibility.shipLane.memberIssueIds'
-  | 'visibility.grants.listForResources'
-  | 'visibility.workflow.facts'
-  | 'visibility.workflow.adminIds'
-  | 'visibility.workflow.grants'
-  | 'visibility.checkout.rootPaths'
-  | 'visibility.checkout.adminIds'
-
-interface BootstrapReadTrace {
-  readonly phases: Map<BootstrapReadPhase, number>
-}
 
 /**
  * Rows the bootstrap pass already fetched in bulk. Present only on the state
@@ -115,7 +90,8 @@ interface BootstrapReadTrace {
 type BootstrapVisibilityPrefetch = {
   readonly panelParents: ReadonlyMap<string, string>
   readonly issueIds: ReadonlySet<string>
-  readonly issues: ReadonlyMap<string, IssueRow>
+  /** What the sharing rules read of each issue, never its bodies (POD-7153). */
+  readonly issues: ReadonlyMap<string, IssueAccessRow>
   readonly shipOrderIds: ReadonlySet<string>
   readonly issueIdsByShipOrder: ReadonlyMap<string, string>
   /** POD-4974 O2: each prefetched lane's member issues, read from the lane's
@@ -220,16 +196,12 @@ export interface FeedVisibilityDeps {
   ) => Promise<readonly { readonly id: string; readonly value: unknown }[]>
 }
 
-/** What the composition root names: two ports plus the tracing bracket. */
+/** What the composition root names: two ports and two shared answers. */
 export interface FeedVisibility {
   /** The kernel's state port — what `GrantEdgeVisibilityPolicy` is built over. */
   readonly state: VisibilityStatePort
   /** The kernel's anchor port — what the `Ledger` scopes issue fan-out with. */
   readonly anchors: VisibilityAnchorPort
-  /** Open a read-attribution frame for one bootstrap. */
-  readonly beginBootstrapRead: () => void
-  /** Close it and record every phase it accumulated against `principal`. */
-  readonly finishBootstrapRead: (principal: Principal) => void
   /** Authority signal for mutations that can change a scoped answer without
    * moving the change-log head (notably a same-value issue upsert beside a grant
    * revoke). Long-lived world caches validate this as well as the head. */
@@ -245,29 +217,6 @@ export interface FeedVisibility {
 export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
   const { store } = deps
 
-  const traces: BootstrapReadTrace[] = []
-  const measure = async <T>(phase: BootstrapReadPhase, fn: () => T | Promise<T>): Promise<T> => {
-    const trace = traces[traces.length - 1]
-    if (trace === undefined) return await fn()
-    const startedAt = performance.now()
-    try {
-      return await fn()
-    } finally {
-      trace.phases.set(phase, (trace.phases.get(phase) ?? 0) + (performance.now() - startedAt))
-    }
-  }
-  const beginBootstrapRead = (): void => {
-    traces.push({ phases: new Map() })
-  }
-  const finishBootstrapRead = (principal: Principal): void => {
-    const trace = traces.pop()
-    if (trace === undefined) return
-    const perfKey = perfPrincipal(principal)
-    for (const [phase, durationMs] of trace.phases) {
-      perf.record('phase', `feedBootstrap.${phase}`, durationMs, perfKey)
-    }
-  }
-
   /**
    * MAY THIS PERSON READ THIS TASK: yes, for every task that exists (design
    * §2.2, D4; POD-6288). Tasks are shared; issue grants are inert history and
@@ -280,10 +229,7 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
   const mayReadIssue = async (_userId: UserId, issueId: IssueId): Promise<boolean> => {
     // The repository commit installs the owned row map before publication.
     // Open mutation spans still read their own writes through the live fallback.
-    const row = await measure(
-      'visibility.issue.getIssue',
-      async () => await readIssue(store.issues, issueId),
-    )
+    const row = await readIssue(store.issues, issueId)
     return row !== null
   }
 
@@ -809,12 +755,7 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
     // Effects resolve to their targets before the issue, session and grant reads,
     // for the reason ship orders do (one read for the whole batch).
     const effectAudiences: ReadonlyMap<string, EffectAudience> =
-      effectIds.size === 0
-        ? new Map()
-        : await measure(
-            'visibility.effect.audiencesOf',
-            async () => await store.effects.audiencesOf([...effectIds]),
-          )
+      effectIds.size === 0 ? new Map() : await store.effects.audiencesOf([...effectIds])
     for (const audience of effectAudiences.values()) {
       if (audience.targetKind === 'issue') issueIds.add(audience.targetId)
       else if (audience.targetKind === 'session') sessionIds.add(audience.targetId)
@@ -824,35 +765,24 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
     const adminIds: ReadonlySet<string> = [...effectAudiences.values()].some((audience) =>
       INSTANCE_EFFECT_KINDS.has(audience.kind),
     )
-      ? await measure('visibility.effect.adminIds', async () => await store.users.activeAdminIds())
+      ? await store.users.activeAdminIds()
       : new Set()
     const issueIdsByShipOrder =
       shipOrderIds.size === 0
         ? new Map<string, string>()
-        : await measure(
-            'visibility.shipOrder.issueIdForOrder',
-            async () => await store.shipping.issueIdsForOrders([...shipOrderIds]),
-          )
+        : await store.shipping.issueIdsForOrders([...shipOrderIds])
     for (const issueId of issueIdsByShipOrder.values()) issueIds.add(issueId)
     // One read for every lane (POD-6149); like ship orders, lanes resolve to
     // issues before the grant read.
     const issueIdsByShipLane: ReadonlyMap<string, readonly string[]> =
-      shipLaneIds.size === 0
-        ? new Map()
-        : await measure(
-            'visibility.shipLane.memberIssueIds',
-            async () => await store.shipping.laneMemberIssueIdsMany(shipLaneIds),
-          )
+      shipLaneIds.size === 0 ? new Map() : await store.shipping.laneMemberIssueIdsMany(shipLaneIds)
     for (const members of issueIdsByShipLane.values()) {
       for (const issueId of members) issueIds.add(issueId)
     }
     const issues =
       issueIds.size === 0
-        ? new Map<string, IssueRow>()
-        : await measure(
-            'visibility.issue.getIssue',
-            async () => await readIssues(store.issues, [...issueIds]),
-          )
+        ? new Map<string, IssueAccessRow>()
+        : await readIssueAccess(store.issues, [...issueIds])
     // The sessions a task's private fields point at are read with the rest:
     // their owners decide who receives those pointers (POD-6288).
     for (const row of issues.values()) {
@@ -863,37 +793,26 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
     const sessions =
       sessionIds.size === 0
         ? new Map<string, SessionRow>()
-        : await measure(
-            'visibility.session.getSession',
-            async () => await store.sessions.getSessions([...sessionIds]),
-          )
+        : await store.sessions.getSessions([...sessionIds])
     const sessionsByResumeValue =
       resumeValues.size === 0
         ? new Map<string, SessionRow>()
-        : await measure(
-            'visibility.conversation.findSessionByResumeValue',
-            async () => await store.sessions.findSessionsByResumeValues([...resumeValues]),
-          )
+        : await store.sessions.findSessionsByResumeValues([...resumeValues])
     // The session ids a grant question can be asked about: the ones named
     // directly, plus the ones a conversation resolved to.
     // One read per table for every automation and run in the batch (POD-6149).
     // Every asked id gets an entry, `undefined` for "no owner", as before.
     const ownersOf = async (
       ids: ReadonlySet<string>,
-      label: BootstrapReadPhase,
       read: (ids: readonly string[]) => Promise<ReadonlyMap<string, UserId>>,
     ): Promise<Map<string, UserId | undefined>> => {
       if (ids.size === 0) return new Map()
-      const found = await measure(label, async () => await read([...ids]))
+      const found = await read([...ids])
       return new Map([...ids].map((id) => [id, found.get(id)]))
     }
-    const automationOwners = await ownersOf(automationIds, 'visibility.automation.ownerOf', (ids) =>
-      store.automations.ownersOf(ids),
-    )
-    const automationRunOwners = await ownersOf(
-      automationRunIds,
-      'visibility.automationRun.runOwnerOf',
-      (ids) => store.automations.runOwnersOf(ids),
+    const automationOwners = await ownersOf(automationIds, (ids) => store.automations.ownersOf(ids))
+    const automationRunOwners = await ownersOf(automationRunIds, (ids) =>
+      store.automations.runOwnersOf(ids),
     )
     // The workflow kinds (POD-6676): one read per kind for their owners, one
     // grouped read of their READ grants, and the admins, only for a batch that
@@ -902,19 +821,15 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
       workflowIds.size + workflowRevisionIds.size + workflowBindingIds.size + workflowRunIds.size >
       0
     const workflowFacts: WorkflowVisibilityFacts = anyWorkflowRow
-      ? await measure(
-          'visibility.workflow.facts',
-          async () =>
-            await store.workflows.visibilityFacts({
-              workflowIds: [...workflowIds],
-              revisionIds: [...workflowRevisionIds],
-              bindings: [...workflowBindingIds].flatMap((id) => {
-                const key = parseWorkflowBindingRowId(id)
-                return key === undefined ? [] : [key]
-              }),
-              runIds: [...workflowRunIds],
-            }),
-        )
+      ? await store.workflows.visibilityFacts({
+          workflowIds: [...workflowIds],
+          revisionIds: [...workflowRevisionIds],
+          bindings: [...workflowBindingIds].flatMap((id) => {
+            const key = parseWorkflowBindingRowId(id)
+            return key === undefined ? [] : [key]
+          }),
+          runIds: [...workflowRunIds],
+        })
       : NO_WORKFLOW_FACTS
     const workflowReadGrants = new Set<string>()
     let workflowAdminIds: ReadonlySet<string> = new Set()
@@ -933,10 +848,7 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
         'workflow-binding': [...workflowFacts.bindings.keys()],
         'workflow-run': [...workflowFacts.runs.keys()],
       }
-      const grants = await measure(
-        'visibility.workflow.grants',
-        async () => await store.grants.loadForResourcesOfKinds(asked),
-      )
+      const grants = await store.grants.loadForResourcesOfKinds(asked)
       for (const [kind, byId] of grants) {
         for (const [id, edges] of byId) {
           for (const edge of edges) {
@@ -945,10 +857,7 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
           }
         }
       }
-      workflowAdminIds = await measure(
-        'visibility.workflow.adminIds',
-        async () => await store.users.activeAdminIds(),
-      )
+      workflowAdminIds = await store.users.activeAdminIds()
     }
     // One grouped read for the whole batch (POD-6217): the custody edges of
     // the machines the batch's tasks are homed on. Through the operation's
@@ -965,10 +874,7 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
       ReadonlyMap<string, readonly GrantRow[]>
     > = machineIds.length === 0
       ? new Map()
-      : await measure(
-          'visibility.grants.listForResources',
-          async () => await store.grants.loadForResourcesOfKinds({ machine: machineIds }),
-        )
+      : await store.grants.loadForResourcesOfKinds({ machine: machineIds })
     const machineCustodians = new Map<string, UserId>()
     const machineUsers = new Map<string, Set<string>>()
     const machineManagers = new Map<string, Set<string>>()
@@ -976,11 +882,7 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
     // plus the admins (who MANAGE every machine) when one of them is a root.
     const checkoutRoots: ReadonlyMap<string, ReadonlySet<string>> = checkoutMachineIds.size === 0
       ? new Map()
-      : await measure(
-          'visibility.checkout.rootPaths',
-          async () =>
-            await store.checkouts.rootPathsOfMachines([...checkoutMachineIds] as MachineId[]),
-        )
+      : await store.checkouts.rootPathsOfMachines([...checkoutMachineIds] as MachineId[])
     const rootAsked = refs.some((ref) => {
       if (ref.entity !== 'checkout') return false
       try {
@@ -993,10 +895,7 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
     const checkoutAdmins: ReadonlySet<string> = rootAsked
       ? adminIds.size > 0
         ? adminIds
-        : await measure(
-            'visibility.checkout.adminIds',
-            async () => await store.users.activeAdminIds(),
-          )
+        : await store.users.activeAdminIds()
       : new Set()
     for (const [machineId, edges] of found.get('machine') ?? []) {
       const custodian = custodianFromEdges(edges)
@@ -1118,16 +1017,12 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
         ? []
         : // The orders' own rows (POD-6770); a cancelled order has no record.
           store.shipping.ordersByIds(orderIds),
-      measure(
-        'visibility.effect.liveOnTargets',
-        async () =>
-          await store.effects.liveOnTargets([
-            ...issueIds.map((id) => ({ kind: 'issue', id })),
-            ...[...sessionsByIssue.values()]
-              .flat()
-              .map((session) => ({ kind: 'session', id: session.id })),
-          ]),
-      ),
+      store.effects.liveOnTargets([
+        ...issueIds.map((id) => ({ kind: 'issue', id })),
+        ...[...sessionsByIssue.values()]
+          .flat()
+          .map((session) => ({ kind: 'session', id: session.id })),
+      ]),
     ])
     const placed = effectRows.flatMap((row) => {
       const place = placeOfTarget.get(`${row.targetKind}\u0000${row.targetId}`)
@@ -1196,10 +1091,7 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
     if (departed.length === 0) return out
     const departedIssueIds = [...new Set(departed.map((order) => order.issueId))]
     const [owners, audiences] = await Promise.all([
-      measure(
-        'visibility.issue.getIssue',
-        async () => await readIssues(store.issues, departedIssueIds),
-      ),
+      readIssues(store.issues, departedIssueIds),
       deps.audiencesFor('issue', departedIssueIds),
     ])
     const laneOf = new Map(
@@ -1216,10 +1108,7 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
     const memberRows =
       memberIds.length === 0
         ? new Map<string, IssueRow>()
-        : await measure(
-            'visibility.issue.getIssue',
-            async () => await readIssues(store.issues, memberIds),
-          )
+        : await readIssues(store.issues, memberIds)
     for (const order of departed) {
       const owner = owners.get(order.issueId)?.ownerUserId
       const candidates = [
@@ -1499,8 +1388,6 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
   return {
     state: makeVisibilityState(),
     anchors,
-    beginBootstrapRead,
-    finishBootstrapRead,
     authorizationRevision: deps.authorizationRevision,
     mayReadIssue: (userId, issueId) => mayReadIssue(userId, issueId),
   }

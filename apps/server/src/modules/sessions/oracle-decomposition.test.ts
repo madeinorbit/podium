@@ -59,9 +59,9 @@ function seedUser(
   seedRaw(db, () =>
     db
       .prepare(
-        "INSERT INTO users (id, display_name, role, created_at, disabled_at) VALUES (?, ?, 'member', '2026-08-01T00:00:00.000Z', NULL)",
+        "INSERT INTO users (workspace_id, id, display_name, role, created_at, disabled_at) VALUES (?, ?, ?, 'member', '2026-08-01T00:00:00.000Z', NULL)",
       )
-      .run(id, displayName),
+      .run(store.workspaceId, id, displayName),
   )
 }
 

@@ -71,7 +71,7 @@ import { Plus, X } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import { useEffect, useState } from 'react'
 import { usePoolMachines } from '@/app/header-data'
-import { type IssueViewModel } from '@/app/store'
+import type { IssueViewModel } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { DropdownMenu, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { useMemberRoster } from '@/lib/member-roster'
@@ -124,7 +124,12 @@ export const IssueProperties = observer(function IssueProperties({
   const nameOf = (id: string) => roster?.nameOf(id)
 
   const [optionsOpen, setOptionsOpen] = useState(false)
-  const issues = useIssuePageCatalog(optionsOpen)
+  const [targetQuery, setTargetQuery] = useState('')
+  const issues = useIssuePageCatalog(optionsOpen, targetQuery, issue.repoPath)
+  const targetOptionsOpen = (open: boolean) => {
+    setOptionsOpen(open)
+    if (!open) setTargetQuery('')
+  }
   const resolve = useIssueEdgeResolver()
 
   // Relation add is two steps: pick a dep type, then a target issue.
@@ -333,7 +338,9 @@ export const IssueProperties = observer(function IssueProperties({
           busy={busy}
           mateOptions={mateOptions}
           matesById={matesById}
-          onOptionsOpenChange={setOptionsOpen}
+          onOptionsOpenChange={targetOptionsOpen}
+          searchQuery={targetQuery}
+          onSearchQueryChange={setTargetQuery}
           onSetParent={(id) => commands.setParent(id)}
           onNavigate={onNavigate}
         />
@@ -343,7 +350,9 @@ export const IssueProperties = observer(function IssueProperties({
           commands={commands}
           mateOptions={mateOptions}
           hasMates={page.views.row(issue.id).hasTargets}
-          onOptionsOpenChange={setOptionsOpen}
+          onOptionsOpenChange={targetOptionsOpen}
+          searchQuery={targetQuery}
+          onSearchQueryChange={setTargetQuery}
           addRelType={addRelType}
           onAddRelTypeChange={setAddRelType}
           onNavigate={onNavigate}

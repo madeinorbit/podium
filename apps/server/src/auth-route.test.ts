@@ -26,6 +26,7 @@ import { createPortableSnapshot } from './modules/server-transfer/snapshot'
 import { authReadinessBoundary } from './readiness-boundary'
 import type { SessionStore } from './store'
 import { openTestStore } from './test-support/open-test-store'
+import { testStoreEngine } from './test-support/pg-test-database'
 import {
   memberResolution,
   openTestIdentity,
@@ -213,6 +214,33 @@ describe('GET /auth/status', () => {
 })
 
 describe('POST /auth/login', () => {
+  test('accepts an obsolete autofilled username only for the sole password account', async () => {
+    await identity.credentials.setPassword(admin, PASSWORD)
+    const app = makeApp()
+    const response = await post(app, '/auth/login', { email: 'user:sole', password: PASSWORD })
+    expect(response.status).toBe(200)
+    const cookie = cookieOf(response)
+    expect(await (await get(app, '/auth/status', { cookie: cookie ?? '' })).json()).toMatchObject({
+      authed: true,
+      memberId: admin,
+    })
+    expect(
+      (await post(app, '/auth/login', { email: 'wrong@example.com', password: PASSWORD })).status,
+    ).toBe(401)
+    expect((await post(app, '/auth/login', { email: 'user:sole', password: 'wrong' })).status).toBe(
+      401,
+    )
+  })
+
+  test('legacy usernames share the password-only failure budget', async () => {
+    await identity.credentials.setPassword(admin, PASSWORD)
+    const app = makeApp()
+    for (let i = 0; i < 8; i++)
+      expect(
+        (await post(app, '/auth/login', { email: `old-user-${i}`, password: 'wrong' })).status,
+      ).toBe(401)
+    expect((await post(app, '/auth/login', { password: PASSWORD })).status).toBe(429)
+  })
   test('an operator can sign in and be recognised while activation is pending [POD-2766]', async () => {
     // The boundary has to SERVE `/auth/login` while the data plane is blocked,
     // and the status route has to REPORT the resulting sign-in, or the login
@@ -394,6 +422,9 @@ describe('POST /auth/login', () => {
         .status,
     ).toBe(401)
     expect((await post(app, '/auth/login', { email: 42, password: PASSWORD })).status).toBe(400)
+    expect(
+      (await post(app, '/auth/login', { email: 'user:sole', password: PASSWORD })).status,
+    ).toBe(401)
   })
 
   test('a disabled member cannot sign in, and can again once enabled', async () => {
@@ -591,7 +622,9 @@ describe('POST /auth/logout', () => {
   })
 })
 
-describe('the server-transfer claim', () => {
+// A server transfer ships the SQLite database file; hosted Postgres has no transfer (POD-6958
+// design 2.9), so this case runs on SQLite only.
+describe.skipIf(testStoreEngine() === 'pg')('the server-transfer claim', () => {
   test('exchanges a shared move code once for a desktop sign-in at the new origin', async () => {
     const directory = mkdtempSync(join(tmpdir(), 'podium-move-sign-in-'))
     const source = await openTestStore(join(directory, 'podium.db'))

@@ -58,7 +58,7 @@
  * absorbed surface reads as progress on every ratchet (POD-386).
  */
 
-import { readFileSync, readdirSync, statSync } from 'node:fs'
+import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { settingsPathsInTier } from '../packages/model/src/settings/classification'
@@ -368,6 +368,17 @@ export function auditScrubWired(files: readonly SourceFile[]): Finding[] {
 /** The scrub must DERIVE its paths, never restate them. */
 export const SCRUB_MODULE = 'packages/model/src/settings/scrub.ts'
 
+/**
+ * The calls that derive the secret paths from the classification. The scrub
+ * imports the path-tier walker directly (POD-848 kept the policy tables out of
+ * the browser bundle); `settingsPathsInTier` is the classification's name for
+ * the same walk and only delegates to it.
+ */
+const SECRET_DERIVATIONS = [
+  "settingsPathsInTier('server-secret')",
+  "pathsInSettingsTier('server-secret')",
+] as const
+
 export function auditScrubDerives(files: readonly SourceFile[]): Finding[] {
   const file = files.find((f) => f.rel === SCRUB_MODULE)
   if (file === undefined) {
@@ -381,7 +392,7 @@ export function auditScrubDerives(files: readonly SourceFile[]): Finding[] {
   }
   const code = stripComments(file.text)
   const findings: Finding[] = []
-  if (!code.includes("settingsPathsInTier('server-secret')")) {
+  if (!SECRET_DERIVATIONS.some((call) => code.includes(call))) {
     findings.push({
       check: 'scrub-derived',
       where: SCRUB_MODULE,

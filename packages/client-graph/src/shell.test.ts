@@ -56,10 +56,6 @@ describe('shell pool', () => {
         demand.push(
           row.mock.calls.filter(([kind]) => kind === 'issue' || kind === 'session').length,
         )
-        expect(questions.mock.calls.some(([question]) => question.kind === 'shellIssues')).toBe(
-          false,
-        )
-        expect(views.chrome()).toHaveProperty('sessionCount', count)
         const context = dockSnapshot(views)
         expect(context && context !== LOADING ? context.active?.sessionId : null).toBe(
           f.sessions[0]!.sessionId,
@@ -77,8 +73,14 @@ describe('shell pool', () => {
           ] as never,
         })
         expect(outputs).toHaveLength(before)
+        // POD-7112: every device row is in the pool (POD-7094), so the pool's
+        // own filing maintenance marks the updated row ('mark', inside its
+        // action). Chrome and dock demand no issue or session row.
         expect(
-          row.mock.calls.filter(([kind]) => kind === 'issue' || kind === 'session'),
+          row.mock.calls.filter(
+            ([kind, , absent]) =>
+              (kind === 'issue' || kind === 'session') && !['mark', 'peek'].includes(String(absent)),
+          ),
         ).toHaveLength(0)
       } finally {
         stop()
@@ -113,7 +115,9 @@ describe('shell pool', () => {
     const f = shellFixture()
     try {
       expect(settled(f)).toMatchObject({ differences: 0, pending: 0, first: null })
-      expect(settled(f).positions).toBeGreaterThan(90)
+      // The shell lists no sessions or issues any more (POD-7088): the
+      // window, files, chrome, dock, shipping, orders, lanes and machines.
+      expect(settled(f).positions).toBeGreaterThan(10)
     } finally {
       f.pool.dispose()
     }
@@ -239,7 +243,7 @@ describe('shell pool', () => {
         isDraftVessel: true,
         worktreePath: null,
       })
-      expect(omitGone(f.pool.row('session', f.sessions[2]!.sessionId, 'summary'))).toMatchObject({
+      expect(omitGone(f.pool.row('session', f.sessions[2]!.sessionId))).toMatchObject({
         archived: true,
       })
       expect(shellViews(f.pool).chrome()).toHaveProperty('missionRoot', undefined)
@@ -260,25 +264,6 @@ describe('shell pool', () => {
       f.lane(undefined)
       expect(f.pool.sources.related('shellShipLane', 'shell-repo', 'shipLanes')).toEqual([])
       expect(settled(f).differences).toBe(0)
-    } finally {
-      f.pool.dispose()
-    }
-  })
-  it('keeps cold manifests out of summaries and batches repeated artifact demand through the one reader', () => {
-    const f = shellFixture()
-    try {
-      const id = f.issues[30]!.id
-      expect(f.pool.tables.issue.has(id)).toBe(false)
-      expect(omitGone(f.pool.row('issue', id, 'summary'))).not.toHaveProperty('panel')
-      expect(shellViews(f.pool).issue(id, true)).toBe(LOADING)
-      expect(shellViews(f.pool).issue(id, true)).toBe(LOADING)
-      expect(f.loads).toEqual([])
-      expect(f.pool.hydrate()).toBe(1)
-      expect(f.loads).toEqual([`issue:${id}`])
-      expect(shellViews(f.pool).issue(id, true)).toHaveProperty(
-        'panel.artifacts.0.artifactId',
-        'synthetic-artifact',
-      )
     } finally {
       f.pool.dispose()
     }

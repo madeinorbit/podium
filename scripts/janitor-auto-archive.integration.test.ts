@@ -24,12 +24,27 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asIssueId, asSessionId, asUserId, firstAdminMemberId } from '@podium/model'
-import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { fixtureWriteScope } from '@podium/sync/testing'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { openJanitorDatabase } from '../apps/server/src/janitor-database'
 import type { IssueRow, SessionRow, SessionStore } from '../apps/server/src/store'
 import { openTestStore } from '../apps/server/src/test-support/open-test-store'
-import { IssueAutoArchiveReader, SessionAutoArchiveReader } from '../packages/janitor/src/janitor'
+import {
+  IssueAutoArchiveReader,
+  type JanitorReadSource,
+  SessionAutoArchiveReader,
+} from '../packages/janitor/src/janitor'
+
+/** The janitor's reads of the store's one workspace, as its worker opens them. */
+function janitorSource(path: string): JanitorReadSource {
+  return {
+    scan: async (fn) => {
+      const [workspace] = await openJanitorDatabase(path).workspacesWithFeed()
+      if (!workspace) throw new Error('the store has a workspace with a feed')
+      return await workspace.scan(fn)
+    },
+  }
+}
 
 const OTHER_USER = asUserId('user:other')
 const READ_OLD = '2026-07-01T00:00:00.000Z'
@@ -126,7 +141,7 @@ describe('janitor auto-archive candidates over per-user read state [POD-1210]', 
   let dir: string
   let dbPath: string
   let store: SessionStore
-  let db: SqlDatabase
+  let db: JanitorReadSource
   let priorStateDir: string | undefined
 
   beforeEach(async () => {
@@ -135,11 +150,10 @@ describe('janitor auto-archive candidates over per-user read state [POD-1210]', 
     priorStateDir = process.env.PODIUM_STATE_DIR
     process.env.PODIUM_STATE_DIR = dir
     store = await openTestStore(dbPath)
-    db = openDatabase(dbPath, { readOnly: true })
+    db = janitorSource(dbPath)
   })
 
   afterEach(async () => {
-    db.close()
     await store.close()
     if (priorStateDir === undefined) delete process.env.PODIUM_STATE_DIR
     else process.env.PODIUM_STATE_DIR = priorStateDir
@@ -232,8 +246,16 @@ describe('janitor auto-archive candidates over per-user read state [POD-1210]', 
     // ...and the same read IS a candidate on a task that user is the assignee
     // of (POD-6291: the reader is each task's assignee), so the empty result
     // above is scoping, not an accidentally-empty query.
-    await store.issues.upsertIssue(fixtureWriteScope(), issueRow('iss_assigned_to_them', { ownerUserId: OTHER_USER }))
-    await store.issues.setIssueUserState(fixtureWriteScope(), OTHER_USER, asIssueId('iss_assigned_to_them'), { readAt: READ_OLD })
+    await store.issues.upsertIssue(
+      fixtureWriteScope(),
+      issueRow('iss_assigned_to_them', { ownerUserId: OTHER_USER }),
+    )
+    await store.issues.setIssueUserState(
+      fixtureWriteScope(),
+      OTHER_USER,
+      asIssueId('iss_assigned_to_them'),
+      { readAt: READ_OLD },
+    )
     const theirs = await new IssueAutoArchiveReader(db).read({
       cutoffReadAt: CUTOFF,
       limit: 100,

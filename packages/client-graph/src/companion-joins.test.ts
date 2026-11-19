@@ -45,7 +45,7 @@ function fixture(scale: 1 | 4) {
     subscribeAddressedBatch(listener) { addressed = listener; return () => {} },
   }, { pending: EMPTY_PENDING })
   const handle = createWorklistPool(source.source, fixedLocals({ selectedIssueId: null, coarseNow: Date.parse('2026-10-05') }).source,
-    { summaries: { session: ['sessionId', ...displayed], issue: ['id', 'repoPath'] }, schedule: () => () => {} })
+    { schedule: () => () => {} })
   const change = (kind: ReplicaKind, id: string, patch: Row) => {
     put(kind, id, { ...tables.get(kind)?.get(id), ...patch })
     addressed({ type: 'update', rows: [{ kind, id }] })
@@ -70,11 +70,11 @@ function values(row: Row) { return Object.fromEntries(displayed.map(key => [key,
 it('preserves display parity against the frozen base synthetic corpus', () => {
   const f = fixture(4)
   try {
-    const actual = Array.from({ length: 128 }, (_, n) => values(omitGone(f.pool.row('session', `session-${n}`, 'summary')) as Row))
+    const actual = Array.from({ length: 128 }, (_, n) => values(omitGone(f.pool.row('session', `session-${n}`)) as Row))
     const path = new URL('./__fixtures__/companion-joins.json', import.meta.url)
     if (process.env.PODIUM_JOIN_ORACLE === 'write') writeFileSync(path, JSON.stringify(actual, null, 2) + '\n')
     expect(actual).toEqual(JSON.parse(readFileSync(path, 'utf8')))
-    expect(omitGone(f.pool.row('issue', 'history', 'summary'))).toMatchObject({ repoPath: '/synthetic/project' })
+    expect(omitGone(f.pool.row('issue', 'history'))).toMatchObject({ repoPath: '/synthetic/project' })
   } finally { f.dispose() }
 })
 
@@ -83,7 +83,7 @@ it('shares the repo facade across cold joins while path and prefix stay independ
   const reads = vi.spyOn(f.pool, 'row')
   const paths: unknown[] = [], prefixes: unknown[] = []
   const stopPath = autorun(() => {
-    const row = omitGone(f.pool.row('issue', 'history', 'summary-fields')) as Row
+    const row = omitGone(f.pool.row('issue', 'history')) as Row
     paths.push(row.repoPath)
   })
   const stopPrefix = autorun(() => { prefixes.push(here(f.pool.model('repo', 'project'))?.prefix) })
@@ -98,53 +98,7 @@ it('shares the repo facade across cold joins while path and prefix stay independ
     f.change('repos', 'project', { repoPath: '/synthetic/renamed' })
     expect(paths).toEqual(['/synthetic/project', '/synthetic/renamed'])
     expect(prefixes).toEqual(['POD', 'NEW'])
-    expect(f.pool.tables.issue.has('history')).toBe(false)
   } finally { stopPrefix(); stopPath(); reads.mockRestore(); f.dispose() }
-})
-
-for (const scale of [1, 4] as const) it(`touches one companion and zero session rows at ${scale}x with fresh cold/hot readers`, () => {
-  const f = fixture(scale), events: RowSourceEvent[] = []
-  const stopEvents = f.source.source.subscribe(event => events.push(event))
-  let writes = 0, coldRuns = 0, hotRuns = 0, cold: Row = {}, hot: Row = {}, matching: string[] = [], ref: string | undefined
-  const stopWrites = observe(f.pool.tables.session, () => writes++)
-  const stopCold = autorun(() => { coldRuns++; cold = sessionValues(omitGone(f.pool.row('session', 'session-1', 'summary')) as never) as unknown as Row })
-  const stopHot = autorun(() => { hotRuns++; hot = sessionValues(omitGone(f.pool.row('session', 'session-0')) as never) as unknown as Row })
-  const stopMatching = autorun(() => { matching = f.pool.queries.ids({ kind: 'sessionReference', ref: 'POD-2-A' }) })
-  const stopRef = autorun(() => { ref = f.pool.queries.linkedSessionId('POD-2-A') })
-  try {
-    expect(f.pool.tables.session.size).toBe(1)
-    expect((omitGone(f.pool.row('session', 'session-1', 'summary')) as Row).machineName).toBe('Workstation')
-    expect(ref).toBe('session-1')
-    expect(matching).toEqual(['session-1'])
-    f.source.stats.reset()
-    const machine = f.change('machines', 'host', { name: 'Renamed', loggedOutHarnesses: ['codex'] })!
-    expect(machine.rows).toHaveLength(1)
-    expect(machine.rows.filter(row => row.kind === 'session')).toHaveLength(0)
-    expect(f.source.stats.rowsVisited).toBe(1)
-    expect(writes).toBe(0)
-    expect(cold).toMatchObject({ machineName: 'Renamed', condition: 'logged-out', displayRef: 'POD-2-A' })
-    expect(hot.machineName).toBe('Renamed')
-    expect([coldRuns, hotRuns]).toEqual([2, 2])
-    f.source.stats.reset()
-    const repo = f.change('repos', 'project', { prefix: 'NEW' })!
-    expect(repo.rows).toHaveLength(1)
-    expect(repo.rows.filter(row => row.kind === 'session' || row.kind === 'issue' || row.kind === 'worktree')).toHaveLength(0)
-    expect(f.source.stats.rowsVisited).toBe(1)
-    expect(writes).toBe(0)
-    const visited = f.source.stats.rowsVisited
-    expect(cold.displayRef).toBe('NEW-2-A')
-    expect(ref).toBeUndefined()
-    expect(matching).toEqual([])
-    expect(f.pool.queries.linkedSessionId('NEW-2-A')).toBe('session-1')
-    expect(f.pool.queries.ids({ kind: 'sessionReference', ref: 'NEW-2-A' })).toEqual(['session-1'])
-    expect(f.pool.queries.ids({ kind: 'sessionReference', ref: 'POD-2-A' })).toEqual([])
-    expect([coldRuns, hotRuns]).toEqual([3, 2])
-    expect(f.pool.tables.session.size).toBe(1)
-    for (const row of f.source.source.snapshot('session'))
-      for (const field of ['machineName', 'condition', 'handoffTarget', 'displayRef']) expect(row.value).not.toHaveProperty(field)
-    expect(f.source.source.row!('issue', 'history')).not.toHaveProperty('repoPath')
-    console.info(`companion ${scale}x`, JSON.stringify({ sessions: 32 * scale, records: 1, sessionWrites: writes, visited }))
-  } finally { stopMatching(); stopRef(); stopHot(); stopCold(); stopWrites(); stopEvents(); f.dispose() }
 })
 
 for (const scale of [1, 4] as const) it(`a repo prefix change alone publishes one record at ${scale}x`, () => {
@@ -155,7 +109,7 @@ for (const scale of [1, 4] as const) it(`a repo prefix change alone publishes on
     expect(event.rows).toHaveLength(1)
     expect(event.rows[0]?.kind).toBe('repo')
     expect(f.source.stats.rowsVisited).toBe(1)
-    expect((omitGone(f.pool.row('session', 'session-1', 'summary')) as Row).displayRef).toBe('NEW-2-A')
+    expect((omitGone(f.pool.row('session', 'session-1')) as Row).displayRef).toBe('NEW-2-A')
   } finally { f.dispose() }
 })
 
@@ -165,7 +119,7 @@ it('keeps repo companions when their last discovered lane leaves', () => {
     f.removeDiscovery()
     expect(f.pool.tables.worktree.size).toBe(0)
     expect(omitGone(f.pool.row('repo', 'project'))).toMatchObject({ prefix: 'POD' })
-    expect((omitGone(f.pool.row('session', 'session-1', 'summary')) as Row).displayRef).toBe('POD-2-A')
+    expect((omitGone(f.pool.row('session', 'session-1')) as Row).displayRef).toBe('POD-2-A')
     expect(f.pool.queries.linkedSessionId('POD-2-A')).toBe('session-1')
   } finally { f.dispose() }
 })
@@ -173,9 +127,9 @@ it('keeps repo companions when their last discovered lane leaves', () => {
 it('removes a missing machine companion when the source replaces its snapshot', () => {
   const f = fixture(1)
   try {
-    expect((omitGone(f.pool.row('session', 'session-1', 'summary')) as Row).handoffTarget).toBe('Laptop')
+    expect((omitGone(f.pool.row('session', 'session-1')) as Row).handoffTarget).toBe('Laptop')
     f.replaceWithoutMachine('target')
     expect(omitGone(f.pool.row('machine', 'target'))).toBeUndefined()
-    expect((omitGone(f.pool.row('session', 'session-1', 'summary')) as Row).handoffTarget).toBeUndefined()
+    expect((omitGone(f.pool.row('session', 'session-1')) as Row).handoffTarget).toBeUndefined()
   } finally { f.dispose() }
 })

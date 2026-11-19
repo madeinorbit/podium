@@ -1,4 +1,5 @@
 import { CLIENT_WIRE_VERSION } from '@podium/protocol'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 /**
  * VIEWER CATCH-UP FROM THE HOST'S PICTURES — server half (POD-4912, SPEC v4 B2).
  *
@@ -66,6 +67,7 @@ function viewer(id: string, opts: { lazy?: boolean; dropLive?: boolean } = {}): 
       for (let m = source.next(); m !== undefined; m = source.next()) sent.push(m as ServerMessage)
       return Promise.resolve({ ok: true as const })
     },
+    workspaceId: SELF_HOSTED_WORKSPACE_ID,
     viewports: new Map(),
     attached: new Set(),
     caps: new Set(),

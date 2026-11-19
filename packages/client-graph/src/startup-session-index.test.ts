@@ -1,7 +1,7 @@
 import { referenceKey } from './shared/session-reference'
 import { expect, it, vi } from 'vitest'
 import * as answers from './query-result'
-import { createColdIndex } from './shared/cold-index'
+import { createDeviceIndex } from './shared/device-index'
 import { SCHEMA } from './shared/schema'
 import { createSessionQuestions, type SessionQuestions, type TriageSession } from './shared/session-questions'
 import type { RowRecord } from './shared/source'
@@ -28,7 +28,7 @@ it.each([128, 512])('seeds %i startup sessions without per-row persistent tree w
     return answer
   }) as typeof original)
   try {
-    const index = createColdIndex(SCHEMA)
+    const index = createDeviceIndex(SCHEMA)
     index.apply({ type: 'replace', rows: Array.from({ length: count }, (_, n) =>
       ({ kind: 'session', id: `startup-${n}`, value: row(n) }) as unknown as RowRecord) })
     expect(index.sessionQuestionFact('startup-1')?.machineId).toBe('m1')
@@ -95,7 +95,7 @@ it('matches sequential seeding through replacements, duplicate ids, snooze clock
 })
 
 it('matches a final relation state and subsequent collapse winner flips after bootstrap', () => {
-  const bulk = createColdIndex(SCHEMA), sequential = createColdIndex(SCHEMA)
+  const bulk = createDeviceIndex(SCHEMA), sequential = createDeviceIndex(SCHEMA)
   const sessions = Array.from({ length: 37 }, (_, n) => ({ kind: 'session', id: `startup-${n}`,
     value: { ...row(n), resume: { kind: 'codex-thread', value: `group-${n % 3}` } } }) as RowRecord)
   const input: RowRecord[] = [{ kind: 'worktree', id: '/repo', value: { path: '/repo' } } as RowRecord, ...sessions]

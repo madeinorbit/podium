@@ -22,7 +22,6 @@ export function checkSettings(pool: MobxPool, owner: SettingsCheckOwner) {
   const window = omitGone(pool.row('settingsWindow', 'window'))
   const expectedUsage = createRepositoryUsageSelector()(state.sessions)
   const setup = settingsView(pool).setup([...expectedUsage.keys()])
-  const sessions = settingsView(pool).sessions()
   let pending = Number(catalog === LOADING) + Number(window === LOADING) + setup.pending
   const rows = (values: readonly (readonly [string, object])[]): CheckRow[] =>
     values.map(([id, value]) => ({ id, fields: { value } }))
@@ -51,7 +50,8 @@ export function checkSettings(pool: MobxPool, owner: SettingsCheckOwner) {
         usage: [...expectedUsage].sort(([a], [b]) => a.localeCompare(b)),
         defaultAgent: resolveDefaultAgent(undefined, state.sessions),
       },
-      rows: state.sessions.map((row) => ({ id: row.sessionId, fields: {} })),
+      // POD-7088: Settings lists no sessions; the setup screen reads none.
+      rows: [],
     },
   ]
   const readRows = (
@@ -100,9 +100,7 @@ export function checkSettings(pool: MobxPool, owner: SettingsCheckOwner) {
         defaultAgent: setup.defaultAgent,
       },
       pendingFields: setup.pending ? ['usage', 'defaultAgent'] : [],
-      rows: sessions.pending
-        ? state.sessions.map((row) => ({ id: row.sessionId, fields: {}, placementPending: true }))
-        : sessions.rows.map((row) => ({ id: row.sessionId, fields: {} })),
+      rows: [],
     },
   ]
   const result = compareSidebarSnapshots(

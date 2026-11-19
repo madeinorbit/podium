@@ -39,6 +39,7 @@
 import { type Dirent, existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { TABLE_MANIFEST } from '../apps/server/src/store/workspace-manifest'
 import { changeRowRestatements } from './change-row-audit'
 import {
   machineIdUnbrandedFields,
@@ -53,7 +54,19 @@ import {
   instancePartitions,
   perUserSingletons,
   unregisteredRestatements,
+  workspaceTablesWithoutWorkspaceId,
 } from './representation-audit'
+
+/**
+ * The workspace tables a schema declares (POD-6959 design 2.1): the manifest's
+ * `workspace` class, without the planned tables (no declaration yet) and the
+ * runtime ones (created by the store, not declared as drizzle tables).
+ */
+export const DECLARED_WORKSPACE_TABLES: ReadonlySet<string> = new Set(
+  Object.entries(TABLE_MANIFEST)
+    .filter(([, entry]) => entry.class === 'workspace' && entry.origin === 'schema')
+    .map(([name]) => name),
+)
 
 // ---------------------------------------------------------------------------
 // Source loading
@@ -857,9 +870,13 @@ export const CHECKS: AuditCheck[] = [
     // Read the zero with its LIMIT: this item is name-matched over declarations
     // that clear ENTITY_SHAPE_THRESHOLD, so a shape can fall out of the
     // population by shedding unrelated keys rather than by shedding per-user
-    // state. Both sites were checked against exactly that — re-adding `readAt`
-    // to either observation makes the detector report it again — but the limit
-    // is general and the next zero deserves the same check.
+    // state. Both sites were checked against exactly that at POD-1229, when
+    // re-adding `readAt` to either observation made the detector report it
+    // again. That no longer holds (POD-7061): the issue vocabulary has since
+    // lost `issueId` and `readAt`, so IssueAutoArchiveObservation counts one
+    // key and is out of the population, and a `readAt` re-added there would
+    // go unreported. The limit is general and the next zero deserves the
+    // same check.
     id: 'per-user-singletons',
     title: 'Per-user state surviving as a singleton field on a representation',
     phase: 'POD-1229',
@@ -886,11 +903,30 @@ export const CHECKS: AuditCheck[] = [
     // physical table": a drizzle table is a call expression, so its columns were
     // never enumerated and POD-1162's P4 plant of `instance_id` on `sessions`
     // was green everywhere. One concept, two syntax forms, one pattern.
+    //
+    // REVERSED for the workspace (POD-6959 design 2.5, POD-7012): the data's
+    // partition is the workspace, under the one name `workspace_id`, which this
+    // item does not match. `instance_id` stays forbidden (a runtime instance is
+    // not a tenant) and `tenant_id` is now forbidden everywhere, the sync tables
+    // included, whose column was renamed. The next item checks the other half.
     id: 'instance-partitions',
     title: 'Instance/tenant partition on a representation or a physical table',
     phase: 'POD-302',
     unit: 'one instance_id/tenant_id-shaped key or table column',
     collect: (ctx) => instancePartitions(ctx),
+  },
+  {
+    // Expected ZERO (POD-6959 design 2.5 part 2). Every table the workspace
+    // manifest classes `workspace` carries `workspace_id`, declared through the
+    // `workspaceColumn()` helper or, on the renamed sync tables, by name. The
+    // manifest test checks the same rule against the Drizzle objects and a
+    // migrated database; this item keeps it in the source census beside its
+    // reverse, so a new table cannot land without the column.
+    id: 'workspace-tables-without-workspace-id',
+    title: 'Workspace table without a workspace_id column',
+    phase: 'POD-6959',
+    unit: 'one table the workspace manifest classes workspace, declared without workspace_id (or not declared)',
+    collect: (ctx) => workspaceTablesWithoutWorkspaceId(ctx, DECLARED_WORKSPACE_TABLES),
   },
   {
     id: 'change-row-typings',
@@ -1411,9 +1447,7 @@ export const CHECKS: AuditCheck[] = [
       }).filter(
         (site) =>
           site.file !== 'packages/client-core/src/ui-state.ts' ||
-          ![
-            "panelMode: 'podium.panelMode',",
-              ].includes(site.text),
+          !["panelMode: 'podium.panelMode',"].includes(site.text),
       ),
   },
   {

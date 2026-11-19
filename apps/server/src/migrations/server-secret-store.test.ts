@@ -39,6 +39,8 @@
 import { SERVER_SECRET_KEYS } from '@podium/model'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it } from 'vitest'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
+import { workspaceQueries } from '../store/executor/sync-drizzle'
 import { ServerSecretsRepository } from '../store/server-secrets'
 import { stageASeam } from '../test-support/stage-a-seam'
 import { DRIZZLE_MIGRATIONS } from './drizzle-manifest.generated'
@@ -105,6 +107,19 @@ const cutIndex = () => {
  * where it belongs.
  */
 const throughThisMigration = () => DRIZZLE_MIGRATIONS.slice(0, cutIndex() + 1)
+
+/**
+ * The repository over a database migrated through this migration, then the split
+ * that moves a workspace's secrets to `workspace_secrets` (POD-7013), which the
+ * repository reads now. Only the split, so what it serves is what this migration
+ * lifted; later migrations (the personal provider keys) would move it on again.
+ */
+const repositoryAfterSplit = (db: Db): ServerSecretsRepository => {
+  const split = DRIZZLE_MIGRATIONS.find((m) => m.name.endsWith('_workspace-meta-split'))
+  if (split === undefined) throw new Error('the workspace meta split is not in the manifest')
+  runDrizzleMigrations(db, [...throughThisMigration(), split])
+  return new ServerSecretsRepository(workspaceQueries(stageASeam(db), SELF_HOSTED_WORKSPACE_ID))
+}
 
 const tableExists = (db: Db, name: string): boolean =>
   db.prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`).get(name) !==
@@ -296,7 +311,7 @@ describe('the repository reads what the migration wrote', () => {
       notifications: { ...PREFERENCES.notifications, telegramBotToken: '' },
     })
     runDrizzleMigrations(db, throughThisMigration())
-    const secrets = new ServerSecretsRepository(stageASeam(db))
+    const secrets = repositoryAfterSplit(db)
 
     // The POSITIVE control beside the negative: a repository that returned
     // `undefined` for everything would satisfy the absence assertion alone.
@@ -309,7 +324,7 @@ describe('the repository reads what the migration wrote', () => {
     const db = preMigrationDb()
     runDrizzleMigrations(db, throughThisMigration())
 
-    const presence = await new ServerSecretsRepository(stageASeam(db)).presence()
+    const presence = await repositoryAfterSplit(db).presence()
     expect(presence.map((p) => p.key).sort()).toEqual([...SERVER_SECRET_KEYS].sort())
     expect(presence.every((p) => p.present)).toBe(true)
     // The projection has no value key BY CONSTRUCTION (it is a separate shape,
@@ -321,7 +336,7 @@ describe('the repository reads what the migration wrote', () => {
   it('a cleared secret leaves no row, and a blank write is a clear', async () => {
     const db = preMigrationDb()
     runDrizzleMigrations(db, throughThisMigration())
-    const secrets = new ServerSecretsRepository(stageASeam(db))
+    const secrets = repositoryAfterSplit(db)
     const present = async (key: 'integrations.linearApiKey' | 'notifications.telegramBotToken') =>
       (await secrets.presence()).find((p) => p.key === key)?.present
 

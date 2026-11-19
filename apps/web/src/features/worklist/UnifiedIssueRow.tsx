@@ -26,7 +26,7 @@ import {
   type SessionId,
 } from '@podium/model/browser'
 import type { JSX, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react'
-import { lazy, memo, Suspense, useState } from 'react'
+import { memo, Suspense, useState } from 'react'
 import { GitStamp } from '@/components/GitStamp'
 import { idSquareLabel } from '@/components/IdSquare'
 import { NotSavedMark } from '@/components/NotSavedMark'
@@ -34,6 +34,7 @@ import type { IssueMenuPoolInputs } from '@/features/issues/issue-menu-pool-inpu
 import { throughRestarts } from '@/lib/chunk-recovery'
 import { useAgeNow } from '@/lib/clock-hooks'
 import { issueIdTitle } from '@/lib/issue-labels'
+import { lazy } from '@/lib/lazy-surface'
 import { memberDisplayName, useMemberRoster } from '@/lib/member-roster'
 import { PhaseTimer, WorkingMark } from '@/lib/motion'
 import type { ContextMenuAnchor } from '@/lib/session-context-menu'
@@ -340,7 +341,8 @@ function UnifiedIssueRowInner({
         gitStamp={
           // A landed row already says where it went (POD-2151); a git stamp
           // cached before the landing would contradict it.
-          issue.gitState && voice.word !== 'Landed' && (
+          issue.gitState &&
+          voice.word !== 'Landed' && (
             <GitStamp
               issueBranch={issue.branch}
               git={issue.gitState}

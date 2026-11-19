@@ -2,28 +2,32 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openDatabase } from '@podium/runtime/sqlite'
+import { janitorWorkerTarget } from '../apps/server/src/janitor-worker-embed.js'
+import { DRIZZLE_MIGRATIONS } from '../apps/server/src/migrations/drizzle-manifest.generated.js'
+import { runDrizzleMigrations } from '../apps/server/src/migrations/index.js'
 import { JanitorWorkerClient } from '../packages/janitor/src/worker-client.js'
 
 const dir = mkdtempSync(join(tmpdir(), 'podium-janitor-worker-smoke-'))
 const dbPath = join(dir, 'podium.db')
 // This smoke verifies worker readiness with the maintenance server deliberately offline.
-// Boot still requires an active admin; no maintenance tables are read without a handshake.
+// Boot reads the workspace with a feed and its active admin through the store's query
+// definitions (POD-6993), so the database is a migrated store: the chain creates both.
 const db = openDatabase(dbPath)
 try {
-  db.exec(`
-    CREATE TABLE users (id TEXT PRIMARY KEY, role TEXT, disabled_at TEXT, created_at TEXT);
-    INSERT INTO users VALUES ('compiled-smoke-admin', 'admin', NULL, '2026-01-01T00:00:00Z');
-  `)
+  runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
 } finally {
   db.close()
 }
 
-const client = new JanitorWorkerClient({
-  serverUrl: 'http://127.0.0.1:1',
-  token: 'compiled-smoke',
-  dbPath,
-  tickMs: 60_000,
-})
+const client = new JanitorWorkerClient(
+  {
+    serverUrl: 'http://127.0.0.1:1',
+    token: 'compiled-smoke',
+    dbPath,
+    tickMs: 60_000,
+  },
+  { target: janitorWorkerTarget() },
+)
 
 const deadline = Date.now() + 8_000
 while (client.state() !== 'running' && Date.now() < deadline) {

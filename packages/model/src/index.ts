@@ -76,6 +76,7 @@ export * from './entities/issue'
 export * from './entities/issue-dep'
 export * from './entities/issue-event'
 export * from './entities/issue-git-state'
+export * from './entities/issue-panel-records'
 // The flat STATUS vocabulary (POD-1074): `stage` and `closedReason` joined into
 // the one list every picker renders, plus the legacy `wontfix` → `cancelled`
 // canonicalization. A leaf module beside `label-color`, for the same reason.
@@ -142,6 +143,7 @@ export * from './identity/delegation'
 export * from './identity/first-admin'
 export * from './identity/git-identity'
 export * from './identity/grant'
+export * from './identity/presence'
 export * from './identity/session-identity'
 export * from './identity/telegram-binding'
 export * from './identity/user'
@@ -152,7 +154,7 @@ export * from './identity/worktree'
 export * from './ids'
 export * from './machine-path'
 export * from './net/cidr'
-export * from './predicates/active-work'
+export * from './predicates/issue-landing'
 export * from './predicates/agent-computing'
 export * from './predicates/idle-verdict'
 export { isClosed, isExcluded, isFinished } from './predicates/issue-lifecycle'
@@ -170,6 +172,8 @@ export * from './predicates/sort-key'
 export * from './predicates/state-word'
 export * from './predicates/stopped-send'
 export * from './predicates/unaddressable-send'
+// POD-6767: the synced issue record, without its body fields.
+export * from './projections/issue-bodies'
 export * from './projections/issue-deck'
 // Read projections (ADR 4 R4) that more than one workspace must name. Home for
 // the shapes the CLI used to hand-copy because `apps/cli` cannot import
@@ -179,8 +183,6 @@ export * from './projections/issue-deck'
 // `IssueAggregate` under `shape.ts`'s wire convention, carrying no derived field
 // at all. `protocol/messages/sync.ts` names it on the `issueProjection` arm.
 export * from './projections/issue-projection'
-// POD-6767: the synced issue record, without its body fields.
-export * from './projections/issue-bodies'
 export * from './projections/issue-read'
 export * from './projections/session-read'
 // Replica provenance: how a row reached THIS replica (ADR 4 D3.8). Deliberately
@@ -192,6 +194,14 @@ export * from './provenance/envelope'
 // identical identity rule — two copies of it would be two answers to "is this the
 // same window?", and the whole ledger rests on that answer.
 export * from './quota-history-fold'
+// The interaction contract (POD-2020) lives in `./entities/pending-interaction`,
+// moved from `@podium/protocol` so its record is declared with the others. It is
+// served from the `@podium/model/pending-interaction` subpath, not this barrel:
+// protocol re-exports it from there, and its wire fixtures stay in protocol's
+// `runtime` family.
+// Every synced record type, declared once (POD-7084): fields and parts, links,
+// what a record comes with, and the collections over it.
+export * from './records'
 // THE RETAINED-REPRESENTATION REGISTRY (POD-368, closing POD-302) — one entry per
 // representation ADR 4 D1 keeps as a distinct type, each carrying its purpose,
 // why its semantics differ from the canonical aggregate, what it composes, and a
@@ -237,5 +247,3 @@ export * from './user-state/preference-state'
 export * from './user-state/read-position-state'
 export * from './user-state/session-state'
 export * from './user-state/synced-records'
-
-export * from './entities/issue-panel-records'

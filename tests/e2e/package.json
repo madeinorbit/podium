@@ -7,6 +7,7 @@
     "typecheck": "bun ../../scripts/typecheck-project.ts && bun --conditions=@podium/source ../../scripts/check-loadable-imports.ts"
   },
   "dependencies": {
+    "@podium/blob-store": "workspace:*",
     "@podium/client-core": "workspace:*",
     "@podium/commands": "workspace:*",
     "@podium/harness": "workspace:*",

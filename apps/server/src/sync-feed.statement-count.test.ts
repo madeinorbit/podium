@@ -19,7 +19,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { firstAdminMemberId, type IssueId, type UserId } from '@podium/model'
+import { asMachineId, firstAdminMemberId, type IssueId, type UserId } from '@podium/model'
 import {
   CAP_SYNC_HTTP_V1,
   CLIENT_WIRE_VERSION,
@@ -31,10 +31,12 @@ import type { OpenOptions, SqlDatabase } from '@podium/runtime/sqlite'
 import { DEVICE_GRADE_PRINCIPAL } from '@podium/sync'
 import { SyncRepository } from '@podium/sync/adapters/sqlite/sync-repository'
 import { describe, expect, it, vi } from 'vitest'
+import type { ControlSend } from './gateway/daemon-ports'
 import type { FeedServing } from './gateway/feed-serving'
 import { SessionRegistry } from './relay'
 import type { SessionStore } from './store'
-import { probeStatements } from './store/executor/statement-probe'
+import type { PgDriverOptions } from './store/executor/pg-driver'
+import { probeRoundTrips, probeStatements } from './store/executor/statement-probe'
 import { GrantsRepository } from './store/grants'
 import { SessionsRepository } from './store/sessions'
 import { produceBootstrap } from './sync-worker/producer'
@@ -42,6 +44,11 @@ import type { SyncJob } from './sync-worker/types'
 import { attachTestClient } from './test-support/client-transport'
 import { attachHostDaemon } from './test-support/host-daemon'
 import { openTestStore } from './test-support/open-test-store'
+import {
+  expectConstantRoundTrips,
+  type RoundTripTally,
+  roundTripRecorder,
+} from './test-support/round-trip-count'
 import {
   expectArmed,
   expectConstantStatements,
@@ -66,6 +73,20 @@ vi.mock('@podium/runtime/sqlite', async (importOriginal) => {
   }
 })
 
+// On Postgres the worker's read session is a pool of one, and its driver is the
+// statement probe's key (`sync-worker/pg-read-session.ts`, POD-6991).
+vi.mock('./store/executor/pg-driver', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./store/executor/pg-driver')>()
+  return {
+    ...actual,
+    createPgStoreDriver: (options: PgDriverOptions) => {
+      const driver = actual.createPgStoreDriver(options)
+      if (options.poolSize === 1) worker.onOpen?.(driver)
+      return driver
+    },
+  }
+})
+
 interface World {
   dir: string
   path: string
@@ -83,7 +104,11 @@ async function world(size: number, delta = false): Promise<World> {
   const path = join(dir, 'podium.db')
   const store = await openTestStore(path)
   const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
-  await attachHostDaemon(reg, () => {}, { repos: ['/repo'] })
+  await attachHostDaemon(reg, answeringRepoScans(reg), { repos: ['/repo'] })
+  // The attach scans the machine's checkouts. Finish that scan here, before the
+  // world's head is read: left to its timeout it wrote a checkout change 10 s
+  // later, inside the delta's window on a slow enough run (POD-7061).
+  await reg.modules.checkouts.rescan(store.hostMachineId)
   await quietShipping(reg)
   const owner = await firstAdminMemberId(store)
   const issues: IssueId[] = []
@@ -100,6 +125,13 @@ async function world(size: number, delta = false): Promise<World> {
     await reg.modules.sessions.createSession({ agentKind: 'codex', cwd: `/other/w${i}` })
   }
   await settle(reg)
+  // The registered repository's checkout at every size, written as a
+  // registration change writes it: the host daemon's inventory writes it only
+  // when it runs, which a short setup can finish before. The first download
+  // holds every checkout (POD-7085), so the load must not see one at one size
+  // and none at the other.
+  await reg.modules.checkouts.registrationsChanged(asMachineId(store.hostMachineId))
+  await settle(reg)
   const from = await store.sync.maxChangeSeq()
   if (delta) {
     for (const id of issues)
@@ -111,6 +143,23 @@ async function world(size: number, delta = false): Promise<World> {
   // The feed identity is minted on first use and cached; mint it here.
   await (reg.syncDelta.serving as FeedServing).identity()
   return { dir, path, store, reg, owner, issues, from }
+}
+
+/**
+ * A fake daemon that answers a repo scan the way a real one does: each root it
+ * was asked about is a repository. Without an answer the scan waits out its
+ * timeout and writes its checkouts then, at a time no pin controls.
+ */
+function answeringRepoScans(reg: SessionRegistry): ControlSend {
+  return (message) => {
+    if (message.type !== 'scanReposRequest') return
+    void reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'scanReposResult',
+      requestId: message.requestId,
+      repositories: message.roots.map((path) => ({ path, kind: 'repository', worktrees: [] })),
+      diagnostics: [],
+    })
+  }
 }
 
 async function settle(reg: SessionRegistry): Promise<void> {
@@ -142,7 +191,10 @@ async function countWorker(run: () => unknown): Promise<{ result: unknown } & St
     detachers.push(
       probeStatements({ db: db as object }, (observation) => driven.push(observation.sql)),
     )
-    const handle = db as SqlDatabase
+    // A SQLite handle's own prepares are the producer's raw statements; a Postgres
+    // session has none outside the probe.
+    const handle = db as Partial<SqlDatabase>
+    if (typeof handle.prepare !== 'function') return
     const prepare = handle.prepare.bind(handle)
     handle.prepare = (sql: string) => {
       prepared.push(sql)
@@ -161,10 +213,70 @@ async function countWorker(run: () => unknown): Promise<{ result: unknown } & St
   return { result, ...tallyOf([...driven, ...raw].map(queryKey)) }
 }
 
+/**
+ * The round trips a worker job makes on the handle it opens (POD-6992): the driver calls
+ * that wait for the server, by the Postgres driver's pipelining, and one for each
+ * statement the producer prepared on the handle itself, which no driver call carries.
+ * SQLite's job opens its transaction with a raw BEGIN on the handle, so its statements read
+ * as root ones; the Postgres session (`sync-worker/pg-read-session.ts`) sends its BEGIN
+ * with the first statement and ends the transaction when it closes: one round trip more.
+ * (A job given an idle budget sets it first, which carries the BEGIN: one more again.)
+ */
+async function countWorkerTrips(run: () => unknown): Promise<{ result: unknown } & RoundTripTally> {
+  const recorder = roundTripRecorder()
+  const driven: string[] = []
+  const prepared: string[] = []
+  const detachers: (() => void)[] = []
+  worker.onOpen = (db) => {
+    detachers.push(probeRoundTrips({ db: db as object }, recorder.onTrip))
+    detachers.push(
+      probeStatements({ db: db as object }, (observation) => {
+        driven.push(observation.sql)
+        recorder.onStatement()
+      }),
+    )
+    // Only a SQLite handle prepares statements of its own (see countWorker).
+    const handle = db as Partial<SqlDatabase>
+    if (typeof handle.prepare !== 'function') return
+    const prepare = handle.prepare.bind(handle)
+    handle.prepare = (sql: string) => {
+      prepared.push(sql)
+      return prepare(sql)
+    }
+  }
+  let result: unknown
+  try {
+    result = await run()
+  } finally {
+    worker.onOpen = undefined
+    for (const detach of detachers) detach()
+  }
+  const viaDriver = new Set(driven)
+  const raw = prepared.filter((sql) => !viaDriver.has(sql))
+  const tally = recorder.tally()
+  const byCall = new Map(tally.byCall)
+  for (const sql of raw)
+    byCall.set(`raw: ${queryKey(sql)}`, (byCall.get(`raw: ${queryKey(sql)}`) ?? 0) + 1)
+  return {
+    result,
+    roundTrips: tally.roundTrips + raw.length + (tally.statements + raw.length > 0 ? 1 : 0),
+    statements: tally.statements + raw.length,
+    byCall:
+      tally.statements + raw.length > 0
+        ? new Map([...byCall, ['close-rollback (read)', 1]])
+        : byCall,
+  }
+}
+
 /** Drain a worker job and return its records. */
 async function records(w: World, job: SyncJob): Promise<{ type: string; changes?: unknown[] }[]> {
   let text = ''
-  for await (const chunk of produceBootstrap(w.path, job, new AbortController().signal, () => {})) {
+  for await (const chunk of produceBootstrap(
+    w.store.database.location,
+    job,
+    new AbortController().signal,
+    () => {},
+  )) {
     text += new TextDecoder().decode(chunk)
   }
   return text
@@ -283,28 +395,28 @@ describe('sync worker: pinned statement counts at 5 and 200', () => {
   // page pays its reads once per page. Before, it was two passes over
   // `change_latest` and one prefetch for the whole world.
   // POD-6791 shares the issue/body-header read; the kind-generation read adds one: 65.
+  // RE-PINNED 64 -> 67 FOR POD-7061: the world's checkout is now written before it is
+  // counted (its daemon answers the attach scan). 64 counted an empty checkout kind only
+  // because the unanswered scan wrote that row 10 s later; the row's sharing reads
+  // (admin users, checkout paths, grants) are the three, once per page.
+  // POD-7104 answers the asking sessions from an index on a derived column, so
+  // the first download no longer reads offers and checkpoints for it: 80. The first
+  // download (POD-7085) reads by collection, not kind by kind, so POD-7061's three
+  // checkout reads are inside those 80 (measured at the merge, POD-7118).
   it('a bootstrap for the owner', async () => {
-    await expectConstantStatements(bootstrap, 64)
+    await expectConstantStatements(bootstrap, 80)
   })
 
   it('a bootstrap pin is armed', async () => {
-    await expectArmed(bootstrap, 64, plantPerSessionRead)
+    await expectArmed(bootstrap, 80, plantPerSessionRead)
   })
 
-  it('reads a filtered bootstrap with the same statement count at both sizes', async () => {
-    const filtered = pin(
-      'filtered worker bootstrap',
-      (size) => world(size),
-      async (w) => await records(w, job(w, { kinds: ['issueProjection'] })),
-      (result, _w, size) => {
-        const rows = rowsOf(result as { type: string; changes?: unknown[] }[], 'feedBootstrap')
-        expect(rows).toHaveLength(size)
-        expect(rows).toEqual(rows.map(() => expect.objectContaining({ entity: 'issueProjection' })))
-      },
-      true,
-    )
-    await expectConstantStatements(filtered, 5)
-  })
+  // ROUND TRIPS ON HOSTED POSTGRES [POD-6992, POD-6958 design 2.11]: the worker's read
+  // session's driver calls that wait for the server, by the Postgres driver's pipelining.
+  // About 2.6 ms each on hosted Postgres; docs/measurements/pod-6958-hosted-round-trips.md.
+  it('a bootstrap for the owner: round trips', async () => {
+    await expectConstantRoundTrips(bootstrap, 81, (_w, go) => countWorkerTrips(go))
+  }, 60_000)
 
   const delta = pin(
     'worker delta',

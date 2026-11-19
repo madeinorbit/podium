@@ -54,8 +54,10 @@ import {
   sampleBatchRead,
   sampleStatementRead,
 } from '@podium/runtime/query-attribution'
+import { currentStoreContext } from './context'
 import type {
   DriverSession,
+  Lane,
   Statement,
   StatementIntent,
   StatementMethod,
@@ -140,6 +142,72 @@ export interface StatementObservation {
 
 /** The one injectable seam. Everything else in this module is plumbing. */
 export type StatementProbe = (observation: StatementObservation) => void
+
+/**
+ * ROUND TRIPS [POD-6992, POD-6958 design 2.11].
+ *
+ * A statement costs microseconds on SQLite and one network round trip on hosted
+ * Postgres (about 2.6 ms), unless it rides in a pipeline with others. So a pinned
+ * operation has two numbers: its statements (above) and its round trips: the driver
+ * calls that wait for the server.
+ *
+ * COUNTED FROM THE SESSION CALLS, BY THE POSTGRES DRIVER'S RULES. The probe sees
+ * every call a lease makes (`begin`, `execute`, `executeBatch`, `commit`, savepoints)
+ * on either engine, and the executor makes the same calls on both: repositories,
+ * transactions and the scheduler are engine-neutral. Which of those calls wait for
+ * the server is the Postgres driver's pipelining (`pg-driver.ts`):
+ *
+ *  - `begin('read')`, and `begin('write')` outside a workspace, send nothing: the
+ *    BEGIN goes out with the body's first statement. A body that runs nothing costs
+ *    nothing, its COMMIT included.
+ *  - `begin('write')` in a workspace is one round trip: BEGIN, `SET LOCAL
+ *    lock_timeout` and the workspace lock, pipelined.
+ *  - every statement and every batch is one round trip, inside a transaction (a
+ *    batch with its savepoint) or at the root (wrapped `BEGIN … COMMIT` when it needs
+ *    it); a failed batch inside a transaction one more, to roll its savepoint back.
+ *  - COMMIT, ROLLBACK and each savepoint command of an open transaction are one.
+ *  - `exclusive` opens nothing; its statements run at the root.
+ *
+ * So the same count is read off a SQLite store, where it is what the operation WOULD
+ * cost on Postgres (the full `SessionStore` pins, until a store boots on Postgres,
+ * POD-6994), and off a Postgres store, where `round-trip-probe.pg.test.ts` holds it
+ * equal to what crosses the wire. A change to the driver's pipelining that this
+ * model does not follow fails there.
+ *
+ * WHAT IT DOES NOT COUNT. A connection's first use of a statement with parameters
+ * costs postgres.js one more round trip (Parse and Describe, before the Bind), once
+ * per statement per pooled connection; a new pooled connection costs its startup.
+ * Both are warm-up, not per-operation cost, and the wire test measures warm.
+ */
+export interface RoundTripObservation {
+  /** The session call that waits. */
+  readonly call:
+    | 'begin'
+    | 'statement'
+    | 'batch'
+    | 'batch-undo'
+    | 'commit'
+    | 'rollback'
+    | 'savepoint'
+    | 'release-savepoint'
+    | 'rollback-to-savepoint'
+    | 'close-rollback'
+  /** The lane of the lease's transaction; undefined at the root. */
+  readonly lane: Lane | undefined
+  /** True when the call runs outside any transaction (a root statement or batch). */
+  readonly root: boolean
+  /** Repository statements the round trip carries (a pipelined BEGIN or COMMIT is not one). */
+  readonly statements: number
+  /** The first carried statement's folded key, for a breakdown. */
+  readonly key?: string
+}
+
+/**
+ * Sees each round trip BEFORE the call is made. A probe that returns a promise
+ * delays the call until it settles: that is how a measurement injects hosted
+ * latency per round trip ({@link injectRoundTripLatency}).
+ */
+export type RoundTripProbe = (trip: RoundTripObservation) => void | Promise<void>
 
 /**
  * Fan-out with a cheap disabled path.
@@ -238,6 +306,43 @@ export class StatementProbeHub {
       }
     }
   }
+
+  private tripProbes: RoundTripProbe[] = []
+
+  /** True while anyone counts round trips. */
+  get countingRoundTrips(): boolean {
+    return this.tripProbes.length > 0
+  }
+
+  /** Register a round-trip probe. Returns its detach; detaching twice is a no-op. */
+  attachRoundTrips(probe: RoundTripProbe): () => void {
+    this.tripProbes.push(probe)
+    let detached = false
+    return () => {
+      if (detached) return
+      detached = true
+      const at = this.tripProbes.indexOf(probe)
+      if (at >= 0) this.tripProbes.splice(at, 1)
+    }
+  }
+
+  /**
+   * Deliver one round trip to every round-trip probe and wait for the delays they
+   * ask for. Isolated like {@link emit}: a throwing or rejecting probe is reported
+   * and the call still runs.
+   */
+  async emitRoundTrip(trip: RoundTripObservation): Promise<void> {
+    const delays: Promise<void>[] = []
+    for (const probe of [...this.tripProbes]) {
+      try {
+        const delay = probe(trip)
+        if (delay !== undefined) delays.push(delay.catch((error) => this.onProbeError(error)))
+      } catch (error) {
+        this.onProbeError(error)
+      }
+    }
+    if (delays.length > 0) await Promise.all(delays)
+  }
 }
 
 /** Anything that identifies the bun connection an executor was composed over. */
@@ -267,6 +372,37 @@ export function statementProbeHubFor(connection: object): StatementProbeHub {
 /** Attach a late probe to the driver hub for a bun-backed holder. */
 export function probeStatements(holder: StatementProbeHolder, probe: StatementProbe): () => void {
   return statementProbeHubFor(holder.db).attach(probe)
+}
+
+/** Attach a late round-trip probe to the driver hub of `holder` (see {@link RoundTripObservation}). */
+export function probeRoundTrips(holder: StatementProbeHolder, probe: RoundTripProbe): () => void {
+  return statementProbeHubFor(holder.db).attachRoundTrips(probe)
+}
+
+/**
+ * Hold every round trip on `holder`'s store for `latencyMs` before it is made: the
+ * hosted round trip on a store whose own round trips cost nothing (SQLite) or almost
+ * nothing (a local Postgres). Returns its detach.
+ */
+export function injectRoundTripLatency(
+  holder: StatementProbeHolder,
+  latencyMs: number,
+): () => void {
+  if (!(latencyMs >= 0)) throw new Error(`latency must be a non-negative number, got ${latencyMs}`)
+  return probeRoundTrips(holder, () => sleepFor(latencyMs))
+}
+
+/**
+ * Wait `ms`, to a tenth of a millisecond: a timer for the whole milliseconds, then a
+ * yield loop for the rest, since timers round to whole milliseconds and 2.6 ms is the
+ * number being modelled.
+ */
+async function sleepFor(ms: number): Promise<void> {
+  const until = performance.now() + ms
+  // One millisecond short: a timer fires late, never early.
+  const whole = Math.floor(ms) - 1
+  if (whole > 0) await new Promise((resolve) => setTimeout(resolve, whole))
+  while (performance.now() < until) await new Promise((resolve) => setImmediate(resolve))
 }
 
 /**
@@ -323,6 +459,7 @@ export function instrumentDriver<TClient>(
   const reader = driver.openReader?.bind(driver)
   return {
     kind: driver.kind,
+    ...(driver.dialect ? { dialect: driver.dialect } : {}),
     lanes: driver.lanes,
     limits: driver.limits,
     ...(driver.classify ? { classify: driver.classify.bind(driver) } : {}),
@@ -335,18 +472,129 @@ export function instrumentDriver<TClient>(
   }
 }
 
+/**
+ * Where a lease's transaction stands, as the Postgres driver tracks it: `pending` is
+ * a BEGIN that goes out with the next statement. Tracked whether or not anyone counts,
+ * so a round-trip probe attached between two leases reads every later one right.
+ */
+type TripState = 'none' | 'pending' | 'open'
+
+/**
+ * The round-trip model of one lease ({@link RoundTripObservation}): which call waits
+ * for the server, given where the transaction stands.
+ */
+class RoundTripLedger {
+  private state: TripState = 'none'
+  private lane: Lane | undefined
+
+  constructor(private readonly hub: StatementProbeHub) {}
+
+  get counting(): boolean {
+    return this.hub.countingRoundTrips
+  }
+
+  /**
+   * Report one round trip. Undefined, with no await anywhere, while nobody counts: a
+   * hop added to every statement would move the microtask timing that frame caches
+   * and the delta funnel's coalescing read.
+   */
+  private trip(
+    call: RoundTripObservation['call'],
+    statements: readonly Statement[] = [],
+    root = false,
+  ): Promise<void> | undefined {
+    if (!this.hub.countingRoundTrips) return undefined
+    const first = statements[0]
+    return this.hub.emitRoundTrip({
+      call,
+      lane: root ? undefined : this.lane,
+      root,
+      statements: statements.length,
+      ...(first === undefined ? {} : { key: queryKey(first.sql) }),
+    })
+  }
+
+  /** Before `begin(lane)`. */
+  beforeBegin(lane: Lane): Promise<void> | undefined {
+    this.lane = lane
+    if (lane === 'exclusive') return undefined
+    // A write in a workspace locks it at once; anything else waits for a statement.
+    if (lane === 'write' && currentStoreContext()?.kind === 'workspace') {
+      this.state = 'open'
+      return this.trip('begin')
+    }
+    this.state = 'pending'
+    return undefined
+  }
+
+  /** `begin` failed: the driver ended what it opened. */
+  beginFailed(): void {
+    this.state = 'none'
+    this.lane = undefined
+  }
+
+  /** Before a statement or a non-empty batch. */
+  beforeStatements(
+    call: 'statement' | 'batch',
+    statements: readonly Statement[],
+  ): Promise<void> | undefined {
+    if (statements.length === 0) return undefined
+    if (this.state === 'none') return this.trip(call, statements, true)
+    this.state = 'open'
+    return this.trip(call, statements)
+  }
+
+  /** A batch inside a transaction failed: its savepoint is rolled back. */
+  batchFailed(): Promise<void> | undefined {
+    return this.state === 'none' ? undefined : this.trip('batch-undo')
+  }
+
+  /** Before COMMIT or ROLLBACK: one round trip if the transaction was ever sent. */
+  beforeEnd(call: 'commit' | 'rollback'): Promise<void> | undefined {
+    const sent = this.state === 'open'
+    this.state = 'none'
+    const wait = sent ? this.trip(call) : undefined
+    this.lane = undefined
+    return wait
+  }
+
+  /** Before SAVEPOINT, which takes a pending BEGIN with it. */
+  beforeSavepoint(): Promise<void> | undefined {
+    if (this.state === 'pending') this.state = 'open'
+    return this.trip('savepoint')
+  }
+
+  /** Before RELEASE SAVEPOINT or ROLLBACK TO SAVEPOINT. */
+  beforeSavepointEnd(
+    call: 'release-savepoint' | 'rollback-to-savepoint',
+  ): Promise<void> | undefined {
+    return this.trip(call)
+  }
+
+  /** Before close: a transaction still open is rolled back. */
+  beforeClose(): Promise<void> | undefined {
+    const open = this.state === 'open'
+    this.state = 'none'
+    return open ? this.trip('close-rollback') : undefined
+  }
+}
+
 /** Wrap one lease. Transaction boundaries are forwarded verbatim: they are the
- *  driver's own DDL, not statements a repository issued. */
+ *  driver's own DDL, not statements a repository issued. They are seen only by the
+ *  round-trip ledger. */
 function observeSession(session: DriverSession, hub: StatementProbeHub): DriverSession {
+  const trips = new RoundTripLedger(hub)
   return {
     async execute(statement) {
-      if (!hub.active) return await session.execute(statement)
-      // BEFORE the await, and only when the statement did not already arrive
+      // BEFORE any await, and only when the statement did not already arrive
       // with a nearer one: see StatementObservation.issueStack.
       const doorStack =
-        hub.captureIssueSites && statement.issueStack === undefined
+        hub.active && hub.captureIssueSites && statement.issueStack === undefined
           ? new Error('statement issued').stack
           : undefined
+      const trip = trips.beforeStatements('statement', [statement])
+      if (trip) await trip
+      if (!hub.active) return await session.execute(statement)
       // The driver's SQLite work is the SYNCHRONOUS body of `execute`, so the
       // read counter is taken around the call and before its await: that window
       // holds this statement's reads and no one else's.
@@ -374,11 +622,15 @@ function observeSession(session: DriverSession, hub: StatementProbeHub): DriverS
       }
     },
     async executeBatch(statements) {
-      if (!hub.active) return await session.executeBatch(statements)
       const doorStack =
-        hub.captureIssueSites && statements.some((each) => each.issueStack === undefined)
+        hub.active &&
+        hub.captureIssueSites &&
+        statements.some((each) => each.issueStack === undefined)
           ? new Error('statement issued').stack
           : undefined
+      const trip = trips.beforeStatements('batch', statements)
+      if (trip) await trip
+      if (!hub.active) return await batchCounted(trips, () => session.executeBatch(statements))
       const readBefore = hub.attributing
         ? sampleBatchRead(statements.map((each) => each.sql))
         : undefined
@@ -386,7 +638,9 @@ function observeSession(session: DriverSession, hub: StatementProbeHub): DriverS
       let results: readonly StatementResult[] | undefined
       let readBytes: number | undefined
       try {
-        const pending = claim(hub, () => session.executeBatch(statements))
+        const pending = claim(hub, () =>
+          batchCounted(trips, () => session.executeBatch(statements)),
+        )
         readBytes = readBytesSince(readBefore)
         results = await pending
         return results
@@ -411,14 +665,64 @@ function observeSession(session: DriverSession, hub: StatementProbeHub): DriverS
         })
       }
     },
-    begin: async (lane) => await session.begin(lane),
-    commit: async () => await session.commit(),
-    rollback: async () => await session.rollback(),
-    enterSavepoint: async (name) => await session.enterSavepoint(name),
-    releaseSavepoint: async (name) => await session.releaseSavepoint(name),
-    rollbackToSavepoint: async (name) => await session.rollbackToSavepoint(name),
-    close: async () => await session.close(),
+    begin: async (lane) => {
+      const trip = trips.beforeBegin(lane)
+      if (trip) await trip
+      try {
+        await session.begin(lane)
+      } catch (error) {
+        trips.beginFailed()
+        throw error
+      }
+    },
+    commit: async () => {
+      const trip = trips.beforeEnd('commit')
+      if (trip) await trip
+      await session.commit()
+    },
+    rollback: async () => {
+      const trip = trips.beforeEnd('rollback')
+      if (trip) await trip
+      await session.rollback()
+    },
+    enterSavepoint: async (name) => {
+      const trip = trips.beforeSavepoint()
+      if (trip) await trip
+      await session.enterSavepoint(name)
+    },
+    releaseSavepoint: async (name) => {
+      const trip = trips.beforeSavepointEnd('release-savepoint')
+      if (trip) await trip
+      await session.releaseSavepoint(name)
+    },
+    rollbackToSavepoint: async (name) => {
+      const trip = trips.beforeSavepointEnd('rollback-to-savepoint')
+      if (trip) await trip
+      await session.rollbackToSavepoint(name)
+    },
+    close: async () => {
+      const trip = trips.beforeClose()
+      if (trip) await trip
+      await session.close()
+    },
   }
+}
+
+/**
+ * Run a batch and, when it fails inside a transaction, count the round trip that
+ * rolls its savepoint back. Returns the driver's promise itself when nothing counts,
+ * so the synchronous part of the call stays inside the caller's claim.
+ */
+function batchCounted(
+  trips: RoundTripLedger,
+  run: () => Promise<readonly StatementResult[]>,
+): Promise<readonly StatementResult[]> {
+  if (!trips.counting) return run()
+  return run().catch(async (error: unknown) => {
+    const trip = trips.batchFailed()
+    if (trip) await trip
+    throw error
+  })
 }
 
 /**

@@ -1,11 +1,9 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { asMachineId, type AgentKind } from '@podium/model'
+import { type AgentKind, asMachineId } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
 import { transcriptRecordMapperFor } from '../../harness-manifest'
-import { openTestStore } from '../../test-support/open-test-store'
 import { forceFeature } from '../../test-support/features'
+import { LAKE_BACKENDS } from '../../test-support/lake-backends'
+import { openTestStore } from '../../test-support/open-test-store'
 import { DaemonRequestBroker } from '../daemon-request'
 import { TranscriptLake } from './lake'
 import { TranscriptIndexer } from './transcript-indexer'
@@ -25,7 +23,7 @@ forceFeature('command-palette', true)
  * stamped cursor id the lake returns — this test is red on that tree.
  */
 
-const TS = '2026-09-21T12:00:00.000Z'
+const TS = '2026-09-21T12:00:00Z'
 
 interface GrammarCase {
   name: string
@@ -39,7 +37,11 @@ const cases: GrammarCase[] = [
     name: 'codex',
     agentKind: 'codex',
     records: [
-      { timestamp: TS, type: 'event_msg', payload: { type: 'user_message', message: 'codex uuid-less user prose' } },
+      {
+        timestamp: TS,
+        type: 'event_msg',
+        payload: { type: 'user_message', message: 'codex uuid-less user prose' },
+      },
       {
         timestamp: TS,
         type: 'response_item',
@@ -55,7 +57,10 @@ const cases: GrammarCase[] = [
     name: 'cursor',
     agentKind: 'cursor',
     records: [
-      { role: 'user', message: { content: [{ type: 'text', text: 'cursor uuid-less user prose' }] } },
+      {
+        role: 'user',
+        message: { content: [{ type: 'text', text: 'cursor uuid-less user prose' }] },
+      },
       {
         role: 'assistant',
         message: { content: [{ type: 'text', text: 'cursor uuid-less assistant prose' }] },
@@ -93,7 +98,10 @@ const cases: GrammarCase[] = [
         type: 'message',
         parentId: null,
         timestamp: TS,
-        message: { role: 'assistant', content: [{ type: 'text', text: 'pi uuid-less reply prose' }] },
+        message: {
+          role: 'assistant',
+          content: [{ type: 'text', text: 'pi uuid-less reply prose' }],
+        },
       },
     ],
   },
@@ -110,7 +118,11 @@ const cases: GrammarCase[] = [
         type: 'assistant',
         uuid: 'gold-a1',
         timestamp: TS,
-        message: { role: 'assistant', model: 'gold', content: [{ type: 'text', text: 'claude uuid reply' }] },
+        message: {
+          role: 'assistant',
+          model: 'gold',
+          content: [{ type: 'text', text: 'claude uuid reply' }],
+        },
       },
     ],
   },
@@ -122,86 +134,83 @@ describe('transcript index-vs-lake identity (this issue)', () => {
     for (const fn of cleanups.splice(0)) fn()
   })
 
-  it.each(cases.map((c) => [c.name, c] as const))(
-    '%s: indexed itemUuids equal the lake ids for the same bytes',
-    async (_name, grammar) => {
-      const store = await openTestStore(':memory:')
-      const lakeDir = mkdtempSync(join(tmpdir(), 'podium-index-ids-'))
-      const machineId = asMachineId('m1')
-      const nativeId = `ids-${grammar.name}`
-      cleanups.push(() => {
-        rmSync(lakeDir, { recursive: true, force: true })
-      })
-      cleanups.push(() => store.close())
+  it.each(
+    cases.map((c) => [c.name, c] as const),
+  )('%s: indexed itemUuids equal the lake ids for the same bytes', async (_name, grammar) => {
+    const store = await openTestStore(':memory:')
+    const backend = LAKE_BACKENDS[0]?.create()
+    if (!backend) throw new Error('no lake backend')
+    const machineId = asMachineId('m1')
+    const nativeId = `ids-${grammar.name}`
+    cleanups.push(() => backend.dispose())
+    cleanups.push(() => store.close())
 
-      const lake = new TranscriptLake(
-        {
-          store: store.conversations,
-          now: Date.now,
-          daemonRequest: new DaemonRequestBroker({
-            toMachine: () => {},
-            defaultMachine: () => machineId,
-          }),
-          parseForAgentKind: (kind) => transcriptRecordMapperFor(kind),
-          findSessionByNativeId: async () => ({ agentKind: grammar.agentKind }),
-        },
-        { mirrorLakeDir: lakeDir },
-      )
-      cleanups.push(() => lake.dispose())
+    const lake = new TranscriptLake(
+      {
+        store: store.conversations,
+        now: Date.now,
+        daemonRequest: new DaemonRequestBroker({
+          toMachine: () => {},
+          defaultMachine: () => machineId,
+        }),
+        parseForAgentKind: (kind) => transcriptRecordMapperFor(kind),
+        findSessionByNativeId: async () => ({ agentKind: grammar.agentKind }),
+      },
+      { transcriptLake: backend.storage },
+    )
+    cleanups.push(() => lake.dispose())
 
-      await store.conversations.registry.ensure({
+    await store.conversations.registry.ensure({
+      machineId,
+      nativeId,
+      providerId: `${grammar.agentKind}-jsonl`,
+      path: `/native/${nativeId}.jsonl`,
+    })
+    const content = `${grammar.records.map((r) => JSON.stringify(r)).join('\n')}\n`
+    await backend.write(machineId, nativeId, content)
+    await store.conversations.mirror.setMirrorCursor(
+      machineId,
+      nativeId,
+      0,
+      Buffer.byteLength(content),
+      '2026-09-21T12:00:00.000Z',
+    )
+
+    const indexer = new TranscriptIndexer({
+      mirror: store.conversations.mirror,
+      index: store.conversations.transcriptIndex,
+      readItems: async (machineId, nativeId, from, to, windowBytes) =>
+        await lake.readIndexItems(machineId, nativeId, from, to, windowBytes),
+    })
+    cleanups.push(() => indexer.dispose())
+    await indexer.backfillMachine(machineId)
+    await indexer.settled()
+
+    const rows = await store.conversations.transcriptIndex.rows(machineId, nativeId)
+    expect(rows.length).toBeGreaterThan(0)
+    for (const row of rows) expect(row.itemUuid).toBeDefined()
+    const indexedIds = new Set(rows.map((r) => r.itemUuid as string))
+
+    const slice = await lake.readWindow(
+      {
         machineId,
-        nativeId,
-        providerId: `${grammar.agentKind}-jsonl`,
-        path: `/native/${nativeId}.jsonl`,
-      })
-      const content = `${grammar.records.map((r) => JSON.stringify(r)).join('\n')}\n`
-      const lakePath = join(lakeDir, machineId, `${nativeId}.jsonl`)
-      mkdirSync(join(lakeDir, machineId), { recursive: true })
-      writeFileSync(lakePath, content)
-      await store.conversations.mirror.setMirrorCursor(
-        machineId,
-        nativeId,
-        Buffer.byteLength(content),
-        '2026-09-21T12:00:00Z',
-      )
-
-      const indexer = new TranscriptIndexer({
-        mirror: store.conversations.mirror,
-        index: store.conversations.transcriptIndex,
-        readItems: async (machineId, nativeId, from, to, windowBytes) =>
-          await lake.readIndexItems(machineId, nativeId, from, to, windowBytes),
-      })
-      cleanups.push(() => indexer.dispose())
-      await indexer.backfillMachine(machineId)
-      await indexer.settled()
-
-      const rows = await store.conversations.transcriptIndex.rows(machineId, nativeId)
-      expect(rows.length).toBeGreaterThan(0)
-      for (const row of rows) expect(row.itemUuid).toBeDefined()
-      const indexedIds = new Set(rows.map((r) => r.itemUuid as string))
-
-      const slice = await lake.readWindow(
-        {
-          machineId,
-          agentKind: grammar.agentKind,
-          resume: { kind: 'test-session', value: nativeId },
-        },
-        { direction: 'before', limit: 100 },
-      )
-      expect(slice).toBeDefined()
-      const lakeIds = new Set(
-        (slice?.items ?? [])
-          .filter(
-            (item) =>
-              (item.role === 'user' || item.role === 'assistant') &&
-              item.toolName === undefined &&
-              item.text.trim().length > 0,
-          )
-          .map((item) => item.id),
-      )
-      expect(lakeIds.size).toBeGreaterThan(0)
-      expect([...indexedIds].sort()).toEqual([...lakeIds].sort())
-    },
-  )
+        agentKind: grammar.agentKind,
+        resume: { kind: 'test-session', value: nativeId },
+      },
+      { direction: 'before', limit: 100 },
+    )
+    expect(slice).toBeDefined()
+    const lakeIds = new Set(
+      (slice?.items ?? [])
+        .filter(
+          (item) =>
+            (item.role === 'user' || item.role === 'assistant') &&
+            item.toolName === undefined &&
+            item.text.trim().length > 0,
+        )
+        .map((item) => item.id),
+    )
+    expect(lakeIds.size).toBeGreaterThan(0)
+    expect([...indexedIds].sort()).toEqual([...lakeIds].sort())
+  })
 })

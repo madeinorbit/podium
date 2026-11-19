@@ -44,8 +44,8 @@ function issueRow(over: Partial<IssueRow> = {}): IssueRow {
     blockedBy: [],
     dependencyNote: null,
     prUrl: null,
-    createdAt: 't',
-    updatedAt: 't',
+    createdAt: '2026-09-11T00:00:00.000Z',
+    updatedAt: '2026-09-11T00:00:00.000Z',
     archived: false,
     priority: 2,
     type: 'task',
@@ -111,7 +111,7 @@ describe('issue authority', () => {
     // Existing policy does not filter soft deletion at this low-level seam.
     await store.issues.upsertIssue(
       fixtureWriteScope(),
-      issueRow({ ownerUserId: bob, deletedAt: '2026-09-11' }),
+      issueRow({ ownerUserId: bob, deletedAt: '2026-09-11T00:00:00.000Z' }),
     )
     expect(await allowed(alice)).toBe(true)
     await store.issues.deleteIssue('iss_x')
@@ -130,7 +130,7 @@ describe('issue authority', () => {
         verb,
         owner: alice,
         visibility: 'personal',
-        createdAt: '2026-09-11',
+        createdAt: '2026-09-11T00:00:00.000Z',
         actorKind: 'user',
         actorId: alice,
         onBehalfOf: alice,

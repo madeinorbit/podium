@@ -11,7 +11,7 @@ import {
   validateFeedFrame,
   type FeedFrameViolation,
 } from './feed'
-import { MetadataEntityKind } from './sync'
+import { CollectionComplete, FeedStubsMessage, SyncPolicy } from './collections'
 
 // Structural WHATWG contracts keep this package's ES-only typecheck DOM-free.
 const utf8 = globalThis as unknown as { TextEncoder: new () => { encode(input: string): Uint8Array } }
@@ -64,8 +64,8 @@ const SyncMetaShape = z.object({
   wireSchemaDigest: z.string().regex(/^[0-9a-f]{16}$/),
   totalRows: Count.optional(),
   kindTokens: SyncKindTokens,
-  /** Present only when the snapshot covers a requested subset. */
-  kinds: z.array(z.string().min(1)).nonempty().optional(),
+  /** The first download (POD-7085): the client type's policy, which orders what follows. */
+  policy: SyncPolicy.optional(),
 })
 export type SyncMeta = z.infer<typeof SyncMetaShape>
 export const SyncMeta = SyncMetaShape.refine(validMeta, { message: 'invalid meta range or mode' })
@@ -82,18 +82,20 @@ export type SyncError = z.infer<typeof SyncError>
 function validMeta(meta: SyncMeta): boolean {
   return meta.mode === 'snapshot'
     ? meta.fromSeq === undefined
-    : meta.kinds === undefined && meta.fromSeq !== undefined && meta.fromSeq <= meta.seq
+    : meta.fromSeq !== undefined && meta.fromSeq <= meta.seq
 }
 
 /** Producer vocabulary reuses the existing strict entity schemas unchanged. */
 export const SyncRecord = z.discriminatedUnion('type', [
-  SyncMetaShape, FeedBootstrapMessage, FeedDeltaMessage, SyncComplete, SyncError,
+  SyncMetaShape, FeedBootstrapMessage, FeedDeltaMessage, FeedStubsMessage, CollectionComplete,
+  SyncComplete, SyncError,
 ]).refine((record) => record.type !== 'syncMeta' || validMeta(record), {
   message: 'fromSeq is required in delta mode, absent in snapshot mode, and cannot exceed seq',
 })
 export type SyncRecord = z.infer<typeof SyncRecord>
 export const SyncRecordLenient = z.discriminatedUnion('type', [
-  SyncMetaShape, FeedBootstrapMessageLenient, FeedDeltaMessageLenient, SyncComplete, SyncError,
+  SyncMetaShape, FeedBootstrapMessageLenient, FeedDeltaMessageLenient, FeedStubsMessage,
+  CollectionComplete, SyncComplete, SyncError,
 ]).refine((record) => record.type !== 'syncMeta' || validMeta(record), {
   message: 'invalid meta range or mode',
 })
@@ -114,7 +116,12 @@ export function parseSyncRecord(line: string): SyncRecordParseResult {
   if (!raw || typeof raw !== 'object' || !('type' in raw) || typeof raw.type !== 'string') {
     return { kind: 'refused', reason: 'invalid-record' }
   }
-  if (!['syncMeta', 'feedBootstrap', 'feedDelta', 'syncComplete', 'syncError'].includes(raw.type)) {
+  if (
+    ![
+      'syncMeta', 'feedBootstrap', 'feedDelta', 'feedStubs', 'collectionComplete', 'syncComplete',
+      'syncError',
+    ].includes(raw.type)
+  ) {
     return { kind: 'ignored', type: raw.type }
   }
   const parsed = SyncRecordLenient.safeParse(raw)
@@ -128,19 +135,6 @@ const QuerySeq = z
   .regex(/^(0|[1-9][0-9]*)$/)
   .transform(Number)
   .pipe(Count)
-const QueryKinds = z
-  .string()
-  .transform((value) => value.split(','))
-  .pipe(
-    z
-      .array(MetadataEntityKind)
-      .nonempty()
-      .refine((kinds) => new Set(kinds).size === kinds.length),
-  )
-
-export function parseSyncBootstrapKinds(query: SyncQueryParams) {
-  return QueryKinds.optional().safeParse(singleQueryValue(query, 'kinds'))
-}
 
 function singleQueryValue(query: SyncQueryParams, key: string): string | string[] | undefined {
   const values = query.getAll(key)
@@ -154,20 +148,15 @@ export const SyncDeltaQuery = z
     epoch: CertifiedRangeFields.epoch,
     from: QuerySeq,
     to: QuerySeq.optional(),
-    omitKinds: QueryKinds.optional(),
   })
   .refine((query) => query.to === undefined || query.to >= query.from, {
     message: 'to must be greater than or equal to from',
     path: ['to'],
   })
-  .refine((query) => query.omitKinds === undefined || query.to !== undefined, {
-    message: 'omitKinds requires a fixed end cursor',
-    path: ['omitKinds'],
-  })
 export type SyncDeltaQuery = z.infer<typeof SyncDeltaQuery>
 export function parseSyncDeltaQuery(query: SyncQueryParams): ReturnType<typeof SyncDeltaQuery.safeParse> {
   const fields: Record<string, unknown> = {}
-  for (const key of ['feedId', 'epoch', 'from', 'to', 'omitKinds']) {
+  for (const key of ['feedId', 'epoch', 'from', 'to']) {
     const value = singleQueryValue(query, key)
     if (value !== undefined) fields[key] = value
   }

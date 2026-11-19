@@ -1,1 +1,0 @@
-ALTER TABLE `credential_placements` ADD `home_id` text;

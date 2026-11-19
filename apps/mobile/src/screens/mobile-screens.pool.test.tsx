@@ -24,7 +24,6 @@ import { LOADING } from '@podium/client-graph/loading'
 import { MissionScreen as MissionScreenModel } from '@podium/client-graph/mission-screen'
 import { attachMissionTestPreferences } from '@podium/client-graph/mission-screen.test.fixture'
 import { settled } from '@podium/client-graph/mission-view'
-import { MOBILE_SCREEN_SUMMARIES } from '@podium/client-graph/mobile-screens-schema'
 import { MobxPool } from '@podium/client-graph/pool'
 import { refreshClocks } from '@podium/mobx-helpers'
 import { asIssueId, asSessionId } from '@podium/model'
@@ -400,138 +399,6 @@ afterEach(() => {
 afterAll(() => vi.unstubAllEnvs())
 // The author can be an archived private session outside the displayed mission.
 // A declared reference is enough to name it; missing fields still demand its row.
-it.each([
-  { complete: true, coldDependent: false },
-  { complete: true, coldDependent: true },
-  { complete: false, coldDependent: false },
-])('a cold proposal author uses its reference inputs (complete=$complete, coldDependent=$coldDependent)', ({
-  complete,
-  coldDependent,
-}) => {
-  const at = '2026-01-01T00:00:00Z'
-  const author = {
-    sessionId: 'cold-author',
-    issueId: 'closed-task',
-    cwd: '/fixture',
-    title: 'Archived author',
-    status: 'exited',
-    archived: true,
-    stoppedAt: at,
-    createdAt: at,
-    lastActiveAt: at,
-    refRepoId: 'author-repo',
-    refSeq: 42,
-    refLetter: 'a',
-    refIssueId: 'closed-task',
-    geometry: { cols: 80, rows: 24 },
-  }
-  const load = vi.fn((kind: string, id: string) =>
-    kind === 'session' && id === author.sessionId ? author : undefined,
-  )
-  const pool = new MobxPool(
-    { selectedIssueId: null, coarseNow: Date.parse('2026-10-03T19:30:00Z') },
-    undefined,
-    {
-      load,
-      schedule: () => () => {},
-      summaries: {
-        ...MOBILE_SCREEN_SUMMARIES,
-        session: MOBILE_SCREEN_SUMMARIES.session!.filter(
-          (field) => complete || !['refLetter', 'displayRef'].includes(field),
-        ),
-      },
-    },
-  )
-  attachMissionTestPreferences(pool)
-  const opening = new MissionScreenModel(pool, 'proposal')
-  const proposal = {
-    id: 'proposal',
-    seq: 1,
-    title: 'A proposal',
-    stage: 'proposed',
-    audience: 'human',
-    createdAt: at,
-    updatedAt: at,
-  }
-  pool.apply({
-    type: 'replace',
-    rows: [
-      {
-        kind: 'repo',
-        id: 'author-repo',
-        value: { id: 'author-repo', path: '/fixture', prefix: 'POD' },
-      },
-      { kind: 'issue', id: 'proposal', value: { ...proposal, startedBySession: 'cold-author' } },
-      {
-        kind: 'issue',
-        id: 'closed-task',
-        value: {
-          ...proposal,
-          id: 'closed-task',
-          stage: 'done',
-          closedAt: at,
-          deps: coldDependent ? [{ id: 'proposal', type: 'related' }] : [],
-        },
-      },
-      { kind: 'issue', id: 'human', value: { ...proposal, id: 'human' } },
-      {
-        kind: 'issue',
-        id: 'foreign',
-        value: { ...proposal, id: 'foreign', startedBySession: 'not-visible' },
-      },
-      { kind: 'session', id: 'cold-author', value: author },
-    ] as never,
-  })
-  try {
-    expect(pool.tables.session.has('cold-author')).toBe(false)
-    const row = opening.deck.model('proposal')
-    expect(settled(() => opening.proposalAuthor(row))).toBe(complete ? 'POD-42-a' : LOADING)
-    if (complete) {
-      expect(pool.hydrate()).toBe(0)
-      expect(load).not.toHaveBeenCalled()
-      expect(pool.tables.session.has('cold-author')).toBe(false)
-    } else {
-      expect(pool.hydrate()).toBe(1)
-      expect(load).toHaveBeenCalledTimes(1)
-      expect(load).toHaveBeenCalledWith('session', 'cold-author')
-      expect(opening.proposalAuthor(row)).toBe('POD-42-a')
-    }
-    if (complete) {
-      const names: Array<string | null> = []
-      const stop = autorun(() => {
-        names.push(opening.proposalAuthor(row))
-      })
-      try {
-        pool.apply({
-          type: 'update',
-          rows: [
-            {
-              kind: 'session',
-              id: 'second-author',
-              value: { ...author, sessionId: 'second-author', refSeq: 43, refLetter: 'b' },
-            },
-            {
-              kind: 'issue',
-              id: 'proposal',
-              value: { ...proposal, startedBySession: 'second-author' },
-            },
-          ] as never,
-        })
-        expect(names).toEqual(['POD-42-a', 'POD-43-b'])
-        expect(pool.tables.session.has('second-author')).toBe(false)
-        expect(pool.hydrate()).toBe(0)
-      } finally {
-        stop()
-      }
-    }
-    expect(opening.proposalAuthor(opening.deck.model('human'))).toBeNull()
-    expect(opening.proposalAuthor(opening.deck.model('foreign'))).toBeNull()
-  } finally {
-    opening.close()
-    pool.dispose()
-  }
-})
-
 // Retain the accepted snapshot namespace while measuring the live pool boundary.
 it('three mounted phone screens keep cumulative legacy derivations at zero (ON=true)', async () => {
   missionLegacyStats.enable()
@@ -705,7 +572,6 @@ it('three mounted phone screens keep cumulative legacy derivations at zero (ON=t
   }
   const { view, feed } = await mount('u-bench')
   expect(screen.getByTestId('details').textContent).toContain(`by ${authorRef}`)
-  expect(state.pool!.tables.session.has(authorId)).toBe(false)
   await checkpoint('startup')
   await act(async () => {
     fireEvent.click(screen.getByLabelText('Show done tasks'))
@@ -798,7 +664,7 @@ function ColdConversation({ id }: { id: string }) {
   const read = useCallback(
     (pool: MobxPool) => {
       state.pool = pool
-      const session = omitGone(pool.row('session', id, 'summary'))
+      const session = omitGone(pool.row('session', id))
       return session && typeof session !== 'symbol'
         ? (session as unknown as SessionView)
         : undefined
@@ -808,122 +674,3 @@ function ColdConversation({ id }: { id: string }) {
   const session = useMobilePoolProjection(read, undefined)
   return session ? <SessionConversation session={session} issue={undefined} /> : null
 }
-it('a cold conversation renders its declared joined machine name before and after payload loading', async () => {
-  const corpus = buildCorpus(1)
-  const id = asSessionId('phone-cold-machine-session')
-  const issueId = asIssueId('phone-cold-machine-task')
-  const machine = { ...corpus.machines[0]!, name: 'Cold phone machine', online: false }
-  corpus.machines = [machine]
-  corpus.issueProjections = [
-    {
-      ...corpus.issueProjections[0]!,
-      id: issueId,
-      parentId: undefined,
-      isDraftVessel: false,
-      stage: 'done',
-      closedAt: '2026-01-01T00:00:00Z',
-      createdAt: '2026-01-01T00:00:00Z',
-      updatedAt: '2026-01-01T00:00:00Z',
-    },
-  ]
-  corpus.issueDeps = []
-  corpus.issueUserStates = []
-  corpus.issueGitStates = []
-  corpus.sessions = [
-    {
-      ...corpus.sessions[0]!,
-      sessionId: id,
-      issueId,
-      machineId: machine.id,
-      status: 'exited',
-      archived: false,
-      headless: false,
-      agentState: undefined,
-      offer: undefined,
-      createdAt: '2026-01-01T00:00:00Z',
-      lastActiveAt: '2026-01-01T00:00:00Z',
-      stoppedAt: '2026-01-01T00:00:00Z',
-      resume: undefined,
-    },
-  ]
-  state.loadWindows = []
-  state.host = createMobilePool(false)
-
-  vi.spyOn(Date, 'now').mockReturnValue(corpus.fixedNow)
-  const feed = kernelFixture(corpus)
-  await renderWithMobileStore(
-    <ServerProfileContext.Provider value={profile}>
-      <ColdConversation id={id} />
-    </ServerProfileContext.Provider>,
-    {
-      replica: feed.replica,
-      principal: 'u-bench',
-      repos: corpus.repos,
-      machines: corpus.machines,
-      attachRuntime: (runtime) =>
-        state.host!.host.attach(runtime, (error) => state.errors.push(error.message)),
-    },
-  )
-  const expectMachineName = () =>
-    expect(screen.getByTestId('machine-offline-banner').textContent).toContain(
-      "machine 'Cold phone machine' is offline",
-    )
-  await waitFor(expectMachineName, { timeout: 5_000 })
-  expect(state.pool!.tables.session.has(id)).toBe(false)
-  // Conversation.start requests the full session for transcript activity.
-  // Release that real request only after proving the cold display join.
-  expect(state.loadWindows.length).toBeGreaterThan(0)
-  await act(async () => {
-    for (const run of state.loadWindows!.splice(0)) run()
-  })
-  await waitFor(
-    () => {
-      expect(state.pool!.tables.session.has(id)).toBe(true)
-      expectMachineName()
-    },
-    { timeout: 5_000 },
-  )
-  expect(chatContextReadStats(state.pool!)).toEqual({
-    mentionBuilds: 0,
-    mentionIssueReads: 0,
-    referenceBuilds: 0,
-    referenceSessionReads: 0,
-  })
-  expect(state.errors).toEqual([])
-}, 30_000)
-
-it.each([
-  false,
-  true,
-])('a cold phone SpineRow shows loading then its task (folded=%s)', async (folded) => {
-  const f = coldMissionRowFixture()
-  try {
-    expect(f.pool.tables.issue.has(f.row.id)).toBe(false)
-    const ui = render(
-      <SpineRow
-        row={f.row}
-        carries={[]}
-        rails={[]}
-        stops
-        childFollows={false}
-        mode="full"
-        folded={folded}
-        currentSessionId={undefined}
-        onToggleFold={() => {}}
-        onOpenTask={() => {}}
-        onOpenSession={() => {}}
-      />,
-    )
-    expect(ui.getByLabelText('Loading task')).toBeDefined()
-    expect(ui.container.textContent).not.toContain('Loaded cold task')
-    await act(async () => {
-      f.pool.hydrate()
-    })
-    await waitFor(() => expect(ui.container.textContent).toContain('Loaded cold task'))
-    expect(ui.queryByLabelText('Loading task')).toBeNull()
-    if (!folded) expect(ui.container.textContent).toContain('Loaded cold agent 0')
-  } finally {
-    cleanup()
-    f.close()
-  }
-})

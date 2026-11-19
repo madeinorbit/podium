@@ -1,7 +1,7 @@
 import { issueRefText } from '@podium/protocol'
 import { omitGone } from '../lookup'
 import { parseMs } from '../views'
-import { compareShallow, compareStructural, untracked } from 'mobx'
+import { compareShallow, compareStructural } from 'mobx'
 import { lazy } from '@podium/mobx-helpers'
 import { type RowOriginTick, type RowRank, type RowView, isDraftNameSession } from '../shared/row-view'
 import type { SliceIssue, SlicePhase, SliceSession } from '../shared/slice-types'
@@ -10,13 +10,14 @@ import { activityAtOf, ownPartOfRow, displayTitleOf, type Label, loadingPartOf, 
   type OwnPart, originIdPartOf, originTickPartOf, rankOfPart, sessionIdsPartOf } from '../views'
 import { type Placement, placementOfPart, withWaiting } from './groups'
 import { NO_SEATS, type SeatSummary } from './seat-verdicts'
-import { type Aggregate, ownAttentionFields, unitOwnFields, unitsBelowFields,
+import { type Aggregate, ownAttentionFields, unitOwnFields, unitCountsBelow, unitCountsOf,
+  unitProgressBelow, unitProgressOf, unitStaffedBelow, unitStaffedOf, type UnitCounts, type UnitProgress,
   LOADING, type OwnAttention, type OwnFacts, type Rollup, rollupPartOf, phaseOf, askingOf,
   seatActivityPartOf, tipPartOf, type UnitOwn, type Units, waitingPartOf } from './rollup'
 import { NO_SIDEBAR_SESSIONS, sidebarLifecycle, sidebarTimingFromFacts, type SidebarRowValues, type SidebarProgress, type SidebarSessionFacts } from './sidebar-row'
 import { sidebarBelowOf, sidebarNestedOf } from './sidebar'
 import { mobileWaitingCount, type MobileNavigation } from './mobile-row'
-import { childIdsPartOf, type HeldIssue, type HiddenIssue, hiddenPresenceOf, keptBelowPartOf,
+import { childIdsPartOf, type HeldIssue, keptBelowPartOf,
   laneMemberIdsPartOf, memberIdsPartOf, nestCandidatePartOf, nestParentPartOf,
   exceptionSeatIdsPartOf, flatPartOf, keepsPartOf, retainedSeatIdsPartOf, rosterIdsPartOf, openOwnPartOf, nestBelowPartOf, nestedPartOf,
   laneRetainedSeatIdsPartOf, mergeIds, standingOf, type Standing, spinOffIdsPartOf } from './visible'
@@ -26,6 +27,11 @@ import { AttentionFields } from './attention'
 import { issueDisplayRef } from '@podium/protocol'
 import { rowVoice } from './voice'
 import { DEFER_NEXT_MESSAGE } from '@podium/model/browser'
+
+/** A formal child counts in its parent's closure when cold (its load is queued) or past `proposed`. */
+function formalMemberOf(row: ReturnType<ModelHost['rollupInputs']['loadedIssue']>): boolean {
+  return row === LOADING || (row !== undefined && row.stage !== 'proposed')
+}
 
 /** One worklist's rules for the shared issue; desktop and phone borrow this object. */
 export class WorklistIssue implements HeldIssue, RowView {
@@ -183,25 +189,16 @@ export class WorklistIssue implements HeldIssue, RowView {
 
   @lazy
   get flat(): boolean {
-    return this.hidden === undefined && flatPartOf(this.host.visibleInputs, this.id, this)
+    return flatPartOf(this.host.visibleInputs, this.id, this)
   }
 
   @lazy
   get keeps(): boolean {
-    const hidden = this.hidden
-    return hidden === undefined
-      ? keepsPartOf(this.host.visibleInputs, this.id, this)
-      : hiddenPresenceOf(this.host.visibleInputs, this.id, hidden, this).keeps
+    return keepsPartOf(this.host.visibleInputs, this.id, this)
   }
 
   @lazy
   get present(): boolean {
-    if (this.hidden !== undefined) {
-      // A live child's nesting walk reads presence alone. Keep the cold
-      // keeper bound observed so renewal can queue the parent's load.
-      void this.keeps
-      return false
-    }
     const standing = this.standing
     return standing !== undefined && !standing.excluded &&
       (this.flat || (standing.rescuable && this.keeps))
@@ -401,9 +398,6 @@ export class WorklistIssue implements HeldIssue, RowView {
   // Links and history
 
   get parentRef(): string | null {
-    // A cold ancestor's renewed retention can change nesting while its raw
-    // parent stays the same. Keep that view dependency beside the walk.
-    void this.hidden
     return this.issue.parentRef
   }
 
@@ -419,18 +413,6 @@ export class WorklistIssue implements HeldIssue, RowView {
   @lazy({ equals: compareShallow }) get laneMemberIds(): readonly string[] { return laneMemberIdsPartOf(this.host.visibleInputs, this.id) }
 
   @lazy({ equals: compareShallow }) get memberIds(): readonly string[] { return memberIdsPartOf(this.seatIds, this.laneMemberIds) }
-
-  get hidden(): HiddenIssue | undefined {
-    // untracked-read: issue-hidden-presence
-    const resident = untracked(() => omitGone(this.host.row('issue', this.id, 'mark')))
-    if (resident !== LOADING) {
-      // Unknown ids must still follow a later cold publication through the reader.
-      if (resident === undefined) void omitGone(this.host.row('issue', this.id, 'summary'))
-      return undefined
-    }
-    const summary = omitGone(this.host.row('issue', this.id, 'summary'))
-    return summary === LOADING ? {} : summary as HiddenIssue | undefined
-  }
 
   get nestCandidate(): string | null {
     // Cycle walks can ask a root or an absent row for its candidate without
@@ -451,10 +433,6 @@ export class WorklistIssue implements HeldIssue, RowView {
 
   private readUnitOwn(): UnitOwn {
     return unitOwnFields(this.host.rollupInputs, this.id, this)
-  }
-
-  private readUnitsBelow(): Units {
-    return unitsBelowFields(this.host.rollupInputs, this.id)
   }
 
   get label(): Label {
@@ -944,34 +922,80 @@ export class WorklistIssue implements HeldIssue, RowView {
     }
   }
 
+  /**
+   * The formal children the closure folds (`RollupInputs.formalChildren`: a
+   * cold child, or one past `proposed`), read once per burst, not once per
+   * field. Each held child answers for itself (`formalMember`), so a change
+   * to one child's row re-reads this list only when that answer moves.
+   */
+  @lazy({ equals: compareShallow }) private get formalChildIds(): readonly string[] {
+    const ids: string[] = []
+    for (const child of this.host.visibleInputs.formalChildren(this.id)) {
+      const held = this.worklist.knownRow(child)
+      if (held === undefined ? formalMemberOf(this.host.rollupInputs.loadedIssue(child)) : held.formalMember)
+        ids.push(child)
+    }
+    return ids
+  }
+
+  /** This issue counts in its formal parent's closure: its row is cold, or past `proposed`. */
+  @lazy get formalMember(): boolean {
+    return formalMemberOf(this.host.rollupInputs.loadedIssue(this.id))
+  }
+
+  // POD-7173: one pass over the children's records per burst; the narrow
+  // fields below read the fold, each telling its readers only when it moved.
+  @lazy({ equals: compareStructural })
+  private get unitsBelowCounts(): UnitCounts {
+    return unitCountsBelow(this.host.rollupInputs, this.id, this.formalChildIds)
+  }
+
   @lazy({ equals: compareStructural })
   private get unitsBelowProgress(): Units['progress'] {
-    return this.readUnitsBelow().progress
+    return unitProgressBelow(this.host.rollupInputs, this.id, this.formalChildIds)
   }
 
   @lazy
   private get unitsBelowStaffed(): Units['staffed'] {
-    return this.readUnitsBelow().staffed
+    return unitStaffedBelow(this.host.rollupInputs, this.id, this.formalChildIds)
   }
 
   @lazy
   private get unitsBelowMembers(): Units['members'] {
-    return this.readUnitsBelow().members
+    return this.unitsBelowCounts.members
   }
 
   @lazy
   private get unitsBelowUnits(): Units['units'] {
-    return this.readUnitsBelow().units
+    return this.unitsBelowCounts.units
   }
 
   @lazy
   private get unitsBelowDone(): Units['done'] {
-    return this.readUnitsBelow().done
+    return this.unitsBelowCounts.done
   }
 
   @lazy
   private get unitsBelowPending(): Units['pending'] {
-    return this.readUnitsBelow().pending
+    return this.unitsBelowCounts.pending
+  }
+
+  // POD-7173: this issue's part in its formal parent's closure, one record
+  // per group, re-run only when its own unit or its own closure moves.
+
+  @lazy({ equals: compareStructural })
+  get unitCounts(): UnitCounts {
+    return unitCountsOf(this.unitOwn, () => this.unitsBelow)
+  }
+
+  @lazy({ equals: compareStructural })
+  get unitProgress(): UnitProgress {
+    return unitProgressOf(this.unitOwn, () => this.unitsBelow)
+  }
+
+  @lazy
+  get unitStaffed(): boolean {
+    return unitStaffedOf(this.unitOwn, () => this.unitsBelow)
   }
 
   // Links: continuation and origins
@@ -1059,6 +1083,20 @@ export class WorklistIssue implements HeldIssue, RowView {
   @lazy get visibleActivityAt(): number {
     const own = this.ownActivityAt, seat = this.visibleSessionActivity
     return seat !== null && seat > own ? seat : own
+  }
+
+  /**
+   * POD-7178 — the row's latest activity for the project sort, or undefined
+   * when the row is excluded or not held. It reads the activity alone, not
+   * the row's readiness (attention, child ids, unit counts): the "last used"
+   * sort walks every member of a project, and the 969 closed children of a
+   * large flat tree each derived their whole sidebar row for one number.
+   */
+  @lazy get sortActivityAt(): number | undefined {
+    if (this.issue.excluded) return undefined
+    const loaded = this.loadedIssue
+    if (loaded === undefined || loaded === LOADING || this.loadedOrigin === LOADING) return undefined
+    return this.visibleActivityAt
   }
 
   @lazy get loadedIssue() {

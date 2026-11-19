@@ -5,6 +5,7 @@ import { asThreadId } from '@podium/model'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { fixtureWriteScope } from '@podium/sync/testing'
 import { describe, expect, it } from 'vitest'
+import { openJanitorDatabase } from '../apps/server/src/janitor-database'
 import { noJanitorWorkerForTests } from '../apps/server/src/janitor-host'
 import { type ServerHandle, startServer } from '../apps/server/src/server'
 import type { MessageRow } from '../apps/server/src/store'
@@ -85,14 +86,14 @@ describe('janitor process recovery [spec:SP-c29e]', () => {
       janitor = await startJanitor({
         serverUrl: `http://127.0.0.1:${server.port}`,
         token: server.maintenanceToken,
-        dbPath,
+        database: openJanitorDatabase(dbPath),
       })
 
       expect(messageStatus(dbPath)).toBe('expired')
       await janitor.service.tick()
       expect(expiredEventCount(dbPath)).toBe(1)
     } finally {
-      janitor?.close()
+      await janitor?.close()
       await server?.close()
       if (priorStateDir === undefined) delete process.env.PODIUM_STATE_DIR
       else process.env.PODIUM_STATE_DIR = priorStateDir

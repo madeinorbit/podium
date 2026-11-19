@@ -124,6 +124,7 @@ const evidence: ShippingEvidencePort = {
   acceptedReviewEvidence: async () => null,
 }
 const service = new ShippingService({
+  workspaceId: store.workspaceId,
   repository: store.shipping,
   issues: issuePort,
   ledger: testLedgerWriter(ledger),

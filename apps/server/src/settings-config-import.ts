@@ -1,6 +1,7 @@
 // LEGACY(remove-after: 2027-01): one-time import of pre-2026-09-18 config.json settings into the DB; removing it ends direct upgrades from 0.1.x
 import { readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import type { WorkspaceId } from '@podium/model'
 import { PodiumSettings } from '@podium/runtime'
 import { PodiumConfig } from '@podium/runtime/config'
 import { fsyncPath } from '@podium/runtime/fsync'
@@ -11,11 +12,24 @@ export const SETTINGS_CONFIG_IMPORT = 'settings_config_import_v1'
 /** Exclusive migration lane only. The receipt and imported settings commit together.
  * Cleanup resumes from that receipt; later operator overrides are never imported.
  *
- * Telemetry: only `on` values and the install identity are imported (POD-5922). */
-export function importConfigSettings(db: SqlDatabase, directory?: string): void {
+ * Telemetry: only `on` values and the install identity are imported (POD-5922).
+ *
+ * The settings blob is the boot workspace's (`workspace_meta`, POD-7013); the
+ * receipt stays an install key of `meta`. */
+export function importConfigSettings(
+  db: SqlDatabase,
+  workspaceId: WorkspaceId,
+  directory?: string,
+): void {
   const read = (key: string) =>
     (db.prepare('SELECT value FROM meta WHERE key = ?').get(key) as { value: string } | undefined)
       ?.value
+  const readSettings = () =>
+    (
+      db
+        .prepare("SELECT value FROM workspace_meta WHERE workspace_id = ? AND key = 'settings'")
+        .get(workspaceId) as { value: string } | undefined
+    )?.value
   if (read(SETTINGS_CONFIG_IMPORT) === 'complete') return
   const path = directory === undefined ? undefined : join(directory, 'config.json')
   let raw: string | undefined
@@ -31,7 +45,7 @@ export function importConfigSettings(db: SqlDatabase, directory?: string): void 
     throw new Error('config.json must contain an object')
   if (read(SETTINGS_CONFIG_IMPORT) === undefined) {
     PodiumConfig.parse(config)
-    const stored = JSON.parse(read('settings') ?? '{}')
+    const stored = JSON.parse(readSettings() ?? '{}')
     const deployment = { ...stored.deployment }
     const values = {
       authOpenMode: config.auth?.openMode,
@@ -53,8 +67,9 @@ export function importConfigSettings(db: SqlDatabase, directory?: string): void 
     db.exec('BEGIN IMMEDIATE')
     try {
       db.prepare(
-        'INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
-      ).run('settings', JSON.stringify(next))
+        "INSERT INTO workspace_meta (workspace_id, key, value) VALUES (?, 'settings', ?) " +
+          'ON CONFLICT(workspace_id, key) DO UPDATE SET value = excluded.value',
+      ).run(workspaceId, JSON.stringify(next))
       db.prepare('INSERT INTO meta (key, value) VALUES (?, ?)').run(
         SETTINGS_CONFIG_IMPORT,
         raw === undefined ? 'complete' : JSON.stringify({ raw }),

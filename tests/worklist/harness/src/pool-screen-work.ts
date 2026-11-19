@@ -34,37 +34,30 @@ import { automationViews } from '@podium/client-graph/automation-views'
 import { createChatContextReader } from '@podium/client-graph/chat-context'
 import {
   CHAT_CONTEXT_ENTITIES,
-  CHAT_CONTEXT_SUMMARIES,
 } from '@podium/client-graph/chat-context-schema'
 import { ChatContextSource } from '@podium/client-graph/chat-context-source'
-import { COMMAND_SUMMARIES } from '@podium/client-graph/command-launch-schema'
 import { attachCommandLaunchSource } from '@podium/client-graph/command-launch-source'
 import { boardCards } from '@podium/client-graph/issue-board-cards'
 import { readBoardCatalog } from '@podium/client-graph/issue-board-readers'
 import {
   ISSUE_BOARD_ENTITIES,
-  ISSUE_BOARD_SUMMARIES,
 } from '@podium/client-graph/issue-board-schema'
 import { createIssueBoardSource } from '@podium/client-graph/issue-board-source'
 import { issuePages } from '@podium/client-graph/issue-page'
-import { ISSUE_PAGE_SUMMARIES } from '@podium/client-graph/issue-page-schema'
 import { attachIssuePageSource } from '@podium/client-graph/issue-page-source'
 import { missionRootId } from '@podium/client-graph/mission-screen'
 import { missionView, readMissionActionInputs } from '@podium/client-graph/mission-view'
-import { MISSION_VIEW_SUMMARIES } from '@podium/client-graph/mission-view-schema'
 import {
   MOBILE_INBOX_ENTITIES,
-  MOBILE_INBOX_SUMMARIES,
 } from '@podium/client-graph/mobile-inbox-schema'
 import { MobileInboxSource } from '@podium/client-graph/mobile-inbox-source'
 import { createMobileInboxViews } from '@podium/client-graph/mobile-inbox-views'
 import { createMobileSessionReader } from '@podium/client-graph/mobile-session-context'
-import { MOBILE_SESSION_SUMMARIES } from '@podium/client-graph/mobile-session-schema'
 import {
   createMobileSettingsSource,
   MOBILE_SETTINGS_ENTITIES,
 } from '@podium/client-graph/mobile-settings'
-import { NOTICE_ENTITIES, NOTICE_SUMMARIES } from '@podium/client-graph/notice-schema'
+import { NOTICE_ENTITIES, } from '@podium/client-graph/notice-schema'
 import { NoticeSource } from '@podium/client-graph/notice-source'
 import {
   noticeContinuity,
@@ -79,17 +72,14 @@ import {
 } from '@podium/client-graph/runtime-pool'
 import {
   SESSION_PANE_ENTITIES,
-  SESSION_PANE_SUMMARIES,
 } from '@podium/client-graph/session-pane-schema'
 import { SessionPaneSource } from '@podium/client-graph/session-pane-source'
-import { SHELL_ENTITIES, SHELL_SUMMARIES } from '@podium/client-graph/shell-schema'
+import { SHELL_ENTITIES, } from '@podium/client-graph/shell-schema'
 import { ShellSource } from '@podium/client-graph/shell-source'
 import { shellViews } from '@podium/client-graph/shell-views'
-import { mergePoolSummaries } from '@podium/client-graph/source-registry'
 import {
   createSuperagentSource,
   SUPERAGENT_ENTITIES,
-  SUPERAGENT_SUMMARIES,
   superagentCursor,
   superagentFeed,
   superagentFocus,
@@ -369,19 +359,6 @@ async function measureScreenCells(
     header: true,
     settings: true,
     preferences: true,
-    summaries: mergePoolSummaries(
-      COMMAND_SUMMARIES,
-      SHELL_SUMMARIES,
-      ISSUE_PAGE_SUMMARIES,
-      ISSUE_BOARD_SUMMARIES,
-      CHAT_CONTEXT_SUMMARIES,
-      NOTICE_SUMMARIES,
-      SESSION_PANE_SUMMARIES,
-      MISSION_VIEW_SUMMARIES,
-      SUPERAGENT_SUMMARIES,
-      MOBILE_INBOX_SUMMARIES,
-      MOBILE_SESSION_SUMMARIES,
-    ),
   })
   const pool = handle.pool
   const stops: (() => void)[] = []
@@ -721,7 +698,6 @@ async function measureScreenCells(
     )
     add('issue-page.catalog', ['IssueContextMenu'], () => ({
       issues: page.issues(),
-      explorer: page.explorer(),
     }))
     // These clicks open the launcher palette, not the Tasks filter menu.
     add('board.catalog', ['useBoardCatalog', 'IssueBoard'], () =>
@@ -878,13 +854,8 @@ async function measureScreenCells(
     }))
     add(
       'mobile-inbox',
-      ['InboxScreen', 'SessionsScreen', 'ScreeningScreen', 'PodiumLinkHost'],
+      ['ScreeningScreen', 'PodiumLinkHost'],
       () => ({
-        inbox: {
-          groups: mobileInbox.inbox().groups,
-          booting: mobileInbox.inbox().booting,
-          outboxSize: mobileInbox.inbox().outboxSize,
-        },
         screening: {
           queue: mobileInbox.screening().queue,
           booting: mobileInbox.screening().booting,

@@ -9,12 +9,16 @@ import { projectIndex } from './projects'
 
 import { compareShallow, compareStructural } from 'mobx'
 import { keyedViews } from '../cached'
+import { ISSUE_STUBS } from '../collections'
 import { hostOf, type IssueModel, type UserPreferencesModel } from '../models'
 import type { MobxPool } from '../pool'
 import { WorklistIssue } from './issue'
 import { LOADING, type Loaded } from './rollup'
 import type { SidebarProgress } from './sidebar-row'
 import { type Worklist, worklistView } from './view-model'
+
+/** The sidebar's collection: open issues that are not proposed (`@podium/model` declarations). */
+const SIDEBAR_COLLECTION = { collection: 'issueProjection.sidebar', part: 'main' } as const
 
 export interface SidebarState {
   readonly projectOrder?: readonly string[]
@@ -137,7 +141,34 @@ export class SidebarIndex {
   }
   constructor(private readonly view: Worklist) {}
 
+  /**
+   * TRACKED (POD-7087, design "To settle during the build"): on an empty
+   * device whose sidebar collection has not arrived yet, the sidebar shows a
+   * loading state until it is complete, not rows from the top down: its order
+   * is bands, lanes and pins, not one sort a range marker could follow, and a
+   * row painted before its children and sessions arrive would show a wrong
+   * number. A reload after a gap keeps its old rows on screen.
+   */
+  get loading(): boolean {
+    const collections = this.pool.collections
+    return collections.firstDownload && !collections.complete(SIDEBAR_COLLECTION)
+  }
+
+  /** Freshness of the policy instances this view uses, independent of other open trees. */
+  get refreshing(): boolean {
+    return (
+      this.pool.collections.reading(undefined, [
+        SIDEBAR_COLLECTION,
+        ISSUE_STUBS,
+        ...['issueProjection.recent', 'session.live', 'session.asking', 'session.recent'].map(
+          (collection) => ({ collection, part: 'main' as const }),
+        ),
+      ]) === 'refreshing'
+    )
+  }
+
   row(id: string): WorklistIssue | typeof LOADING | undefined {
+    if (this.loading) return LOADING
     const model = here(this.pool.issue(id))
     if (model !== undefined) return sidebarIssueRow(model, this.pool)
     return this.pool.resident('issue', id) === 'loading' ? LOADING : undefined
@@ -218,9 +249,21 @@ export class SidebarIndex {
   private projectActivity(key: string): number {
     return this.activityViews(key, () => {
       let latest = 0
+      if (this.loading) return latest
+      // POD-7178: each member's activity alone, never its whole sidebar row:
+      // a project's hidden closed issues derive one number each, not every
+      // roll-up a drawn row needs. A member still loading adds nothing.
       for (const id of worklistGroups(this.pool).members.lane(key)) {
-        const row = this.row(id)
-        if (row !== undefined && row !== LOADING) latest = Math.max(latest, row.visibleActivityAt)
+        const model = here(this.pool.issue(id))
+        if (model === undefined) continue
+        let at: number | undefined
+        try {
+          at = companionOf(model, this.pool).sortActivityAt
+        } catch (error) {
+          if (error !== LOADING) throw error
+          continue
+        }
+        if (at !== undefined) latest = Math.max(latest, at)
       }
       return latest
     })

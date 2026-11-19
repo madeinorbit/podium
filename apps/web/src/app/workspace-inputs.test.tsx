@@ -1,14 +1,11 @@
-import { omitGone } from '@podium/client-graph/lookup'
+
 // @vitest-environment happy-dom
 
-import { LOADING, MobxPool } from '@podium/client-graph'
+import { MobxPool } from '@podium/client-graph'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
-import { createColdIndex } from '@podium/client-graph/shared/cold-index'
-import { SCHEMA } from '@podium/client-graph/shared/schema'
 import type { RowRecord } from '@podium/client-graph/shared/source'
-import { SHELL_SUMMARIES } from '@podium/client-graph/shell-schema'
 import { asSessionId, type SessionId } from '@podium/model/browser'
-import { act, cleanup, render, waitFor } from '@testing-library/react'
+import { act, cleanup, render, } from '@testing-library/react'
 import { useCallback, useMemo, useRef, useSyncExternalStore } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { useWarmSet } from '@/features/terminal/use-warm-set'
@@ -71,8 +68,6 @@ function fixture(size = 128) {
     },
   })
   rows.push(session('a'), session('b'), session('foreign-warm', { issueId: 'foreign' }))
-  const source = createColdIndex(SCHEMA, SHELL_SUMMARIES)
-  source.apply({ type: 'replace', rows })
   const load = vi.fn(
     (entity: string, id: string) => rows.find((row) => row.kind === entity && row.id === id)?.value,
   )
@@ -80,8 +75,6 @@ function fixture(size = 128) {
     { selectedIssueId: null, coarseNow: Date.parse('2026-10-04T12:00:00Z') },
     undefined,
     {
-      cold: () => source,
-      summaries: SHELL_SUMMARIES,
       load,
       schedule: () => () => {},
     },
@@ -94,7 +87,6 @@ function fixture(size = 128) {
     session,
     publish: (records: RowRecord[]) => {
       const event = { type: 'update' as const, rows: records }
-      source.apply(event)
       pool.apply(event)
     },
   }
@@ -121,26 +113,6 @@ it.each([
   ])
   expect(ids).not.toHaveBeenCalled()
   expect(f.load).not.toHaveBeenCalled()
-})
-
-it('loads an addressed cold tab even before its summary is available', async () => {
-  const f = fixture()
-  expect(omitGone(f.pool.row('session', 'unvisited-0', 'mark'))).toBe(LOADING)
-  const original = f.pool.row.bind(f.pool)
-  vi.spyOn(f.pool, 'row').mockImplementation((...args) => {
-    if (args[0] === 'session' && args[1] === 'unvisited-0' && args[2] === 'summary-fields')
-      return LOADING
-    return Reflect.apply(original, f.pool, args)
-  })
-  expect(workspaceSessions(f.pool, new Set(['unvisited-0', 'file-tab']))).toEqual([])
-  await waitFor(() => {
-    f.pool.hydrate()
-    expect(f.load).toHaveBeenCalledWith('session', 'unvisited-0')
-    expect(workspaceSessions(f.pool, new Set(['unvisited-0'])).map((row) => row.sessionId)).toEqual(
-      ['unvisited-0'],
-    )
-  })
-  expect(f.load).not.toHaveBeenCalledWith('session', 'file-tab')
 })
 
 it('keeps foreign warm panels through issue switches and drops addressed archive/removal updates', () => {

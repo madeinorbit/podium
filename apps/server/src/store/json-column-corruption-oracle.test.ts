@@ -90,6 +90,9 @@
  * externally edited database. `plant()` therefore drops the table's triggers, does
  * the raw UPDATE, and puts them back, which is the closest a test can get to
  * "this is what was on disk when we opened it".
+ *
+ * On Postgres the same cases run, less the invalid-JSON case of a column that is
+ * `json` there: Postgres refuses that value at the write, so it cannot be on disk.
  */
 
 import { createHash } from 'node:crypto'
@@ -108,62 +111,79 @@ import {
   type ShipOrder,
 } from '@podium/model'
 import { fixtureWriteScope } from '@podium/sync/testing'
-import { is } from 'drizzle-orm'
+import { is, type SQL, sql } from 'drizzle-orm'
 import { getTableConfig, SQLiteTable } from 'drizzle-orm/sqlite-core'
 import { beforeEach, describe, expect, it } from 'vitest'
+import { textColumnClass } from '../migrations/pg/schema-classes'
 import * as schema from '../migrations/schema'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import type { SessionStore } from '../store'
 import { openTestStore } from '../test-support/open-test-store'
+import { testStoreEngine } from '../test-support/pg-test-database'
+import { storeSql } from '../test-support/store-sql'
 
 // ---------------------------------------------------------------------------
 // the raw seam
 // ---------------------------------------------------------------------------
 
-interface RawStatement {
-  run(...params: unknown[]): unknown
-  get(...params: unknown[]): unknown
-  all(...params: unknown[]): unknown[]
-}
-interface RawDatabase {
-  prepare(sql: string): RawStatement
-  exec(sql: string): unknown
+/** `where` with each `?` bound to the next of `params`, for either engine's placeholders. */
+function whereOf(where: string, params: readonly unknown[]): SQL {
+  const pieces = where.split('?')
+  if (pieces.length !== params.length + 1) {
+    throw new Error(`${where} takes ${pieces.length - 1} values, given ${params.length}`)
+  }
+  const parts: SQL[] = [sql.raw(pieces[0] ?? '')]
+  params.forEach((param, index) => {
+    parts.push(sql`${param}`, sql.raw(pieces[index + 1] ?? ''))
+  })
+  return sql.join(parts)
 }
 
-/** The store's own connection. A probe seam, exactly as `store-issues.test.ts`
- *  and `store.search-index.test.ts` already use it. */
-const rawDb = (store: SessionStore): RawDatabase => (store as unknown as { db: RawDatabase }).db
+/**
+ * Whether `table.column` can hold text that is not JSON on this run's engine. SQLite stores
+ * whatever text it is given; Postgres refuses invalid JSON in a `json` column at the write,
+ * so there that corruption cannot be on disk to be read (POD-6978 schema classes).
+ */
+const canHoldInvalidJson = (table: string, column: string): boolean =>
+  testStoreEngine() !== 'pg' || textColumnClass(table, column) !== 'json'
 
 /**
  * Make one column of one row hold `value`, whatever the table's triggers think.
  *
  * The triggers protect the PRODUCT's writes; they say nothing about what a
  * restored or externally edited file contains, and that is the case under test.
+ * Postgres has no triggers (its guarded writes carry the rules in their own
+ * statements), so there the raw UPDATE alone plants the value.
  */
-function plant(
+async function plant(
   store: SessionStore,
   table: string,
   column: string,
   where: string,
   params: readonly unknown[],
   value: string,
-): void {
-  const db = rawDb(store)
-  const triggers = db
-    .prepare("SELECT name, sql FROM sqlite_master WHERE type = 'trigger' AND tbl_name = ?")
-    .all(table) as { name: string; sql: string }[]
-  for (const trigger of triggers) db.exec(`DROP TRIGGER "${trigger.name}"`)
+): Promise<void> {
+  const raw = storeSql(store)
+  const triggers =
+    raw.engine === 'pg'
+      ? []
+      : await raw.all<{ name: string; sql: string }>(
+          sql`SELECT name, sql FROM sqlite_master WHERE type = 'trigger' AND tbl_name = ${table}`,
+        )
+  for (const trigger of triggers) await raw.run(sql`DROP TRIGGER ${sql.identifier(trigger.name)}`)
   try {
-    const changed = db
-      .prepare(`UPDATE "${table}" SET "${column}" = ? WHERE ${where}`)
-      .run(value, ...params) as { changes?: number }
+    const changed = await raw.all(
+      sql`UPDATE ${sql.identifier(table)} SET ${sql.identifier(column)} = ${value}
+          WHERE ${whereOf(where, params)} RETURNING 1 AS planted`,
+    )
     // A planted value nobody stored is a vacuous green: the read below would see
     // a row that does not exist and "quarantine" would be indistinguishable from
     // "absent". Fail loudly instead.
-    if (changed.changes !== undefined && changed.changes < 1) {
+    if (changed.length < 1) {
       throw new Error(`corruption planted on no row: ${table}.${column} WHERE ${where}`)
     }
   } finally {
-    for (const trigger of triggers) db.exec(trigger.sql)
+    for (const trigger of triggers) await raw.run(sql.raw(trigger.sql))
   }
 }
 
@@ -335,9 +355,9 @@ async function seed(): Promise<Fixture> {
   await store.issues.upsertIssue(fixtureWriteScope(), issueRow())
   // `upsertIssue` has no field for it; the oracle only needs a readable value
   // in the column, which is what a live "needs human" issue holds.
-  rawDb(store)
-    .prepare('UPDATE issues SET human_question_options = ? WHERE id = ?')
-    .run(JSON.stringify(['yes', 'no']), 'iss_1')
+  await storeSql(store).run(
+    sql`UPDATE issues SET human_question_options = ${JSON.stringify(['yes', 'no'])} WHERE id = ${'iss_1'}`,
+  )
 
   // --- podium_events --------------------------------------------------------
   await store.events.appendEvent(
@@ -997,25 +1017,25 @@ describe('the corrupt-blob oracle', () => {
     expect(declaredJsonColumns()).toEqual(RETAINED_JSON_COLUMNS)
   })
 
-  it('refuses unreadable authoritative delegation instead of dropping its scope', async () => {
-    const { store } = await seed()
-    const sessionId = SESSION
-    try {
-      rawDb(store)
-        .prepare(`INSERT INTO sessions
-        (id, owner_user_id, agent_kind, cwd, title, origin_kind, status, durable_label, created_at, last_active_at, machine_id)
-        VALUES (?, ?, 'shell', '/r', 'Oracle', 'spawn', 'exited', 'oracle', ?, ?, 'machine-1')
-      `)
-        .run(sessionId, firstAdminMemberId(), AT, AT)
-      expect((await store.sessions.getSession(sessionId))?.id).toBe(sessionId)
-      rawDb(store)
-        .prepare('UPDATE sessions SET delegation = ? WHERE id = ?')
-        .run(INVALID_JSON, sessionId)
-      await expect(store.sessions.getSession(sessionId)).rejects.toThrow()
-    } finally {
-      await store.close()
-    }
-  })
+  it.runIf(canHoldInvalidJson('sessions', 'delegation'))(
+    'refuses unreadable authoritative delegation instead of dropping its scope',
+    async () => {
+      const { store } = await seed()
+      const sessionId = SESSION
+      try {
+        await storeSql(store).run(sql`INSERT INTO sessions
+        (workspace_id, id, owner_user_id, agent_kind, cwd, title, origin_kind, status, durable_label, created_at, last_active_at, machine_id)
+        VALUES (${SELF_HOSTED_WORKSPACE_ID}, ${sessionId}, ${firstAdminMemberId()}, 'shell', '/r', 'Oracle', 'spawn', 'exited', 'oracle', ${AT}, ${AT}, 'machine-1')`)
+        expect((await store.sessions.getSession(sessionId))?.id).toBe(sessionId)
+        await storeSql(store).run(
+          sql`UPDATE sessions SET delegation = ${INVALID_JSON} WHERE id = ${sessionId}`,
+        )
+        await expect(store.sessions.getSession(sessionId)).rejects.toThrow()
+      } finally {
+        await store.close()
+      }
+    },
+  )
 
   it('names each case exactly once', () => {
     // A column may appear twice when two states of the same row behave
@@ -1035,11 +1055,12 @@ describe('the corrupt-blob oracle', () => {
 
   it('seeds a readable value in every column it is about to corrupt', async () => {
     const fixture = await seed()
-    const db = rawDb(fixture.store)
+    const raw = storeSql(fixture.store)
     for (const entry of ALL_ENTRIES) {
-      const row = db
-        .prepare(`SELECT "${entry.column}" AS value FROM "${entry.table}" WHERE ${entry.where}`)
-        .get(...entry.params(fixture)) as { value: unknown } | undefined
+      const row = await raw.get<{ value: unknown }>(
+        sql`SELECT ${sql.identifier(entry.column)} AS value FROM ${sql.identifier(entry.table)}
+            WHERE ${whereOf(entry.where, entry.params(fixture))}`,
+      )
       // A column the fixture never populated would make every "quarantine"
       // below true for the wrong reason.
       expect({ column: caseName(entry), seeded: typeof row?.value }).toEqual({
@@ -1063,7 +1084,14 @@ describe.each(
   })
 
   const check = async (planted: string, expected: Behaviour) => {
-    plant(fixture.store, entry.table, entry.column, entry.where, entry.params(fixture), planted)
+    await plant(
+      fixture.store,
+      entry.table,
+      entry.column,
+      entry.where,
+      entry.params(fixture),
+      planted,
+    )
     if (expected.kind === 'unread') {
       // Nothing projects the column, so the claim under test is that the read
       // model does not change — not that some value comes back.
@@ -1081,9 +1109,12 @@ describe.each(
     expect(observed).toEqual({ outcome: 'value', value: expected.value })
   }
 
-  it(`on invalid JSON: ${entry.onInvalidJson.kind}`, async () => {
-    await check(INVALID_JSON, entry.onInvalidJson)
-  })
+  it.runIf(canHoldInvalidJson(entry.table, entry.column))(
+    `on invalid JSON: ${entry.onInvalidJson.kind}`,
+    async () => {
+      await check(INVALID_JSON, entry.onInvalidJson)
+    },
+  )
 
   it(`on valid JSON of the wrong shape: ${entry.onWrongShape.kind}`, async () => {
     await check(entry.wrongShapeValue, entry.onWrongShape)

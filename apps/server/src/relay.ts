@@ -2,6 +2,8 @@ import { Buffer } from 'node:buffer'
 import { randomUUID } from 'node:crypto'
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import type { BlobStore } from '@podium/blob-store'
+import { LocalBlobStorage } from '@podium/blob-store/local'
 import { type HumanCeiling, workflowAssignInput } from '@podium/commands'
 import { ISSUE_SYSTEM_POINTER, SPEC_SYSTEM_POINTER } from '@podium/harness/metadata'
 import type { OneTimeCodeOperations } from '@podium/identity'
@@ -10,6 +12,7 @@ import type {
   Attribution,
   EffectTarget,
   IssueId,
+  IssuePanelArtifactWire,
   MachineId,
   MessageHeld,
   NotInConversationCause,
@@ -148,6 +151,8 @@ import { EffectExecutorRegistry } from './modules/effects/registry'
 import { EffectsRunner } from './modules/effects/runner'
 import { registerEffectCommands } from './modules/effects/sync-write'
 import { EventLogRetention } from './modules/events/retention'
+import { type FileStorageJobName, fileStorageJobs } from './modules/files/file-jobs'
+import { ORPHAN_AUDIT_EVERY_MS, OrphanAudit } from './modules/files/orphan-audit'
 import { registerFileWriteEffect } from './modules/files/write-effect'
 import { registerDiscoveryEffects } from './modules/fleet/discovery-effects'
 import { registerFolderEffects } from './modules/fleet/folder-effects'
@@ -202,6 +207,7 @@ import { LoginPropagationService } from './modules/machines/login-propagation'
 import { type MachineRecordsDeps, makeMachineRecordCompare } from './modules/machines/records'
 import { DaemonRpcService } from './modules/machines/rpc'
 import { MachinesService, type PairingCodes } from './modules/machines/service'
+import type { TranscriptLakeStorage } from './modules/memory/lake'
 import { MemoryService } from './modules/memory/service'
 import { MessageFeedPublisher } from './modules/message-feed/feed'
 import { readMessageRecords } from './modules/message-feed/records'
@@ -238,6 +244,7 @@ import { PortableStateFence } from './modules/server-transfer/portable-fence'
 import { serverTransferRpcAdapter } from './modules/server-transfer/rpc-adapter'
 import type { ServerTransferTargetState } from './modules/server-transfer/service'
 import { ServerTransferService } from './modules/server-transfer/service'
+import { sourceTransferFence } from './modules/server-transfer/source-fence'
 import { readPromotedTargetMetadata } from './modules/server-transfer/target-status'
 import { QUEUED_INPUT_SWEEP_MS, SYSTEM_INBOX_PRINCIPAL } from './modules/sessions/inbox'
 import { SessionInstructionRegistry } from './modules/sessions/instructions'
@@ -390,9 +397,19 @@ interface SessionRegistryOptions {
    * and the shipped poll interval. A send never waits on it [POD-4661].
    */
   mailAwait?: { pollMs?: number; sleep?(ms: number): Promise<void> }
-  /** Root of the transcript lake ($PODIUM_STATE_DIR/transcripts). Opt-in: when unset
-   *  (the default — every existing test), NO mirror traffic is produced. */
-  mirrorLakeDir?: string
+  /** Where the transcript lake keeps its parts (POD-6963 design 2.3): the workspace's
+   *  `files` handle and its id. Opt-in: when unset (the default — every existing
+   *  test), NO mirror traffic is produced. */
+  transcriptLake?: TranscriptLakeStorage
+  /**
+   * This workspace's user files (POD-6963 design 2.1): the handle the
+   * composition root built with `forWorkspace`, on the state directory or on a
+   * bucket: the artifact, composer-upload and lake owners' files (POD-7052,
+   * POD-7054, POD-7055). Absent in tests: the artifact and composer-upload
+   * stores then keep their files under the state directory, as a self-hosted
+   * server does.
+   */
+  files?: BlobStore
   portableStateFence?: PortableStateFence
   /** Live model-list probe (grok/cursor/opencode `models`). Injected in tests so the
    *  catalog never shells out; defaults to the real CLI probe. */
@@ -1551,6 +1568,7 @@ export class SessionRegistry {
     })
     const feedServing = new FeedServing({
       onPublicationIdle: (listener) => this.store.onPublicationIdle(listener),
+      workspaceId: this.store.workspaceId,
       authority: ledger.authority,
       identity: new FeedIdentityRegistry(
         {
@@ -1577,6 +1595,7 @@ export class SessionRegistry {
 
     const funnel = new WriteFunnel({
       onPublicationIdle: (listener) => this.store.onPublicationIdle(listener),
+      workspaceId: this.store.workspaceId,
       bus: this.bus,
       // THE SAME Authority the Ledger facade wraps, not a second one (POD-305):
       // two over one store would each keep their own ordered broadcast queue.
@@ -1627,7 +1646,7 @@ export class SessionRegistry {
         daemonRequest: requestBroker,
       },
       {
-        ...(options.mirrorLakeDir ? { mirrorLakeDir: options.mirrorLakeDir } : {}),
+        ...(options.transcriptLake ? { transcriptLake: options.transcriptLake } : {}),
       },
     )
     const rpcLate: { rpc?: DaemonRpcService } = {}
@@ -1726,6 +1745,21 @@ export class SessionRegistry {
         }
       }
     }
+    // The order the source's writers stop in for a transfer snapshot, and
+    // restart in after it: the mirror pauses before the portable fence goes up
+    // (modules/server-transfer/source-fence.ts).
+    const sourceFence = sourceTransferFence({
+      daemon: () => this.localDaemonPortableState,
+      mirror: {
+        pause: async () => await memory.pauseMirroringForTransfer(),
+        resume: async () => await memory.resumeMirroringAfterTransfer(),
+      },
+      portable: portableStateFence,
+      store: {
+        begin: async () => await this.store.beginTransferFence(),
+        end: async () => await this.store.endTransferFence(),
+      },
+    })
     const serverTransfer = new ServerTransferService({
       stateRoot: stateDir(),
       sourceInstanceId: options.instanceId,
@@ -1832,29 +1866,9 @@ export class SessionRegistry {
       },
       sourceHealthy: () => this.store.checkpointForTransfer(),
       checkpoint: () => this.store.checkpointForTransfer(),
-      fence: async () => {
-        const daemonPortableState = this.localDaemonPortableState
-        await daemonPortableState?.pauseAndDrain()
-        let portableFenceHeld = false
-        let mirroringPaused = false
-        try {
-          await portableStateFence.acquire()
-          portableFenceHeld = true
-          await memory.pauseMirroringForTransfer()
-          mirroringPaused = true
-          await this.store.beginTransferFence()
-        } catch (error) {
-          if (mirroringPaused) await memory.resumeMirroringAfterTransfer()
-          if (portableFenceHeld) portableStateFence.release()
-          daemonPortableState?.resume()
-          throw error
-        }
-      },
+      fence: async () => await sourceFence.fence(),
       releaseFence: async () => {
-        await this.store.endTransferFence()
-        await memory.resumeMirroringAfterTransfer()
-        portableStateFence.release()
-        this.localDaemonPortableState?.resume()
+        await sourceFence.releaseFence()
         await machines.resumeAfterTransferFence()
         await resumeHostPressureAfterTransferFence()
       },
@@ -2626,20 +2640,29 @@ export class SessionRegistry {
     // Permanent artifact snapshots ([spec:SP-0fc9] #441): the server pulls bytes
     // from the owning daemon at artifact-add time into <state-dir>/artifacts and
     // serves them locally via /files/artifact (registered in server.ts).
-    const issueArtifacts = new IssueArtifactStore(
-      join(stateDir(), 'artifacts'),
-      {
+    // On the workspace's blob store since POD-7054: keys under `artifacts/`,
+    // today's paths on a self-hosted disk; CLI upload state in `artifact_uploads`.
+    const workspaceFiles =
+      options.files ??
+      new LocalBlobStorage({ stateDir: stateDir(), fence: portableStateFence }).forWorkspace(
+        store.workspaceId,
+      )
+    const issueArtifacts = new IssueArtifactStore({
+      files: workspaceFiles,
+      uploads: store.artifactUploads,
+      rpc: {
         readAsset: async (i) => await rpc.readAsset(i),
         listDir: async (i) => await rpc.listDir(i),
       },
-      portableStateFence,
-    )
+    })
     // Files picked in a composer, held until a send or create claims them into
-    // an issue (POD-2148). A sibling of the artifact store, so a claim is a rename.
-    const pendingUploads = new PendingUploadStore(
-      join(stateDir(), 'pending-uploads'),
-      portableStateFence,
-    )
+    // an issue (POD-2148). On the same blob store since POD-7055: bytes under
+    // `pending-uploads/`, records in `pending_uploads`; a claim copies the file
+    // into the artifact store.
+    const pendingUploads = new PendingUploadStore({
+      files: workspaceFiles,
+      records: store.pendingUploads,
+    })
     // Late-bound because the lifecycle object below needs services this one
     // composes. `Promise<void>`, not `void` [POD-3820]: the assignment at the
     // bottom is `async`, and under a `void` declaration TypeScript accepted it
@@ -4303,6 +4326,7 @@ export class SessionRegistry {
     ): Promise<boolean> =>
       role === 'admin' || (await readIssue(this.store.issues, issueId))?.ownerUserId === humanId
     const shipping = new ShippingService({
+      workspaceId: this.store.workspaceId,
       repository: this.store.shipping,
       // The lease projection is process-owned memory installed behind a
       // `ledger.commit` that may be a savepoint inside a wider span, so it waits
@@ -5396,20 +5420,45 @@ export class SessionRegistry {
         })
     }, QUEUED_INPUT_SWEEP_MS)
     this.queuedInputSweep.unref?.()
-    // Composer uploads nobody sent within a day (POD-2148). Hourly, and once at
-    // boot; a server-transfer fence skips a pass rather than failing it.
-    const sweepPendingUploads = () => {
-      if (!backgroundDisabled)
-        void pendingUploads.sweep().catch((err: unknown) => {
-          log.warn('pending upload sweep failed', { err })
-        })
-      if (!backgroundDisabled)
-        void issueArtifacts.sweepUploads().catch((err: unknown) => {
-          log.warn('artifact upload sweep failed', { err })
-        })
+    // The workspace's file jobs (POD-6963 design 2.9). Hourly, and once at
+    // boot: composer uploads nobody sent within a day (POD-2148) and CLI
+    // transfers interrupted a day ago, each a query over its table plus
+    // idempotent deletes; a server-transfer fence skips a pass rather than
+    // failing it. Daily, starting an hour after boot: the orphan audit, which
+    // deletes what no row references. All three run in this process until
+    // POD-6962's lease-owned jobs exist; `fileJobs` is the seam it replaces.
+    const fileJobs = fileStorageJobs()
+    const orphanAudit = new OrphanAudit(workspaceFiles, this.store.workspaceId, {
+      pendingUploads: this.store.pendingUploads,
+      artifactUploads: this.store.artifactUploads,
+      panelArtifacts: async (issueIds) =>
+        (await this.store.issues.panel.forIssues(
+          'issuePanelArtifact',
+          issueIds,
+        )) as IssuePanelArtifactWire[],
+      // With the lake off nothing writes parts, and `transcripts/` is not audited.
+      ...(options.transcriptLake ? { lake: this.store.conversations.mirror } : {}),
+    })
+    let nextOrphanAuditAt = Date.now() + PENDING_UPLOAD_SWEEP_MS / 2
+    const runFileJob = (name: FileStorageJobName, job: () => Promise<unknown>) => {
+      void fileJobs.run(name, job).catch((err: unknown) => {
+        log.warn('file storage job failed', { job: name, err })
+      })
     }
-    sweepPendingUploads()
-    this.pendingUploadSweep = setInterval(sweepPendingUploads, PENDING_UPLOAD_SWEEP_MS)
+    const sweepFiles = () => {
+      if (backgroundDisabled) return
+      runFileJob('pending-upload-sweep', () => pendingUploads.sweep())
+      runFileJob('artifact-upload-sweep', () => issueArtifacts.sweepUploads())
+      if (Date.now() >= nextOrphanAuditAt) {
+        nextOrphanAuditAt = Date.now() + ORPHAN_AUDIT_EVERY_MS
+        runFileJob('orphan-audit', async () => {
+          const report = await orphanAudit.run()
+          log.info('file orphan audit', { roots: report.roots })
+        })
+      }
+    }
+    sweepFiles()
+    this.pendingUploadSweep = setInterval(sweepFiles, PENDING_UPLOAD_SWEEP_MS)
     this.pendingUploadSweep.unref?.()
     // Event-log retention + issue auto-archive timers RETIRED [POD-925]: both
     // jobs now run on the fenced janitor surface (parity-proven in unit tests).
@@ -5495,6 +5544,7 @@ export class SessionRegistry {
     this.clientGateway = new ClientMux({
       mobileVersions,
       registry: clientRegistry,
+      workspaceId: this.store.workspaceId,
       ports: { sessions: sessionsSvc },
       feed: feedServing,
       presence,

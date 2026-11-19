@@ -1,3 +1,4 @@
+// workspace-scoped (POD-6959)
 /**
  * EVENT-STREAM READ POSITIONS AT REST, KEYED BY USER (POD-1380).
  *
@@ -33,10 +34,10 @@ import {
   type UserId,
 } from '@podium/model'
 import type { WriteScope } from '@podium/sync'
-import { and, asc, eq, sql } from 'drizzle-orm'
-import { userReadPosition } from '../migrations/schema'
-import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
-import { param, prepared, preparedFamily } from './executor/sync-drizzle'
+import { asc, eq, sql } from 'drizzle-orm'
+import { captureWrite } from '../sync/capture-pg'
+import type { TransactionRunner, WorkspaceDb, WorkspaceQueries } from './executor/sync-drizzle'
+import { inWorkspace, param, prepared, preparedFamily, WORKSPACE } from './executor/sync-drizzle'
 
 /** One stored position. `undefined` from a reader means "never read this stream". */
 export interface StoredReadPosition {
@@ -46,29 +47,35 @@ export interface StoredReadPosition {
 
 // Every query this repository runs, prepared once per store [POD-6147].
 
-const positionsOfUser = prepared((db: StoreDrizzle) =>
+const positionsOfUser = prepared((db, t) =>
   db
     .select({
-      streamId: userReadPosition.streamId,
-      lastEventId: userReadPosition.lastEventId,
-      seenAt: userReadPosition.seenAt,
+      streamId: t.userReadPosition.streamId,
+      lastEventId: t.userReadPosition.lastEventId,
+      seenAt: t.userReadPosition.seenAt,
     })
-    .from(userReadPosition)
-    .where(eq(userReadPosition.userId, param(userReadPosition.userId, 'userId')))
+    .from(t.userReadPosition)
+    .where(
+      inWorkspace(
+        t.userReadPosition,
+        eq(t.userReadPosition.userId, param(t.userReadPosition.userId, 'userId')),
+      ),
+    )
     .prepare(),
 )
 
-const positionOf = prepared((db: StoreDrizzle) =>
+const positionOf = prepared((db, t) =>
   db
     .select({
-      lastEventId: userReadPosition.lastEventId,
-      seenAt: userReadPosition.seenAt,
+      lastEventId: t.userReadPosition.lastEventId,
+      seenAt: t.userReadPosition.seenAt,
     })
-    .from(userReadPosition)
+    .from(t.userReadPosition)
     .where(
-      and(
-        eq(userReadPosition.userId, param(userReadPosition.userId, 'userId')),
-        eq(userReadPosition.streamId, param(userReadPosition.streamId, 'streamId')),
+      inWorkspace(
+        t.userReadPosition,
+        eq(t.userReadPosition.userId, param(t.userReadPosition.userId, 'userId')),
+        eq(t.userReadPosition.streamId, param(t.userReadPosition.streamId, 'streamId')),
       ),
     )
     .prepare(),
@@ -76,21 +83,24 @@ const positionOf = prepared((db: StoreDrizzle) =>
 
 /** Every position, a keyset page at a time in primary-key order: the
  *  `userReadPosition` kind's full truth (POD-6763). */
-const positionRowsPage = preparedFamily((db: StoreDrizzle, from: 'start' | 'after') =>
+const positionRowsPage = preparedFamily((db, t, from: 'start' | 'after') =>
   db
     .select({
-      userId: userReadPosition.userId,
-      streamId: userReadPosition.streamId,
-      lastEventId: userReadPosition.lastEventId,
-      seenAt: userReadPosition.seenAt,
+      userId: t.userReadPosition.userId,
+      streamId: t.userReadPosition.streamId,
+      lastEventId: t.userReadPosition.lastEventId,
+      seenAt: t.userReadPosition.seenAt,
     })
-    .from(userReadPosition)
+    .from(t.userReadPosition)
     .where(
-      from === 'start'
-        ? sql`(${userReadPosition.userId}, ${userReadPosition.streamId}) >= (${sql.placeholder('afterUserId')}, ${sql.placeholder('afterStreamId')})`
-        : sql`(${userReadPosition.userId}, ${userReadPosition.streamId}) > (${sql.placeholder('afterUserId')}, ${sql.placeholder('afterStreamId')})`,
+      inWorkspace(
+        t.userReadPosition,
+        from === 'start'
+          ? sql`(${t.userReadPosition.userId}, ${t.userReadPosition.streamId}) >= (${sql.placeholder('afterUserId')}, ${sql.placeholder('afterStreamId')})`
+          : sql`(${t.userReadPosition.userId}, ${t.userReadPosition.streamId}) > (${sql.placeholder('afterUserId')}, ${sql.placeholder('afterStreamId')})`,
+      ),
     )
-    .orderBy(asc(userReadPosition.userId), asc(userReadPosition.streamId))
+    .orderBy(asc(t.userReadPosition.userId), asc(t.userReadPosition.streamId))
     .limit(sql.placeholder('limit'))
     .prepare(),
 )
@@ -103,30 +113,41 @@ const positionPlaceholders = {
   updatedAt: sql.placeholder('updatedAt'),
 }
 
-const upsertPosition = prepared((db: StoreDrizzle) =>
-  db
-    .insert(userReadPosition)
-    .values(positionPlaceholders)
-    .onConflictDoUpdate({
-      target: [userReadPosition.userId, userReadPosition.streamId],
-      set: positionPlaceholders,
-    })
-    .prepare(),
+const upsertPosition = prepared((db, t) =>
+  captureWrite(
+    db
+      .insert(t.userReadPosition)
+      .values({ workspaceId: WORKSPACE, ...positionPlaceholders })
+      .onConflictDoUpdate({
+        target: [
+          t.userReadPosition.workspaceId,
+          t.userReadPosition.userId,
+          t.userReadPosition.streamId,
+        ],
+        // The key columns equal the conflict target's, so the set names only the rest:
+        // Postgres change capture refuses an upsert that assigns its key (POD-6983).
+        set: {
+          lastEventId: positionPlaceholders.lastEventId,
+          seenAt: positionPlaceholders.seenAt,
+          updatedAt: positionPlaceholders.updatedAt,
+        },
+      }),
+  ).prepare(),
 )
 
 export class UserReadPositionRepository {
-  private readonly rootDb: StoreDrizzle
+  private readonly scope: WorkspaceDb
   protected readonly createOrJoinTransaction: TransactionRunner
 
-  constructor(queries: StoreQueries) {
-    this.rootDb = queries.rootDb
+  constructor(queries: WorkspaceQueries) {
+    this.scope = queries.db
     this.createOrJoinTransaction = queries.createOrJoinTransaction
   }
 
   /** The query builder, resolved on every access so B1 changes this line and nothing else
    *  [POD-3221 spec rule 34a]. */
-  protected get db() {
-    return this.rootDb
+  protected get db(): WorkspaceDb {
+    return this.scope
   }
 
   /** One person's position in every stream they have read. Absent key = never. */

@@ -649,7 +649,6 @@ describe('test lane configuration', () => {
       'shared/src/overlay-row.test.ts',
       'harness/src/heartbeat-ancestors.test.ts',
       'harness/src/perf/header-work.test.ts',
-      'harness/src/cold-structures.test.ts',
       'harness/src/mission-screen-work.test.ts',
       'product/mission-pane.work.test.ts',
     ]
@@ -775,7 +774,7 @@ describe('test lane configuration', () => {
     const passed = footer('PASSED', reconcileExecution(fullRun()), 955, lanes)
     expect(passed).toContain('NOT the test suite')
     expect(passed).toContain(`Ran ${LEAN_GATE_FILES.length} of the 955 files`)
-    expect(passed).toContain('0.4%')
+    expect(passed).toContain(`${((LEAN_GATE_FILES.length / 955) * 100).toFixed(1)}%`)
     expect(passed).toContain('bun run test:full')
     for (const file of LEAN_GATE_FILES) expect(passed).toContain(file)
 
@@ -828,7 +827,7 @@ describe('test lane configuration', () => {
     expect(filtered.ok, 'a run with zero assertions passed').toBe(false)
     expect(filtered.ranTests).toBe(0)
     expect(filtered.ranFiles).toBe(0)
-    expect(filtered.skippedTests).toBe(76)
+    expect(filtered.skippedTests).toBe(LEAN_GATE_FILES.length * 19)
     expect(filtered.shortfall.every((entry) => entry.reason === 'every test skipped')).toBe(true)
     const filteredFooter = footer('INCOMPLETE', filtered, 1022, lanes)
     expect(filteredFooter).toContain('Ran 0 of the 1022')
@@ -845,7 +844,7 @@ describe('test lane configuration', () => {
       ),
     )
     expect(skippedOne.ok, 'a .skip silently removed a file from the gate').toBe(false)
-    expect(skippedOne.ranFiles).toBe(3)
+    expect(skippedOne.ranFiles).toBe(LEAN_GATE_FILES.length - 1)
     expect(skippedOne.shortfall).toEqual([
       { file: LEAN_GATE_FILES[2], reason: 'every test skipped' },
     ])
@@ -854,14 +853,14 @@ describe('test lane configuration', () => {
     const whole = reconcileExecution(fullRun())
     expect(whole.ok).toBe(true)
     expect(whole.ranFiles).toBe(LEAN_GATE_FILES.length)
-    expect(whole.ranTests).toBe(76)
+    expect(whole.ranTests).toBe(LEAN_GATE_FILES.length * 19)
     expect(whole.skippedTests).toBe(0)
     // A failing assertion is still an executed one: red is a verdict, not a shortfall.
     const red = reconcileExecution(
       vitestReport(LEAN_GATE_FILES.map((file) => ({ file, passed: 18, failed: 1 }))),
     )
     expect(red.ok, 'a red gate was misreported as an incomplete one').toBe(true)
-    expect(red.failedTests).toBe(4)
+    expect(red.failedTests).toBe(LEAN_GATE_FILES.length)
   })
 
   /**

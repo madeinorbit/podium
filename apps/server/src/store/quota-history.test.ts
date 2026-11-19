@@ -1,14 +1,30 @@
+/**
+ * QuotaHistoryRepository, on both engines [POD-6995]: the store shard runs it on
+ * SQLite and the `server-store-pg` lane on Postgres, over the slice's Postgres twin of
+ * `quota_windows` (`test-support/pg-slice-tables.ts`). Every expectation is the same
+ * on both, so the two engines agree wherever this file looks.
+ */
+
 import type { QuotaSample } from '@podium/model'
-import { beforeEach, describe, expect, it } from 'vitest'
-import type { SessionStore } from '../store'
-import { openTestStore } from '../test-support/open-test-store'
+import { asc } from 'drizzle-orm'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { openSliceStore, type SliceStore } from '../test-support/pg-slice-tables'
+import { expectConstantStatements } from '../test-support/statement-count'
+import { storeTables } from './executor/sync-drizzle'
+import { QuotaHistoryRepository } from './quota-history'
 
 const SAMPLING = 15 * 60_000
 
-let store: SessionStore
+let slice: SliceStore
+let store: { readonly quotaHistory: QuotaHistoryRepository }
 
 beforeEach(async () => {
-  store = await openTestStore(':memory:')
+  slice = await openSliceStore()
+  store = { quotaHistory: new QuotaHistoryRepository(slice.queries) }
+})
+
+afterEach(async () => {
+  await slice.close()
 })
 
 function sample(over: Partial<QuotaSample> = {}): QuotaSample {
@@ -287,5 +303,105 @@ describe('the partial flag survives the round trip', () => {
 
     const rows = await store.quotaHistory.list(0, Date.now())
     expect(rows[0]?.partial).toBe(false)
+  })
+})
+
+/**
+ * THE STORED ROW, COLUMN BY COLUMN [POD-6995]. The repository maps rows before any
+ * other test sees them, so a column whose value differs by engine (an int8 read as a
+ * string, `partial` as 0/1, `trail_json` re-encoded by a JSON parser) could pass every
+ * test above. Read through the builder on the store's own tables, the row must be
+ * exactly SQLite's on both engines: numbers for the epoch-ms and count columns, a
+ * boolean, and the trail's JSON text byte for byte.
+ */
+describe('the stored row', () => {
+  it('reads back through the builder exactly as SQLite stores it', async () => {
+    const resetsAtMs = Date.parse('2026-08-25T01:00:00.000Z')
+    await store.quotaHistory.record(sample({ usedPercent: 12.5, atMs: 1_000 }), SAMPLING)
+    await store.quotaHistory.record(sample({ usedPercent: 20.25, atMs: 61_000 }), SAMPLING)
+
+    const db = slice.queries.rootDb
+    const t = storeTables(db)
+    const rows = await db
+      .select()
+      .from(t.quotaWindows)
+      .orderBy(asc(t.quotaWindows.windowKey))
+      .prepare()
+      .all()
+    const instance = await store.quotaHistory.trail('claude-code::a@b.c', 'weekly-all', resetsAtMs)
+
+    expect(rows).toEqual([
+      {
+        accountKey: 'claude-code::a@b.c',
+        agent: 'claude-code',
+        windowKey: 'weekly-all',
+        resetsAtBucket: Math.floor(resetsAtMs / 60_000),
+        label: 'Weekly',
+        scopeModel: null,
+        plan: null,
+        resetsAtMs,
+        startedAtMs: resetsAtMs - 10080 * 60_000,
+        windowMinutes: 10080,
+        firstSeenMs: 1_000,
+        lastSeenMs: 61_000,
+        firstPercent: 12.5,
+        peakPercent: 20.25,
+        lastPercent: 20.25,
+        sampleCount: 2,
+        partial: false,
+        source: 'live',
+        trailJson: JSON.stringify(instance),
+        ownerUserId: null,
+        workspaceId: 'local',
+      },
+    ])
+    // The text itself, not only its parse: `json` keeps it as written.
+    expect(typeof rows[0]?.trailJson).toBe('string')
+  })
+})
+
+/**
+ * ONE UPSERT, PINNED ON BOTH ENGINES [POD-6995, design 2.10]. A sample that opens a
+ * new window instance in a bucket already held takes the upsert's conflict arm, the
+ * statement with a form per engine. It runs one read (the newest window of the
+ * series) and the upsert, whatever else the table holds: the same count on SQLite and
+ * on Postgres, because each definition is one statement on each.
+ */
+describe('statement count', () => {
+  const RESETS = Date.parse('2026-08-25T01:00:00.000Z')
+
+  it('a conflicting upsert runs the same statements on both engines', async () => {
+    await expectConstantStatements(
+      {
+        name: 'quotaHistory.record (conflict arm)',
+        async setup(size) {
+          const fixture = await openSliceStore()
+          const repository = new QuotaHistoryRepository(fixture.queries)
+          for (let i = 0; i < size; i++) {
+            await repository.record(sample({ windowKey: `other-${i}`, atMs: 1_000 }), SAMPLING)
+          }
+          await repository.record(
+            sample({ usedPercent: 90, resetsAtMs: RESETS, atMs: 1_000 }),
+            SAMPLING,
+          )
+          return { fixture, repository }
+        },
+        target: ({ fixture }) => fixture.probeTarget,
+        run: async ({ repository }) =>
+          await repository.record(
+            sample({ usedPercent: 5, resetsAtMs: RESETS, atMs: 2_000 }),
+            SAMPLING,
+          ),
+        async check(_result, { repository }, size) {
+          expect(await repository.countAll()).toBe(size + 1)
+          const rows = await repository.list(0, Date.now())
+          const folded = rows.find((row) => row.windowKey === 'weekly-all')
+          expect(folded?.peakPercent).toBe(90)
+          expect(folded?.sampleCount).toBe(2)
+        },
+        teardown: async ({ fixture }) => await fixture.close(),
+      },
+      2,
+    )
   })
 })

@@ -3,15 +3,12 @@ import { expect, it, vi } from 'vitest'
 import { installMobxWarnTrap } from '../../../tests/worklist/harness/src/mobx-trap'
 import { insideReader, measureWork } from '../../../tests/worklist/harness/src/work-meter'
 import { headerEntities } from './header-entities'
-import { HEADER_ISSUE_SUMMARY_FIELDS, type HeaderRows } from './header-schema'
+import type { HeaderRows } from './header-schema'
 import { headerView } from './header-views'
 import { omitGone } from './lookup'
 import { MobxPool } from './pool'
-import { createColdIndex } from './shared/cold-index'
-import { SCHEMA } from './shared/schema'
 import type { RowRecord, RowSourceEvent } from './shared/source'
 import { LOADING } from './worklist/rollup'
-import { HIDDEN_ISSUE_FIELDS } from './worklist/visible'
 
 const stamp = '2020-01-01T00:00:00Z'
 installMobxWarnTrap({ errors: true })
@@ -103,8 +100,8 @@ it('bounds shipping fallback demand and updates with 1x/4x histories on the same
       })
       expect(value).toEqual(counts(1, 1))
       expect(
-        row.mock.calls.filter(([entity, , mode]) => entity === 'issue' && mode === 'summary'),
-      ).toEqual([['issue', 'target', 'summary']])
+        row.mock.calls.filter(([entity, , mode]) => entity === 'issue' && mode === undefined),
+      ).toEqual([['issue', 'target']])
       const repeated = await measure('shipping fallback repeat', () => {
         expect(headerView(pool).shipping()).toEqual(counts(1, 1))
       })
@@ -166,7 +163,7 @@ it('bounds shipping fallback demand and updates with 1x/4x histories on the same
       const control = await measure('planted previous shipping fallback', () => {
         let best: { id: string; seq: number; worktreePath: string } | undefined
         for (const id of pool.queries.ids({ kind: 'containingIssues', cwd: '/shared/src/file' })) {
-          const candidate = omitGone(pool.row('issue', id, 'summary')) as
+          const candidate = omitGone(pool.row('issue', id)) as
             | {
                 id: string
                 seq: number
@@ -202,7 +199,7 @@ it('bounds shipping fallback demand and updates with 1x/4x histories on the same
         expect(best?.id).toBe('target')
       })
       const controlSummaries = row.mock.calls.filter(
-        ([entity, , mode]) => entity === 'issue' && mode === 'summary',
+        ([entity, , mode]) => entity === 'issue' && mode === undefined,
       ).length
       samples.push({
         scale,
@@ -247,31 +244,23 @@ it('bounds shipping fallback demand and updates with 1x/4x histories on the same
   expect(samples[1]!.control.work.elements).toBeGreaterThan(samples[0]!.control.work.elements)
 })
 
-it('uses cold containing-issue facts and follows addressed eligibility and replacement updates', () => {
-  let source = createColdIndex(SCHEMA, {
-    issue: [...HIDDEN_ISSUE_FIELDS, ...HEADER_ISSUE_SUMMARY_FIELDS, 'readAt'],
-  })
+it('uses closed containing-issue facts and follows addressed eligibility and replacement updates', () => {
   const target = issue('target', 1, '/shared/src', { stage: 'done', closedAt: stamp }),
     runner = issue('runner', 2, '/shared/src', { stage: 'done', closedAt: stamp })
-  source.apply({ type: 'replace', rows: [target, runner] })
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) }, undefined, {
-    header: true,
-    cold: () => source,
     load: () => undefined,
     schedule: () => () => {},
   })
-  pool.apply({ type: 'replace', rows: [] })
+  pool.apply({ type: 'replace', rows: [target, runner] })
   header(pool)
   const ids = vi.spyOn(pool.queries, 'ids')
   const seen: ReturnType<typeof counts>[] = []
   const stop = autorun(() => seen.push(headerView(pool).shipping()))
   const publish = (event: RowSourceEvent) => {
-    source.apply(event)
     pool.apply(event)
   }
   try {
     expect(seen.at(-1)).toEqual(counts(1, 1))
-    expect(pool.tables.issue.has('target')).toBe(false)
     publish({
       type: 'update',
       rows: [
@@ -287,12 +276,8 @@ it('uses cold containing-issue facts and follows addressed eligibility and repla
     expect(seen.at(-1)).toEqual(counts(2, 0))
     publish({ type: 'update', rows: [issue('runner', 2, '/shared/src', { deletedAt: stamp })] })
     expect(seen.at(-1)).toEqual(counts(0, 0))
-    // Replace the source instance as the real feed does after reset.
-    source = createColdIndex(SCHEMA, {
-      issue: [...HIDDEN_ISSUE_FIELDS, ...HEADER_ISSUE_SUMMARY_FIELDS, 'readAt'],
-    })
+    // Replace the slice as the real feed does after reset.
     const rows = [issue('ancestor', 0, '/shared', { stage: 'done', closedAt: stamp })]
-    source.apply({ type: 'replace', rows })
     pool.apply({ type: 'replace', rows })
     expect(seen.at(-1)).toEqual(counts(3, 3))
     expect(ids.mock.calls.some(([question]) => question.kind === 'containingIssues')).toBe(false)

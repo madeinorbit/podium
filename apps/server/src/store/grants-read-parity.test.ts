@@ -14,12 +14,11 @@
 
 import { GRANT_VERBS, type GrantVerb } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
-import type { SessionStore } from '../store'
-import { openTestStore } from '../test-support/open-test-store'
+import { openPeopleStoreSlice, type PeopleStoreSlice } from '../test-support/people-store-slice'
 import { withReadScope } from './executor/read-scope'
 import type { GrantRow } from './grants'
 
-const stores: SessionStore[] = []
+const stores: PeopleStoreSlice[] = []
 afterEach(async () => {
   for (const store of stores.splice(0)) await store.close()
 })
@@ -33,7 +32,8 @@ const edgeKey = (row: Pick<GrantRow, 'grantee' | 'verb'>) => `${row.grantee}\u00
 class Model {
   readonly byResource = new Map<string, Map<string, GrantRow>>()
   upsert(row: GrantRow) {
-    const edges = this.byResource.get(key(row.resourceKind, row.resourceId)) ?? new Map<string, GrantRow>()
+    const edges =
+      this.byResource.get(key(row.resourceKind, row.resourceId)) ?? new Map<string, GrantRow>()
     const previous = edges.get(edgeKey(row))
     const custody = row.custody === undefined ? previous?.custody : row.custody
     const { custody: _, ...rest } = row
@@ -58,7 +58,9 @@ class Model {
 
 /** Order inside one resource is created-at only; ties have no defined order. */
 const normal = (rows: readonly GrantRow[]) =>
-  [...rows].sort((a, b) => a.createdAt.localeCompare(b.createdAt) || edgeKey(a).localeCompare(edgeKey(b)))
+  [...rows].sort(
+    (a, b) => a.createdAt.localeCompare(b.createdAt) || edgeKey(a).localeCompare(edgeKey(b)),
+  )
 
 function share(kind: Kind, id: string, grantee: string, verb: GrantVerb, n: number): GrantRow {
   const agent = n % 5 === 0
@@ -78,17 +80,20 @@ function share(kind: Kind, id: string, grantee: string, verb: GrantVerb, n: numb
   }
 }
 
-async function expectAnswers(store: SessionStore, ids: Record<Kind, string[]>, model: Model) {
+async function expectAnswers(store: PeopleStoreSlice, ids: Record<Kind, string[]>, model: Model) {
   for (const kind of ['issue', 'session', 'machine'] as const) {
     const asked = [...ids[kind], `${kind}-never-granted`]
     const many = await store.grants.listForResources(kind, asked)
-    const scoped = await withReadScope(async () =>
-      await Promise.all(asked.map(async (id) => await store.grants.loadForResource(kind, id))),
+    const scoped = await withReadScope(
+      async () =>
+        await Promise.all(asked.map(async (id) => await store.grants.loadForResource(kind, id))),
     )
     for (const [i, id] of asked.entries()) {
       const want = normal(model.edges(kind, id))
       // Unscoped, batched in one scope, and grouped.
-      expect(normal(await store.grants.loadForResource(kind, id)), `${kind} ${id} one`).toEqual(want)
+      expect(normal(await store.grants.loadForResource(kind, id)), `${kind} ${id} one`).toEqual(
+        want,
+      )
       expect(normal(scoped[i]!), `${kind} ${id} scoped`).toEqual(want)
       expect(normal(many.get(id) ?? []), `${kind} ${id} many`).toEqual(want)
       expect(many.has(id), `${kind} ${id} absent means no edges`).toBe(want.length > 0)
@@ -98,10 +103,14 @@ async function expectAnswers(store: SessionStore, ids: Record<Kind, string[]>, m
 
 describe('grant reads answer what the writes say', () => {
   it('over the edge-case fixtures, inside and outside a write span', async () => {
-    const store = await openTestStore(':memory:')
+    const store = await openPeopleStoreSlice()
     stores.push(store)
     const model = new Model()
-    const ids: Record<Kind, string[]> = { issue: ['iss_edge'], session: ['session-edge'], machine: ['machine-edge'] }
+    const ids: Record<Kind, string[]> = {
+      issue: ['iss_edge'],
+      session: ['session-edge'],
+      machine: ['machine-edge'],
+    }
     // Every verb on every kind, for the same grantee; ties on created-at.
     let n = 0
     for (const kind of ['issue', 'session', 'machine'] as const) {
@@ -115,7 +124,12 @@ describe('grant reads answer what the writes say', () => {
     await store.grants.upsert(custody)
     model.upsert(custody)
     // A re-share without a custody marker keeps the stored marker.
-    const reshare = { ...custody, custody: undefined, owner: users[2]!, createdAt: '2026-10-16T00:00:00.000Z' }
+    const reshare = {
+      ...custody,
+      custody: undefined,
+      owner: users[2]!,
+      createdAt: '2026-10-16T00:00:00.000Z',
+    }
     await store.grants.upsert(reshare)
     model.upsert(reshare)
     // An agent-delegated share, then its revocation.
@@ -131,13 +145,22 @@ describe('grant reads answer what the writes say', () => {
     // revocation still denies at once, though the edge was read (and memoised)
     // first; the rollback leaves nothing behind in any reader.
     await expect(
-      store.transact(async () => {
-        expect(normal(await store.grants.loadForResource('issue', 'iss_edge'))).toEqual(normal(model.edges('issue', 'iss_edge')))
+      store.drained(async () => {
+        expect(normal(await store.grants.loadForResource('issue', 'iss_edge'))).toEqual(
+          normal(model.edges('issue', 'iss_edge')),
+        )
         await store.grants.remove('issue', 'iss_edge', users[1]!, 'read')
-        const without = model.edges('issue', 'iss_edge')
+        const without = model
+          .edges('issue', 'iss_edge')
           .filter((row) => !(row.grantee === users[1] && row.verb === 'read'))
-        expect(normal(await store.grants.loadForResource('issue', 'iss_edge'))).toEqual(normal(without))
-        expect(normal((await store.grants.listForResources('issue', ['iss_edge'])).get('iss_edge') ?? [])).toEqual(normal(without))
+        expect(normal(await store.grants.loadForResource('issue', 'iss_edge'))).toEqual(
+          normal(without),
+        )
+        expect(
+          normal(
+            (await store.grants.listForResources('issue', ['iss_edge'])).get('iss_edge') ?? [],
+          ),
+        ).toEqual(normal(without))
         throw new Error('roll back')
       }),
     ).rejects.toThrow('roll back')
@@ -145,7 +168,9 @@ describe('grant reads answer what the writes say', () => {
 
     // A read scope that spans a write sees the write (the loader is invalidated).
     await withReadScope(async () => {
-      expect(normal(await store.grants.loadForResource('session', 'session-edge'))).toEqual(normal(model.edges('session', 'session-edge')))
+      expect(normal(await store.grants.loadForResource('session', 'session-edge'))).toEqual(
+        normal(model.edges('session', 'session-edge')),
+      )
       await store.grants.removeAllForResource('session', 'session-edge')
       model.removeResource('session', 'session-edge')
       expect(await store.grants.loadForResource('session', 'session-edge')).toEqual([])

@@ -1,6 +1,9 @@
+import {
+  serviceWorkerAvailability,
+  serviceWorkerContainer,
+} from '@podium/client-core/service-worker'
 import { createLogger } from '@podium/logger'
 import { pageSurface } from '@/lib/page-surface'
-import { serviceWorkerAvailability, serviceWorkerContainer } from '@/lib/sw-container'
 import { pageBuildDigest, pageBuildVersion, pageBundleVersion } from './build-version'
 import { installWebLogging } from './install'
 import { pageLogTransport } from './transport'

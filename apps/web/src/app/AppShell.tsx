@@ -5,9 +5,10 @@ import { useSocketHub } from '@podium/client-core/react'
 import { parseReplicaNamespaceKey, replicaNamespaceKey } from '@podium/client-core/replica'
 import { observer } from '@podium/client-graph/react'
 import type { JSX } from 'react'
-import { lazy, Suspense, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { Suspense, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { flushSync } from 'react-dom'
 import { toast } from 'sonner'
+import { lazyScreen } from '@/components/LazyScreen'
 import { PodiumLinkHost } from '@/components/PodiumLinkHost'
 import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
@@ -50,6 +51,7 @@ import { webAccounts } from '@/lib/accounts'
 import { throughRestarts } from '@/lib/chunk-recovery'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { useSettingsShortcut } from '@/lib/hooks/use-settings-shortcut'
+import { lazy, lazySurfaces } from '@/lib/lazy-surface'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 import { prefetchAfterFirstPaint } from '@/lib/prefetch-after-first-paint'
 import { QuoteLayer } from '@/lib/quote/QuoteLayer'
@@ -110,28 +112,47 @@ import { useResponsiveSidebars } from './use-responsive-sidebars'
  */
 // The app lands on the work list. Loading Workspace here used to pull the chat,
 // terminal and editor stack into first paint before a workspace was selected.
-const Workspace = lazy(() =>
-  throughRestarts(() => import('./Workspace')).then((module) => ({ default: module.Workspace })),
+const Workspace = lazyScreen(
+  () => import('./Workspace'),
+  (module) => module.Workspace,
 )
-const SettingsView = lazy(() =>
-  throughRestarts(() => import('@/features/settings/SettingsView')).then((module) => ({
-    default: module.SettingsView,
-  })),
+const SettingsView = lazyScreen(
+  () => import('@/features/settings/SettingsView'),
+  (module) => module.SettingsView,
+  (content, { onClose }) => (
+    <AppSheet
+      label="Settings"
+      title="Settings"
+      className="app-sheet-settings app-sheet-fit"
+      onClose={onClose}
+    >
+      {content}
+    </AppSheet>
+  ),
 )
-const UsageView = lazy(() =>
-  throughRestarts(() => import('@/features/usage/UsageView')).then((module) => ({
-    default: module.UsageView,
-  })),
+const UsageView = lazyScreen(
+  () => import('@/features/usage/UsageView'),
+  (module) => module.UsageView,
+  (content, { onClose }) => (
+    <AppSheet
+      label="Usage & analytics"
+      title="Usage & analytics"
+      className="app-sheet-fit"
+      onClose={onClose}
+    >
+      {content}
+    </AppSheet>
+  ),
 )
 // FlightDeck already unmounts when folded. Deferring its module in exactly that
 // state changes no subscriptions or retained component state.
-const FlightDeck = lazy(() =>
-  throughRestarts(() => import('./FlightDeck')).then((module) => ({ default: module.FlightDeck })),
+const FlightDeck = lazyScreen(
+  () => import('./FlightDeck'),
+  (module) => module.FlightDeck,
 )
-const FoldedFlightDeckBar = lazy(() =>
-  throughRestarts(() => import('./FoldedFlightDeckBar')).then((module) => ({
-    default: module.FoldedFlightDeckBar,
-  })),
+const FoldedFlightDeckBar = lazyScreen(
+  () => import('./FoldedFlightDeckBar'),
+  (module) => module.FoldedFlightDeckBar,
 )
 const OnboardingWizard = lazy(() =>
   throughRestarts(() => import('@/features/setup/OnboardingWizard')).then((module) => ({
@@ -499,7 +520,6 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
     view,
     repoCount,
     worktreeCount,
-    sessionCount,
     selectedIssueId,
     missionRoot: flightDeckMission,
     settled: chromeSettled,
@@ -545,15 +565,16 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
   // wizard with no way out. Undefined until the server has answered.
   const adminViewer = useAdminSections()
   const setsUpServer =
-    adminViewer.status === 'loading' ? undefined : (adminViewer.capabilities?.setUpServer ?? true)
+    adminViewer.status === 'ready' ? adminViewer.capabilities?.setUpServer : undefined
+  const setupFinished = adminViewer.setupFinished
   const shouldContinueRemoteActivation =
     vpsActivation.ready &&
     shouldStartRemoteClientAtHandoff({
       launchMode: nativeDesktopBridge()?.launchMode,
-      loaded: reposLoaded,
+      loaded: reposLoaded && setupFinished !== undefined,
       setsUpServer: setsUpServer === true,
       repoCount,
-      sessionCount,
+      setupFinished: setupFinished === true,
       route: activationState.route,
       hasActivationCheckpoint,
       hasVpsCheckpoint: vpsActivation.state !== null,
@@ -562,18 +583,18 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
     vpsActivation.ready &&
     shouldStartBrowserAtProjectIntake({
       nativeShell: nativeDesktopBridge() !== undefined,
-      loaded: reposLoaded,
+      loaded: reposLoaded && setupFinished !== undefined,
       setsUpServer: setsUpServer === true,
       repoCount,
-      sessionCount,
+      setupFinished: setupFinished === true,
       route: activationState.route,
       hasActivationCheckpoint,
       hasVpsCheckpoint: vpsActivation.state !== null,
     })
   const activationFacts = {
-    loaded: reposLoaded,
+    loaded: reposLoaded && setupFinished !== undefined,
     repoCount,
-    sessionCount,
+    setupFinished: setupFinished === true,
     setupInProgress,
     hasActivationCheckpoint,
     hasVpsCheckpoint: vpsActivation.state !== null,
@@ -582,10 +603,10 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
     ...activationFacts,
     setsUpServer: setsUpServer === true,
   })
-  // Only a window that WOULD open setup waits for the server's answer; one with
-  // work in it never asks, so a warm start costs nothing extra.
+  // Only a window that could open setup waits for the shared viewer read.
   const awaitingSetupViewer =
-    setsUpServer === undefined && isActivationEligible({ ...activationFacts, setsUpServer: true })
+    (setsUpServer === undefined || setupFinished === undefined) &&
+    isActivationEligible({ ...activationFacts, loaded: reposLoaded, setsUpServer: true })
   // Setup owns the window outright (POD-1174). There is no exploring mode and no
   // other view to be in: while this is true the shell below simply does not
   // render, so nothing else can be reached until setup finishes.
@@ -656,12 +677,11 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
     navigateActivation(next.route)
   }
 
-  // A setup flag or URL step left on an instance that already has sessions is
-  // stale (see isActivationEligible): retire it, so the device heals itself.
+  // Retire a saved flag from a finished instance using the server's answer.
   const staleActivation = hasStaleActivation({
-    loaded: reposLoaded && setsUpServer !== undefined,
+    loaded: setsUpServer !== undefined && setupFinished !== undefined,
     setsUpServer: setsUpServer !== false,
-    sessionCount,
+    setupFinished: setupFinished === true,
     setupInProgress,
     hasActivationCheckpoint,
   })
@@ -670,6 +690,7 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
   }, [staleActivation, clearActivation])
 
   const completeActivation = (): void => {
+    adminViewer.retry()
     clearActivation()
     if (vpsActivation.state) void vpsActivation.clear().catch(() => {})
     setSelectedIssueId(null)
@@ -863,6 +884,7 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
    */
   useEffect(() => {
     const cancels = [
+      prefetchAfterFirstPaint(() => lazySurfaces.warm()),
       prefetchAfterFirstPaint(loadAgentPanel),
       // AgentPanel deliberately keeps chat-first sessions free of a hidden PTY.
       // Warm only the renderer bytes here: preloadTerminalRuntime neither mounts
@@ -955,7 +977,13 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
     return (
       <>
         {menuHost}
-        {sync.firstSync ? (
+        {awaitingSetupViewer && adminViewer.status === 'error' ? (
+          <AppErrorPage
+            title="Setup status is unavailable"
+            message="Podium could not check whether this server needs setup. Try again to continue."
+            onRetry={adminViewer.retry}
+          />
+        ) : sync.firstSync ? (
           <SyncLoader
             store={syncProgress}
             reposLoaded={reposLoaded}

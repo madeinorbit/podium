@@ -1,6 +1,7 @@
 import { readFileSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
 import { randomBytes } from 'node:crypto'
+import type { WorkspaceId } from '@podium/model'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
 
 export const FINGERPRINT_KEY_FILE = 'secret-fingerprint.key'
@@ -10,8 +11,15 @@ export const FINGERPRINT_IMPORT_MARKER = 'secret_fingerprint_import_v1'
 /** One-time data migration, on the exclusive migration connection. The key,
  * cleanup receipt commit together before retiring the legacy file.
  * A crash between commit and unlink resumes cleanup, never imports or mints again.
- * In-memory databases have no legacy directory to import. */
-export function importFingerprintKey(db: SqlDatabase, directory?: string): void {
+ * In-memory databases have no legacy directory to import.
+ *
+ * The key is the boot workspace's (`workspace_secrets`, POD-7013); the receipt
+ * stays an install key of `meta`. */
+export function importFingerprintKey(
+  db: SqlDatabase,
+  workspaceId: WorkspaceId,
+  directory?: string,
+): void {
   const marker = () =>
     (
       db.prepare('SELECT value FROM meta WHERE key = ?').get(FINGERPRINT_IMPORT_MARKER) as
@@ -33,7 +41,10 @@ export function importFingerprintKey(db: SqlDatabase, directory?: string): void 
       // Preserve precisely the bytes the legacy reader used, including its hex
       // decoding semantics. Never replace an existing file with a fresh key.
       const key = raw === undefined ? randomBytes(32) : Buffer.from(raw.trim(), 'hex')
-      db.prepare('INSERT INTO server_secrets (key, value, updated_at) VALUES (?, ?, ?)').run(
+      db.prepare(
+        'INSERT INTO workspace_secrets (workspace_id, key, value, updated_at) VALUES (?, ?, ?, ?)',
+      ).run(
+        workspaceId,
         FINGERPRINT_SECRET_KEY,
         key.toString('hex'),
         new Date().toISOString(),

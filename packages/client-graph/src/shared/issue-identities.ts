@@ -1,5 +1,5 @@
 import { parseIssueRef } from '@podium/protocol'
-import { createKeyedAnswer, type KeyedAnswer } from '../query-result'
+import { createBucketWriter, createKeyedAnswer, type KeyedAnswer } from '../query-result'
 import { ingestWorktreeRecord } from './repo-from-lane'
 import type { RowSourceEvent } from './source'
 
@@ -56,15 +56,17 @@ export function createIssueIdentities(
   let lanes = seed?.lanes.fork() ?? createKeyedAnswer<Lane>()
   let holders = seed?.holders.fork() ?? createKeyedAnswer<Lane>()
   let records = seed?.records.fork() ?? createKeyedAnswer<Lane>()
+  const buckets = createBucketWriter()
   const prefixOf = (fact: IssueIdentityFact) => fact.repoId ? repos.get(fact.repoId) : undefined
   function file(collection: KeyedAnswer<Bucket>, key: string, id: string, present: boolean) {
     const before = collection.get(key)
     if ((before?.answer.has(id) ?? false) === present) return
-    const answer = before?.answer.fork() ?? createKeyedAnswer<string>()
+    const answer = buckets.writable(before?.answer, () => createKeyedAnswer<string>())
     if (present) answer.set(id, id, id)
     else answer.delete(id)
-    if (answer.first() !== undefined) collection.set(key, key, { answer })
-    else collection.delete(key)
+    if (answer.first() !== undefined) {
+      if (answer !== before?.answer) collection.set(key, key, { answer })
+    } else collection.delete(key)
   }
   function setFact(id: string, next: IssueIdentityFact | undefined) {
     const previous = facts.get(id)
@@ -112,7 +114,10 @@ export function createIssueIdentities(
     return at > 0 ? prefixed(token.slice(0, at), token.slice(at + 1)) : undefined
   }
   return {
-    fork: () => createIssueIdentities(members, { facts, repos, prefixes, pairs, bare, byRepo, liveByRepo, lanes, holders, records }),
+    fork: () => {
+      buckets.share()
+      return createIssueIdentities(members, { facts, repos, prefixes, pairs, bare, byRepo, liveByRepo, lanes, holders, records })
+    },
     clear() {
       facts = createKeyedAnswer<IssueIdentityFact>(); repos = createKeyedAnswer<string>()
       prefixes = createKeyedAnswer<Bucket>(); pairs = createKeyedAnswer<Bucket>()

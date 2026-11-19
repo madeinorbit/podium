@@ -402,13 +402,13 @@ export type OpenerExemption = SourceSite & { readonly why: string }
 export const NOT_A_SPAN_OPENER: readonly OpenerExemption[] = [
   {
     file: 'apps/server/src/store/executor/executor.ts',
-    line: 212,
-    why: "the ASYNC executor's own transact, declared on StoreExecutor. It is the MACHINERY under a span, not the span's mouth: after the flip every repository opens its unit of work through `createOrJoinTransaction`, whose implementation in sync-drizzle.ts calls this. Naming it as well would attribute each repository span twice, once at the call site and once at a body argument that arrives here as a parameter and is therefore opaque. (Was 70, then 81; POD-3498's SpanScopeDrizzle comment moved it once and POD-3802's async-store fallout — `afterCommit`, the refusal reporting and the scheduler types now above it — moved it again. The lint REPORTED each move rather than following it silently, which is what pinning by line is for. Then 212: POD-6189's `openSpanFrame` above it.)",
+    line: 245,
+    why: "the ASYNC executor's own transact, declared on StoreExecutor. It is the MACHINERY under a span, not the span's mouth: after the flip every repository opens its unit of work through `createOrJoinTransaction`, whose implementation in sync-drizzle.ts calls this. Naming it as well would attribute each repository span twice, once at the call site and once at a body argument that arrives here as a parameter and is therefore opaque. (Was 70, then 81; POD-3498's SpanScopeDrizzle comment moved it once and POD-3802's async-store fallout — `afterCommit`, the refusal reporting and the scheduler types now above it — moved it again. The lint REPORTED each move rather than following it silently, which is what pinning by line is for. Then 212: POD-6189's `openSpanFrame` above it. Then 245: POD-7009's StoreContext and its constructors above it.)",
   },
   {
     file: 'apps/server/src/store/executor/executor.ts',
-    line: 1036,
-    why: "the same declaration's implementation. (Was 676, then 680, then 678; POD-3345's idle-gap clock, the flip's own edits and POD-3802's async-store fallout moved it. Reported each time. Then 1026: POD-6189's `openSpanFrame`. Then 1036: POD-6226's root `effect` on RootStoreExecutor.)",
+    line: 1092,
+    why: "the same declaration's implementation. (Was 676, then 680, then 678; POD-3345's idle-gap clock, the flip's own edits and POD-3802's async-store fallout moved it. Reported each time. Then 1026: POD-6189's `openSpanFrame`. Then 1036: POD-6226's root `effect` on RootStoreExecutor. Then 1078: POD-7009's workspace contexts. Then 1092: POD-6979's query-layer check.)",
   },
   {
     file: 'packages/sync/src/authority/authority.ts',
@@ -431,8 +431,13 @@ export const NOT_A_SPAN_OPENER: readonly OpenerExemption[] = [
     why: "IndexedDB's own transaction helper: a browser adapter, no server span.",
   },
   {
+    file: 'packages/sync/src/adapters/indexeddb/schema.ts',
+    line: 127,
+    why: 'The native IndexedDB versionchange transaction supplied by onupgradeneeded. This property holds a transaction handle; it cannot open a server span.',
+  },
+  {
     file: 'packages/sync/src/adapters/indexeddb/store.ts',
-    line: 585,
+    line: 793,
     why: 'Native IndexedDB transaction acquisition and connection recovery, taking store names and a mode without a body callback. Logical span bodies enter through the already-declared SyncUnitOfWork.transact port.',
   },
   {
@@ -584,6 +589,9 @@ const PACKAGE_KIND: Readonly<Record<string, CapabilityKind>> = {
   // and deferring it past a rollback would lose the very diagnostic a corrupt
   // row is being reported for. The store's quarantine warnings live here.
   '@podium/logger': 'exempt',
+  // The AWS SDK's request sender, behind the S3 blob store adapter: every call is a
+  // request to the bucket, which a rollback cannot take back (POD-7054).
+  '@smithy/core': 'observable',
 }
 
 /** A port member's classification, and the sentence that justifies it. */
@@ -606,6 +614,22 @@ export interface PortRule {
  * share a member name cannot collapse into one answer.
  */
 export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
+  'packages/blob-store/src/local.ts#LocalBlobStore.writer': {
+    kind: 'opaque',
+    why: "The write callback the local blob store hands its transfer fence. Its body is the adapter's own put, delete or copy, declared in the same file and walked there.",
+  },
+  'packages/blob-store/src/internal.ts#KeyedMutex.task': {
+    kind: 'opaque',
+    why: "The work the local blob store's per-key mutex runs; the body is the adapter's own file operation, declared at the call site in local.ts and walked there.",
+  },
+  'packages/blob-store/src/internal.ts#KeyedMutex.release': {
+    kind: 'contained',
+    why: 'Resolves an in-process promise that hands the key to the next waiter; nothing outside the process can see it.',
+  },
+  'packages/sync/src/adapters/indexeddb/idb.ts#IdbKeyRangeLike.bound': {
+    kind: 'contained',
+    why: 'Builds an IndexedDB key range value (the marker rows of one principal, POD-7086) for a delete staged in the same native transaction; constructing it reads and writes nothing.',
+  },
   'apps/server/src/store/events.ts#EventFeedCapture.EventFeedCapture': {
     kind: 'contained',
     why: 'The event append capture names window changes through Ledger.commit in the event insert transaction; rollback discards the row and log entries together, and subscriber delivery follows the outermost commit.',
@@ -800,6 +824,10 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
     kind: 'opaque',
     why: "The owning repository's one-row status SELECT, read only when a guarded move did not apply [POD-4765]; declared beside the write in its repository and checked there.",
   },
+  'packages/model/src/records/index.ts#<module>.recordOf': {
+    kind: 'contained',
+    why: 'A lookup in the declared record table by kind: the marker map sorts a marker it sets by the links its collection declares (POD-7119). Pure data; no I/O, nothing observable outside the process.',
+  },
   'packages/model/src/state-machine.ts#StateMachine.allowedFrom': {
     kind: 'contained',
     why: 'A lookup in the declared transition table: the states a row may be in for a move into one state. Pure data; no I/O, nothing observable outside the process.',
@@ -949,6 +977,86 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
   'packages/sync/src/adapters/sqlite/prepared.ts#<module>.<anonymous>': {
     kind: 'opaque',
     why: 'the memoising wrapper around a caller-supplied prepared-query builder; it adds no I/O of its own, and the builder is judged at its declaration',
+  },
+  // POD-6959 (workspace store context, POD-7009): a workspace definition's
+  // accessor, and the bound view's `execute` that executeRaw calls.
+  'packages/sync/src/adapters/sqlite/prepared.ts#PreparedAccessor.<anonymous>': {
+    kind: 'opaque',
+    why: "a workspace definition's accessor: it returns the definition's statement prepared once per drizzle instance, or that statement's bound view for a workspace handle, which fills workspaceId and checks the open transaction's workspace; no I/O of its own, and the builder is judged at its declaration",
+  },
+  'packages/sync/src/adapters/sqlite/prepared.ts#PreparedFamilyAccessor.<anonymous>': {
+    kind: 'opaque',
+    why: "a workspace family's accessor: the same as PreparedAccessor, per shape; no I/O of its own, and the builder is judged at its declaration",
+  },
+  'apps/server/src/store/executor/sync-drizzle.ts#<module>.execute': {
+    kind: 'contained',
+    why: "executeRaw's call of a prepared raw statement (or its bound view, which adds the workspace): one statement on the store's drizzle instance, routed to the open transaction's connection; no effect outside the database",
+  },
+  // POD-7013: the first repositories that run workspace statements through a handle.
+  'packages/sync/src/adapters/sqlite/prepared.ts#Bound.<anonymous>': {
+    kind: 'contained',
+    why: "a bound view's get, all, run, values or execute: the definition's prepared statement with workspaceId filled from the handle, after checking the open transaction is the same workspace's; one statement on the store's drizzle instance, routed to the open transaction's connection, so no effect outside the database",
+  },
+  // POD-6977 (tables from the binding): the store's and the sync adapter's
+  // typed names for the same two helpers of prepared.ts.
+  'apps/server/src/store/executor/sync-drizzle.ts#<module>.prepared': {
+    kind: 'opaque',
+    why: "prepared.ts's prepared under the store's types (the same function): it memoises a caller-supplied builder per drizzle instance and adds no I/O of its own; the builder is judged at its declaration",
+  },
+  'apps/server/src/store/executor/sync-drizzle.ts#<module>.preparedFamily': {
+    kind: 'opaque',
+    why: "prepared.ts's preparedFamily under the store's types (the same function): it memoises a caller-supplied builder per drizzle instance and shape and adds no I/O of its own; the builder is judged at its declaration",
+  },
+  'apps/server/src/store/executor/sync-drizzle.ts#<module>.<anonymous>': {
+    kind: 'opaque',
+    why: 'the memoising wrapper a store definition is (prepared.ts, typed for the store); it adds no I/O of its own, and the builder is judged at its declaration',
+  },
+  // POD-6995 (two-engine slice): a two-form definition's statement, typed with its
+  // declared values.
+  'apps/server/src/store/executor/dialect-prepared.ts#DialectStatement.<anonymous>': {
+    kind: 'contained',
+    why: "a two-form definition's run method (get, all, run, values, execute): the statement of the form the store's engine built, one statement on the store's drizzle instance, routed to the open transaction's connection; no effect outside the database",
+  },
+  // POD-6985: change capture's Postgres form (sync/capture-pg.ts), reached from a span
+  // through the message status move, which the repository prepares on its first call.
+  // Each renders SQL with drizzle's Postgres dialect; none runs a statement.
+  'apps/server/src/sync/capture-pg.ts#PgWriteBuilder.buildUpdateSet': {
+    kind: 'contained',
+    why: "drizzle's Postgres dialect renders an update's SET list as SQL text; a pure computation, no statement runs",
+  },
+  'apps/server/src/sync/capture-pg.ts#PgWriteBuilder.buildInsertQuery': {
+    kind: 'contained',
+    why: "drizzle's Postgres dialect renders an insert as SQL text for the capture form; a pure computation, no statement runs",
+  },
+  'apps/server/src/sync/capture-pg.ts#PgWriteBuilder.buildDeleteQuery': {
+    kind: 'contained',
+    why: "drizzle's Postgres dialect renders a delete as SQL text for the capture form; a pure computation, no statement runs",
+  },
+  'apps/server/src/sync/capture-pg.ts#PgWriteBuilder.buildSelection': {
+    kind: 'contained',
+    why: "drizzle's Postgres dialect renders a RETURNING selection as SQL text; a pure computation, no statement runs",
+  },
+  'apps/server/src/sync/capture-pg.ts#PgWriteBuilder.sqlToQuery': {
+    kind: 'contained',
+    why: "drizzle's Postgres dialect turns a SQL fragment into query text and parameters; a pure computation, no statement runs",
+  },
+  'apps/server/src/sync/capture-pg.ts#RowRef.RowRef': {
+    kind: 'contained',
+    why: 'the capture form names one column of the old or new row as an SQL expression string; a pure computation, no statement runs',
+  },
+  // POD-6986: the shipping guards (store/append-only.ts), which captureWrite applies when it
+  // renders a write's Postgres form. Each builds SQL; none runs a statement.
+  'apps/server/src/store/append-only.ts#WriteGuardForm.where': {
+    kind: 'contained',
+    why: "the guard's in-statement refusal ANDed into a write's WHERE, built as SQL from the write's own WHERE; a pure computation, no statement runs",
+  },
+  'apps/server/src/store/append-only.ts#RowRef.RowRef': {
+    kind: 'contained',
+    why: 'a guard rule names one column of the written row as an SQL expression string; a pure computation, no statement runs',
+  },
+  'packages/sync/src/adapters/sqlite/sync-repository.ts#<module>.<anonymous>': {
+    kind: 'opaque',
+    why: 'the memoising wrapper a sync-repository definition is (prepared.ts, typed for the adapter); it adds no I/O of its own, and the builder is judged at its declaration',
   },
   'apps/server/src/store/executor/operation-loader.ts#OperationLoader.loadMany': {
     kind: 'contained',

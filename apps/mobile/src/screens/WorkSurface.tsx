@@ -91,6 +91,7 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
     <Screen
       large
       title="Work"
+      refreshing={phone.refreshing}
       right={
         <>
           {/* My notices (POD-6881): the count, and the way to the inbox. */}

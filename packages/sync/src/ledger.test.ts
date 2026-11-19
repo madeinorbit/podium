@@ -6,6 +6,7 @@ import {
   createTestSyncQueries,
   createTestSyncRepository,
   createTestTransact,
+  TEST_WORKSPACE_ID,
   testSyncServerTables,
 } from './adapters/sqlite/test-support'
 import { CHANGE_KEEP_ROWS, CHANGE_MAX_AGE_MS, minAvailableSeq } from './change-log'
@@ -132,7 +133,11 @@ describe('source write and append atomicity', () => {
     const db = createTestSyncDatabase()
     try {
       db.exec('CREATE TABLE test_models (id TEXT PRIMARY KEY, value TEXT NOT NULL)')
-      const repo = new SyncRepository(createTestSyncQueries(db), testSyncServerTables)
+      const repo = new SyncRepository(
+        createTestSyncQueries(db),
+        testSyncServerTables,
+        TEST_WORKSPACE_ID,
+      )
       const records = new ModelRecords()
       const get = db.prepare('SELECT value FROM test_models WHERE id = ?')
       records.build = async (_kind, ids) =>

@@ -5,7 +5,6 @@ import { createLogger } from '@podium/logger'
 const log = createLogger('client-graph:feed-diagnostics')
 export type FeedFailureKind =
   | `listener:${'update' | 'replace'}`
-  | `cold-index:${'update' | 'replace'}`
   | 'header:quota'
   | 'header:history'
   | 'header:lifecycle'

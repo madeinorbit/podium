@@ -8,7 +8,7 @@ if (hostname() !== 'flatblock') throw new Error('Inbox control belongs on flatbl
 const controls = [
   [
     'complete Inbox legacy hook',
-    'apps/mobile/src/client/use-inbox-data.ts',
+    'apps/mobile/src/client/use-pool-links.ts',
     'export function useInboxData(): InboxData {',
     "import { readFixture } from '@podium/client-core/react'; export function useInboxData(): InboxData { readFixture(s => s.sessions)",
     'Legacy work at enabled mount',

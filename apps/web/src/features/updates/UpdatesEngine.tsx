@@ -26,6 +26,8 @@
  * request in the same window as every other boot request, long before any update
  * can be offered.
  */
+
+import { serviceWorkerContainer } from '@podium/client-core/service-worker'
 import { observer } from '@podium/client-graph/react'
 import type { JSX } from 'react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
@@ -34,13 +36,16 @@ import { makeTrpc, serverConfig } from '@/app/trpc'
 import { forceReload } from '@/lib/force-reload'
 import { swLog, updatesLog } from '@/lib/logging/update-logs'
 import { navigateReload } from '@/lib/navigate'
-import { withReloadPreparation } from '@/lib/reload-preparation'
-import { serviceWorkerContainer } from '@/lib/sw-container'
+import { RELOAD_COMMIT_GRACE_MS, withReloadPreparation } from '@/lib/reload-preparation'
 import { updateStatus } from '@/lib/update-status'
 import { registerUpdatePanelOpener } from './open-panel'
 import { DONE_COLLAPSE_MS } from './operation-view'
 import { ReleaseProposalCard } from './ReleaseProposalCard'
-import { type ReloadHandshakeStatus, startReloadHandshake } from './reload-handshake'
+import {
+  notReloadedStatus,
+  type ReloadHandshakeStatus,
+  startReloadHandshake,
+} from './reload-handshake'
 import { UpdatePanel } from './UpdatePanel'
 import { UpdateSpaceNotice } from './UpdateSpaceNotice'
 import { publishUpdates, resetUpdates, type UpdatesContextValue } from './updates-panel-context'
@@ -135,10 +140,13 @@ export const UpdatesEngine = observer(function UpdatesEngine({
    * state to the panel. A stalled handoff loads through the network entry after
    * preserving drafts and local queue commits, without clearing their storage.
    */
+  const notReloadedTimer = useRef<number | undefined>(undefined)
+  useEffect(() => () => window.clearTimeout(notReloadedTimer.current), [])
   const reload = useCallback(async () => {
     const serviceWorker = serviceWorkerContainer()
     const currentRegistration = registration
-    await startReloadHandshake({
+    window.clearTimeout(notReloadedTimer.current)
+    const outcome = await startReloadHandshake({
       serviceWorker,
       trigger: 'panel',
       registration: currentRegistration,
@@ -149,6 +157,17 @@ export const UpdatesEngine = observer(function UpdatesEngine({
       reload: () => withReloadPreparation(() => navigateReload('handshake', 'replacement-ready')),
       recover: () => forceReload('service-worker-handoff-incomplete', false),
     })
+    // A started navigation that has not replaced this document within the grace
+    // period was lost (POD-7154): say so, and let Reload and Reset act again.
+    if (outcome.outcome !== 'reloading') return
+    notReloadedTimer.current = window.setTimeout(() => {
+      updatesLog.warn('the page did not reload after the reload started', {
+        waitedMs: RELOAD_COMMIT_GRACE_MS,
+      })
+      setReloadStatus((status) =>
+        notReloadedStatus(status, outcome.snapshot, RELOAD_COMMIT_GRACE_MS),
+      )
+    }, RELOAD_COMMIT_GRACE_MS)
   }, [registration])
 
   const resolvedOrigin = httpOrigin ?? serverConfig(window.location).httpOrigin

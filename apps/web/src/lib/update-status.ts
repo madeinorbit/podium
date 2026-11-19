@@ -354,11 +354,6 @@ export class UpdateStatus {
     void this.refresh()
   }
 
-  /** The wait for an operation is over without one (the caller reports it). */
-  @action stopAwaiting(): void {
-    this.awaiting = null
-  }
-
   /** Stop all timers and listeners. Tests and origin changes only. */
   dispose(): void {
     this.stopCadence?.()

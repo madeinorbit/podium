@@ -1,24 +1,30 @@
 /** Member-row fixtures for repository tests. Transport tests use real memberships. */
 import { applyMembership, type MembershipSnapshot } from '@podium/identity'
-import { identityUser } from '@podium/identity/schema/sqlite'
 import { asUserId, LoginEmail, type UserId, type UserRole } from '@podium/model'
 import { eq } from 'drizzle-orm'
 import { memberInvites, userCredentials } from '../../migrations/identity-import-schema'
 import { users } from '../../migrations/schema'
 import type { SessionStore } from '../../store'
+import { captureWrite } from '../../sync/capture-pg'
 import { seedRows } from '../../test-support/seed-rows'
+import { type StoreDrizzle, storeTables } from '../executor/sync-drizzle'
 import type { UserAccountRow } from '../users'
 
+/**
+ * Member-row facts on either engine [POD-6994]: the store's own drizzle instance and the
+ * engine's tables (`storeTables`), so the same fixture writes SQLite and Postgres. The
+ * historical insert of a member row goes through `captureWrite`, so Postgres captures it
+ * as SQLite's triggers do.
+ */
 export function memberFacts(store: SessionStore) {
-  const database = store.identityDatabase()
-  if (database.dialect !== 'sqlite') throw new Error('Expected SQLite')
-  const db = database.db
+  const db = store.identityDatabase().db as unknown as StoreDrizzle
+  const t = storeTables(db)
   async function write(id: string, change: Partial<MembershipSnapshot>) {
     await store.transact(async () => {
       const [row] = await db
         .select()
-        .from(users)
-        .where(eq(users.id, asUserId(id)))
+        .from(t.users)
+        .where(eq(t.users.id, asUserId(id)))
       await applyMembership(store.users.memberRows, {
         memberId: id,
         version: (row?.membershipVersion ?? 0) + 1,
@@ -39,9 +45,9 @@ export function memberFacts(store: SessionStore) {
   return {
     async verifyAccountEmail(accountId: string) {
       await db
-        .update(identityUser)
+        .update(t.identityUser)
         .set({ emailVerified: true })
-        .where(eq(identityUser.id, accountId))
+        .where(eq(t.identityUser.id, accountId))
     },
     async create(
       account: Omit<UserAccountRow, 'email'> & { email?: string | null },
@@ -55,13 +61,16 @@ export function memberFacts(store: SessionStore) {
       const id = asUserId(account.id)
       await store.grants.machineRecordWrites.compare(async () => {
         await store.transact(async () => {
-          await db.insert(users).values({
-            id,
-            displayName: account.displayName,
-            email: account.email == null ? null : LoginEmail.parse(account.email),
-            role: account.role,
-            createdAt: account.createdAt,
-          })
+          await captureWrite(
+            db.insert(t.users).values({
+              workspaceId: store.workspaceId,
+              id,
+              displayName: account.displayName,
+              email: account.email == null ? null : LoginEmail.parse(account.email),
+              role: account.role,
+              createdAt: account.createdAt,
+            }),
+          )
           await store.superagent.seedMemberGlobalThread(id)
           await write(account.id, { role: account.role, status: 'active' })
           if (account.disabledAt) await write(account.id, { status: 'disabled' })
@@ -97,9 +106,15 @@ export function memberFacts(store: SessionStore) {
   }
 }
 
+/**
+ * The pre-identity tables a SQLite install may still hold until its boot import retires
+ * them. SQLite only: a Postgres baseline never had them (`legacyIdentityStorage`).
+ */
 export function legacyIdentity(store: SessionStore) {
   const database = store.identityDatabase()
-  if (database.dialect !== 'sqlite') throw new Error('Expected SQLite')
+  if (database.dialect !== 'sqlite') {
+    throw new Error('legacyIdentity: the pre-identity tables exist on SQLite installs only')
+  }
   const db = database.db
   async function setPasswordHash(id: UserId, hash: string, at: string) {
     await db
@@ -119,6 +134,7 @@ export function legacyIdentity(store: SessionStore) {
       // Legacy rows are seeded below the change log (POD-6920).
       await seedRows(store, async () => {
         await db.insert(users).values({
+          workspaceId: store.workspaceId,
           id: asUserId(account.id),
           displayName: account.displayName,
           role: account.role,

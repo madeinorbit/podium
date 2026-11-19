@@ -1,11 +1,18 @@
-import { omitGone } from '@podium/client-graph/lookup'
 import type { MobxPool } from '@podium/client-graph'
+import { boardRefreshing } from '@podium/client-graph/issue-board-layout'
 import { readBoardCatalog } from '@podium/client-graph/issue-board-readers'
-import type { BoardCatalog, BoardColumnOptions, BoardOptions, PoolBoardData } from '@podium/client-graph/issue-board-schema'
+import type {
+  BoardCatalog,
+  BoardColumnOptions,
+  BoardOptions,
+  PoolBoardData,
+} from '@podium/client-graph/issue-board-schema'
+import { omitGone } from '@podium/client-graph/lookup'
 import { ISSUE_BOARD_STAGES, type IssueId } from '@podium/model/browser'
 import { useCallback } from 'react'
 import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import { useBoardPoolProjection } from './board-pool-projection'
+
 export { readBoardCatalog } from '@podium/client-graph/issue-board-readers'
 
 export const EMPTY_BOARD: PoolBoardData = {
@@ -22,8 +29,16 @@ export const EMPTY_BOARD: PoolBoardData = {
   },
 }
 const EMPTY_IDS: IssueId[] = []
-const EMPTY_CATALOG: BoardCatalog = { scope: [], projectPaths: [], assignees: [], labels: [] }
+const EMPTY_CATALOG: BoardCatalog = { projectPaths: [] }
 const readWindow = (pool: MobxPool) => omitGone(pool.row('issueBoardWindow', 'current'))
+export function useBoardRefreshing(options: BoardOptions): boolean {
+  const key = JSON.stringify(options.filter)
+  const read = useCallback(
+    (pool: MobxPool) => boardRefreshing(pool, ISSUE_BOARD_STAGES, JSON.parse(key)),
+    [key],
+  )
+  return useWorklistPoolProjection(read, false)
+}
 export function useBoardBase() {
   const window = useWorklistPoolProjection(readWindow, undefined)
   return {
@@ -32,8 +47,13 @@ export function useBoardBase() {
 }
 export function useBoardData(options: BoardOptions): PoolBoardData {
   const key = JSON.stringify({
-    display: { layout: options.display.layout, ordering: options.display.ordering, showAgentTasks: options.display.showAgentTasks },
-    filter: options.filter, isMobile: options.isMobile,
+    display: {
+      layout: options.display.layout,
+      ordering: options.display.ordering,
+      showAgentTasks: options.display.showAgentTasks,
+    },
+    filter: options.filter,
+    isMobile: options.isMobile,
     expanded: options.isMobile || options.display.layout === 'list' ? options.expanded : [],
   })
   const value = useBoardPoolProjection<PoolBoardData | symbol>('issueBoardModel', key)
@@ -45,6 +65,17 @@ export function useBoardColumn(options: BoardColumnOptions, fallback: IssueId[])
   const ids = useWorklistPoolProjection(read, undefined)
   return ids && typeof ids !== 'symbol' ? ids : fallback
 }
+/** A column's count; `loading` while it is on its way (POD-7088); undefined without a pool. */
+export function useBoardColumnCount(options: BoardColumnOptions): number | 'loading' | undefined {
+  const key = JSON.stringify(options)
+  const read = useCallback(
+    (pool: MobxPool) => omitGone(pool.row('issueBoardColumnCount', key)),
+    [key],
+  )
+  const value = useWorklistPoolProjection(read, undefined)
+  if (typeof value === 'symbol') return 'loading'
+  return value ? value.count : undefined
+}
 export function useBoardCatalog(open: boolean, agents: boolean) {
   const read = useCallback((pool: MobxPool) => readBoardCatalog(pool, open, agents), [open, agents])
   const value = useWorklistPoolProjection(read, undefined)
@@ -52,21 +83,30 @@ export function useBoardCatalog(open: boolean, agents: boolean) {
 }
 export function useBoardOpenIds(options: BoardOptions, id: IssueId | null) {
   const key = JSON.stringify({ ...options, id })
-  const read = useCallback((pool: MobxPool) => id ? omitGone(pool.row('issueBoardOpenIds', key)) : undefined, [id, key])
+  const read = useCallback(
+    (pool: MobxPool) => (id ? omitGone(pool.row('issueBoardOpenIds', key)) : undefined),
+    [id, key],
+  )
   const value = useWorklistPoolProjection(read, undefined)
   return value && typeof value !== 'symbol' ? value : EMPTY_IDS
 }
 export function useBoardMenu(ids: string[] | undefined, agents: boolean) {
   const key = JSON.stringify({ ids, agents })
   const active = !!ids
-  const read = useCallback((pool: MobxPool) => active ? omitGone(pool.row('issueBoardMenu', key)) : undefined, [active, key])
+  const read = useCallback(
+    (pool: MobxPool) => (active ? omitGone(pool.row('issueBoardMenu', key)) : undefined),
+    [active, key],
+  )
   const value = useWorklistPoolProjection(read, undefined)
   return value && typeof value !== 'symbol' ? value : undefined
 }
 export function useBoardDropIndex() {
   const pool = useWorklistPool()
-  return useCallback((options: BoardColumnOptions & { id: string }) => {
-    const value = omitGone(pool?.row('issueBoardDropIndex', JSON.stringify(options)))
-    return value && typeof value !== 'symbol' ? value.index ?? 0 : 0
-  }, [pool])
+  return useCallback(
+    (options: BoardColumnOptions & { id: string }) => {
+      const value = omitGone(pool?.row('issueBoardDropIndex', JSON.stringify(options)))
+      return value && typeof value !== 'symbol' ? (value.index ?? 0) : 0
+    },
+    [pool],
+  )
 }

@@ -9,6 +9,7 @@ import { Ledger } from '@podium/sync'
 import { fixtureWriteScope, testLedgerWriter } from '@podium/sync/testing'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DRIZZLE_MIGRATIONS } from '../../migrations/drizzle-manifest.generated'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import type { SessionStore } from '../../store'
 import { serverRecordBuilders } from '../../sync/record-builders'
 import { testClientPrincipal } from '../../test-support/client-principal'
@@ -364,6 +365,7 @@ describe('session activity publication', () => {
       id: 'shell-reader',
       principal: testClientPrincipal('shell-reader'),
       send: () => {},
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       viewports: new Map(),
       attached: new Set(),
       caps: new Set(),

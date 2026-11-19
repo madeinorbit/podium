@@ -1,11 +1,13 @@
-import type { AgentKind, MachineId, ResumeRef, TranscriptItem } from '@podium/model'
-import { MirrorService } from '@podium/sync'
+import type { BlobStore } from '@podium/blob-store'
 import {
+  type ChainEntry,
   fileChainSource,
   fileIdFor,
   readIndexWindow,
   type TranscriptRecordMapper,
 } from '@podium/harness/store'
+import type { AgentKind, MachineId, ResumeRef, TranscriptItem, WorkspaceId } from '@podium/model'
+import { MirrorService, PartedLake } from '@podium/sync'
 import type { ConversationsRepository } from '../../store/conversations'
 import { type DaemonRequestPort, daemonRequestKind } from '../daemon-request'
 import { TranscriptIndexer } from './transcript-indexer'
@@ -35,6 +37,16 @@ const MIRROR_READ = daemonRequestKind<{
   inode?: string
   error?: string
 }>('mr')
+
+/**
+ * Where the lake keeps its parts: the workspace's blob store and its id
+ * (POD-6963 design 2.3). The id makes every lake source's cache identity
+ * unique across workspaces that share a process.
+ */
+export interface TranscriptLakeStorage {
+  blobs: BlobStore
+  workspaceId: WorkspaceId
+}
 
 export interface LakeReadSession {
   machineId: MachineId
@@ -87,6 +99,7 @@ export interface TranscriptLakeDeps {
  */
 export class TranscriptLake {
   private readonly mirror?: MirrorService
+  private readonly lake?: PartedLake
   private readonly indexer?: TranscriptIndexer
   /** Resolvers for ranged reads still outstanding against a daemon. */
   private readonly outstandingReads = new Set<(result: MirrorReadReply) => void>()
@@ -94,9 +107,11 @@ export class TranscriptLake {
 
   constructor(
     private readonly deps: TranscriptLakeDeps,
-    options: { mirrorLakeDir?: string } = {},
+    options: { transcriptLake?: TranscriptLakeStorage } = {},
   ) {
-    if (!options.mirrorLakeDir) return
+    if (!options.transcriptLake) return
+    const lake = new PartedLake(options.transcriptLake.blobs, options.transcriptLake.workspaceId)
+    this.lake = lake
     const indexer = new TranscriptIndexer({
       mirror: deps.store.mirror,
       index: deps.store.transcriptIndex,
@@ -106,12 +121,11 @@ export class TranscriptLake {
     this.indexer = indexer
     this.mirror = new MirrorService(
       deps.store.mirror,
-      options.mirrorLakeDir,
+      lake,
       async (machineId, request) => await this.read(machineId, request),
       deps.now,
       {
-        onBytes: async (machineId, nativeId, lakePath) =>
-          await indexer.onBytes(machineId, nativeId, lakePath),
+        onBytes: async (machineId, nativeId) => await indexer.onBytes(machineId, nativeId),
         onTruncate: async (machineId, nativeId) => await indexer.onTruncate(machineId, nativeId),
         onIncarnation: async (machineId, nativeId) =>
           await indexer.onIncarnation(machineId, nativeId),
@@ -207,32 +221,33 @@ export class TranscriptLake {
     { items: TranscriptItem[]; head?: string; tail?: string; hasMore: boolean } | undefined
   > {
     const nativeId = session.resume?.value
-    if (!this.mirror || !nativeId) return undefined
-    const incarnations = await this.deps.store.mirror.incarnations(session.machineId, nativeId)
-    const chain =
+    const lake = this.lake
+    if (!this.mirror || !lake || !nativeId) return undefined
+    const { machineId } = session
+    const liveCursor = async () => await this.deps.store.mirror.mirrorCursor(machineId, nativeId)
+    const incarnations = await this.deps.store.mirror.incarnations(machineId, nativeId)
+    // One source per incarnation, oldest first: an archived incarnation is
+    // bounded by its recorded byte count, the active one by the live cursor. A
+    // segment mirrored before file identities existed has no row; its bytes
+    // are sequence 1 (design 2.3, "Keys").
+    const chain: ChainEntry[] =
       incarnations.length > 0
         ? incarnations
             .filter((incarnation) => incarnation.mirroredBytes > 0)
-            .map((incarnation) => {
-              const path = incarnation.active
-                ? this.mirror?.lakePath(session.machineId, nativeId)
-                : this.mirror?.archivedLakePath(session.machineId, nativeId, incarnation.sequence)
-              return path
-                ? {
-                    path,
-                    fileId: fileIdFor(
-                      nativeId,
-                      incarnation.active ? undefined : incarnation.sequence,
-                    ),
-                  }
-                : undefined
-            })
-            .filter((entry): entry is { path: string; fileId: string } => entry !== undefined)
-        : (await this.deps.store.mirror.mirrorCursor(session.machineId, nativeId)) > 0
-          ? [this.mirror.lakePath(session.machineId, nativeId)].map((path) => ({
-              path,
-              fileId: fileIdFor(nativeId),
+            .map((incarnation) => ({
+              source: lake.source(
+                { machineId, nativeId, incarnation: incarnation.sequence },
+                incarnation.active ? liveCursor : () => incarnation.mirroredBytes,
+              ),
+              fileId: fileIdFor(nativeId, incarnation.active ? undefined : incarnation.sequence),
             }))
+        : (await liveCursor()) > 0
+          ? [
+              {
+                source: lake.source({ machineId, nativeId, incarnation: 1 }, liveCursor),
+                fileId: fileIdFor(nativeId),
+              },
+            ]
           : []
     if (chain.length === 0) return undefined
     // The Store's grammar parameter, injected at the composition root: the lake
@@ -271,13 +286,21 @@ export class TranscriptLake {
     to: number,
     windowBytes: number,
   ): Promise<{ items: TranscriptItem[]; consumed: number } | undefined> {
-    if (!this.mirror) return undefined
-    const session = await this.deps.findSessionByNativeId(machineId, nativeId).catch(() => undefined)
+    const lake = this.lake
+    if (!this.mirror || !lake) return undefined
+    const session = await this.deps
+      .findSessionByNativeId(machineId, nativeId)
+      .catch(() => undefined)
     if (!session) return undefined
     const recordToItems = this.deps.parseForAgentKind(session.agentKind)
     if (!recordToItems) return undefined
+    // The indexer reads the ACTIVE incarnation; a rotation resets its cursor.
+    const active = await this.deps.store.mirror.activeIncarnation(machineId, nativeId)
     return readIndexWindow(
-      this.mirror.lakePath(machineId, nativeId),
+      lake.source(
+        { machineId, nativeId, incarnation: active?.sequence ?? 1 },
+        async () => await this.deps.store.mirror.mirrorCursor(machineId, nativeId),
+      ),
       fileIdFor(nativeId),
       recordToItems,
       from,

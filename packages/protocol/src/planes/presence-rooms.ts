@@ -1,6 +1,7 @@
+import { IssueId, PresenceIdentity, SessionId } from '@podium/model'
 import { z } from 'zod'
-import { IssueId, SessionId } from '@podium/model'
-import { AgentIdentityId, UserId } from './principal'
+
+export { PresenceIdentity } from '@podium/model'
 
 /**
  * Rooms and identity-carrying presence — ADR 7 Amendment 1 D9/D10/D16.1/D16.2.
@@ -43,23 +44,6 @@ export const RoomRef = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('issue'), id: IssueId }),
 ])
 export type RoomRef = z.infer<typeof RoomRef>
-
-/**
- * WHO — stamped by the server from the authenticated transport principal
- * (ADR 3 D7, D9.1). No inbound frame carries an identity field, so a spoofed
- * identity is unrepresentable rather than merely rejected. The agent variant
- * carries ADR 3 D17's attribution pair, so "your agent is watching this
- * session" needs no second identity concept.
- */
-export const PresenceIdentity = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('user'), user: UserId }),
-  z.object({
-    kind: z.literal('agent'),
-    agentIdentity: AgentIdentityId,
-    onBehalfOf: UserId,
-  }),
-])
-export type PresenceIdentity = z.infer<typeof PresenceIdentity>
 
 /**
  * WHAT — an OPAQUE per-room payload (cursor, selection, viewport, "typing").

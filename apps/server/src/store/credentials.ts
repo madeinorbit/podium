@@ -1,3 +1,4 @@
+// workspace-scoped (POD-6959)
 /**
  * CREDENTIALS — the records, their sealed secrets, where Podium placed them, and
  * which machines their owners allowed (credential management design §4).
@@ -20,25 +21,23 @@ import {
   type UserId,
 } from '@podium/model'
 import { and, asc, desc, eq, inArray, isNotNull, lt, ne, or, sql } from 'drizzle-orm'
-import {
-  accountMachineSends,
-  accounts,
-  credentialMachines,
-  credentialPlacements,
-  credentialSecrets,
-  credentials,
-  serverSecrets,
-  users,
-  vaultKey,
-} from '../migrations/schema'
-import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
+import type { credentialPlacements, credentials } from '../migrations/schema'
+import type {
+  StoreTables,
+  TransactionRunner,
+  WorkspaceDb,
+  WorkspaceQueries,
+} from './executor/sync-drizzle'
 import {
   inListOf,
   inListSize,
   inListValues,
+  inWorkspace,
   param,
   prepared,
   preparedFamily,
+  sameWorkspace,
+  WORKSPACE,
 } from './executor/sync-drizzle'
 
 export type CredentialStatus = 'ok' | 'attention' | 'revoked'
@@ -232,100 +231,110 @@ function toPlacement(r: typeof credentialPlacements.$inferSelect): Placement {
 
 // Every query this repository runs, prepared once per store [POD-6147].
 
-const idIs = () => eq(credentials.id, param(credentials.id, 'id'))
+const idIs = (t: StoreTables) => eq(t.credentials.id, param(t.credentials.id, 'id'))
 
-const credentialById = prepared((db: StoreDrizzle) =>
-  db.select().from(credentials).where(idIs()).prepare(),
+const credentialById = prepared((db, t) =>
+  db.select().from(t.credentials).where(inWorkspace(t.credentials, idIs(t))).prepare(),
 )
 
-const credentialsOfOwner = prepared((db: StoreDrizzle) =>
+const credentialsOfOwner = prepared((db, t) =>
   db
     .select()
-    .from(credentials)
+    .from(t.credentials)
     .where(
-      and(
-        eq(credentials.ownerUserId, param(credentials.ownerUserId, 'ownerUserId')),
-        ne(credentials.status, 'revoked'),
+      inWorkspace(
+        t.credentials,
+        eq(t.credentials.ownerUserId, param(t.credentials.ownerUserId, 'ownerUserId')),
+        ne(t.credentials.status, 'revoked'),
       ),
     )
-    .orderBy(asc(credentials.createdAt), asc(credentials.id))
+    .orderBy(asc(t.credentials.createdAt), asc(t.credentials.id))
     .prepare(),
 )
 
-const credentialByLegacyId = prepared((db: StoreDrizzle) =>
+const credentialByLegacyId = prepared((db, t) =>
   db
     .select()
-    .from(credentials)
-    .where(eq(credentials.legacyId, param(credentials.legacyId, 'legacyId')))
-    .prepare(),
-)
-
-const credentialByLegacyKey = prepared((db: StoreDrizzle) =>
-  db
-    .select()
-    .from(credentials)
+    .from(t.credentials)
     .where(
-      and(
-        eq(credentials.ownerUserId, param(credentials.ownerUserId, 'ownerUserId')),
-        eq(credentials.legacyKey, param(credentials.legacyKey, 'legacyKey')),
+      inWorkspace(
+        t.credentials,
+        eq(t.credentials.legacyId, param(t.credentials.legacyId, 'legacyId')),
       ),
     )
     .prepare(),
 )
 
-// LEGACY(remove-after: 2027-02): reads account ids written before credentials existed; removing it stops old spellings from resolving
+const credentialByLegacyKey = prepared((db, t) =>
+  db
+    .select()
+    .from(t.credentials)
+    .where(
+      inWorkspace(
+        t.credentials,
+        eq(t.credentials.ownerUserId, param(t.credentials.ownerUserId, 'ownerUserId')),
+        eq(t.credentials.legacyKey, param(t.credentials.legacyKey, 'legacyKey')),
+      ),
+    )
+    .prepare(),
+)
+
+// LEGACY(remove-after: 2027-02): reads account ids written before t.credentials existed; removing it stops old spellings from resolving
 /**
- * Other members' credentials imported from one old account id or its earlier
- * workspace alias, in the order the old shared read took them: the `accounts`
+ * Other members' t.credentials imported from one old account id or its earlier
+ * workspace alias, in the order the old shared read took them: the `t.accounts`
  * row's creation, then its id, oldest first; the `apiKeys.*` secrets, which had
  * no row, after them. Destroying the old plaintext copies each row's creation
  * time onto its credential before the row goes (`store/legacy-plaintext.ts`),
  * so the order is read from the credential, with its `legacy_id` (the row's id)
  * breaking ties.
  */
-const legacySharedCandidates = prepared((db: StoreDrizzle) =>
+const legacySharedCandidates = prepared((db, t) =>
   db
-    .select({ id: credentials.id, ownerUserId: credentials.ownerUserId })
-    .from(credentials)
+    .select({ id: t.credentials.id, ownerUserId: t.credentials.ownerUserId })
+    .from(t.credentials)
     .where(
-      and(
+      inWorkspace(
+        t.credentials,
         or(
-          eq(credentials.legacyKey, param(credentials.legacyKey, 'legacyKey')),
-          eq(credentials.legacyKey, param(credentials.legacyKey, 'earlierKey')),
+          eq(t.credentials.legacyKey, param(t.credentials.legacyKey, 'legacyKey')),
+          eq(t.credentials.legacyKey, param(t.credentials.legacyKey, 'earlierKey')),
         ),
-        ne(credentials.ownerUserId, param(credentials.ownerUserId, 'userId')),
-        ne(credentials.status, 'revoked'),
+        ne(t.credentials.ownerUserId, param(t.credentials.ownerUserId, 'userId')),
+        ne(t.credentials.status, 'revoked'),
       ),
     )
     .orderBy(
-      asc(sql`substr(${credentials.legacyId}, 1, 8) = 'apiKeys.'`),
-      asc(credentials.createdAt),
-      asc(credentials.legacyId),
-      asc(credentials.id),
+      asc(sql`substr(${t.credentials.legacyId}, 1, 8) = 'apiKeys.'`),
+      asc(t.credentials.createdAt),
+      asc(t.credentials.legacyId),
+      asc(t.credentials.id),
     )
     .prepare(),
 )
 
-const credentialByIdentity = prepared((db: StoreDrizzle) =>
+const credentialByIdentity = prepared((db, t) =>
   db
     .select()
-    .from(credentials)
+    .from(t.credentials)
     .where(
-      and(
-        eq(credentials.ownerUserId, param(credentials.ownerUserId, 'ownerUserId')),
-        eq(credentials.type, param(credentials.type, 'type')),
-        eq(credentials.identityFingerprint, param(credentials.identityFingerprint, 'fingerprint')),
-        ne(credentials.status, 'revoked'),
+      inWorkspace(
+        t.credentials,
+        eq(t.credentials.ownerUserId, param(t.credentials.ownerUserId, 'ownerUserId')),
+        eq(t.credentials.type, param(t.credentials.type, 'type')),
+        eq(t.credentials.identityFingerprint, param(t.credentials.identityFingerprint, 'fingerprint')),
+        ne(t.credentials.status, 'revoked'),
       ),
     )
     .limit(1)
     .prepare(),
 )
 
-const insertCredential = prepared((db: StoreDrizzle) =>
+const insertCredential = prepared((db, t) =>
   db
-    .insert(credentials)
+    .insert(t.credentials)
     .values({
+      workspaceId: WORKSPACE,
       id: sql.placeholder('id'),
       ownerUserId: sql.placeholder('ownerUserId'),
       label: sql.placeholder('label'),
@@ -343,59 +352,59 @@ const insertCredential = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
-const renameCredential = prepared((db: StoreDrizzle) =>
+const renameCredential = prepared((db, t) =>
   db
-    .update(credentials)
+    .update(t.credentials)
     .set({ label: sql.placeholder('label'), updatedAt: sql.placeholder('now') })
-    .where(idIs())
+    .where(inWorkspace(t.credentials, idIs(t)))
     .prepare(),
 )
 
-const setCredentialIdentity = prepared((db: StoreDrizzle) =>
+const setCredentialIdentity = prepared((db, t) =>
   db
-    .update(credentials)
+    .update(t.credentials)
     .set({
       identity: sql.placeholder('identity'),
       identityFingerprint: sql.placeholder('identityFingerprint'),
       updatedAt: sql.placeholder('now'),
     })
-    .where(idIs())
+    .where(inWorkspace(t.credentials, idIs(t)))
     .prepare(),
 )
 
-const setCredentialStatus = prepared((db: StoreDrizzle) =>
+const setCredentialStatus = prepared((db, t) =>
   db
-    .update(credentials)
+    .update(t.credentials)
     .set({
       status: sql.placeholder('status'),
       statusReason: sql.placeholder('statusReason'),
       updatedAt: sql.placeholder('now'),
     })
-    .where(idIs())
+    .where(inWorkspace(t.credentials, idIs(t)))
     .prepare(),
 )
 
-const markCredentialVerified = prepared((db: StoreDrizzle) =>
+const markCredentialVerified = prepared((db, t) =>
   db
-    .update(credentials)
+    .update(t.credentials)
     .set({ verifiedAt: sql.placeholder('at'), updatedAt: sql.placeholder('now') })
-    .where(idIs())
+    .where(inWorkspace(t.credentials, idIs(t)))
     .prepare(),
 )
 
-const setCredentialExpiry = prepared((db: StoreDrizzle) =>
+const setCredentialExpiry = prepared((db, t) =>
   db
-    .update(credentials)
+    .update(t.credentials)
     .set({ expiresAt: sql.placeholder('expiresAt'), updatedAt: sql.placeholder('now') })
-    .where(idIs())
+    .where(inWorkspace(t.credentials, idIs(t)))
     .prepare(),
 )
 
-const setCredentialLimit = prepared((db: StoreDrizzle) =>
+const setCredentialLimit = prepared((db, t) =>
   db
-    .update(credentials)
+    .update(t.credentials)
     .set({ limitReachedUntil: sql.placeholder('until'), updatedAt: sql.placeholder('now') })
-    .where(idIs())
+    .where(inWorkspace(t.credentials, idIs(t)))
     .prepare(),
 )
 
@@ -403,46 +412,47 @@ const setCredentialLimit = prepared((db: StoreDrizzle) =>
  * Move a working credential to `attention`, only if it is `ok` now: the row it
  * returns is the one transition, so two rejections at once raise one notice.
  */
-const markCredentialAttention = prepared((db: StoreDrizzle) =>
+const markCredentialAttention = prepared((db, t) =>
   db
-    .update(credentials)
+    .update(t.credentials)
     .set({
       status: 'attention',
       statusReason: sql.placeholder('statusReason'),
       updatedAt: sql.placeholder('now'),
     })
-    .where(and(idIs(), eq(credentials.status, 'ok')))
-    .returning({ id: credentials.id })
+    .where(inWorkspace(t.credentials, idIs(t), eq(t.credentials.status, 'ok')))
+    .returning({ id: t.credentials.id })
     .prepare(),
 )
 
 /** Credentials with a recorded expiry, not removed: what the expiry sweep reads. */
-const credentialsWithExpiry = prepared((db: StoreDrizzle) =>
+const credentialsWithExpiry = prepared((db, t) =>
   db
     .select()
-    .from(credentials)
-    .where(and(isNotNull(credentials.expiresAt), ne(credentials.status, 'revoked')))
-    .orderBy(asc(credentials.expiresAt), asc(credentials.id))
+    .from(t.credentials)
+    .where(inWorkspace(t.credentials, isNotNull(t.credentials.expiresAt), ne(t.credentials.status, 'revoked')))
+    .orderBy(asc(t.credentials.expiresAt), asc(t.credentials.id))
     .prepare(),
 )
 
-const secretIs = () =>
-  eq(credentialSecrets.credentialId, param(credentialSecrets.credentialId, 'credentialId'))
+const secretIs = (t: StoreTables) =>
+  eq(t.credentialSecrets.credentialId, param(t.credentialSecrets.credentialId, 'credentialId'))
 
-const newestSecret = prepared((db: StoreDrizzle) =>
+const newestSecret = prepared((db, t) =>
   db
     .select()
-    .from(credentialSecrets)
-    .where(secretIs())
-    .orderBy(desc(credentialSecrets.version))
+    .from(t.credentialSecrets)
+    .where(inWorkspace(t.credentialSecrets, secretIs(t)))
+    .orderBy(desc(t.credentialSecrets.version))
     .limit(1)
     .prepare(),
 )
 
-const insertSecret = prepared((db: StoreDrizzle) =>
+const insertSecret = prepared((db, t) =>
   db
-    .insert(credentialSecrets)
+    .insert(t.credentialSecrets)
     .values({
+      workspaceId: WORKSPACE,
       credentialId: sql.placeholder('credentialId'),
       version: sql.placeholder('version'),
       ciphertext: sql.placeholder('ciphertext'),
@@ -453,51 +463,55 @@ const insertSecret = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
-const deleteOlderSecrets = prepared((db: StoreDrizzle) =>
+const deleteOlderSecrets = prepared((db, t) =>
   db
-    .delete(credentialSecrets)
+    .delete(t.credentialSecrets)
     .where(
-      and(secretIs(), lt(credentialSecrets.version, param(credentialSecrets.version, 'version'))),
+      inWorkspace(
+        t.credentialSecrets,secretIs(t), lt(t.credentialSecrets.version, param(t.credentialSecrets.version, 'version'))),
     )
     .prepare(),
 )
 
-const deleteSecretsOf = prepared((db: StoreDrizzle) =>
-  db.delete(credentialSecrets).where(secretIs()).prepare(),
+const deleteSecretsOf = prepared((db, t) =>
+  db.delete(t.credentialSecrets).where(inWorkspace(t.credentialSecrets, secretIs(t))).prepare(),
 )
 
 /** Vault reset: every credential that has a sealed secret needs attention. */
-const markSealedCredentialsForAttention = prepared((db: StoreDrizzle) =>
+const markSealedCredentialsForAttention = prepared((db, t) =>
   db
-    .update(credentials)
+    .update(t.credentials)
     .set({
       status: 'attention',
       statusReason: sql.placeholder('statusReason'),
       updatedAt: sql.placeholder('now'),
     })
     .where(
-      and(
-        ne(credentials.status, 'revoked'),
-        sql`${credentials.id} IN (SELECT ${credentialSecrets.credentialId} FROM ${credentialSecrets})`,
+      inWorkspace(
+        t.credentials,
+        ne(t.credentials.status, 'revoked'),
+        sql`${t.credentials.id} IN (SELECT ${t.credentialSecrets.credentialId} FROM ${t.credentialSecrets} WHERE ${t.credentialSecrets.workspaceId} = ${WORKSPACE})`,
       ),
     )
-    .returning({ id: credentials.id })
+    .returning({ id: t.credentials.id })
     .prepare(),
 )
 
-const deleteAllSecrets = prepared((db: StoreDrizzle) => db.delete(credentialSecrets).prepare())
+const deleteAllSecrets = prepared((db, t) => db.delete(t.credentialSecrets).where(inWorkspace(t.credentialSecrets)).prepare())
 
-const placementIs = () =>
-  and(
-    eq(credentialPlacements.credentialId, param(credentialPlacements.credentialId, 'credentialId')),
-    eq(credentialPlacements.machineId, param(credentialPlacements.machineId, 'machineId')),
-    eq(credentialPlacements.kind, param(credentialPlacements.kind, 'kind')),
+const placementIs = (t: StoreTables) =>
+  inWorkspace(
+    t.credentialPlacements,
+    eq(t.credentialPlacements.credentialId, param(t.credentialPlacements.credentialId, 'credentialId')),
+    eq(t.credentialPlacements.machineId, param(t.credentialPlacements.machineId, 'machineId')),
+    eq(t.credentialPlacements.kind, param(t.credentialPlacements.kind, 'kind')),
   )
 
-const upsertPlacement = prepared((db: StoreDrizzle) =>
+const upsertPlacement = prepared((db, t) =>
   db
-    .insert(credentialPlacements)
+    .insert(t.credentialPlacements)
     .values({
+      workspaceId: WORKSPACE,
       credentialId: sql.placeholder('credentialId'),
       machineId: sql.placeholder('machineId'),
       kind: sql.placeholder('kind'),
@@ -507,9 +521,10 @@ const upsertPlacement = prepared((db: StoreDrizzle) =>
     })
     .onConflictDoUpdate({
       target: [
-        credentialPlacements.credentialId,
-        credentialPlacements.machineId,
-        credentialPlacements.kind,
+        t.credentialPlacements.workspaceId,
+        t.credentialPlacements.credentialId,
+        t.credentialPlacements.machineId,
+        t.credentialPlacements.kind,
       ],
       // A home recorded again names the home it is now; a copy keeps none.
       set: { state: 'present', removedAt: null, homeId: sql`excluded."home_id"` },
@@ -517,14 +532,17 @@ const upsertPlacement = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
-const placementsOf = prepared((db: StoreDrizzle) =>
+const placementsOf = prepared((db, t) =>
   db
     .select()
-    .from(credentialPlacements)
+    .from(t.credentialPlacements)
     .where(
-      eq(
-        credentialPlacements.credentialId,
-        param(credentialPlacements.credentialId, 'credentialId'),
+      inWorkspace(
+        t.credentialPlacements,
+        eq(
+          t.credentialPlacements.credentialId,
+          param(t.credentialPlacements.credentialId, 'credentialId'),
+        ),
       ),
     )
     .prepare(),
@@ -536,64 +554,74 @@ const placementsOf = prepared((db: StoreDrizzle) =>
  * too: that is when removal is pending). Led by the owner index; each
  * credential's placements by their primary key.
  */
-const livePlacementsOfOwner = prepared((db: StoreDrizzle) =>
+const livePlacementsOfOwner = prepared((db, t) =>
   db
     .select({
-      credential: credentials,
-      machineId: credentialPlacements.machineId,
-      kind: credentialPlacements.kind,
-      homeId: credentialPlacements.homeId,
-      state: credentialPlacements.state,
+      credential: t.credentials,
+      machineId: t.credentialPlacements.machineId,
+      kind: t.credentialPlacements.kind,
+      homeId: t.credentialPlacements.homeId,
+      state: t.credentialPlacements.state,
     })
-    .from(credentials)
-    .innerJoin(credentialPlacements, eq(credentialPlacements.credentialId, credentials.id))
-    .where(
+    .from(t.credentials)
+    .innerJoin(
+      t.credentialPlacements,
       and(
-        eq(credentials.ownerUserId, param(credentials.ownerUserId, 'ownerUserId')),
-        sql`${credentialPlacements.state} IN ('present', 'removal-pending')`,
+        sameWorkspace(t.credentialPlacements, t.credentials),
+        eq(t.credentialPlacements.credentialId, t.credentials.id),
+      ),
+    )
+    .where(
+      inWorkspace(
+        t.credentials,
+        eq(t.credentials.ownerUserId, param(t.credentials.ownerUserId, 'ownerUserId')),
+        sql`${t.credentialPlacements.state} IN ('present', 'removal-pending')`,
       ),
     )
     // The owner index gives this order; each credential's placements follow
     // their primary key (credential, machine, kind).
-    .orderBy(asc(credentials.createdAt), asc(credentials.id))
+    .orderBy(asc(t.credentials.createdAt), asc(t.credentials.id))
     .prepare(),
 )
 
 /** A machine's placements still waiting for it to confirm their removal. */
-const pendingPlacementsOn = prepared((db: StoreDrizzle) =>
+const pendingPlacementsOn = prepared((db, t) =>
   db
     .select()
-    .from(credentialPlacements)
+    .from(t.credentialPlacements)
     .where(
-      and(
-        eq(credentialPlacements.machineId, param(credentialPlacements.machineId, 'machineId')),
+      inWorkspace(
+        t.credentialPlacements,
+        eq(t.credentialPlacements.machineId, param(t.credentialPlacements.machineId, 'machineId')),
         // The partial index's own literal condition, so the planner can prove
         // `idx_credential_placements_pending` applies (server-data rule 3).
-        sql`${credentialPlacements.state} = 'removal-pending'`,
+        sql`${t.credentialPlacements.state} = 'removal-pending'`,
       ),
     )
-    .orderBy(asc(credentialPlacements.credentialId), asc(credentialPlacements.kind))
+    .orderBy(asc(t.credentialPlacements.credentialId), asc(t.credentialPlacements.kind))
     .prepare(),
 )
 
-const setPlacement = prepared((db: StoreDrizzle) =>
+const setPlacement = prepared((db, t) =>
   db
-    .update(credentialPlacements)
+    .update(t.credentialPlacements)
     .set({ state: sql.placeholder('state'), removedAt: sql.placeholder('removedAt') })
-    .where(placementIs())
+    .where(placementIs(t))
     .prepare(),
 )
 
-const machineIs = () =>
-  and(
-    eq(credentialMachines.credentialId, param(credentialMachines.credentialId, 'credentialId')),
-    eq(credentialMachines.machineId, param(credentialMachines.machineId, 'machineId')),
+const machineIs = (t: StoreTables) =>
+  inWorkspace(
+    t.credentialMachines,
+    eq(t.credentialMachines.credentialId, param(t.credentialMachines.credentialId, 'credentialId')),
+    eq(t.credentialMachines.machineId, param(t.credentialMachines.machineId, 'machineId')),
   )
 
-const insertAllowedMachine = prepared((db: StoreDrizzle) =>
+const insertAllowedMachine = prepared((db, t) =>
   db
-    .insert(credentialMachines)
+    .insert(t.credentialMachines)
     .values({
+      workspaceId: WORKSPACE,
       credentialId: sql.placeholder('credentialId'),
       machineId: sql.placeholder('machineId'),
       allowedBy: sql.placeholder('allowedBy'),
@@ -603,49 +631,50 @@ const insertAllowedMachine = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
-const deleteAllowedMachine = prepared((db: StoreDrizzle) =>
-  db.delete(credentialMachines).where(machineIs()).prepare(),
+const deleteAllowedMachine = prepared((db, t) =>
+  db.delete(t.credentialMachines).where(machineIs(t)).prepare(),
 )
 
-const allowedMachine = prepared((db: StoreDrizzle) =>
+const allowedMachine = prepared((db, t) =>
   db
-    .select({ credentialId: credentialMachines.credentialId })
-    .from(credentialMachines)
-    .where(machineIs())
+    .select({ credentialId: t.credentialMachines.credentialId })
+    .from(t.credentialMachines)
+    .where(machineIs(t))
     .prepare(),
 )
 
-/** Many credentials by id, not removed, in id order (the primary key). */
-const credentialsByIds = preparedFamily((db: StoreDrizzle, size: number) =>
+/** Many t.credentials by id, not removed, in id order (the primary key). */
+const credentialsByIds = preparedFamily((db, t, size: number) =>
   db
     .select()
-    .from(credentials)
-    .where(and(inListOf(credentials.id, size, 'ids'), ne(credentials.status, 'revoked')))
-    .orderBy(asc(credentials.id))
+    .from(t.credentials)
+    .where(inWorkspace(t.credentials, inListOf(t.credentials.id, size, 'ids'), ne(t.credentials.status, 'revoked')))
+    .orderBy(asc(t.credentials.id))
     .prepare(),
 )
 
-/** The allowed machines of many credentials, in primary-key order. */
-const allowedMachinesOfMany = preparedFamily((db: StoreDrizzle, size: number) =>
+/** The allowed machines of many t.credentials, in primary-key order. */
+const allowedMachinesOfMany = preparedFamily((db, t, size: number) =>
   db
     .select({
-      credentialId: credentialMachines.credentialId,
-      machineId: credentialMachines.machineId,
+      credentialId: t.credentialMachines.credentialId,
+      machineId: t.credentialMachines.machineId,
     })
-    .from(credentialMachines)
-    .where(inListOf(credentialMachines.credentialId, size, 'ids'))
-    .orderBy(asc(credentialMachines.credentialId), asc(credentialMachines.machineId))
+    .from(t.credentialMachines)
+    .where(inWorkspace(t.credentialMachines, inListOf(t.credentialMachines.credentialId, size, 'ids')))
+    .orderBy(asc(t.credentialMachines.credentialId), asc(t.credentialMachines.machineId))
     .prepare(),
 )
 
-const theVaultKey = prepared((db: StoreDrizzle) =>
-  db.select().from(vaultKey).where(eq(vaultKey.id, 1)).prepare(),
+const theVaultKey = prepared((db, t) =>
+  db.select().from(t.vaultKey).where(inWorkspace(t.vaultKey, eq(t.vaultKey.id, 1))).prepare(),
 )
 
-const insertVaultKey = prepared((db: StoreDrizzle) =>
+const insertVaultKey = prepared((db, t) =>
   db
-    .insert(vaultKey)
+    .insert(t.vaultKey)
     .values({
+      workspaceId: WORKSPACE,
       id: 1,
       keyId: sql.placeholder('keyId'),
       wrappedDataKey: sql.placeholder('wrapped'),
@@ -655,50 +684,58 @@ const insertVaultKey = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
-const deleteVaultKeyRow = prepared((db: StoreDrizzle) =>
-  db.delete(vaultKey).where(eq(vaultKey.id, 1)).prepare(),
+const deleteVaultKeyRow = prepared((db, t) =>
+  db.delete(t.vaultKey).where(inWorkspace(t.vaultKey, eq(t.vaultKey.id, 1))).prepare(),
 )
 
 // LEGACY(remove-after: 2027-05): moves keys stored before the vault into it; removing it ends direct upgrades from versions before 2026-11 and drops the accounts table
-const legacyAccounts = prepared((db: StoreDrizzle) =>
+const legacyAccounts = prepared((db, t) =>
   db
     .select({
-      id: accounts.id,
-      ownerUserId: accounts.ownerUserId,
+      id: t.accounts.id,
+      ownerUserId: t.accounts.ownerUserId,
       // Aliased: `users.id` would share the name `id` with `accounts.id`, and the
       // executor's named-row adapter collapses same-named columns (as in
       // `server-secrets.ts`), shifting every field after it.
-      ownerId: sql<string | null>`${users.id}`.as('legacy_owner_id'),
-      ownerDisabledAt: sql<string | null>`${users.disabledAt}`.as('legacy_owner_disabled_at'),
-      accountKey: accounts.accountKey,
-      ref: accounts.ref,
-      provider: accounts.provider,
-      kind: accounts.kind,
-      credential: accounts.credential,
-      sharedWith: accounts.sharedWith,
+      ownerId: sql<string | null>`${t.users.id}`.as('legacy_owner_id'),
+      ownerDisabledAt: sql<string | null>`${t.users.disabledAt}`.as('legacy_owner_disabled_at'),
+      accountKey: t.accounts.accountKey,
+      ref: t.accounts.ref,
+      provider: t.accounts.provider,
+      kind: t.accounts.kind,
+      credential: t.accounts.credential,
+      sharedWith: t.accounts.sharedWith,
     })
-    .from(accounts)
-    .leftJoin(users, eq(users.id, accounts.ownerUserId))
-    .orderBy(asc(accounts.createdAt), asc(accounts.id))
+    .from(t.accounts)
+    .leftJoin(
+      t.users,
+      and(sameWorkspace(t.users, t.accounts), eq(t.users.id, t.accounts.ownerUserId)),
+    )
+    .where(inWorkspace(t.accounts))
+    .orderBy(asc(t.accounts.createdAt), asc(t.accounts.id))
     .prepare(),
 )
 
 // LEGACY(remove-after: 2027-05): moves keys stored before the vault into it; removing it ends direct upgrades from versions before 2026-11 and drops the accounts table
-const legacySends = prepared((db: StoreDrizzle) =>
+const legacySends = prepared((db, t) =>
   db
-    .select({ accountId: accountMachineSends.accountId, machineId: accountMachineSends.machineId })
-    .from(accountMachineSends)
+    .select({ accountId: t.accountMachineSends.accountId, machineId: t.accountMachineSends.machineId })
+    .from(t.accountMachineSends)
+    .where(inWorkspace(t.accountMachineSends))
     .prepare(),
 )
 
 // LEGACY(remove-after: 2027-05): moves keys stored before the vault into it; removing it ends direct upgrades from versions before 2026-11 and drops the accounts table
 /** The three provider keys the server secrets held before credentials, by their old names. */
-const legacyApiKeys = prepared((db: StoreDrizzle) =>
+const legacyApiKeys = prepared((db, t) =>
   db
-    .select({ key: serverSecrets.key, value: serverSecrets.value })
-    .from(serverSecrets)
+    .select({ key: t.workspaceSecrets.key, value: t.workspaceSecrets.value })
+    .from(t.workspaceSecrets)
     .where(
-      inArray(serverSecrets.key, ['apiKeys.anthropic', 'apiKeys.openai', 'apiKeys.openrouter']),
+      inWorkspace(
+        t.workspaceSecrets,
+        inArray(t.workspaceSecrets.key, ['apiKeys.anthropic', 'apiKeys.openai', 'apiKeys.openrouter']),
+      ),
     )
     .prepare(),
 )
@@ -710,22 +747,26 @@ export const newCredentialId = (): CredentialId =>
   asCredentialId(`${CREDENTIAL_ID_PREFIX}${randomUUID()}`)
 
 export class CredentialsRepository {
-  private readonly rootDb: StoreDrizzle
+  private readonly scope: WorkspaceDb
   protected readonly createOrJoinTransaction: TransactionRunner
 
-  /** @param vault the vault, once the store has opened it (undefined before). */
+  /**
+   * One workspace's queries: its credentials, their secrets and its vault key are
+   * that workspace's (POD-6959).
+   * @param vault the workspace's vault, once its store has opened it (undefined before).
+   */
   constructor(
-    queries: StoreQueries,
+    queries: WorkspaceQueries,
     private readonly vault: () => VaultKeyCheck | undefined,
   ) {
-    this.rootDb = queries.rootDb
+    this.scope = queries.db
     this.createOrJoinTransaction = queries.createOrJoinTransaction
   }
 
   /** The query builder, resolved on every access so B1 changes this line and nothing else
    *  [POD-3221 spec rule 34a]. */
-  protected get db() {
-    return this.rootDb
+  protected get db(): WorkspaceDb {
+    return this.scope
   }
 
   /**

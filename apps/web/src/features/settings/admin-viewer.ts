@@ -10,18 +10,15 @@ export interface ViewerCapabilities {
   addMachine: boolean
   /**
    * Is the one who sets this server up (POD-6882): the workspace's first admin.
-   * Undefined until the server answers. A server too old to say, or a read
-   * that failed, answers true: first-run setup then behaves exactly as it did
-   * before the server could tell a joined member from its installer.
+   * Undefined until the server answers.
    */
   setUpServer?: boolean
 }
 const PENDING: ViewerCapabilities = { addMachine: false }
-const UNKNOWN: ViewerCapabilities = { addMachine: false, setUpServer: true }
 
 function readCapabilities(raw: unknown): ViewerCapabilities {
   const answer = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
-  return { addMachine: answer.addMachine === true, setUpServer: answer.setUpServer !== false }
+  return { addMachine: answer.addMachine === true, setUpServer: answer.setUpServer === true }
 }
 
 interface ViewerRead {
@@ -29,6 +26,8 @@ interface ViewerRead {
   sections: readonly string[]
   /** Always set by this hook; optional so a provided viewer may leave it out (unknown). */
   capabilities?: ViewerCapabilities
+  /** Instance fact, independent of which records this viewer has on the device. */
+  setupFinished?: boolean
 }
 
 export interface AdminViewer extends ViewerRead {
@@ -67,17 +66,21 @@ export function useAdminSections(): AdminViewer {
     if (provided) return
     let current = true
     const origin = serverConfig(window.location).httpOrigin
-    authRequest<{ sections?: readonly string[]; capabilities?: unknown }>(origin, 'admin/viewer')
+    authRequest<{ sections?: readonly string[]; capabilities?: unknown; setupFinished: boolean }>(
+      origin,
+      'admin/viewer',
+    )
       .then((answer) => {
         if (current)
           setRead({
             status: 'ready',
             sections: Array.isArray(answer.sections) ? answer.sections : NONE,
             capabilities: readCapabilities(answer.capabilities),
+            setupFinished: answer.setupFinished,
           })
       })
       .catch(() => {
-        if (current) setRead({ status: 'error', sections: NONE, capabilities: UNKNOWN })
+        if (current) setRead({ status: 'error', sections: NONE, capabilities: PENDING })
       })
     return () => {
       current = false

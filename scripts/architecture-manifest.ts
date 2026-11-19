@@ -42,20 +42,20 @@
  *    blessed exception — icon/label maps — needs no declaration: a Record keyed
  *    by harness is a lookup, not a comparison, so the rule never sees it.
  *
-  *    That exception extends to ADAPTER SELECTION, and POD-1105 is the precedent:
-  *    the terminal family's composer table picks a per-harness composer driver,
-  *    and an `if` chain doing so was a violation while the same thing written as
-  *    a registry Record is not. This is not a loophole — the per-harness BEHAVIOR
-  *    lives in the driver objects (they ARE the adapters); only the selection was
-  *    branching, and a table makes adding a harness a new row instead of a
-  *    found-and-edited `if`. Note the alternative was WORSE: moving that selection
-  *    into {@link HARNESS_ADAPTER_HOME} would drag node-only code toward a browser
-  *    bundle (the composer interface is browser-safe, reached through
-  *    `@podium/harness/browser`), which ADR 0008 already rejected for pure
-  *    mappers. So the composer table is NOT a second sanctioned home for harness
-  *    branching, and no second home was created: a sanctioned second home is the
-  *    kind of exception that quietly becomes N homes, and the registry form needs
-  *    none.
+ *    That exception extends to ADAPTER SELECTION, and POD-1105 is the precedent:
+ *    the terminal family's composer table picks a per-harness composer driver,
+ *    and an `if` chain doing so was a violation while the same thing written as
+ *    a registry Record is not. This is not a loophole — the per-harness BEHAVIOR
+ *    lives in the driver objects (they ARE the adapters); only the selection was
+ *    branching, and a table makes adding a harness a new row instead of a
+ *    found-and-edited `if`. Note the alternative was WORSE: moving that selection
+ *    into {@link HARNESS_ADAPTER_HOME} would drag node-only code toward a browser
+ *    bundle (the composer interface is browser-safe, reached through
+ *    `@podium/harness/browser`), which ADR 0008 already rejected for pure
+ *    mappers. So the composer table is NOT a second sanctioned home for harness
+ *    branching, and no second home was created: a sanctioned second home is the
+ *    kind of exception that quietly becomes N homes, and the registry form needs
+ *    none.
  *
  * Non-error manifest rules use a ratchet: known violations are declared in
  * scripts/boundary-allowlist.ts with a per-file COUNT and the phase that
@@ -208,7 +208,8 @@ const APP_BUILD_TIER_RE = /^apps\/[^/]+\/scripts\//
  * without creating a runtime dependency from the workspace back into scripts.
  * Dotted Vite variants (`vite.<purpose>.config.ts`, POD-5674's phone-stream
  * build) are the same kind of file under a more specific name. */
-const WORKSPACE_TOOLING_RE = /^(?:apps|packages)\/[^/]+\/(?:vite(?:\.[a-z0-9-]+)?|vitest)\.config\.ts$/
+const WORKSPACE_TOOLING_RE =
+  /^(?:apps|packages)\/[^/]+\/(?:vite(?:\.[a-z0-9-]+)?|vitest)\.config\.ts$/
 
 /**
  * ARCHITECTURE GUARDS FILED UNDER A WORKSPACE ARE BUILD TIER (POD-2820).
@@ -509,6 +510,18 @@ export const MANIFEST: Readonly<Record<string, WorkspaceTags>> = {
     features: ['identity'],
     deps: ['packages/model'],
   },
+  // The blob store (POD-6963 design 2.1): one byte interface for user files
+  // (artifacts, uploads, the transcript lake) with a local-disk adapter, an
+  // S3-compatible one and an in-memory one. NODE-ONLY: the local adapter is
+  // node:fs, the S3 one the AWS SDK. Layer 1 so the
+  // sync kernel (L2) can write the lake through it; it reaches the model leaf
+  // and nothing else, never an app.
+  'packages/blob-store': {
+    layer: 1,
+    platform: 'node-only',
+    features: ['blob-store'],
+    deps: ['packages/model'],
+  },
   // The PTY kernel split out of agent-bridge (POD-396, ADR 8 D4): backends,
   // the durable host (the vendored Rust podium-host; the abduco attach client for
   // sessions older releases started), byte framing, OSC scan,
@@ -623,14 +636,22 @@ export const MANIFEST: Readonly<Record<string, WorkspaceTags>> = {
     layer: 3,
     platform: 'browser-safe',
     features: ['client-graph'],
-    deps: ['packages/client-core', 'packages/harness', 'packages/model', 'packages/mobx-helpers', 'packages/protocol',
+    deps: [
+      'packages/client-core',
+      'packages/harness',
+      'packages/model',
+      'packages/mobx-helpers',
+      'packages/protocol',
       // POD-5615: pool feed diagnostics report through the logger barrel.
-      'packages/logger'],
+      'packages/logger',
+    ],
   },
   // Maintenance/steward jobs (change-log + event prune, auto-archive, message
   // expiry, connect scan) and the worker client that hosts them. node-only:
-  // node:crypto/node:path/node:worker_threads plus @podium/runtime's sqlite and
-  // config subpaths.
+  // node:crypto/node:worker_threads plus @podium/runtime's time-budget and
+  // task-attribution subpaths. It holds no SQL: its reads are a port the server
+  // implements on the store's engine, and its worker's entry is the server's
+  // (POD-6993).
   //
   // L3 RATHER THAN AN APP (PDM-27): the loop is an ENGINE, not a composition
   // root — its dependency profile has always been a package's (logger, model,
@@ -668,8 +689,6 @@ export const MANIFEST: Readonly<Record<string, WorkspaceTags>> = {
 
   // L5 — build / compose tier.
   scripts: { layer: 5, platform: 'node-only', features: ['build', 'lint', 'compose'] },
-
-
 }
 
 /**

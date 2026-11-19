@@ -1,9 +1,8 @@
-import type { EntityName } from './schema'
+import type { FeedDiagnostics } from './feed-diagnostics'
 /** Row and local channels consumed by the worklist pool. */
 import type { IssueSessionFactReader } from './issue-session-facts'
-import type { FeedDiagnostics } from './feed-diagnostics'
-import type { ColdQueries, HeldSummaries } from './cold-index'
-import type { LocalsKey, SliceIssue, SliceSession, SliceWorktree, SliceLocals } from './slice-types'
+import type { EntityName } from './schema'
+import type { LocalsKey, SliceIssue, SliceLocals, SliceSession, SliceWorktree } from './slice-types'
 
 /**
  * The kernel's effective per-row row stream, as the arms see it. Owned by G3
@@ -24,25 +23,80 @@ export interface RowSource {
   /**
    * POD-4567 (Ma3) — one row's current value by id, exactly as `snapshot(kind)`
    * would carry it (the kernel's per-row read, `replica.row`, with that row's
-   * overlays in `overlaid` mode); `undefined` when the row is gone. How a pool
-   * hydrates a cold row it holds only the id of (schema doc §5). Only the kinds
-   * that can be cold. Optional: a source without it cannot back a lazy pool.
+   * overlays in `overlaid` mode); `undefined` when the device does not hold it
+   * whole. How a pool tells a row the feed is about to publish from one the
+   * loader must fetch. Optional: a source without it cannot back a lazy pool.
    */
   row?(kind: 'issue' | 'session', id: string): RowRecord['value']
   /** Canonical replica exit evidence, addressed and read without loading. */
   exitKind?(kind: RowRecord['kind'], id: string): 'removed' | 'evicted' | undefined
-  /**
-   * POD-5405 — the residency rule's questions over EVERY row this feed carries
-   * (`cold-index.ts`): built on first call from one snapshot per kind, then
-   * kept current from this feed's own publications. Declared questions only;
-   * never a map. Optional: a source without it cannot back a resident-only
-   * attach. `summaries` (POD-5407): declared summary fields its rows must
-   * also hold; a call naming fields the index lacks rebuilds it with them.
-   */
-  cold?(summaries?: HeldSummaries): ColdQueries
-  /** A keyed identity read from the local replica, including cold issues. */
+  /** A keyed identity read from the local replica. */
   issueIdByRef?(ref: string): string | undefined
   issueIdsByRef?(ref: string): readonly string[]
+  /**
+   * POD-7087 — the one loader over the device's collections: what a lookup
+   * that finds a record absent, or a view, asks for. Late-bound (the root
+   * builds it with the device store). Absent, nothing is fetched from the
+   * server and every record not on the device reads as not visible.
+   */
+  loader?(): CollectionLoaderPort | undefined
+}
+
+/** One instance of a declared collection (`@podium/model` `records/`), as the loader takes it. */
+export interface LoaderInstance {
+  readonly collection: string
+  readonly args?: Readonly<
+    Record<string, string | number | boolean | null | readonly (string | number | boolean | null)[]>
+  >
+  readonly part: 'stub' | 'main'
+  readonly via?: string
+  readonly after?: readonly (string | number | boolean | null)[]
+}
+
+/** A marker: the instance is complete; a paged one says how far, and its whole size. */
+export interface LoaderMarker {
+  readonly range?: { readonly through?: readonly unknown[]; readonly end: boolean }
+  readonly total?: number
+}
+
+/**
+ * The one loader as the pool reads it: `@podium/sync`'s `CollectionLoader`,
+ * structurally (POD-7087). Synchronous reads from the device; requests
+ * batch for 50 ms and go to the server's one fetch route.
+ */
+export interface CollectionLoaderPort {
+  request(requests: readonly LoaderInstance[], priority?: 'visible' | 'background'): void
+  show(spec: LoaderInstance): () => void
+  status(spec: LoaderInstance): 'complete' | 'loading' | 'offline'
+  readonly online: boolean
+  /** The device started empty and its first download has not finished. */
+  readonly firstDownload: boolean
+  isComplete(spec: LoaderInstance): LoaderMarker | undefined
+  /** A gap left the complete local answer usable while its replacement is queued. */
+  isStale?(spec: LoaderInstance): boolean
+  /** All surviving disk-index holders of this record are stale; one fresh holder clears it. */
+  recordStale?(entity: string, id: string): boolean
+  wasRefused(spec: LoaderInstance): boolean
+  stubOf(entity: string, entityId: string): Readonly<Record<string, unknown>> | undefined
+  stubsByParent(parentId: string): readonly string[]
+  stubRows(
+    entity: string,
+  ): readonly { readonly id: string; readonly stub: Readonly<Record<string, unknown>> }[]
+  /** The record at a reference (repository and number), by the stubs (POD-7094: a table lookup). */
+  stubIdAt?(entity: string, repoId: string, seq: number): string | undefined
+  /**
+   * POD-7159 — the record is whole on the device's disk and not in memory
+   * (its instance was unloaded): a reader gets LOADING and a disk load.
+   */
+  unloaded?(entity: string, entityId: string): boolean
+  /** POD-7159 — read records whole on disk into memory, batched, with no connection too. */
+  loadFromDisk?(entity: string, entityIds: readonly string[]): void
+  /**
+   * POD-7160 — the device holds the instance behind the feed (a gap left it
+   * on the device): it reads as usual and is reloading. POD-7166 shows it.
+   */
+  isStale?(spec: LoaderInstance): boolean
+  subscribe(listener: (change: 'markers' | 'stubs' | 'connection') => void): () => void
 }
 
 /**

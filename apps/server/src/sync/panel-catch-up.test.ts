@@ -14,7 +14,7 @@ import { expect, it } from 'vitest'
 import { makeFeedVisibility } from '../feed-visibility'
 import { produceBootstrap } from '../sync-worker/producer'
 import { issueRowFixture } from '../test-support/issue-row'
-import { openTestStore } from '../test-support/open-test-store'
+import { openTestStore, testStoreLocation } from '../test-support/open-test-store'
 import { logStoreRecords } from '../test-support/record-writer'
 
 const kinds = ['issuePanelArtifact', 'issuePanelTodo', 'issuePanelDeferred'] as const
@@ -64,10 +64,10 @@ for (const kind of kinds) {
           issueId,
           position: 0,
           ...(kind === 'issuePanelArtifact'
-            ? { path: 'review.html', addedAt: 't' }
+            ? { path: 'review.html', addedAt: '2026-07-01T00:00:00.000Z' }
             : kind === 'issuePanelTodo'
               ? { text: 'Task', done: false }
-              : { text: 'Later', addedAt: 't' }),
+              : { text: 'Later', addedAt: '2026-07-01T00:00:00.000Z' }),
         }
         const from = await authority.cursor()
         await authority.commit({
@@ -100,7 +100,7 @@ for (const kind of kinds) {
         } else {
           let output = ''
           for await (const bytes of produceBootstrap(
-            dbPath,
+            await testStoreLocation(dbPath),
             {
               mode: 'delta',
               transferId: 'catch-up',

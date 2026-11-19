@@ -5,6 +5,7 @@ import { color, font, mono, radius, sans, space, tracking } from '../theme/theme
 import { Icon } from './Icon'
 import { ChevronLeft } from './icons'
 import { PressableScale } from './PressableScale'
+import { ScreenRefreshMark } from './ScreenRefreshMark'
 
 /**
  * Screen scaffold on the flat Dark Ink canvas (`color.bg`, #16171a).
@@ -27,6 +28,7 @@ export function Screen({
   safeBottom,
   bareBack = false,
   monoSubtitle = false,
+  refreshing,
 }: {
   title?: string
   subtitle?: ReactNode
@@ -50,6 +52,7 @@ export function Screen({
   bareBack?: boolean
   /** Ledger/chat metadata uses the compact monospace datum voice. */
   monoSubtitle?: boolean
+  refreshing?: boolean
 }) {
   const insets = useSafeAreaInsets()
   return (
@@ -76,7 +79,10 @@ export function Screen({
                 </Text>
               ) : null}
             </View>
-            {right ? <View style={styles.right}>{right}</View> : null}
+            <View style={styles.right}>
+              {refreshing !== undefined ? <ScreenRefreshMark refreshing={refreshing} /> : null}
+              {right}
+            </View>
           </View>
         ) : (
           <View style={[styles.header, { paddingTop: insets.top + 6 }]}>
@@ -118,7 +124,10 @@ export function Screen({
                 </Text>
               ) : null}
             </View>
-            {right ? <View style={styles.right}>{right}</View> : null}
+            <View style={styles.right}>
+              {refreshing !== undefined ? <ScreenRefreshMark refreshing={refreshing} /> : null}
+              {right}
+            </View>
           </View>
         )}
         <View style={styles.body}>{children}</View>

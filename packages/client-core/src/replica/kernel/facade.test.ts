@@ -14,7 +14,8 @@ import { createSideCache, eraseLegacyTranscriptKeys, OutboxNotDurableError } fro
 class FakeCache implements KernelCacheRead {
   records: EntityRecord[] = []
   cursor: { seq: number; feedId?: string; epoch?: string } | null = null
-  completeAt: Cursor | null = null
+  /** A load still under way unless a test says it finished (null). */
+  loadingSince: number | null = 0
   mode: 'durable' | 'degraded-memory' | 'unavailable' = 'durable'
   throwOnRead = false
   /** How many times the facade materialised the WHOLE store. The scaling guard
@@ -24,8 +25,8 @@ class FakeCache implements KernelCacheRead {
   readCursor() {
     return this.cursor
   }
-  readPersonalRowsCompleteAt() {
-    return this.completeAt
+  readLoadingSince() {
+    return this.loadingSince
   }
   readEntities(): readonly EntityRecord[] {
     this.readEntitiesCalls += 1
@@ -90,7 +91,8 @@ it('counts keyed membership through eviction, readmission and replacement withou
 
 it('publishes only the addresses affected by a kind reload', () => {
   const cache = new FakeCache()
-  cache.cursor = cache.completeAt = { feedId: 'f', epoch: 'e', seq: 1 }
+  cache.cursor = { feedId: 'f', epoch: 'e', seq: 1 }
+  cache.loadingSince = null
   cache.put('session', 's1', session('s1'))
   cache.put('issueProjection', 'old', issue('old'))
   const { replica } = build(cache)
@@ -449,7 +451,7 @@ describe('kind mapping', () => {
     const certified = new FakeCache()
     certified.records = records
     certified.cursor = cursor
-    certified.completeAt = cursor
+    certified.loadingSince = null
     const warm = build(certified).replica
     const delivery = vi.fn()
     warm.subscribeAddressedBatch!(delivery)
@@ -466,20 +468,16 @@ describe('kind mapping', () => {
     const faulty = new FakeCache()
     faulty.records = records.filter((row) => row.entityId !== 'alice-read')
     faulty.cursor = cursor
-    faulty.completeAt = cursor
+    faulty.loadingSince = null
     const incomplete = build(faulty).replica
     expect(() => expect(views(incomplete)).toEqual(expected)).toThrow()
     expect(views(incomplete).find((row) => row.sessionId === 'read')?.unread).toBe(true)
   })
 
-  it.each([
-    { feedId: 'other', epoch: 'epoch', seq: 10 },
-    { feedId: 'feed', epoch: 'other', seq: 10 },
-    { feedId: 'feed', epoch: 'epoch', seq: 11 },
-  ])('an unmatched completeness triple remains unknown: %j', (marker) => {
+  it('a load still under way leaves personal rows unknown', () => {
     const cache = new FakeCache()
     cache.cursor = { feedId: 'feed', epoch: 'epoch', seq: 10 }
-    cache.completeAt = marker
+    cache.loadingSince = 10
     expect(build(cache).replica.sessionUserStatesLoaded?.()).toBe(false)
   })
 
@@ -1462,5 +1460,93 @@ describe('addressed batches (POD-4444, additive/opt-in)', () => {
     } finally {
       off()
     }
+  })
+})
+
+describe('an empty device’s first download (POD-7122)', () => {
+  it('holds the rows of a cold walk and publishes them once, when the load is in memory, not when it is durable', () => {
+    const { cache, replica } = build()
+    const issues = vi.fn()
+    const addressed = vi.fn()
+    replica.subscribeRows('issueProjections', issues)
+    replica.subscribeAddressedBatch!(addressed)
+    replica.onKernelEvent({ type: 'posture', posture: 'bootstrapping', previous: 'cold' })
+    // The first chunk sets the store's cursor; the views do not see it yet.
+    cache.cursor = { feedId: 'f', epoch: 'e', seq: 5 }
+    for (const id of ['a', 'b']) {
+      cache.put('issueProjection', id, issue(id), 5)
+      replica.onKernelEvent({
+        type: 'upserted',
+        record: cache.read('issueProjection', id)!,
+        readmitted: false,
+      })
+    }
+    expect(issues).not.toHaveBeenCalled()
+    expect(addressed).not.toHaveBeenCalled()
+    expect(replica.getCursor()).toBeNull()
+    expect(replica.sessionUserStatesLoaded?.()).toBe(false)
+    // A view never reads a partial first download; a lookup by id reads the store.
+    expect(replica.rows('issueProjections')).toEqual([])
+    expect(replica.row?.('issueProjections', 'a')?.id).toBe('a')
+
+    replica.onKernelEvent({ type: 'load-installed', cause: 'cold-start', snapshotSeq: 5 })
+    expect(addressed).toHaveBeenCalledExactlyOnceWith({ type: 'replace', reason: 'bootstrap' })
+    expect(issues).toHaveBeenCalledTimes(1)
+    expect(replica.rows('issueProjections').map((row) => row.id)).toEqual(['a', 'b'])
+    expect(replica.getCursor()).toBe(5)
+    expect(replica.sessionUserStatesLoaded?.()).toBe(true)
+
+    // The durable commit that follows publishes nothing again.
+    cache.loadingSince = null
+    replica.onKernelEvent({
+      type: 'bootstrap-installed',
+      cause: 'cold-start',
+      snapshotSeq: 5,
+      entityCount: 2,
+      bufferedFramesApplied: 0,
+    })
+    expect(addressed).toHaveBeenCalledTimes(1)
+    expect(issues).toHaveBeenCalledTimes(1)
+  })
+
+  it('serves what a cold walk installed when it ends without its load', () => {
+    const { cache, replica } = build()
+    const addressed = vi.fn()
+    replica.subscribeAddressedBatch!(addressed)
+    replica.onKernelEvent({ type: 'posture', posture: 'bootstrapping', previous: 'cold' })
+    cache.cursor = { feedId: 'f', epoch: 'e', seq: 5 }
+    cache.put('issueProjection', 'a', issue('a'), 5)
+    replica.onKernelEvent({
+      type: 'upserted',
+      record: cache.read('issueProjection', 'a')!,
+      readmitted: false,
+    })
+    expect(addressed).not.toHaveBeenCalled()
+    replica.onKernelEvent({
+      type: 'bootstrap-failed',
+      cause: 'cold-start',
+      attempts: 3,
+      error: 'network',
+    })
+    expect(addressed).toHaveBeenCalledExactlyOnceWith({ type: 'replace', reason: 'bootstrap' })
+    expect(replica.rows('issueProjections').map((row) => row.id)).toEqual(['a'])
+    expect(replica.getCursor()).toBe(5)
+  })
+
+  it('does not hold a load on a device that already has a cursor', () => {
+    const cache = new FakeCache()
+    cache.cursor = { feedId: 'f', epoch: 'e', seq: 1 }
+    const { replica } = build(cache)
+    const issues = vi.fn()
+    replica.subscribeRows('issueProjections', issues)
+    replica.onKernelEvent({ type: 'posture', posture: 'bootstrapping', previous: 'live' })
+    cache.put('issueProjection', 'a', issue('a'), 2)
+    replica.onKernelEvent({
+      type: 'upserted',
+      record: cache.read('issueProjection', 'a')!,
+      readmitted: false,
+    })
+    expect(issues).toHaveBeenCalledTimes(1)
+    expect(replica.getCursor()).toBe(1)
   })
 })

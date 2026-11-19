@@ -16,7 +16,7 @@ import { headerEntities } from '@podium/client-graph/header-entities'
 import { liveFixture, seedFixtureMachines } from '@podium/client-graph/live-fixture'
 import { createPoolNavigationProvider } from '@podium/client-graph/navigation-provider'
 import { MobxPool } from '@podium/client-graph/pool'
-import { SHELL_ENTITIES, SHELL_SUMMARIES } from '@podium/client-graph/shell-schema'
+import { SHELL_ENTITIES, } from '@podium/client-graph/shell-schema'
 import { ShellSource } from '@podium/client-graph/shell-source'
 import { type ShipLaneProjection, type ShipOrderProjection, shipLaneId } from '@podium/model'
 import {
@@ -211,7 +211,6 @@ export function shellFixture(count = 40) {
     { coarseNow: SHELL_NOW, selectedIssueId: state.selectedIssueId },
     undefined,
     {
-      summaries: SHELL_SUMMARIES,
       schedule: () => () => {},
       load: (entity, id) => {
         loads.push(`${entity}:${id}`)

@@ -34,6 +34,7 @@ import {
 } from '@podium/sync'
 import { authorityCommitWriter } from '@podium/sync/testing'
 import { describe, expect, it } from 'vitest'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import type { StoredReadPosition } from '../../store/user-read-position'
 import { databaseRecords } from '../../sync/record-source'
 import { ReadPositionService } from './service'
@@ -91,9 +92,11 @@ function memoryStore(): AuthorityStore {
 /** Minimal cursor store — only what ReadPositionService calls, monotonic like the real one. */
 function memoryCursorRepo() {
   const byUser = new Map<string, Map<string, StoredReadPosition>>()
-  // The change capture the table's triggers keep (POD-6920).
+  // The change capture the table's triggers keep (POD-6920), keyed as they key it:
+  // the workspace first (POD-7021), so the drain holds it to this repo's workspace.
   let captured: CapturedRow[] = []
   return {
+    workspaceId: SELF_HOSTED_WORKSPACE_ID,
     async drainCapture(): Promise<CapturedRow[]> {
       const out = captured
       captured = []
@@ -130,8 +133,8 @@ function memoryCursorRepo() {
         kind: 'userReadPosition',
         source: 0,
         op: current === undefined ? 'i' : 'u',
-        oldKey: current === undefined ? null : [userId, streamId],
-        newKey: [userId, streamId],
+        oldKey: current === undefined ? null : [SELF_HOSTED_WORKSPACE_ID, userId, streamId],
+        newKey: [SELF_HOSTED_WORKSPACE_ID, userId, streamId],
       })
       return proposed
     },

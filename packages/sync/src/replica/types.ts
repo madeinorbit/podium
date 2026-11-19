@@ -18,9 +18,9 @@
  */
 
 import type {
-  ChangeOp as ModelChangeOp,
   ChangeProvenanceFields,
   ChangeTargetFields,
+  ChangeOp as ModelChangeOp,
 } from '@podium/model'
 
 /**
@@ -177,10 +177,33 @@ export interface BootstrapChunk {
   readonly snapshotSeq: number
   /** Positive state only — `upsert` rows. A `remove`/`evict` here is malformed. */
   readonly changes: readonly ChangeEnvelope[]
+  /**
+   * Issues at stub level (POD-7085 `feedStubs`): `upsert` rows of the issue
+   * kind whose payload is the declared stub fields only.
+   */
+  readonly stubs?: readonly ChangeEnvelope[]
+  /**
+   * Markers (POD-7085 `collectionComplete`): every record of these instances
+   * this viewer may see arrived in this answer at or before this chunk, as of
+   * `snapshotSeq`.
+   */
+  readonly complete?: readonly CompleteMarker[]
+  /** The first download's policy (`syncMeta.policy`), on its first chunk. */
+  readonly policy?: CachePolicy
   readonly last: boolean
   /** Transfer header metadata, certified when the last chunk arrives. */
   readonly kindTokens: KindTokens
-  readonly kinds?: readonly string[]
+}
+
+/** One instance a marker names, with a paged instance's range and first-page total. */
+export interface CompleteMarker extends InstanceSpec {
+  readonly range?: InstanceRange
+  readonly total?: number
+}
+
+/** An instance as a fetch asks for it: a paged one may continue below a position. */
+export interface InstanceRequest extends InstanceSpec {
+  readonly after?: readonly InstanceScalar[]
 }
 
 /**
@@ -230,14 +253,116 @@ export type RebootstrapCause =
   | 'kind-shape'
   /** rung 2 — a cold client has no cursor to heal from. */
   | 'cold-start'
+  /**
+   * rung 2 — a first download or reload was interrupted: the collections
+   * without a marker load again (POD-7086), nothing else.
+   */
+  | 'resume'
 
-/** An entity as the Replica holds it: value, opaque revision, and envelope provenance beside it — never inside it. */
+/**
+ * An entity as the Replica holds it: value, opaque revision, and envelope provenance beside it — never inside it.
+ *
+ * ONE ROW PER RECORD (POD-7086, design POD-7059 "Parts"): an issue the device
+ * holds only as its stub carries `part: 'stub'` and only the declared stub
+ * fields; every other row is the record with its main part. `asOf` is the
+ * feed number the row is current as of: a fetched answer can be ahead of the
+ * feed the device has applied, so a change older than this is skipped for
+ * this row ("the newer one wins, per record"). Absent, it is the provenance seq.
+ */
 export interface EntityRecord {
   readonly entity: string
   readonly entityId: string
   readonly value: unknown
   readonly revision?: number
   readonly provenance: ChangeProvenance & { readonly seq: number }
+  readonly part?: 'stub'
+  readonly asOf?: number
+}
+
+/** The feed number a row is current as of. */
+export const rowAsOf = (row: Pick<EntityRecord, 'asOf' | 'provenance'>): number =>
+  row.asOf ?? row.provenance.seq
+
+/** A value inside an instance's arguments. */
+export type InstanceScalar = string | number | boolean | null
+
+/** The arguments of one instance ("the tree under X": `{ root: X }`). */
+export type InstanceArgs = Readonly<Record<string, InstanceScalar | readonly InstanceScalar[]>>
+
+/**
+ * One INSTANCE of a declared collection (`@podium/model` `records/`): the
+ * collection with its arguments filled in, the part it holds, and for a
+ * keyed instance that arrives because another record is held, the holder
+ * (`via`) whose "comes with" narrows it. The kernel's spelling of the wire's
+ * `CompleteInstance`; nothing here names a principal or a right.
+ */
+export interface InstanceSpec {
+  readonly collection: string
+  readonly args?: InstanceArgs
+  readonly part: 'stub' | 'main'
+  readonly via?: string
+}
+
+/** A sorted, paged instance's range: complete from the top down to `through`, or to its end. */
+export interface InstanceRange {
+  readonly through?: readonly InstanceScalar[]
+  readonly end: boolean
+}
+
+/**
+ * The MARKER, as the device stores it: "this instance is complete", as of
+ * `completeAt`. Because the feed is applied without gaps, a complete instance
+ * stays complete; a gap that cannot be bridged drops every marker.
+ * `releasedAt` orders cache instances for the trim (released longest ago
+ * goes first); absent means never released.
+ */
+export interface InstanceRecord extends InstanceSpec {
+  readonly key: string
+  readonly range?: InstanceRange
+  /** A paged instance's first page: the whole instance's size for this viewer. */
+  readonly total?: number
+  readonly completeAt: Cursor
+  readonly releasedAt?: number
+}
+
+/**
+ * What a screen asks the device about its collections (POD-7086; the readers
+ * move onto it in POD-7088). Synchronous, from memory. A stub is never in
+ * `readEntities()`/`read()`, so a reader written for whole records never sees
+ * a row without a title; it reads stubs here.
+ */
+export interface DeviceCollectionReads {
+  /** The marker of an instance the device holds complete; `undefined` when it does not. */
+  isComplete(spec: InstanceSpec): InstanceRecord | undefined
+  /** The stub part of an issue the device holds, as a stub or whole; `undefined` when absent. */
+  stubOf(entity: string, entityId: string): Readonly<Record<string, unknown>> | undefined
+  /** The ids of the issues on the device whose parent is `parentId`, stubs included. */
+  stubsByParent(parentId: string): readonly string[]
+  /**
+   * The stub part of every record of `entity` on the device, stubs and whole
+   * records alike (POD-7087, design "Counts"). The same array until the
+   * device's rows change.
+   */
+  stubRows(entity: string): readonly StubRow[]
+}
+
+/** One record's stub part, by id. */
+export interface StubRow {
+  readonly id: string
+  readonly stub: Readonly<Record<string, unknown>>
+}
+
+/** The server's policy for this client type, as the device stores it (`syncMeta.policy`). */
+export interface CachePolicy {
+  readonly clientType: string
+  readonly steps: readonly { readonly step: string; readonly collections: readonly string[] }[]
+  readonly recentDays: number
+  /** The warm set's budget in memory, estimated MB (POD-7161, design "Layer 2: memory"). */
+  readonly memoryBudgetMb: number
+  /** Local storage's size budget, MB (POD-7162 prunes to it). */
+  readonly diskBudgetMb: number
+  /** An instance no view has read for longer than this many days leaves the device (POD-7162). */
+  readonly diskMaxIdleDays: number
 }
 
 /**
@@ -249,6 +374,25 @@ export type ExitKind = 'removed' | 'evicted'
 
 export type ReplicaEvent =
   | { readonly type: 'upserted'; readonly record: EntityRecord; readonly readmitted: boolean }
+  /**
+   * The device no longer holds the record whole (POD-7086): the trim or the
+   * end of a load let it go, or took an issue back to its stub. NOT a
+   * deletion and not a visibility change: a lookup now answers "on its way".
+   */
+  | { readonly type: 'released'; readonly entity: string; readonly entityId: string }
+  /**
+   * POD-7159 — the record left MEMORY and stays on the device's disk (its
+   * instance was unloaded). Not a removal, not a release: a reader gets
+   * LOADING and a disk load, never REMOVED or NOT_VISIBLE.
+   */
+  | { readonly type: 'unloaded'; readonly entity: string; readonly entityId: string }
+  /** An issue's stub was written: the device holds it at stub level only. */
+  | { readonly type: 'stub-upserted'; readonly record: EntityRecord }
+  /**
+   * Markers were written or dropped (POD-7087): what `isComplete` answers
+   * may have changed. Touches no row.
+   */
+  | { readonly type: 'markers' }
   /** A TOMBSTONE. The entity is gone, globally. Render as deleted. */
   | { readonly type: 'removed'; readonly entity: string; readonly entityId: string }
   /**
@@ -273,6 +417,17 @@ export type ReplicaEvent =
       readonly rung: HealRung
       readonly cause: RebootstrapCause | 'gap'
       readonly partial?: true
+    }
+  /**
+   * POD-7122 — a load's records and markers are all in the device store's
+   * memory: every policy collection, with what its records come with. Views
+   * may open on them now. Its durable commit follows as `bootstrap-installed`,
+   * which alone moves the posture live; a crash before it resumes the load.
+   */
+  | {
+      readonly type: 'load-installed'
+      readonly cause: RebootstrapCause
+      readonly snapshotSeq: number
     }
   | {
       readonly type: 'bootstrap-installed'
@@ -306,5 +461,9 @@ export interface ReplicaStats {
   readonly bootstraps: number
   readonly framesApplied: number
   readonly watermarksApplied: number
+  /** Times memory shrank the warm set and unloaded something (POD-7161: idle, background, warning). */
+  readonly shrinks: number
+  /** POD-7162 — prune slices that removed something from the device (idle or background only). */
+  readonly prunes: number
   readonly entityCount: number
 }

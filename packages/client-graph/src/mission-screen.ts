@@ -21,13 +21,21 @@ import {
 import { companion, lazy } from '@podium/mobx-helpers'
 import { isFinished } from '@podium/model/browser'
 import { action, compareShallow, compareStructural, observable } from 'mobx'
+import { ISSUE_STUBS } from './collections'
 import { headerView } from './header-views'
 import { omitGone } from './lookup'
 import { FullDeck } from './mission-full-deck'
-import { type MissionDeckIssueModel, MissionViewReader, missionView, requireLoaded, settled } from './mission-view'
+import {
+  type MissionDeckIssueModel,
+  MissionViewReader,
+  missionView,
+  requireLoaded,
+  settled,
+} from './mission-view'
 import type { IssueModel, SessionModel } from './models'
 import { myPreferences } from './per-user-records'
 import type { MobxPool } from './pool'
+import { SlicedWarmup } from './sliced-warmup'
 import { LOADING, type Loaded } from './worklist/rollup'
 
 export interface MissionScreenOptions {
@@ -44,15 +52,22 @@ const NO_HOSTS: ReturnType<typeof machineViewsFromWire> = []
 
 /** The mission's search words for one drawn row: title, reference, crew names. */
 class MissionRowSearch {
-  constructor(private readonly row: MissionDeckIssueModel, private readonly screen: MissionScreen) {}
+  constructor(
+    private readonly row: MissionDeckIssueModel,
+    private readonly screen: MissionScreen,
+  ) {}
   @lazy({ equals: compareShallow }) get words(): readonly string[] {
     const { row } = this
     const issue = requireLoaded(row.view.catalogIssue(row.id))!
     const name = this.screen.sessionName
-    return [issue.title.toLowerCase(), row.displayRef.toLowerCase(), ...row.crewIds.map((id) => {
-      const session = row.view.rawSession(id)
-      return session && typeof session !== 'symbol' ? name(session).toLowerCase() : ''
-    })]
+    return [
+      issue.title.toLowerCase(),
+      row.displayRef.toLowerCase(),
+      ...row.crewIds.map((id) => {
+        const session = row.view.rawSession(id)
+        return session && typeof session !== 'symbol' ? name(session).toLowerCase() : ''
+      }),
+    ]
   }
 }
 
@@ -78,13 +93,19 @@ export class MissionScreen {
   @observable accessor query = ''
   @observable accessor searchOpen = false
   @observable accessor archivedOpen = false
-  private readonly search = companion((row: MissionDeckIssueModel) => new MissionRowSearch(row, this))
+  private readonly search = companion(
+    (row: MissionDeckIssueModel) => new MissionRowSearch(row, this),
+  )
   private readonly seat = companion((session: SessionModel) => new MissionSession(session))
   /** The Full view (flight deck v6): its own filter, Show done and default
    * folds over this opening's full deck. */
   readonly full: FullDeck = new FullDeck(this)
 
-  constructor(readonly pool: MobxPool, readonly rootId: string, private readonly options: MissionScreenOptions = {}) {
+  constructor(
+    readonly pool: MobxPool,
+    readonly rootId: string,
+    private readonly options: MissionScreenOptions = {},
+  ) {
     this.reader = new MissionViewReader(pool)
   }
 
@@ -94,6 +115,7 @@ export class MissionScreen {
 
   // Lifetime
   close(): void {
+    this.warmup.dispose()
     this.reader.dispose()
   }
 
@@ -103,7 +125,9 @@ export class MissionScreen {
     return typeof row === 'object' && row !== null ? row.value : null
   }
   @lazy get mode(): FlightDeckMode {
-    return this.options.fullOnly ? 'full' : readMissionScreenView(this.preference(FLIGHT_DECK_MODE_KEY))
+    return this.options.fullOnly
+      ? 'full'
+      : readMissionScreenView(this.preference(FLIGHT_DECK_MODE_KEY))
   }
   @lazy({ equals: compareStructural }) get folds(): FlightDeckFoldMap {
     return readFlightDeckFolds(this.preference(FLIGHT_DECK_FOLDS_KEY))
@@ -120,56 +144,147 @@ export class MissionScreen {
     next.set(id, closed ? 'closed' : 'open')
     this.setFolds(next)
   }
-  @action toggleFold(row: MissionDeckIssueModel): void { this.fold(row.id, !row.folded(this.folds)) }
+  @action toggleFold(row: MissionDeckIssueModel): void {
+    this.fold(row.id, !row.folded(this.folds))
+  }
   /** Both directions write explicit values for every foldable branch. */
   @action foldAll(): void {
     const closed = !this.allFolded
-    this.setFolds(new Map(this.foldable.map((row): [string, FlightDeckFoldState] => [row.id, closed ? 'closed' : 'open'])))
+    this.setFolds(
+      new Map(
+        this.foldable.map((row): [string, FlightDeckFoldState] => [
+          row.id,
+          closed ? 'closed' : 'open',
+        ]),
+      ),
+    )
   }
 
   // Search
-  @action setQuery(query: string): void { this.query = query }
+  @action setQuery(query: string): void {
+    this.query = query
+  }
   @action toggleSearch(): void {
     if (this.searchOpen) this.query = ''
     this.searchOpen = !this.searchOpen
   }
-  @action closeSearch(): void { this.query = ''; this.searchOpen = false }
-  @action setArchivedOpen(open: boolean): void { this.archivedOpen = open }
+  @action closeSearch(): void {
+    this.query = ''
+    this.searchOpen = false
+  }
+  @action setArchivedOpen(open: boolean): void {
+    this.archivedOpen = open
+  }
 
   // The deck
-  get root(): IssueModel { return this.reader.facts(this.rootId) }
-  @lazy get deck() { return this.reader.deck(this.rootId, this.mode) }
+  @lazy get refreshing(): boolean {
+    return (
+      this.pool.collections.treeStatus(this.rootId) === 'refreshing' ||
+      this.pool.collections.reading(undefined, [
+        ISSUE_STUBS,
+        ...['issueDescription.ofIssue', 'issuePanelState.ofIssue'].map((collection) => ({
+          collection,
+          args: { issueId: this.rootId },
+          part: 'main' as const,
+        })),
+      ]) === 'refreshing'
+    )
+  }
+
+  get root(): IssueModel {
+    return this.reader.facts(this.rootId)
+  }
+  @lazy get deck() {
+    return this.reader.deck(this.rootId, this.mode)
+  }
+  /**
+   * POD-7168: a large deck derives its rows' words and buckets over several
+   * tasks before it settles; a deepest row first, so a parent's roll-up finds
+   * its children derived. The 970-issue deck did all of it in one task.
+   */
+  @lazy({ equals: compareShallow }) private get warmOrder(): readonly string[] | typeof LOADING {
+    const shape = this.deck.topology
+    if (shape === LOADING) return LOADING
+    return [...shape.scope].sort((a, b) => (shape.depths.get(b) ?? 0) - (shape.depths.get(a) ?? 0))
+  }
+  private readonly warmup = new SlicedWarmup(
+    () => this.warmOrder,
+    (id) => {
+      const task = this.full.task(id)
+      void task.word
+      void task.entity.missionBucket
+      void task.shown
+      const row = task.row
+      void row.tasks
+      void row.done
+      void row.actionableCount
+      // The header's crew counts fold every row's own (POD-7178): derived
+      // here, a slice at a time, not all at once when the header first reads.
+      void row.liveAgentCount
+      void row.workingAgentCount
+      void row.waitingAgentCount
+      // And the deck's progress, which folds each leaf's unit answer.
+      void this.reader.node(id).progressUnit
+    },
+  )
   /** The deck has settled: its shape, numbers, archive count, header and rows. */
   @lazy get ready(): boolean {
-    return settled(() => {
-      // A loading device preference must not briefly draw the default folds.
-      // Keep display demand inside this opening until its mode and folds arrive.
-      const deck = this.deck
-      const reads = [deck.topology, deck.progress, deck.archivedCount, deck.headerReady, this.reader.issue(this.rootId), settled(() => deck.rowIds()), this.folds]
-      return !reads.includes(LOADING)
-    }) === true
+    return (
+      settled(() => {
+        if (!this.warmup.done) return false
+        // A loading device preference must not briefly draw the default folds.
+        // Keep display demand inside this opening until its mode and folds arrive.
+        const deck = this.deck
+        const reads = [
+          deck.topology,
+          deck.progress,
+          deck.archivedCount,
+          deck.headerReady,
+          this.reader.issue(this.rootId),
+          settled(() => deck.rowIds()),
+          this.folds,
+          this.rootBodyHeld ? true : LOADING,
+        ]
+        return !reads.includes(LOADING)
+      }) === true
+    )
   }
   /** The row spine needs its shape and folds, independently of header totals.
    * Waterfall geometry must not subscribe to whole-mission activity rollups. */
   @lazy get rowsReady(): boolean {
-    return settled(() => {
-      const reads = [this.deck.topology, this.reader.issue(this.rootId), settled(() => this.deck.rowIds()), this.folds]
-      return !reads.includes(LOADING)
-    }) === true
+    return (
+      settled(() => {
+        const reads = [
+          this.deck.topology,
+          this.reader.issue(this.rootId),
+          settled(() => this.deck.rowIds()),
+          this.folds,
+        ]
+        return !reads.includes(LOADING)
+      }) === true
+    )
   }
   @lazy({ equals: compareShallow }) get rows(): readonly MissionDeckIssueModel[] {
     return this.rowsReady ? this.deck.rows() : []
   }
   /** The mission's own row: the header, which the spine does not print again. */
-  @lazy get rootRow(): MissionDeckIssueModel | undefined { return this.rows[0] }
-  @lazy get needle(): string { return this.query.trim().toLowerCase() }
+  @lazy get rootRow(): MissionDeckIssueModel | undefined {
+    return this.rows[0]
+  }
+  @lazy get needle(): string {
+    return this.query.trim().toLowerCase()
+  }
   matches(row: MissionDeckIssueModel, needle = this.needle): boolean {
     return this.search(row).words.some((word) => word.includes(needle))
   }
   /** Proposals leave the tree for their own tail, unless they carry sub-tasks. */
   @lazy({ equals: compareShallow }) private get proposalIds(): readonly string[] {
-    return this.rows.filter((row) =>
-      row.depth > 0 && row.stage === 'proposed' && requireLoaded(row.deckChildren).length === 0).map((row) => row.id)
+    return this.rows
+      .filter(
+        (row) =>
+          row.depth > 0 && row.stage === 'proposed' && requireLoaded(row.deckChildren).length === 0,
+      )
+      .map((row) => row.id)
   }
   @lazy({ equals: compareShallow }) private get proposals(): readonly MissionDeckIssueModel[] {
     const ids = new Set(this.proposalIds)
@@ -190,11 +305,13 @@ export class MissionScreen {
   @lazy({ equals: compareShallow }) get visibleRows(): readonly MissionDeckIssueModel[] {
     const needle = this.needle
     if (!needle) return this.unfolded
-    const keep = new Set<string>(), trail: MissionDeckIssueModel[] = []
+    const keep = new Set<string>(),
+      trail: MissionDeckIssueModel[] = []
     for (const row of this.unfolded) {
       trail.length = row.depth
       trail[row.depth] = row
-      if (this.matches(row, needle)) for (const ancestor of trail) if (ancestor) keep.add(ancestor.id)
+      if (this.matches(row, needle))
+        for (const ancestor of trail) if (ancestor) keep.add(ancestor.id)
     }
     return this.unfolded.filter((row) => keep.has(row.id))
   }
@@ -207,24 +324,39 @@ export class MissionScreen {
     const ids = new Set(this.proposalIds)
     return this.rows.filter((row) => row.depth > 0 && !ids.has(row.id) && row.hasPayload)
   }
-  @lazy get anyFoldable(): boolean { return this.foldable.length > 0 }
-  @lazy get allFolded(): boolean { return this.anyFoldable && this.foldable.every((row) => row.folded(this.folds)) }
+  @lazy get anyFoldable(): boolean {
+    return this.foldable.length > 0
+  }
+  @lazy get allFolded(): boolean {
+    return this.anyFoldable && this.foldable.every((row) => row.folded(this.folds))
+  }
   /** Every crew member drawn on a row of this mission, in row order. */
   /** The mission's members, unfiltered by the view. */
-  @lazy({ equals: compareStructural }) get members(): ReadonlySet<string> { return requireLoaded(this.deck.members) }
-  @lazy({ equals: compareShallow }) get crewIds(): readonly string[] { return this.rows.flatMap((row) => row.crewIds) }
-  @lazy({ equals: compareStructural }) get inMission(): ReadonlySet<string> { return new Set(this.crewIds) }
+  @lazy({ equals: compareStructural }) get members(): ReadonlySet<string> {
+    return requireLoaded(this.deck.members)
+  }
+  @lazy({ equals: compareShallow }) get crewIds(): readonly string[] {
+    return this.rows.flatMap((row) => row.crewIds)
+  }
+  @lazy({ equals: compareStructural }) get inMission(): ReadonlySet<string> {
+    return new Set(this.crewIds)
+  }
   /** Every seated sender across the mission's members, in session order:
    * the crew the phone's mission screen picks its conversation from. */
   @lazy({ equals: compareShallow }) get crew(): readonly SessionModel[] {
     const seats = new Map<string, SessionModel>()
     for (const member of this.members) {
-      for (const seat of requireLoaded(this.reader.present(member))) seats.set(seat.sessionId, this.pool.sessionObject(seat.sessionId))
+      for (const seat of requireLoaded(this.reader.present(member)))
+        seats.set(seat.sessionId, this.pool.sessionObject(seat.sessionId))
     }
     return [...seats.values()].sort(this.reader.sessionOrder)
   }
-  @lazy({ equals: compareShallow }) get rootSessionIds(): readonly string[] { return this.rootRow?.sessionIds(this.mode) ?? [] }
-  sessionHeight(id: string): number { return this.seat(this.pool.sessionObject(id)).height }
+  @lazy({ equals: compareShallow }) get rootSessionIds(): readonly string[] {
+    return this.rootRow?.sessionIds(this.mode) ?? []
+  }
+  sessionHeight(id: string): number {
+    return this.seat(this.pool.sessionObject(id)).height
+  }
   /** The phone's proposal author: the filing session's reference, never a
    * collapsed resume twin's. */
   proposalAuthor(row: MissionDeckIssueModel): string | null {
@@ -233,25 +365,63 @@ export class MissionScreen {
   }
 
   // Header: the root's displayed fields, each its own answer
-  @lazy get rootTitle(): string { return this.rootRow?.title ?? '' }
-  @lazy get rootRef(): string { return this.deck.model(this.rootId).displayRef }
-  @lazy get rootStage(): IssueNavigationModel['stage'] { return this.rootIssue.stage }
-  @lazy({ equals: compareShallow }) get rootStatus() { return this.deck.model(this.rootId).status }
-  private get rootIssue(): IssueNavigationModel { return requireLoaded(this.reader.issue(this.rootId))! }
-  @lazy get rootDraftVessel(): boolean { return Boolean(this.rootIssue.isDraftVessel) }
-  @lazy get rootLeadSessionId(): string | undefined { return this.rootRow?.crewIds[0] }
+  @lazy get rootTitle(): string {
+    return this.rootRow?.title ?? ''
+  }
+  @lazy get rootRef(): string {
+    return this.deck.model(this.rootId).displayRef
+  }
+  @lazy get rootStage(): IssueNavigationModel['stage'] {
+    return this.rootIssue.stage
+  }
+  @lazy({ equals: compareShallow }) get rootStatus() {
+    return this.deck.model(this.rootId).status
+  }
+  private get rootIssue(): IssueNavigationModel {
+    return requireLoaded(this.reader.issue(this.rootId))!
+  }
+  @lazy get rootDraftVessel(): boolean {
+    return Boolean(this.rootIssue.isDraftVessel)
+  }
+  @lazy get rootLeadSessionId(): string | undefined {
+    return this.rootRow?.crewIds[0]
+  }
+  /**
+   * The header reads the root's description and panel state line, the
+   * issue's body part (POD-7084): the deck asks for them when it opens and
+   * is ready once they are held (POD-7088). Only the root's, never a member's.
+   */
+  @lazy private get rootBodyHeld(): boolean {
+    const held = (collection: string) =>
+      this.pool.collections.held({ collection, args: { issueId: this.rootId }, part: 'main' })
+    const description = held('issueDescription.ofIssue'),
+      state = held('issuePanelState.ofIssue')
+    return description && state
+  }
   /** The root's bodies (POD-6921) come from its pool model, which reads their records. */
-  private get rootModel() { return this.pool.issueObject(this.rootId) }
+  private get rootModel() {
+    return this.pool.issueObject(this.rootId)
+  }
   @lazy get rootAuthoredBrief(): string {
     const root = this.rootModel
     return root.description.trim() || root.activityNotes?.trim() || ''
   }
-  @lazy get rootFinished(): boolean { return isFinished(this.rootIssue) }
-  @lazy get rootAbandoned(): boolean { return issueAbandoned(this.rootIssue) }
-  @lazy get rootClosable(): boolean { return !this.rootFinished && !this.rootIssue.deletedAt }
+  @lazy get rootFinished(): boolean {
+    return isFinished(this.rootIssue)
+  }
+  @lazy get rootAbandoned(): boolean {
+    return issueAbandoned(this.rootIssue)
+  }
+  @lazy get rootClosable(): boolean {
+    return !this.rootFinished && !this.rootIssue.deletedAt
+  }
   @lazy({ equals: compareShallow }) get rootAgentTarget() {
     const { defaultAgent, repoPath, machineId } = this.rootIssue
-    return { defaultAgent: issueDefaultAgentKind(defaultAgent, myPreferences(this.pool)?.codingHarness), repoPath, machineId }
+    return {
+      defaultAgent: issueDefaultAgentKind(defaultAgent, myPreferences(this.pool)?.codingHarness),
+      repoPath,
+      machineId,
+    }
   }
   @lazy({ equals: compareStructural }) get progress() {
     const progress = requireLoaded(this.deck.progress)
@@ -264,25 +434,43 @@ export class MissionScreen {
       const id = stack.pop()!
       if (seen.has(id)) continue
       seen.add(id)
-      const child = requireLoaded(omitGone(this.pool.row('issueBoardRow', id))) as IssueNavigationModel | undefined
+      const child = requireLoaded(omitGone(this.pool.row('issueBoardRow', id))) as
+        | IssueNavigationModel
+        | undefined
       if (!child || !this.reader.facts(child.id).visible) continue
       if (child.stage !== 'proposed' && !issueAbandoned(child)) return progress
       stack.push(...this.pool.graph.many('issue', id, 'children'))
     }
     return { total: 0, done: 0, working: 0, waiting: 0, todo: 0 }
   }
-  @lazy get liveCount(): number { return this.rootRow?.liveAgentCount ?? 0 }
-  @lazy get workingCount(): number { return this.rootRow?.workingAgentCount ?? 0 }
-  @lazy get needsCount(): number { return this.rootRow?.actionableCount ?? 0 }
-  @lazy get waitingCount(): number { return this.rootRow?.waitingAgentCount ?? 0 }
-  @lazy get archivedCount(): number { return requireLoaded(this.deck.archivedCount) }
-  @lazy({ equals: compareStructural }) get note() { return this.deck.note }
+  @lazy get liveCount(): number {
+    return this.rootRow?.liveAgentCount ?? 0
+  }
+  @lazy get workingCount(): number {
+    return this.rootRow?.workingAgentCount ?? 0
+  }
+  @lazy get needsCount(): number {
+    return this.rootRow?.actionableCount ?? 0
+  }
+  @lazy get waitingCount(): number {
+    return this.rootRow?.waitingAgentCount ?? 0
+  }
+  @lazy get archivedCount(): number {
+    return requireLoaded(this.deck.archivedCount)
+  }
+  @lazy({ equals: compareStructural }) get note() {
+    return this.deck.note
+  }
   /** The root's seat note; drawn only while the root has a row. */
   @lazy({ equals: compareStructural }) get presence() {
     return this.rows.some((row) => row.id === this.rootId) ? this.deck.presence : null
   }
-  @lazy({ equals: compareStructural }) get continuation() { return this.deck.continuation }
-  @lazy({ equals: compareStructural }) get departures() { return this.deck.departures }
+  @lazy({ equals: compareStructural }) get continuation() {
+    return this.deck.continuation
+  }
+  @lazy({ equals: compareStructural }) get departures() {
+    return this.deck.departures
+  }
   /** The continuation is a departure with an action: listed once, as the card. */
   @lazy({ equals: compareShallow }) get otherDepartures() {
     const target = this.continuation?.target?.id
@@ -296,10 +484,15 @@ export class MissionScreen {
    * session with it, and no sub-task stayed behind. The deck then has nothing
    * of its own to count, and the pane explains the move in place of the tabs. */
   @lazy get conversationMoved(): boolean {
-    return this.continuation?.kind === 'spinoff' && this.pool.graph.size('issue', this.rootId, 'children') === 0
+    return (
+      this.continuation?.kind === 'spinoff' &&
+      this.pool.graph.size('issue', this.rootId, 'children') === 0
+    )
   }
   /** What this task wrote down before its conversation moved. */
-  @lazy get rootFindings(): string { return this.rootModel.activityNotes?.trim() ?? '' }
+  @lazy get rootFindings(): string {
+    return this.rootModel.activityNotes?.trim() ?? ''
+  }
   /** Proposals this task filed as their own issues, in the deck's proposal rows. */
   @lazy({ equals: compareShallow }) get spinOffProposalIds(): readonly string[] {
     return [...this.pool.graph.many('issue', this.rootId, 'spinOffs')]
@@ -310,31 +503,57 @@ export class MissionScreen {
 
   // Hosts a mission root can run on
   @lazy private get repoViews() {
-    const scans = headerView(this.pool).ids('repository').flatMap((id) => {
-      const scan = headerView(this.pool).row('repository', id)
-      return scan ? [scan] : []
-    })
+    const scans = headerView(this.pool)
+      .ids('repository')
+      .flatMap((id) => {
+        const scan = headerView(this.pool).row('repository', id)
+        return scan ? [scan] : []
+      })
     // The first view at a path, as the whole-list find answered.
     const byPath = new Map<string, ReturnType<typeof reposToViews>[number]>()
     for (const repo of reposToViews(scans)) if (!byPath.has(repo.path)) byPath.set(repo.path, repo)
     return byPath
   }
-  @lazy private get machineViews() { return machineViewsFromWire(headerView(this.pool).machines()) }
+  @lazy private get machineViews() {
+    return machineViewsFromWire(headerView(this.pool).machines())
+  }
   @lazy({ equals: compareShallow }) get agentHosts(): ReturnType<typeof machineViewsFromWire> {
     const machines = this.machineViews
     if (machines.length === 0) return NO_HOSTS
     const { machineId, repoPath } = this.rootAgentTarget
     if (machineId) return machines.filter((view) => view.machine.id === machineId)
     const repo = repoPath == null ? undefined : this.repoViews.get(repoPath)
-    return machines.filter((view) => repo?.machines.some((machine) => machine.machineId === view.machine.id))
+    return machines.filter((view) =>
+      repo?.machines.some((machine) => machine.machineId === view.machine.id),
+    )
   }
+}
 
+/**
+ * POD-7169 — whether a phone opening of a mission has its answer: the mission,
+ * or "not found". Not found is only ever the lookup's settled answer (the root
+ * is gone, or the pool is past its boot and the selection names nothing);
+ * while the mission or anything its screen draws is on its way, the opening
+ * is loading. An archived member can still own the current conversation, so
+ * its live crew is a shown field even once the deck's rows have settled.
+ */
+export function missionOpeningResolved(
+  screen: MissionScreen | null,
+  rootId: Loaded<string>,
+  booting: boolean,
+): boolean {
+  if (screen !== null) return screen.ready && settled(() => screen.crew) !== LOADING
+  return rootId !== LOADING && !booting
 }
 
 /** The mission root a selection opens, by id. The phone (`structural`) opens
  * archived roots and an addressed cold row explicitly; the desktop opens the
  * visible root only, and not an empty draft vessel. */
-export function missionRootId(pool: MobxPool, selectedId: string | null, structural = false): Loaded<string> {
+export function missionRootId(
+  pool: MobxPool,
+  selectedId: string | null,
+  structural = false,
+): Loaded<string> {
   const reader = missionView(pool)
   if (!structural) {
     const root = reader.selectedRoot(selectedId)
@@ -343,8 +562,12 @@ export function missionRootId(pool: MobxPool, selectedId: string | null, structu
   const rootId = reader.rootFor(selectedId)
   if (rootId === LOADING) return LOADING
   if (rootId) {
-    const root = reader.issue(rootId)
-    return root === LOADING ? LOADING : root?.id
+    // Resolving navigation reads identity, not the rich deck header. Its
+    // roster/counts can need the tree that the opening will read: waiting
+    // for them here prevents that disk load from ever being requested after
+    // an offline restart. The screen owns readiness once its root is known.
+    const root = omitGone(pool.stub(rootId))
+    return root === LOADING ? LOADING : root ? rootId : undefined
   }
   // Cold and unknown selections spend the shared load window; gone selections
   // are omitted after the lookup settles and never restart that load.

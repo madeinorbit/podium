@@ -1,12 +1,10 @@
 import {
-  DaemonReadiness,
-  Geometry,
   HostMetricsWire,
   IssueId,
   joinKeyParts,
   MachineId,
-  MachinePresenceSource,
   MachineQuotaWire,
+  recordOf,
   SessionId,
   splitKeyParts,
   UsageBucketWire,
@@ -17,7 +15,6 @@ import { SessionOpenUrlMessage, SessionOpenUrlResultMessage } from '../messages/
 import { AttentionEventMessage, MemoryBreakdownResultMessage } from '../messages/host'
 import { SetLogLevelMessage } from '../messages/logs'
 import { ServerRelocationMessage } from '../messages/server-transfer'
-import { PresenceIdentity } from './presence-rooms'
 import type { RoutingKey } from './routing'
 
 /**
@@ -56,80 +53,13 @@ export type TopicProducerSide = (typeof TOPIC_PRODUCERS)[number]
 export const TOPIC_VISIBILITY = ['machine', 'machine.use', 'account.self', 'session'] as const
 export type TopicVisibility = (typeof TOPIC_VISIBILITY)[number]
 
-/** `machine.condition` — the server's view of the daemon connection. */
-export const MachineConditionPayload = z.object({
-  online: z.boolean(),
-  /**
-   * When `online` last changed, as this server saw it. `null` when the server
-   * has not seen the machine connect since it started: honest "offline, since
-   * at least the server's start", never an invented time.
-   */
-  since: z.string().nullable(),
-  // The rest of the connection's condition (POD-6644): facts about the live
-  // link, so they are never record fields. Optional: absent until known.
-  /** When the server last heard from the machine (ISO 8601). */
-  lastSeenAt: z.string().optional(),
-  /** Which compatibility-window path represents the machine now. */
-  presenceSource: MachinePresenceSource.optional(),
-  /** What the current boot is observed to run. */
-  availability: z
-    .object({
-      epoch: z.string(),
-      server: z.boolean(),
-      daemon: z.boolean(),
-      supervisor: z.boolean(),
-    })
-    .optional(),
-  /** The daemon's recovery after attaching. */
-  daemonReadiness: DaemonReadiness.optional(),
-  /**
-   * What kind of connection the server judged the daemon to be on (credential
-   * management §8): `plain` receives no credentials. Absent while no daemon is
-   * connected, and from a server older than this field.
-   */
-  linkKind: z.enum(['encrypted', 'local', 'trusted', 'plain']).optional(),
-})
+// Record topic payloads come from the same declaration the client store reads.
+export const MachineConditionPayload = recordOf('machine').liveReadings['machine.condition']
 export type MachineConditionPayload = z.infer<typeof MachineConditionPayload>
-
-/**
- * `session.terminalState` — who controls a session's terminal and at what size
- * (ADR 7 Amendment 2 D26, D27; built by POD-6764). A value: the facts the
- * `attached`, `controllerChanged`, `geometry` and `agentExit` frames carry for
- * an attached client, for anyone who holds the key.
- *
- * `geometry` is also a stored column of the session, so the snapshot of a
- * session no process holds the terminal of (its daemon is offline, the server
- * restarted, it stopped) is the stored size with no controller: a client can
- * show the cached terminal view at the right size.
- */
-export const SessionTerminalStatePayload = z.object({
-  /** The WEBSOCKET CLIENT that holds control; null when nobody does. */
-  controller: z.string().nullable(),
-  /** Who that client is, when the server knows. */
-  controllerIdentity: PresenceIdentity.nullable().optional(),
-  geometry: Geometry,
-  /** The process ended; absent while it runs or was never started. */
-  exit: z.object({ code: z.number().int() }).optional(),
-})
-export type SessionTerminalStatePayload = z.infer<typeof SessionTerminalStatePayload>
-
-/**
- * `session.condition` — what a running session is doing right now (POD-6764).
- * None of it would be right when read from a saved copy tomorrow, so none of it
- * is a record field (ADR 12 D1). A session nothing runs reads `busy: false`,
- * no gated requests and its stored last input time.
- */
-export const SessionConditionPayload = z.object({
-  /** The session is writing to its terminal now. */
-  busy: z.boolean(),
-  /** Viewport requests not forwarded because their sender did not hold control (POD-3239 B6). */
-  requestsGated: z.number().int().nonnegative(),
-  /** The last human (controller) input, ISO 8601; absent when there was none. */
-  lastInputAt: z.string().optional(),
-  /** The harness's latest exact context-window use, when it reports one. */
-  contextUsagePercent: z.number().finite().min(0).max(100).optional(),
-})
+export const SessionConditionPayload = recordOf('session').liveReadings['session.condition']
 export type SessionConditionPayload = z.infer<typeof SessionConditionPayload>
+export const SessionTerminalStatePayload = recordOf('session').liveReadings['session.terminalState']
+export type SessionTerminalStatePayload = z.infer<typeof SessionTerminalStatePayload>
 
 /**
  * `account.quota` — this account's plan quota (ADR 7 Amendment 2 D26,

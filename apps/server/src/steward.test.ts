@@ -28,6 +28,15 @@ import { openTestStore } from './test-support/open-test-store'
 import { seedRows } from './test-support/seed-rows'
 import { sessionReadPorts } from './test-support/session-facts'
 
+/** Canonical instants for the fixtures: a timestamp column refuses anything else on Postgres. */
+const T = '2026-06-30T00:00:00.000Z'
+const T1 = '2026-07-01T00:00:01.000Z'
+const T2 = '2026-07-01T00:00:02.000Z'
+const T3 = '2026-07-01T00:00:03.000Z'
+const T4 = '2026-07-01T00:00:04.000Z'
+const T5 = '2026-07-01T00:00:05.000Z'
+const T6 = '2026-07-01T00:00:06.000Z'
+
 /** The fixture's caller. `addComment` requires a principal (POD-1315) — these
  *  tests exercise the operator seam, so they say so rather than defaulting. */
 const AS_OPERATOR = userCommandPrincipal(firstAdminMemberId(), 'admin')
@@ -153,7 +162,7 @@ async function seedTold(
 
 describe('TRIGGER_RULES', () => {
   it('maps closed/ready to a per-repo unblock key and needs_human to a per-issue key', () => {
-    const e = { id: 1, ts: 't', kind: '', subject: 'iss_x', repoPath: '/r', payload: {} }
+    const e = { id: 1, ts: T, kind: '', subject: 'iss_x', repoPath: '/r', payload: {} }
     expect(TRIGGER_RULES['issue.closed']!({ ...e, kind: 'issue.closed' })).toBe('unblock:/r')
     expect(TRIGGER_RULES['issue.ready']!({ ...e, kind: 'issue.ready' })).toBe('unblock:/r')
     expect(TRIGGER_RULES['issue.needs_human']!({ ...e, kind: 'issue.needs_human' })).toBe(
@@ -163,7 +172,7 @@ describe('TRIGGER_RULES', () => {
   })
 
   it('issue.closed with a parentId fans out to unblock AND parentnudge keys', () => {
-    const e = { id: 1, ts: 't', kind: 'issue.closed', subject: 'iss_c', repoPath: '/r' }
+    const e = { id: 1, ts: T, kind: 'issue.closed', subject: 'iss_c', repoPath: '/r' }
     expect(
       TRIGGER_RULES['issue.closed']!({ ...e, payload: { seq: 3, parentId: 'iss_p' } }),
     ).toEqual(['unblock:/r', 'parentnudge:closed:iss_p'])
@@ -172,7 +181,7 @@ describe('TRIGGER_RULES', () => {
   })
 
   it('issue.stage_changed→review with a parentId keys a review parent-nudge; other stages ignored', () => {
-    const e = { id: 1, ts: 't', kind: 'issue.stage_changed', subject: 'iss_c', repoPath: '/r' }
+    const e = { id: 1, ts: T, kind: 'issue.stage_changed', subject: 'iss_c', repoPath: '/r' }
     expect(
       TRIGGER_RULES['issue.stage_changed']!({
         ...e,
@@ -192,7 +201,7 @@ describe('TRIGGER_RULES', () => {
   })
 
   it('issue.needs_human always breadcrumbs; with a parentId ALSO keys a parent-nudge', () => {
-    const e = { id: 1, ts: 't', kind: 'issue.needs_human', subject: 'iss_c', repoPath: '/r' }
+    const e = { id: 1, ts: T, kind: 'issue.needs_human', subject: 'iss_c', repoPath: '/r' }
     expect(TRIGGER_RULES['issue.needs_human']!({ ...e, payload: { seq: 3 } })).toBe(
       'needshuman:iss_c',
     )
@@ -205,7 +214,7 @@ describe('TRIGGER_RULES', () => {
 describe('Steward causal terminal gate [spec:SP-cdb2]', () => {
   const baseEvent = {
     id: 1,
-    ts: 't',
+    ts: T,
     kind: 'session.phase',
     subject: 'child',
     repoPath: null,
@@ -250,7 +259,7 @@ describe('Steward causal terminal gate [spec:SP-cdb2]', () => {
     ]
     const { steward, sendNotice, store } = await harness({ sessions })
     await store.events.appendEvent({
-      ts: 't1',
+      ts: T1,
       kind: 'session.phase',
       subject: 'child',
       payload: accepted,
@@ -258,7 +267,7 @@ describe('Steward causal terminal gate [spec:SP-cdb2]', () => {
     await steward.tick()
     expect(sendNotice).toHaveBeenCalledTimes(1)
     await store.events.appendEvent({
-      ts: 't2',
+      ts: T2,
       kind: 'session.phase',
       subject: 'child',
       payload: accepted,
@@ -266,7 +275,7 @@ describe('Steward causal terminal gate [spec:SP-cdb2]', () => {
     await steward.tick()
     expect(sendNotice).toHaveBeenCalledTimes(1)
     await store.events.appendEvent({
-      ts: 't3',
+      ts: T3,
       kind: 'session.phase',
       subject: 'child',
       payload: {
@@ -305,7 +314,7 @@ describe('Steward causal terminal gate [spec:SP-cdb2]', () => {
     ).toBe(false)
 
     await store.events.appendEvent({
-      ts: 't1',
+      ts: T1,
       kind: 'session.phase',
       subject: 'child',
       payload: closure,
@@ -314,7 +323,7 @@ describe('Steward causal terminal gate [spec:SP-cdb2]', () => {
     expect(sendNotice).toHaveBeenCalledTimes(1)
 
     await store.events.appendEvent({
-      ts: 't2',
+      ts: T2,
       kind: 'session.phase',
       subject: 'child',
       payload: closure,
@@ -328,13 +337,13 @@ describe('StewardService cursor', () => {
   it('consumes events exactly once and persists the cursor across re-instantiation', async () => {
     const { store, deps, steward } = await harness()
     await store.events.appendEvent({
-      ts: 't',
+      ts: T,
       kind: 'issue.created',
       subject: 'iss_a',
       repoPath: '/r',
     })
     const id2 = await store.events.appendEvent({
-      ts: 't',
+      ts: T,
       kind: 'issue.created',
       subject: 'iss_b',
       repoPath: '/r',
@@ -427,7 +436,7 @@ describe('StewardService cursor', () => {
     expect(sendNotice).not.toHaveBeenCalled()
 
     const liveEvent = await store.events.appendEvent({
-      ts: 't',
+      ts: T,
       kind: 'issue.created',
       subject: 'iss_live',
       repoPath: '/r',
@@ -445,7 +454,7 @@ describe('StewardService cursor', () => {
     for (let index = 0; index < JANITOR_STEWARD_EVENT_LIMIT + 2; index++) {
       ids.push(
         await store.events.appendEvent({
-          ts: 't',
+          ts: T,
           kind: 'test.unmatched',
           subject: 'subject-' + index,
           repoPath: '/r',
@@ -1372,7 +1381,7 @@ describe('StewardService stored subscriptions (Phase B)', () => {
     deliverNotify: false,
     origin: 'custom',
     enabled: true,
-    createdAt: 't',
+    createdAt: T,
     ...over,
   })
 
@@ -1493,7 +1502,7 @@ describe('StewardService stored subscriptions (Phase B)', () => {
       ),
     )
     await store.events.appendEvent({
-      ts: 't',
+      ts: T,
       kind: 'session.exited',
       subject: 'worker',
       payload: { code: 0, terminalFenceReported: true },
@@ -1525,13 +1534,13 @@ describe('StewardService stored subscriptions (Phase B)', () => {
     )
     // Non-finished phases are ignored; only idle+done derives session.finished.
     await store.events.appendEvent({
-      ts: 't',
+      ts: T,
       kind: 'session.phase',
       subject: 'worker',
       payload: { phase: 'active' },
     })
     await store.events.appendEvent({
-      ts: 't',
+      ts: T,
       kind: 'session.phase',
       subject: 'worker',
       payload: { phase: 'idle', verdict: 'done' },
@@ -1584,7 +1593,7 @@ describe('StewardService stored subscriptions (Phase B)', () => {
     )
     // A non-child session finishing does NOT deliver.
     await store.events.appendEvent({
-      ts: 't',
+      ts: T,
       kind: 'session.phase',
       subject: 'stranger',
       payload: { phase: 'idle', verdict: 'done' },
@@ -1593,7 +1602,7 @@ describe('StewardService stored subscriptions (Phase B)', () => {
     expect(sendNotice).not.toHaveBeenCalled()
     // The child session finishing DOES — its bound issue's parent is the subscriber.
     await store.events.appendEvent({
-      ts: 't',
+      ts: T,
       kind: 'session.phase',
       subject: 'kid',
       payload: { phase: 'idle', verdict: 'done' },
@@ -1645,8 +1654,8 @@ describe('StewardService stored subscriptions (Phase B)', () => {
       status: 'live',
       exitCode: null,
       durableLabel: 'podium-esess',
-      createdAt: 't',
-      lastActiveAt: 't',
+      createdAt: T,
+      lastActiveAt: T,
       lastOutputAt: null,
       lastInputAt: null,
       lastResumedAt: null,
@@ -1675,7 +1684,7 @@ describe('StewardService stored subscriptions (Phase B)', () => {
           subscriberId: 'esess',
           sourceKind: 'relationship',
           sourceRef: 'my-subtree',
-          createdAt: 't1',
+          createdAt: T1,
         }),
       ),
     )
@@ -1686,7 +1695,7 @@ describe('StewardService stored subscriptions (Phase B)', () => {
           subscriberId: mid.id,
           sourceKind: 'relationship',
           sourceRef: 'my-children',
-          createdAt: 't2',
+          createdAt: T2,
         }),
       ),
     )
@@ -1698,7 +1707,7 @@ describe('StewardService stored subscriptions (Phase B)', () => {
           subscriberId: epic.id,
           sourceKind: 'relationship',
           sourceRef: 'my-children',
-          createdAt: 't3',
+          createdAt: T3,
         }),
       ),
     )
@@ -1874,7 +1883,7 @@ describe('StewardService stored subscriptions (Phase B)', () => {
 
 describe('StewardService ack fallback (#237) [spec:SP-34d7 acks]', () => {
   it('maps settled session.phase events to ackfallback + sessionparentnudge (finished + errored only)', () => {
-    const e = { id: 1, ts: 't', kind: 'session.phase', subject: 's9', repoPath: null, payload: {} }
+    const e = { id: 1, ts: T, kind: 'session.phase', subject: 's9', repoPath: null, payload: {} }
     expect(
       TRIGGER_RULES['session.phase']!({ ...e, payload: { phase: 'idle', verdict: 'done' } }),
     ).toEqual(['ackfallback:s9', 'sessionparentnudge:done:s9'])
@@ -1889,7 +1898,7 @@ describe('StewardService ack fallback (#237) [spec:SP-34d7 acks]', () => {
   })
 
   it('routes legacy and causal nonterminal exits but suppresses terminal-fenced duplicates', () => {
-    const e = { id: 1, ts: 't', kind: 'session.exited', subject: 's9', repoPath: null, payload: {} }
+    const e = { id: 1, ts: T, kind: 'session.exited', subject: 's9', repoPath: null, payload: {} }
     expect(TRIGGER_RULES['session.exited']!(e)).toBe('sessionparentnudge:exited:s9')
     const nonterminal = { ...e, payload: { terminalFenceReported: false } }
     expect(TRIGGER_RULES['session.exited']!(nonterminal)).toBe('sessionparentnudge:exited:s9')
@@ -1906,13 +1915,13 @@ describe('StewardService ack fallback (#237) [spec:SP-34d7 acks]', () => {
     h.deps.messaging = { ackFallback }
     const steward = new StewardService(h.deps)
     await h.store.events.appendEvent({
-      ts: 't',
+      ts: T,
       kind: 'session.phase',
       subject: 's9',
       payload: { phase: 'idle', verdict: 'done' },
     })
     await h.store.events.appendEvent({
-      ts: 't',
+      ts: T,
       kind: 'session.phase',
       subject: 's8',
       payload: { phase: 'errored' },
@@ -1939,7 +1948,7 @@ describe('StewardService ack fallback (#237) [spec:SP-34d7 acks]', () => {
     const steward = new StewardService(h.deps)
     for (let i = 0; i < 2; i++) {
       await h.store.events.appendEvent({
-        ts: 't',
+        ts: T,
         kind: 'session.phase',
         subject: 's9',
         payload: { phase: 'idle', verdict: 'done' },
@@ -1972,7 +1981,7 @@ describe('StewardService ack fallback (#237) [spec:SP-34d7 acks]', () => {
     ).toBe(false)
 
     await h.store.events.appendEvent({
-      ts: 't',
+      ts: T,
       kind: 'session.phase',
       subject: 's9',
       payload: { phase: 'idle', verdict: 'done' },
@@ -1987,7 +1996,7 @@ describe('StewardService ack fallback (#237) [spec:SP-34d7 acks]', () => {
     h.deps.messaging = { ackFallback }
     const steward = new StewardService(h.deps)
     await h.store.events.appendEvent({
-      ts: 't',
+      ts: T,
       kind: 'session.phase',
       subject: 's9',
       payload: { phase: 'idle', verdict: 'done' },
@@ -2005,7 +2014,7 @@ describe('StewardService ack fallback (#237) [spec:SP-34d7 acks]', () => {
   it('is inert without the seam (unwired deployments)', async () => {
     const h = await harness()
     await h.store.events.appendEvent({
-      ts: 't',
+      ts: T,
       kind: 'session.phase',
       subject: 's9',
       payload: { phase: 'errored' },
@@ -2061,7 +2070,7 @@ describe('StewardService condition-clear fact retirement (POD-890)', () => {
 
     // First settle → claim settle:s9 + fire once.
     await h.store.events.appendEvent({
-      ts: 't1',
+      ts: T1,
       kind: 'session.phase',
       subject: 's9',
       payload: { phase: 'idle', verdict: 'done' },
@@ -2079,7 +2088,7 @@ describe('StewardService condition-clear fact retirement (POD-890)', () => {
 
     // Leave idle (working) → condition-clear retires settle:s9 (not TTL expiry).
     await h.store.events.appendEvent({
-      ts: 't2',
+      ts: T2,
       kind: 'session.phase',
       subject: 's9',
       payload: { phase: 'working' },
@@ -2088,7 +2097,7 @@ describe('StewardService condition-clear fact retirement (POD-890)', () => {
 
     // Second genuine settle → re-fires.
     await h.store.events.appendEvent({
-      ts: 't3',
+      ts: T3,
       kind: 'session.phase',
       subject: 's9',
       payload: { phase: 'idle', verdict: 'done' },
@@ -2151,13 +2160,13 @@ describe('StewardService condition-clear fact retirement (POD-890)', () => {
 
     // Two settle events in one poll (rapid re-tick / dual producer shape).
     await h.store.events.appendEvent({
-      ts: 't',
+      ts: T,
       kind: 'session.phase',
       subject: 's9',
       payload: { phase: 'idle', verdict: 'done' },
     })
     await h.store.events.appendEvent({
-      ts: 't',
+      ts: T,
       kind: 'session.phase',
       subject: 's9',
       payload: { phase: 'idle', verdict: 'done' },
@@ -2209,7 +2218,7 @@ describe('StewardService condition-clear fact retirement (POD-890)', () => {
     ]
     const { steward, sendNotice, store } = await harness({ sessions })
     await store.events.appendEvent({
-      ts: 't',
+      ts: T,
       kind: 'session.phase',
       subject: 'child',
       payload: { phase: 'idle', verdict: 'done' },
@@ -2221,7 +2230,7 @@ describe('StewardService condition-clear fact retirement (POD-890)', () => {
 
     // Exit in the SAME completion cycle (no leave-idle) stays silent.
     await store.events.appendEvent({
-      ts: 't',
+      ts: T,
       kind: 'session.exited',
       subject: 'child',
       payload: { code: 0, spawnedBy: 'session:parent' },
@@ -2232,14 +2241,14 @@ describe('StewardService condition-clear fact retirement (POD-890)', () => {
     // Phantom leave-idle → re-settle WITHOUT parent ack (POD-917): sticky holds,
     // no second wake, and exit still suppressed.
     await store.events.appendEvent({
-      ts: 't2',
+      ts: T2,
       kind: 'session.phase',
       subject: 'child',
       payload: { phase: 'working' },
     })
     await steward.tick()
     await store.events.appendEvent({
-      ts: 't3',
+      ts: T3,
       kind: 'session.phase',
       subject: 'child',
       payload: { phase: 'idle', verdict: 'done' },
@@ -2247,7 +2256,7 @@ describe('StewardService condition-clear fact retirement (POD-890)', () => {
     await steward.tick()
     expect(sendNotice).toHaveBeenCalledTimes(1)
     await store.events.appendEvent({
-      ts: 't4',
+      ts: T4,
       kind: 'session.exited',
       subject: 'child',
       payload: { code: 0, spawnedBy: 'session:parent' },
@@ -2573,7 +2582,7 @@ describe('StewardService session-parent wake (POD-904 / §07b)', () => {
     ]
     const { steward, sendNotice, store } = await harness({ sessions })
     await store.events.appendEvent({
-      ts: 't',
+      ts: T,
       kind: 'session.phase',
       subject: 'child',
       payload: { phase: 'idle', verdict: 'done' },
@@ -2618,7 +2627,7 @@ describe('StewardService session-parent wake (POD-904 / §07b)', () => {
     )
     await seedTold(store, childIssue.id, { kind: 'session', id: 'parent' })
     await store.events.appendEvent({
-      ts: 't',
+      ts: T,
       kind: 'session.phase',
       subject: 'child',
       payload: { phase: 'idle', verdict: 'done' },
@@ -2640,7 +2649,7 @@ describe('StewardService session-parent wake (POD-904 / §07b)', () => {
     ]
     const { steward, sendNotice, store } = await harness({ sessions })
     await store.events.appendEvent({
-      ts: 't',
+      ts: T,
       kind: 'session.phase',
       subject: 'child',
       payload: { phase: 'errored' },
@@ -2664,7 +2673,7 @@ describe('StewardService session-parent wake (POD-904 / §07b)', () => {
     ]
     const { steward, sendNotice, store } = await harness({ sessions })
     await store.events.appendEvent({
-      ts: 't',
+      ts: T,
       kind: 'session.exited',
       subject: 'child',
       payload: { code: 1, spawnedBy: 'session:parent' },
@@ -2683,7 +2692,7 @@ describe('StewardService session-parent wake (POD-904 / §07b)', () => {
     ]
     const { steward, sendNotice, store } = await harness({ sessions })
     await store.events.appendEvent({
-      ts: 't',
+      ts: T,
       kind: 'session.exited',
       subject: 'gone-child',
       payload: { code: -1, spawnedBy: 'session:parent' },
@@ -2706,13 +2715,13 @@ describe('StewardService session-parent wake (POD-904 / §07b)', () => {
     ]
     const { steward, sendNotice, store } = await harness({ sessions })
     await store.events.appendEvent({
-      ts: 't',
+      ts: T,
       kind: 'session.phase',
       subject: 'child',
       payload: { phase: 'idle', verdict: 'done' },
     })
     await store.events.appendEvent({
-      ts: 't',
+      ts: T,
       kind: 'session.phase',
       subject: 'orphan',
       payload: { phase: 'errored' },
@@ -2783,7 +2792,7 @@ describe('StewardService session-parent wake (POD-904 / §07b)', () => {
 
     // First settle → wake once (a/d).
     await store.events.appendEvent({
-      ts: 't1',
+      ts: T1,
       kind: 'session.phase',
       subject: 'child',
       payload: { phase: 'idle', verdict: 'done' },
@@ -2794,7 +2803,7 @@ describe('StewardService session-parent wake (POD-904 / §07b)', () => {
 
     // Per-poll re-emit of the SAME completion must NOT re-fire.
     await store.events.appendEvent({
-      ts: 't2',
+      ts: T2,
       kind: 'session.phase',
       subject: 'child',
       payload: { phase: 'idle', verdict: 'done' },
@@ -2804,14 +2813,14 @@ describe('StewardService session-parent wake (POD-904 / §07b)', () => {
 
     // Phantom work cycle (leave idle → re-idle) WITHOUT parent ack — sticky holds.
     await store.events.appendEvent({
-      ts: 't3',
+      ts: T3,
       kind: 'session.phase',
       subject: 'child',
       payload: { phase: 'working' },
     })
     await steward.tick()
     await store.events.appendEvent({
-      ts: 't4',
+      ts: T4,
       kind: 'session.phase',
       subject: 'child',
       payload: { phase: 'idle', verdict: 'done' },
@@ -2835,7 +2844,7 @@ describe('StewardService session-parent wake (POD-904 / §07b)', () => {
     const { steward, sendNotice, store, arbiter } = await harness({ sessions })
 
     await store.events.appendEvent({
-      ts: 't1',
+      ts: T1,
       kind: 'session.phase',
       subject: 'child',
       payload: { phase: 'idle', verdict: 'done' },
@@ -2845,14 +2854,14 @@ describe('StewardService session-parent wake (POD-904 / §07b)', () => {
 
     // Leave-idle alone must NOT re-arm (phantom cycle still suppressed).
     await store.events.appendEvent({
-      ts: 't2',
+      ts: T2,
       kind: 'session.phase',
       subject: 'child',
       payload: { phase: 'working' },
     })
     await steward.tick()
     await store.events.appendEvent({
-      ts: 't3',
+      ts: T3,
       kind: 'session.phase',
       subject: 'child',
       payload: { phase: 'idle', verdict: 'done' },
@@ -2866,14 +2875,14 @@ describe('StewardService session-parent wake (POD-904 / §07b)', () => {
 
     // Subsequent genuine settle → wakes once more.
     await store.events.appendEvent({
-      ts: 't4',
+      ts: T4,
       kind: 'session.phase',
       subject: 'child',
       payload: { phase: 'working' },
     })
     await steward.tick()
     await store.events.appendEvent({
-      ts: 't5',
+      ts: T5,
       kind: 'session.phase',
       subject: 'child',
       payload: { phase: 'idle', verdict: 'done' },
@@ -2887,7 +2896,7 @@ describe('StewardService session-parent wake (POD-904 / §07b)', () => {
 
     // And stays once until next ack (no storm on re-emit).
     await store.events.appendEvent({
-      ts: 't6',
+      ts: T6,
       kind: 'session.phase',
       subject: 'child',
       payload: { phase: 'idle', verdict: 'done' },
@@ -2940,7 +2949,7 @@ describe('StewardService session-parent wake (POD-904 / §07b)', () => {
     h.deps.messaging = { ackFallback }
     const steward = new StewardService(h.deps)
     await h.store.events.appendEvent({
-      ts: 't',
+      ts: T,
       kind: 'session.phase',
       subject: 'child',
       payload: { phase: 'idle', verdict: 'done' },

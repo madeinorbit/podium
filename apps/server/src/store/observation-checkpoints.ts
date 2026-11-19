@@ -1,15 +1,27 @@
+// workspace-scoped (POD-6959)
 import { createLogger } from '@podium/logger'
 import type { SessionId } from '@podium/model'
 import { ObservationProvider, SessionObservationCheckpointV1 } from '@podium/protocol'
 import { and, eq, isNotNull, isNull, sql } from 'drizzle-orm'
+import type { sessionObservationCheckpoints } from '../migrations/schema'
+import { captureWrite } from '../sync/capture-pg'
+import type {
+  StoreTables,
+  TransactionRunner,
+  WorkspaceDb,
+  WorkspaceQueries,
+} from './executor/sync-drizzle'
 import {
-  sessions,
-  sessionObservationCheckpoints,
-  sessionObservationRebinds,
-  sessionTerminalCandidates,
-} from '../migrations/schema'
-import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
-import { inListOf, inListSize, inListValues, param, prepared, preparedFamily } from './executor/sync-drizzle'
+  inListOf,
+  inListSize,
+  inListValues,
+  inWorkspace,
+  param,
+  prepared,
+  preparedFamily,
+  sameWorkspace,
+  WORKSPACE,
+} from './executor/sync-drizzle'
 import type {
   ObservationLeaseRecord,
   TerminalCandidateFacts,
@@ -59,15 +71,15 @@ export type ObservationRebindResult =
     }
 
 /** The columns every lease read projects — the same list, spelled once. */
-const LEASE_COLUMNS = {
-  sessionId: sessionObservationCheckpoints.sessionId,
-  provider: sessionObservationCheckpoints.provider,
-  providerSessionId: sessionObservationCheckpoints.providerSessionId,
-  bindingVersion: sessionObservationCheckpoints.bindingVersion,
-  observationGeneration: sessionObservationCheckpoints.observationGeneration,
-  checkpointJson: sessionObservationCheckpoints.checkpointJson,
-  updatedAt: sessionObservationCheckpoints.updatedAt,
-}
+const LEASE_COLUMNS = (t: StoreTables) => ({
+  sessionId: t.sessionObservationCheckpoints.sessionId,
+  provider: t.sessionObservationCheckpoints.provider,
+  providerSessionId: t.sessionObservationCheckpoints.providerSessionId,
+  bindingVersion: t.sessionObservationCheckpoints.bindingVersion,
+  observationGeneration: t.sessionObservationCheckpoints.observationGeneration,
+  checkpointJson: t.sessionObservationCheckpoints.checkpointJson,
+  updatedAt: t.sessionObservationCheckpoints.updatedAt,
+})
 
 type LeaseSelect = Pick<
   typeof sessionObservationCheckpoints.$inferSelect,
@@ -83,133 +95,200 @@ type LeaseSelect = Pick<
 // Every query this repository runs, prepared once per store [POD-6147].
 
 const P = (name: string) => sql.placeholder(name)
-const ck = sessionObservationCheckpoints
-const tc = sessionTerminalCandidates
-const ckSessionIs = () => eq(ck.sessionId, param(ck.sessionId, 'sessionId'))
-const tcSessionIs = () => eq(tc.sessionId, param(tc.sessionId, 'sessionId'))
+const ckSessionIs = (t: StoreTables) =>
+  eq(
+    t.sessionObservationCheckpoints.sessionId,
+    param(t.sessionObservationCheckpoints.sessionId, 'sessionId'),
+  )
+const tcSessionIs = (t: StoreTables) =>
+  eq(
+    t.sessionTerminalCandidates.sessionId,
+    param(t.sessionTerminalCandidates.sessionId, 'sessionId'),
+  )
 
-const leaseOf = prepared((db: StoreDrizzle) =>
-  db.select(LEASE_COLUMNS).from(ck).where(ckSessionIs()).prepare(),
+const leaseOf = prepared((db, t) =>
+  db
+    .select(LEASE_COLUMNS(t))
+    .from(t.sessionObservationCheckpoints)
+    .where(inWorkspace(t.sessionObservationCheckpoints, ckSessionIs(t)))
+    .prepare(),
 )
 
-const rebindReceiptOf = prepared((db: StoreDrizzle) =>
+const rebindReceiptOf = prepared((db, t) =>
   db
     .select({
-      provider: sessionObservationRebinds.provider,
-      fromProviderSessionId: sessionObservationRebinds.fromProviderSessionId,
-      fromBindingVersion: sessionObservationRebinds.fromBindingVersion,
-      fromObservationGeneration: sessionObservationRebinds.fromObservationGeneration,
-      toProviderSessionId: sessionObservationRebinds.toProviderSessionId,
-      resultingBindingVersion: sessionObservationRebinds.resultingBindingVersion,
-      resultingObservationGeneration: sessionObservationRebinds.resultingObservationGeneration,
+      provider: t.sessionObservationRebinds.provider,
+      fromProviderSessionId: t.sessionObservationRebinds.fromProviderSessionId,
+      fromBindingVersion: t.sessionObservationRebinds.fromBindingVersion,
+      fromObservationGeneration: t.sessionObservationRebinds.fromObservationGeneration,
+      toProviderSessionId: t.sessionObservationRebinds.toProviderSessionId,
+      resultingBindingVersion: t.sessionObservationRebinds.resultingBindingVersion,
+      resultingObservationGeneration: t.sessionObservationRebinds.resultingObservationGeneration,
     })
-    .from(sessionObservationRebinds)
-    .where(eq(sessionObservationRebinds.sessionId, param(sessionObservationRebinds.sessionId, 'sessionId')))
+    .from(t.sessionObservationRebinds)
+    .where(
+      inWorkspace(
+        t.sessionObservationRebinds,
+        eq(
+          t.sessionObservationRebinds.sessionId,
+          param(t.sessionObservationRebinds.sessionId, 'sessionId'),
+        ),
+      ),
+    )
     .prepare(),
 )
 
 /** The checkpoints of a known set of sessions (POD-6160); tombstones and rows
  *  without a checkpoint excluded. */
-const checkpointedLeasesOfIds = preparedFamily((db: StoreDrizzle, size: number) =>
+const checkpointedLeasesOfIds = preparedFamily((db, t, size: number) =>
   db
-    .select(LEASE_COLUMNS)
-    .from(ck)
-    .innerJoin(sessions, eq(sessions.id, ck.sessionId))
+    .select(LEASE_COLUMNS(t))
+    .from(t.sessionObservationCheckpoints)
+    .innerJoin(
+      t.sessions,
+      and(
+        sameWorkspace(t.sessions, t.sessionObservationCheckpoints),
+        eq(t.sessions.id, t.sessionObservationCheckpoints.sessionId),
+      ),
+    )
     .where(
-      and(inListOf(ck.sessionId, size), isNull(sessions.deletedAt), isNotNull(ck.checkpointJson)),
+      inWorkspace(
+        t.sessionObservationCheckpoints,
+        inListOf(t.sessionObservationCheckpoints.sessionId, size),
+        isNull(t.sessions.deletedAt),
+        isNotNull(t.sessionObservationCheckpoints.checkpointJson),
+      ),
     )
     .prepare(),
 )
 
 /** The leases of a known set of sessions, checkpoint or not (POD-7036): the
  *  host sample's terminal-proof pass reads every candidate's at once. */
-const leasesOfIds = preparedFamily((db: StoreDrizzle, size: number) =>
-  db.select(LEASE_COLUMNS).from(ck).where(inListOf(ck.sessionId, size)).prepare(),
-)
-
-/** The terminal candidates of a known set of sessions (POD-7036). */
-const terminalCandidatesOfIds = preparedFamily((db: StoreDrizzle, size: number) =>
+const leasesOfIds = preparedFamily((db, t, size: number) =>
   db
-    .select({
-      sessionId: tc.sessionId,
-      proofJson: tc.proofJson,
-      confirmedAt: tc.confirmedAt,
-      consumedAt: tc.consumedAt,
-      updatedAt: tc.updatedAt,
-    })
-    .from(tc)
-    .where(inListOf(tc.sessionId, size))
-    .prepare(),
-)
-
-const openLease = prepared((db: StoreDrizzle) =>
-  db
-    .insert(ck)
-    .values({
-      sessionId: P('sessionId'),
-      schemaVersion: 1,
-      provider: P('provider'),
-      providerSessionId: P('providerSessionId'),
-      bindingVersion: 1,
-      observationGeneration: 0,
-      checkpointJson: null,
-      updatedAt: P('updatedAt'),
-    })
-    // WAS `INSERT OR IGNORE`, and the two are NOT generally interchangeable
-    // (spec rule 31). Measured on bun:sqlite: `OR IGNORE` suppresses UNIQUE,
-    // PRIMARY KEY, NOT NULL and CHECK, while `DO NOTHING` suppresses only the
-    // uniqueness conflict. Foreign keys do not enter it — NEITHER form
-    // suppresses those, which is why "this table has no foreign keys" is the
-    // wrong premise and is not the one relied on here.
-    //
-    // THE CONDITION IS THAT NO NOT NULL AND NO CHECK VIOLATION IS REACHABLE,
-    // and on the shipped table it holds: no CHECK constraints, one index
-    // (the primary key's own, which both forms suppress), and every NOT NULL
-    // column here — schema_version, provider, binding_version,
-    // observation_generation, updated_at — is supplied from a literal or a
-    // non-nullable parameter. So the only violation either form can meet is
-    // the primary key. The enumeration is in the commit message.
-    .onConflictDoNothing()
-    .prepare(),
-)
-
-const advanceLeaseGeneration = prepared((db: StoreDrizzle) =>
-  db
-    .update(ck)
-    .set({
-      // Read-modify-write IN THE STATEMENT, not in the caller: the fence has
-      // to advance atomically with respect to any other observer.
-      observationGeneration: sql`${ck.observationGeneration} + 1`,
-      providerSessionId: sql`COALESCE(${ck.providerSessionId}, ${P('providerSessionId')})`,
-      updatedAt: P('updatedAt'),
-    })
-    .where(and(ckSessionIs(), eq(ck.provider, param(ck.provider, 'provider'))))
-    .prepare(),
-)
-
-const rebindLease = prepared((db: StoreDrizzle) =>
-  db
-    .update(ck)
-    .set({
-      providerSessionId: P('nextProviderSessionId'),
-      bindingVersion: P('nextBindingVersion'),
-      observationGeneration: P('nextObservationGeneration'),
-      checkpointJson: null,
-      updatedAt: P('updatedAt'),
-    })
+    .select(LEASE_COLUMNS(t))
+    .from(t.sessionObservationCheckpoints)
     .where(
-      and(
-        ckSessionIs(),
-        eq(ck.provider, param(ck.provider, 'provider')),
-        eq(ck.bindingVersion, param(ck.bindingVersion, 'bindingVersion')),
-        eq(ck.observationGeneration, param(ck.observationGeneration, 'observationGeneration')),
-        // THE FULL COMPARE-AND-SWAP, reproduced rather than simplified: the
-        // `IS NULL AND ? IS NULL` arm is what lets a lease with no provider
-        // session id be rebound at all, and `= NULL` would match no row.
-        sql`(${ck.providerSessionId} = ${P('providerSessionId')} OR (${ck.providerSessionId} IS NULL AND ${P('providerSessionId')} IS NULL))`,
+      inWorkspace(
+        t.sessionObservationCheckpoints,
+        inListOf(t.sessionObservationCheckpoints.sessionId, size),
       ),
     )
     .prepare(),
+)
+
+/** The terminal candidates of a known set of sessions (POD-7036). */
+const terminalCandidatesOfIds = preparedFamily((db, t, size: number) =>
+  db
+    .select({
+      sessionId: t.sessionTerminalCandidates.sessionId,
+      proofJson: t.sessionTerminalCandidates.proofJson,
+      confirmedAt: t.sessionTerminalCandidates.confirmedAt,
+      consumedAt: t.sessionTerminalCandidates.consumedAt,
+      updatedAt: t.sessionTerminalCandidates.updatedAt,
+    })
+    .from(t.sessionTerminalCandidates)
+    .where(
+      inWorkspace(
+        t.sessionTerminalCandidates,
+        inListOf(t.sessionTerminalCandidates.sessionId, size),
+      ),
+    )
+    .prepare(),
+)
+
+const openLease = prepared((db, t) =>
+  captureWrite(
+    db
+      .insert(t.sessionObservationCheckpoints)
+      .values({
+        workspaceId: WORKSPACE,
+        sessionId: P('sessionId'),
+        schemaVersion: 1,
+        provider: P('provider'),
+        providerSessionId: P('providerSessionId'),
+        bindingVersion: 1,
+        observationGeneration: 0,
+        checkpointJson: null,
+        updatedAt: P('updatedAt'),
+      })
+      // WAS `INSERT OR IGNORE`, and the two are NOT generally interchangeable
+      // (spec rule 31). Measured on bun:sqlite: `OR IGNORE` suppresses UNIQUE,
+      // PRIMARY KEY, NOT NULL and CHECK, while `DO NOTHING` suppresses only the
+      // uniqueness conflict. Foreign keys do not enter it — NEITHER form
+      // suppresses those, which is why "this table has no foreign keys" is the
+      // wrong premise and is not the one relied on here.
+      //
+      // THE CONDITION IS THAT NO NOT NULL AND NO CHECK VIOLATION IS REACHABLE,
+      // and on the shipped table it holds: no CHECK constraints, one index
+      // (the primary key's own, which both forms suppress), and every NOT NULL
+      // column here — schema_version, provider, binding_version,
+      // observation_generation, updated_at — is supplied from a literal or a
+      // non-nullable parameter. So the only violation either form can meet is
+      // the primary key. The enumeration is in the commit message.
+      .onConflictDoNothing(),
+  ).prepare(),
+)
+
+const advanceLeaseGeneration = prepared((db, t) =>
+  db
+    .update(t.sessionObservationCheckpoints)
+    .set({
+      // Read-modify-write IN THE STATEMENT, not in the caller: the fence has
+      // to advance atomically with respect to any other observer.
+      observationGeneration: sql`${t.sessionObservationCheckpoints.observationGeneration} + 1`,
+      providerSessionId: sql`COALESCE(${t.sessionObservationCheckpoints.providerSessionId}, ${P('providerSessionId')})`,
+      updatedAt: P('updatedAt'),
+    })
+    .where(
+      inWorkspace(
+        t.sessionObservationCheckpoints,
+        ckSessionIs(t),
+        eq(
+          t.sessionObservationCheckpoints.provider,
+          param(t.sessionObservationCheckpoints.provider, 'provider'),
+        ),
+      ),
+    )
+    .prepare(),
+)
+
+const rebindLease = prepared((db, t) =>
+  captureWrite(
+    db
+      .update(t.sessionObservationCheckpoints)
+      .set({
+        providerSessionId: P('nextProviderSessionId'),
+        bindingVersion: P('nextBindingVersion'),
+        observationGeneration: P('nextObservationGeneration'),
+        checkpointJson: null,
+        updatedAt: P('updatedAt'),
+      })
+      .where(
+        inWorkspace(
+          t.sessionObservationCheckpoints,
+          ckSessionIs(t),
+          eq(
+            t.sessionObservationCheckpoints.provider,
+            param(t.sessionObservationCheckpoints.provider, 'provider'),
+          ),
+          eq(
+            t.sessionObservationCheckpoints.bindingVersion,
+            param(t.sessionObservationCheckpoints.bindingVersion, 'bindingVersion'),
+          ),
+          eq(
+            t.sessionObservationCheckpoints.observationGeneration,
+            param(t.sessionObservationCheckpoints.observationGeneration, 'observationGeneration'),
+          ),
+          // THE FULL COMPARE-AND-SWAP: equal, or both NULL, which is what lets a
+          // lease with no provider session id be rebound at all (`= NULL` would
+          // match no row). `IS NOT DISTINCT FROM` says exactly that on both
+          // engines; the long form `= ? OR (… IS NULL AND ? IS NULL)` gives
+          // Postgres a bare parameter it cannot type.
+          sql`${t.sessionObservationCheckpoints.providerSessionId} IS NOT DISTINCT FROM ${P('providerSessionId')}`,
+        ),
+      ),
+  ).prepare(),
 )
 
 const rebindReceiptColumns = {
@@ -223,54 +302,69 @@ const rebindReceiptColumns = {
   updatedAt: P('updatedAt'),
 }
 
-const upsertRebindReceipt = prepared((db: StoreDrizzle) =>
+const upsertRebindReceipt = prepared((db, t) =>
   db
-    .insert(sessionObservationRebinds)
-    .values({ sessionId: P('sessionId'), ...rebindReceiptColumns })
-    .onConflictDoUpdate({ target: sessionObservationRebinds.sessionId, set: rebindReceiptColumns })
-    .prepare(),
-)
-
-const saveCheckpoint = prepared((db: StoreDrizzle) =>
-  db
-    .update(ck)
-    .set({
-      providerSessionId: sql`COALESCE(${ck.providerSessionId}, ${P('providerSessionId')})`,
-      checkpointJson: P('checkpointJson'),
-      updatedAt: P('updatedAt'),
+    .insert(t.sessionObservationRebinds)
+    .values({ workspaceId: WORKSPACE, sessionId: P('sessionId'), ...rebindReceiptColumns })
+    .onConflictDoUpdate({
+      target: [t.sessionObservationRebinds.workspaceId, t.sessionObservationRebinds.sessionId],
+      set: rebindReceiptColumns,
     })
-    .where(
-      and(
-        ckSessionIs(),
-        eq(ck.provider, param(ck.provider, 'provider')),
-        eq(ck.bindingVersion, param(ck.bindingVersion, 'bindingVersion')),
-        eq(ck.observationGeneration, param(ck.observationGeneration, 'observationGeneration')),
-        // NOT the same predicate as `rebindLease`'s: an UNSET provider session
-        // id accepts any writer, where a set one must match. Keeping the two
-        // spelled differently is the point.
-        sql`(${ck.providerSessionId} IS NULL OR ${ck.providerSessionId} = ${P('providerSessionId')})`,
-      ),
-    )
     .prepare(),
 )
 
-const terminalCandidateOf = prepared((db: StoreDrizzle) =>
+const saveCheckpoint = prepared((db, t) =>
+  captureWrite(
+    db
+      .update(t.sessionObservationCheckpoints)
+      .set({
+        providerSessionId: sql`COALESCE(${t.sessionObservationCheckpoints.providerSessionId}, ${P('providerSessionId')})`,
+        checkpointJson: P('checkpointJson'),
+        updatedAt: P('updatedAt'),
+      })
+      .where(
+        inWorkspace(
+          t.sessionObservationCheckpoints,
+          ckSessionIs(t),
+          eq(
+            t.sessionObservationCheckpoints.provider,
+            param(t.sessionObservationCheckpoints.provider, 'provider'),
+          ),
+          eq(
+            t.sessionObservationCheckpoints.bindingVersion,
+            param(t.sessionObservationCheckpoints.bindingVersion, 'bindingVersion'),
+          ),
+          eq(
+            t.sessionObservationCheckpoints.observationGeneration,
+            param(t.sessionObservationCheckpoints.observationGeneration, 'observationGeneration'),
+          ),
+          // NOT the same predicate as `rebindLease`'s: an UNSET provider session
+          // id accepts any writer, where a set one must match. Keeping the two
+          // spelled differently is the point.
+          sql`(${t.sessionObservationCheckpoints.providerSessionId} IS NULL OR ${t.sessionObservationCheckpoints.providerSessionId} = ${P('providerSessionId')})`,
+        ),
+      ),
+  ).prepare(),
+)
+
+const terminalCandidateOf = prepared((db, t) =>
   db
     .select({
-      proofJson: tc.proofJson,
-      confirmedAt: tc.confirmedAt,
-      consumedAt: tc.consumedAt,
-      updatedAt: tc.updatedAt,
+      proofJson: t.sessionTerminalCandidates.proofJson,
+      confirmedAt: t.sessionTerminalCandidates.confirmedAt,
+      consumedAt: t.sessionTerminalCandidates.consumedAt,
+      updatedAt: t.sessionTerminalCandidates.updatedAt,
     })
-    .from(tc)
-    .where(tcSessionIs())
+    .from(t.sessionTerminalCandidates)
+    .where(inWorkspace(t.sessionTerminalCandidates, tcSessionIs(t)))
     .prepare(),
 )
 
-const upsertTerminalProof = prepared((db: StoreDrizzle) =>
+const upsertTerminalProof = prepared((db, t) =>
   db
-    .insert(tc)
+    .insert(t.sessionTerminalCandidates)
     .values({
+      workspaceId: WORKSPACE,
       sessionId: P('sessionId'),
       proofJson: P('proofJson'),
       confirmedAt: null,
@@ -278,56 +372,83 @@ const upsertTerminalProof = prepared((db: StoreDrizzle) =>
       updatedAt: P('at'),
     })
     .onConflictDoUpdate({
-      target: tc.sessionId,
+      target: [t.sessionTerminalCandidates.workspaceId, t.sessionTerminalCandidates.sessionId],
       set: { proofJson: P('proofJson'), confirmedAt: null, consumedAt: null, updatedAt: P('at') },
     })
     .prepare(),
 )
 
-const confirmTerminalProof = prepared((db: StoreDrizzle) =>
+const confirmTerminalProof = prepared((db, t) =>
   db
-    .update(tc)
+    .update(t.sessionTerminalCandidates)
     .set({
       proofJson: P('proofJson'),
       // COALESCE, so a second confirmation keeps the FIRST instant.
-      confirmedAt: sql`COALESCE(${tc.confirmedAt}, ${P('confirmedAt')})`,
+      confirmedAt: sql`COALESCE(${t.sessionTerminalCandidates.confirmedAt}, ${P('confirmedAt')})`,
       updatedAt: P('at'),
     })
-    .where(and(tcSessionIs(), isNull(tc.consumedAt)))
-    .prepare(),
-)
-
-const renewTerminalProof = prepared((db: StoreDrizzle) =>
-  db
-    .update(tc)
-    .set({ proofJson: P('proofJson'), updatedAt: P('at') })
     .where(
-      and(
-        tcSessionIs(),
-        // The PREVIOUS proof text is part of the guard: a renewal only lands
-        // on the exact row it read, so a concurrent write cannot be
-        // overwritten by a translation of a proof that is no longer there.
-        eq(tc.proofJson, param(tc.proofJson, 'previousProof')),
-        sql`${tc.confirmedAt} IS NOT NULL`,
-        isNull(tc.consumedAt),
+      inWorkspace(
+        t.sessionTerminalCandidates,
+        tcSessionIs(t),
+        isNull(t.sessionTerminalCandidates.consumedAt),
       ),
     )
     .prepare(),
 )
 
-const consumeTerminalProof = prepared((db: StoreDrizzle) =>
+const renewTerminalProof = prepared((db, t) =>
   db
-    .update(tc)
-    .set({ consumedAt: P('at'), updatedAt: P('at') })
-    .where(and(tcSessionIs(), sql`${tc.confirmedAt} IS NOT NULL`, isNull(tc.consumedAt)))
+    .update(t.sessionTerminalCandidates)
+    .set({ proofJson: P('proofJson'), updatedAt: P('at') })
+    .where(
+      inWorkspace(
+        t.sessionTerminalCandidates,
+        tcSessionIs(t),
+        // The PREVIOUS proof text is part of the guard: a renewal only lands
+        // on the exact row it read, so a concurrent write cannot be
+        // overwritten by a translation of a proof that is no longer there. As
+        // text on both engines: Postgres's `json` has no equality (design 2.3 rule 7).
+        sql`CAST(${t.sessionTerminalCandidates.proofJson} AS TEXT) = ${param(
+          t.sessionTerminalCandidates.proofJson,
+          'previousProof',
+        )}`,
+        sql`${t.sessionTerminalCandidates.confirmedAt} IS NOT NULL`,
+        isNull(t.sessionTerminalCandidates.consumedAt),
+      ),
+    )
     .prepare(),
 )
 
-const deleteTerminalCandidate = prepared((db: StoreDrizzle) =>
-  db.delete(tc).where(tcSessionIs()).prepare(),
+const consumeTerminalProof = prepared((db, t) =>
+  db
+    .update(t.sessionTerminalCandidates)
+    .set({ consumedAt: P('at'), updatedAt: P('at') })
+    .where(
+      inWorkspace(
+        t.sessionTerminalCandidates,
+        tcSessionIs(t),
+        sql`${t.sessionTerminalCandidates.confirmedAt} IS NOT NULL`,
+        isNull(t.sessionTerminalCandidates.consumedAt),
+      ),
+    )
+    .prepare(),
 )
 
-const deleteLease = prepared((db: StoreDrizzle) => db.delete(ck).where(ckSessionIs()).prepare())
+const deleteTerminalCandidate = prepared((db, t) =>
+  db
+    .delete(t.sessionTerminalCandidates)
+    .where(inWorkspace(t.sessionTerminalCandidates, tcSessionIs(t)))
+    .prepare(),
+)
+
+const deleteLease = prepared((db, t) =>
+  captureWrite(
+    db
+      .delete(t.sessionObservationCheckpoints)
+      .where(inWorkspace(t.sessionObservationCheckpoints, ckSessionIs(t))),
+  ).prepare(),
+)
 
 /** A stored terminal candidate, or null when its proof cannot be read.
  *  QUARANTINE, as `mapRow`: an unreadable proof reads as no proof. */
@@ -359,11 +480,11 @@ function candidateOfRow(
 
 /** Durable causal observer leases and checkpoints [spec:SP-cdb2]. */
 export class ObservationCheckpointsRepository {
-  private readonly rootDb: StoreDrizzle
+  private readonly scope: WorkspaceDb
   protected readonly createOrJoinTransaction: TransactionRunner
 
-  constructor(queries: StoreQueries) {
-    this.rootDb = queries.rootDb
+  constructor(queries: WorkspaceQueries) {
+    this.scope = queries.db
     this.createOrJoinTransaction = queries.createOrJoinTransaction
   }
 
@@ -375,8 +496,8 @@ export class ObservationCheckpointsRepository {
    * access, and a field frozen at construction never could. B1 changes this one
    * line; no call site moves.
    */
-  protected get db() {
-    return this.rootDb
+  protected get db(): WorkspaceDb {
+    return this.scope
   }
 
   private async mapRow(r: LeaseSelect): Promise<ObservationLeaseRecord | null> {
@@ -458,7 +579,9 @@ export class ObservationCheckpointsRepository {
     for (let at = 0; at < sessionIds.length; at += 500) {
       const chunk = sessionIds.slice(at, at + 500)
       const size = inListSize(chunk.length)
-      for (const row of await checkpointedLeasesOfIds(this.db, size).all(inListValues(chunk, size))) {
+      for (const row of await checkpointedLeasesOfIds(this.db, size).all(
+        inListValues(chunk, size),
+      )) {
         const lease = await this.mapRow(row)
         if (lease?.checkpoint) checkpoints.set(lease.sessionId, lease.checkpoint)
       }
@@ -502,7 +625,12 @@ export class ObservationCheckpointsRepository {
       const updatedAt = new Date().toISOString()
       // `DO NOTHING`, not `OR IGNORE`: see `openLease`.
       await openLease(this.db).run({ sessionId, provider, providerSessionId, updatedAt })
-      await advanceLeaseGeneration(this.db).run({ sessionId, provider, providerSessionId, updatedAt })
+      await advanceLeaseGeneration(this.db).run({
+        sessionId,
+        provider,
+        providerSessionId,
+        updatedAt,
+      })
       // A SPENT proof does not survive its observer's life. Consumption is the
       // last act of one hibernation; a fresh fence means the session is being
       // observed again, and `confirmTerminalCandidate` refuses to touch a

@@ -8,7 +8,7 @@ import { checkNotices } from '../../../tests/worklist/diagnostics/notice-check'
 import { noticeFixture } from '../../../tests/worklist/diagnostics/notice-fixture'
 import type { ReferenceState as Store } from '../../../tests/worklist/diagnostics/reference-state'
 import { omitGone } from './lookup'
-import { NOTICE_ENTITIES, NOTICE_SUMMARIES } from './notice-schema'
+import { NOTICE_ENTITIES, } from './notice-schema'
 import { NoticeSource } from './notice-source'
 import { noticeInteractions, noticeMessages, noticeRecovery } from './notice-views'
 import { MobxPool } from './pool'
@@ -56,7 +56,6 @@ function fixture() {
     undefined,
     {
       load: (_entity, id) => data.sessions.find((row) => row.sessionId === id) as never,
-      summaries: NOTICE_SUMMARIES,
       schedule: () => () => {},
     },
   )
@@ -187,39 +186,6 @@ it('maintains session membership, ordering and removal from addressed deltas', a
     expect(f.check().differences).toBe(0)
     expect(f.source.counts.collectionReads).toBe(2)
     stop()
-  } finally {
-    f.pool.dispose()
-  }
-})
-
-it('keeps only declared cold session label fields without loading their payload', async () => {
-  const f = fixture()
-  try {
-    await f.load()
-    expect(f.pool.tables.session.has('cold-notice-session')).toBe(false)
-    const summary = omitGone(f.pool.row('session', 'cold-notice-session', 'summary'))
-    expect(summary).toMatchObject({ title: 'Saved agent', cwd: '/synthetic/saved' })
-    expect(summary).not.toHaveProperty('privateBody')
-    expect(
-      noticeMessages(f.pool).notices.find((row) => row.messageId === 'notice-message-1')
-        ?.sessionLabel,
-    ).toBe('Saved agent')
-    expect(f.pool.hydrate()).toBe(0)
-  } finally {
-    f.pool.dispose()
-  }
-})
-
-it('marks a missing cold label pending and batches repeated session loads', async () => {
-  const f = fixture()
-  try {
-    await f.load()
-    vi.spyOn(f.pool.residency!, 'summary').mockReturnValue(undefined)
-    const first = noticeMessages(f.pool),
-      second = noticeMessages(f.pool)
-    expect(first.pendingIds).toEqual(['notice-message-1'])
-    expect(second.pending).toBe(1)
-    expect(f.pool.hydrate()).toBe(1)
   } finally {
     f.pool.dispose()
   }

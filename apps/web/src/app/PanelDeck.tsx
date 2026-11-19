@@ -4,13 +4,13 @@ import {
   type FormEventHandler,
   type JSX,
   type KeyboardEventHandler,
-  lazy,
   Suspense,
   useCallback,
 } from 'react'
 import { isArtifactsTab } from '@/features/files/artifacts-tab'
 import { AgentPanelBoundary } from '@/features/terminal/AgentPanelBoundary'
 import { throughRestarts } from '@/lib/chunk-recovery'
+import { lazy } from '@/lib/lazy-surface'
 import { cn } from '@/lib/utils'
 import { type DeckItem, type PaneRect, panelBoxStyle } from './panel-deck'
 import { PanelVisible } from './panel-visible'

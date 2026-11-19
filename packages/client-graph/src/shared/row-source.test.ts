@@ -7,12 +7,9 @@ import { autorun, computed, getDependencyTree, observe, Reaction } from 'mobx'
 import { enableDebugNames } from '../debug-name'
 import { asIssueId, asUserId, issueUserStateRowId } from '@podium/model'
 import { IssueSessionFactsIndex, type IssueSessionFacts } from './issue-session-facts'
-import type { ColdIndex } from './cold-index'
 import type { PendingOverlay } from '@podium/client-core/command-reducers'
 import { afterEach, expect, it, vi } from 'vitest'
 import { createWorklistPool } from '../create'
-import { NAVIGATION_SUMMARIES } from '../navigation-schema'
-import { MobxPool } from '../pool'
 import { fixedLocals } from './locals-source'
 import { createRowSource, type RowSourceOptions, type RowSourceReplica } from './row-source'
 import type { RowSourceEvent } from './source'
@@ -271,45 +268,6 @@ it('counts every failure, logs once per event kind, and bounds a failing recover
     f.source.stats.reset()
     expect(f.source.stats.applyErrors).toBe(0)
     expect(f.source.source.diagnostics?.errors).toBe(3)
-  } finally {
-    f.source.dispose()
-  }
-})
-
-it('explicitly reseeds a failed cold index from the next replace with all declared fields', () => {
-  const f = fixture()
-  f.session('a', 'before')
-  const index = f.source.source.cold!({ session: ['title'] }) as ColdIndex
-  const error = new Error('planted cold-index failure')
-  const seen = collectFeedLogs()
-  vi.spyOn(index, 'apply').mockImplementationOnce(() => {
-    throw error
-  })
-  const listener = vi.fn()
-  f.source.source.subscribe(listener)
-  try {
-    f.session('a', 'after')
-    f.session('b', 'added')
-    f.update('a', 'b')
-    expect(f.source.flush()?.type).toBe('update')
-    expect(f.source.stats.applyErrors).toBe(1)
-    expectFeedLogged(seen, '[pool feed] cold-index:update failed', error)
-    expect(listener).not.toHaveBeenCalled()
-    expect(() => f.source.source.cold!()).toThrow(/awaiting replacement resync/)
-    expect(f.source.flush()?.type).toBe('replace')
-    const repaired = f.source.source.cold!()
-    expect(repaired).not.toBe(index)
-    expect(repaired.count('session')).toBe(2)
-    expect(repaired.heldFields('session', 'a', ['title'])).toEqual({ title: 'after' })
-    expect(listener.mock.calls.map(([event]) => event.type)).toEqual(['replace'])
-    vi.mocked(f.replica.rows).mockClear()
-    f.session('a', 'ordinary')
-    f.update('a')
-    f.source.stats.reset()
-    expect(f.source.flush()?.type).toBe('update')
-    expect(f.replica.rows).not.toHaveBeenCalled()
-    expect(f.source.stats.enumerations).toBe(0)
-    expect(repaired.heldFields('session', 'a', ['title'])).toEqual({ title: 'ordinary' })
   } finally {
     f.source.dispose()
   }
@@ -627,40 +585,3 @@ it('does not let later snapshots swallow pending updates or inserts and replaces
   } finally { f.source.dispose() }
 })
 
-// POD-6136: a cold history session never reaches the pool, so only the feed's
-// facts index sees its activity. A wrapper that drops the reader is refused
-// instead of falling back to the sessions the pool happened to load.
-it('counts cold history activity through the feed and refuses a feed without its reader', () => {
-  const f = fixture()
-  // A closed continuation target, as in the 4x corpus: its exited session is
-  // cold with it, so the pool never receives the session record.
-  f.put('issueProjections', 'one', { id: 'one', title: 'Issue', stage: 'done', closedAt: '2026-09-17T10:00:00.000Z', audience: 'human',
-    repoId: 'repo', worktreePath: '/synthetic', createdAt: '2026-01-01', updatedAt: '2026-09-17T10:00:00.000Z', deps: [] })
-  f.put('repos', 'repo', { id: 'repo', path: '/synthetic', prefix: 'POD' })
-  f.put('sessions', 'history', { cwd: '/synthetic', sessionId: 'history', issueId: 'one', agentKind: 'codex', status: 'exited',
-    archived: false, stoppedAt: '2026-09-17T09:00:00.000Z', lastActiveAt: '2026-09-17T09:00:00.000Z' })
-  f.replace(); f.source.flush()
-  const locals = fixedLocals({ selectedIssueId: null, coarseNow: Date.parse('2026-10-15') }).source
-  const { issueSessionFact: _reader, ...withoutReader } = f.source.source
-  expect(() => createWorklistPool(withoutReader, locals)).toThrow(/issueSessionFact/)
-  const handle = createWorklistPool({ ...f.source.source }, locals, { summaries: NAVIGATION_SUMMARIES })
-  try {
-    const issue = handle.pool.issueObject('one')
-    expect({ cold: handle.pool.residency?.isCold('session', 'history'), resident: handle.pool.tables.session.has('history') })
-      .toEqual({ cold: true, resident: false })
-    expect(issue.lastActivityAt).toBe('2026-09-17T09:00:00.000Z')
-    expect(issue.tipActivityAt).toBe('2026-09-17T09:00:00.000Z')
-    // Control: the pool's own index, the fallback the guard now refuses for
-    // this feed, never receives the cold session and loses its activity.
-    const fallback = new MobxPool(locals.get(), undefined, { summaries: NAVIGATION_SUMMARIES, load: withoutReader.row!,
-      cold: withoutReader.cold })
-    try {
-      fallback.apply({ type: 'replace', rows: withoutReader.snapshot('worktree') })
-      expect(fallback.tables.session.has('history')).toBe(false)
-      expect(fallback.issueObject('one').lastActivityAt).toBeUndefined()
-    } finally { fallback.dispose() }
-  } finally {
-    handle.dispose()
-    f.source.dispose()
-  }
-})

@@ -1,3 +1,5 @@
+// workspace-scoped (POD-6959)
+import { captureWrite } from '../sync/capture-pg'
 /**
  * THE CHECKOUTS ON EACH MACHINE AT REST (POD-6644): the `checkouts` table, one
  * row per registered repository root and per worktree of one, keyed
@@ -13,15 +15,21 @@
 import type { CheckoutKind, CheckoutWire, MachineId, RepoId } from '@podium/model'
 import { and, asc, eq, isNull, or, sql } from 'drizzle-orm'
 import type { CheckoutReach } from '../checkout-reach'
-import { checkoutLost, checkoutReach, checkouts } from '../migrations/schema'
-import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
+import type {
+  StoreTables,
+  TransactionRunner,
+  WorkspaceDb,
+  WorkspaceQueries,
+} from './executor/sync-drizzle'
 import {
   inListOf,
   inListSize,
   inListValues,
+  inWorkspace,
   param,
   prepared,
   preparedFamily,
+  WORKSPACE,
 } from './executor/sync-drizzle'
 
 /** One stored checkout. */
@@ -37,61 +45,74 @@ export interface CheckoutRow {
   readonly prunable: boolean
 }
 
-const COLUMNS = {
-  machineId: checkouts.machineId,
-  path: checkouts.path,
-  root: checkouts.root,
-  kind: checkouts.kind,
-  repoId: checkouts.repoId,
-  branch: checkouts.branch,
-  originUrl: checkouts.originUrl,
-  locked: checkouts.locked,
-  prunable: checkouts.prunable,
-}
+const COLUMNS = (t: StoreTables) => ({
+  machineId: t.checkouts.machineId,
+  path: t.checkouts.path,
+  root: t.checkouts.root,
+  kind: t.checkouts.kind,
+  repoId: t.checkouts.repoId,
+  branch: t.checkouts.branch,
+  originUrl: t.checkouts.originUrl,
+  locked: t.checkouts.locked,
+  prunable: t.checkouts.prunable,
+})
 
 // Every query this repository runs, prepared once per store [POD-6147].
 
-const checkoutsOfMachine = prepared((db: StoreDrizzle) =>
+const checkoutsOfMachine = prepared((db, t) =>
   db
-    .select(COLUMNS)
-    .from(checkouts)
+    .select(COLUMNS(t))
+    .from(t.checkouts)
     .where(
-      and(
-        eq(checkouts.machineId, param(checkouts.machineId, 'machineId')),
-        isNull(checkouts.removedAt),
+      inWorkspace(
+        t.checkouts,
+        eq(t.checkouts.machineId, param(t.checkouts.machineId, 'machineId')),
+        isNull(t.checkouts.removedAt),
       ),
     )
-    .orderBy(asc(checkouts.path))
+    .orderBy(asc(t.checkouts.path))
     .prepare(),
 )
 
 /** Every row: the `checkout` kind's full truth for the boot reconcile. */
-const allCheckouts = prepared((db: StoreDrizzle) =>
+const allCheckouts = prepared((db, t) =>
   db
-    .select(COLUMNS)
-    .from(checkouts)
-    .where(isNull(checkouts.removedAt))
-    .orderBy(asc(checkouts.machineId), asc(checkouts.path))
+    .select(COLUMNS(t))
+    .from(t.checkouts)
+    .where(inWorkspace(t.checkouts, isNull(t.checkouts.removedAt)))
+    .orderBy(asc(t.checkouts.machineId), asc(t.checkouts.path))
     .prepare(),
 )
 
 /** The live checkouts of several machines, whole rows, for building `checkout`
  *  records by id (POD-6763). */
-const checkoutsOfMachines = preparedFamily((db: StoreDrizzle, size: number) =>
+const checkoutsOfMachines = preparedFamily((db, t, size: number) =>
   db
-    .select(COLUMNS)
-    .from(checkouts)
-    .where(and(inListOf(checkouts.machineId, size), isNull(checkouts.removedAt)))
+    .select(COLUMNS(t))
+    .from(t.checkouts)
+    .where(
+      inWorkspace(
+        t.checkouts,
+        inListOf(t.checkouts.machineId, size),
+        isNull(t.checkouts.removedAt),
+      ),
+    )
     .prepare(),
 )
 
 /** The live checkout paths of several machines, each marked root or not: the
  *  feed's re-send when a member's reach on a machine moves. */
-const pathsOfMachines = preparedFamily((db: StoreDrizzle, size: number) =>
+const pathsOfMachines = preparedFamily((db, t, size: number) =>
   db
-    .select({ machineId: checkouts.machineId, path: checkouts.path, root: checkouts.root })
-    .from(checkouts)
-    .where(and(inListOf(checkouts.machineId, size), isNull(checkouts.removedAt)))
+    .select({ machineId: t.checkouts.machineId, path: t.checkouts.path, root: t.checkouts.root })
+    .from(t.checkouts)
+    .where(
+      inWorkspace(
+        t.checkouts,
+        inListOf(t.checkouts.machineId, size),
+        isNull(t.checkouts.removedAt),
+      ),
+    )
     .prepare(),
 )
 
@@ -99,32 +120,39 @@ const pathsOfMachines = preparedFamily((db: StoreDrizzle, size: number) =>
  *  how the feed tells a root, which managers may read, from a worktree.
  *  Removed roots too, through their tombstones: a root's removal goes to the
  *  same readers the root had. */
-const rootPathsOfMachines = preparedFamily((db: StoreDrizzle, size: number) =>
+const rootPathsOfMachines = preparedFamily((db, t, size: number) =>
   db
-    .select({ machineId: checkouts.machineId, path: checkouts.path })
-    .from(checkouts)
-    .where(and(inListOf(checkouts.machineId, size), eq(checkouts.root, checkouts.path)))
+    .select({ machineId: t.checkouts.machineId, path: t.checkouts.path })
+    .from(t.checkouts)
+    .where(
+      inWorkspace(
+        t.checkouts,
+        inListOf(t.checkouts.machineId, size),
+        eq(t.checkouts.root, t.checkouts.path),
+      ),
+    )
     .prepare(),
 )
 
 /** The recorded checkout reach of every member on several machines. */
-const reachOfMachines = preparedFamily((db: StoreDrizzle, size: number) =>
+const reachOfMachines = preparedFamily((db, t, size: number) =>
   db
     .select({
-      userId: checkoutReach.userId,
-      machineId: checkoutReach.machineId,
-      reach: checkoutReach.reach,
+      userId: t.checkoutReach.userId,
+      machineId: t.checkoutReach.machineId,
+      reach: t.checkoutReach.reach,
     })
-    .from(checkoutReach)
-    .where(inListOf(checkoutReach.machineId, size))
+    .from(t.checkoutReach)
+    .where(inWorkspace(t.checkoutReach, inListOf(t.checkoutReach.machineId, size)))
     .prepare(),
 )
 
-const upsertReach = preparedFamily((db: StoreDrizzle, size: number) =>
+const upsertReach = preparedFamily((db, t, size: number) =>
   db
-    .insert(checkoutReach)
+    .insert(t.checkoutReach)
     .values(
       Array.from({ length: size }, (_, i) => ({
+        workspaceId: WORKSPACE,
         userId: sql.placeholder(`userId${i}`),
         machineId: sql.placeholder(`machineId${i}`),
         reach: sql.placeholder(`reach${i}`),
@@ -132,21 +160,24 @@ const upsertReach = preparedFamily((db: StoreDrizzle, size: number) =>
       })),
     )
     .onConflictDoUpdate({
-      target: [checkoutReach.userId, checkoutReach.machineId],
+      target: [t.checkoutReach.workspaceId, t.checkoutReach.userId, t.checkoutReach.machineId],
       set: { reach: sql`excluded.reach`, updatedAt: sql`excluded.updated_at` },
     })
     .prepare(),
 )
 
-const deleteReach = preparedFamily((db: StoreDrizzle, size: number) =>
+const deleteReach = preparedFamily((db, t, size: number) =>
   db
-    .delete(checkoutReach)
+    .delete(t.checkoutReach)
     .where(
-      or(
-        ...Array.from({ length: size }, (_, i) =>
-          and(
-            eq(checkoutReach.userId, param(checkoutReach.userId, `userId${i}`)),
-            eq(checkoutReach.machineId, param(checkoutReach.machineId, `machineId${i}`)),
+      inWorkspace(
+        t.checkoutReach,
+        or(
+          ...Array.from({ length: size }, (_, i) =>
+            and(
+              eq(t.checkoutReach.userId, param(t.checkoutReach.userId, `userId${i}`)),
+              eq(t.checkoutReach.machineId, param(t.checkoutReach.machineId, `machineId${i}`)),
+            ),
           ),
         ),
       ),
@@ -155,24 +186,25 @@ const deleteReach = preparedFamily((db: StoreDrizzle, size: number) =>
 )
 
 /** The lost checkouts of every member on several machines. */
-const lostOfMachines = preparedFamily((db: StoreDrizzle, size: number) =>
+const lostOfMachines = preparedFamily((db, t, size: number) =>
   db
     .select({
-      userId: checkoutLost.userId,
-      machineId: checkoutLost.machineId,
-      path: checkoutLost.path,
-      root: checkoutLost.root,
+      userId: t.checkoutLost.userId,
+      machineId: t.checkoutLost.machineId,
+      path: t.checkoutLost.path,
+      root: t.checkoutLost.root,
     })
-    .from(checkoutLost)
-    .where(inListOf(checkoutLost.machineId, size))
+    .from(t.checkoutLost)
+    .where(inWorkspace(t.checkoutLost, inListOf(t.checkoutLost.machineId, size)))
     .prepare(),
 )
 
-const insertLost = preparedFamily((db: StoreDrizzle, size: number) =>
+const insertLost = preparedFamily((db, t, size: number) =>
   db
-    .insert(checkoutLost)
+    .insert(t.checkoutLost)
     .values(
       Array.from({ length: size }, (_, i) => ({
+        workspaceId: WORKSPACE,
         userId: sql.placeholder(`userId${i}`),
         machineId: sql.placeholder(`machineId${i}`),
         path: sql.placeholder(`path${i}`),
@@ -184,16 +216,19 @@ const insertLost = preparedFamily((db: StoreDrizzle, size: number) =>
     .prepare(),
 )
 
-const deleteLost = preparedFamily((db: StoreDrizzle, size: number) =>
+const deleteLost = preparedFamily((db, t, size: number) =>
   db
-    .delete(checkoutLost)
+    .delete(t.checkoutLost)
     .where(
-      or(
-        ...Array.from({ length: size }, (_, i) =>
-          and(
-            eq(checkoutLost.userId, param(checkoutLost.userId, `userId${i}`)),
-            eq(checkoutLost.machineId, param(checkoutLost.machineId, `machineId${i}`)),
-            eq(checkoutLost.path, param(checkoutLost.path, `path${i}`)),
+      inWorkspace(
+        t.checkoutLost,
+        or(
+          ...Array.from({ length: size }, (_, i) =>
+            and(
+              eq(t.checkoutLost.userId, param(t.checkoutLost.userId, `userId${i}`)),
+              eq(t.checkoutLost.machineId, param(t.checkoutLost.machineId, `machineId${i}`)),
+              eq(t.checkoutLost.path, param(t.checkoutLost.path, `path${i}`)),
+            ),
           ),
         ),
       ),
@@ -201,13 +236,16 @@ const deleteLost = preparedFamily((db: StoreDrizzle, size: number) =>
     .prepare(),
 )
 
-/** At most 500 rows per write, with ten prepared shapes (1 through 512).
- *  Repeating the final row pads a shape without changing an upsert, an
- *  insert-on-conflict-do-nothing or a composite-key deletion. */
-function* reachBatches(rows: readonly object[], at: string) {
+/** At most 500 rows per write. A padded batch has ten prepared shapes (1 through
+ *  512): repeating the final row pads a shape without changing an
+ *  insert-on-conflict-do-nothing or a composite-key deletion, on either engine.
+ *  An upsert is never padded (`pad: false`): Postgres refuses an `ON CONFLICT DO
+ *  UPDATE` that reaches one row twice (ADR 13), so it carries exactly its rows,
+ *  one prepared shape per batch size. */
+function* reachBatches(rows: readonly object[], at: string, pad = true) {
   for (let start = 0; start < rows.length; start += 500) {
     const chunk = rows.slice(start, start + 500)
-    const size = inListSize(chunk.length)
+    const size = pad ? inListSize(chunk.length) : chunk.length
     const values: Record<string, unknown> = { at }
     for (let i = 0; i < size; i++) {
       const row = chunk[Math.min(i, chunk.length - 1)] as object
@@ -230,52 +268,57 @@ const checkoutPlaceholders = {
   updatedAt: sql.placeholder('updatedAt'),
 }
 
-const upsertCheckout = prepared((db: StoreDrizzle) =>
-  db
-    .insert(checkouts)
-    .values(checkoutPlaceholders)
-    .onConflictDoUpdate({
-      target: [checkouts.machineId, checkouts.path],
-      set: {
-        root: sql.placeholder('root'),
-        kind: sql.placeholder('kind'),
-        repoId: sql.placeholder('repoId'),
-        branch: sql.placeholder('branch'),
-        originUrl: sql.placeholder('originUrl'),
-        locked: sql.placeholder('locked'),
-        prunable: sql.placeholder('prunable'),
-        updatedAt: sql.placeholder('updatedAt'),
-        // A path registered again is live again.
-        removedAt: null,
-      },
-    })
-    .prepare(),
+const upsertCheckout = prepared((db, t) =>
+  captureWrite(
+    db
+      .insert(t.checkouts)
+      .values({ workspaceId: WORKSPACE, ...checkoutPlaceholders })
+      .onConflictDoUpdate({
+        target: [t.checkouts.workspaceId, t.checkouts.machineId, t.checkouts.path],
+        set: {
+          root: sql.placeholder('root'),
+          kind: sql.placeholder('kind'),
+          repoId: sql.placeholder('repoId'),
+          branch: sql.placeholder('branch'),
+          originUrl: sql.placeholder('originUrl'),
+          locked: sql.placeholder('locked'),
+          prunable: sql.placeholder('prunable'),
+          updatedAt: sql.placeholder('updatedAt'),
+          // A path registered again is live again.
+          removedAt: null,
+        },
+      }),
+  ).prepare(),
 )
 
 /** A removed root keeps its row as a tombstone (see `checkouts.removedAt`). */
-const tombstoneRoot = prepared((db: StoreDrizzle) =>
-  db
-    .update(checkouts)
-    .set({ removedAt: sql.placeholder('removedAt'), updatedAt: sql.placeholder('removedAt') })
-    .where(
-      and(
-        eq(checkouts.machineId, param(checkouts.machineId, 'machineId')),
-        eq(checkouts.path, param(checkouts.path, 'path')),
+const tombstoneRoot = prepared((db, t) =>
+  captureWrite(
+    db
+      .update(t.checkouts)
+      .set({ removedAt: sql.placeholder('removedAt'), updatedAt: sql.placeholder('removedAt') })
+      .where(
+        inWorkspace(
+          t.checkouts,
+          eq(t.checkouts.machineId, param(t.checkouts.machineId, 'machineId')),
+          eq(t.checkouts.path, param(t.checkouts.path, 'path')),
+        ),
       ),
-    )
-    .prepare(),
+  ).prepare(),
 )
 
-const deleteCheckout = prepared((db: StoreDrizzle) =>
-  db
-    .delete(checkouts)
-    .where(
-      and(
-        eq(checkouts.machineId, param(checkouts.machineId, 'machineId')),
-        eq(checkouts.path, param(checkouts.path, 'path')),
+const deleteCheckout = prepared((db, t) =>
+  captureWrite(
+    db
+      .delete(t.checkouts)
+      .where(
+        inWorkspace(
+          t.checkouts,
+          eq(t.checkouts.machineId, param(t.checkouts.machineId, 'machineId')),
+          eq(t.checkouts.path, param(t.checkouts.path, 'path')),
+        ),
       ),
-    )
-    .prepare(),
+  ).prepare(),
 )
 
 /** A stored row as the feed's record. */
@@ -294,16 +337,16 @@ export function checkoutWireOf(row: CheckoutRow): CheckoutWire {
 }
 
 export class CheckoutsRepository {
-  private readonly rootDb: StoreDrizzle
+  private readonly scope: WorkspaceDb
   protected readonly createOrJoinTransaction: TransactionRunner
 
-  constructor(queries: StoreQueries) {
-    this.rootDb = queries.rootDb
+  constructor(queries: WorkspaceQueries) {
+    this.scope = queries.db
     this.createOrJoinTransaction = queries.createOrJoinTransaction
   }
 
-  protected get db() {
-    return this.rootDb
+  protected get db(): WorkspaceDb {
+    return this.scope
   }
 
   /** One machine's live checkouts, by path. */
@@ -415,7 +458,7 @@ export class CheckoutsRepository {
         if (row.reach === 'none') removes.push(row)
         else upserts.push(row)
       }
-      for (const { size, values } of reachBatches(upserts, at))
+      for (const { size, values } of reachBatches(upserts, at, false))
         await upsertReach(this.db, size).run(values)
       for (const { size, values } of reachBatches(removes, at))
         await deleteReach(this.db, size).run(values)

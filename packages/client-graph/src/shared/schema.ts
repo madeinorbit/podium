@@ -1,25 +1,11 @@
 import {
-  type ColdContext as ActiveWorkContext,
-  type ColdSpec,
-  coldByRule,
-  ISSUE_ACTIVE_WORK,
   isMachinePathWithinRoot,
-  type KeptBySpec,
-  keepDeadline,
-  keptByKey,
-  type LaneKeptBySpec,
-  type MemberKeep,
-  type MembersKeptBySpec,
   machinePathAncestors,
   machinePathKey,
   machinePathSeparator,
-  SESSION_ACTIVE_WORK,
 } from '@podium/model/browser'
-import {
-  FULL_DECK_SESSION_FIELDS,
-  MISSION_VIEW_ISSUE_FIELDS,
-  MISSION_VIEW_SESSION_FIELDS,
-} from '../mission-view-schema'
+import { linkKeys, type RecordKind, type RecordLinkField, type RecordReplicaKind, recordOf } from '@podium/model'
+import { FULL_DECK_SESSION_FIELDS, MISSION_VIEW_ISSUE_FIELDS, MISSION_VIEW_SESSION_FIELDS } from '../mission-view-schema'
 
 /**
  * POD-4546 (L1a) — the ONE declared model schema both round-three substrates
@@ -41,12 +27,10 @@ import {
  *
  * WHAT IS NOT. Visibility, ordering, grouping, roll-ups and the row shape —
  * those are the row view contract (L1b) and the worklist phase. A rule that
- * reads more than one entity's fields is not a schema rule, with ONE declared
- * exception: the issue's residency (`cold: unlessShown`, POD-4665) reads its
- * member sessions (explicit ones, and since POD-4745 the issueless ones its
- * own checkout seats), because a row the list draws must be resident and the
- * sessions are what keep a closed issue drawn. It is an upper bound on
- * visibility, not visibility.
+ * reads more than one entity's fields is not a schema rule. Which rows are on
+ * the device is not a schema rule either: the server's policy and the views'
+ * collections decide it (`@podium/model` `records/declarations.ts`), and every
+ * row on the device is in the pool (POD-7094).
  *
  * SOURCES. Every field cites a zod schema in `@podium/model`, which is the
  * authoritative definition site [ADR 4], plus the replica collection the row
@@ -128,48 +112,14 @@ export type ModelSchemaName =
 /**
  * Where a row physically arrives from.
  *
- * `replica:<kind>` is a collection of `ReplicaRows`
- * (`replica/contract.ts:92-145`); `schema-sources.ts` proves at typecheck time
- * that each `<kind>` is a real `ReplicaKind`. Repository rows and worktree
- * lanes are derived from the `checkout` records (`replica:checkouts`,
- * POD-6644; `shared/checkout-repositories.ts`).
+ * `replica:<kind>` is the client collection of a declared record type
+ * (`@podium/model` `records/declarations.ts`, POD-7084), so only a declared
+ * collection can be named. Repository rows and worktree lanes are derived from
+ * the `checkout` records (`replica:checkouts`, POD-6644;
+ * `shared/checkout-repositories.ts`).
  */
 export type RowArrival =
-  | 'replica:issueUserStates'
-  | 'replica:issueGitStates'
-  | 'replica:issueBriefs'
-  | 'replica:issueDescriptions'
-  | 'replica:issuePanelTodos'
-  | 'replica:issuePanelArtifacts'
-  | 'replica:issuePanelDeferreds'
-  | 'replica:issuePanelStates'
-  | 'replica:issueProjections'
-  | 'replica:sessions'
-  | 'replica:sessionUserStates'
-  | 'replica:repos'
-  | 'replica:issueDeps'
-  | 'replica:machines'
-  | 'replica:machineAccess'
-  | 'replica:checkouts'
-  | 'replica:automations'
-  | 'replica:automationRuns'
-  | 'replica:messageRecords'
-  | 'replica:pendingInteractions'
-  | 'replica:effects'
-  | 'replica:userLayouts'
-  | 'replica:pins'
-  | 'replica:tabOrders'
-  | 'replica:userPreferences'
-  | 'replica:userReadPositions'
-  | 'replica:superagentThreads'
-  | 'replica:inboxNotices'
-  | 'replica:agentProfiles'
-  | 'replica:workflows'
-  | 'replica:workflowRevisions'
-  | 'replica:workflowBindings'
-  | 'replica:workflowRuns'
-  | 'replica:subscriptions'
-  | 'replica:instancePreferences'
+  | `replica:${RecordReplicaKind}`
   | 'request:messages.ledger'
   | 'request:credentials.list'
   | 'request:members.list'
@@ -228,41 +178,7 @@ export interface FieldSpec {
 // Relations
 // ---------------------------------------------------------------------------
 
-export type EntityName =
-  | 'issueBrief'
-  | 'issueDescription'
-  | 'issuePanelTodo'
-  | 'issuePanelArtifact'
-  | 'issuePanelDeferred'
-  | 'issuePanelState'
-  | 'credential'
-  | 'member'
-  | 'device'
-  | 'repository'
-  | 'issue'
-  | 'session'
-  | 'worktree'
-  | 'repo'
-  | 'machine'
-  | 'automation'
-  | 'automationRun'
-  | 'messageRecord'
-  | 'pendingInteraction'
-  | 'effect'
-  | 'pin'
-  | 'userLayout'
-  | 'tabOrder'
-  | 'userPreferences'
-  | 'userReadPosition'
-  | 'superagentThread'
-  | 'inboxNotice'
-  | 'agentProfile'
-  | 'workflow'
-  | 'workflowRevision'
-  | 'workflowBinding'
-  | 'workflowRun'
-  | 'subscription'
-  | 'instancePreferences'
+export type EntityName = 'issueBrief' | 'issueDescription' | 'issuePanelTodo' | 'issuePanelArtifact' | 'issuePanelDeferred' | 'issuePanelState' | 'credential' | 'member' | 'device' | 'repository' | 'issue' | 'session' | 'worktree' | 'repo' | 'machine' | 'automation' | 'automationRun' | 'messageRecord' | 'pendingInteraction' | 'effect' | 'pin' | 'userLayout' | 'tabOrder' | 'userPreferences' | 'userReadPosition' | 'superagentThread' | 'inboxNotice' | 'agentProfile' | 'workflow' | 'workflowRevision' | 'workflowBinding' | 'workflowRun' | 'subscription' | 'instancePreferences'
 
 /**
  * Four kinds, and no more.
@@ -343,12 +259,7 @@ export interface SubsetSpec {
  * answers (`ready`, `loading`) and the id reads a typed link exposes (`ids`,
  * `size`).
  */
-export const RESERVED_SUBSET_NAMES: ReadonlySet<string> = new Set([
-  'ready',
-  'loading',
-  'ids',
-  'size',
-])
+export const RESERVED_SUBSET_NAMES: ReadonlySet<string> = new Set(['ready', 'loading', 'ids', 'size'])
 
 export interface PrefixSpec extends RelationCommon {
   readonly kind: 'prefix'
@@ -417,32 +328,12 @@ export interface ComponentSpec {
   readonly why: string
 }
 
-/**
- * The residency rule's declarations (`ColdSpec` and its sources) and its
- * evaluator are the active-work rule in `@podium/model` (POD-5593): one
- * definition for the pool, the server and the disk stores. Re-exported here
- * for the pool's readers.
- */
+/** Merge verdicts the pool's readers use (`@podium/model`). */
 export {
-  type ActiveWorkRow,
   awaitingMergeOf,
-  COLD_SESSION_FIELDS,
-  type ColdSpec,
-  coldByRule,
-  type KeptBySpec,
-  keepDeadline,
-  keptByKey,
-  type LaneKeptBySpec,
-  type MemberKeep,
-  type MembersKeptBySpec,
   type MergeVerdictRow,
-  type UnlessShownColdSpec,
   unmergedDeliveryOf,
-  viaTargetOf,
 } from '@podium/model/browser'
-
-/** What the rule asks of its caller, over the pool schema's entities. */
-export type ColdContext = ActiveWorkContext<EntityName>
 
 /**
  * A whole-kind membership rule: rows of one entity that share a group key
@@ -479,7 +370,13 @@ export interface EntitySpec {
   readonly components: Readonly<Record<string, ComponentSpec>>
   readonly fields: Readonly<Record<string, FieldSpec>>
   readonly relations: Readonly<Record<string, RelationSpec>>
-  readonly cold: ColdSpec
+  /**
+   * POD-7094 — set when a row of this entity can be absent from the device
+   * (history is not on it): a lookup then answers LOADING and asks the one
+   * loader for the record. Why, in words. Every row of any other entity the
+   * user may see is on the device.
+   */
+  readonly loadable?: string
   /** A whole-kind collapse rule over this entity's rows, when it has one. */
   readonly collapse?: CollapseSpec
   readonly why: string
@@ -505,14 +402,8 @@ type Opts<T> = Omit<T, 'kind'>
 
 // Each keeps its argument's literal type (`to`, `lazy`, `direction`,
 // `subsets`): the typed navigation reads them (POD-4758).
-const belongsTo = <const S extends Opts<BelongsToSpec>>(spec: S) => ({
-  kind: 'belongsTo' as const,
-  ...spec,
-})
-const hasMany = <const S extends Opts<HasManySpec>>(spec: S) => ({
-  kind: 'hasMany' as const,
-  ...spec,
-})
+const belongsTo = <const S extends Opts<BelongsToSpec>>(spec: S) => ({ kind: 'belongsTo' as const, ...spec })
+const hasMany = <const S extends Opts<HasManySpec>>(spec: S) => ({ kind: 'hasMany' as const, ...spec })
 const prefix = <const S extends Opts<PrefixSpec>>(spec: S) => ({ kind: 'prefix' as const, ...spec })
 const edge = <const S extends Opts<EdgeSpec>>(spec: S) => ({ kind: 'edge' as const, ...spec })
 
@@ -520,37 +411,36 @@ const edge = <const S extends Opts<EdgeSpec>>(spec: S) => ({ kind: 'edge' as con
 // Reusable source shorthands
 // ---------------------------------------------------------------------------
 
-const derived = (property?: string): FieldSource => ({
-  schema: 'IssueDerived',
-  arrivesOn: 'replica:issueProjections',
-  ...(property === undefined ? {} : { property }),
-})
-const projection = (property?: string): FieldSource => ({
-  schema: 'IssueProjection',
-  arrivesOn: 'replica:issueProjections',
-  ...(property === undefined ? {} : { property }),
-})
-const sessionValue = (property: string): FieldSource => ({
-  schema: 'SessionUserStateWire',
-  arrivesOn: 'replica:sessionUserStates',
-  property,
-})
+/**
+ * A field of a declared record type (POD-7084): it arrives on that type's
+ * client collection, as the record declaration names it.
+ */
+function recordSource(kind: RecordKind, schema: ModelSchemaName, property?: string): FieldSource {
+  return {
+    schema,
+    arrivesOn: `replica:${recordOf(kind).replicaKind}`,
+    ...(property === undefined ? {} : { property }),
+  }
+}
 
-const meta = (property?: string): FieldSource => ({
-  schema: 'SessionMeta',
-  arrivesOn: 'replica:sessions',
-  ...(property === undefined ? {} : { property }),
-})
+/** A relation's join keys, read from the record declaration's link (POD-7084). */
+function link<K extends RecordKind>(kind: K, field: RecordLinkField<K>) {
+  const { foreignKey, targetKey } = linkKeys(kind, field)
+  return { foreignKey, targetKey }
+}
+
+const derived = (property?: string): FieldSource => recordSource('issueProjection', 'IssueDerived', property)
+const projection = (property?: string): FieldSource => recordSource('issueProjection', 'IssueProjection', property)
+const sessionValue = (property: string): FieldSource => recordSource('sessionUserState', 'SessionUserStateWire', property)
+
+const meta = (property?: string): FieldSource => recordSource('session', 'SessionMeta', property)
 /** The generic tables can receive these synced rows before a screen loads their
  * model definitions. Only identity/residency is needed for ingestion; the
  * deferred synced-models module installs the complete, cited declarations. */
 function syncedIdentity(schema: ModelSchemaName, arrivesOn: RowArrival) {
   return {
-    key: 'id',
-    components: {},
-    relations: {},
+    key: 'id', components: {}, relations: {},
     fields: { id: { type: 'id' as const, source: { schema, arrivesOn } } },
-    cold: { kind: 'never' as const, why: 'Synced records stay resident.' },
     why: 'Detailed fields and models register from the deferred synced-models module.',
   }
 }
@@ -576,24 +466,14 @@ function perUser(
       ...Object.fromEntries(
         Object.entries(fields).map(([name, f]) => [
           name,
-          {
-            type: f.type,
-            ...(f.nullable ? { nullable: true } : {}),
-            source: { schema, arrivesOn },
-            note: f.note,
-          },
+          { type: f.type, ...(f.nullable ? { nullable: true } : {}), source: { schema, arrivesOn }, note: f.note },
         ]),
       ),
     },
     relations: {},
-    cold: { kind: 'never' as const, why: 'A person has few of these: always resident.' },
   }
 }
-const effectWire = (property?: string): FieldSource => ({
-  schema: 'EffectRecordWire',
-  arrivesOn: 'replica:effects',
-  ...(property === undefined ? {} : { property }),
-})
+const effectWire = (property?: string): FieldSource => recordSource('effect', 'EffectRecordWire', property)
 const scan = (schema: 'GitRepositoryWire' | 'GitWorktreeWire', property?: string): FieldSource => ({
   schema,
   arrivesOn: 'replica:checkouts',
@@ -625,16 +505,8 @@ export { isExcluded as issueExcluded } from './predicates'
 const DECLARED = defineSchema({
   credential: syncedIdentity('CredentialView', 'request:credentials.list'),
   member: syncedIdentity('MemberView', 'request:members.list'),
-  device: {
-    ...syncedIdentity('DeviceSignInView', 'request:auth.mobileSessions'),
-    key: 'id',
-    fields: {
-      id: {
-        type: 'id',
-        source: { schema: 'DeviceSignInView', arrivesOn: 'request:auth.mobileSessions' },
-      },
-    },
-  },
+  device: { ...syncedIdentity('DeviceSignInView', 'request:auth.mobileSessions'), key: 'id',
+    fields: { id: { type: 'id', source: { schema: 'DeviceSignInView', arrivesOn: 'request:auth.mobileSessions' } } } },
   repository: syncedIdentity('RequestRecordKey', 'replica:checkouts'),
   /**
    * An issue: its normalized projection joined with personal markers, checkout
@@ -656,241 +528,78 @@ const DECLARED = defineSchema({
       ...MISSION_VIEW_ISSUE_FIELDS,
       id: { type: 'id', source: projection() },
       parentId: { type: 'id', optional: true, nullable: true, source: projection() },
-      seq: {
-        type: 'number',
-        source: projection(),
-        note: 'Immutable creation order key (slice §3 R-ORDER).',
-      },
+      seq: { type: 'number', source: projection(), note: 'Immutable creation order key (slice §3 R-ORDER).' },
       createdAt: { type: 'isoDate', source: projection() },
       updatedAt: { type: 'isoDate', source: projection() },
-      closedAt: {
-        type: 'isoDate',
-        optional: true,
-        nullable: true,
-        source: projection(),
-        note: 'History candidate alongside archived and deleted; visibility keepers bound residency.',
-      },
+      closedAt: { type: 'isoDate', optional: true, nullable: true, source: projection(), note: 'History candidate alongside archived and deleted; visibility keepers bound residency.' },
       deletedAt: { type: 'isoDate', optional: true, nullable: true, source: projection() },
       archived: { type: 'boolean', optional: true, source: projection() },
-      stage: {
-        type: 'string',
-        source: projection(),
-        note: 'Vocabulary in model/src/predicates/issue-stage.ts; the value set is a view rule (L1b), not a schema rule.',
-      },
+      stage: { type: 'string', source: projection(), note: 'Vocabulary in model/src/predicates/issue-stage.ts; the value set is a view rule (L1b), not a schema rule.' },
       closedReason: { type: 'string', optional: true, nullable: true, source: projection() },
-      landedAt: {
-        type: 'isoDate',
-        optional: true,
-        nullable: true,
-        source: projection(),
-        note: 'Set by the merge action; the row reads Landed while nothing awaits merge (`issueLanding`).',
-      },
+      landedAt: { type: 'isoDate', optional: true, nullable: true, source: projection(), note: 'Set by the merge action; the row reads Landed while nothing awaits merge (`issueLanding`).' },
       landedSha: { type: 'string', optional: true, nullable: true, source: projection() },
-      audience: {
-        type: 'enum',
-        values: ['human', 'agent'],
-        optional: true,
-        source: projection(),
-        note: 'Who the issue is FOR (entities/issue.ts:289).',
-      },
+      audience: { type: 'enum', values: ['human', 'agent'], optional: true, source: projection(), note: 'Who the issue is FOR (entities/issue.ts:289).' },
       isDraftVessel: { type: 'boolean', optional: true, source: projection('isDraftVessel') },
       sortKey: { type: 'string', optional: true, nullable: true, source: projection() },
       deferUntil: { type: 'isoDate', optional: true, nullable: true, source: projection() },
-      tuckedAt: {
-        type: 'isoDate',
-        optional: true,
-        nullable: true,
-        source: { schema: 'IssueUserStateWire', arrivesOn: 'replica:issueUserStates' },
-      },
-      joinedAt: {
-        type: 'isoDate',
-        optional: true,
-        nullable: true,
-        source: { schema: 'IssueUserStateWire', arrivesOn: 'replica:issueUserStates' },
-        note: 'The viewer’s own start or join record (POD-6290). Opening, searching or reading never writes it.',
-      },
-      joinedVia: {
-        type: 'enum',
-        values: ['start', 'agent', 'join'],
-        optional: true,
-        nullable: true,
-        source: { schema: 'IssueUserStateWire', arrivesOn: 'replica:issueUserStates' },
-        note: 'How the viewer came to the task: their own start, their agent’s, or an explicit join; the first is kept.',
-      },
-      assignedAt: {
-        type: 'isoDate',
-        optional: true,
-        nullable: true,
-        source: { schema: 'IssueUserStateWire', arrivesOn: 'replica:issueUserStates' },
-        note: 'The viewer’s removable "assigned to you by X" row (POD-6290).',
-      },
-      assignedBy: {
-        type: 'id',
-        optional: true,
-        nullable: true,
-        source: { schema: 'IssueUserStateWire', arrivesOn: 'replica:issueUserStates' },
-        note: 'Who assigned the task to the viewer.',
-      },
-      repoId: {
-        type: 'id',
-        optional: true,
-        nullable: true,
-        source: projection(),
-        note: 'Foreign key of the `repo` relation.',
-      },
-      repoPath: {
-        type: 'string',
-        source: { schema: 'RepoProjection', arrivesOn: 'replica:repos' },
-        note: 'Joined through the projection repoId; absent repository facts have not loaded yet.',
-      },
-      repoName: {
-        type: 'string',
-        optional: true,
-        source: { schema: 'RepoProjection', arrivesOn: 'replica:repos', property: 'name' },
-        note: "The repo's server-decided display name (`repo.name`, POD-6246), joined through the projection repoId. Absent until the repo row arrives, or from an older server.",
-      },
-      worktreePath: {
-        type: 'string',
-        optional: true,
-        nullable: true,
-        source: projection(),
-        note: 'Foreign key of the `worktree` relation.',
-      },
-      branch: {
-        type: 'string',
-        optional: true,
-        nullable: true,
-        source: projection(),
-        note: 'The private checkout branch; with an unlanded `gitState` it keeps a finished row shown (`awaitingMergeOf`).',
-      },
+      tuckedAt: { type: 'isoDate', optional: true, nullable: true, source: { schema: 'IssueUserStateWire', arrivesOn: 'replica:issueUserStates' } },
+      joinedAt: { type: 'isoDate', optional: true, nullable: true, source: { schema: 'IssueUserStateWire', arrivesOn: 'replica:issueUserStates' }, note: 'The viewer’s own start or join record (POD-6290). Opening, searching or reading never writes it.' },
+      joinedVia: { type: 'enum', values: ['start', 'agent', 'join'], optional: true, nullable: true, source: { schema: 'IssueUserStateWire', arrivesOn: 'replica:issueUserStates' }, note: 'How the viewer came to the task: their own start, their agent’s, or an explicit join; the first is kept.' },
+      assignedAt: { type: 'isoDate', optional: true, nullable: true, source: { schema: 'IssueUserStateWire', arrivesOn: 'replica:issueUserStates' }, note: 'The viewer’s removable "assigned to you by X" row (POD-6290).' },
+      assignedBy: { type: 'id', optional: true, nullable: true, source: { schema: 'IssueUserStateWire', arrivesOn: 'replica:issueUserStates' }, note: 'Who assigned the task to the viewer.' },
+      repoId: { type: 'id', optional: true, nullable: true, source: projection(), note: 'Foreign key of the `repo` relation.' },
+      repoPath: { type: 'string', source: { schema: 'RepoProjection', arrivesOn: 'replica:repos' }, note: 'Joined through the projection repoId; absent repository facts have not loaded yet.' },
+      repoName: { type: 'string', optional: true, source: { schema: 'RepoProjection', arrivesOn: 'replica:repos', property: 'name' }, note: "The repo's server-decided display name (`repo.name`, POD-6246), joined through the projection repoId. Absent until the repo row arrives, or from an older server." },
+      worktreePath: { type: 'string', optional: true, nullable: true, source: projection(), note: 'Foreign key of the `worktree` relation.' },
+      branch: { type: 'string', optional: true, nullable: true, source: projection(), note: 'The private checkout branch; with an unlanded `gitState` it keeps a finished row shown (`awaitingMergeOf`).' },
       gitState: {
         type: 'object',
         optional: true,
         source: { ...derived(), arrivesOn: 'replica:issueGitStates' },
         note: 'The checkout observation comes from issueGitState and is composed without its issue id; absent observations remain unknown.',
         parts: {
-          shared: {
-            type: 'boolean',
-            source: { schema: 'IssueGitState' },
-            why: 'True = multi-task checkout: the merge axis is suppressed.',
-          },
-          merged: {
-            type: 'boolean',
-            optional: true,
-            source: { schema: 'IssueGitState' },
-            why: 'Authoritative landed verdict; absent when false.',
-          },
-          ahead: {
-            type: 'number',
-            optional: true,
-            source: { schema: 'IssueGitState' },
-            why: 'Commits on branch not on the parent; absent when shared.',
-          },
+          shared: { type: 'boolean', source: { schema: 'IssueGitState' }, why: 'True = multi-task checkout: the merge axis is suppressed.' },
+          merged: { type: 'boolean', optional: true, source: { schema: 'IssueGitState' }, why: 'Authoritative landed verdict; absent when false.' },
+          ahead: { type: 'number', optional: true, source: { schema: 'IssueGitState' }, why: 'Commits on branch not on the parent; absent when shared.' },
         },
       },
       coordinatorSessionId: { type: 'id', optional: true, nullable: true, source: projection() },
-      startedBySession: {
-        type: 'id',
-        optional: true,
-        nullable: true,
-        source: projection(),
-        note: 'Foreign key of the `startedBy` relation: missions and the issue header follow it to the task of the starter session; the sidebar never nests by it.',
-      },
+      startedBySession: { type: 'id', optional: true, nullable: true, source: projection(), note: 'Foreign key of the `startedBy` relation: missions and the issue header follow it to the task of the starter session; the sidebar never nests by it.' },
       deps: {
         type: 'depEdgeList',
         source: { schema: 'IssueDepProjection', property: 'toId', arrivesOn: 'replica:issueDeps' },
         note: 'The compatibility edge-list shape is composed from normalized issueDeps rows at the feed boundary. An edge change names its owner without requiring a companion wire update (POD-4953).',
         parts: {
           id: { type: 'id', source: { schema: 'IssueDepWire' }, why: 'The other endpoint.' },
-          type: {
-            type: 'string',
-            source: { schema: 'IssueDepWire' },
-            why: 'The edge type; `discovered-from` is the only one in scope.',
-          },
+          type: { type: 'string', source: { schema: 'IssueDepWire' }, why: 'The edge type; `discovered-from` is the only one in scope.' },
         },
       },
       needsHuman: { type: 'boolean', optional: true, source: projection() },
-      blocked: {
-        type: 'boolean',
-        optional: true,
-        source: derived(),
-        note: 'The compatibility boolean is derived at the feed boundary from normalized edges and server-truth target stages, matching replica blocking (POD-4953).',
-      },
-      readAt: {
-        type: 'isoDate',
-        optional: true,
-        nullable: true,
-        source: { schema: 'IssueUserStateWire', arrivesOn: 'replica:issueUserStates' },
-        note: "The per-user cursor. `unread` is NOT a field: it is a rollup over this issue's sessions (issue-views.ts:391-410) and belongs to L1b.",
-      },
+      blocked: { type: 'boolean', optional: true, source: derived(), note: 'The compatibility boolean is derived at the feed boundary from normalized edges and server-truth target stages, matching replica blocking (POD-4953).' },
+      readAt: { type: 'isoDate', optional: true, nullable: true, source: { schema: 'IssueUserStateWire', arrivesOn: 'replica:issueUserStates' }, note: "The per-user cursor. `unread` is NOT a field: it is a rollup over this issue's sessions (issue-views.ts:391-410) and belongs to L1b." },
       title: { type: 'string', source: projection() },
       // The one open reference card, through the same normalized row reader.
       priority: { type: 'number', source: projection() },
       assignee: { type: 'id', optional: true, source: projection() },
-      description: {
-        type: 'string',
-        optional: true,
-        source: {
-          schema: 'IssueDescriptionWire',
-          arrivesOn: 'replica:issueDescriptions',
-          property: 'text',
-        },
-        note: 'Its own synced record (POD-6921): `IssueModel.description` reads the `issueDescription` record; a painted row (launch, fixture) holds its own document.',
-      },
+      description: { type: 'string', optional: true, source: { schema: 'IssueDescriptionWire', arrivesOn: 'replica:issueDescriptions', property: 'text' }, note: 'Its own synced record (POD-6921): `IssueModel.description` reads the `issueDescription` record; a painted row (launch, fixture) holds its own document.' },
       blockedByNotes: { type: 'object', source: projection() },
       defaultAgent: { type: 'string', source: projection() },
       defaultModel: { type: 'string', source: projection() },
       defaultEffort: { type: 'string', source: projection() },
-      agentProfileId: {
-        type: 'id',
-        optional: true,
-        source: projection(),
-        note: 'POD-6107. Read by the profile UI (POD-6098); nothing renders it yet.',
-      },
+      agentProfileId: { type: 'id', optional: true, source: projection(), note: 'POD-6107. Read by the profile UI (POD-6098); nothing renders it yet.' },
       machineId: { type: 'id', optional: true, source: projection() },
       ...ISSUE_PAGE_FIELDS,
     },
     relations: {
-      briefRecords: hasMany({
-        to: 'issueBrief',
-        inverse: 'issue',
-        lazy: false,
-        why: 'The brief is its own record, keyed by the issue id (POD-6921).',
-      }),
-      descriptionRecords: hasMany({
-        to: 'issueDescription',
-        inverse: 'issue',
-        lazy: false,
-        why: 'The description is its own record, keyed by the issue id (POD-6921).',
-      }),
-      panelTodoRecords: hasMany({
-        to: 'issuePanelTodo',
-        inverse: 'issue',
-        lazy: false,
-        why: 'Each panel item belongs to its issue.',
-      }),
-      panelArtifactRecords: hasMany({
-        to: 'issuePanelArtifact',
-        inverse: 'issue',
-        lazy: false,
-        why: 'Each panel item belongs to its issue.',
-      }),
-      panelDeferredRecords: hasMany({
-        to: 'issuePanelDeferred',
-        inverse: 'issue',
-        lazy: false,
-        why: 'Each panel item belongs to its issue.',
-      }),
-      panelStateRecords: hasMany({
-        to: 'issuePanelState',
-        inverse: 'issue',
-        lazy: false,
-        why: 'Each panel item belongs to its issue.',
-      }),
+      briefRecords: hasMany({ to: 'issueBrief', inverse: 'issue', lazy: false, why: 'The brief is its own record, keyed by the issue id (POD-6921).' }),
+      descriptionRecords: hasMany({ to: 'issueDescription', inverse: 'issue', lazy: false, why: 'The description is its own record, keyed by the issue id (POD-6921).' }),
+      panelTodoRecords: hasMany({ to: 'issuePanelTodo', inverse: 'issue', lazy: false, why: 'Each panel item belongs to its issue.' }),
+      panelArtifactRecords: hasMany({ to: 'issuePanelArtifact', inverse: 'issue', lazy: false, why: 'Each panel item belongs to its issue.' }),
+      panelDeferredRecords: hasMany({ to: 'issuePanelDeferred', inverse: 'issue', lazy: false, why: 'Each panel item belongs to its issue.' }),
+      panelStateRecords: hasMany({ to: 'issuePanelState', inverse: 'issue', lazy: false, why: 'Each panel item belongs to its issue.' }),
       parent: belongsTo({
         to: 'issue',
-        foreignKey: 'parentId',
-        targetKey: 'id',
+        ...link('issueProjection', 'parentId'),
         inverse: 'children',
         lazy: true,
         slice: 'R1',
@@ -906,12 +615,11 @@ const DECLARED = defineSchema({
         inverse: 'parent',
         lazy: true,
         slice: 'R1',
-        why: 'The inverse collection the pool maintains; a child of a closed parent may be cold.',
+        why: 'The inverse collection the pool maintains; a child of a held parent may not be on the device.',
       }),
       treeParent: belongsTo({
         to: 'issue',
-        foreignKey: 'parentId',
-        targetKey: 'id',
+        ...link('issueProjection', 'parentId'),
         inverse: 'treeChildren',
         lazy: true,
         why: "The raw parent edge, archived and deleted issues included: the worklist's nest walk follows `parentId` through ANY issue (nestStartedByIssues, rows.ts:271-283, walks allById), where `parent` drops an archived or deleted child's edge.",
@@ -924,27 +632,21 @@ const DECLARED = defineSchema({
       }),
       startedBy: belongsTo({
         to: 'session',
-        foreignKey: 'startedBySession',
-        targetKey: 'sessionId',
+        ...link('issueProjection', 'startedBySession'),
         inverse: 'startedIssues',
         lazy: true,
-        why: 'The session that started this issue: provenance for missions and the Flight Deck (poolMissionContains). The sidebar nests by parentId only, never by this.',
+        why: "The session that started this issue: provenance for missions and the Flight Deck (poolMissionContains). The sidebar nests by parentId only, never by this.",
       }),
       missionStartedBy: belongsTo({
         to: 'session',
-        foreignKey: 'startedBySession',
-        targetKey: 'sessionId',
+        ...link('issueProjection', 'startedBySession'),
         inverse: 'missionStartedIssues',
         lazy: true,
         why: 'Mission provenance, including archived/deleted candidates, while they have not left the originating mission.',
         where: {
           fields: ['stage', 'deps'],
-          test: (row) =>
-            row['stage'] === 'proposed' ||
-            row['stage'] === 'backlog' ||
-            (row['deps'] as readonly { id: string; type: string }[] | undefined)?.find(
-              (dep) => dep.type === 'discovered-from',
-            )?.id == null,
+          test: row => row['stage'] === 'proposed' || row['stage'] === 'backlog' ||
+            (row['deps'] as readonly { id: string; type: string }[] | undefined)?.find(dep => dep.type === 'discovered-from')?.id == null,
           why: 'missionIssueIds / hasLeftMission: a started spin-off departs even when its origin row is absent.',
         },
       }),
@@ -973,9 +675,7 @@ const DECLARED = defineSchema({
         },
       }),
       handoffSessions: hasMany({
-        to: 'session',
-        inverse: 'handoffIssue',
-        lazy: true,
+        to: 'session', inverse: 'handoffIssue', lazy: true,
         why: 'An open task menu asks only how many movable senders it has, or for its sole sender.',
       }),
       sessions: hasMany({
@@ -1010,41 +710,23 @@ const DECLARED = defineSchema({
         why: 'The inverse: issues discovered from this one.',
       }),
       pageDependencies: edge({
-        to: 'issue',
-        edgeField: 'deps',
-        edgeIdKey: 'id',
-        edgeTypeKey: 'type',
-        edgeType: '*',
-        allTypes: true,
-        many: true,
-        direction: 'out',
-        inverse: 'pageDependents',
-        lazy: true,
+        to: 'issue', edgeField: 'deps', edgeIdKey: 'id', edgeTypeKey: 'type',
+        edgeType: '*', allTypes: true, many: true, direction: 'out',
+        inverse: 'pageDependents', lazy: true,
         why: 'Every dependency target, including multiple targets of a type and custom types.',
       }),
       pageDependents: edge({
-        to: 'issue',
-        edgeField: 'deps',
-        edgeIdKey: 'id',
-        edgeTypeKey: 'type',
-        edgeType: '*',
-        allTypes: true,
-        many: true,
-        direction: 'in',
-        inverse: 'pageDependencies',
-        lazy: true,
+        to: 'issue', edgeField: 'deps', edgeIdKey: 'id', edgeTypeKey: 'type',
+        edgeType: '*', allTypes: true, many: true, direction: 'in',
+        inverse: 'pageDependencies', lazy: true,
         why: 'Every dependency source; edge types and order are read from its declared edge list.',
       }),
       bornSessions: hasMany({
-        to: 'session',
-        inverse: 'bornIssue',
-        lazy: true,
+        to: 'session', inverse: 'bornIssue', lazy: true,
         why: 'Forwarding ghosts: sessions born here which now work on another issue.',
       }),
       pageSessions: hasMany({
-        to: 'session',
-        inverse: 'pageIssue',
-        lazy: true,
+        to: 'session', inverse: 'pageIssue', lazy: true,
         why: 'Raw non-shell attachment IDs used by page counts and destructive-action prompts.',
         subsets: {
           unarchived: {
@@ -1055,38 +737,20 @@ const DECLARED = defineSchema({
         },
       }),
       supersedingIssue: belongsTo({
-        to: 'issue',
-        foreignKey: 'supersededBy',
-        targetKey: 'id',
-        inverse: 'supersededIssues',
-        lazy: true,
+        to: 'issue', ...link('issueProjection', 'supersededBy'), inverse: 'supersededIssues', lazy: true,
         why: 'The issue page resolves the successor of a superseded task.',
       }),
-      supersededIssues: hasMany({
-        to: 'issue',
-        inverse: 'supersedingIssue',
-        lazy: true,
-        why: 'Inverse successor references.',
-      }),
+      supersededIssues: hasMany({ to: 'issue', inverse: 'supersedingIssue', lazy: true, why: 'Inverse successor references.' }),
       canonicalIssue: belongsTo({
-        to: 'issue',
-        foreignKey: 'duplicateOf',
-        targetKey: 'id',
-        inverse: 'duplicateIssues',
-        lazy: true,
+        to: 'issue', ...link('issueProjection', 'duplicateOf'), inverse: 'duplicateIssues', lazy: true,
         why: 'The issue page resolves the canonical task of a duplicate.',
       }),
-      duplicateIssues: hasMany({
-        to: 'issue',
-        inverse: 'canonicalIssue',
-        lazy: true,
-        why: 'Inverse duplicate references.',
-      }),
+      duplicateIssues: hasMany({ to: 'issue', inverse: 'canonicalIssue', lazy: true, why: 'Inverse duplicate references.' }),
       effects: hasMany({
         to: 'effect',
         inverse: 'issue',
         lazy: false,
-        why: 'One-off actions on this issue (start, stop, ship, the assistant), each its own record: what the issue shows while one runs (POD-6526).',
+        why: "One-off actions on this issue (start, stop, ship, the assistant), each its own record: what the issue shows while one runs (POD-6526).",
       }),
       worktree: belongsTo({
         to: 'worktree',
@@ -1098,14 +762,13 @@ const DECLARED = defineSchema({
       }),
       repo: belongsTo({
         to: 'repo',
-        foreignKey: 'repoId',
-        targetKey: 'id',
+        ...link('issueProjection', 'repoId'),
         inverse: 'issues',
         lazy: false,
         why: 'Replaces the denormalized `issue.prefix`: `displayRef` reads `issue.repo.prefix` (replica/contract.ts:106-110).',
       }),
     },
-    cold: ISSUE_ACTIVE_WORK,
+    loadable: 'Only the held collections are on the device; any other issue loads by id, and its stub describes it meanwhile.',
   },
 
   /** One session (slice §1). */
@@ -1125,87 +788,31 @@ const DECLARED = defineSchema({
       ...MISSION_VIEW_SESSION_FIELDS,
       ...FULL_DECK_SESSION_FIELDS,
       sessionId: { type: 'id', source: meta() },
-      issueId: {
-        type: 'id',
-        optional: true,
-        nullable: true,
-        source: meta(),
-        note: 'Foreign key of the `issue` relation.',
-      },
-      cwd: {
-        type: 'string',
-        source: meta(),
-        note: 'The path the `worktree` prefix relation places. There is no `session.worktreePath`.',
-      },
+      issueId: { type: 'id', optional: true, nullable: true, source: meta(), note: 'Foreign key of the `issue` relation.' },
+      cwd: { type: 'string', source: meta(), note: "The path the `worktree` prefix relation places. There is no `session.worktreePath`." },
       agentKind: { type: 'string', optional: true, nullable: true, source: meta() },
-      harnessHandoff: {
-        type: 'boolean',
-        optional: true,
-        source: meta(),
-        note: 'Manifest capability used by the task menu handoff relation.',
-      },
-      headless: {
-        type: 'boolean',
-        optional: true,
-        source: meta(),
-        note: 'Structural membership filter on both session relations.',
-      },
+      harnessHandoff: { type: 'boolean', optional: true, source: meta(), note: 'Manifest capability used by the task menu handoff relation.' },
+      headless: { type: 'boolean', optional: true, source: meta(), note: 'Structural membership filter on both session relations.' },
       status: { type: 'string', optional: true, nullable: true, source: meta() },
-      archived: {
-        type: 'boolean',
-        optional: true,
-        source: meta(),
-        note: 'Read-side filter (L1b), NOT a membership filter: the unread rollup must see the same seats (arms/hand/indexes.ts:26).',
-      },
+      archived: { type: 'boolean', optional: true, source: meta(), note: 'Read-side filter (L1b), NOT a membership filter: the unread rollup must see the same seats (arms/hand/indexes.ts:26).' },
       lastActiveAt: { type: 'isoDate', source: meta() },
-      messageDraft: {
-        type: 'string',
-        optional: true,
-        source: meta(),
-        note: 'SessionMeta.messageDraft; joined from the session Draft Sync v2 document, never copied into conversation machinery.',
-      },
+      messageDraft: { type: 'string', optional: true, source: meta(), note: 'SessionMeta.messageDraft; joined from the session Draft Sync v2 document, never copied into conversation machinery.' },
       draftUpdatedAt: { type: 'isoDate', optional: true, source: meta() },
       transcriptAvailable: { type: 'boolean', optional: true, source: meta() },
       queuedMessageCount: { type: 'number', optional: true, source: meta() },
       stoppedAt: { type: 'isoDate', optional: true, nullable: true, source: meta() },
-      exitCode: {
-        type: 'number',
-        optional: true,
-        source: meta(),
-        note: 'With stopReason and spawnFailure, what the state word reads to tell a crash or failed start (Error) from a stop (Done), D5.',
-      },
+      exitCode: { type: 'number', optional: true, source: meta(), note: 'With stopReason and spawnFailure, what the state word reads to tell a crash or failed start (Error) from a stop (Done), D5.' },
       spawnFailure: { type: 'string', optional: true, source: meta() },
       readAt: { type: 'isoDate', optional: true, nullable: true, source: sessionValue('readAt') },
-      unread: {
-        type: 'boolean',
-        optional: true,
-        source: sessionValue('readAt'),
-        note: 'Derived from the personal read cursor and session activity at the row-source boundary; legacy only while the companion is absent.',
-      },
+      unread: { type: 'boolean', optional: true, source: sessionValue('readAt'), note: 'Derived from the personal read cursor and session activity at the row-source boundary; legacy only while the companion is absent.' },
       agentState: {
         type: 'object',
         optional: true,
         source: meta(),
         parts: {
-          phase: {
-            type: 'string',
-            optional: true,
-            nullable: true,
-            source: { schema: 'AgentRuntimeState' },
-            why: 'Row motion phase (slice §3 R-SUM).',
-          },
-          since: {
-            type: 'isoDate',
-            optional: true,
-            source: { schema: 'AgentRuntimeState' },
-            why: 'Timing anchor.',
-          },
-          workingMsTotal: {
-            type: 'number',
-            optional: true,
-            source: { schema: 'AgentRuntimeState' },
-            why: 'Timer base.',
-          },
+          phase: { type: 'string', optional: true, nullable: true, source: { schema: 'AgentRuntimeState' }, why: 'Row motion phase (slice §3 R-SUM).' },
+          since: { type: 'isoDate', optional: true, source: { schema: 'AgentRuntimeState' }, why: 'Timing anchor.' },
+          workingMsTotal: { type: 'number', optional: true, source: { schema: 'AgentRuntimeState' }, why: 'Timer base.' },
         },
       },
       offer: {
@@ -1214,12 +821,7 @@ const DECLARED = defineSchema({
         nullable: true,
         source: meta(),
         parts: {
-          createdAt: {
-            type: 'isoDate',
-            optional: true,
-            source: { schema: 'SessionOffer' },
-            why: 'Waiting-age anchor; the only property of the offer in scope.',
-          },
+          createdAt: { type: 'isoDate', optional: true, source: { schema: 'SessionOffer' }, why: 'Waiting-age anchor; the only property of the offer in scope.' },
         },
       },
       resume: {
@@ -1247,25 +849,15 @@ const DECLARED = defineSchema({
     },
     relations: {
       bornIssue: belongsTo({
-        to: 'issue',
-        foreignKey: 'refIssueId',
-        targetKey: 'id',
-        inverse: 'bornSessions',
-        lazy: true,
+        to: 'issue', ...link('session', 'refIssueId'),
+        inverse: 'bornSessions', lazy: true,
         why: 'The permanent creation issue, independent of the current attachment.',
       }),
       pageIssue: belongsTo({
-        to: 'issue',
-        foreignKey: 'issueId',
-        targetKey: 'id',
-        inverse: 'pageSessions',
-        lazy: true,
-        uncollapsed: true,
-        where: {
-          fields: ['agentKind'],
-          test: (row) => row['agentKind'] !== 'shell',
-          why: 'Replica issue membership includes raw headless/archived/resume-twin rows, excluding shells.',
-        },
+        to: 'issue', ...link('session', 'issueId'),
+        inverse: 'pageSessions', lazy: true, uncollapsed: true,
+        where: { fields: ['agentKind'], test: row => row['agentKind'] !== 'shell',
+          why: 'Replica issue membership includes raw headless/archived/resume-twin rows, excluding shells.' },
         why: 'The replica page membership contract before visual resume collapse.',
       }),
       effects: hasMany({
@@ -1278,7 +870,7 @@ const DECLARED = defineSchema({
         to: 'issue',
         inverse: 'startedBy',
         lazy: true,
-        why: 'The issues this session started, the inverse of startedBy: provenance for missions and the Flight Deck. The sidebar never nests by it.',
+        why: "The issues this session started, the inverse of startedBy: provenance for missions and the Flight Deck. The sidebar never nests by it.",
       }),
       missionStartedIssues: hasMany({
         to: 'issue',
@@ -1288,29 +880,23 @@ const DECLARED = defineSchema({
       }),
       missionIssue: belongsTo({
         to: 'issue',
-        foreignKey: 'issueId',
-        targetKey: 'id',
+        ...link('session', 'issueId'),
         inverse: 'missionSessions',
         lazy: true,
         why: 'missionSessionIndex uses explicit issueId ownership, including headless and archived sessions.',
       }),
       handoffIssue: belongsTo({
-        to: 'issue',
-        foreignKey: 'issueId',
-        targetKey: 'id',
-        inverse: 'handoffSessions',
-        lazy: true,
+        to: 'issue', ...link('session', 'issueId'), inverse: 'handoffSessions', lazy: true,
         where: {
           fields: ['agentKind', 'harnessHandoff'],
-          test: (row) => row['agentKind'] !== 'shell' && row['harnessHandoff'] === true,
+          test: row => row['agentKind'] !== 'shell' && row['harnessHandoff'] === true,
           why: 'The manifest capability decides handoff subjects, including archived and headless attachments.',
         },
         why: 'Menu handoff eligibility without loading the issue session history.',
       }),
       issue: belongsTo({
         to: 'issue',
-        foreignKey: 'issueId',
-        targetKey: 'id',
+        ...link('session', 'issueId'),
         inverse: 'sessions',
         lazy: true,
         slice: 'R2',
@@ -1355,7 +941,7 @@ const DECLARED = defineSchema({
         'dedupeSessionsByResume (model/src/identity/session-identity.ts), preserved by the pool resumeGroup collapse rule.',
       why: "Resume twins: session rows pointing at the SAME agent conversation collapse to the most useful one (live > starting > hibernated > exited, then the most recently active), EXCEPT that a group holding an active row is kept in full. A headless row never takes part: it shares its terminal twin's ref by design. On an exact tie of rank and recency the legacy keeps the row earlier in the runtime's list, an order a pool does not have; the lower session id is kept instead.",
     },
-    cold: SESSION_ACTIVE_WORK,
+    loadable: 'Only the held collections are on the device; any other session loads by id. Sessions have no stub.',
   },
 
   /**
@@ -1383,23 +969,9 @@ const DECLARED = defineSchema({
       },
     },
     fields: {
-      path: {
-        type: 'string',
-        source: scan('GitWorktreeWire'),
-        note: 'For a repo-root lane the value is GitRepositoryWire.path.',
-      },
-      repoId: {
-        type: 'id',
-        optional: true,
-        nullable: true,
-        source: scan('GitRepositoryWire'),
-        note: 'Stamped from the CONTAINING scan row (row-source.ts:313-321); foreign key of the `repo` relation.',
-      },
-      repoPath: {
-        type: 'string',
-        source: scan('GitRepositoryWire', 'path'),
-        note: 'The containing scan row’s path — the lane’s repo identity when repoId is absent.',
-      },
+      path: { type: 'string', source: scan('GitWorktreeWire'), note: 'For a repo-root lane the value is GitRepositoryWire.path.' },
+      repoId: { type: 'id', optional: true, nullable: true, source: scan('GitRepositoryWire'), note: 'Stamped from the CONTAINING scan row (row-source.ts:313-321); foreign key of the `repo` relation.' },
+      repoPath: { type: 'string', source: scan('GitRepositoryWire', 'path'), note: 'The containing scan row’s path — the lane’s repo identity when repoId is absent.' },
     },
     relations: {
       sessions: hasMany({
@@ -1412,7 +984,7 @@ const DECLARED = defineSchema({
           issueless: {
             fields: ['issueId'],
             test: (row: Readonly<Record<string, unknown>>) => row['issueId'] === undefined,
-            why: "The lane's sessions no explicit owner claims (`indexSessionOwnership`, session-ownership.ts:152-158: the legacy tests `issueId !== undefined`, so an explicit null still claims). They seat by containment under the issues checked out here (R3), and keep a closed one of them shown (`issue.cold.keptBy`, POD-4745).",
+            why: "The lane's sessions no explicit owner claims (`indexSessionOwnership`, session-ownership.ts:152-158: the legacy tests `issueId !== undefined`, so an explicit null still claims). They seat by containment under the issues checked out here (R3).",
           },
         },
       }),
@@ -1424,16 +996,11 @@ const DECLARED = defineSchema({
       }),
       repo: belongsTo({
         to: 'repo',
-        foreignKey: 'repoId',
-        targetKey: 'id',
+        ...link('checkout', 'repoId'),
         inverse: 'worktrees',
         lazy: false,
         why: 'The lane’s repo, for the group key, label and prefix.',
       }),
-    },
-    cold: {
-      kind: 'never',
-      why: 'One row per checkout on the machine: tens, not thousands. Always resident.',
     },
   },
 
@@ -1466,48 +1033,15 @@ const DECLARED = defineSchema({
     },
     fields: {
       id: { type: 'id', source: { schema: 'RepoProjection', arrivesOn: 'replica:repos' } },
-      prefix: {
-        type: 'string',
-        optional: true,
-        nullable: true,
-        source: { schema: 'RepoProjection', arrivesOn: 'replica:repos' },
-        note: 'Absent renders `#seq` (slice §3 R-SUM).',
-      },
-      defaultParentBranch: {
-        type: 'string',
-        optional: true,
-        nullable: true,
-        source: { schema: 'RepoProjection', arrivesOn: 'replica:repos' },
-        note: "The repo's base branch [POD-2065]. Absent defers to `gitWorkflow.defaultParentBranch`, then auto-detection.",
-      },
-      name: {
-        type: 'string',
-        optional: true,
-        nullable: true,
-        source: { schema: 'RepoProjection', arrivesOn: 'replica:repos' },
-        note: "The repo's display name, decided by the server from its git remote (POD-6246). Every surface reads this; none derives a name from a path.",
-      },
-      path: {
-        type: 'string',
-        source: scan('GitRepositoryWire'),
-        note: 'A checkout path. Never the source of the repo name (POD-6246).',
-      },
+      prefix: { type: 'string', optional: true, nullable: true, source: { schema: 'RepoProjection', arrivesOn: 'replica:repos' }, note: 'Absent renders `#seq` (slice §3 R-SUM).' },
+      defaultParentBranch: { type: 'string', optional: true, nullable: true, source: { schema: 'RepoProjection', arrivesOn: 'replica:repos' }, note: "The repo's base branch [POD-2065]. Absent defers to `gitWorkflow.defaultParentBranch`, then auto-detection." },
+      name: { type: 'string', optional: true, nullable: true, source: { schema: 'RepoProjection', arrivesOn: 'replica:repos' }, note: "The repo's display name, decided by the server from its git remote (POD-6246). Every surface reads this; none derives a name from a path." },
+      path: { type: 'string', source: scan('GitRepositoryWire'), note: 'A checkout path. Never the source of the repo name (POD-6246).' },
     },
     relations: {
-      issues: hasMany({
-        to: 'issue',
-        inverse: 'repo',
-        lazy: true,
-        why: 'Every issue in the repo; holds closed ones.',
-      }),
-      worktrees: hasMany({
-        to: 'worktree',
-        inverse: 'repo',
-        lazy: false,
-        why: 'The repo’s lanes.',
-      }),
+      issues: hasMany({ to: 'issue', inverse: 'repo', lazy: true, why: 'Every issue in the repo; holds closed ones.' }),
+      worktrees: hasMany({ to: 'worktree', inverse: 'repo', lazy: false, why: 'The repo’s lanes.' }),
     },
-    cold: { kind: 'never', why: 'One row per repo: a handful. Always resident.' },
   },
   /**
    * A one-off action outside the database, as data (ADR 12 D5 E2): a merge, a
@@ -1529,101 +1063,30 @@ const DECLARED = defineSchema({
     fields: {
       // Identity and intent
       id: { type: 'id', source: effectWire() },
-      kind: {
-        type: 'string',
-        source: effectWire(),
-        note: '`session.interrupt`, `issue.merge`, `file.write`, …',
-      },
-      target: {
-        type: 'object',
-        source: effectWire(),
-        parts: {
-          kind: {
-            type: 'enum',
-            source: { schema: 'EffectTarget' },
-            why: 'What the effect acts on, and so who sees it.',
-          },
-          id: { type: 'id', source: { schema: 'EffectTarget' }, why: 'The target record.' },
-        },
-      },
-      sessionId: {
-        type: 'id',
-        optional: true,
-        source: effectWire('target'),
-        note: "Stamped at the row-source boundary from a session target's id: the key of the `session` relation.",
-      },
-      issueId: {
-        type: 'id',
-        optional: true,
-        source: effectWire('target'),
-        note: "Stamped at the row-source boundary from an issue target's id: the key of the `issue` relation.",
-      },
-      input: {
-        type: 'object',
-        source: effectWire(),
-        note: 'What the kind publishes of its input.',
-      },
+      kind: { type: 'string', source: effectWire(), note: '`session.interrupt`, `issue.merge`, `file.write`, …' },
+      target: { type: 'object', source: effectWire(), parts: {
+        kind: { type: 'enum', source: { schema: 'EffectTarget' }, why: 'What the effect acts on, and so who sees it.' },
+        id: { type: 'id', source: { schema: 'EffectTarget' }, why: 'The target record.' },
+      } },
+      sessionId: { type: 'id', optional: true, source: effectWire('target'), note: "Stamped at the row-source boundary from a session target's id: the key of the `session` relation." },
+      issueId: { type: 'id', optional: true, source: effectWire('target'), note: "Stamped at the row-source boundary from an issue target's id: the key of the `issue` relation." },
+      input: { type: 'object', source: effectWire(), note: 'What the kind publishes of its input.' },
       cancelRequested: { type: 'boolean', source: effectWire() },
-      decision: {
-        type: 'enum',
-        values: ['approve', 'deny'],
-        optional: true,
-        nullable: true,
-        source: effectWire(),
-        note: "A human gate's decision (POD-6674): `null` while an approval waits for its person.",
-      },
-      deciders: {
-        type: 'object',
-        optional: true,
-        source: effectWire(),
-        note: 'Who a gated record is routed to (POD-6674); absent: its creator.',
-      },
-      forViewer: {
-        type: 'boolean',
-        optional: true,
-        source: effectWire('deciders'),
-        note: 'Stamped at the row-source boundary: the viewer is one the record is routed to, its deciders or else its creator (POD-6674).',
-      },
+      decision: { type: 'enum', values: ['approve', 'deny'], optional: true, nullable: true, source: effectWire(), note: "A human gate's decision (POD-6674): `null` while an approval waits for its person." },
+      deciders: { type: 'object', optional: true, source: effectWire(), note: 'Who a gated record is routed to (POD-6674); absent: its creator.' },
+      forViewer: { type: 'boolean', optional: true, source: effectWire('deciders'), note: 'Stamped at the row-source boundary: the viewer is one the record is routed to, its deciders or else its creator (POD-6674).' },
       createdBy: { type: 'id', nullable: true, source: effectWire() },
       createdAt: { type: 'isoDate', source: effectWire() },
       updatedAt: { type: 'isoDate', source: effectWire() },
       revision: { type: 'number', source: effectWire() },
       // Progress and outcome
-      effect: {
-        type: 'object',
-        source: effectWire(),
-        parts: {
-          status: {
-            type: 'enum',
-            source: { schema: 'EffectGroup' },
-            why: 'The standard effect status.',
-          },
-          stage: {
-            type: 'string',
-            optional: true,
-            source: { schema: 'EffectGroup' },
-            why: 'Kind-specific progress while running.',
-          },
-          error: {
-            type: 'object',
-            optional: true,
-            source: { schema: 'EffectGroup' },
-            why: 'Why it failed, for a person.',
-          },
-          deadline: {
-            type: 'isoDate',
-            optional: true,
-            source: { schema: 'EffectGroup' },
-            why: 'When it gives up.',
-          },
-        },
-      },
-      result: {
-        type: 'object',
-        optional: true,
-        source: effectWire(),
-        note: "The kind's small answer.",
-      },
+      effect: { type: 'object', source: effectWire(), parts: {
+        status: { type: 'enum', source: { schema: 'EffectGroup' }, why: 'The standard effect status.' },
+        stage: { type: 'string', optional: true, source: { schema: 'EffectGroup' }, why: 'Kind-specific progress while running.' },
+        error: { type: 'object', optional: true, source: { schema: 'EffectGroup' }, why: 'Why it failed, for a person.' },
+        deadline: { type: 'isoDate', optional: true, source: { schema: 'EffectGroup' }, why: 'When it gives up.' },
+      } },
+      result: { type: 'object', optional: true, source: effectWire(), note: "The kind's small answer." },
     },
     relations: {
       session: belongsTo({
@@ -1643,82 +1106,72 @@ const DECLARED = defineSchema({
         why: 'The issue an effect acts on (a start, a stop), for its `effects` collection.',
       }),
     },
-    cold: {
-      kind: 'never',
-      why: 'Effects are few and pruned after the retention window: always resident.',
-    },
   },
   /**
    * MY PINS, TAB ORDERS, PERSONAL SETTINGS AND READ POSITIONS (POD-6673): synced
    * per-user records, the owner's alone. Each is one row keyed by its feed id,
    * which the row source stamps as `id`.
    */
-  pin: perUser(
-    'PinWire',
-    'replica:pins',
-    'The record IS the pin: a session, issue, worktree or repo I pinned.',
-    {
-      userId: { type: 'id', note: 'Its owner: always the principal.' },
-      kind: { type: 'enum', note: '`panel` (a session), `issue`, `worktree` or `repo`.' },
-      entityId: { type: 'string', note: 'The pinned thing: a session or issue id, or a path.' },
-      pinnedAt: { type: 'isoDate', note: 'When; pinned things list in this order.' },
-    },
-  ),
+  pin: perUser('PinWire', 'replica:pins', 'The record IS the pin: a session, issue, worktree or repo I pinned.', {
+    userId: { type: 'id', note: 'Its owner: always the principal.' },
+    kind: { type: 'enum', note: '`panel` (a session), `issue`, `worktree` or `repo`.' },
+    entityId: { type: 'string', note: 'The pinned thing: a session or issue id, or a path.' },
+    pinnedAt: { type: 'isoDate', note: 'When; pinned things list in this order.' },
+  }),
   userLayout: perUser('LayoutWire', 'replica:userLayouts', 'One synced personal layout choice.', {
     userId: { type: 'id', note: 'Owner.' },
     key: { type: 'string', note: 'Layout key.' },
     value: { type: 'object', note: 'The user’s chosen value.' },
   }),
-  tabOrder: perUser(
-    'TabOrderWire',
-    'replica:tabOrders',
-    'My manual session order of one worktree.',
-    {
-      userId: { type: 'id', note: 'Its owner: always the principal.' },
-      entityId: { type: 'string', note: 'The worktree path.' },
-      sessionIds: { type: 'object', note: 'The order, whole: the last writer wins.' },
-    },
-  ),
+  tabOrder: perUser('TabOrderWire', 'replica:tabOrders', 'My manual session order of one worktree.', {
+    userId: { type: 'id', note: 'Its owner: always the principal.' },
+    entityId: { type: 'string', note: 'The worktree path.' },
+    sessionIds: { type: 'object', note: 'The order, whole: the last writer wins.' },
+  }),
   userPreferences: perUser(
     'PersonalPreferences',
     'replica:userPreferences',
     'My personal settings: one record, resolved with defaults by the row source from its flat leaf fields.',
     {
       userId: { type: 'id', note: 'Its owner: always the principal. Also the record id.' },
-      roles: {
-        type: 'object',
-        note: 'Agent and model choices per role (coding, superagent, background, shipwright).',
-      },
+      roles: { type: 'object', note: 'Agent and model choices per role (coding, superagent, background, shipwright).' },
       sidebar: { type: 'object', note: 'Repo sort, manual repo order, grouping.' },
-      autoContinue: {
-        type: 'object',
-        note: 'Retry-on-error, and whether its prompt was answered.',
-      },
-      notifications: {
-        type: 'object',
-        note: 'Where my notifications go (web, ntfy topic, Telegram chat).',
-      },
+      autoContinue: { type: 'object', note: 'Retry-on-error, and whether its prompt was answered.' },
+      notifications: { type: 'object', note: 'Where my notifications go (web, ntfy topic, Telegram chat).' },
       credentialDefaults: {
         type: 'object',
         note: 'Per harness, the credential a launch uses when it names none (credential management §9).',
       },
     },
   ),
-  userReadPosition: perUser(
-    'ReadPositionWire',
-    'replica:userReadPositions',
-    'How far I have read one event stream.',
-    {
-      userId: { type: 'id', note: 'Its owner: always the principal.' },
-      streamId: { type: 'enum', note: 'The stream (`issueEvents`).' },
-      lastEventId: { type: 'number', note: 'The last event read; only ever moves forward.' },
-      seenAt: { type: 'isoDate', nullable: true, note: 'When it was read.' },
-    },
-  ),
+  userReadPosition: perUser('ReadPositionWire', 'replica:userReadPositions', 'How far I have read one event stream.', {
+    userId: { type: 'id', note: 'Its owner: always the principal.' },
+    streamId: { type: 'enum', note: 'The stream (`issueEvents`).' },
+    lastEventId: { type: 'number', note: 'The last event read; only ever moves forward.' },
+    seenAt: { type: 'isoDate', nullable: true, note: 'When it was read.' },
+  }),
   /**
    * MY SUPERAGENT THREADS (POD-6675): synced per-user records, the owner's alone.
    * The open thread is UiStore state (POD-5797), not a field here.
    */
+  superagentThread: perUser('SuperagentThreadWire', 'replica:superagentThreads', 'One of my superagent threads: the global one, a session\'s btw thread or a repo\'s concierge.', {
+    threadId: { type: 'id', note: 'The thread id the superagent commands take (`global`, `btw_<session>`, …).' },
+    ownerUserId: { type: 'id', note: 'Its owner: always the principal.' },
+    kind: { type: 'enum', note: '`global`, `btw` or `concierge`.' },
+    originSessionId: { type: 'id', note: 'A btw thread\'s session; absent on the others.' },
+    repoPath: { type: 'string', note: 'A concierge thread\'s repo; absent on the others.' },
+    agentKind: { type: 'string', note: 'The harness the thread last ran.' },
+    podiumSessionId: { type: 'id', note: 'The headless session that renders the thread; absent until it has one.' },
+    title: { type: 'string', note: 'Its title (spec: my edit).' },
+    archived: { type: 'boolean', note: 'Archived (spec: my edit); the global thread never is.' },
+    model: { type: 'string', note: 'Its own model (spec); absent follows the superagent settings role.' },
+    effort: { type: 'string', note: 'Its own effort (spec); absent follows the role.' },
+    resumable: { type: 'boolean', note: 'The server holds a harness conversation, so it can open in a terminal.' },
+    turnRunning: { type: 'boolean', note: 'A turn is running (status, set at turn start and end).' },
+    lastTurnFailure: { type: 'object', nullable: true, note: 'The last turn failed (status); cleared when the next one starts.' },
+    createdAt: { type: 'isoDate', note: 'When it was made.' },
+    updatedAt: { type: 'isoDate', note: 'Its last conversation write; threads list newest first.' },
+  }),
   /**
    * MY OPEN NOTICES (POD-6881, spec §13): synced per-user records, the
    * recipient's alone. A resolved notice leaves the feed, so every row here
@@ -1750,51 +1203,6 @@ const DECLARED = defineSchema({
       readAt: { type: 'isoDate', note: 'When I read it; absent while unread.' },
     },
   ),
-  superagentThread: perUser(
-    'SuperagentThreadWire',
-    'replica:superagentThreads',
-    "One of my superagent threads: the global one, a session's btw thread or a repo's concierge.",
-    {
-      threadId: {
-        type: 'id',
-        note: 'The thread id the superagent commands take (`global`, `btw_<session>`, …).',
-      },
-      ownerUserId: { type: 'id', note: 'Its owner: always the principal.' },
-      kind: { type: 'enum', note: '`global`, `btw` or `concierge`.' },
-      originSessionId: { type: 'id', note: "A btw thread's session; absent on the others." },
-      repoPath: { type: 'string', note: "A concierge thread's repo; absent on the others." },
-      agentKind: { type: 'string', note: 'The harness the thread last ran.' },
-      podiumSessionId: {
-        type: 'id',
-        note: 'The headless session that renders the thread; absent until it has one.',
-      },
-      title: { type: 'string', note: 'Its title (spec: my edit).' },
-      archived: { type: 'boolean', note: 'Archived (spec: my edit); the global thread never is.' },
-      model: {
-        type: 'string',
-        note: 'Its own model (spec); absent follows the superagent settings role.',
-      },
-      effort: { type: 'string', note: 'Its own effort (spec); absent follows the role.' },
-      resumable: {
-        type: 'boolean',
-        note: 'The server holds a harness conversation, so it can open in a terminal.',
-      },
-      turnRunning: {
-        type: 'boolean',
-        note: 'A turn is running (status, set at turn start and end).',
-      },
-      lastTurnFailure: {
-        type: 'object',
-        nullable: true,
-        note: 'The last turn failed (status); cleared when the next one starts.',
-      },
-      createdAt: { type: 'isoDate', note: 'When it was made.' },
-      updatedAt: {
-        type: 'isoDate',
-        note: 'Its last conversation write; threads list newest first.',
-      },
-    },
-  ),
   /**
    * THE INSTANCE SETTINGS (POD-6677): one synced record, every member's, keyed
    * `INSTANCE_PREFERENCES_ROW_ID`. The row source resolves its flat leaf fields
@@ -1805,29 +1213,14 @@ const DECLARED = defineSchema({
     'replica:instancePreferences',
     'The instance settings: one record for the whole instance, admin-written, resolved with defaults.',
     {
-      hibernation: {
-        type: 'object',
-        note: 'When idle sessions are parked: memory, load and count ceilings.',
-      },
-      gitWorkflow: {
-        type: 'object',
-        note: 'Default parent branch, merge style, rebase before merge.',
-      },
+      hibernation: { type: 'object', note: 'When idle sessions are parked: memory, load and count ceilings.' },
+      gitWorkflow: { type: 'object', note: 'Default parent branch, merge style, rebase before merge.' },
       issues: { type: 'object', note: 'Whether the issue assistant runs.' },
       steward: { type: 'object', note: 'Whether the steward runs.' },
-      experimental: {
-        type: 'object',
-        note: 'The operator’s experimental feature toggles, by flag id.',
-      },
+      experimental: { type: 'object', note: 'The operator’s experimental feature toggles, by flag id.' },
       worktreeGc: { type: 'object', note: 'Clean-up of closed issues’ worktrees.' },
-      transcripts: {
-        type: 'object',
-        note: 'Whether the server keeps a copy of agent transcripts.',
-      },
-      deployment: {
-        type: 'object',
-        note: 'Deployment choices: update channel, open sign-up, telemetry.',
-      },
+      transcripts: { type: 'object', note: 'Whether the server keeps a copy of agent transcripts.' },
+      deployment: { type: 'object', note: 'Deployment choices: update channel, open sign-up, telemetry.' },
     },
   ),
   messageRecord: syncedIdentity('MessageRecordWire', 'replica:messageRecords'),
@@ -1842,249 +1235,56 @@ const DECLARED = defineSchema({
   workflowRevision: syncedIdentity('WorkflowRevisionWire', 'replica:workflowRevisions'),
   workflowBinding: syncedIdentity('WorkflowBindingWire', 'replica:workflowBindings'),
   workflowRun: syncedIdentity('WorkflowRunRecord', 'replica:workflowRuns'),
-  issuePanelTodo: {
-    key: 'id',
-    why: 'One durable panel record.',
-    components: {},
-    cold: { kind: 'never', why: 'Panel records remain available offline.' },
+  issuePanelTodo: { key: 'id', why: 'One durable panel record.', components: {},
     fields: {
-      id: {
-        type: 'id',
-        source: { schema: 'IssuePanelTodoWire', arrivesOn: 'replica:issuePanelTodos' },
-      },
-      issueId: {
-        type: 'id',
-        source: { schema: 'IssuePanelTodoWire', arrivesOn: 'replica:issuePanelTodos' },
-      },
-      position: {
-        type: 'number',
-        source: { schema: 'IssuePanelTodoWire', arrivesOn: 'replica:issuePanelTodos' },
-      },
-      text: {
-        type: 'string',
-        source: { schema: 'IssuePanelTodoWire', arrivesOn: 'replica:issuePanelTodos' },
-      },
-      done: {
-        type: 'boolean',
-        source: { schema: 'IssuePanelTodoWire', arrivesOn: 'replica:issuePanelTodos' },
-      },
-    },
-    relations: {
-      issue: belongsTo({
-        to: 'issue',
-        foreignKey: 'issueId',
-        targetKey: 'id',
-        inverse: 'panelTodoRecords',
-        lazy: true,
-        why: 'The parent issue.',
-      }),
-    },
-  },
-  issuePanelArtifact: {
-    key: 'id',
-    why: 'One durable panel record.',
-    components: {},
-    cold: { kind: 'never', why: 'Panel records remain available offline.' },
+      id: { type: 'id', source: { schema: 'IssuePanelTodoWire', arrivesOn: 'replica:issuePanelTodos' } },
+      issueId: { type: 'id', source: { schema: 'IssuePanelTodoWire', arrivesOn: 'replica:issuePanelTodos' } },
+      position: { type: 'number', source: { schema: 'IssuePanelTodoWire', arrivesOn: 'replica:issuePanelTodos' } },
+      text: { type: 'string', source: { schema: 'IssuePanelTodoWire', arrivesOn: 'replica:issuePanelTodos' } },
+      done: { type: 'boolean', source: { schema: 'IssuePanelTodoWire', arrivesOn: 'replica:issuePanelTodos' } },
+    }, relations: { issue: belongsTo({ to: 'issue', ...link('issuePanelTodo', 'issueId'), inverse: 'panelTodoRecords', lazy: true, why: 'The parent issue.' }) } },
+  issuePanelArtifact: { key: 'id', why: 'One durable panel record.', components: {},
     fields: {
-      id: {
-        type: 'id',
-        source: { schema: 'IssuePanelArtifactWire', arrivesOn: 'replica:issuePanelArtifacts' },
-      },
-      issueId: {
-        type: 'id',
-        source: { schema: 'IssuePanelArtifactWire', arrivesOn: 'replica:issuePanelArtifacts' },
-      },
-      position: {
-        type: 'number',
-        source: { schema: 'IssuePanelArtifactWire', arrivesOn: 'replica:issuePanelArtifacts' },
-      },
-      path: {
-        type: 'string',
-        source: { schema: 'IssuePanelArtifactWire', arrivesOn: 'replica:issuePanelArtifacts' },
-      },
-      title: {
-        type: 'string',
-        optional: true,
-        source: { schema: 'IssuePanelArtifactWire', arrivesOn: 'replica:issuePanelArtifacts' },
-      },
-      addedAt: {
-        type: 'isoDate',
-        source: { schema: 'IssuePanelArtifactWire', arrivesOn: 'replica:issuePanelArtifacts' },
-      },
-      artifactId: {
-        type: 'id',
-        optional: true,
-        source: { schema: 'IssuePanelArtifactWire', arrivesOn: 'replica:issuePanelArtifacts' },
-      },
-      entry: {
-        type: 'string',
-        optional: true,
-        source: { schema: 'IssuePanelArtifactWire', arrivesOn: 'replica:issuePanelArtifacts' },
-      },
-      files: {
-        type: 'object',
-        optional: true,
-        source: { schema: 'IssuePanelArtifactWire', arrivesOn: 'replica:issuePanelArtifacts' },
-      },
-      sourcePaths: {
-        type: 'object',
-        optional: true,
-        source: { schema: 'IssuePanelArtifactWire', arrivesOn: 'replica:issuePanelArtifacts' },
-      },
-      sourceKind: {
-        type: 'enum',
-        optional: true,
-        source: { schema: 'IssuePanelArtifactWire', arrivesOn: 'replica:issuePanelArtifacts' },
-      },
-      chatUploadId: {
-        type: 'string',
-        optional: true,
-        source: { schema: 'IssuePanelArtifactWire', arrivesOn: 'replica:issuePanelArtifacts' },
-      },
-      chatUploadOwner: {
-        type: 'id',
-        optional: true,
-        source: { schema: 'IssuePanelArtifactWire', arrivesOn: 'replica:issuePanelArtifacts' },
-      },
-      tracking: {
-        type: 'enum',
-        optional: true,
-        source: { schema: 'IssuePanelArtifactWire', arrivesOn: 'replica:issuePanelArtifacts' },
-      },
-      untrackedPaths: {
-        type: 'object',
-        optional: true,
-        source: { schema: 'IssuePanelArtifactWire', arrivesOn: 'replica:issuePanelArtifacts' },
-      },
-    },
-    relations: {
-      issue: belongsTo({
-        to: 'issue',
-        foreignKey: 'issueId',
-        targetKey: 'id',
-        inverse: 'panelArtifactRecords',
-        lazy: true,
-        why: 'The parent issue.',
-      }),
-    },
-  },
-  issuePanelDeferred: {
-    key: 'id',
-    why: 'One durable panel record.',
-    components: {},
-    cold: { kind: 'never', why: 'Panel records remain available offline.' },
+      id: { type: 'id', source: { schema: 'IssuePanelArtifactWire', arrivesOn: 'replica:issuePanelArtifacts' } },
+      issueId: { type: 'id', source: { schema: 'IssuePanelArtifactWire', arrivesOn: 'replica:issuePanelArtifacts' } },
+      position: { type: 'number', source: { schema: 'IssuePanelArtifactWire', arrivesOn: 'replica:issuePanelArtifacts' } },
+      path: { type: 'string', source: { schema: 'IssuePanelArtifactWire', arrivesOn: 'replica:issuePanelArtifacts' } },
+      title: { type: 'string', optional: true, source: { schema: 'IssuePanelArtifactWire', arrivesOn: 'replica:issuePanelArtifacts' } },
+      addedAt: { type: 'isoDate', source: { schema: 'IssuePanelArtifactWire', arrivesOn: 'replica:issuePanelArtifacts' } },
+      artifactId: { type: 'id', optional: true, source: { schema: 'IssuePanelArtifactWire', arrivesOn: 'replica:issuePanelArtifacts' } },
+      entry: { type: 'string', optional: true, source: { schema: 'IssuePanelArtifactWire', arrivesOn: 'replica:issuePanelArtifacts' } },
+      files: { type: 'object', optional: true, source: { schema: 'IssuePanelArtifactWire', arrivesOn: 'replica:issuePanelArtifacts' } },
+      sourcePaths: { type: 'object', optional: true, source: { schema: 'IssuePanelArtifactWire', arrivesOn: 'replica:issuePanelArtifacts' } },
+      sourceKind: { type: 'enum', optional: true, source: { schema: 'IssuePanelArtifactWire', arrivesOn: 'replica:issuePanelArtifacts' } },
+      chatUploadId: { type: 'string', optional: true, source: { schema: 'IssuePanelArtifactWire', arrivesOn: 'replica:issuePanelArtifacts' } },
+      chatUploadOwner: { type: 'id', optional: true, source: { schema: 'IssuePanelArtifactWire', arrivesOn: 'replica:issuePanelArtifacts' } },
+      tracking: { type: 'enum', optional: true, source: { schema: 'IssuePanelArtifactWire', arrivesOn: 'replica:issuePanelArtifacts' } },
+      untrackedPaths: { type: 'object', optional: true, source: { schema: 'IssuePanelArtifactWire', arrivesOn: 'replica:issuePanelArtifacts' } },
+    }, relations: { issue: belongsTo({ to: 'issue', ...link('issuePanelArtifact', 'issueId'), inverse: 'panelArtifactRecords', lazy: true, why: 'The parent issue.' }) } },
+  issuePanelDeferred: { key: 'id', why: 'One durable panel record.', components: {},
     fields: {
-      id: {
-        type: 'id',
-        source: { schema: 'IssuePanelDeferredWire', arrivesOn: 'replica:issuePanelDeferreds' },
-      },
-      issueId: {
-        type: 'id',
-        source: { schema: 'IssuePanelDeferredWire', arrivesOn: 'replica:issuePanelDeferreds' },
-      },
-      position: {
-        type: 'number',
-        source: { schema: 'IssuePanelDeferredWire', arrivesOn: 'replica:issuePanelDeferreds' },
-      },
-      text: {
-        type: 'string',
-        source: { schema: 'IssuePanelDeferredWire', arrivesOn: 'replica:issuePanelDeferreds' },
-      },
-      addedAt: {
-        type: 'isoDate',
-        source: { schema: 'IssuePanelDeferredWire', arrivesOn: 'replica:issuePanelDeferreds' },
-      },
-    },
-    relations: {
-      issue: belongsTo({
-        to: 'issue',
-        foreignKey: 'issueId',
-        targetKey: 'id',
-        inverse: 'panelDeferredRecords',
-        lazy: true,
-        why: 'The parent issue.',
-      }),
-    },
-  },
-  issuePanelState: {
-    key: 'id',
-    why: 'One durable panel record.',
-    components: {},
-    cold: { kind: 'never', why: 'Panel records remain available offline.' },
+      id: { type: 'id', source: { schema: 'IssuePanelDeferredWire', arrivesOn: 'replica:issuePanelDeferreds' } },
+      issueId: { type: 'id', source: { schema: 'IssuePanelDeferredWire', arrivesOn: 'replica:issuePanelDeferreds' } },
+      position: { type: 'number', source: { schema: 'IssuePanelDeferredWire', arrivesOn: 'replica:issuePanelDeferreds' } },
+      text: { type: 'string', source: { schema: 'IssuePanelDeferredWire', arrivesOn: 'replica:issuePanelDeferreds' } },
+      addedAt: { type: 'isoDate', source: { schema: 'IssuePanelDeferredWire', arrivesOn: 'replica:issuePanelDeferreds' } },
+    }, relations: { issue: belongsTo({ to: 'issue', ...link('issuePanelDeferred', 'issueId'), inverse: 'panelDeferredRecords', lazy: true, why: 'The parent issue.' }) } },
+  issuePanelState: { key: 'id', why: 'One durable panel record.', components: {},
     fields: {
-      id: {
-        type: 'id',
-        source: { schema: 'IssuePanelStateWire', arrivesOn: 'replica:issuePanelStates' },
-      },
-      text: {
-        type: 'string',
-        source: { schema: 'IssuePanelStateWire', arrivesOn: 'replica:issuePanelStates' },
-      },
-      updatedAt: {
-        type: 'isoDate',
-        source: { schema: 'IssuePanelStateWire', arrivesOn: 'replica:issuePanelStates' },
-      },
-    },
-    relations: {
-      issue: belongsTo({
-        to: 'issue',
-        foreignKey: 'id',
-        targetKey: 'id',
-        inverse: 'panelStateRecords',
-        lazy: true,
-        why: 'The parent issue.',
-      }),
-    },
-  },
-  issueBrief: {
-    key: 'id',
-    why: 'An issue brief, its own synced record (POD-6921).',
-    components: {},
-    cold: { kind: 'never', why: 'Body records load at start with everything else.' },
+      id: { type: 'id', source: { schema: 'IssuePanelStateWire', arrivesOn: 'replica:issuePanelStates' } },
+      text: { type: 'string', source: { schema: 'IssuePanelStateWire', arrivesOn: 'replica:issuePanelStates' } },
+      updatedAt: { type: 'isoDate', source: { schema: 'IssuePanelStateWire', arrivesOn: 'replica:issuePanelStates' } },
+    }, relations: { issue: belongsTo({ to: 'issue', ...link('issuePanelState', 'id'), inverse: 'panelStateRecords', lazy: true, why: 'The parent issue.' }) } },
+  issueBrief: { key: 'id', why: 'An issue brief, its own synced record (POD-6921).', components: {},
     fields: {
       id: { type: 'id', source: { schema: 'IssueBriefWire', arrivesOn: 'replica:issueBriefs' } },
-      text: {
-        type: 'string',
-        source: { schema: 'IssueBriefWire', arrivesOn: 'replica:issueBriefs' },
-      },
-    },
-    relations: {
-      issue: belongsTo({
-        to: 'issue',
-        foreignKey: 'id',
-        targetKey: 'id',
-        inverse: 'briefRecords',
-        lazy: true,
-        why: 'The parent issue.',
-      }),
-    },
-  },
-  issueDescription: {
-    key: 'id',
-    why: 'An issue description, its own synced record (POD-6921).',
-    components: {},
-    cold: { kind: 'never', why: 'Body records load at start with everything else.' },
+      text: { type: 'string', source: { schema: 'IssueBriefWire', arrivesOn: 'replica:issueBriefs' } },
+    }, relations: { issue: belongsTo({ to: 'issue', ...link('issueBrief', 'id'), inverse: 'briefRecords', lazy: true, why: 'The parent issue.' }) } },
+  issueDescription: { key: 'id', why: 'An issue description, its own synced record (POD-6921).', components: {},
     fields: {
-      id: {
-        type: 'id',
-        source: { schema: 'IssueDescriptionWire', arrivesOn: 'replica:issueDescriptions' },
-      },
-      text: {
-        type: 'string',
-        source: { schema: 'IssueDescriptionWire', arrivesOn: 'replica:issueDescriptions' },
-      },
-    },
-    relations: {
-      issue: belongsTo({
-        to: 'issue',
-        foreignKey: 'id',
-        targetKey: 'id',
-        inverse: 'descriptionRecords',
-        lazy: true,
-        why: 'The parent issue.',
-      }),
-    },
-  },
+      id: { type: 'id', source: { schema: 'IssueDescriptionWire', arrivesOn: 'replica:issueDescriptions' } },
+      text: { type: 'string', source: { schema: 'IssueDescriptionWire', arrivesOn: 'replica:issueDescriptions' } },
+    }, relations: { issue: belongsTo({ to: 'issue', ...link('issueDescription', 'id'), inverse: 'descriptionRecords', lazy: true, why: 'The parent issue.' }) } },
   subscription: syncedIdentity('SubscriptionWire', 'replica:subscriptions'),
 })
 
@@ -2103,215 +1303,17 @@ export type DeclaredSchema = typeof DECLARED
 // ---------------------------------------------------------------------------
 
 /**
- * A relation is lazy iff its TARGET entity can be non-resident.
- *
- * "Lazy" is about RESIDENCY, not about the cold predicate: a closed issue that
- * has been touched is resident, but its sessions need not be, so reading
- * `issue.sessions` can still require a load. Callers of a lazy relation must
- * handle the unhydrated state (audit §7: "type-level marking of unhydrated
- * relations"); callers of a non-lazy one never see it.
+ * A relation is lazy iff its TARGET entity can be absent from the device
+ * (`loadable`): reading `issue.sessions` of an issue whose sessions the
+ * device does not hold can still require a load. Callers of a lazy relation
+ * must handle the unhydrated state (audit §7: "type-level marking of
+ * unhydrated relations"); callers of a non-lazy one never see it.
  *
  * `schema.test.ts` recomputes every declared flag from this function, so a
  * hand-edited flag fails the test.
  */
 export function expectedLazy(schema: ModelSchema, relation: RelationSpec): boolean {
-  return schema[relation.to].cold.kind !== 'never'
-}
-
-/**
- * The pre-nesting presence bound in a cold issue's declared summary. Reuses
- * its compact own/finish deadlines and existing keeper indexes; no row read.
- * A placement-cold issue with a live descendant needs a load only while
- * this bound could still give it a row before nesting.
- */
-export function coldFlatUntil(
-  schema: ModelSchema,
-  entity: EntityName,
-  id: string,
-  summary: Readonly<Record<string, unknown>>,
-  bound: { readonly finish: number | null; readonly shownUntil: number },
-  ctx: ColdContext,
-): number {
-  const spec = schema[entity].cold
-  if (spec.kind !== 'unlessShown') return Number.NEGATIVE_INFINITY
-  let until = bound.shownUntil
-  for (const source of spec.keptBy) {
-    const key = keptByKey(schema, entity, { ...summary, [schema[entity].key]: id }, source)
-    if (key === null) continue
-    for (const keep of ctx.keeps(entity, source, key))
-      until = Math.max(until, keepDeadline(keep, bound.finish))
-  }
-  return until
-}
-
-/** A `members` source, resolved: the member entity and the `belongsTo` naming the owner. */
-interface MembersLink {
-  readonly source: MembersKeptBySpec
-  readonly member: EntityName
-  readonly link: BelongsToSpec
-}
-
-/** The `members` sources of `entity`'s `keptBy`, resolved (throws on a malformed one). */
-function membersLinks(schema: ModelSchema, entity: EntityName): MembersLink[] {
-  const spec = schema[entity].cold
-  if (spec.kind !== 'unlessShown') return []
-  const out: MembersLink[] = []
-  for (const source of spec.keptBy) {
-    if (source.kind !== 'members') continue
-    const relation = schema[entity].relations[source.relation]
-    if (relation?.kind !== 'hasMany') {
-      throw new Error(`[schema] ${entity}.cold.keptBy must name a hasMany (got ${relation?.kind})`)
-    }
-    const link = schema[relation.to].relations[relation.inverse]
-    if (link?.kind !== 'belongsTo') {
-      throw new Error(
-        `[schema] ${entity}.cold.keptBy's inverse must be a belongsTo (got ${link?.kind})`,
-      )
-    }
-    out.push({ source, member: relation.to, link })
-  }
-  return out
-}
-
-/**
- * A `lane` source of an `unlessShown` entity, resolved against the schema
- * (POD-4745). For the issue: `issue.worktree` → `worktree.sessions` (the
- * inverse of the `session.worktree` prefix), unowned by `session.issue`, and
- * the owners a member at a lane can keep are `worktree.issues`.
- */
-export interface LaneSource {
-  readonly owner: EntityName
-  readonly source: LaneKeptBySpec
-  /** The owner's `belongsTo` naming its lane (`issue.worktree`). */
-  readonly through: BelongsToSpec
-  /** The lane entity (`worktree`). */
-  readonly lane: EntityName
-  /** The lane's collection of owners, `through`'s inverse (`issues`). */
-  readonly owners: string
-  /** The lane's collection the members sit in (`sessions`). */
-  readonly relation: string
-  /** The member entity (`session`). */
-  readonly member: EntityName
-  /** The member's `prefix` relation name and spec (`session.worktree`). */
-  readonly prefixName: string
-  readonly prefix: PrefixSpec
-  /** The subset of `relation` whose members count (`issueless`), and its declaration. */
-  readonly subsetName: string
-  readonly subset: SubsetSpec
-}
-
-/** A `lane` source's resolution, or the reason it does not resolve. */
-function resolveLane(
-  schema: ModelSchema,
-  owner: EntityName,
-  source: LaneKeptBySpec,
-): LaneSource | string {
-  const through = schema[owner].relations[source.through]
-  if (through?.kind !== 'belongsTo') return `through "${source.through}" must name a belongsTo`
-  const lane = through.to
-  const relation = schema[lane].relations[source.relation]
-  if (relation?.kind !== 'hasMany') {
-    return `relation "${lane}.${source.relation}" must name a hasMany`
-  }
-  const prefix = schema[relation.to].relations[relation.inverse]
-  if (prefix?.kind !== 'prefix') {
-    return `"${lane}.${source.relation}"'s inverse must be a prefix (got ${prefix?.kind})`
-  }
-  const subset = relation.subsets?.[source.subset]
-  if (subset === undefined) {
-    return `subset "${source.subset}" is not declared on ${lane}.${source.relation}`
-  }
-  return {
-    owner,
-    source,
-    through,
-    lane,
-    owners: through.inverse,
-    relation: source.relation,
-    member: relation.to,
-    prefixName: relation.inverse,
-    prefix,
-    subsetName: source.subset,
-    subset,
-  }
-}
-
-function laneOf(schema: ModelSchema, owner: EntityName, source: LaneKeptBySpec): LaneSource {
-  const found = resolveLane(schema, owner, source)
-  if (typeof found === 'string') throw new Error(`[schema] ${owner}.cold.keptBy (lane): ${found}`)
-  return found
-}
-
-/** Every `lane` source in the schema, resolved (throws on a malformed one). */
-export function laneSources(schema: ModelSchema): readonly LaneSource[] {
-  const out: LaneSource[] = []
-  for (const owner of Object.keys(schema) as EntityName[]) {
-    const spec = schema[owner].cold
-    if (spec.kind !== 'unlessShown') continue
-    for (const source of spec.keptBy) {
-      if (source.kind === 'lane') out.push(laneOf(schema, owner, source))
-    }
-  }
-  return out
-}
-
-/** The entities whose rows can keep an `unlessShown` row of another entity resident. */
-export function keeperEntities(schema: ModelSchema): ReadonlySet<EntityName> {
-  const out = new Set<EntityName>()
-  for (const entity of Object.keys(schema) as EntityName[]) {
-    for (const found of membersLinks(schema, entity)) out.add(found.member)
-  }
-  for (const lane of laneSources(schema)) out.add(lane.member)
-  return out
-}
-
-/**
- * The row `row` of `entity` can keep resident through a `members` source,
- * and how long ({@link MembersKeptBySpec}): by the RAW foreign key of the
- * relation's inverse, with that relation's `where` applied (a headless
- * session keeps nothing), before any collapse; null when it names nothing.
- */
-export function keeperOf(
-  schema: ModelSchema,
-  entity: EntityName,
-  row: object,
-): {
-  readonly to: EntityName
-  readonly id: string
-  readonly source: MembersKeptBySpec
-  readonly keep: MemberKeep
-} | null {
-  const fields = row as Readonly<Record<string, unknown>>
-  for (const owner of Object.keys(schema) as EntityName[]) {
-    for (const found of membersLinks(schema, owner)) {
-      if (found.member !== entity) continue
-      if (found.link.where !== undefined && !found.link.where.test(fields)) return null
-      const key = fields[found.link.foreignKey]
-      if (typeof key !== 'string' || key.length === 0) return null
-      return { to: owner, id: key, source: found.source, keep: found.source.keep(fields) }
-    }
-  }
-  return null
-}
-
-/**
- * How long `row` of `lane.member` can keep, through `lane`, the owners of
- * whatever lane seats it (POD-4745): its keep while it passes the lane's
- * declared subset (POD-4758), else null. Which lane seats it (the prefix's
- * `where`, collapse, the union roots) is the relation's to say, not the
- * row's.
- */
-export function laneKeepOf(lane: LaneSource, row: object): MemberKeep | null {
-  const fields = row as Readonly<Record<string, unknown>>
-  return lane.subset.test(fields) ? lane.source.keep(fields) : null
-}
-
-/** `schema[entity].cold.finishOf(row)` for an `unlessShown` entity, else null. */
-export function coldFinishOf(schema: ModelSchema, entity: EntityName, row: object): number | null {
-  const spec = schema[entity].cold
-  return spec.kind === 'unlessShown'
-    ? spec.finishOf(row as Readonly<Record<string, unknown>>)
-    : null
+  return schema[relation.to].loadable !== undefined
 }
 
 /**
@@ -2335,114 +1337,6 @@ export function collapsedIds(
   }
   for (const group of groups.values()) for (const id of collapseLosers(rule, group)) out.add(id)
   return out
-}
-
-/**
- * A `lane` source over whole tables: lane key → the keeps of the unowned
- * members it seats, resolved from scratch exactly as the engines hold the
- * relation (collapsed twins out, the prefix's `where`, the longest root of
- * the union set: the lane table's keys plus every `alsoRoots` value).
- */
-function laneKeepsOver(
-  schema: ModelSchema,
-  lane: LaneSource,
-  tables: (entity: EntityName) => ReadonlyMap<string, unknown> | undefined,
-): Map<string, MemberKeep[]> {
-  const out = new Map<string, MemberKeep[]>()
-  const members = tables(lane.member)
-  if (members === undefined) return out
-  const roots = new Set<string>(tables(lane.prefix.to)?.keys() ?? [])
-  for (const root of extraRootsOf(lane.prefix, (entity) => tables(entity)?.values())) {
-    roots.add(root)
-  }
-  const collapsed = collapsedIds(schema[lane.member].collapse, members)
-  for (const [id, row] of members) {
-    if (collapsed.has(id)) continue
-    const fields = row as Readonly<Record<string, unknown>>
-    if (lane.prefix.where !== undefined && !lane.prefix.where.test(fields)) continue
-    const keep = laneKeepOf(lane, fields)
-    if (keep === null) continue
-    const path = fields[lane.prefix.sourceField]
-    if (typeof path !== 'string') continue
-    let at: string | null =
-      machinePathSeparator(path) === '\\' ? longestPrefixPath(path, roots) : null
-    for (const candidate of prefixCandidates(normalizeRootPath(path))) {
-      if (roots.has(candidate)) {
-        at = candidate
-        break
-      }
-    }
-    if (at === null) continue
-    const keeps = out.get(at)
-    if (keeps === undefined) out.set(at, [keep])
-    else keeps.push(keep)
-  }
-  return out
-}
-
-/**
- * The rule over whole row tables at `now`: `coldTarget` recurses by rule over
- * `tables`, `keeps` reads an index of every member row built once here, per
- * source. What a rebuild, a re-partition's staged slice and the gate's check
- * pass. A `lane` source resolves its lanes over the lane table too, so pass
- * every entity's table.
- */
-export function tableColdContext(
-  schema: ModelSchema,
-  tables: (entity: EntityName) => ReadonlyMap<string, unknown> | undefined,
-  now: number,
-): ColdContext {
-  const index = new Map<KeptBySpec, Map<string, MemberKeep[]>>()
-  for (const member of keeperEntities(schema)) {
-    for (const row of tables(member)?.values() ?? []) {
-      const keeper = keeperOf(schema, member, row as object)
-      if (keeper === null) continue
-      let byKey = index.get(keeper.source)
-      if (byKey === undefined) {
-        byKey = new Map()
-        index.set(keeper.source, byKey)
-      }
-      const keeps = byKey.get(keeper.id)
-      if (keeps === undefined) byKey.set(keeper.id, [keeper.keep])
-      else keeps.push(keeper.keep)
-    }
-  }
-  for (const lane of laneSources(schema)) {
-    index.set(lane.source, laneKeepsOver(schema, lane, tables))
-  }
-  const ctx: ColdContext = {
-    now,
-    summary: (entity, id) => {
-      const row = tables(entity)?.get(id) as Readonly<Record<string, unknown>> | undefined
-      const spec = schema[entity].cold
-      if (row === undefined || spec.kind !== 'unlessShown' || spec.canShow === undefined)
-        return undefined
-      return Object.fromEntries(spec.canShow.fields.map((field) => [field, row[field]]))
-    },
-    coldTarget: (to, id) => {
-      const row = tables(to)?.get(id)
-      return row !== undefined && coldByRule(schema, to, row as object, ctx)
-    },
-    keeps: (_entity, source, key) => index.get(source)?.get(key) ?? [],
-  }
-  return ctx
-}
-
-/**
- * {@link coldByRule} for the rows of whole tables at `now`, by entity and id
- * (false for an unknown row): what a test or a measurement partitions a
- * corpus with, instead of restating the rule.
- */
-export function tableColdRule(
-  schema: ModelSchema,
-  tables: (entity: EntityName) => ReadonlyMap<string, unknown> | undefined,
-  now: number,
-): (entity: EntityName, id: string) => boolean {
-  const ctx = tableColdContext(schema, tables, now)
-  return (entity, id) => {
-    const row = tables(entity)?.get(id)
-    return row !== undefined && coldByRule(schema, entity, row as object, ctx)
-  }
 }
 
 /** Every relation in the schema, with the entity and name it is declared under. */
@@ -2625,62 +1519,6 @@ export function validateStructure(schema: ModelSchema = SCHEMA): string[] {
       }
     }
 
-    if (entity.cold.kind === 'own' || entity.cold.kind === 'unlessShown') {
-      for (const field of entity.cold.dependsOn) {
-        if (!(field in entity.fields)) {
-          problems.push(`${from}.cold.dependsOn names undeclared field "${field}"`)
-        }
-      }
-    }
-    if (entity.cold.kind === 'unlessShown') {
-      if (entity.cold.canShow !== undefined) {
-        for (const field of entity.cold.canShow.fields) {
-          if (!(field in entity.fields))
-            problems.push(`${from}.cold.canShow names undeclared field "${field}"`)
-        }
-        const through = entity.relations[entity.cold.canShow.through]
-        if (through?.kind !== 'belongsTo' || through.to !== from) {
-          problems.push(`${from}.cold.canShow.through must name a self belongsTo`)
-        }
-      }
-      for (const source of entity.cold.keptBy) {
-        let member: EntityName
-        if (source.kind === 'members') {
-          const relation = entity.relations[source.relation]
-          const back =
-            relation === undefined ? undefined : schema[relation.to].relations[relation.inverse]
-          if (relation?.kind !== 'hasMany' || back?.kind !== 'belongsTo') {
-            problems.push(`${from}.cold.keptBy must name a hasMany whose inverse is a belongsTo`)
-            continue
-          }
-          member = relation.to
-        } else {
-          const lane = resolveLane(schema, from, source)
-          if (typeof lane === 'string') {
-            problems.push(`${from}.cold.keptBy (lane): ${lane}`)
-            continue
-          }
-          member = lane.member
-        }
-        for (const field of source.dependsOn) {
-          if (!(field in schema[member].fields)) {
-            problems.push(
-              `${from}.cold.keptBy.dependsOn names undeclared ${member} field "${field}"`,
-            )
-          }
-        }
-      }
-    }
-    if (entity.cold.kind === 'via' && !(entity.cold.relation in entity.relations)) {
-      problems.push(`${from}.cold.via names undeclared relation "${entity.cold.relation}"`)
-    }
-    if (entity.cold.kind === 'via') {
-      for (const field of entity.cold.unbound?.dependsOn ?? []) {
-        if (!(field in entity.fields))
-          problems.push(`${from}.cold.unbound.dependsOn names undeclared field "${field}"`)
-      }
-    }
-
     if (entity.collapse !== undefined) {
       for (const field of [...entity.collapse.fields, entity.collapse.recency]) {
         if (!(field in entity.fields)) {
@@ -2688,9 +1526,7 @@ export function validateStructure(schema: ModelSchema = SCHEMA): string[] {
         }
       }
       if (!entity.collapse.fields.includes(entity.collapse.recency)) {
-        problems.push(
-          `${from}.collapse.recency "${entity.collapse.recency}" is not among its fields`,
-        )
+        problems.push(`${from}.collapse.recency "${entity.collapse.recency}" is not among its fields`)
       }
     }
 
@@ -2719,22 +1555,18 @@ export function validateStructure(schema: ModelSchema = SCHEMA): string[] {
       // Kind duality: belongsTo↔hasMany, prefix↔hasMany, edge(out)↔edge(in).
       const dualOk =
         relation.kind === 'hasMany'
-          ? back.kind === 'belongsTo' ||
-            back.kind === 'prefix' ||
-            (back.kind === 'edge' && back.direction === 'out')
+          ? back.kind === 'belongsTo' || back.kind === 'prefix' || (back.kind === 'edge' && back.direction === 'out')
           : relation.kind === 'edge'
             ? back.kind === 'edge' && back.direction !== relation.direction
             : back.kind === 'hasMany'
       if (!dualOk) {
-        problems.push(
-          `${here}: kind "${relation.kind}" is not the dual of ${relation.to}.${relation.inverse} ("${back.kind}")`,
-        )
+        problems.push(`${here}: kind "${relation.kind}" is not the dual of ${relation.to}.${relation.inverse} ("${back.kind}")`)
       }
 
       const wantLazy = expectedLazy(schema, relation)
       if (relation.lazy !== wantLazy) {
         problems.push(
-          `${here}: lazy=${relation.lazy} contradicts Rule L (target "${relation.to}" cold.kind="${target.cold.kind}" ⇒ lazy=${wantLazy})`,
+          `${here}: lazy=${relation.lazy} contradicts Rule L (target "${relation.to}" loadable=${target.loadable !== undefined} ⇒ lazy=${wantLazy})`,
         )
       }
 
@@ -2756,9 +1588,7 @@ export function validateStructure(schema: ModelSchema = SCHEMA): string[] {
           }
           for (const field of spec.fields) {
             if (!(field in target.fields)) {
-              problems.push(
-                `${here}.subsets.${subset} names undeclared ${relation.to} field "${field}"`,
-              )
+              problems.push(`${here}.subsets.${subset} names undeclared ${relation.to} field "${field}"`)
             }
           }
         }
@@ -2766,26 +1596,18 @@ export function validateStructure(schema: ModelSchema = SCHEMA): string[] {
 
       if (relation.kind === 'belongsTo') {
         if (!(relation.foreignKey in entity.fields)) {
-          problems.push(
-            `${here}: foreignKey "${relation.foreignKey}" is not a declared field of ${from}`,
-          )
+          problems.push(`${here}: foreignKey "${relation.foreignKey}" is not a declared field of ${from}`)
         }
         if (!(relation.targetKey in target.fields)) {
-          problems.push(
-            `${here}: targetKey "${relation.targetKey}" is not a declared field of ${relation.to}`,
-          )
+          problems.push(`${here}: targetKey "${relation.targetKey}" is not a declared field of ${relation.to}`)
         }
       }
       if (relation.kind === 'prefix') {
         if (!(relation.sourceField in entity.fields)) {
-          problems.push(
-            `${here}: sourceField "${relation.sourceField}" is not a declared field of ${from}`,
-          )
+          problems.push(`${here}: sourceField "${relation.sourceField}" is not a declared field of ${from}`)
         }
         if (!(relation.targetKey in target.fields)) {
-          problems.push(
-            `${here}: targetKey "${relation.targetKey}" is not a declared field of ${relation.to}`,
-          )
+          problems.push(`${here}: targetKey "${relation.targetKey}" is not a declared field of ${relation.to}`)
         }
         for (const root of relation.alsoRoots ?? []) {
           const owner = schema[root.entity]
@@ -2803,31 +1625,20 @@ export function validateStructure(schema: ModelSchema = SCHEMA): string[] {
         const ownerName = relation.direction === 'out' ? from : relation.to
         const field = owner.fields[relation.edgeField]
         if (field === undefined) {
-          problems.push(
-            `${here}: edgeField "${relation.edgeField}" is not a declared field of ${ownerName}`,
-          )
+          problems.push(`${here}: edgeField "${relation.edgeField}" is not a declared field of ${ownerName}`)
         } else if (field.type !== 'depEdgeList') {
-          problems.push(
-            `${here}: edgeField "${ownerName}.${relation.edgeField}" is type "${field.type}", not an edge list`,
-          )
+          problems.push(`${here}: edgeField "${ownerName}.${relation.edgeField}" is type "${field.type}", not an edge list`)
         } else {
           for (const part of [relation.edgeIdKey, relation.edgeTypeKey]) {
             if (field.parts === undefined || !(part in field.parts)) {
-              problems.push(
-                `${here}: edge property "${part}" is not declared on ${ownerName}.${relation.edgeField}`,
-              )
+              problems.push(`${here}: edge property "${part}" is not declared on ${ownerName}.${relation.edgeField}`)
             }
           }
         }
         if (back.kind === 'edge' && back.edgeType !== relation.edgeType) {
-          problems.push(
-            `${here}: edgeType "${relation.edgeType}" disagrees with its inverse "${back.edgeType}"`,
-          )
+          problems.push(`${here}: edgeType "${relation.edgeType}" disagrees with its inverse "${back.edgeType}"`)
         }
-        if (
-          back.kind === 'edge' &&
-          (back.allTypes !== relation.allTypes || back.many !== relation.many)
-        ) {
+        if (back.kind === 'edge' && (back.allTypes !== relation.allTypes || back.many !== relation.many)) {
           problems.push(`${here}: edge matching/cardinality disagrees with its inverse`)
         }
       }
@@ -2839,8 +1650,7 @@ export function validateStructure(schema: ModelSchema = SCHEMA): string[] {
       // A `where` makes a different edge set over the same key: `issue.parent`
       // (archived and deleted children contribute no edge) and its where-less
       // twin `issue.treeParent` are two edges, a verbatim copy is one.
-      const filter =
-        relation.where === undefined ? '' : ` where(${relation.where.fields.join(',')})`
+      const filter = relation.where === undefined ? '' : ` where(${relation.where.fields.join(',')})`
       const signature =
         relation.kind === 'belongsTo'
           ? `belongsTo ${from}.${relation.foreignKey} -> ${relation.to}.${relation.targetKey}${filter}`
@@ -2862,9 +1672,7 @@ export function validateStructure(schema: ModelSchema = SCHEMA): string[] {
 
   for (const [pairKey, sides] of pairSides) {
     if (sides.length !== 2) {
-      problems.push(
-        `${pairKey}: declared ${sides.length} time(s) (${sides.join(', ')}), expected exactly 2 — one per side`,
-      )
+      problems.push(`${pairKey}: declared ${sides.length} time(s) (${sides.join(', ')}), expected exactly 2 — one per side`)
     }
   }
 

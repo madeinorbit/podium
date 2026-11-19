@@ -1,28 +1,36 @@
 /**
  * UserReadPositionRepository — per-user scoping, monotonicity and the closed
- * stream vocabulary (POD-1380), against real SQLite and the real migration.
+ * stream vocabulary (POD-1380), against the real migrated schema, on both engines.
  *
  * TWO PRINCIPALS IN EVERY SCOPING ASSERTION. One actor cannot distinguish
  * "keyed per user" from "there happened to be only one user", and for a read
  * cursor that difference is a privacy defect rather than a UX one.
  */
 
-import { asUserId, firstAdminMemberId, type UserId } from '@podium/model'
+import { asUserId, type UserId } from '@podium/model'
 import { fixtureWriteScope } from '@podium/sync/testing'
-import { beforeEach, describe, expect, it } from 'vitest'
-import { openMigratedTestDatabase } from '../test-support/migrated-database'
-import { stageASeam } from '../test-support/stage-a-seam'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { drainedRepository } from '../test-support/drained-repository'
+import { openSliceStore, type SliceStore } from '../test-support/pg-slice-tables'
 import { UserReadPositionRepository } from './user-read-position'
 
-const ALICE: UserId = firstAdminMemberId()
+// A person's id; these tables name no member row, and a Postgres clone seeds none.
+const ALICE: UserId = asUserId('user:alice')
 const BOB: UserId = asUserId('user:bob')
 const AT = '2026-08-02T09:00:00.000Z'
 
 let cursors: UserReadPositionRepository
 
-beforeEach(() => {
-  const db = openMigratedTestDatabase()
-  cursors = new UserReadPositionRepository(stageASeam(db))
+let slice: SliceStore
+
+// On the run's engine: SQLite on the store shard, Postgres on `server-store-pg` (POD-6983).
+beforeEach(async () => {
+  slice = await openSliceStore()
+  cursors = drainedRepository(slice, new UserReadPositionRepository(slice.queries))
+})
+
+afterEach(async () => {
+  await slice.close()
 })
 
 describe('UserReadPositionRepository', () => {

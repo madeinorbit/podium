@@ -21,7 +21,10 @@
  * Kinds backed by the same rows can share a read for one build or stream page.
  */
 
+import type { RecordBuilderShape } from '@podium/model'
 import type { MetadataEntityKind } from '@podium/protocol'
+
+export type { RecordBuilderShape } from '@podium/model'
 
 /** One record as the feed carries it: its row id and its whole wire value. */
 export interface BuiltRecord {
@@ -53,7 +56,7 @@ export interface RecordBuilderGroup<R> {
  *  - `windowed`: the feed carries only part of the table, and the rule for
  *    which part is a query (issue events, open interactions, messages).
  */
-export type RecordBuilderShape = 'row' | 'row-and-reads' | 'windowed'
+// The shape is declared with the shared record, rather than in each builder.
 
 export interface RecordBuilder<R> {
   readonly kind: MetadataEntityKind
@@ -71,6 +74,37 @@ export interface RecordBuilder<R> {
 export class DuplicateRecordBuilder extends Error {
   constructor(readonly kind: MetadataEntityKind) {
     super(`a record builder for kind ${kind} is already registered`)
+  }
+}
+
+/**
+ * The builders and the record declarations disagree (POD-7084): a declared
+ * kind no builder builds, or a builder for a kind nobody declared.
+ */
+export class UndeclaredRecordBuilders extends Error {
+  constructor(
+    readonly unbuilt: readonly string[],
+    readonly undeclared: readonly string[],
+  ) {
+    super(
+      `record builders and declarations disagree: ${[
+        ...unbuilt.map((kind) => `${kind} is declared but has no builder`),
+        ...undeclared.map((kind) => `${kind} has a builder but no declaration`),
+      ].join('; ')}`,
+    )
+  }
+}
+
+/** The kinds declared but not built, and built but not declared. */
+export function declarationMismatch(
+  built: readonly string[],
+  declared: readonly string[],
+): { readonly unbuilt: string[]; readonly undeclared: string[] } {
+  const builtSet = new Set(built)
+  const declaredSet = new Set(declared)
+  return {
+    unbuilt: declared.filter((kind) => !builtSet.has(kind)),
+    undeclared: built.filter((kind) => !declaredSet.has(kind)),
   }
 }
 
@@ -96,9 +130,15 @@ export class RecordBuilderRegistry<R> {
   private readonly byKind = new Map<MetadataEntityKind, RecordBuilder<R>>()
   private readonly groupsByKind = new Map<MetadataEntityKind, RecordBuilderGroup<R>>()
 
+  /**
+   * `declared`: the record kinds the builders register against (the record
+   * declarations' kinds); a declared kind without a builder, or a builder for
+   * an undeclared kind, is refused.
+   */
   constructor(
     builders: readonly RecordBuilder<R>[] = [],
     groups: readonly RecordBuilderGroup<R>[] = [],
+    declared?: readonly string[],
   ) {
     for (const builder of builders) this.register(builder)
     for (const group of groups) {
@@ -107,6 +147,11 @@ export class RecordBuilderRegistry<R> {
         if (this.groupsByKind.has(kind)) throw new DuplicateRecordBuilder(kind)
         this.groupsByKind.set(kind, group)
       }
+    }
+    if (declared !== undefined) {
+      const { unbuilt, undeclared } = declarationMismatch(this.kinds(), declared)
+      if (unbuilt.length > 0 || undeclared.length > 0)
+        throw new UndeclaredRecordBuilders(unbuilt, undeclared)
     }
   }
 
@@ -203,4 +248,61 @@ export async function collectRecords(
   const out: BuiltRecord[] = []
   for await (const page of stream) out.push(...page)
   return out
+}
+
+/**
+ * A row reader owns SQL and decoding; it returns the same domain rows its
+ * repository's other readers use. Record identity and builder mechanics come
+ * from the shared declaration, never from a second per-kind builder.
+ */
+export interface RowRecordReader<R, Row> {
+  byIds(reads: R, ids: readonly string[]): Promise<Iterable<Row>>
+  all(reads: R): Promise<Iterable<Row>> | AsyncIterable<readonly Row[]>
+}
+
+export function generatedRowBuilder<R, Row, Value>(
+  declaration: {
+    readonly kind: MetadataEntityKind
+    readonly builderShape: RecordBuilderShape
+    readonly rowKey: (value: Value) => string
+  },
+  reader: RowRecordReader<R, Row>,
+  projectRow: (row: Row, reads: R) => Value | undefined,
+  options: { readonly invalid?: 'omit'; readonly skipEmptyPages?: boolean } = {},
+): { readonly builder: RecordBuilder<R>; record(row: Row, reads: R): BuiltRecord | undefined } {
+  if (declaration.builderShape !== 'row')
+    throw new Error(`${declaration.kind}: only row declarations have generated builders`)
+  const record = (row: Row, reads: R): BuiltRecord | undefined => {
+    try {
+      const value = projectRow(row, reads)
+      return value === undefined ? undefined : { id: declaration.rowKey(value), value }
+    } catch (error) {
+      if (options.invalid === 'omit') return undefined
+      throw error
+    }
+  }
+  const records = (rows: Iterable<Row>, reads: R): BuiltRecord[] =>
+    [...rows].flatMap((row) => {
+      const built = record(row, reads)
+      return built === undefined ? [] : [built]
+    })
+  return {
+    record,
+    builder: {
+      kind: declaration.kind,
+      shape: declaration.builderShape,
+      build: async (reads, ids) => records(await reader.byIds(reads, ids), reads),
+      async *streamAll(reads) {
+        const all = reader.all(reads)
+        if (Symbol.asyncIterator in all) {
+          for await (const rows of all) {
+            const page = records(rows, reads)
+            if (page.length > 0 || !options.skipEmptyPages) yield page
+          }
+        } else {
+          yield* pagesOf(records(await all, reads))
+        }
+      },
+    },
+  }
 }

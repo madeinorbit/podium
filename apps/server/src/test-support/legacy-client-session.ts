@@ -19,6 +19,7 @@ export async function seedLegacyClientSession(
   const database = store.identityDatabase()
   if (database.dialect !== 'sqlite') throw new Error('Expected a server database')
   await database.db.insert(clientSessions).values({
+    workspaceId: store.workspaceId,
     tokenHash,
     userId,
     createdAt: '2026-01-01T00:00:00.000Z',

@@ -1,3 +1,4 @@
+// workspace-scoped (POD-6959)
 /**
  * THE D11 CHOICES AND THEIR COPIES (POD-6301; multi-user design §2.5, §4.6).
  *
@@ -9,10 +10,14 @@
  */
 
 import type { MachineId, UserId } from '@podium/model'
-import { and, asc, eq, sql } from 'drizzle-orm'
-import { nativeLoginOptIns, nativeLoginTransfers } from '../migrations/schema'
-import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
-import { param, prepared } from './executor/sync-drizzle'
+import { asc, eq, sql } from 'drizzle-orm'
+import type {
+  StoreTables,
+  TransactionRunner,
+  WorkspaceDb,
+  WorkspaceQueries,
+} from './executor/sync-drizzle'
+import { inWorkspace, param, prepared, WORKSPACE } from './executor/sync-drizzle'
 
 /**
  * A member's D11 choice for one native login (POD-6301): copy and use it on
@@ -36,45 +41,47 @@ export interface NativeLoginTransferRecord {
   at: string
 }
 
-const optInOwnerIs = () =>
-  eq(nativeLoginOptIns.ownerUserId, param(nativeLoginOptIns.ownerUserId, 'owner'))
+const optInOwnerIs = (t: StoreTables) =>
+  eq(t.nativeLoginOptIns.ownerUserId, param(t.nativeLoginOptIns.ownerUserId, 'owner'))
 
-const optInColumns = {
-  harness: nativeLoginOptIns.harness,
-  fingerprint: nativeLoginOptIns.fingerprint,
-  enabled: nativeLoginOptIns.enabled,
-  revision: nativeLoginOptIns.revision,
-}
+const optInColumns = (t: StoreTables) => ({
+  harness: t.nativeLoginOptIns.harness,
+  fingerprint: t.nativeLoginOptIns.fingerprint,
+  enabled: t.nativeLoginOptIns.enabled,
+  revision: t.nativeLoginOptIns.revision,
+})
 
-const optInsOfOwner = prepared((db: StoreDrizzle) =>
+const optInsOfOwner = prepared((db, t) =>
   db
-    .select(optInColumns)
-    .from(nativeLoginOptIns)
-    .where(optInOwnerIs())
+    .select(optInColumns(t))
+    .from(t.nativeLoginOptIns)
+    .where(inWorkspace(t.nativeLoginOptIns, optInOwnerIs(t)))
     // The primary key's order after `owner_user_id`: no sort.
-    .orderBy(asc(nativeLoginOptIns.harness), asc(nativeLoginOptIns.fingerprint))
+    .orderBy(asc(t.nativeLoginOptIns.harness), asc(t.nativeLoginOptIns.fingerprint))
     .prepare(),
 )
 
-const optInOf = prepared((db: StoreDrizzle) =>
+const optInOf = prepared((db, t) =>
   db
-    .select(optInColumns)
-    .from(nativeLoginOptIns)
+    .select(optInColumns(t))
+    .from(t.nativeLoginOptIns)
     .where(
-      and(
-        optInOwnerIs(),
-        eq(nativeLoginOptIns.harness, param(nativeLoginOptIns.harness, 'harness')),
-        eq(nativeLoginOptIns.fingerprint, param(nativeLoginOptIns.fingerprint, 'fingerprint')),
+      inWorkspace(
+        t.nativeLoginOptIns,
+        optInOwnerIs(t),
+        eq(t.nativeLoginOptIns.harness, param(t.nativeLoginOptIns.harness, 'harness')),
+        eq(t.nativeLoginOptIns.fingerprint, param(t.nativeLoginOptIns.fingerprint, 'fingerprint')),
       ),
     )
     .prepare(),
 )
 
 /** Every change bumps the revision, so a transfer can tell it went stale. */
-const upsertOptIn = prepared((db: StoreDrizzle) =>
+const upsertOptIn = prepared((db, t) =>
   db
-    .insert(nativeLoginOptIns)
+    .insert(t.nativeLoginOptIns)
     .values({
+      workspaceId: WORKSPACE,
       ownerUserId: sql.placeholder('owner'),
       harness: sql.placeholder('harness'),
       fingerprint: sql.placeholder('fingerprint'),
@@ -84,43 +91,50 @@ const upsertOptIn = prepared((db: StoreDrizzle) =>
     })
     .onConflictDoUpdate({
       target: [
-        nativeLoginOptIns.ownerUserId,
-        nativeLoginOptIns.harness,
-        nativeLoginOptIns.fingerprint,
+        t.nativeLoginOptIns.workspaceId,
+        t.nativeLoginOptIns.ownerUserId,
+        t.nativeLoginOptIns.harness,
+        t.nativeLoginOptIns.fingerprint,
       ],
       set: {
         enabled: sql.placeholder('enabled'),
-        revision: sql`${nativeLoginOptIns.revision} + 1`,
+        revision: sql`${t.nativeLoginOptIns.revision} + 1`,
         updatedAt: sql.placeholder('at'),
       },
     })
     .prepare(),
 )
 
-const transfersOfOwner = prepared((db: StoreDrizzle) =>
+const transfersOfOwner = prepared((db, t) =>
   db
     .select({
-      harness: nativeLoginTransfers.harness,
-      fingerprint: nativeLoginTransfers.fingerprint,
-      machineId: nativeLoginTransfers.machineId,
-      outcome: nativeLoginTransfers.outcome,
-      at: nativeLoginTransfers.at,
+      harness: t.nativeLoginTransfers.harness,
+      fingerprint: t.nativeLoginTransfers.fingerprint,
+      machineId: t.nativeLoginTransfers.machineId,
+      outcome: t.nativeLoginTransfers.outcome,
+      at: t.nativeLoginTransfers.at,
     })
-    .from(nativeLoginTransfers)
-    .where(eq(nativeLoginTransfers.ownerUserId, param(nativeLoginTransfers.ownerUserId, 'owner')))
+    .from(t.nativeLoginTransfers)
+    .where(
+      inWorkspace(
+        t.nativeLoginTransfers,
+        eq(t.nativeLoginTransfers.ownerUserId, param(t.nativeLoginTransfers.ownerUserId, 'owner')),
+      ),
+    )
     // The primary key's order after `owner_user_id`: no sort.
     .orderBy(
-      asc(nativeLoginTransfers.harness),
-      asc(nativeLoginTransfers.fingerprint),
-      asc(nativeLoginTransfers.machineId),
+      asc(t.nativeLoginTransfers.harness),
+      asc(t.nativeLoginTransfers.fingerprint),
+      asc(t.nativeLoginTransfers.machineId),
     )
     .prepare(),
 )
 
-const upsertTransfer = prepared((db: StoreDrizzle) =>
+const upsertTransfer = prepared((db, t) =>
   db
-    .insert(nativeLoginTransfers)
+    .insert(t.nativeLoginTransfers)
     .values({
+      workspaceId: WORKSPACE,
       ownerUserId: sql.placeholder('owner'),
       harness: sql.placeholder('harness'),
       fingerprint: sql.placeholder('fingerprint'),
@@ -131,10 +145,11 @@ const upsertTransfer = prepared((db: StoreDrizzle) =>
     })
     .onConflictDoUpdate({
       target: [
-        nativeLoginTransfers.ownerUserId,
-        nativeLoginTransfers.harness,
-        nativeLoginTransfers.fingerprint,
-        nativeLoginTransfers.machineId,
+        t.nativeLoginTransfers.workspaceId,
+        t.nativeLoginTransfers.ownerUserId,
+        t.nativeLoginTransfers.harness,
+        t.nativeLoginTransfers.fingerprint,
+        t.nativeLoginTransfers.machineId,
       ],
       set: {
         outcome: sql.placeholder('outcome'),
@@ -147,17 +162,18 @@ const upsertTransfer = prepared((db: StoreDrizzle) =>
 
 /** One member's D11 choices and the copies made under them. */
 export class NativeLoginsRepository {
-  private readonly rootDb: StoreDrizzle
+  private readonly scope: WorkspaceDb
   protected readonly createOrJoinTransaction: TransactionRunner
 
-  constructor(queries: StoreQueries) {
-    this.rootDb = queries.rootDb
+  /** One workspace's queries: its members' choices are that workspace's (POD-6959). */
+  constructor(queries: WorkspaceQueries) {
+    this.scope = queries.db
     this.createOrJoinTransaction = queries.createOrJoinTransaction
   }
 
   /** The query builder, resolved on every access [POD-3221 spec rule 34a]. */
-  protected get db() {
-    return this.rootDb
+  protected get db(): WorkspaceDb {
+    return this.scope
   }
 
   /** Every D11 choice the owner made, ticked or not. Nobody else's. */

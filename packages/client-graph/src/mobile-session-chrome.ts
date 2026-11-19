@@ -8,7 +8,7 @@ export function mobileSessionChromeIssue(
   id: string | undefined,
 ): Loaded<IssueModel> {
   if (id === undefined) return undefined
-  const row = omitGone(pool.row('issue', id, 'summary-fields')) as Loaded<{ deletedAt?: string | null }>
+  const row = omitGone(pool.row('issue', id)) as Loaded<{ deletedAt?: string | null }>
   if (!row || row === LOADING || row.deletedAt) return row === LOADING ? LOADING : undefined
   return here(pool.model('issue', id))
 }

@@ -1,6 +1,8 @@
 import { companion, lazy } from '@podium/mobx-helpers'
 import { action, compareShallow, compareStructural, observable, observableRef } from 'mobx'
+import { ISSUE_SEARCH_PAGE, issueSearch } from '../issue-search'
 import type { MobxPool } from '../pool'
+import { isFinished } from '../shared/predicates'
 import { compareRank } from '../shared/row-view'
 import { type GroupNode, repoLabelOf, worklistGroups } from './groups'
 import type { MobileWorkRef } from './mobile'
@@ -65,8 +67,15 @@ export class PhoneWorkFilters {
 
 /** The phone draws the desktop's sections and borrows its screen's filters. */
 export class PhoneWorklist {
+  @lazy get refreshing(): boolean {
+    return (
+      this.worklist.desktop.refreshing || (Boolean(this.needle) && this.searchResults.refreshing)
+    )
+  }
+
   @observableRef accessor filters = new PhoneWorkFilters()
   readonly pinned = new PhoneWorkSection('pinned', this)
+  readonly searchSection = new PhoneWorkSection('search-results', this)
   private readonly projectSection = companion(
     (group: GroupNode) => new PhoneWorkSection(group.key, this),
   )
@@ -94,9 +103,11 @@ export class PhoneWorklist {
   }
 
   section(key: string): PhoneWorkSection {
-    return key === 'pinned'
-      ? this.pinned
-      : this.projectSection(worklistGroups(this.worklist.pool).group(key))
+    return key === 'search-results'
+      ? this.searchSection
+      : key === 'pinned'
+        ? this.pinned
+        : this.projectSection(worklistGroups(this.worklist.pool).group(key))
   }
 
   recentClosure(id: string): boolean {
@@ -135,6 +146,7 @@ export class PhoneWorklist {
       // Registered empty projects remain visible in unfiltered Open, like desktop.
       if ((!this.needle && this.lane === 'open') || section.ids.length > 0) sections.push(section)
     }
+    if (this.needle && this.searchSection.ids.length > 0) sections.push(this.searchSection)
     return sections
   }
 
@@ -145,7 +157,68 @@ export class PhoneWorklist {
   matches(id: string): boolean {
     if (!this.needle) return true
     const row = this.worklist.knownRow(id)
-    return row?.ready === 'ready' && row.searchText.includes(this.needle)
+    return (
+      row?.ready === 'ready' && (row.searchText.includes(this.needle) || this.searchIds.has(id))
+    )
+  }
+
+  @lazy get searchResults() {
+    const pool = this.worklist.pool
+    return issueSearch(pool).read(
+      this.needle,
+      this.needle ? pool.queries.localTextIds(this.needle) : [],
+      undefined,
+      this.searchWant.needle === this.needle ? this.searchWant.count : ISSUE_SEARCH_PAGE,
+    )
+  }
+  /** Server hits the search asks for (POD-7108): a page more each time the
+   * list scrolls to its end, back to one page for a new search. */
+  @observable private accessor searchWant = { needle: '', count: ISSUE_SEARCH_PAGE }
+  /** The server holds more hits than the list has. */
+  @lazy get searchMore(): boolean {
+    return Boolean(this.needle) && this.searchResults.more
+  }
+  @action moreSearch(): void {
+    if (!this.searchMore) return
+    const count = this.searchWant.needle === this.needle ? this.searchWant.count : ISSUE_SEARCH_PAGE
+    this.searchWant = { needle: this.needle, count: count + ISSUE_SEARCH_PAGE }
+  }
+  @lazy get searchIds(): ReadonlySet<string> {
+    return new Set(this.searchResults.ids)
+  }
+  /** Search may find old work outside the sidebar's retained lanes. Keep its
+   * IDs in a final section; its rows still use the shared issue models. */
+  @lazy get additionalHits(): Readonly<Record<PhoneWorkLane, readonly string[]>> {
+    const hits: Record<PhoneWorkLane, string[]> = { open: [], snoozed: [], closed: [] }
+    if (!this.needle) return hits
+    const desktop = this.worklist.sections()
+    const present = new Set([
+      ...this.pinnedLanes.open,
+      ...this.pinnedLanes.snoozed,
+      ...this.pinnedLanes.closed,
+      ...desktop.bands.flatMap((band) => [
+        ...band.rowIds,
+        ...band.snoozedIds,
+        ...band.closedIds.filter((id) => this.recentClosure(id)),
+      ]),
+    ])
+    for (const id of this.searchResults.ids) {
+      if (present.has(id)) continue
+      const scope = this.worklist.pool.queries.issueScope(id)
+      if (!scope || scope.archived || scope.deleted || scope.draft) continue
+      const row = this.worklist.knownRow(id)
+      if (
+        !row ||
+        row.ready !== 'ready' ||
+        row.issue.deletedAt ||
+        row.issue.archived ||
+        row.issue.isDraftVessel
+      )
+        continue
+      const lane = isFinished(row.issue) ? 'closed' : row.issue.deferred ? 'snoozed' : 'open'
+      hits[lane].push(id)
+    }
+    return hits
   }
 
   @lazy get counts(): Readonly<Record<PhoneWorkLane, number>> {
@@ -178,6 +251,8 @@ export class PhoneWorklist {
       hits.snoozed += count(band.snoozedIds)
       hits.closed += count(band.closedIds.filter((id) => this.recentClosure(id)))
     }
+    for (const lane of ['open', 'snoozed', 'closed'] as const)
+      hits[lane] += this.additionalHits[lane].length
     hits[this.lane] = 0
     return hits
   }
@@ -201,6 +276,7 @@ export class PhoneWorkSection {
     return this.key === 'pinned'
   }
   get label() {
+    if (this.key === 'search-results') return 'Search results'
     if (this.pinned) return 'Pinned'
     if (this.band) return this.band.label
     const first = this.allIds[0]
@@ -210,6 +286,7 @@ export class PhoneWorkSection {
     return this.pinned ? 'podium:sidebar:pinned-fold' : `podium:sidebar:project-fold:${this.key}`
   }
   @lazy({ equals: compareShallow }) get allIds(): readonly string[] {
+    if (this.key === 'search-results') return this.phone.additionalHits[this.phone.lane]
     if (this.pinned) return this.phone.lane === 'open' ? this.phone.pinnedLanes.open : EMPTY_IDS
     const band = this.band
     const base = !band

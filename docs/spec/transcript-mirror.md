@@ -17,17 +17,55 @@ history, and P5's FTS index has nothing server-side to index.
 
 ## 2. Design
 
-### 2.1 The lake (server filesystem)
+### 2.1 The lake (parted, on the blob store)
 
-- The current incarnation lives at
-  `$PODIUM_STATE_DIR/transcripts/<machineId>/<nativeId>.jsonl`. When a provider
-  reuses the same native id for a different file identity, the completed copy is
-  moved to `<nativeId>.incarnation-<sequence>.jsonl` and the canonical path begins
-  the replacement incarnation. `conversation_segment_incarnations` preserves
-  the ordered device/inode history while `conversation_segments` remains the
-  current native-id projection.
-- Files are **byte-verbatim** copies (append-only mirror of an append-only
+Amended 2026-11-17 (POD-6963 design 2.3): one parted lake on every backend.
+
+- The lake lives on the workspace's blob store (`packages/blob-store`), not at
+  file paths. On a self-hosted install that is the local adapter, so the bytes
+  sit under `$PODIUM_STATE_DIR/transcripts/`; on hosted object storage they sit
+  under `<workspaceId>/transcripts/`. The code is the same `PartedLake`
+  (`packages/sync/src/lake-parted.ts`); the adapter is the only difference.
+- **Parts.** Each incarnation of a segment is stored as fixed-size parts of
+  P = 1 MiB: part `n` holds bytes `[n·P, (n+1)·P)` under
+  `transcripts/<machineId>/<nativeId>/<incarnation>/<part>`. The incarnation and
+  the part number are zero-padded to 8 digits; an id outside the key alphabet is
+  encoded as `~` + lower-case base32. No table lists parts: the cursor says how
+  many bytes, and so how many parts, exist.
+- **Incarnations.** The incarnation is the active
+  `conversation_segment_incarnations` row's `sequence`, or 1 for a segment
+  mirrored before file identities existed; adopting such a segment creates
+  sequence 1 for exactly those bytes, so no key changes. When a provider reuses
+  the same native id for a different file identity, nothing moves: the
+  predecessor's parts already sit under their own sequence. The rotation retires
+  the row with its readable byte count and starts the next sequence at a clean
+  cursor. `conversation_segments` remains the current native-id projection.
+- **Writes.** Only the open last part is rewritten as the segment grows. A write
+  reads the open part's kept prefix with its etag, appends, and puts the part
+  with `ifMatch` that etag (`ifAbsent` for a new part); a write that crosses a
+  part boundary completes that part and starts the next. A put is durable (on
+  local disk: file and directory fsync) when it completes a part or replaces
+  bytes past its own offset; every other put only extends the part's own prefix
+  and is not synced, as appends never were.
+- **Size.** The stored size is `openPart · P + size(openPart)`, where the open
+  part is the one the cursor points into. Readers see `min(cursor, stored
+  size)` through a byte source whose id is
+  `<workspaceId>/transcripts/<machineId>/<nativeId>/<incarnation>` and whose
+  version is the cursor plus the open part's etag.
+- **Shrink.** A rewrite deletes every part of the active incarnation, lowest
+  first and durably, before the cursor resets to zero. A stored size reads as
+  zero while part 0 is missing, so a crash midway through the delete re-pulls
+  from zero.
+- Parts are **byte-verbatim** copies (append-only mirror of an append-only
   source). No parsing, no re-encoding — fidelity is the point (arch §6.1).
+- **Fleet fence.** Two processes may mirror the same segment while a daemon's
+  connection moves. Part writes are conditional (above), the cursor advance is a
+  compare-and-set (`mirrored_bytes = :new WHERE mirrored_bytes = :old`), and a
+  rotation retires only the incarnation the writer observed. A writer that loses
+  any of the three re-reads the cursor and starts the segment over.
+- Existing self-hosted lakes of whole files (`<machineId>/<nativeId>.jsonl` and
+  `<nativeId>.incarnation-<sequence>.jsonl`) are split into parts by a one-time
+  upgrade step (POD-6963 design 2.3.1).
 
 ### 2.2 Mirror state (columns on `conversation_segments`, additive)
 
@@ -55,15 +93,18 @@ daemon → server: transcriptMirrorResult {
   discovery evidence, not sessions.)
 - **Server-side pull loop** (`MirrorService`): per-machine serial queue (one
   in-flight read per machine — transcripts are cold data; never compete with the
-  PTY path), 256 KB chunks, repeat until `eof`. Appends bytes to the lake file,
-  then advances `mirrored_bytes` (file write BEFORE cursor advance — a crash
-  re-pulls a chunk, appends are idempotent by offset since we write at the cursor).
+  PTY path), 256 KB chunks, repeat until `eof`. Writes the bytes into the lake at
+  the cursor, then advances `mirrored_bytes` by compare-and-set (lake write BEFORE
+  cursor advance — a crash re-pulls a chunk, writes are idempotent by offset since
+  we write at the cursor). A lake that holds fewer bytes than the cursor (wiped,
+  partially restored, or a lost unsynced rewrite) moves the cursor back to what is
+  stored before the next pull; the re-pull is byte-identical.
 - **Replacement vs rewrite detection**: a changed device/inode for the same
-  native id retires the old lake copy as an immutable predecessor and re-mirrors
-  the replacement from 0. Only `fileSize < mirrored_bytes` on the *same* file
-  identity is an in-place rewrite that invalidates and truncates one segment.
-  Transcript reads pass the retired files and current file to the transcript
-  reader as one ordered file chain.
+  native id retires the old incarnation as an immutable predecessor and re-mirrors
+  the replacement from 0 under the next sequence. Only `fileSize < mirrored_bytes`
+  on the *same* file identity is an in-place rewrite that invalidates and deletes
+  one incarnation's parts. Transcript reads pass the retired incarnations and the
+  current one to the transcript reader as one ordered chain of byte sources.
 - **Triggers**: after `indexConversations` (a scan reported new/changed
   conversations — enqueue every segment whose evidence path is known), and a
   low-frequency sweep on daemon attach (catch-up after server downtime). Dedup:
@@ -128,10 +169,11 @@ that reports a file path.
 
 ## 3. Invariants
 
-1. Lake files are byte-identical prefixes of their source (verbatim; rewrite →
-   truncate-and-recopy, never interleave).
-2. `mirrored_bytes` never exceeds the lake file's actual size (cursor advances
-   only after a successful append).
+1. A lake incarnation's parts are byte-identical prefixes of their source
+   (verbatim; rewrite → delete-and-recopy, never interleave).
+2. `mirrored_bytes` never exceeds the lake's stored size for long: the cursor
+   advances only after a successful part write, and a lake found shorter (a lost
+   unsynced rewrite, a wipe) moves the cursor back before the next pull.
 3. The daemon never serves a mirror read outside its discovery roots.
 4. Mirror traffic never blocks session traffic (serial per machine, bounded
    chunks, queue processed off the hot path).
@@ -139,17 +181,20 @@ that reports a file path.
 ## 4. Testing
 
 - Store: mirror-cursor columns round-trip; segments-needing-mirror query.
-- MirrorService with a fake daemon: full pull in chunks → byte-identical lake
-  file; incremental append → only the tail is pulled; rewrite (smaller file) →
-  truncate + full re-pull; daemon error → backoff, no cursor advance; per-machine
-  serialization (no interleaved requests).
+- MirrorService with a fake daemon, on the local and in-memory blob adapters:
+  full pull in chunks → byte-identical lake; incremental append → only the tail
+  is pulled; rewrite (smaller file) → delete + full re-pull; daemon error →
+  backoff, no cursor advance; per-machine serialization (no interleaved requests).
+- PartedLake (`lake-parted.test.ts`): part boundaries, shrink, rotation, a lost
+  rewrite repaired by the guard, a stale writer refused by `ifMatch`, a lost
+  cursor compare-and-set, two writers rotating once.
 - Daemon guard: path under a discovery root serves; `/etc/passwd` (and a
   symlink escaping the root) is refused.
 
 ## 5. Acceptance
 
 - After a scan, every discovered Claude conversation's JSONL has a byte-identical
-  copy under the server's state dir, kept fresh as conversations grow.
+  copy in the server's lake, kept fresh as conversations grow.
 - Deleting the native file (or detaching the daemon) no longer loses the BYTES:
   a byte-identical copy survives on the server (UI fallback reads land with P5).
 - A server restart resumes mirroring from the stored cursors without re-pulling

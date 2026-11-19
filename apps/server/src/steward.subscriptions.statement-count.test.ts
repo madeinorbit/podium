@@ -17,6 +17,7 @@ import { type StewardDeps, StewardService } from './steward'
 import type { SessionStore, Subscription } from './store'
 import { probeStatements } from './store/executor/statement-probe'
 import { openTestStore } from './test-support/open-test-store'
+import { expectConstantRoundTrips } from './test-support/round-trip-count'
 import { seedRows } from './test-support/seed-rows'
 import { sessionReadPorts } from './test-support/session-facts'
 import { expectConstantStatements, type StatementPin } from './test-support/statement-count'
@@ -189,6 +190,14 @@ describe('steward subscription matching (POD-6208)', () => {
     // POD-6934: re-measured on integrate/6253-sync-log 46735ff09a and on the merge: 77 -> 76.
     await expectConstantStatements(pin, 76)
   })
+
+  // ROUND TRIPS ON HOSTED POSTGRES [POD-6992, POD-6958 design 2.11]: the driver calls that
+  // wait for the server, counted by the Postgres driver's pipelining (BEGIN with the first
+  // statement or with the workspace lock, one per statement, one per COMMIT). About 2.6 ms
+  // each on hosted Postgres; docs/measurements/pod-6958-hosted-round-trips.md.
+  it('makes a fixed number of round trips', async () => {
+    await expectConstantRoundTrips(pin, 80)
+  }, 60_000)
 
   it('reads the same subscription rows, however many cannot match', async () => {
     const [small, large] = [await subscriptionRowsRead(5), await subscriptionRowsRead(200)]

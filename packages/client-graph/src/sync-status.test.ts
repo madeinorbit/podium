@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   catchUpPercent,
   HIDDEN_SYNC,
+  reviewWords,
   type StableSync,
   type SyncCondition,
   type SyncDisplay,
@@ -95,6 +96,10 @@ describe('syncReviewCount', () => {
   it('adds refused changes and undelivered messages', () => {
     expect(syncReviewCount({ refused: 2, undelivered: 3 })).toBe(5)
     expect(syncReviewCount({ refused: 0, undelivered: 0 })).toBe(0)
+  })
+  it('agrees the verb with the count', () => {
+    expect(reviewWords(1)).toBe('1 needs review')
+    expect(reviewWords(2)).toBe('2 need review')
   })
 })
 

@@ -1,4 +1,3 @@
-import type { Trpc } from '@/app/trpc'
 import { useCommands } from '@podium/client-core/react'
 /**
  * THE CALM SIDEBAR'S FOLDERS (POD-2074, design 4a / 7a / 7b).
@@ -14,9 +13,10 @@ import { mergeVisibleProjectOrder } from '@podium/client-core/values'
 import { myPreferences } from '@podium/client-graph/per-user-records'
 import { Archive, ChevronRight, Ellipsis, GripVertical, Pin, Plus } from 'lucide-react'
 import type { JSX, PointerEvent as ReactPointerEvent } from 'react'
-import { lazy, Suspense, useCallback, useLayoutEffect, useRef, useState } from 'react'
+import { Suspense, useCallback, useLayoutEffect, useRef, useState } from 'react'
 import { openAddProject } from '@/app/desktop-menu'
 import { useWorklistPool } from '@/app/store-worklist-pool'
+import type { Trpc } from '@/app/trpc'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -25,6 +25,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { throughRestarts } from '@/lib/chunk-recovery'
+import { lazy } from '@/lib/lazy-surface'
 import { useReducedMotion } from '@/lib/use-reduced-motion'
 import { cn } from '@/lib/utils'
 import { cssEase, EASE_OUT, MOTION_S } from './worklist-motion-tokens'

@@ -34,9 +34,13 @@ import {
   type ShipOrder,
 } from '@podium/model'
 import { fixtureWriteScope } from '@podium/sync/testing'
+import { sql } from 'drizzle-orm'
 import { describe, expect, it } from 'vitest'
-import type { SessionStore } from '../store'
-import { openTestStore } from '../test-support/open-test-store'
+import {
+  openShippingStoreSlice,
+  openShippingStoreSlices,
+  type ShippingStoreSlice,
+} from '../test-support/shipping-store-slice'
 
 const VALIDATION_PROFILE = {
   id: 'default',
@@ -89,8 +93,8 @@ const baseIssue = () => ({
   estimateMin: null,
   needsHuman: false,
   humanQuestion: null,
-  createdAt: 't0',
-  updatedAt: 't0',
+  createdAt: '2026-08-12T09:00:00.000Z',
+  updatedAt: '2026-08-12T09:00:00.000Z',
   archived: false,
 })
 
@@ -125,7 +129,7 @@ const shipOrder = (overrides: Partial<ShipOrder> = {}): ShipOrder =>
 
 describe('shipping: the order-to-issue lookups', () => {
   it('answers null for an order it does not hold, and the issue id for one it does', async () => {
-    const s = await openTestStore(':memory:')
+    const s = await openShippingStoreSlice()
     await s.issues.upsertIssue(fixtureWriteScope(), baseIssue())
     const order = shipOrder()
     await s.shipping.createOrder(fixtureWriteScope(), order)
@@ -138,7 +142,7 @@ describe('shipping: the order-to-issue lookups', () => {
   })
 
   it('maps many order ids in one pass, skipping the ones it does not hold', async () => {
-    const s = await openTestStore(':memory:')
+    const s = await openShippingStoreSlice()
     const known: string[] = []
     for (let index = 0; index < 3; index += 1) {
       const issueId = asIssueId(`iss_many_${index}`)
@@ -179,7 +183,7 @@ describe('shipping: the order-to-issue lookups', () => {
     // but drops the accumulation across chunks — or drops the chunk and hands
     // SQLite 501 parameters — is only visible on the far side of that boundary,
     // so the fixture straddles it: 501 real orders, plus one id that is not.
-    const s = await openTestStore(':memory:')
+    const s = await openShippingStoreSlice()
     const total = 501
     const ids: string[] = []
     for (let index = 0; index < total; index += 1) {
@@ -204,14 +208,16 @@ describe('shipping: the order-to-issue lookups', () => {
     expect(mapped.get('order-chunk-499')).toBe('iss_chunk_499')
     expect(mapped.has('order-chunk-absent')).toBe(false)
     await s.close()
-  })
+    // 501 issues and orders, each written in its own transaction: about 15 s on the
+    // Postgres leg, past the 20 s default when the host is busy.
+  }, 120_000)
 })
 
 /**
  * A claimed two-member train on one lane, plus a third order that is NOT in it.
  * Returns everything the isolation call needs to be driven and read back.
  */
-async function claimedTrain(s: SessionStore) {
+async function claimedTrain(s: ShippingStoreSlice) {
   const suffixes = ['a', 'b'] as const
   const orders: ShipOrder[] = []
   for (const [index, suffix] of suffixes.entries()) {
@@ -288,7 +294,7 @@ function stepsFor(orderId: ShipOrder['id'], attempt: ShipAttempt) {
 
 describe('shipping: isolating a failed train', () => {
   it('holds the failing member, resets the green one, and releases the train', async () => {
-    const s = await openTestStore(':memory:', asMachineId('machine-1'))
+    const s = await openShippingStoreSlice()
     const { leader, green, claim, leaderAttempt } = await claimedTrain(s)
     const steps = stepsFor(leader.id, leaderAttempt)
     await s.shipping.appendStep(fixtureWriteScope(), steps.planned)
@@ -341,7 +347,7 @@ describe('shipping: isolating a failed train', () => {
   })
 
   it('calls two failures an interaction, and leaves nothing behind when it refuses', async () => {
-    const s = await openTestStore(':memory:', asMachineId('machine-1'))
+    const s = await openShippingStoreSlice()
     const { leader, green, claim, leaderAttempt } = await claimedTrain(s)
     const steps = stepsFor(leader.id, leaderAttempt)
     await s.shipping.appendStep(fixtureWriteScope(), steps.planned)
@@ -383,5 +389,30 @@ describe('shipping: isolating a failed train', () => {
     }
     expect(await s.shipping.activeTrainForOrder(leader.id)).toBeNull()
     await s.close()
+  })
+})
+
+describe('shipping: the recovery revision of a freshly provisioned workspace', () => {
+  it('reads 0 until its first advance, which makes its row at 1, on either engine', async () => {
+    // One row per workspace (POD-7024): a provisioned workspace holds none, reads 0, and its
+    // first advance (an order enqueued) upserts its row. The boot workspace's is untouched.
+    const [boot, fresh] = await openShippingStoreSlices(['local', 'ws_fresh'])
+    try {
+      const bootRevision = await boot.shipping.recoveryRevision()
+      expect(await fresh.shipping.recoveryRevision()).toBe(0)
+      await fresh.shipping.assertRecoveryRevision(fixtureWriteScope(), 0)
+      await fresh.run(
+        sql`INSERT INTO issues (workspace_id, id, owner_user_id, created_by_actor, repo_path, repo_id,
+             machine_id, branch, seq, title, stage, default_agent, created_at, updated_at)
+           VALUES ('ws_fresh', 'iss_1', ${firstAdminMemberId()}, ${firstAdminMemberId()}, '/r',
+             'repo-1', 'machine-1', 'issue/fresh', 1, 'fresh', 'review', 'codex',
+             '2026-08-12T09:00:00.000Z', '2026-08-12T09:00:00.000Z')`,
+      )
+      await fresh.shipping.createOrder(fixtureWriteScope(), shipOrder())
+      expect(await fresh.shipping.recoveryRevision()).toBe(1)
+      expect(await boot.shipping.recoveryRevision()).toBe(bootRevision)
+    } finally {
+      await boot.close()
+    }
   })
 })

@@ -1,5 +1,5 @@
-import { lazy } from 'react'
 import { throughRestarts } from '@/lib/chunk-recovery'
+import { lazy } from '@/lib/lazy-surface'
 
 // EVERY LAZY SURFACE GOES THROUGH `throughRestarts` (POD-2762) — including this
 // one, which only looks like an exception because the lazy declaration moved out

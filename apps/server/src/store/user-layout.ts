@@ -1,3 +1,4 @@
+// workspace-scoped (POD-6959)
 /**
  * SIDEBAR / TAB LAYOUT AT REST, KEYED BY USER (POD-1350).
  *
@@ -33,148 +34,210 @@ import {
 } from '@podium/model'
 import type { WriteScope } from '@podium/sync'
 import { and, asc, eq, sql } from 'drizzle-orm'
-import { userDockShell, userLayout } from '../migrations/schema'
-import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
-import { param, prepared, preparedFamily } from './executor/sync-drizzle'
+import { captureWrite } from '../sync/capture-pg'
+import type {
+  StoreTables,
+  TransactionRunner,
+  WorkspaceDb,
+  WorkspaceQueries,
+} from './executor/sync-drizzle'
+import {
+  inListOf,
+  inListSize,
+  inListValues,
+  inWorkspace,
+  param,
+  prepared,
+  preparedFamily,
+  WORKSPACE,
+} from './executor/sync-drizzle'
 
 // Every query these repositories run, prepared once per store [POD-6147].
 
 const P = (name: string) => sql.placeholder(name)
-const layoutUserIs = () => eq(userLayout.userId, param(userLayout.userId, 'userId'))
-const layoutKeyIs = () => and(layoutUserIs(), eq(userLayout.key, param(userLayout.key, 'key')))
+const layoutUserIs = (t: StoreTables) =>
+  inWorkspace(t.userLayout, eq(t.userLayout.userId, param(t.userLayout.userId, 'userId')))
+const layoutKeyIs = (t: StoreTables) =>
+  and(layoutUserIs(t), eq(t.userLayout.key, param(t.userLayout.key, 'key')))
 
-const layoutOfUser = prepared((db: StoreDrizzle) =>
-  db.select({ key: userLayout.key, value: userLayout.value }).from(userLayout).where(layoutUserIs()).prepare(),
-)
-
-const layoutValue = prepared((db: StoreDrizzle) =>
-  db.select({ value: userLayout.value }).from(userLayout).where(layoutKeyIs()).prepare(),
-)
-
-const upsertLayout = prepared((db: StoreDrizzle) =>
+const layoutOfUser = prepared((db, t) =>
   db
-    .insert(userLayout)
-    .values({ userId: P('userId'), key: P('key'), value: P('value'), updatedAt: P('updatedAt') })
-    .onConflictDoUpdate({
-      target: [userLayout.userId, userLayout.key],
-      set: { value: P('value'), updatedAt: P('updatedAt') },
-    })
+    .select({ key: t.userLayout.key, value: t.userLayout.value })
+    .from(t.userLayout)
+    .where(layoutUserIs(t))
     .prepare(),
 )
 
-const deleteLayoutKey = prepared((db: StoreDrizzle) =>
-  db.delete(userLayout).where(layoutKeyIs()).prepare(),
+const layoutValue = prepared((db, t) =>
+  db.select({ value: t.userLayout.value }).from(t.userLayout).where(layoutKeyIs(t)).prepare(),
+)
+
+const upsertLayout = prepared((db, t) =>
+  captureWrite(
+    db
+      .insert(t.userLayout)
+      .values({
+        workspaceId: WORKSPACE,
+        userId: P('userId'),
+        key: P('key'),
+        value: P('value'),
+        updatedAt: P('updatedAt'),
+      })
+      .onConflictDoUpdate({
+        target: [t.userLayout.workspaceId, t.userLayout.userId, t.userLayout.key],
+        set: { value: P('value'), updatedAt: P('updatedAt') },
+      }),
+  ).prepare(),
+)
+
+const deleteLayoutKey = prepared((db, t) =>
+  captureWrite(db.delete(t.userLayout).where(layoutKeyIs(t))).prepare(),
 )
 
 /** Every user's layout rows in primary-key order, one page after a cursor:
  *  the boot reconcile's full truth, read a page at a time through the key. */
-const layoutRowsPage = preparedFamily((db: StoreDrizzle, from: 'start' | 'after') =>
+const layoutRowsPage = preparedFamily((db, t, from: 'start' | 'after') =>
   db
-    .select({ userId: userLayout.userId, key: userLayout.key, value: userLayout.value })
-    .from(userLayout)
+    .select({ userId: t.userLayout.userId, key: t.userLayout.key, value: t.userLayout.value })
+    .from(t.userLayout)
     // The first page starts at the lowest key, `>=`, so it is a seek like the rest.
-    .where(from === 'start'
-      ? sql`(${userLayout.userId}, ${userLayout.key}) >= (${P('afterUserId')}, ${P('afterKey')})`
-      : sql`(${userLayout.userId}, ${userLayout.key}) > (${P('afterUserId')}, ${P('afterKey')})`)
-    .orderBy(asc(userLayout.userId), asc(userLayout.key))
+    .where(
+      inWorkspace(
+        t.userLayout,
+        from === 'start'
+          ? sql`(${t.userLayout.userId}, ${t.userLayout.key}) >= (${P('afterUserId')}, ${P('afterKey')})`
+          : sql`(${t.userLayout.userId}, ${t.userLayout.key}) > (${P('afterUserId')}, ${P('afterKey')})`,
+      ),
+    )
+    .orderBy(asc(t.userLayout.userId), asc(t.userLayout.key))
     .limit(P('limit'))
     .prepare(),
 )
 
-const layoutKeysOfUser = prepared((db: StoreDrizzle) =>
-  db.select({ key: userLayout.key }).from(userLayout).where(layoutUserIs()).orderBy(asc(userLayout.key)).prepare(),
-)
-
-const shellUserIs = () => eq(userDockShell.userId, param(userDockShell.userId, 'userId'))
-const shellSlotIs = () =>
-  and(shellUserIs(), eq(userDockShell.worktreeKey, param(userDockShell.worktreeKey, 'worktreeKey')))
-const shellWorktreeIs = () =>
-  eq(userDockShell.worktreeKey, param(userDockShell.worktreeKey, 'worktreeKey'))
-const shellSessionIs = () => eq(userDockShell.sessionId, param(userDockShell.sessionId, 'sessionId'))
-
-const dockShellOfSlot = prepared((db: StoreDrizzle) =>
-  db.select({ sessionId: userDockShell.sessionId }).from(userDockShell).where(shellSlotIs()).prepare(),
-)
-
-const dockShellsOfUser = prepared((db: StoreDrizzle) =>
+const layoutKeysOfUser = prepared((db, t) =>
   db
-    .select({ worktreeKey: userDockShell.worktreeKey, sessionId: userDockShell.sessionId })
-    .from(userDockShell)
-    .where(shellUserIs())
-    .orderBy(asc(userDockShell.worktreeKey))
+    .select({ key: t.userLayout.key })
+    .from(t.userLayout)
+    .where(layoutUserIs(t))
+    .orderBy(asc(t.userLayout.key))
+    .prepare(),
+)
+
+const shellUserIs = (t: StoreTables) =>
+  inWorkspace(t.userDockShell, eq(t.userDockShell.userId, param(t.userDockShell.userId, 'userId')))
+const shellSlotIs = (t: StoreTables) =>
+  and(
+    shellUserIs(t),
+    eq(t.userDockShell.worktreeKey, param(t.userDockShell.worktreeKey, 'worktreeKey')),
+  )
+const shellWorktreeIs = (t: StoreTables) =>
+  inWorkspace(
+    t.userDockShell,
+    eq(t.userDockShell.worktreeKey, param(t.userDockShell.worktreeKey, 'worktreeKey')),
+  )
+const shellSessionIs = (t: StoreTables) =>
+  inWorkspace(
+    t.userDockShell,
+    eq(t.userDockShell.sessionId, param(t.userDockShell.sessionId, 'sessionId')),
+  )
+
+const dockShellOfSlot = prepared((db, t) =>
+  db
+    .select({ sessionId: t.userDockShell.sessionId })
+    .from(t.userDockShell)
+    .where(shellSlotIs(t))
+    .prepare(),
+)
+
+const dockShellsOfUser = prepared((db, t) =>
+  db
+    .select({ worktreeKey: t.userDockShell.worktreeKey, sessionId: t.userDockShell.sessionId })
+    .from(t.userDockShell)
+    .where(shellUserIs(t))
+    .orderBy(asc(t.userDockShell.worktreeKey))
     .prepare(),
 )
 
 const dockShellValues = {
+  workspaceId: WORKSPACE,
   userId: P('userId'),
   worktreeKey: P('worktreeKey'),
   sessionId: P('sessionId'),
   updatedAt: P('updatedAt'),
 }
 
-const claimDockShell = prepared((db: StoreDrizzle) =>
+const claimDockShell = prepared((db, t) =>
   db
-    .insert(userDockShell)
+    .insert(t.userDockShell)
     .values(dockShellValues)
-    .onConflictDoNothing({ target: [userDockShell.userId, userDockShell.worktreeKey] })
+    .onConflictDoNothing({
+      target: [t.userDockShell.workspaceId, t.userDockShell.userId, t.userDockShell.worktreeKey],
+    })
     .prepare(),
 )
 
-const upsertDockShell = prepared((db: StoreDrizzle) =>
+const upsertDockShell = prepared((db, t) =>
   db
-    .insert(userDockShell)
+    .insert(t.userDockShell)
     .values(dockShellValues)
     .onConflictDoUpdate({
-      target: [userDockShell.userId, userDockShell.worktreeKey],
+      target: [t.userDockShell.workspaceId, t.userDockShell.userId, t.userDockShell.worktreeKey],
       set: { sessionId: P('sessionId'), updatedAt: P('updatedAt') },
     })
     .prepare(),
 )
 
-const deleteDockShellSlot = prepared((db: StoreDrizzle) =>
-  db.delete(userDockShell).where(shellSlotIs()).prepare(),
+const deleteDockShellSlot = prepared((db, t) =>
+  db.delete(t.userDockShell).where(shellSlotIs(t)).prepare(),
 )
 
-const dockShellsOfWorktree = prepared((db: StoreDrizzle) =>
-  db.select({ sessionId: userDockShell.sessionId }).from(userDockShell).where(shellWorktreeIs()).prepare(),
-)
-
-const deleteDockShellsOfWorktree = prepared((db: StoreDrizzle) =>
-  db.delete(userDockShell).where(shellWorktreeIs()).prepare(),
-)
-
-const deleteDockShellsOfSession = prepared((db: StoreDrizzle) =>
-  db.delete(userDockShell).where(shellSessionIs()).prepare(),
-)
-
-const worktreesOfSession = prepared((db: StoreDrizzle) =>
+const dockShellsOfWorktree = prepared((db, t) =>
   db
-    .select({ userId: userDockShell.userId, worktreeKey: userDockShell.worktreeKey })
-    .from(userDockShell)
-    .where(shellSessionIs())
+    .select({ sessionId: t.userDockShell.sessionId })
+    .from(t.userDockShell)
+    .where(shellWorktreeIs(t))
     .prepare(),
 )
 
-/** One JSON parameter, not an IN list: see `worktreesForSessions`. */
-const worktreesOfSessions = prepared((db: StoreDrizzle) =>
+const deleteDockShellsOfWorktree = prepared((db, t) =>
+  db.delete(t.userDockShell).where(shellWorktreeIs(t)).prepare(),
+)
+
+const deleteDockShellsOfSession = prepared((db, t) =>
+  db.delete(t.userDockShell).where(shellSessionIs(t)).prepare(),
+)
+
+/** A session's rows in primary-key order, the order both shell readers share. */
+const shellKeyOrder = (t: StoreTables) => [
+  asc(t.userDockShell.userId),
+  asc(t.userDockShell.worktreeKey),
+]
+
+/** An IN list sized by `inListSize`: see `worktreesForSessions`. The one-session
+ *  read is its size-1 shape, so the two return a session's rows in one order. */
+const worktreesOfSessions = preparedFamily((db, t, size: number) =>
   db
     .select({
-      sessionId: userDockShell.sessionId,
-      userId: userDockShell.userId,
-      worktreeKey: userDockShell.worktreeKey,
+      sessionId: t.userDockShell.sessionId,
+      userId: t.userDockShell.userId,
+      worktreeKey: t.userDockShell.worktreeKey,
     })
-    .from(userDockShell)
-    .where(sql`${userDockShell.sessionId} in (select value from json_each(${P('sessionIdsJson')}))`)
-    .orderBy(sql`rowid`)
+    .from(t.userDockShell)
+    .where(inWorkspace(t.userDockShell, inListOf(t.userDockShell.sessionId, size)))
+    .orderBy(...shellKeyOrder(t))
     .prepare(),
 )
 
+/** At most this many session ids in one shell read: a power of two, far under
+ *  SQLite's 32766 bound parameters. */
+const SHELL_IDS_PER_STATEMENT = 4096
+
 export class UserLayoutRepository {
-  private readonly rootDb: StoreDrizzle
+  private readonly scope: WorkspaceDb
   protected readonly createOrJoinTransaction: TransactionRunner
 
-  constructor(queries: StoreQueries) {
-    this.rootDb = queries.rootDb
+  constructor(queries: WorkspaceQueries) {
+    this.scope = queries.db
     this.createOrJoinTransaction = queries.createOrJoinTransaction
   }
 
@@ -183,8 +246,8 @@ export class UserLayoutRepository {
    * construction, so rule 35's ambient transaction routing has one line to
    * change at B1 and no call site does.
    */
-  protected get db(): StoreDrizzle {
-    return this.rootDb
+  protected get db(): WorkspaceDb {
+    return this.scope
   }
 
   /**
@@ -211,9 +274,14 @@ export class UserLayoutRepository {
     const values: LayoutWire[] = []
     let after: { afterUserId: UserId; afterKey: string } | null = null
     for (;;) {
-      const rows: Array<{ userId: UserId; key: string; value: string }> = after === null
-        ? await layoutRowsPage(this.db, 'start').all({ afterUserId: '', afterKey: '', limit: pageSize })
-        : await layoutRowsPage(this.db, 'after').all({ ...after, limit: pageSize })
+      const rows: Array<{ userId: UserId; key: string; value: string }> =
+        after === null
+          ? await layoutRowsPage(this.db, 'start').all({
+              afterUserId: '',
+              afterKey: '',
+              limit: pageSize,
+            })
+          : await layoutRowsPage(this.db, 'after').all({ ...after, limit: pageSize })
       for (const row of rows) {
         try {
           values.push({ userId: row.userId, key: row.key, value: JSON.parse(row.value) })
@@ -290,7 +358,12 @@ export class UserLayoutRepository {
    * uniqueness constraint, so `ON CONFLICT` on that key is `INSERT OR REPLACE`
    * exactly (checklist item 1, as amended: every column is named).
    */
-  private async write(userId: UserId, key: string, value: unknown, updatedAt: string): Promise<void> {
+  private async write(
+    userId: UserId,
+    key: string,
+    value: unknown,
+    updatedAt: string,
+  ): Promise<void> {
     const encoded = JSON.stringify(value ?? null)
     await upsertLayout(this.db).run({ userId, key, value: encoded, updatedAt })
   }
@@ -344,11 +417,11 @@ export class UserLayoutRepository {
  * shell, never the creation path.
  */
 export class UserDockShellRepository {
-  private readonly rootDb: StoreDrizzle
+  private readonly scope: WorkspaceDb
   protected readonly createOrJoinTransaction: TransactionRunner
 
-  constructor(queries: StoreQueries) {
-    this.rootDb = queries.rootDb
+  constructor(queries: WorkspaceQueries) {
+    this.scope = queries.db
     this.createOrJoinTransaction = queries.createOrJoinTransaction
   }
 
@@ -357,8 +430,8 @@ export class UserDockShellRepository {
    * construction, so rule 35's ambient transaction routing has one line to
    * change at B1 and no call site does.
    */
-  protected get db(): StoreDrizzle {
-    return this.rootDb
+  protected get db(): WorkspaceDb {
+    return this.scope
   }
 
   /** Resolve the normalized key or THROW — a relative cwd cannot name a worktree. */
@@ -454,7 +527,7 @@ export class UserDockShellRepository {
   async worktreeForSession(
     sessionId: SessionId,
   ): Promise<Array<{ userId: UserId; worktreeKey: string }>> {
-    const rows = await worktreesOfSession(this.db).all({ sessionId })
+    const rows = await worktreesOfSessions(this.db, 1).all(inListValues([sessionId], 1))
     return rows.map((r) => ({ userId: r.userId, worktreeKey: r.worktreeKey }))
   }
 
@@ -463,28 +536,32 @@ export class UserDockShellRepository {
    * The host sample asks this four to six times a sample; per-shell reads were
    * ~5,000 statements a sample on a real 1,000-shell database.
    *
-   * The ids travel as one JSON parameter, not an `IN (?, ?, …)` list: the
-   * driver caches one prepared statement per SQL text, and a list sized by the
-   * live-shell count would mint a new text for every count it ever sees. One
-   * parameter also has no `SQLITE_MAX_VARIABLE_NUMBER` ceiling to chunk under.
+   * The ids travel as an `IN (?, ?, …)` list sized by `inListSize`, so the
+   * driver's per-text statement cache holds one statement per power of two,
+   * not one per live-shell count; a list past {@link SHELL_IDS_PER_STATEMENT}
+   * is read in chunks of that size, under SQLite's bound-parameter ceiling
+   * (POD-6983: the JSON parameter this replaced read `json_each`, which
+   * Postgres has not).
    *
-   * Each session's rows come back in rowid order, the order the single-session
-   * read walks `idx_user_dock_shell_session` in, so `rows[0]` is the same row
-   * either way. A session with no mapping is absent from the map.
+   * Each session's rows come back in primary-key order, the order the
+   * single-session read returns them in, so `rows[0]` is the same row either
+   * way, on both engines. A session with no mapping is absent from the map.
    */
   async worktreesForSessions(
     sessionIds: readonly SessionId[],
   ): Promise<Map<SessionId, Array<{ userId: UserId; worktreeKey: string }>>> {
     const out = new Map<SessionId, Array<{ userId: UserId; worktreeKey: string }>>()
     if (sessionIds.length === 0) return out
-    const rows = await worktreesOfSessions(this.db).all({
-      sessionIdsJson: JSON.stringify([...new Set(sessionIds)]),
-    })
-    for (const r of rows) {
-      const bucket = out.get(r.sessionId)
-      const row = { userId: r.userId, worktreeKey: r.worktreeKey }
-      if (bucket) bucket.push(row)
-      else out.set(r.sessionId, [row])
+    const ids = [...new Set(sessionIds)]
+    for (let start = 0; start < ids.length; start += SHELL_IDS_PER_STATEMENT) {
+      const chunk = ids.slice(start, start + SHELL_IDS_PER_STATEMENT)
+      const size = inListSize(chunk.length)
+      for (const r of await worktreesOfSessions(this.db, size).all(inListValues(chunk, size))) {
+        const bucket = out.get(r.sessionId)
+        const row = { userId: r.userId, worktreeKey: r.worktreeKey }
+        if (bucket) bucket.push(row)
+        else out.set(r.sessionId, [row])
+      }
     }
     return out
   }

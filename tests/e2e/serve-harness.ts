@@ -16,6 +16,7 @@ import { execFileSync } from 'node:child_process'
 import { appendFileSync, chmodSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { LocalBlobStorage } from '@podium/blob-store/local'
 // @podium/harness is EMPTY — POD-396 took the PTY half to @podium/process and
 // POD-397 the harness half to @podium/harness, and the barrel deliberately
 // re-exports NOTHING. This harness was still importing from it, so EVERY browser
@@ -41,6 +42,7 @@ import {
   type SessionId,
 } from '@podium/model'
 import { readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
+import { PartedLake } from '@podium/sync'
 import { startDaemon } from '../../apps/daemon/src/daemon'
 import {
   type IndexRefreshJobInput,
@@ -53,6 +55,7 @@ import { runReclaimDiskEstimateJob } from '../../apps/daemon/src/reclaim-disk-es
 import { DiscoveryWorkerClient, type WorkerLike } from '../../apps/daemon/src/worker-client'
 import { inProcessMachinePrincipal } from '../../apps/server/src/gateway/daemon-mux'
 import { MODEL_CATALOG_VERSION } from '../../apps/server/src/model-catalog'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../apps/server/src/self-hosted-workspace'
 import { startServer } from '../../apps/server/src/test-support/enrolled-server'
 import {
   E2E_IDENTITY_FINGERPRINT,
@@ -992,10 +995,19 @@ if (process.env.PODIUM_E2E_TRANSCRIPT_INCARNATION === '1') {
     },
   })}\n`
   const machineId = hostMachineId()
-  const lakeDir = join(stateDir, 'transcripts', machineId)
-  mkdirSync(lakeDir, { recursive: true })
-  writeFileSync(join(lakeDir, `${nativeId}.incarnation-1.jsonl`), predecessor)
-  writeFileSync(join(lakeDir, `${nativeId}.jsonl`), current)
+  // Both incarnations go through the parted lake the server reads (POD-6963
+  // design 2.3): the predecessor under sequence 1, the replacement under 2.
+  const lake = new PartedLake(
+    new LocalBlobStorage({ stateDir }).forWorkspace(SELF_HOSTED_WORKSPACE_ID),
+    SELF_HOSTED_WORKSPACE_ID,
+  )
+  for (const [incarnation, bytes] of [
+    [1, predecessor],
+    [2, current],
+  ] as const) {
+    const writer = await lake.openWriter({ machineId, nativeId, incarnation }, 0)
+    await writer.append(Buffer.from(bytes))
+  }
   const harnessStore = server.registry.sessionStore
   await harnessStore.conversations.mirror.startIncarnation(
     machineId,
@@ -1006,6 +1018,7 @@ if (process.env.PODIUM_E2E_TRANSCRIPT_INCARNATION === '1') {
   await harnessStore.conversations.mirror.rotateIncarnation(
     machineId,
     nativeId,
+    { sequence: 1, device: '7', inode: '8961297' },
     { device: '7', inode: '7115245' },
     Buffer.byteLength(predecessor),
     '2026-08-08T21:57:00Z',
@@ -1013,6 +1026,7 @@ if (process.env.PODIUM_E2E_TRANSCRIPT_INCARNATION === '1') {
   await harnessStore.conversations.mirror.setMirrorCursor(
     machineId,
     nativeId,
+    0,
     Buffer.byteLength(current),
     '2026-08-08T21:57:01Z',
   )

@@ -9,6 +9,7 @@
 import { asMachineId, asSessionId, firstAdminMemberId, type SessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import type { ClientConn } from '../../gateway/client-registry'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import { testClientPrincipal } from '../../test-support/client-principal'
 import { type SessionLiveKind, SessionLiveTopics, type StoredSessionLive } from './live-topics'
 import { Session } from './session'
@@ -37,6 +38,7 @@ function client(id: string): ClientConn {
     principal: testClientPrincipal(id),
     send: vi.fn(),
     sendStream: vi.fn(() => true),
+    workspaceId: SELF_HOSTED_WORKSPACE_ID,
     viewports: new Map(),
     attached: new Set(),
     caps: new Set(),

@@ -12,7 +12,7 @@ it('preserves a one-member daemon’s complete legacy usage response', async () 
     hostname: 'sole-host',
     buckets: [
       {
-        hour: '2026-11-01T00:00:00Z',
+        hour: '2026-11-01T00:00:00.000Z',
         model: 'native-unattributed',
         inputTokens: 20,
         outputTokens: 2,
@@ -48,12 +48,12 @@ it('keeps a sole member compatible, but retained disabled people keep usage pers
         id: asUserId('mem_retained'),
         displayName: 'Retained',
         role: 'member',
-        createdAt: '2026-11-01T00:00:00Z',
+        createdAt: '2026-11-01T00:00:00.000Z',
         disabledAt: null,
       },
       'fixture-hash',
     )
-    await memberFacts(store).disable(asUserId('mem_retained'), '2026-11-02T00:00:00Z')
+    await memberFacts(store).disable(asUserId('mem_retained'), '2026-11-02T00:00:00.000Z')
     expect(await store.users.hasSeveralActiveMembers()).toBe(false)
     expect(await store.users.hasSeveralMembers()).toBe(true)
   } finally {
@@ -74,12 +74,12 @@ it('checks retained membership in one statement at 5 and 200 people', async () =
               id,
               displayName: 'Retained',
               role: 'member',
-              createdAt: '2026-11-01T00:00:00Z',
+              createdAt: '2026-11-01T00:00:00.000Z',
               disabledAt: null,
             },
             'fixture-hash',
           )
-          await memberFacts(store).disable(id, '2026-11-02T00:00:00Z')
+          await memberFacts(store).disable(id, '2026-11-02T00:00:00.000Z')
         }
         return store
       },

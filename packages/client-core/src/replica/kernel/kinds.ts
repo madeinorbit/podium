@@ -1,13 +1,16 @@
 /**
- * The Authority's entity vocabulary ↔ the engine's collection vocabulary.
+ * The Authority's entity vocabulary ↔ the engine's collection vocabulary,
+ * GENERATED from the record declarations in `@podium/model`
+ * (`records/declarations.ts`, POD-7084).
  *
  * These are two different names for one thing and the difference is not
  * cosmetic: the wire (and therefore every `EntityRecord` the kernel Replica
  * holds) names entities in the SINGULAR — `session`, `issueProjection` — because an
  * envelope is about one row. The engine's read model names COLLECTIONS, so it is
- * plural. A cutover that guessed the mapping by appending an `s` would have
- * silently dropped `automationRun` → `automationRuns` on a rule that does not
- * hold, so the mapping is written out and total.
+ * plural. Each declaration spells out its `replicaKind`: a mapping guessed by
+ * appending an `s` would have silently dropped `automationRun` →
+ * `automationRuns`. The table used to be written out here by hand;
+ * `kinds.test.ts` holds the generated one to that last hand-written table.
  *
  * WHY UNKNOWN ENTITIES ARE NOT AN ERROR HERE. ADR 2 D4's lenient-parsing rule
  * says a replica that does not know a kind must still advance its cursor past
@@ -18,95 +21,23 @@
  */
 
 import {
-  INSTANCE_PREFERENCES_ROW_ID,
-  checkoutRowId,
-  issueUserStateRowId,
-  layoutRowId,
-  machineAccessRowId,
-  noticeRowId,
-  pinRowId,
-  readPositionRowId,
-  sessionUserStateRowId,
-  superagentThreadRowId,
-  subscriptionRowIdOf,
-  tabOrderRowId,
-  userPreferencesRowId,
-  workflowBindingRowId,
+  REPLICA_KIND_OF,
+  type RecordKind,
+  type RecordReplicaKind,
+  recordOfReplicaKind,
 } from '@podium/model'
 import type { ReplicaKind, ReplicaRows } from '../contract'
 
-/** Kernel entity name → engine collection kind. */
-const ENTITY_TO_KIND = {
-  session: 'sessions',
-  sessionUserState: 'sessionUserStates',
-  machine: 'machines',
-  // The POD-796/POD-822 normalized kinds. Their entity spellings are NOT guessed
-  // — they are `MetadataEntityKind`'s literals in protocol's `messages/sync.ts`
-  // (`issueProjection`, `issueDep`, `repo`), which is the vocabulary the wire
-  // actually uses. `entityForKind` is documented as TOTAL over `ReplicaKind`, so
-  // widening the contract without widening this table would have quietly made it
-  // partial: all three would have answered `undefined` through a signature that
-  // says it cannot.
-  issueProjection: 'issueProjections',
-  issueUserState: 'issueUserStates',
-  issueGitState: 'issueGitStates',
-  // POD-6921: an issue's brief and description, keyed by the issue id.
-  issueBrief: 'issueBriefs',
-  issueDescription: 'issueDescriptions',
-  issuePanelTodo: 'issuePanelTodos',
-  issuePanelArtifact: 'issuePanelArtifacts',
-  issuePanelDeferred: 'issuePanelDeferreds',
-  issuePanelState: 'issuePanelStates',
+/** Every declared record type has a collection in `ReplicaRows`, and only those do. */
+type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false
+const replicaRowsMatchTheDeclarations: Same<ReplicaKind, RecordReplicaKind> = true
+void replicaRowsMatchTheDeclarations
 
-  issueDep: 'issueDeps',
-  repo: 'repos',
-  /** POD-1772's curated issue events. Same rule as the three kinds above: the
-   *  entity spelling is `MetadataEntityKind`'s literal, not a guess. */
-  issueEvent: 'issueEvents',
-  /** POD-2020's blocking asks. Same rule again: `pendingInteraction` is
-   *  `MetadataEntityKind`'s literal. */
-  pendingInteraction: 'pendingInteractions',
-  /** POD-4764's chat message records. */
-  message: 'messageRecords',
-  shipOrder: 'shipOrders',
-  shipLane: 'shipLanes',
-  conversation: 'conversations',
-  automation: 'automations',
-  automationRun: 'automationRuns',
-  /** POD-6357's one-shot effects and their standard status. */
-  effect: 'effects',
-  // POD-1350's per-user layout rows. The hub has demuxed this entity since that
-  // issue and the authority has always included it in bootstrap; it was absent
-  // HERE, so the rows reached the client and landed in no collection. That is
-  // what made the shell's layout network-only and gave every reload a default
-  // frame before the stored one (POD-571).
-  userLayout: 'userLayouts',
-  // POD-6673's per-user records, and the read positions the server has always
-  // sent and this table dropped until then.
-  pin: 'pins',
-  tabOrder: 'tabOrders',
-  userPreferences: 'userPreferences',
-  userReadPosition: 'userReadPositions',
-  // POD-6675: my superagent threads.
-  superagentThread: 'superagentThreads',
-  // POD-6676: profiles, workflows and trigger subscriptions.
-  agentProfile: 'agentProfiles',
-  workflow: 'workflows',
-  workflowRevision: 'workflowRevisions',
-  workflowBinding: 'workflowBindings',
-  workflowRun: 'workflowRuns',
-  subscription: 'subscriptions',
-  // POD-6677: the instance settings, one record.
-  instancePreferences: 'instancePreferences',
-  // POD-6644: my machine access rows, and the checkouts I may see.
-  machineAccess: 'machineAccess',
-  checkout: 'checkouts',
-  // POD-6881: my open notices.
-  inboxNotice: 'inboxNotices',
-} as const satisfies Record<string, ReplicaKind>
+/** Kernel entity name → engine collection kind. */
+const ENTITY_TO_KIND: Readonly<Record<RecordKind, ReplicaKind>> = REPLICA_KIND_OF
 
 /** The entity names the engine's read model renders. */
-export type KernelEntity = keyof typeof ENTITY_TO_KIND
+export type KernelEntity = RecordKind
 
 const KIND_TO_ENTITY = Object.fromEntries(
   Object.entries(ENTITY_TO_KIND).map(([entity, kind]) => [kind, entity]),
@@ -128,71 +59,12 @@ export function entityForKind(kind: ReplicaKind): KernelEntity {
 }
 
 /**
- * The row's own identity, as the engine's collections key it.
- *
- * `sessions` keys on `sessionId` and everything else on `id` — the same split
- * `replica.ts` makes. It is repeated rather than imported because the legacy
- * module's copy lives inside a TanStack collection factory this path must not
- * construct; a shared helper would have dragged the collection layer with it.
+ * The row's own identity, as the engine's collections key it: the
+ * declaration's row key. `sessions` key on `sessionId`, the per-user and
+ * per-machine records on their composite feed ids (imported where each is
+ * declared, never re-spelled: an id derived two ways is an id that can
+ * disagree), and everything else on `id`.
  */
 export function rowKey<K extends ReplicaKind>(kind: K, row: ReplicaRows[K]): string {
-  if (kind === 'sessions') return (row as ReplicaRows['sessions']).sessionId
-  if (kind === 'sessionUserStates') {
-    const state = row as ReplicaRows['sessionUserStates']
-    return sessionUserStateRowId(state.userId, state.sessionId)
-  }
-  if (kind === 'issueUserStates') {
-    const state = row as ReplicaRows['issueUserStates']
-    return issueUserStateRowId(state.userId, state.entityId)
-  }
-  // A layout row's identity is the authority's (userId, key) composite — the id
-  // its own change rows are logged under. `layoutRowId` is imported rather than
-  // re-spelled: an id derived two ways is an id that can disagree, and a remove
-  // op that misses leaves a reset key painted forever.
-  if (kind === 'userLayouts') {
-    const layout = row as ReplicaRows['userLayouts']
-    return layoutRowId(layout.userId, layout.key)
-  }
-  // POD-6673: each per-user record's identity is its feed id, imported, as above.
-  if (kind === 'pins') {
-    const pin = row as ReplicaRows['pins']
-    return pinRowId(pin.userId, pin.kind, pin.entityId)
-  }
-  if (kind === 'tabOrders') {
-    const order = row as ReplicaRows['tabOrders']
-    return tabOrderRowId(order.userId, order.entityId)
-  }
-  if (kind === 'userPreferences') {
-    return userPreferencesRowId((row as ReplicaRows['userPreferences']).userId)
-  }
-  if (kind === 'machineAccess') {
-    const access = row as ReplicaRows['machineAccess']
-    return machineAccessRowId(access.userId, access.machineId)
-  }
-  if (kind === 'inboxNotices') {
-    const notice = row as ReplicaRows['inboxNotices']
-    return noticeRowId(notice.recipientUserId, notice.noticeId)
-  }
-  if (kind === 'checkouts') {
-    const checkout = row as ReplicaRows['checkouts']
-    return checkoutRowId(checkout.machineId, checkout.path)
-  }
-  if (kind === 'userReadPositions') {
-    const position = row as ReplicaRows['userReadPositions']
-    return readPositionRowId(position.userId, position.streamId)
-  }
-  if (kind === 'superagentThreads') {
-    const thread = row as ReplicaRows['superagentThreads']
-    return superagentThreadRowId(thread.ownerUserId, thread.threadId)
-  }
-  // POD-6676: a binding is keyed by its target, a subscription carries its
-  // subscriber in its feed id.
-  if (kind === 'workflowBindings') {
-    const binding = row as ReplicaRows['workflowBindings']
-    return workflowBindingRowId(binding.targetKind, binding.targetId)
-  }
-  if (kind === 'subscriptions') return subscriptionRowIdOf(row as ReplicaRows['subscriptions'])
-  // POD-6677: one record per instance, whose id is a constant.
-  if (kind === 'instancePreferences') return INSTANCE_PREFERENCES_ROW_ID
-  return (row as ReplicaRows['issueProjections']).id
+  return recordOfReplicaKind(kind)!.rowKey(row as never)
 }

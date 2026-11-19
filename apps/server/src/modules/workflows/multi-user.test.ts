@@ -23,11 +23,13 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { WorkflowOwnershipPort, WorkflowUserRef } from '@podium/commands'
+import { sql } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { WorkflowMachineAccess } from './handlers/context'
 import { type WorkflowCaller, WorkflowService } from './service'
 import { driveWorkflows } from './test-support'
 import { openTestStore } from '../../test-support/open-test-store'
+import { storeSql } from '../../test-support/store-sql'
 
 const NOW = '2026-07-30T00:00:00.000Z'
 const ALICE = 'user:alice'
@@ -775,14 +777,12 @@ describe('run history records the attribution PAIR', () => {
     // `workflow_events` has no reader on the repository (POD-730 §9: the table
     // is write-only and reachable only by raw SQL), so the history is read the
     // same way the characterization suite reads it.
-    const rows = (h.store as unknown as { db: { prepare(sql: string): { all(): unknown[] } } }).db
-      .prepare('SELECT kind, actor_kind, actor_id, on_behalf_of FROM workflow_events ORDER BY id')
-      .all() as {
+    const rows = await storeSql(h.store).all<{
       kind: string
       actor_kind: string
       actor_id: string | null
       on_behalf_of: string | null
-    }[]
+    }>(sql`SELECT kind, actor_kind, actor_id, on_behalf_of FROM workflow_events ORDER BY id`)
     const created_ = rows.find((r) => r.kind === 'workflow.created')
     const skipped = rows.find((r) => r.kind === 'workflow.step_skipped')
     expect([created_?.actor_id, created_?.on_behalf_of]).toEqual(['a1', ALICE])

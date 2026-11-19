@@ -15,7 +15,8 @@ import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { issueRowToProjection } from '../../../server/src/modules/issues/projection'
 import { issueRowFixture } from '../../../server/src/test-support/issue-row'
-import { useBooting, useIssue, useIssues } from '../client/hooks'
+import { useIssues } from '../../test/roster-hooks'
+import { useBooting, useIssue } from '../client/hooks'
 
 afterEach(cleanup)
 
@@ -209,7 +210,9 @@ function Probe() {
   actions = useCommands()
   const issues = useIssues()
   const booting = useBooting()
-  return <div data-testid="model">{JSON.stringify({ list: issues, detail: latest, booting })}</div>
+  // The detail is a live pool model (it holds its pool), so tests read it as
+  // `latest`; only the plain list and the boot flag are rendered.
+  return <div data-testid="model">{JSON.stringify({ list: issues, booting })}</div>
 }
 
 describe('mobile normalized issue reads with no legacy issue rows', () => {

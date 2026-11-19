@@ -1,3 +1,4 @@
+// workspace-scoped (POD-6959)
 /**
  * SERVER-OWNED SECRETS AT REST — the keyed store ADR 1 D6 asks for (POD-419).
  *
@@ -28,6 +29,16 @@
  * model; this removes it at rest). {@link clear} DELETEs, {@link get} returns
  * `undefined`, and `ServerSecret.value` is `.min(1)` — so a caller cannot write
  * a blank and a reader cannot mistake one for a configured secret.
+ *
+ * ---------------------------------------------------------------------------
+ * ONE WORKSPACE'S SECRETS, AND THE INSTALL'S (POD-7013, POD-6959 design 2.1)
+ * ---------------------------------------------------------------------------
+ *
+ * The repository is built for one workspace. Its settings secrets, its
+ * fingerprint key and its members' native login transfers are that workspace's
+ * rows of `workspace_secrets`. The installation key and the identity signing
+ * secret belong to the install: they stay in `server_secrets` (and `meta`), read
+ * through global definitions, the same for every workspace.
  */
 
 import { randomBytes } from 'node:crypto'
@@ -41,10 +52,14 @@ import {
 } from '@podium/runtime/installation-identity'
 import { eq, sql } from 'drizzle-orm'
 import { FINGERPRINT_SECRET_KEY } from '../fingerprint-key-import'
-import { meta, serverSecrets } from '../migrations/schema'
 import type { SealedSecret, SecretBinding, Vault } from '../modules/credentials/vault'
-import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
-import { param, prepared } from './executor/sync-drizzle'
+import type {
+  StoreTables,
+  TransactionRunner,
+  WorkspaceDb,
+  WorkspaceQueries,
+} from './executor/sync-drizzle'
+import { inWorkspace, param, prepared, preparedGlobal, WORKSPACE } from './executor/sync-drizzle'
 
 /** Internal key of the sign-in signing secret; not a settings secret. */
 export const IDENTITY_SIGNING_SECRET_KEY = 'identity.signingSecret'
@@ -91,27 +106,89 @@ function parseEnvelope(value: string): SealedSecret | undefined {
 
 // Every query this repository runs, prepared once per store [POD-6147].
 
-const keyIs = () => eq(serverSecrets.key, param(serverSecrets.key, 'key'))
+// ---- the workspace's secrets: `workspace_secrets` ----
 
-/** One secret's value by key: every value read here, whichever key it names. */
-const secretValue = prepared((db: StoreDrizzle) =>
-  db.select({ value: serverSecrets.value }).from(serverSecrets).where(keyIs()).prepare(),
+const keyIs = (t: StoreTables) =>
+  inWorkspace(t.workspaceSecrets, eq(t.workspaceSecrets.key, param(t.workspaceSecrets.key, 'key')))
+
+/** One secret's value by key: every workspace value read here, whichever key it names. */
+const secretValue = prepared((db, t) =>
+  db.select({ value: t.workspaceSecrets.value }).from(t.workspaceSecrets).where(keyIs(t)).prepare(),
 )
 
-const deleteSecret = prepared((db: StoreDrizzle) =>
-  db.delete(serverSecrets).where(keyIs()).prepare(),
-)
+const deleteSecret = prepared((db, t) => db.delete(t.workspaceSecrets).where(keyIs(t)).prepare())
 
-const upsertSecret = prepared((db: StoreDrizzle) =>
+const upsertSecret = prepared((db, t) =>
   db
-    .insert(serverSecrets)
+    .insert(t.workspaceSecrets)
     .values({
+      workspaceId: WORKSPACE,
       key: sql.placeholder('key'),
       value: sql.placeholder('value'),
       updatedAt: sql.placeholder('updatedAt'),
     })
     .onConflictDoUpdate({
-      target: serverSecrets.key,
+      target: [t.workspaceSecrets.workspaceId, t.workspaceSecrets.key],
+      set: { value: sql.placeholder('value'), updatedAt: sql.placeholder('updatedAt') },
+    })
+    .prepare(),
+)
+
+/** A first write that keeps a row already there: the fingerprint key is minted once. */
+const insertSecretIfAbsent = prepared((db, t) =>
+  db
+    .insert(t.workspaceSecrets)
+    .values({
+      workspaceId: WORKSPACE,
+      key: sql.placeholder('key'),
+      value: sql.placeholder('value'),
+      updatedAt: sql.placeholder('updatedAt'),
+    })
+    .onConflictDoNothing({ target: [t.workspaceSecrets.workspaceId, t.workspaceSecrets.key] })
+    .prepare(),
+)
+
+const secretUpdatedAt = prepared((db, t) =>
+  db
+    .select({ updatedAt: t.workspaceSecrets.updatedAt })
+    .from(t.workspaceSecrets)
+    .where(keyIs(t))
+    .prepare(),
+)
+
+const secretPresence = prepared((db, t) =>
+  db
+    .select({
+      key: t.workspaceSecrets.key,
+      value: t.workspaceSecrets.value,
+      updatedAt: t.workspaceSecrets.updatedAt,
+    })
+    .from(t.workspaceSecrets)
+    .where(inWorkspace(t.workspaceSecrets))
+    .prepare(),
+)
+
+// ---- the install's secrets: `server_secrets` and `meta` ----
+
+/** The identity signing secret, one per install. */
+const identitySecretValue = preparedGlobal((db, t) =>
+  db
+    .select({ value: t.serverSecrets.value })
+    .from(t.serverSecrets)
+    .where(eq(t.serverSecrets.key, IDENTITY_SIGNING_SECRET_KEY))
+    .prepare(),
+)
+
+const insertIdentitySecret = preparedGlobal((db, t) =>
+  db
+    .insert(t.serverSecrets)
+    .values({
+      key: IDENTITY_SIGNING_SECRET_KEY,
+      value: sql.placeholder('value'),
+      updatedAt: sql.placeholder('updatedAt'),
+    })
+    .onConflictDoUpdate({
+      target: t.serverSecrets.key,
       set: { value: sql.placeholder('value'), updatedAt: sql.placeholder('updatedAt') },
     })
     .prepare(),
@@ -119,48 +196,34 @@ const upsertSecret = prepared((db: StoreDrizzle) =>
 
 // Both tables call the column `value`; explicit aliases keep the executor's
 // named-row adapter from collapsing them before Drizzle decodes the result.
-const installationRow = prepared((db: StoreDrizzle) =>
+const installationRow = preparedGlobal((db, t) =>
   db
     .select({
-      metadata: sql<string>`${meta.value}`.as('installation_metadata'),
-      privateKey: sql<string>`${serverSecrets.value}`.as('installation_private_key'),
+      metadata: sql<string>`${t.meta.value}`.as('installation_metadata'),
+      privateKey: sql<string>`${t.serverSecrets.value}`.as('installation_private_key'),
     })
-    .from(meta)
-    .innerJoin(serverSecrets, eq(serverSecrets.key, INSTALLATION_PRIVATE_KEY))
-    .where(eq(meta.key, INSTALLATION_META_KEY))
-    .prepare(),
-)
-
-const secretUpdatedAt = prepared((db: StoreDrizzle) =>
-  db.select({ updatedAt: serverSecrets.updatedAt }).from(serverSecrets).where(keyIs()).prepare(),
-)
-
-const secretPresence = prepared((db: StoreDrizzle) =>
-  db
-    .select({
-      key: serverSecrets.key,
-      value: serverSecrets.value,
-      updatedAt: serverSecrets.updatedAt,
-    })
-    .from(serverSecrets)
+    .from(t.meta)
+    .innerJoin(t.serverSecrets, eq(t.serverSecrets.key, INSTALLATION_PRIVATE_KEY))
+    .where(eq(t.meta.key, INSTALLATION_META_KEY))
     .prepare(),
 )
 
 export class ServerSecretsRepository {
-  private readonly rootDb: StoreDrizzle
+  private readonly scope: WorkspaceDb
   protected readonly createOrJoinTransaction: TransactionRunner
   private vault: Vault | undefined
   private readonly unopenedReported = new Set<string>()
 
-  constructor(queries: StoreQueries) {
-    this.rootDb = queries.rootDb
+  /** One workspace's queries: its secrets are that workspace's (POD-7013). */
+  constructor(queries: WorkspaceQueries) {
+    this.scope = queries.db
     this.createOrJoinTransaction = queries.createOrJoinTransaction
   }
 
-  /** The query builder, resolved on every access so B1 changes this line and nothing else
+  /** The query handle, resolved on every access so B1 changes this line and nothing else
    *  [POD-3221 spec rule 34a]. */
-  protected get db() {
-    return this.rootDb
+  protected get db(): WorkspaceDb {
+    return this.scope
   }
 
   /**
@@ -183,11 +246,26 @@ export class ServerSecretsRepository {
     )
   }
 
-  /** Private installation MAC key; never included in settings presence. */
+  /**
+   * The workspace's private MAC key of secret fingerprints; never included in
+   * settings presence. The boot workspace's is imported at boot
+   * (`fingerprint-key-import.ts`, which keeps a legacy key file's bytes); any
+   * other workspace's is minted here on first use, once: a concurrent first use
+   * keeps the row the other wrote.
+   */
   async fingerprintKey(): Promise<Buffer> {
     const row = await secretValue(this.db).get({ key: FINGERPRINT_SECRET_KEY })
-    if (!row) throw new Error('secret fingerprint key is missing from the database')
-    return Buffer.from(row.value, 'hex')
+    if (row) return Buffer.from(row.value, 'hex')
+    return await this.createOrJoinTransaction(async () => {
+      await insertSecretIfAbsent(this.db).run({
+        key: FINGERPRINT_SECRET_KEY,
+        value: randomBytes(32).toString('hex'),
+        updatedAt: new Date().toISOString(),
+      })
+      const minted = await secretValue(this.db).get({ key: FINGERPRINT_SECRET_KEY })
+      if (!minted) throw new Error('secret fingerprint key is missing from the database')
+      return Buffer.from(minted.value, 'hex')
+    })
   }
 
   /**
@@ -201,16 +279,12 @@ export class ServerSecretsRepository {
   async identitySigningSecret(opts?: { create?: true }): Promise<string>
   async identitySigningSecret(opts: { create?: boolean } = {}): Promise<string | undefined> {
     return await this.createOrJoinTransaction(async () => {
-      const row = await secretValue(this.db).get({ key: IDENTITY_SIGNING_SECRET_KEY })
+      const row = await identitySecretValue(this.db).get()
       if (row) return row.value
       // A store that cannot be written (transfer recovery) makes none.
       if (opts.create === false) return undefined
       const value = randomBytes(32).toString('base64url')
-      await upsertSecret(this.db).run({
-        key: IDENTITY_SIGNING_SECRET_KEY,
-        value,
-        updatedAt: new Date().toISOString(),
-      })
+      await insertIdentitySecret(this.db).run({ value, updatedAt: new Date().toISOString() })
       return value
     })
   }

@@ -90,7 +90,7 @@ describe('the plain path stores no result', () => {
     // The positive control: each write landed, so a miss below is not a no-op.
     expect(await store.secrets.get('integrations.linearApiKey')).toBe(SERVER_SECRET)
     // The Linear key is sealed by the vault (credential management §7): its
-    // plaintext is in no table, only the envelope in `server_secrets`.
+    // plaintext is in no table, only the envelope in `workspace_secrets`.
     expect(tablesHolding(store, SERVER_SECRET)).toEqual([])
     // A password is kept only as a hash: the plaintext is nowhere.
     expect(tablesHolding(store, PASSWORD)).toEqual([])

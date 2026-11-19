@@ -104,7 +104,7 @@ it('addresses issue seats and nearest parent on first/repeated opens equally at 
       row.mockClear()
       expect(readReferenceSession(pool, 'POD-2-A')).toMatchObject({ sessionId: 'seat' })
       expect(row.mock.calls.filter(([kind]) => kind === 'session')).toEqual([
-        ['session', 'seat', 'summary-fields'],
+        ['session', 'seat'],
       ])
       expect(readReferenceSession(pool, 'POD-99999-A')).toBeUndefined()
     } finally {

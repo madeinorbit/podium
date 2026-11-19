@@ -9,8 +9,6 @@ import { settingsOwnerFixture } from './settings-owner-fixture'
 import { SettingsSource } from './settings-source'
 import type { SettingsRows } from './settings-schema'
 import type { RowRecord } from './shared/source'
-import { createColdIndex } from './shared/cold-index'
-import { SCHEMA } from './shared/schema'
 
 enableDebugNames()
 const old = '2020-01-01T00:00:00Z'
@@ -93,18 +91,17 @@ const session = (id: string, cwd: string, patch: object = {}): RowRecord => ({
     agentKind: 'codex', status: 'live', archived: false, ...patch },
 } as RowRecord)
 
-function suppliedPool(external: boolean, rows: RowRecord[]) {
-  const index = external ? createColdIndex(SCHEMA) : undefined
+function suppliedPool(rows: RowRecord[]) {
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) }, undefined, {
-    ...(index ? { cold: () => index } : {}), load: () => undefined, schedule: () => () => {},
+    load: () => undefined, schedule: () => () => {},
   })
-  const apply = (event: Parameters<MobxPool['apply']>[0]) => { index?.apply(event); pool.apply(event) }
+  const apply = (event: Parameters<MobxPool['apply']>[0]) => { pool.apply(event) }
   apply({ type: 'replace', rows })
   return { pool, apply }
 }
 
-it.each([false, true])('tracks only addressed activity paths, exact matches and agent membership (external source: %s)', external => {
-  const f = suppliedPool(external, [session('moving', '/target/child', { agentKind: 'shell' })])
+it('tracks only addressed activity paths, exact matches and agent membership', () => {
+  const f = suppliedPool([session('moving', '/target/child', { agentKind: 'shell' })])
   const base = { kind: 'commandRootActivity' as const, roots: ['/target'] }
   const values = { within: [] as number[], exact: [] as number[], agents: [] as number[], other: [] as number[] }
   const stops = [
@@ -140,11 +137,11 @@ it.each([false, true])('tracks only addressed activity paths, exact matches and 
   } finally { for (const stop of stops) stop(); f.pool.dispose() }
 })
 
-it.each([false, true])('restores activity subscriptions when a parked session becomes visible (external source: %s)', external => {
+it('restores activity subscriptions when a parked session becomes visible', () => {
   const resume = { kind: 'codex-thread', value: 'activity-twins' }
   const parked = session('parked', '/target/child', { resume, issueId: 'selected', status: 'exited', stoppedAt: old })
   const winner = session('winner', '/other', { resume, issueId: 'selected', status: 'hibernated' })
-  const f = suppliedPool(external, [parked, winner])
+  const f = suppliedPool([parked, winner])
   const values: number[] = []
   const stop = autorun(() => values.push(f.pool.queries.activity({ kind: 'commandRootActivity', roots: ['/target'] })))
   try {

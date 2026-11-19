@@ -3,14 +3,26 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asIssueId, asMachineId, firstAdminMemberId } from '@podium/model'
+import { sql } from 'drizzle-orm'
 import { describe, expect, it } from 'vitest'
 import { deriveRepoId } from './repo-id'
+import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
 import type { IssueRow, SessionStore } from './store'
 import { openTestStore } from './test-support/open-test-store'
+import { storeSql } from './test-support/store-sql'
 
-function db(store: SessionStore) {
-  // @ts-expect-error private db — schema/migration assertions
-  return store.db
+const AT = '2026-07-01T00:00:00.000Z'
+
+/** The columns of `table`, from each engine's catalogue. */
+async function columnsOf(store: SessionStore, table: string): Promise<Set<string>> {
+  const raw = storeSql(store)
+  const rows = await raw.all<{ name: string }>(
+    raw.engine === 'pg'
+      ? sql`SELECT column_name AS name FROM information_schema.columns
+            WHERE table_schema = current_schema() AND table_name = ${table}`
+      : sql`SELECT name FROM pragma_table_info(${table})`,
+  )
+  return new Set(rows.map((c) => c.name))
 }
 
 function issueRow(over: Partial<IssueRow> = {}): IssueRow {
@@ -41,8 +53,8 @@ function issueRow(over: Partial<IssueRow> = {}): IssueRow {
     blockedBy: [],
     dependencyNote: null,
     prUrl: null,
-    createdAt: 't',
-    updatedAt: 't',
+    createdAt: AT,
+    updatedAt: AT,
     archived: false,
     priority: 2,
     type: 'task',
@@ -66,11 +78,7 @@ describe('repo_id schema (v8, #74)', () => {
   it('fresh DB has repo_id columns on repos and issues', async () => {
     const s = await openTestStore(':memory:')
     for (const table of ['repos', 'issues']) {
-      const cols = new Set(
-        (db(s).prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map(
-          (c) => c.name,
-        ),
-      )
+      const cols = await columnsOf(s, table)
       expect(cols.has('repo_id'), `missing repo_id on ${table}`).toBe(true)
     }
     // The legacy `meta.schema_version` marker (written by migration 002's DML) is
@@ -174,12 +182,10 @@ describe('the repo-identity boot refusal (POD-1360)', () => {
       // Plant the legacy row behind the repository, which is the only way to make
       // one: `addRepo` derives an id before it inserts.
       const first = await openTestStore(file)
-      db(first)
-        .prepare(
-          `INSERT INTO repos (machine_id, path, origin_url, added_at)
-           VALUES ('m1', '/legacy', NULL, 't')`,
-        )
-        .run()
+      await storeSql(first).run(
+        sql`INSERT INTO repos (workspace_id, machine_id, path, origin_url, added_at)
+            VALUES (${SELF_HOSTED_WORKSPACE_ID}, 'm1', '/legacy', NULL, ${AT})`,
+      )
       await first.close()
 
       await expect(openTestStore(file)).rejects.toThrow(/legacy repo identity is unfilled.*repos: 1/s)
@@ -193,16 +199,15 @@ describe('the repo-identity boot refusal (POD-1360)', () => {
     try {
       const file = join(dir, 'podium.db')
       const first = await openTestStore(file)
-      db(first)
-        .prepare(
-          `INSERT INTO issues (id, owner_user_id, created_by_actor, created_by_on_behalf_of,
-             repo_path, seq, title, stage, parent_branch,
-             default_agent, created_at, updated_at)
-           VALUES ('iss_legacy', '${firstAdminMemberId()}', '${firstAdminMemberId()}',
-                   '${firstAdminMemberId()}', '/legacy', 1, 'A', 'backlog', 'main',
-                   'claude-code', 't', 't')`,
-        )
-        .run()
+      const admin = firstAdminMemberId()
+      await storeSql(first).run(
+        sql`INSERT INTO issues (workspace_id, id, owner_user_id, created_by_actor, created_by_on_behalf_of,
+              repo_path, seq, title, stage, parent_branch,
+              default_agent, created_at, updated_at)
+            VALUES (${SELF_HOSTED_WORKSPACE_ID}, 'iss_legacy', ${admin}, ${admin},
+                    ${admin}, '/legacy', 1, 'A', 'backlog', 'main',
+                    'claude-code', ${AT}, ${AT})`,
+      )
       await first.close()
 
       await expect(openTestStore(file)).rejects.toThrow(/legacy repo identity is unfilled.*issues: 1/s)

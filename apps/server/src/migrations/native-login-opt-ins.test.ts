@@ -12,6 +12,8 @@
 import { asUserId } from '@podium/model'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it } from 'vitest'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
+import { workspaceQueries } from '../store/executor/sync-drizzle'
 import { NativeLoginsRepository } from '../store/native-logins'
 import { stageASeam } from '../test-support/stage-a-seam'
 import { DRIZZLE_MIGRATIONS } from './drizzle-manifest.generated'
@@ -106,9 +108,18 @@ describe(`migration ${MIGRATION}`, () => {
         { owner: member, harness: 'claude-code', fingerprint: 'claude-me', enabled: 1 },
         { owner: member, harness: 'codex', fingerprint: 'codex-me', enabled: 1 },
       ])
-      // The repository reads them back as ticked, as propagation will.
-      const accounts = new NativeLoginsRepository(stageASeam(db))
-      expect((await accounts.optInsFor(asUserId(member))).every((row) => row.enabled)).toBe(true)
+      // The repository reads them back as ticked, as propagation will. It reads the current
+      // schema (its queries name the workspace column, POD-7019), so the rest of the chain runs
+      // first; a later migration re-keys the solo member, so the owner is read again.
+      runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+      const accounts = new NativeLoginsRepository(
+        workspaceQueries(stageASeam(db), SELF_HOSTED_WORKSPACE_ID),
+      )
+      const [first] = optIns(db) as { owner: string }[]
+      const owner = asUserId(first?.owner ?? '')
+      const read = await accounts.optInsFor(owner)
+      expect(read).toHaveLength(2)
+      expect(read.every((row) => row.enabled)).toBe(true)
     } finally {
       db.close()
     }

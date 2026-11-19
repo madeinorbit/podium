@@ -152,7 +152,6 @@ function fixture(scale: 1 | 4) {
     }),
   )
   pool = new MobxPool({ selectedIssueId: null, coarseNow: NOW }, undefined, {
-    header: true,
     worklist: 'demand',
     load: () => undefined,
     schedule: () => () => {},
@@ -239,10 +238,16 @@ it.each([
   const count = fixture(scale)
   const row = vi.spyOn(pool, 'row')
   // The header is the only mounted pool consumer: the worklist has no demand.
-  // Count full rows and summaries, including the old count's summary reads.
+  // Count the readers' row reads. Every candidate is in memory (POD-7094), so
+  // the pool's own filing maintenance marks a changed row (`mark`/`peek`,
+  // untracked, inside the feed's action); that is no header read.
   const candidatesRead = () =>
-    row.mock.calls.filter(([entity, id]) => entity === 'issue' && id.startsWith('candidate-'))
-      .length
+    row.mock.calls.filter((call) => {
+      const [entity, id, absent] = call as unknown as [string, string, string | undefined]
+      return (
+        entity === 'issue' && id.startsWith('candidate-') && absent !== 'mark' && absent !== 'peek'
+      )
+    }).length
   const samples: Record<string, number> = {}
   render(<HeaderHostIndicators />)
   await act(async () => {})

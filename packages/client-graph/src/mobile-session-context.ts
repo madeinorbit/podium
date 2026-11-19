@@ -2,10 +2,9 @@ import type { IssueViewModel } from '@podium/client-core/replica'
 import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import type { SessionView } from '@podium/client-core/session-values'
 import { replicaSourcePorts } from '@podium/client-graph/source-ports'
-import { dedupeSessionsByResume } from '@podium/model'
 import type { MachineFacts } from '@podium/model/browser'
 import { observable, runInAction } from 'mobx'
-import { chatInteractions, chatMentionIssues, chatRecords } from './chat-context'
+import { chatInteractions, chatRecords } from './chat-context'
 import { CHAT_CONTEXT_ENTITIES } from './chat-context-schema'
 import { ChatContextSource } from './chat-context-source'
 import { readPageIssue } from './issue-page'
@@ -33,22 +32,6 @@ export function mobileSessionIssue(pool: MobxPool, id: string | undefined): Load
   const row = readPageIssue(pool, id)
   if (!row || row === LOADING || row.deletedAt) return row === LOADING ? LOADING : undefined
   return row
-}
-
-/** Phone roster: pooled session models, not projected copies. */
-function pooledMobileSessions(pool: MobxPool) {
-  const order = omitGone(pool.row('chatSessionOrder', 'order'))
-  const sessions: SessionView[] = []
-  let pending = !order || typeof order === 'symbol' ? 1 : 0
-  if (!order || typeof order === 'symbol') return { sessions, pending }
-  const known = pool.queries.ids({ kind: 'referenceSessions' })
-  const present = new Set(known)
-  for (const id of new Set([...order.ids.filter((id) => present.has(id)), ...known])) {
-    const row = omitGone(pool.row('session', id, 'summary-fields')) as Loaded<SessionView>
-    if (typeof row === 'symbol') pending++
-    else if (row) sessions.push(row)
-  }
-  return { sessions: dedupeSessionsByResume(sessions), pending }
 }
 
 export function createMobileSessionReader(pool: MobxPool) {
@@ -83,8 +66,6 @@ export function createMobileSessionReader(pool: MobxPool) {
     // pooled session models, so addressed useSession and list useSessions are
     // the same object. The chat reference projection stays for chat-reference
     // presentation values only.
-    sessions: () => pooledMobileSessions(pool),
-    issues: () => chatMentionIssues(pool),
     // The machine's facts, online and presence the LiveStore's (POD-6644), as a
     // value: the phone's offline banner is plain React and needs a new one
     // when the machine goes offline.
@@ -125,9 +106,9 @@ export function createMobileSessionReader(pool: MobxPool) {
       if (!window || window === LOADING) return true
       return (
         window.cursor === null &&
-        pool.queries.count('session') === 0 &&
+        pool.queries.heldCount('session') === 0 &&
         !paneHasSessions(pool) &&
-        pool.queries.count('issue') === 0
+        pool.queries.heldCount('issue') === 0
       )
     },
     conversation(id: string) {

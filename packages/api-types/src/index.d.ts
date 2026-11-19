@@ -1,44 +1,10 @@
 // Generated from apps/server/src/router.ts. Run bun run api:types. Do not edit.
 import * as _podium_model from '@podium/model';
-import { MachineId, IssueId, UserId, UserRole, IssueJoinVia, ArtifactId, SessionId, UsageBucketWire, UpdateChannel, MachinePresenceSource, GitRepositoryWire, GitDiscoveryDiagnosticWire, TranscriptItem, AgentKind, CredentialId, AgentPhase, HarnessAgent } from '@podium/model';
+import { MachineId, IssueId, UserId, IssueJoinVia, ArtifactId, SessionId, IssueProjection, UserRole, UsageBucketWire, UpdateChannel, MachinePresenceSource, GitRepositoryWire, GitDiscoveryDiagnosticWire, TranscriptItem, AgentKind, AccountId, AgentPhase } from '@podium/model';
 import { z } from 'zod';
 import * as Protocol from '@podium/protocol';
 import { ModelChoiceWire, ConvergenceState, MobileWebIdentity } from '@podium/protocol';
 import * as TRPC from '@trpc/server';
-
-/**
- * THE VAULT (credential management design §7, "Encryption").
- *
- * Every secret Podium holds is sealed here with AES-256-GCM under one random data
- * key, with a fresh 12-byte nonce per seal and the binding (credential id, type,
- * version) as authenticated data: a ciphertext moved to another row, passed off as
- * another type or replayed as another version does not open.
- *
- * The data key is stored in the database wrapped by the outside key
- * (`@podium/runtime/vault-key`), created at the first seal. Three states:
- *
- *  - `empty`: no data key yet. The first seal creates one.
- *  - `ready`: the data key is open.
- *  - `locked`: a data key is stored and the outside key is missing or does not
- *    open it (a restored database, a lost file). Nothing is sealed or opened,
- *    and no new key is created: replacing the key silently would orphan every
- *    stored secret. The way out is `podium vault reset --confirm`, or putting
- *    the key file back and restarting.
- *
- * A plaintext is opened only inside `withSecret`, handed to its callback and
- * wiped afterwards. The server keeps no plaintext.
- */
-
-type VaultState = 'ready' | 'empty' | 'locked';
-interface VaultStatus {
-    /** Where the outside key is expected. */
-    keyPath: string;
-    /** The outside key that wrapped the stored data key; null when the vault is empty. */
-    keyId: string | null;
-    state: VaultState;
-    /** Why the outside key cannot be used, naming the file; null when it can. */
-    problem: string | null;
-}
 
 declare const MachineFailureReason: z.ZodObject<{
     code: z.ZodOptional<z.ZodString>;
@@ -180,7 +146,7 @@ type SettingSource = 'env' | 'file' | 'settings' | 'default';
  * Reading the tiers off this object: `roles` / `sidebar` / `autoContinue` and
  * three of four `notifications` members are `preferences-personal`;
  * `hibernation` / `gitWorkflow` / `issues` / `steward` / `experimental` are
- * `preferences-instance`; `integrations` /
+ * `preferences-instance`; `apiKeys` / `integrations` /
  * `notifications.telegramBotToken` are `server-secrets`. That mapping is not
  * documentation — it is `SETTINGS_CLASSIFICATION` in `@podium/model`, and
  * `settings.classification.test.ts` fails if this object and that table
@@ -192,7 +158,6 @@ declare const PodiumSettings: z.ZodObject<{
     roles: z.ZodDefault<z.ZodObject<{
         coding: z.ZodDefault<z.ZodObject<{
             accountId: z.ZodDefault<z.ZodBranded<z.ZodString, "AccountId">>;
-            credentialId: z.ZodOptional<z.ZodBranded<z.ZodString, "CredentialId">>;
             model: z.ZodDefault<z.ZodString>;
             effort: z.ZodDefault<z.ZodString>;
             harness: z.ZodOptional<z.ZodEnum<["claude-code", "codex", "grok", "opencode", "cursor", "pi"]>>;
@@ -207,10 +172,8 @@ declare const PodiumSettings: z.ZodObject<{
             subagentModel: string;
             startScreen: "auto" | "native" | "chat";
             seedCliTheme: boolean;
-            credentialId?: (string & z.BRAND<"CredentialId">) | undefined;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         }, {
-            credentialId?: string | undefined;
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
@@ -221,7 +184,6 @@ declare const PodiumSettings: z.ZodObject<{
         }>>;
         superagent: z.ZodDefault<z.ZodObject<{
             accountId: z.ZodDefault<z.ZodBranded<z.ZodString, "AccountId">>;
-            credentialId: z.ZodOptional<z.ZodBranded<z.ZodString, "CredentialId">>;
             model: z.ZodDefault<z.ZodString>;
             effort: z.ZodDefault<z.ZodString>;
             harness: z.ZodOptional<z.ZodEnum<["claude-code", "codex", "grok", "opencode", "cursor", "pi"]>>;
@@ -229,10 +191,8 @@ declare const PodiumSettings: z.ZodObject<{
             model: string;
             effort: string;
             accountId: string & z.BRAND<"AccountId">;
-            credentialId?: (string & z.BRAND<"CredentialId">) | undefined;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         }, {
-            credentialId?: string | undefined;
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
@@ -240,7 +200,6 @@ declare const PodiumSettings: z.ZodObject<{
         }>>;
         background: z.ZodDefault<z.ZodObject<{
             accountId: z.ZodDefault<z.ZodBranded<z.ZodString, "AccountId">>;
-            credentialId: z.ZodOptional<z.ZodBranded<z.ZodString, "CredentialId">>;
             model: z.ZodDefault<z.ZodString>;
             effort: z.ZodDefault<z.ZodString>;
             harness: z.ZodOptional<z.ZodEnum<["claude-code", "codex", "grok", "opencode", "cursor", "pi"]>>;
@@ -248,10 +207,8 @@ declare const PodiumSettings: z.ZodObject<{
             model: string;
             effort: string;
             accountId: string & z.BRAND<"AccountId">;
-            credentialId?: (string & z.BRAND<"CredentialId">) | undefined;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         }, {
-            credentialId?: string | undefined;
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
@@ -259,7 +216,6 @@ declare const PodiumSettings: z.ZodObject<{
         }>>;
         shipwright: z.ZodDefault<z.ZodObject<{
             accountId: z.ZodDefault<z.ZodBranded<z.ZodString, "AccountId">>;
-            credentialId: z.ZodOptional<z.ZodBranded<z.ZodString, "CredentialId">>;
             model: z.ZodDefault<z.ZodString>;
             effort: z.ZodDefault<z.ZodString>;
             harness: z.ZodOptional<z.ZodEnum<["claude-code", "codex", "grok", "opencode", "cursor", "pi"]>>;
@@ -267,10 +223,8 @@ declare const PodiumSettings: z.ZodObject<{
             model: string;
             effort: string;
             accountId: string & z.BRAND<"AccountId">;
-            credentialId?: (string & z.BRAND<"CredentialId">) | undefined;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         }, {
-            credentialId?: string | undefined;
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
@@ -281,7 +235,6 @@ declare const PodiumSettings: z.ZodObject<{
             model: string;
             effort: string;
             accountId: string & z.BRAND<"AccountId">;
-            credentialId?: (string & z.BRAND<"CredentialId">) | undefined;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         };
         coding: {
@@ -291,33 +244,28 @@ declare const PodiumSettings: z.ZodObject<{
             subagentModel: string;
             startScreen: "auto" | "native" | "chat";
             seedCliTheme: boolean;
-            credentialId?: (string & z.BRAND<"CredentialId">) | undefined;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         };
         background: {
             model: string;
             effort: string;
             accountId: string & z.BRAND<"AccountId">;
-            credentialId?: (string & z.BRAND<"CredentialId">) | undefined;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         };
         shipwright: {
             model: string;
             effort: string;
             accountId: string & z.BRAND<"AccountId">;
-            credentialId?: (string & z.BRAND<"CredentialId">) | undefined;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         };
     }, {
         superagent?: {
-            credentialId?: string | undefined;
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         } | undefined;
         coding?: {
-            credentialId?: string | undefined;
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
@@ -327,14 +275,12 @@ declare const PodiumSettings: z.ZodObject<{
             seedCliTheme?: boolean | undefined;
         } | undefined;
         background?: {
-            credentialId?: string | undefined;
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         } | undefined;
         shipwright?: {
-            credentialId?: string | undefined;
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
@@ -344,6 +290,19 @@ declare const PodiumSettings: z.ZodObject<{
     /** Provider API keys. Stored plaintext in the self-hosted SQLite — same trust
      *  domain as the shell the agents already run in. `server-secrets`: never
      *  replicated and never enqueued once POD-419/POD-420 land. */
+    apiKeys: z.ZodDefault<z.ZodObject<{
+        openrouter: z.ZodDefault<z.ZodString>;
+        anthropic: z.ZodDefault<z.ZodString>;
+        openai: z.ZodDefault<z.ZodString>;
+    }, "strip", z.ZodTypeAny, {
+        openrouter: string;
+        anthropic: string;
+        openai: string;
+    }, {
+        openrouter?: string | undefined;
+        anthropic?: string | undefined;
+        openai?: string | undefined;
+    }>>;
     integrations: z.ZodDefault<z.ZodObject<{
         linearApiKey: z.ZodDefault<z.ZodString>;
     }, "strip", z.ZodTypeAny, {
@@ -381,38 +340,15 @@ declare const PodiumSettings: z.ZodObject<{
         ntfyTopic: z.ZodDefault<z.ZodString>;
         telegramBotToken: z.ZodDefault<z.ZodString>;
         telegramChatId: z.ZodDefault<z.ZodString>;
-        notices: z.ZodDefault<z.ZodObject<{
-            mention: z.ZodDefault<z.ZodBoolean>;
-            credentialAttention: z.ZodDefault<z.ZodBoolean>;
-            credentialShared: z.ZodDefault<z.ZodBoolean>;
-        }, "strip", z.ZodTypeAny, {
-            mention: boolean;
-            credentialAttention: boolean;
-            credentialShared: boolean;
-        }, {
-            mention?: boolean | undefined;
-            credentialAttention?: boolean | undefined;
-            credentialShared?: boolean | undefined;
-        }>>;
     }, "strip", z.ZodTypeAny, {
         web: boolean;
         ntfyTopic: string;
         telegramChatId: string;
-        notices: {
-            mention: boolean;
-            credentialAttention: boolean;
-            credentialShared: boolean;
-        };
         telegramBotToken: string;
     }, {
         web?: boolean | undefined;
         ntfyTopic?: string | undefined;
         telegramChatId?: string | undefined;
-        notices?: {
-            mention?: boolean | undefined;
-            credentialAttention?: boolean | undefined;
-            credentialShared?: boolean | undefined;
-        } | undefined;
         telegramBotToken?: string | undefined;
     }>>;
     sidebar: z.ZodDefault<z.ZodObject<{
@@ -522,16 +458,6 @@ declare const PodiumSettings: z.ZodObject<{
         telemetryInstallId?: string | undefined;
         telemetrySince?: number | undefined;
     }>>;
-    /** Networks whose daemons count as safe for credentials (credential management §8). */
-    daemonLink: z.ZodDefault<z.ZodObject<{
-        trustedNetworks: z.ZodDefault<z.ZodArray<z.ZodEffects<z.ZodString, string, string>, "many">>;
-    }, "strip", z.ZodTypeAny, {
-        trustedNetworks: string[];
-    }, {
-        trustedNetworks?: string[] | undefined;
-    }>>;
-    /** Per harness, the credential a launch uses when it names none (credential management §9). */
-    credentialDefaults: z.ZodDefault<z.ZodRecord<z.ZodEnum<["claude-code", "codex", "grok", "opencode", "cursor", "pi"]>, z.ZodBranded<z.ZodString, "CredentialId">>>;
 }, "strip", z.ZodTypeAny, {
     issues: {
         assistantEnabled: boolean;
@@ -541,7 +467,6 @@ declare const PodiumSettings: z.ZodObject<{
             model: string;
             effort: string;
             accountId: string & z.BRAND<"AccountId">;
-            credentialId?: (string & z.BRAND<"CredentialId">) | undefined;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         };
         coding: {
@@ -551,21 +476,18 @@ declare const PodiumSettings: z.ZodObject<{
             subagentModel: string;
             startScreen: "auto" | "native" | "chat";
             seedCliTheme: boolean;
-            credentialId?: (string & z.BRAND<"CredentialId">) | undefined;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         };
         background: {
             model: string;
             effort: string;
             accountId: string & z.BRAND<"AccountId">;
-            credentialId?: (string & z.BRAND<"CredentialId">) | undefined;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         };
         shipwright: {
             model: string;
             effort: string;
             accountId: string & z.BRAND<"AccountId">;
-            credentialId?: (string & z.BRAND<"CredentialId">) | undefined;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         };
     };
@@ -581,14 +503,8 @@ declare const PodiumSettings: z.ZodObject<{
         web: boolean;
         ntfyTopic: string;
         telegramChatId: string;
-        notices: {
-            mention: boolean;
-            credentialAttention: boolean;
-            credentialShared: boolean;
-        };
         telegramBotToken: string;
     };
-    credentialDefaults: Partial<Record<"claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi", string & z.BRAND<"CredentialId">>>;
     hibernation: {
         enabled: boolean;
         memoryPct: number;
@@ -622,8 +538,10 @@ declare const PodiumSettings: z.ZodObject<{
         telemetryInstallId?: string | undefined;
         telemetrySince?: number | undefined;
     };
-    daemonLink: {
-        trustedNetworks: string[];
+    apiKeys: {
+        openrouter: string;
+        anthropic: string;
+        openai: string;
     };
     integrations: {
         linearApiKey: string;
@@ -634,14 +552,12 @@ declare const PodiumSettings: z.ZodObject<{
     } | undefined;
     roles?: {
         superagent?: {
-            credentialId?: string | undefined;
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         } | undefined;
         coding?: {
-            credentialId?: string | undefined;
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
@@ -651,14 +567,12 @@ declare const PodiumSettings: z.ZodObject<{
             seedCliTheme?: boolean | undefined;
         } | undefined;
         background?: {
-            credentialId?: string | undefined;
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         } | undefined;
         shipwright?: {
-            credentialId?: string | undefined;
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
@@ -677,14 +591,8 @@ declare const PodiumSettings: z.ZodObject<{
         web?: boolean | undefined;
         ntfyTopic?: string | undefined;
         telegramChatId?: string | undefined;
-        notices?: {
-            mention?: boolean | undefined;
-            credentialAttention?: boolean | undefined;
-            credentialShared?: boolean | undefined;
-        } | undefined;
         telegramBotToken?: string | undefined;
     } | undefined;
-    credentialDefaults?: Partial<Record<"claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi", string>> | undefined;
     hibernation?: {
         enabled?: boolean | undefined;
         memoryPct?: number | undefined;
@@ -718,8 +626,10 @@ declare const PodiumSettings: z.ZodObject<{
         telemetryInstallId?: string | undefined;
         telemetrySince?: number | undefined;
     } | undefined;
-    daemonLink?: {
-        trustedNetworks?: string[] | undefined;
+    apiKeys?: {
+        openrouter?: string | undefined;
+        anthropic?: string | undefined;
+        openai?: string | undefined;
     } | undefined;
     integrations?: {
         linearApiKey?: string | undefined;
@@ -733,18 +643,6 @@ interface LinearIssue {
     state: string;
     assignee?: string;
     url: string;
-}
-
-interface UserAccountRow {
-    id: string;
-    displayName: string;
-    email: string | null;
-    accountId?: string | null;
-    avatar?: string | null;
-    role: UserRole;
-    createdAt: string;
-    /** ADR 9's disable-before-remove. A disabled account is not an actor. */
-    disabledAt: string | null;
 }
 
 /** One edge endpoint in a dep report: enough to render "#12 title (open, blocks)". */
@@ -830,6 +728,15 @@ interface SeatCoordinator {
     ref: string;
     title: string;
     sessionId: SessionId;
+}
+
+/** One page of `issues.searchNormalized` (POD-7108). */
+interface IssueSearchPage {
+    hits: (IssueProjection & {
+        displayRef: string;
+    })[];
+    /** Continues the answer after the last hit; `null` when it is complete. */
+    next: string | null;
 }
 
 /**
@@ -972,6 +879,18 @@ type LogsSetDaemonLevelInput = z.infer<typeof logsSetDaemonLevelInput>;
  *   - `dead_letter` the target was gone; NOT delivered. */
 type SendDisposition = 'delivered' | 'queued' | 'held' | 'spawning' | 'dead_letter';
 
+interface UserAccountRow {
+    id: string;
+    displayName: string;
+    email: string | null;
+    accountId?: string | null;
+    avatar?: string | null;
+    role: UserRole;
+    createdAt: string;
+    /** ADR 9's disable-before-remove. A disabled account is not an actor. */
+    disabledAt: string | null;
+}
+
 /**
  * ONE ACCOUNT'S TOKEN USAGE: the hour×model buckets for the last 7 days,
  * harvested from the answering machine's transcripts.
@@ -1062,16 +981,6 @@ interface ModelCatalogSnapshot {
     /** Shape version — a persisted snapshot with a different version is discarded. */
     version?: number;
 }
-
-/**
- * THE CHATGPT PLAN MODULE (credential management §11; epic Task 14): the
- * sign-in, the keeper, and the daemon that listens for the browser's return.
- * The credential commands reach it as `CredentialsState.chatgpt`; the
- * composition root builds it with {@link composeChatgptPlan}
- * (`registry.modules.chatgptPlan`).
- */
-
-type ChatgptSignInVia = 'machine' | 'paste';
 
 interface WaveMachine {
     id: string;
@@ -1238,8 +1147,7 @@ interface SessionSpawnResult {
     effort: string | null;
     machine: string;
     machineId: MachineId;
-    /** The credential the session runs on; `null`: none, the harness's own login. */
-    credentialId: CredentialId | null;
+    accountId: AccountId | null;
     /** The task prompt as its spawner's message, when a session spawned this one
      *  and the prompt is queued rather than launched with the process (POD-4778):
      *  the id the spawner checks with `podium mail status`. */
@@ -1288,41 +1196,6 @@ interface AgentConcurrencyHistoryResult {
 }
 
 type NativeLoginAttemptStatus = 'running' | 'refreshing' | 'succeeded' | 'failed';
-
-/**
- * ADDING A SUBSCRIPTION BY SIGNING IN ON A MACHINE (credential management §6
- * way 2, §10 "Homes"; epic plan Task 9).
- *
- * The person picks a machine and a harness's login type. Podium makes a home
- * for the login on that machine and opens the vendor's own sign-in in a
- * terminal there, with the harness's directory variable pointed at the home:
- * `claude auth login` (a link, then a code pasted back) or
- * `codex login --device-auth` (a link and a one-time code). Podium never sees
- * the login: the home keeps it, and the machine's inventory reports only who
- * it is (`AgentInventory.logins`).
- *
- * The credential row is written when that report arrives, not before, so a
- * sign-in that is cancelled, fails or is abandoned leaves no credential, and
- * the home it made is removed again. A home is only ever made on a machine
- * the person holds custody of or sent the credential to (§8).
- *
- * WHO SIGNED IN DECIDES (review focus 5). The identity the home reports is
- * the one the credential gets. If the person signed in as an account they
- * already hold a credential for, the home is attached to that credential; if
- * they re-signed a credential with another account and hold none for it, that
- * credential now names the account that signed in. Either way the result
- * names the account, so the switch is shown, not hidden.
- */
-
-type SignInOutcome = 
-/** A new credential for the account that signed in. */
-'new'
-/** The credential signed in again as the account it already named. */
- | 'same'
-/** The account already had a credential: the home now belongs to it. */
- | 'attached'
-/** The credential named another account; it now names the one that signed in. */
- | 'identity-changed';
 
 type ReclaimDiskEstimateState = {
     status: 'unknown';
@@ -1542,14 +1415,14 @@ declare const TunnelHealthReport: z.ZodObject<{
     lastError: z.ZodNullable<z.ZodString>;
 }, "strip", z.ZodTypeAny, {
     state: "starting" | "stopped" | "working" | "restarting" | "unhealthy";
-    url: string | null;
     lastError: string | null;
+    url: string | null;
     lastOkAt: number | null;
     failedSince: number | null;
 }, {
     state: "starting" | "stopped" | "working" | "restarting" | "unhealthy";
-    url: string | null;
     lastError: string | null;
+    url: string | null;
     lastOkAt: number | null;
     failedSince: number | null;
 }>;
@@ -1789,13 +1662,6 @@ interface SubstrateOutcome {
     };
 }
 
-interface CodexServerAiMarker {
-    harness: HarnessAgent;
-    machineId?: MachineId;
-    machineName?: string;
-    lastError?: string;
-}
-
 type Input_automations_create = {
     agentKind: "claude-code" | "codex" | "cursor" | "grok" | "opencode" | "pi" | "shell";
     cron?: null | string | undefined;
@@ -1880,26 +1746,6 @@ type Input_conversations_search = {
     projectPath?: string | undefined;
     query?: string | undefined;
 };
-type Input_credentials_add = {
-    label: string;
-    secret: string;
-    type: "anthropic.api-key" | "anthropic.claude-login" | "anthropic.claude-token" | "openai.api-key" | "openai.chatgpt-login" | "openai.chatgpt-plan" | "openrouter.api-key";
-};
-type Input_credentials_share = {
-    acknowledgeDisclosure: boolean;
-    acknowledgeWarning?: boolean | undefined;
-    credentialId: string;
-    grantee: "all-members" | {
-        userId: string;
-    };
-    verb: "manage" | "use";
-};
-type Input_credentials_signInStart = {
-    credentialId?: string | undefined;
-    label?: string | undefined;
-    machineId: string;
-    type: "anthropic.api-key" | "anthropic.claude-login" | "anthropic.claude-token" | "openai.api-key" | "openai.chatgpt-login" | "openai.chatgpt-plan" | "openrouter.api-key";
-};
 type Input_files_read = ({
     artifactId: string;
     issueId: string;
@@ -1933,7 +1779,6 @@ type Input_interactions_answer = {
 };
 type Input_issues_addSession = {
     agentKind?: string | undefined;
-    credential?: string | undefined;
     forceUnknownModel?: boolean | undefined;
     id: string;
     sessionId?: string | undefined;
@@ -2048,6 +1893,19 @@ type Input_issues_search = {
     text?: string | undefined;
     type?: "decision" | "phase" | "task" | undefined;
 };
+type Input_issues_searchNormalized = {
+    assignee?: string | undefined;
+    cursor?: string | undefined;
+    label?: string | undefined;
+    limit?: number | undefined;
+    parentId?: string | undefined;
+    priority?: number | undefined;
+    repoPath?: string | undefined;
+    stage?: "backlog" | "done" | "in_progress" | "planning" | "proposed" | "review" | "shipping" | undefined;
+    status?: "blocked" | "closed" | "deferred" | "open" | "ready" | undefined;
+    text?: string | undefined;
+    type?: "decision" | "phase" | "task" | undefined;
+};
 type Input_issues_setCoordinator = {
     claim?: boolean | undefined;
     expectedRevision?: number | undefined;
@@ -2078,7 +1936,6 @@ type Input_issues_setPlacement = {
 type Input_issues_start = {
     agentKind?: string | undefined;
     agentProfile?: string | undefined;
-    credential?: string | undefined;
     defaultEffort?: string | undefined;
     defaultModel?: string | undefined;
     forceUnknownModel?: boolean | undefined;
@@ -2268,7 +2125,6 @@ type Input_sessions_create = {
         mediaType: string;
         path?: string | undefined;
     }[];
-    credentialId?: null | string | undefined;
     cwd: string;
     draftArtifacts?: undefined | {
         dataBase64: string;
@@ -2330,6 +2186,13 @@ type Input_sessions_uploadImage = {
     mimeType: string;
     pending?: true | undefined;
     sessionId: string;
+};
+type Input_settings_clearSecret = {
+    key: "apiKeys.anthropic" | "apiKeys.openai" | "apiKeys.openrouter" | "integrations.linearApiKey" | "notifications.telegramBotToken";
+};
+type Input_settings_setSecret = {
+    key: "apiKeys.anthropic" | "apiKeys.openai" | "apiKeys.openrouter" | "integrations.linearApiKey" | "notifications.telegramBotToken";
+    value: string;
 };
 type Input_setup_complete = {
     acknowledgeNoPassword?: true | undefined;
@@ -2459,145 +2322,18 @@ type Input_workflows_runs = {
     includeTerminal?: boolean | undefined;
     limit?: number | undefined;
 };
-type Output_agentProfiles_list = Array<{
-    candidates: {
-        effort: string;
-        harness: "claude-code" | "codex" | "cursor" | "grok" | "opencode" | "pi";
-        model: string;
-    }[];
-    createdAt: string;
-    description: string;
-    id: string;
-    instructions: string;
-    machineId: null | string;
-    name: string;
-    updatedAt: string;
-} & {
-    machineName: null | string;
+type Output_accounts_keys = Array<{
+    id: string & z.BRAND<"AccountId">;
+    identity?: string | undefined;
+    kind: "api-key" | "oauth";
+    owner: string & z.BRAND<"UserId">;
+    provider: string;
+    sharing: {
+        everyone: boolean;
+        users: string[];
+    };
 }>;
-type Output_agentProfiles_show = {
-    candidates: {
-        effort: string;
-        harness: "claude-code" | "codex" | "cursor" | "grok" | "opencode" | "pi";
-        model: string;
-    }[];
-    createdAt: string;
-    description: string;
-    id: string;
-    instructions: string;
-    machineId: null | string;
-    name: string;
-    updatedAt: string;
-} & {
-    machineName: null | string;
-};
-type Output_auth_status = {
-    canManageInstance: boolean;
-    hasOwnCredential: boolean;
-    hostLocalRequest: boolean;
-    loginPolicySource: SettingSource;
-    loginRequired: boolean;
-    loginRequiredReason: "hosted" | "several-members" | null;
-};
-type Output_automations_create = {
-    agentKind: string;
-    createdAt: string;
-    cron: null | string;
-    effort: string;
-    enabled: boolean;
-    id: string & z.BRAND<"AutomationId">;
-    lastRunAt: null | string;
-    model: string;
-    name: string;
-    nextRunAt: null | string;
-    prompt: string;
-    repoPath: null | string;
-    runAt: null | string;
-    scheduleKind: "cron" | "once";
-    sessionMode: "fresh" | "resume";
-    targetSessionId: (string & z.BRAND<"SessionId">) | null;
-} & {
-    createdByActor: string;
-    createdByOnBehalfOf: _podium_model.UserId;
-    ownerUserId: _podium_model.UserId;
-};
-type Output_automations_list = Array<{
-    agentKind: string;
-    createdAt: string;
-    cron: null | string;
-    effort: string;
-    enabled: boolean;
-    id: string & z.BRAND<"AutomationId">;
-    lastRunAt: null | string;
-    model: string;
-    name: string;
-    nextRunAt: null | string;
-    prompt: string;
-    repoPath: null | string;
-    runAt: null | string;
-    scheduleKind: "cron" | "once";
-    sessionMode: "fresh" | "resume";
-    targetSessionId: (string & z.BRAND<"SessionId">) | null;
-} & {
-    createdByActor: string;
-    createdByOnBehalfOf: _podium_model.UserId;
-    ownerUserId: _podium_model.UserId;
-}>;
-type Output_automations_runs = Array<{
-    actor: string;
-    onBehalfOf: _podium_model.UserId;
-} & {
-    automationId: string & z.BRAND<"AutomationId">;
-    detail: null | string;
-    firedAt: string;
-    id: string & z.BRAND<"AutomationRunId">;
-    outcome: "error" | "missed" | "skipped_overlap" | "spawned";
-    sessionId: (string & z.BRAND<"SessionId">) | null;
-}>;
-type Output_connect_check = ({
-    detail: string;
-    error: CheckError;
-    ok: false;
-}) | ({
-    ok: true;
-    resolvedTo: string[];
-    url: string;
-});
-type Output_credentials_chatgptSignInComplete = ({
-    credentialId: _podium_model.CredentialId;
-    email?: string;
-    label: string;
-    planEnabled: boolean;
-    state: "signed-in";
-    updated: boolean;
-}) | ({
-    reason: string;
-    state: "failed";
-}) | ({
-    state: "waiting";
-});
-type Output_credentials_chatgptSignInStart = {
-    attemptId: string;
-    authorizeUrl: string;
-    via: ChatgptSignInVia;
-};
-type Output_credentials_chatgptSignInStatus = ({
-    credentialId: _podium_model.CredentialId;
-    email?: string;
-    label: string;
-    planEnabled: boolean;
-    state: "signed-in";
-    updated: boolean;
-}) | ({
-    readonly reason: "Sign in with ChatGPT is not available on this server.";
-    readonly state: "failed";
-}) | ({
-    reason: string;
-    state: "failed";
-}) | ({
-    state: "waiting";
-});
-type Output_credentials_login = Pick<{
+type Output_accounts_login = Pick<{
     accountId?: (string & z.BRAND<"AccountId">) | undefined;
     agentColor?: string | undefined;
     agentKind: "claude-code" | "codex" | "cursor" | "grok" | "opencode" | "pi" | "shell";
@@ -2705,20 +2441,6 @@ type Output_credentials_login = Pick<{
         };
         onBehalfOf: (string & z.BRAND<"UserId">) | null;
     };
-    credentialId?: (string & z.BRAND<"CredentialId">) | undefined;
-    credentialMismatch?: undefined | {
-        chosen: {
-            credentialId: string & z.BRAND<"CredentialId">;
-            email?: string | undefined;
-            fingerprint?: string | undefined;
-            method?: "api-key" | "subscription" | "token" | "unknown" | undefined;
-        };
-        reported: {
-            email?: string | undefined;
-            fingerprint?: string | undefined;
-            method: "api-key" | "subscription" | "token" | "unknown";
-        };
-    };
     cwd: string;
     delegation?: undefined | {
         actor: string & z.BRAND<"AgentIdentityId">;
@@ -2745,11 +2467,6 @@ type Output_credentials_login = Pick<{
     draftUpdatedAt?: string | undefined;
     driverFamily?: "server" | "terminal" | undefined;
     driverId?: string | undefined;
-    effectiveAuth?: undefined | {
-        email?: string | undefined;
-        fingerprint?: string | undefined;
-        method: "api-key" | "subscription" | "token" | "unknown";
-    };
     effort?: string | undefined;
     exitCode?: number | undefined;
     force?: boolean | undefined;
@@ -2935,20 +2652,6 @@ type Output_credentials_login = Pick<{
         };
         onBehalfOf: (string & z.BRAND<"UserId">) | null;
     };
-    credentialId?: (string & z.BRAND<"CredentialId">) | undefined;
-    credentialMismatch?: undefined | {
-        chosen: {
-            credentialId: string & z.BRAND<"CredentialId">;
-            email?: string | undefined;
-            fingerprint?: string | undefined;
-            method?: "api-key" | "subscription" | "token" | "unknown" | undefined;
-        };
-        reported: {
-            email?: string | undefined;
-            fingerprint?: string | undefined;
-            method: "api-key" | "subscription" | "token" | "unknown";
-        };
-    };
     cwd: string;
     delegation?: undefined | {
         actor: string & z.BRAND<"AgentIdentityId">;
@@ -2975,11 +2678,6 @@ type Output_credentials_login = Pick<{
     draftUpdatedAt?: string | undefined;
     driverFamily?: "server" | "terminal" | undefined;
     driverId?: string | undefined;
-    effectiveAuth?: undefined | {
-        email?: string | undefined;
-        fingerprint?: string | undefined;
-        method: "api-key" | "subscription" | "token" | "unknown";
-    };
     effort?: string | undefined;
     exitCode?: number | undefined;
     force?: boolean | undefined;
@@ -3062,23 +2760,109 @@ type Output_credentials_login = Pick<{
     machineName: _podium_model.MachineProjection["name"];
     status: NativeLoginAttemptStatus;
 };
-type Output_credentials_signInStatus = ({
-    credentialId: _podium_model.CredentialId;
-    email?: string;
-    label: string;
-    outcome: SignInOutcome;
-    previousEmail?: string;
-    state: "signed-in";
+type Output_agentProfiles_list = Array<{
+    candidates: {
+        effort: string;
+        harness: "claude-code" | "codex" | "cursor" | "grok" | "opencode" | "pi";
+        model: string;
+    }[];
+    createdAt: string;
+    description: string;
+    id: string;
+    instructions: string;
+    machineId: null | string;
+    name: string;
+    updatedAt: string;
+} & {
+    machineName: null | string;
+}>;
+type Output_agentProfiles_show = {
+    candidates: {
+        effort: string;
+        harness: "claude-code" | "codex" | "cursor" | "grok" | "opencode" | "pi";
+        model: string;
+    }[];
+    createdAt: string;
+    description: string;
+    id: string;
+    instructions: string;
+    machineId: null | string;
+    name: string;
+    updatedAt: string;
+} & {
+    machineName: null | string;
+};
+type Output_auth_status = {
+    canManageInstance: boolean;
+    hasOwnCredential: boolean;
+    hostLocalRequest: boolean;
+    loginPolicySource: SettingSource;
+    loginRequired: boolean;
+    loginRequiredReason: "hosted" | "several-members" | null;
+};
+type Output_automations_create = {
+    agentKind: string;
+    createdAt: string;
+    cron: null | string;
+    effort: string;
+    enabled: boolean;
+    id: string & z.BRAND<"AutomationId">;
+    lastRunAt: null | string;
+    model: string;
+    name: string;
+    nextRunAt: null | string;
+    prompt: string;
+    repoPath: null | string;
+    runAt: null | string;
+    scheduleKind: "cron" | "once";
+    sessionMode: "fresh" | "resume";
+    targetSessionId: (string & z.BRAND<"SessionId">) | null;
+} & {
+    createdByActor: string;
+    createdByOnBehalfOf: _podium_model.UserId;
+    ownerUserId: _podium_model.UserId;
+};
+type Output_automations_list = Array<{
+    agentKind: string;
+    createdAt: string;
+    cron: null | string;
+    effort: string;
+    enabled: boolean;
+    id: string & z.BRAND<"AutomationId">;
+    lastRunAt: null | string;
+    model: string;
+    name: string;
+    nextRunAt: null | string;
+    prompt: string;
+    repoPath: null | string;
+    runAt: null | string;
+    scheduleKind: "cron" | "once";
+    sessionMode: "fresh" | "resume";
+    targetSessionId: (string & z.BRAND<"SessionId">) | null;
+} & {
+    createdByActor: string;
+    createdByOnBehalfOf: _podium_model.UserId;
+    ownerUserId: _podium_model.UserId;
+}>;
+type Output_automations_runs = Array<{
+    actor: string;
+    onBehalfOf: _podium_model.UserId;
+} & {
+    automationId: string & z.BRAND<"AutomationId">;
+    detail: null | string;
+    firedAt: string;
+    id: string & z.BRAND<"AutomationRunId">;
+    outcome: "error" | "missed" | "skipped_overlap" | "spawned";
+    sessionId: (string & z.BRAND<"SessionId">) | null;
+}>;
+type Output_connect_check = ({
+    detail: string;
+    error: CheckError;
+    ok: false;
 }) | ({
-    machineId: _podium_model.MachineId;
-    state: "waiting";
-    terminalSessionId: _podium_model.SessionId;
-}) | ({
-    readonly reason: "Signing in on a machine is not available on this server.";
-    readonly state: "failed";
-}) | ({
-    reason: string;
-    state: "failed";
+    ok: true;
+    resolvedTo: string[];
+    url: string;
 });
 type Output_discovery_lastMachineScan = (null) | ({
     deep: boolean;
@@ -5079,20 +4863,6 @@ type Output_issues_get = (null) | ({
             };
             onBehalfOf: (string & z.BRAND<"UserId">) | null;
         };
-        credentialId?: (string & z.BRAND<"CredentialId">) | undefined;
-        credentialMismatch?: undefined | {
-            chosen: {
-                credentialId: string & z.BRAND<"CredentialId">;
-                email?: string | undefined;
-                fingerprint?: string | undefined;
-                method?: "api-key" | "subscription" | "token" | "unknown" | undefined;
-            };
-            reported: {
-                email?: string | undefined;
-                fingerprint?: string | undefined;
-                method: "api-key" | "subscription" | "token" | "unknown";
-            };
-        };
         cwd: string;
         delegation?: undefined | {
             actor: string & z.BRAND<"AgentIdentityId">;
@@ -5119,11 +4889,6 @@ type Output_issues_get = (null) | ({
         draftUpdatedAt?: string | undefined;
         driverFamily?: "server" | "terminal" | undefined;
         driverId?: string | undefined;
-        effectiveAuth?: undefined | {
-            email?: string | undefined;
-            fingerprint?: string | undefined;
-            method: "api-key" | "subscription" | "token" | "unknown";
-        };
         effort?: string | undefined;
         exitCode?: number | undefined;
         force?: boolean | undefined;
@@ -5359,158 +5124,6 @@ type Output_issues_resolveShipHold = {
         };
     };
 };
-type Output_issues_searchNormalized = Array<{
-    acceptance?: string | undefined;
-    activityNotes?: string | undefined;
-    agentProfileId?: string | undefined;
-    archived: boolean;
-    asked?: undefined | {
-        at?: string | undefined;
-        attribution?: undefined | {
-            actor: {
-                id: string & z.BRAND<"AgentIdentityId">;
-                kind: "agent";
-            } | {
-                id: string & z.BRAND<"MachineId">;
-                kind: "machine";
-            } | {
-                id: string & z.BRAND<"UserId">;
-                kind: "user";
-            } | {
-                job: string;
-                kind: "system";
-            };
-            onBehalfOf: (string & z.BRAND<"UserId">) | null;
-        };
-        by?: (string & z.BRAND<"SessionId">) | undefined;
-        options?: string[] | undefined;
-        question: string;
-    };
-    assignee?: (string & z.BRAND<"UserId">) | undefined;
-    audience: "agent" | "human";
-    blockedByNotes: string[];
-    branch?: string | undefined;
-    brief?: string | undefined;
-    closedAt?: string | undefined;
-    closedReason?: string | undefined;
-    coordinatorSessionId?: (string & z.BRAND<"SessionId">) | undefined;
-    createdAt: string;
-    createdBy: {
-        actor: {
-            id: string & z.BRAND<"AgentIdentityId">;
-            kind: "agent";
-        } | {
-            id: string & z.BRAND<"MachineId">;
-            kind: "machine";
-        } | {
-            id: string & z.BRAND<"UserId">;
-            kind: "user";
-        } | {
-            job: string;
-            kind: "system";
-        };
-        onBehalfOf: (string & z.BRAND<"UserId">) | null;
-    };
-    defaultAgent: string;
-    defaultEffort: string;
-    defaultModel: string;
-    deferUntil?: string | undefined;
-    deletedAt?: string | undefined;
-    dependencyNote?: string | undefined;
-    description: {
-        opsTail?: undefined | unknown[];
-        revision?: number | undefined;
-        value: string;
-    };
-    displayRef: string;
-    dueAt?: string | undefined;
-    duplicateOf?: (string & z.BRAND<"IssueId">) | undefined;
-    estimateMin?: number | undefined;
-    id: string & z.BRAND<"IssueId">;
-    intentOrigin: "agent" | "human";
-    isDraftVessel: boolean;
-    labels: string[];
-    landedAt?: string | undefined;
-    landedSha?: string | undefined;
-    lastLifecycleActor?: undefined | {
-        actor: {
-            id: string & z.BRAND<"AgentIdentityId">;
-            kind: "agent";
-        } | {
-            id: string & z.BRAND<"MachineId">;
-            kind: "machine";
-        } | {
-            id: string & z.BRAND<"UserId">;
-            kind: "user";
-        } | {
-            job: string;
-            kind: "system";
-        };
-        onBehalfOf: (string & z.BRAND<"UserId">) | null;
-    };
-    legacyAssignee?: string | undefined;
-    linearId?: string | undefined;
-    linearIdentifier?: string | undefined;
-    linearUrl?: string | undefined;
-    machineId?: (string & z.BRAND<"MachineId">) | undefined;
-    needsHuman: boolean;
-    notesUpdatedAt?: string | undefined;
-    owner: string & z.BRAND<"UserId">;
-    panel?: undefined | {
-        artifacts: {
-            addedAt: string;
-            artifactId?: (string & z.BRAND<"ArtifactId">) | undefined;
-            chatUploadId?: string | undefined;
-            chatUploadOwner?: string | undefined;
-            entry?: string | undefined;
-            files?: undefined | {
-                path: string;
-                size: number;
-            }[];
-            id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
-            issueId?: (string & z.BRAND<"IssueId">) | undefined;
-            path: string;
-            position?: number | undefined;
-            sourceKind?: "creation-attachment" | "terminal-evidence" | undefined;
-            sourcePaths?: string[] | undefined;
-            title?: string | undefined;
-            tracking?: "tracked" | "unknown" | "untracked" | undefined;
-            untrackedPaths?: string[] | undefined;
-        }[];
-        deferred: {
-            addedAt: string;
-            id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
-            issueId?: (string & z.BRAND<"IssueId">) | undefined;
-            position?: number | undefined;
-            text: string;
-        }[];
-        todos: {
-            done: boolean;
-            id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
-            issueId?: (string & z.BRAND<"IssueId">) | undefined;
-            position?: number | undefined;
-            text: string;
-        }[];
-    };
-    parentBranch: string;
-    parentId?: (string & z.BRAND<"IssueId">) | undefined;
-    prUrl?: string | undefined;
-    priority: number;
-    repoId?: (string & z.BRAND<"RepoId">) | undefined;
-    revision?: number | undefined;
-    seq: number;
-    sortKey?: string | undefined;
-    stage: "backlog" | "done" | "in_progress" | "planning" | "proposed" | "review" | "shipping";
-    startedBySession?: (string & z.BRAND<"SessionId">) | undefined;
-    suggestedReason?: string | undefined;
-    suggestedStage?: "backlog" | "done" | "in_progress" | "planning" | "proposed" | "review" | "shipping" | undefined;
-    supersededBy?: (string & z.BRAND<"IssueId">) | undefined;
-    title: string;
-    type: "decision" | "phase" | "task";
-    updatedAt: string;
-    visibility: "deployment-substrate" | "owned-compute" | "per-user-state" | "personal" | "secret";
-    worktreePath?: string | undefined;
-}>;
 type Output_issues_seat = ({
     askUserRefusal?: string | undefined;
     claimable?: string;
@@ -6010,16 +5623,6 @@ type Output_machines_applyUpdate = {
                     };
                     state: "in" | "out" | "unknown";
                 };
-                logins?: undefined | {
-                    freshness?: number | undefined;
-                    homeId: string;
-                    identity?: undefined | {
-                        email?: string | undefined;
-                        fingerprint: string;
-                        providerAccountId?: string | undefined;
-                    };
-                    state: "in" | "out" | "unknown";
-                }[];
                 path?: string | undefined;
                 probeError?: undefined | {
                     reason: "timed-out";
@@ -6200,11 +5803,6 @@ type Output_sessions_stop = ({
     ok: boolean;
     reason: string;
 });
-type Output_sessions_switchCredential = {
-    continuedAs: "handoff" | "next-wake" | "resume";
-    handoffSessionId?: (string & z.BRAND<"SessionId">) | undefined;
-    waitingForTurnEnd?: true | undefined;
-};
 type Output_sessions_uploadImage = ({
     attachment: {
         filename: string;
@@ -6737,6 +6335,106 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
     errorShape: TRPC.TRPCDefaultErrorShape;
     transformer: false;
 }, {
+    "accounts": {
+        "connect": TRPC.TRPCMutationProcedure<{
+            input: {
+                credential: string;
+                kind: "api-key" | "oauth";
+                provider: "anthropic" | "openai" | "openrouter";
+            };
+            output: {
+                id: string;
+            };
+            meta: unknown;
+        }>;
+        "disconnect": TRPC.TRPCMutationProcedure<{
+            input: {
+                id: string;
+            };
+            output: {
+                ok: true;
+            };
+            meta: unknown;
+        }>;
+        "keys": TRPC.TRPCQueryProcedure<{
+            input: {};
+            output: Output_accounts_keys;
+            meta: unknown;
+        }>;
+        "list": TRPC.TRPCQueryProcedure<{
+            input: (undefined) | ({
+                [k: string]: unknown;
+            } & {});
+            output: Array<_podium_model.AccountView>;
+            meta: unknown;
+        }>;
+        "login": TRPC.TRPCMutationProcedure<{
+            input: {
+                harness: "claude-code" | "codex" | "cursor" | "grok" | "opencode" | "pi";
+                machineId?: string | undefined;
+            };
+            output: Output_accounts_login;
+            meta: unknown;
+        }>;
+        "send": TRPC.TRPCMutationProcedure<{
+            input: {
+                acknowledgeSharedMachine?: boolean | undefined;
+                id: string;
+                machineId: string;
+            };
+            output: ({
+                ok: true;
+                sent: false;
+                warning?: undefined;
+            }) | ({
+                ok: true;
+                sent: true;
+                warning: string;
+            });
+            meta: unknown;
+        }>;
+        "share": TRPC.TRPCMutationProcedure<{
+            input: {
+                everyone: boolean;
+                id: string;
+                owner?: string | undefined;
+                users?: string[] | undefined;
+            };
+            output: {
+                ok: true;
+            };
+            meta: unknown;
+        }>;
+        "unsend": TRPC.TRPCMutationProcedure<{
+            input: {
+                id: string;
+                machineId: string;
+                owner?: string | undefined;
+            };
+            output: ({
+                note: string;
+                ok: true;
+                removed: true;
+            }) | ({
+                note?: undefined;
+                ok: true;
+                removed: false;
+            });
+            meta: unknown;
+        }>;
+        "useOnMyMachines": TRPC.TRPCMutationProcedure<{
+            input: {
+                enabled: boolean;
+                fingerprint: string;
+                harness: "claude-code" | "codex" | "cursor" | "grok" | "opencode" | "pi";
+            };
+            output: {
+                enabled: boolean;
+                ok: true;
+            };
+            meta: unknown;
+        }>;
+    };
     "agentProfiles": {
         "export": TRPC.TRPCQueryProcedure<{
             input: (undefined) | ({
@@ -6945,169 +6643,6 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
                 [k: string]: unknown;
             } & {});
             output: Array<_podium_model.TaskCostRowWire>;
-            meta: unknown;
-        }>;
-    };
-    "credentials": {
-        "add": TRPC.TRPCMutationProcedure<{
-            input: Input_credentials_add;
-            output: {
-                credentialId: string & z.BRAND<"CredentialId">;
-            };
-            meta: unknown;
-        }>;
-        "allowMachine": TRPC.TRPCMutationProcedure<{
-            input: {
-                acknowledgeDisclosure: boolean;
-                credentialId: string;
-                machineId: string;
-            };
-            output: {
-                ok: true;
-            };
-            meta: unknown;
-        }>;
-        "chatgptSignInComplete": TRPC.TRPCMutationProcedure<{
-            input: {
-                attemptId: string;
-                pastedUrl: string;
-            };
-            output: Output_credentials_chatgptSignInComplete;
-            meta: unknown;
-        }>;
-        "chatgptSignInStart": TRPC.TRPCMutationProcedure<{
-            input: {
-                credentialId?: string | undefined;
-                label?: string | undefined;
-                machineId?: string | undefined;
-            };
-            output: Output_credentials_chatgptSignInStart;
-            meta: unknown;
-        }>;
-        "chatgptSignInStatus": TRPC.TRPCQueryProcedure<{
-            input: {
-                attemptId: string;
-            };
-            output: Output_credentials_chatgptSignInStatus;
-            meta: unknown;
-        }>;
-        "disallowMachine": TRPC.TRPCMutationProcedure<{
-            input: {
-                credentialId: string;
-                machineId: string;
-            };
-            output: {
-                ok: true;
-            };
-            meta: unknown;
-        }>;
-        "list": TRPC.TRPCQueryProcedure<{
-            input: (undefined) | ({
-                [k: string]: unknown;
-            } & {});
-            output: Array<_podium_model.CredentialView>;
-            meta: unknown;
-        }>;
-        "login": TRPC.TRPCMutationProcedure<{
-            input: {
-                harness: "claude-code" | "codex" | "cursor" | "grok" | "opencode" | "pi";
-                machineId?: string | undefined;
-            };
-            output: Output_credentials_login;
-            meta: unknown;
-        }>;
-        "remove": TRPC.TRPCMutationProcedure<{
-            input: {
-                credentialId: string;
-            };
-            output: {
-                ok: true;
-                providerRevocation?: "confirmed" | "not-confirmed" | undefined;
-            };
-            meta: unknown;
-        }>;
-        "rename": TRPC.TRPCMutationProcedure<{
-            input: {
-                credentialId: string;
-                label: string;
-            };
-            output: {
-                ok: true;
-            };
-            meta: unknown;
-        }>;
-        "renew": TRPC.TRPCMutationProcedure<{
-            input: {
-                credentialId: string;
-                secret: string;
-            };
-            output: {
-                ok: true;
-            };
-            meta: unknown;
-        }>;
-        "serverAiStatus": TRPC.TRPCQueryProcedure<{
-            input: (undefined) | ({
-                [k: string]: unknown;
-            } & {});
-            output: (CodexServerAiMarker) | (undefined);
-            meta: unknown;
-        }>;
-        "share": TRPC.TRPCMutationProcedure<{
-            input: Input_credentials_share;
-            output: {
-                ok: true;
-            };
-            meta: unknown;
-        }>;
-        "signInCancel": TRPC.TRPCMutationProcedure<{
-            input: {
-                credentialId: string;
-            };
-            output: {
-                ok: true;
-            };
-            meta: unknown;
-        }>;
-        "signInStart": TRPC.TRPCMutationProcedure<{
-            input: Input_credentials_signInStart;
-            output: {
-                credentialId: _podium_model.CredentialId;
-                terminalSessionId: _podium_model.SessionId;
-            };
-            meta: unknown;
-        }>;
-        "signInStatus": TRPC.TRPCQueryProcedure<{
-            input: {
-                credentialId: string;
-            };
-            output: Output_credentials_signInStatus;
-            meta: unknown;
-        }>;
-        "unshare": TRPC.TRPCMutationProcedure<{
-            input: {
-                credentialId: string;
-                grantee: "all-members" | {
-                    userId: string;
-                };
-                verb?: "manage" | "use" | undefined;
-            };
-            output: {
-                ok: true;
-                removed: boolean;
-            };
-            meta: unknown;
-        }>;
-        "useOnMyMachines": TRPC.TRPCMutationProcedure<{
-            input: {
-                enabled: boolean;
-                fingerprint: string;
-                harness: "claude-code" | "codex" | "cursor" | "grok" | "opencode" | "pi";
-            };
-            output: {
-                enabled: boolean;
-                ok: true;
-            };
             meta: unknown;
         }>;
     };
@@ -7800,8 +7335,8 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             meta: unknown;
         }>;
         "searchNormalized": TRPC.TRPCQueryProcedure<{
-            input: Input_issues_search;
-            output: Output_issues_searchNormalized;
+            input: Input_issues_searchNormalized;
+            output: IssueSearchPage;
             meta: unknown;
         }>;
         "seat": TRPC.TRPCQueryProcedure<{
@@ -8231,26 +7766,6 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
                 machineId?: string | undefined;
             });
             output: ModelCatalogSnapshot;
-            meta: unknown;
-        }>;
-    };
-    "notices": {
-        "list": TRPC.TRPCQueryProcedure<{
-            input: {
-                before?: undefined | {
-                    createdAt: string;
-                    id: string;
-                };
-                limit?: number | undefined;
-            };
-            output: Array<_podium_model.NoticeWire>;
-            meta: unknown;
-        }>;
-        "unreadCount": TRPC.TRPCQueryProcedure<{
-            input: (undefined) | ({
-                [k: string]: unknown;
-            } & {});
-            output: number;
             meta: unknown;
         }>;
     };
@@ -8693,15 +8208,6 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             output: Output_sessions_stop;
             meta: unknown;
         }>;
-        "switchCredential": TRPC.TRPCMutationProcedure<{
-            input: {
-                credentialId: null | string;
-                sessionId: string;
-                whenBusy: "interrupt" | "wait";
-            };
-            output: Output_sessions_switchCredential;
-            meta: unknown;
-        }>;
         "transcriptRead": TRPC.TRPCQueryProcedure<{
             input: {
                 anchor?: string | undefined;
@@ -8720,9 +8226,7 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
     };
     "settings": {
         "clearSecret": TRPC.TRPCMutationProcedure<{
-            input: {
-                key: "integrations.linearApiKey" | "notifications.telegramBotToken";
-            };
+            input: Input_settings_clearSecret;
             output: _podium_model.SecretPresenceWire;
             meta: unknown;
         }>;
@@ -8732,10 +8236,7 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             meta: unknown;
         }>;
         "setSecret": TRPC.TRPCMutationProcedure<{
-            input: {
-                key: "integrations.linearApiKey" | "notifications.telegramBotToken";
-                value: string;
-            };
+            input: Input_settings_setSecret;
             output: _podium_model.SecretPresenceWire;
             meta: unknown;
         }>;
@@ -9134,25 +8635,6 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
                 [k: string]: unknown;
             } & {});
             output: UsageSummary;
-            meta: unknown;
-        }>;
-    };
-    "vault": {
-        "reset": TRPC.TRPCMutationProcedure<{
-            input: {
-                confirm: true;
-            };
-            output: {
-                needsAttention: number;
-                state: VaultState;
-            };
-            meta: unknown;
-        }>;
-        "status": TRPC.TRPCQueryProcedure<{
-            input: (undefined) | ({
-                [k: string]: unknown;
-            } & {});
-            output: VaultStatus;
             meta: unknown;
         }>;
     };

@@ -15,11 +15,11 @@
  */
 
 import { asIssueId, asThreadId } from '@podium/model'
-import { beforeEach, describe, expect, it } from 'vitest'
-import { openMigratedTestDatabase } from '../test-support/migrated-database'
-import { syncQueriesOver } from './executor/sync-drizzle'
-import { type MessagingIssueTopicRow, MessagingTopicsRepository } from './messaging-topics'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { type MessageStoreSlice, openMessageStoreSlice } from '../test-support/message-store-slice'
+import type { MessagingIssueTopicRow, MessagingTopicsRepository } from './messaging-topics'
 
+let slice: MessageStoreSlice
 let topics: MessagingTopicsRepository
 
 const row = (over: Partial<MessagingIssueTopicRow> = {}): MessagingIssueTopicRow => ({
@@ -31,8 +31,13 @@ const row = (over: Partial<MessagingIssueTopicRow> = {}): MessagingIssueTopicRow
   ...over,
 })
 
-beforeEach(() => {
-  topics = new MessagingTopicsRepository(syncQueriesOver(openMigratedTestDatabase()))
+beforeEach(async () => {
+  slice = await openMessageStoreSlice()
+  topics = slice.messagingTopics
+})
+
+afterEach(async () => {
+  await slice.close()
 })
 
 describe('MessagingTopicsRepository', () => {

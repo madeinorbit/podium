@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { ConversationDiscoveryWire, firstAdminMemberId, machineAccessRowId } from '@podium/model'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { collectRecords } from '@podium/sync/record-builders'
+import { sql } from 'drizzle-orm'
 import { describe, expect, it } from 'vitest'
 import { SessionRegistry } from '../relay'
 import { recordReadsOver } from '../sync-worker/record-reads'
@@ -155,7 +156,7 @@ describe('stored observations (POD-6765)', () => {
         expect(atParity(parity), JSON.stringify(parity, null, 2)).toBe(true)
         expected.set(kind, await collectRecords(builders.streamAll(reads, kind)))
       }
-      rawSql(store, 'DELETE FROM changes')
+      await rawSql(store, sql`DELETE FROM changes`)
     } finally {
       await registry.dispose()
       await store.close()

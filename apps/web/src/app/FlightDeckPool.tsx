@@ -10,7 +10,6 @@ import { observer } from '@podium/client-graph/react'
 import {
   type ComponentProps,
   type JSX,
-  lazy,
   type ReactNode,
   Suspense,
   useCallback,
@@ -19,6 +18,7 @@ import {
   useRef,
 } from 'react'
 import { throughRestarts } from '@/lib/chunk-recovery'
+import { lazy } from '@/lib/lazy-surface'
 import { useFeature } from '@/lib/use-feature'
 import { sessionDisplayName } from '@/lib/WorkerLabel'
 import {

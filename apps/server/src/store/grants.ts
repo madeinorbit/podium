@@ -1,3 +1,5 @@
+// workspace-scoped (POD-6959)
+import { captureWrite } from '../sync/capture-pg'
 import { CommittedRows } from './committed-rows'
 import { MachineRecordWrites } from './machine-record-writes'
 /**
@@ -9,17 +11,24 @@ import { MachineRecordWrites } from './machine-record-writes'
 
 import type { GrantVerb } from '@podium/model'
 import { GRANT_VERBS } from '@podium/model'
-import { and, asc, count, eq, type SQL, sql } from 'drizzle-orm'
-import { grantAudiences, grants } from '../migrations/schema'
+import { asc, count, eq, type SQL, sql } from 'drizzle-orm'
+import type { grants } from '../migrations/schema'
 import { operationLoader } from './executor/operation-loader'
-import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
+import type {
+  StoreTables,
+  TransactionRunner,
+  WorkspaceDb,
+  WorkspaceQueries,
+} from './executor/sync-drizzle'
 import {
   inListOf,
   inListSize,
   inListValues,
+  inWorkspace,
   param,
   prepared,
   preparedFamily,
+  WORKSPACE,
 } from './executor/sync-drizzle'
 
 /** The entity kind a machine grant hangs on — `ENTITY_KINDS`' `machine` member. */
@@ -81,145 +90,197 @@ export function grantFromRow(r: GrantSelection): GrantRow | undefined {
 // Every query this repository runs, prepared once per store [POD-6147].
 
 /** The historical audiences of many resources of one kind, in primary-key order [POD-6156]. */
-const audiencesOf = preparedFamily((db: StoreDrizzle, size: number) =>
-  db.select({ resourceId: grantAudiences.resourceId, grantee: grantAudiences.grantee }).from(grantAudiences)
-    .where(and(
-      eq(grantAudiences.resourceKind, param(grantAudiences.resourceKind, 'resourceKind')),
-      inListOf(grantAudiences.resourceId, size, 'resourceIds'),
-    ))
-    .orderBy(asc(grantAudiences.resourceId), asc(grantAudiences.grantee)).prepare(),
+const audiencesOf = preparedFamily((db, t, size: number) =>
+  db
+    .select({ resourceId: t.grantAudiences.resourceId, grantee: t.grantAudiences.grantee })
+    .from(t.grantAudiences)
+    .where(
+      inWorkspace(
+        t.grantAudiences,
+        eq(t.grantAudiences.resourceKind, param(t.grantAudiences.resourceKind, 'resourceKind')),
+        inListOf(t.grantAudiences.resourceId, size, 'resourceIds'),
+      ),
+    )
+    .orderBy(asc(t.grantAudiences.resourceId), asc(t.grantAudiences.grantee))
+    .prepare(),
 )
 
-const noteAudience = prepared((db: StoreDrizzle) =>
-  db.insert(grantAudiences).values({
-    resourceKind: sql.placeholder('resourceKind'),
-    resourceId: sql.placeholder('resourceId'),
-    grantee: sql.placeholder('grantee'),
-  }).onConflictDoNothing().prepare(),
+const noteAudience = prepared((db, t) =>
+  db
+    .insert(t.grantAudiences)
+    .values({
+      workspaceId: WORKSPACE,
+      resourceKind: sql.placeholder('resourceKind'),
+      resourceId: sql.placeholder('resourceId'),
+      grantee: sql.placeholder('grantee'),
+    })
+    .onConflictDoNothing()
+    .prepare(),
 )
 
 // Edges written together share a created_at (an enrollment writes use and
 // manage at once), so the rest of the primary key breaks the tie: a resource's
 // edges always come back in one order [POD-6596].
-const grantsOfResource = prepared((db: StoreDrizzle) =>
+const grantsOfResource = prepared((db, t) =>
   db
     .select()
-    .from(grants)
-    .where(and(
-      eq(grants.resourceKind, param(grants.resourceKind, 'resourceKind')),
-      eq(grants.resourceId, param(grants.resourceId, 'resourceId')),
-    ))
-    .orderBy(asc(grants.createdAt), asc(grants.grantee), asc(grants.verb))
+    .from(t.grants)
+    .where(
+      inWorkspace(
+        t.grants,
+        eq(t.grants.resourceKind, param(t.grants.resourceKind, 'resourceKind')),
+        eq(t.grants.resourceId, param(t.grants.resourceId, 'resourceId')),
+      ),
+    )
+    .orderBy(asc(t.grants.createdAt), asc(t.grants.grantee), asc(t.grants.verb))
     .prepare(),
 )
 
-const grantsOfResources = preparedFamily((db: StoreDrizzle, size: number) =>
+const grantsOfResources = preparedFamily((db, t, size: number) =>
   db
     .select()
-    .from(grants)
-    .where(and(eq(grants.resourceKind, param(grants.resourceKind, 'resourceKind')), inListOf(grants.resourceId, size)))
-    .orderBy(asc(grants.createdAt), asc(grants.grantee), asc(grants.verb))
+    .from(t.grants)
+    .where(
+      inWorkspace(
+        t.grants,
+        eq(t.grants.resourceKind, param(t.grants.resourceKind, 'resourceKind')),
+        inListOf(t.grants.resourceId, size),
+      ),
+    )
+    .orderBy(asc(t.grants.createdAt), asc(t.grants.grantee), asc(t.grants.verb))
     .prepare(),
 )
 
 // The grants of resources of SEVERAL kinds in one read [POD-6217]: every listed
 // kind crossed with every listed id; the caller keeps only the (kind, id) pairs
 // it asked for. Keyed by the two padded list sizes, `<kinds>x<ids>`.
-const grantsOfResourceKeys = preparedFamily((db: StoreDrizzle, shape: string) => {
+const grantsOfResourceKeys = preparedFamily((db, t, shape: string) => {
   const [kindSize, idSize] = shape.split('x').map(Number) as [number, number]
   return db
     .select()
-    .from(grants)
-    .where(and(inListOf(grants.resourceKind, kindSize, 'kind'), inListOf(grants.resourceId, idSize, 'id')))
-    .orderBy(asc(grants.createdAt), asc(grants.grantee), asc(grants.verb))
+    .from(t.grants)
+    .where(
+      inWorkspace(
+        t.grants,
+        inListOf(t.grants.resourceKind, kindSize, 'kind'),
+        inListOf(t.grants.resourceId, idSize, 'id'),
+      ),
+    )
+    .orderBy(asc(t.grants.createdAt), asc(t.grants.grantee), asc(t.grants.verb))
     .prepare()
 })
 
 // The edges of one resource kind given to any of several grantees (a person and
 // the groups they belong to), served by `idx_grants_grantee`.
-const grantsToGrantees = preparedFamily((db: StoreDrizzle, size: number) =>
+const grantsToGrantees = preparedFamily((db, t, size: number) =>
   db
     .select()
-    .from(grants)
-    .where(and(
-      eq(grants.resourceKind, param(grants.resourceKind, 'resourceKind')),
-      inListOf(grants.grantee, size, 'grantees'),
-    ))
+    .from(t.grants)
+    .where(
+      inWorkspace(
+        t.grants,
+        eq(t.grants.resourceKind, param(t.grants.resourceKind, 'resourceKind')),
+        inListOf(t.grants.grantee, size, 'grantees'),
+      ),
+    )
     .prepare(),
 )
 
 /** `custody` keeps the stored marker when the row does not name one: two shapes. */
-const upsertGrant = preparedFamily((db: StoreDrizzle, custody: 'set' | 'keep') =>
-  db
-    .insert(grants)
-    .values({
-      resourceKind: sql.placeholder('resourceKind'),
-      resourceId: sql.placeholder('resourceId'),
-      grantee: sql.placeholder('grantee'),
-      verb: sql.placeholder('verb'),
-      custody: sql.placeholder('custody'),
-      owner: sql.placeholder('owner'),
-      visibility: sql.placeholder('visibility'),
-      createdAt: sql.placeholder('createdAt'),
-      actorKind: sql.placeholder('actorKind'),
-      actorId: sql.placeholder('actorId'),
-      onBehalfOf: sql.placeholder('onBehalfOf'),
-    })
-    .onConflictDoUpdate({
-      target: [grants.resourceKind, grants.resourceId, grants.grantee, grants.verb],
-      set: {
-        custody: custody === 'set' ? sql.placeholder('custody') : grants.custody,
+const upsertGrant = preparedFamily((db, t, custody: 'set' | 'keep') =>
+  captureWrite(
+    db
+      .insert(t.grants)
+      .values({
+        workspaceId: WORKSPACE,
+        resourceKind: sql.placeholder('resourceKind'),
+        resourceId: sql.placeholder('resourceId'),
+        grantee: sql.placeholder('grantee'),
+        verb: sql.placeholder('verb'),
+        custody: sql.placeholder('custody'),
         owner: sql.placeholder('owner'),
         visibility: sql.placeholder('visibility'),
         createdAt: sql.placeholder('createdAt'),
         actorKind: sql.placeholder('actorKind'),
         actorId: sql.placeholder('actorId'),
         onBehalfOf: sql.placeholder('onBehalfOf'),
-      },
-    }).returning().prepare(),
+      })
+      .onConflictDoUpdate({
+        target: [
+          t.grants.workspaceId,
+          t.grants.resourceKind,
+          t.grants.resourceId,
+          t.grants.grantee,
+          t.grants.verb,
+        ],
+        set: {
+          custody: custody === 'set' ? sql.placeholder('custody') : t.grants.custody,
+          owner: sql.placeholder('owner'),
+          visibility: sql.placeholder('visibility'),
+          createdAt: sql.placeholder('createdAt'),
+          actorKind: sql.placeholder('actorKind'),
+          actorId: sql.placeholder('actorId'),
+          onBehalfOf: sql.placeholder('onBehalfOf'),
+        },
+      })
+      .returning(),
+  ).prepare(),
 )
 
-const oneEdge = (): SQL | undefined => and(
-  eq(grants.resourceKind, param(grants.resourceKind, 'resourceKind')),
-  eq(grants.resourceId, param(grants.resourceId, 'resourceId')),
-  eq(grants.grantee, param(grants.grantee, 'grantee')),
-  eq(grants.verb, param(grants.verb, 'verb')),
+const oneEdge = (t: StoreTables): SQL | undefined =>
+  inWorkspace(
+    t.grants,
+    eq(t.grants.resourceKind, param(t.grants.resourceKind, 'resourceKind')),
+    eq(t.grants.resourceId, param(t.grants.resourceId, 'resourceId')),
+    eq(t.grants.grantee, param(t.grants.grantee, 'grantee')),
+    eq(t.grants.verb, param(t.grants.verb, 'verb')),
+  )
+
+const countEdge = prepared((db, t) =>
+  db.select({ n: count() }).from(t.grants).where(oneEdge(t)).prepare(),
 )
 
-const countEdge = prepared((db: StoreDrizzle) =>
-  db.select({ n: count() }).from(grants).where(oneEdge()).prepare(),
+const deleteEdge = prepared((db, t) =>
+  captureWrite(db.delete(t.grants).where(oneEdge(t)).returning()).prepare(),
 )
 
-const deleteEdge = prepared((db: StoreDrizzle) =>
-  db.delete(grants).where(oneEdge()).returning().prepare(),
+const deleteGrantsOfGrantee = prepared((db, t) =>
+  captureWrite(
+    db
+      .delete(t.grants)
+      .where(inWorkspace(t.grants, eq(t.grants.grantee, param(t.grants.grantee, 'grantee'))))
+      .returning(),
+  ).prepare(),
 )
 
-const deleteGrantsOfGrantee = prepared((db: StoreDrizzle) =>
+const machinesGrantedTo = prepared((db, t) =>
   db
-    .delete(grants)
-    .where(eq(grants.grantee, param(grants.grantee, 'grantee')))
-    .returning()
-    .prepare(),
-)
-
-const machinesGrantedTo = prepared((db: StoreDrizzle) =>
-  db
-    .select({ id: grants.resourceId })
-    .from(grants)
+    .select({ id: t.grants.resourceId })
+    .from(t.grants)
     .where(
-      and(eq(grants.grantee, param(grants.grantee, 'grantee')), eq(grants.resourceKind, 'machine')),
+      inWorkspace(
+        t.grants,
+        eq(t.grants.grantee, param(t.grants.grantee, 'grantee')),
+        eq(t.grants.resourceKind, 'machine'),
+      ),
     )
     .prepare(),
 )
 
-const deleteGrantsOfResource = preparedFamily((db: StoreDrizzle, custody: 'retain' | 'all') =>
-  db
-    .delete(grants)
-    .where(and(
-      eq(grants.resourceKind, param(grants.resourceKind, 'resourceKind')),
-      eq(grants.resourceId, param(grants.resourceId, 'resourceId')),
-      ...(custody === 'retain' ? [eq(grants.custody, false)] : []),
-    )).returning().prepare(),
+const deleteGrantsOfResource = preparedFamily((db, t, custody: 'retain' | 'all') =>
+  captureWrite(
+    db
+      .delete(t.grants)
+      .where(
+        inWorkspace(
+          t.grants,
+          eq(t.grants.resourceKind, param(t.grants.resourceKind, 'resourceKind')),
+          eq(t.grants.resourceId, param(t.grants.resourceId, 'resourceId')),
+          ...(custody === 'retain' ? [eq(t.grants.custody, false)] : []),
+        ),
+      )
+      .returning(),
+  ).prepare(),
 )
 
 /** One loader key per `(kind, id)`; NUL cannot occur in either. */
@@ -273,21 +334,25 @@ export class GrantsRepository {
     return out
   }
 
-  private async noteVisibilityAudience(resourceKind: string, resourceId: string, grantee: string): Promise<void> {
+  private async noteVisibilityAudience(
+    resourceKind: string,
+    resourceId: string,
+    grantee: string,
+  ): Promise<void> {
     await noteAudience(this.db).run({ resourceKind, resourceId, grantee })
   }
-  private readonly rootDb: StoreDrizzle
+  private readonly scope: WorkspaceDb
   protected readonly createOrJoinTransaction: TransactionRunner
 
   constructor(
-    queries: StoreQueries,
+    queries: WorkspaceQueries,
     readonly machineRecordWrites = new MachineRecordWrites(),
   ) {
     this.committed = new CommittedRows(queries.createOrJoinTransaction, 'grants')
     // The loader is invalidated after each write below AND after each commit of
     // one, which is what makes its memo exact inside write spans (POD-6189).
     this.committed.subscribe(() => this.resourceGrants.invalidate())
-    this.rootDb = queries.rootDb
+    this.scope = queries.db
     this.createOrJoinTransaction = queries.createOrJoinTransaction
   }
 
@@ -296,8 +361,8 @@ export class GrantsRepository {
    * construction, so rule 35's ambient transaction routing has one line to
    * change at B1 and no call site does.
    */
-  protected get db(): StoreDrizzle {
-    return this.rootDb
+  protected get db(): WorkspaceDb {
+    return this.scope
   }
 
   /**
@@ -327,7 +392,10 @@ export class GrantsRepository {
    * the answer, and a caller must read it as "no grants", never as "not looked
    * at" — {@link primeOwnerMemo} depends on exactly that distinction.
    */
-  async listForResources(resourceKind: string, resourceIds: readonly string[]): Promise<Map<string, GrantRow[]>> {
+  async listForResources(
+    resourceKind: string,
+    resourceIds: readonly string[],
+  ): Promise<Map<string, GrantRow[]>> {
     const out = new Map<string, GrantRow[]>()
     const unique = [...new Set(resourceIds)]
     if (unique.length === 0) return out
@@ -400,8 +468,14 @@ export class GrantsRepository {
    * operation's memo answers the ones it holds, and the rest are one query.
    * Every asked id has an entry, `[]` for none.
    */
-  async loadForResources(resourceKind: string, resourceIds: readonly string[]): Promise<Map<string, GrantRow[]>> {
-    return (await this.loadForResourcesOfKinds({ [resourceKind]: resourceIds })).get(resourceKind) ?? new Map()
+  async loadForResources(
+    resourceKind: string,
+    resourceIds: readonly string[],
+  ): Promise<Map<string, GrantRow[]>> {
+    return (
+      (await this.loadForResourcesOfKinds({ [resourceKind]: resourceIds })).get(resourceKind) ??
+      new Map()
+    )
   }
 
   /**
@@ -420,7 +494,9 @@ export class GrantsRepository {
   async loadForResourcesOfKinds(
     resources: Readonly<Record<string, readonly string[]>>,
   ): Promise<Map<string, Map<string, GrantRow[]>>> {
-    const keys = Object.entries(resources).flatMap(([kind, ids]) => ids.map((id) => resourceGrantKey(kind, id)))
+    const keys = Object.entries(resources).flatMap(([kind, ids]) =>
+      ids.map((id) => resourceGrantKey(kind, id)),
+    )
     const loaded = await this.resourceGrants.loadMany(keys)
     return new Map(
       Object.entries(resources).map(([kind, ids]) => [
@@ -476,33 +552,31 @@ export class GrantsRepository {
    * that owner rather than to the previous one.
    */
   async upsert(row: GrantRow): Promise<void> {
-    await this.machineRecordWrites.compare(
-      async () => {
-        if (row.custody && (row.resourceKind !== 'machine' || row.verb !== 'manage')) {
-          throw new Error('Custody requires a machine manage edge')
-        }
-        // Updating an ordinary share preserves its custody marker. A second
-        // custodian conflicts with the partial unique index and rolls back.
-        await this.committed.write(async () => {
-          await this.noteVisibilityAudience(row.resourceKind, row.resourceId, row.grantee)
-          return await upsertGrant(this.db, row.custody === undefined ? 'keep' : 'set').all({
-            resourceKind: row.resourceKind,
-            resourceId: row.resourceId,
-            grantee: row.grantee,
-            verb: row.verb,
-            custody: row.custody ?? false,
-            owner: row.owner,
-            visibility: row.visibility,
-            createdAt: row.createdAt,
-            actorKind: row.actorKind,
-            actorId: row.actorId,
-            onBehalfOf: row.onBehalfOf,
-          })
-        }, 'upsert')
-        this.resourceGrants.invalidate()
-        this.visibilityRevisionValue += 1
-      },
-    )
+    await this.machineRecordWrites.compare(async () => {
+      if (row.custody && (row.resourceKind !== 'machine' || row.verb !== 'manage')) {
+        throw new Error('Custody requires a machine manage edge')
+      }
+      // Updating an ordinary share preserves its custody marker. A second
+      // custodian conflicts with the partial unique index and rolls back.
+      await this.committed.write(async () => {
+        await this.noteVisibilityAudience(row.resourceKind, row.resourceId, row.grantee)
+        return await upsertGrant(this.db, row.custody === undefined ? 'keep' : 'set').all({
+          resourceKind: row.resourceKind,
+          resourceId: row.resourceId,
+          grantee: row.grantee,
+          verb: row.verb,
+          custody: row.custody ?? false,
+          owner: row.owner,
+          visibility: row.visibility,
+          createdAt: row.createdAt,
+          actorKind: row.actorKind,
+          actorId: row.actorId,
+          onBehalfOf: row.onBehalfOf,
+        })
+      }, 'upsert')
+      this.resourceGrants.invalidate()
+      this.visibilityRevisionValue += 1
+    })
   }
 
   /** Revocation of one verb. Returns whether an edge was actually removed, so a
@@ -514,34 +588,30 @@ export class GrantsRepository {
     grantee: string,
     verb: GrantVerb,
   ): Promise<boolean> {
-    return this.machineRecordWrites.compare(
-      async () => {
-        const edge = { resourceKind, resourceId, grantee, verb }
-        const before = await countEdge(this.db).get(edge)
-        await this.committed.write(async () => {
-          await this.noteVisibilityAudience(resourceKind, resourceId, grantee)
-          return await deleteEdge(this.db).all(edge)
-        }, 'delete')
-        this.resourceGrants.invalidate()
-        const removed = (before?.n ?? 0) > 0
-        if (removed) this.visibilityRevisionValue += 1
-        return removed
-      },
-    )
+    return this.machineRecordWrites.compare(async () => {
+      const edge = { resourceKind, resourceId, grantee, verb }
+      const before = await countEdge(this.db).get(edge)
+      await this.committed.write(async () => {
+        await this.noteVisibilityAudience(resourceKind, resourceId, grantee)
+        return await deleteEdge(this.db).all(edge)
+      }, 'delete')
+      this.resourceGrants.invalidate()
+      const removed = (before?.n ?? 0) > 0
+      if (removed) this.visibilityRevisionValue += 1
+      return removed
+    })
   }
 
   /** Member removal revokes their incoming rights, preserving everyone else's shares. */
   async removeAllForGrantee(grantee: string): Promise<void> {
-    await this.machineRecordWrites.compare(
-      async () => {
-        const result = await this.committed.write(
-          async () => await deleteGrantsOfGrantee(this.db).all({ grantee }),
-          'delete',
-        )
-        this.resourceGrants.invalidate()
-        if (result.changes > 0) this.visibilityRevisionValue += 1
-      },
-    )
+    await this.machineRecordWrites.compare(async () => {
+      const result = await this.committed.write(
+        async () => await deleteGrantsOfGrantee(this.db).all({ grantee }),
+        'delete',
+      )
+      this.resourceGrants.invalidate()
+      if (result.changes > 0) this.visibilityRevisionValue += 1
+    })
   }
 
   /**
@@ -557,19 +627,17 @@ export class GrantsRepository {
     resourceId: string,
     retainCustody = false,
   ): Promise<void> {
-    await this.machineRecordWrites.compare(
-      async () => {
-        const result = await this.committed.write(
-          async () =>
-            await deleteGrantsOfResource(this.db, retainCustody ? 'retain' : 'all').all({
-              resourceKind,
-              resourceId,
-            }),
-          'delete',
-        )
-        this.resourceGrants.invalidate()
-        if (Number(result.changes) > 0) this.visibilityRevisionValue += 1
-      },
-    )
+    await this.machineRecordWrites.compare(async () => {
+      const result = await this.committed.write(
+        async () =>
+          await deleteGrantsOfResource(this.db, retainCustody ? 'retain' : 'all').all({
+            resourceKind,
+            resourceId,
+          }),
+        'delete',
+      )
+      this.resourceGrants.invalidate()
+      if (Number(result.changes) > 0) this.visibilityRevisionValue += 1
+    })
   }
 }

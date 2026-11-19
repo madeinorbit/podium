@@ -48,7 +48,7 @@ import {
   type RuntimeEvent,
   type TerminalInstrumentationSections,
 } from '@podium/harness/driver/host'
-import { decodeCursor, encodeCursor, readFileItems } from '@podium/harness/store'
+import { decodeCursor, encodeCursor, fileByteSource, readFileItems } from '@podium/harness/store'
 import { addSink, type LogRecord } from '@podium/logger'
 import { type AgentKind, type AgentRuntimeState, asSessionId, type ResumeRef, type SessionId, type TranscriptItem } from '@podium/model'
 import type { AgentObservation } from '@podium/protocol'
@@ -5571,10 +5571,14 @@ describe('terminal receipts from the history (POD-4905)', () => {
     const toItems = transcriptRecordMapperFor(lane)
     if (!toItems) throw new Error(`no reader for ${lane}`)
     const receipts = transcriptReceiptMapperFor(lane)
-    return readFileItems(join(LANES, file), `lane-${lane}`, (record, previousRecord) => [
-      ...toItems(record, previousRecord),
-      ...(receipts?.(record) ?? []),
-    ])
+    return readFileItems(
+      fileByteSource(join(LANES, file)),
+      `lane-${lane}`,
+      (record, previousRecord) => [
+        ...toItems(record, previousRecord),
+        ...(receipts?.(record) ?? []),
+      ],
+    )
   }
 
   /** OpenCode's rows as its terminal observer stamps them (POD-4893 lane). */
@@ -6173,10 +6177,14 @@ describe('terminal receipts from the history (POD-4905)', () => {
     const toItems = transcriptRecordMapperFor(lane)
     if (!toItems) throw new Error(`no reader for ${lane}`)
     const receipts = transcriptReceiptMapperFor(lane)
-    return readFileItems(join(LANES, file), `lane-${lane}`, (record, previousRecord) => [
-      ...toItems(record, previousRecord),
-      ...(receipts?.(record) ?? []),
-    ])
+    return readFileItems(
+      fileByteSource(join(LANES, file)),
+      `lane-${lane}`,
+      (record, previousRecord) => [
+        ...toItems(record, previousRecord),
+        ...(receipts?.(record) ?? []),
+      ],
+    )
   }
 
   /** The first item the program wrote at or after `iso`: where a send typed

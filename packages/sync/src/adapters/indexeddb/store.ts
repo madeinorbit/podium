@@ -68,16 +68,52 @@ import type {
 } from '../../outbox/ports'
 import type { OutboxRecord } from '../../outbox/records'
 import {
-  certifyPersonalRowsCompleteAt,
+  type CacheMeta,
+  CURSOR_META_KEY,
   cursorTriple,
-  decodePersonalRowsCompleteAt,
-  nextCacheCompleteness,
-  nextPersonalRowsCompleteAt,
-  type PersonalRowsCompleteness,
+  decodeCacheMeta,
+  EMPTY_CACHE_META,
+  INSTANCE_META_END,
+  INSTANCE_META_PREFIX,
+  instanceMetaKey,
+  isMainRow,
+  type MetaWrite,
+  nextCacheMeta,
   type ScopedCacheCursor,
-  snapshotCacheCursor,
-  trustedPersonalRowsCompleteAt,
-} from '../../replica/cache-completeness'
+} from '../../replica/cache-state'
+import {
+  approxBytes,
+  bucketCountFor,
+  bucketOf,
+  buildIndex,
+  type DecodedEntry,
+  DiskIndex,
+  DiskIndexDraft,
+  type DiskIndexReader,
+  DiskOnlyWrites,
+  decodeBucket,
+  decodeJournal,
+  decodeMarkerStates,
+  encodeBucket,
+  heldByNothing,
+  INDEX_BUCKETS,
+  INDEX_BUILT_META_KEY,
+  indexBucketKey,
+  indexChanges,
+  installResidentRows,
+  isJournalKey,
+  loadInstancesFromDisk,
+  markerWithState,
+  planIndexWrite,
+  policyInstanceKeys,
+  type RecordEntry,
+  splitRowKey,
+  stageIndexComesWith,
+  stageIndexInstances,
+  stageRow,
+  storedBucketCount,
+  unloadResident,
+} from '../../replica/disk-index'
 import type {
   CacheMutation,
   OwnedSyncSpan,
@@ -88,10 +124,23 @@ import type {
   SyncUnitOfWork,
 } from '../../replica/ports'
 import { ReplicaStoreCorruptError } from '../../replica/ports'
-import type { Cursor, EntityRecord, KindTokens } from '../../replica/types'
+import { RowMirror } from '../../replica/row-mirror'
+import type { StubTableReader } from '../../replica/stub-table'
+import type {
+  CachePolicy,
+  Cursor,
+  EntityRecord,
+  InstanceRecord,
+  KindTokens,
+} from '../../replica/types'
 import { SyncCommitConflict } from '../../span'
 import { ChangedKeyDraft } from '../changed-key-draft'
-import { mergeScrubReports, planSecretScrub, type SecretScrubReport } from '../secret-scrub'
+import {
+  EMPTY_SCRUB_REPORT,
+  mergeScrubReports,
+  planSecretScrub,
+  type SecretScrubReport,
+} from '../secret-scrub'
 import {
   type IdbDatabaseLike,
   type IdbFactoryLike,
@@ -102,14 +151,14 @@ import {
 } from './idb'
 import {
   ALL_STORES,
-  CURSOR_KEY,
   ENTITY_STORE,
+  INDEX_STORE,
   META_STORE,
   OUTBOX_STORE,
-  PERSONAL_ROWS_COMPLETE_AT_KEY,
   REPLICA_DB_NAME,
   REPLICA_SCHEMA_VERSION,
   type StoredEntity,
+  type StoredIndexRow,
   type StoredMeta,
   type StoredOutboxRecord,
   upgradeSchema,
@@ -117,6 +166,18 @@ import {
 import { enqueueWrites } from './write-batch'
 
 const rowKey = (entity: string, entityId: string): string => `${entity}\u0000${entityId}`
+
+/**
+ * The format of the disk index this build writes; a store without it is rebuilt from its rows.
+ * 2 (POD-7186): every entry carries its pointer edges.
+ */
+const INDEX_FORMAT = 2
+/** POD-7160 — a quiet tick after the last journal row, then the journal folds into its buckets. */
+const INDEX_FOLD_IDLE_MS = 2_000
+/** The principal of store-wide metadata rows (no principal's view reads it). */
+const STORE_PRINCIPAL = ''
+/** The upper bound of every string key that starts with a given prefix. */
+const KEY_END = '\uffff'
 
 export type DurabilityMode = 'durable' | 'degraded-memory' | 'unavailable'
 
@@ -169,6 +230,14 @@ export interface IndexedDbStoreOptions {
    * Tests inject a short value so a hung factory cannot stall the suite.
    */
   readonly openTimeoutMs?: number
+  /** Diagnostic only, after a version-change transaction has committed. */
+  readonly onSchemaUpgrade?: (event: {
+    readonly from: number
+    readonly to: number
+    readonly cachePrincipalsReset: number
+  }) => void
+  /** POD-7184 — how much one group commit writes; default {@link GROUP_COMMIT_BOUNDS}. Tests pass small ones. */
+  readonly groupCommitBounds?: GroupCommitBounds
   /** REQUIRED — see {@link DurabilityDegradation}. */
   readonly onDegraded: (degradation: DurabilityDegradation) => void
   /**
@@ -191,9 +260,17 @@ type IdbOp =
 /** The post-state one span has staged, per region, plus the durable operations that produce it. */
 interface SpanDraft {
   /** Principal → changed keys or snapshot replacement. Absent means untouched. */
-  readonly entities: Map<string, ChangedKeyDraft<EntityRecord>>
-  readonly cursors: Map<string, ScopedCacheCursor | null>
-  readonly personalRowsCompleteAt: Map<string, PersonalRowsCompleteness | null>
+  readonly entities: Map<string, ChangedKeyDraft<EntityRecord, RowMirror>>
+  /** Principal → the cursor, markers, policy and load state this draft leaves. */
+  readonly metas: Map<string, CacheMeta>
+  /** Principal → the disk index changes this draft makes (POD-7159). */
+  readonly indexes: Map<string, DiskIndexDraft>
+  /** Principal → the rows this draft writes to disk and not to memory (POD-7160). */
+  readonly diskOnly: Map<string, DiskOnlyWrites>
+  /** POD-7160 — principals whose index journal this draft folds into its buckets (an idle tick). */
+  readonly foldIndex: Set<string>
+  /** The index's durable rows were added to `ops` (once, at commit). */
+  indexWritten: boolean
   readonly outbox: Map<string, StoredOutboxRecord[]>
   readonly ops: IdbOp[]
   /** Re-checked inside the native transaction against durable rows (D4.6). */
@@ -224,15 +301,146 @@ function scopeOf(draft: SpanDraft): string[] {
 function lanesOf(draft: SpanDraft): readonly CommitLane[] {
   const scope = scopeOf(draft)
   const lanes: CommitLane[] = []
-  if (scope.includes(ENTITY_STORE) || scope.includes(META_STORE)) lanes.push('cache')
+  if (scope.includes(ENTITY_STORE) || scope.includes(META_STORE) || scope.includes(INDEX_STORE))
+    lanes.push('cache')
   if (scope.includes(OUTBOX_STORE)) lanes.push('outbox')
   return lanes.length === 0 ? COMMIT_LANES : lanes
 }
 
+/** POD-7170 — eager cache drafts written as one transaction (`joinCacheGroup`). */
+interface CacheGroup {
+  readonly drafts: SpanDraft[]
+  run: Promise<void>
+  /** POD-7184 — the requests and estimated bytes of its drafts, before the merge. */
+  ops: number
+  bytes: number
+}
+
+/**
+ * POD-7184 — the most one group commit writes: drafts queued behind a running
+ * commit join its group only while the group stays within both. A draft larger
+ * than either is a group of its own (a draft is all-or-nothing).
+ */
+export interface GroupCommitBounds {
+  readonly ops: number
+  readonly bytes: number
+}
+
+export const GROUP_COMMIT_BOUNDS: GroupCommitBounds = { ops: 16_384, bytes: 16 * 1024 * 1024 }
+
+/**
+ * About the bytes a value takes once IndexedDB has serialized it: string
+ * characters, 8 per number, the bytes of a binary view, plus a little per
+ * property. An estimate for a bound, not a measurement.
+ */
+function estimateBytes(root: unknown): number {
+  let bytes = 0
+  const stack: unknown[] = [root]
+  while (stack.length > 0) {
+    const value = stack.pop()
+    switch (typeof value) {
+      case 'string':
+        bytes += value.length + 2
+        continue
+      case 'number':
+      case 'bigint':
+        bytes += 8
+        continue
+      case 'object':
+        break
+      default:
+        bytes += 1
+        continue
+    }
+    if (value === null) {
+      bytes += 1
+      continue
+    }
+    if (ArrayBuffer.isView(value) || value instanceof ArrayBuffer) {
+      bytes += value.byteLength + 8
+      continue
+    }
+    if (Array.isArray(value)) {
+      bytes += 4
+      for (const item of value) stack.push(item)
+      continue
+    }
+    bytes += 4
+    for (const key in value as Record<string, unknown>) {
+      bytes += key.length + 2
+      stack.push((value as Record<string, unknown>)[key])
+    }
+  }
+  return bytes
+}
+
+/** The estimated bytes of a draft's operations (a delete costs its key). */
+function draftBytes(draft: SpanDraft): number {
+  let bytes = 0
+  for (const op of draft.ops) bytes += op.kind === 'put' ? estimateBytes(op.value) : 32
+  return bytes
+}
+
+/** A draft that may join a group: an eager write of the cache region alone, with no precondition. */
+function groupable(draft: SpanDraft, lanes: readonly CommitLane[]): boolean {
+  return (
+    lanes.length === 1 &&
+    lanes[0] === 'cache' &&
+    draft.ops.length > 0 &&
+    draft.expectations.length === 0
+  )
+}
+
+/**
+ * The store and key one operation writes, or `undefined` for a range delete
+ * (never left out, never lets an earlier operation be left out).
+ */
+function opIdentity(op: IdbOp): string | undefined {
+  if (op.kind === 'delete')
+    return Array.isArray(op.key) ? JSON.stringify([op.store, ...op.key]) : undefined
+  const value = op.value as Record<string, unknown>
+  if (op.store === ENTITY_STORE)
+    return JSON.stringify([op.store, value['principal'], value['entity'], value['entityId']])
+  if (op.store === OUTBOX_STORE)
+    return JSON.stringify([op.store, value['principal'], value['mutationId']])
+  return JSON.stringify([op.store, value['principal'], value['key']])
+}
+
+/**
+ * The drafts' operations in order, without those a later operation on the same
+ * store and key replaces: what they leave is what the drafts one after another
+ * leave (a range delete stays where it is, and the operations around it keep
+ * their order).
+ */
+function mergeDrafts(drafts: readonly SpanDraft[]): SpanDraft {
+  if (drafts.length === 1) return drafts[0] as SpanDraft
+  const merged = newDraft()
+  const later = new Set<string>()
+  const kept: IdbOp[] = []
+  for (let d = drafts.length - 1; d >= 0; d -= 1) {
+    const draft = drafts[d] as SpanDraft
+    merged.touchedCache ||= draft.touchedCache
+    for (let i = draft.ops.length - 1; i >= 0; i -= 1) {
+      const op = draft.ops[i] as IdbOp
+      const identity = opIdentity(op)
+      if (identity !== undefined) {
+        if (later.has(identity)) continue
+        later.add(identity)
+      }
+      kept.push(op)
+    }
+  }
+  for (let i = kept.length - 1; i >= 0; i -= 1) merged.ops.push(kept[i] as IdbOp)
+  return merged
+}
+
 const newDraft = (): SpanDraft => ({
   entities: new Map(),
-  cursors: new Map(),
-  personalRowsCompleteAt: new Map(),
+  metas: new Map(),
+  indexes: new Map(),
+  diskOnly: new Map(),
+  foldIndex: new Set(),
+  indexWritten: false,
   outbox: new Map(),
   ops: [],
   expectations: [],
@@ -317,12 +525,17 @@ export class IndexedDbSyncStore {
   private mode: DurabilityMode = 'durable'
   /** Flipped by the corruption injector and by a hydrate that could not decode. */
   private corrupt = false
-  private readonly entities = new Map<string, Map<string, EntityRecord>>()
-  private readonly cursors = new Map<string, ScopedCacheCursor | null>()
-  private readonly personalRowsCompleteAt = new Map<string, PersonalRowsCompleteness | null>()
+  // POD-7115: a stub is kept only in its record type's stub table.
+  // POD-7159: the resident set, not a copy of the disk.
+  private readonly entities = new Map<string, RowMirror>()
+  private readonly metas = new Map<string, CacheMeta>()
+  /** POD-7159: per principal, the disk index (always in memory). */
+  private readonly indexes = new Map<string, DiskIndex>()
   private readonly outboxRows = new Map<string, StoredOutboxRecord[]>()
   private readonly views = new Map<string, IndexedDbStoreView>()
   private nextOrdinal = 0
+  /** What a rebuild of the index scrubbed, reported with the open's scrub. */
+  private rebuildScrub: SecretScrubReport = EMPTY_SCRUB_REPORT
   /**
    * Serializes durable commits PER REGION — see `enqueueCommit`. Two transactions
    * over the same region interleaving is the one race D10 forbids; two over
@@ -333,6 +546,8 @@ export class IndexedDbSyncStore {
     cache: Promise.resolve(),
     outbox: Promise.resolve(),
   }
+  /** POD-7170: the group of eager cache drafts waiting for the cache region's queue. */
+  private cacheGroup: CacheGroup | null = null
   /** Spans opened by `unitOfWork.transact`, so `cacheWrites` can exclude them. */
   private readonly transactSpans = new WeakSet<IdbSpan>()
   /** Spans whose mirror publishes before durability — see `autocommitEager`. */
@@ -364,7 +579,7 @@ export class IndexedDbSyncStore {
     const name = options.databaseName ?? REPLICA_DB_NAME
     let db: IdbDatabaseLike
     try {
-      db = await openDatabase(options.factory, name, options.openTimeoutMs)
+      db = await openDatabase(options.factory, name, options.openTimeoutMs, options)
     } catch (error) {
       // A timeout is not corruption. Deleting the replica because Safari held
       // the lock would throw away a recoverable store and force a world-sized
@@ -378,7 +593,7 @@ export class IndexedDbSyncStore {
       // D5.1 is forward-only, so the only honest move is to drop it and cold start.
       await deleteDatabase(options.factory, name)
       try {
-        db = await openDatabase(options.factory, name, options.openTimeoutMs)
+        db = await openDatabase(options.factory, name, options.openTimeoutMs, options)
       } catch (fatal) {
         const store = new IndexedDbSyncStore(unavailableDatabase(), options)
         store.degrade('unavailable', 'unavailable', fatal)
@@ -444,22 +659,9 @@ export class IndexedDbSyncStore {
     this.guardReadable()
     await this.unitOfWork.transact(async (span) => {
       const draft = this.draftFor(span)
-      for (const row of this.entitiesOf(principal).values()) {
-        draft.ops.push({
-          kind: 'delete',
-          store: ENTITY_STORE,
-          key: [principal, row.entity, row.entityId],
-        })
-      }
-      draft.entities.set(principal, new ChangedKeyDraft(new Map<string, EntityRecord>()))
-      draft.cursors.set(principal, null)
-      draft.personalRowsCompleteAt.set(principal, null)
-      draft.ops.push({ kind: 'delete', store: META_STORE, key: [principal, CURSOR_KEY] })
-      draft.ops.push({
-        kind: 'delete',
-        store: META_STORE,
-        key: [principal, PERSONAL_ROWS_COMPLETE_AT_KEY],
-      })
+      this.stageDeleteEveryRow(draft, principal)
+      draft.entities.set(principal, new ChangedKeyDraft<EntityRecord, RowMirror>(new RowMirror()))
+      this.stageMetaReset(draft, principal)
       draft.touchedCache = true
 
       for (const row of this.outboxOf(principal)) {
@@ -503,6 +705,11 @@ export class IndexedDbSyncStore {
       span.commit()
       await span.durable
       return result
+    },
+    // The lane tails never reject: a failed commit reports through its own
+    // caller, never through this wait. Nothing is appended to a lane.
+    durable: async (): Promise<void> => {
+      await Promise.all(COMMIT_LANES.map((lane) => this.laneTails[lane]))
     },
   }
 
@@ -567,6 +774,7 @@ export class IndexedDbSyncStore {
 
   close(): void {
     this.closeRequested = true
+    if (this.foldTimer !== undefined) clearTimeout(this.foldTimer)
     this.db.close()
   }
 
@@ -637,6 +845,7 @@ export class IndexedDbSyncStore {
         this.options.factory,
         this.options.databaseName ?? REPLICA_DB_NAME,
         this.options.openTimeoutMs,
+        this.options,
       )
     } catch (error) {
       throw new IndexedDbReconnectError(error)
@@ -761,6 +970,8 @@ export class IndexedDbSyncStore {
   private enqueueCommit(span: IdbSpan): Promise<void> {
     const eager = this.eagerSpans.has(span)
     const draftNow = this.drafts.get(span) ?? newDraft()
+    // The draft is final once its span commits: its index rows join its ops.
+    this.stageIndexRows(draftNow)
     const lanes = lanesOf(draftNow)
     if (eager) {
       // Published BEFORE the queue runs — see `autocommitEager` for why the cache
@@ -773,7 +984,10 @@ export class IndexedDbSyncStore {
         return Promise.reject(error)
       }
       span.publishAll()
+      if (groupable(draftNow, lanes)) return this.joinCacheGroup(draftNow)
     }
+    // A commit of the cache region queued after the open group comes after it.
+    if (lanes.includes('cache')) this.cacheGroup = null
     const run = Promise.all(lanes.map((lane) => this.laneTails[lane])).then(async () => {
       const draft = eager ? draftNow : (this.drafts.get(span) ?? newDraft())
       if (!eager) {
@@ -834,6 +1048,75 @@ export class IndexedDbSyncStore {
     )
     for (const lane of lanes) this.laneTails[lane] = tail
     return run
+  }
+
+  /**
+   * POD-7170 — GROUP COMMIT of the cache port's eager writes. A draft that
+   * arrives while the cache region's queue is busy joins the group waiting for
+   * it, and the whole group is written as ONE native transaction when its turn
+   * comes. A first download installs a chunk at a time faster than IndexedDB
+   * commits them, and each commit rewrote the disk index buckets its records
+   * fall in (all of them, for a large chunk): 11 commits wrote 17 MB of index
+   * rows for 8 MB of records (operator size, measured). Grouped, each row and
+   * each index bucket is written once per group, in its last state.
+   *
+   * Only eager drafts group: their mirror has published already, in queue
+   * order, and nothing waits on one commit rather than another. The group's
+   * operations keep their order; an operation a later one in the group
+   * replaces (the same store and key) is left out, so the transaction leaves
+   * exactly what the drafts one after another would have left. A group closes
+   * when it starts, or when any other commit of the cache region is queued, so
+   * the region's order holds. A failure degrades every draft of the group, as
+   * it degrades one eager draft today.
+   *
+   * POD-7184 — A GROUP IS BOUNDED, in requests and in estimated bytes
+   * (`GROUP_COMMIT_BOUNDS`). Unbounded, a large first download installed faster
+   * than it committed became one transaction of the whole download: at 10x
+   * history, 184,576 requests and about 68 MB, which Chromium refused at commit
+   * with QuotaExceededError (no request failed; gigabytes of quota were free),
+   * and the store degraded to memory for the session. With the requests in
+   * flight bounded too (`write-batch.ts`), no transaction of a download is
+   * larger than a few installs. A draft that would take the open group past a
+   * bound starts the next group instead, queued behind it. Each group is still
+   * a run of whole drafts in queue order, so a crash or a refusal leaves what
+   * the drafts before it left: a prefix, as one transaction per draft did.
+   */
+  private joinCacheGroup(draft: SpanDraft): Promise<void> {
+    const bounds = this.options.groupCommitBounds ?? GROUP_COMMIT_BOUNDS
+    const ops = draft.ops.length
+    const bytes = draftBytes(draft)
+    const open = this.cacheGroup
+    if (open !== null && open.ops + ops <= bounds.ops && open.bytes + bytes <= bounds.bytes) {
+      open.drafts.push(draft)
+      open.ops += ops
+      open.bytes += bytes
+      return open.run
+    }
+    // The open group, if any, is full: it stays queued, and this group runs after it.
+    const group: CacheGroup = { drafts: [draft], run: Promise.resolve(), ops, bytes }
+    this.cacheGroup = group
+    group.run = this.laneTails.cache.then(async () => {
+      if (this.cacheGroup === group) this.cacheGroup = null
+      const merged = mergeDrafts(group.drafts)
+      if (merged.ops.length === 0 || this.durability() !== 'durable') return
+      try {
+        await this.commitDraft(merged)
+      } catch (error) {
+        if (isQuotaError(error)) this.degrade('degraded-memory', 'quota', error)
+        this.degrade(
+          'degraded-memory',
+          error instanceof IndexedDbReconnectError ? 'unavailable' : 'corrupt',
+          error,
+        )
+        throw error
+      }
+      for (const one of group.drafts) if (one.touchedCache) this.cacheCommits += 1
+    })
+    this.laneTails.cache = group.run.then(
+      () => undefined,
+      () => undefined,
+    )
+    return group.run
   }
 
   /**
@@ -899,10 +1182,199 @@ export class IndexedDbSyncStore {
   private applyDraftToMirror(draft: SpanDraft): void {
     for (const [principal, rows] of draft.entities)
       this.entities.set(principal, rows.publish(this.entitiesOf(principal)))
-    for (const [principal, cursor] of draft.cursors) this.cursors.set(principal, cursor)
-    for (const [principal, marker] of draft.personalRowsCompleteAt)
-      this.personalRowsCompleteAt.set(principal, marker)
+    for (const [principal, rows] of draft.diskOnly) rows.publish(this.entitiesOf(principal))
+    for (const [principal, meta] of draft.metas) this.metas.set(principal, meta)
+    for (const [principal, index] of draft.indexes) this.indexOf(principal).publish(index)
     for (const [principal, rows] of draft.outbox) this.outboxRows.set(principal, rows)
+  }
+
+  /** POD-7160 — the journal rows read at open, in commit order; `undefined` when one cannot be read. */
+  private decodeJournals(
+    rows: readonly { principal: string; key: string; value: unknown }[],
+  ):
+    | { principal: string; key: string; entries: DecodedEntry[]; removed: readonly string[] }[]
+    | undefined {
+    const out: {
+      principal: string
+      key: string
+      entries: DecodedEntry[]
+      removed: readonly string[]
+    }[] = []
+    for (const row of [...rows].sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))) {
+      const journal = decodeJournal(row.value)
+      if (journal === undefined) return undefined
+      out.push({ principal: row.principal, key: row.key, ...journal })
+    }
+    return out
+  }
+
+  /** POD-7160 — principals whose journal waits for the idle fold. */
+  private readonly foldPending = new Set<string>()
+  private foldTimer: ReturnType<typeof setTimeout> | undefined
+
+  /** POD-7160 — fold a journal once the store has been quiet for a tick (POD-7161 will own idle). */
+  private scheduleIndexFold(principal: string): void {
+    this.foldPending.add(principal)
+    if (this.foldTimer !== undefined) clearTimeout(this.foldTimer)
+    this.foldTimer = setTimeout(() => {
+      this.foldTimer = undefined
+      this.foldIndexJournals()
+    }, INDEX_FOLD_IDLE_MS)
+    ;(this.foldTimer as { unref?: () => void }).unref?.()
+  }
+
+  /**
+   * POD-7160 — fold every waiting index journal into its buckets now, in one
+   * transaction: the buckets its records land in are written and its rows
+   * deleted. An idle tick calls it; a failure leaves the journal for the next
+   * commit, which folds it once it is full.
+   */
+  foldIndexJournals(): void {
+    const principals = [...this.foldPending].filter(
+      (principal) => this.indexOf(principal).journalKeys().size > 0,
+    )
+    this.foldPending.clear()
+    if (principals.length === 0 || this.mode !== 'durable') return
+    try {
+      this.autocommitEager((draft) => {
+        for (const principal of principals) {
+          this.indexDraft(draft, principal)
+          draft.foldIndex.add(principal)
+        }
+        draft.touchedCache = true
+      })
+    } catch {
+      // Left for the next commit.
+    }
+  }
+
+  /**
+   * POD-7159 — the durable rows of a draft's index changes, one per key, in
+   * the same native transaction as the rows they describe.
+   */
+  private stageIndexRows(draft: SpanDraft): void {
+    if (draft.indexWritten) return
+    draft.indexWritten = true
+    for (const [principal, index] of draft.indexes) {
+      const live = this.indexOf(principal)
+      const changes = indexChanges(index)
+      // POD-7160: one journal row per commit; a clear or a re-bucket writes
+      // every bucket again after the old rows go, a fold the journal's buckets.
+      const writes = planIndexWrite(
+        index,
+        changes,
+        (key, entry) => this.rowForIndex(draft, principal, key, entry),
+        draft.foldIndex.has(principal),
+      )
+      if (writes.deleteAll) {
+        const range = this.options.keyRange?.bound([principal, ''], [principal, KEY_END])
+        if (range !== undefined) draft.ops.push({ kind: 'delete', store: INDEX_STORE, key: range })
+        else {
+          const keys = [...live.journalKeys()]
+          for (let bucket = 0; bucket < Math.max(live.bucketCount, INDEX_BUCKETS); bucket += 1)
+            keys.push(indexBucketKey(bucket))
+          for (const key of keys)
+            draft.ops.push({ kind: 'delete', store: INDEX_STORE, key: [principal, key] })
+        }
+      }
+      for (const key of writes.deletes)
+        draft.ops.push({ kind: 'delete', store: INDEX_STORE, key: [principal, key] })
+      for (const [key, v] of writes.puts)
+        draft.ops.push({
+          kind: 'put',
+          store: INDEX_STORE,
+          value: { principal, key, v } satisfies StoredIndexRow,
+        })
+      if (index.indexWrite?.kind === 'journal') this.scheduleIndexFold(principal)
+      // An instance's state rides in its marker row.
+      if (changes.instances.size > 0) {
+        const markers = (draft.metas.get(principal) ?? this.metaOf(principal)).instances
+        for (const [key, state] of changes.instances) {
+          const marker = markers.get(key)
+          if (state === null || marker === undefined) continue
+          draft.ops.push({
+            kind: 'put',
+            store: META_STORE,
+            value: {
+              principal,
+              key: instanceMetaKey(key),
+              value: markerWithState(marker, state),
+            } satisfies StoredMeta,
+          })
+        }
+      }
+    }
+  }
+
+  /** The row an index entry describes, as the draft leaves it (its stub is stored with the entry). */
+  private rowForIndex(
+    draft: SpanDraft,
+    principal: string,
+    key: string,
+    entry: RecordEntry,
+  ): EntityRecord | undefined {
+    const mirror = this.entitiesOf(principal)
+    const written = draft.diskOnly.get(principal)?.get(key)
+    if (written !== undefined) return written
+    const staged = draft.entities.get(principal)
+    const row = staged === undefined ? mirror.get(key) : staged.get(key, mirror)
+    if (row !== undefined) return row
+    const { entity, entityId } = splitRowKey(key)
+    const stub = mirror.stubTable(entity)?.stubOf(entityId)
+    if (stub === undefined) return undefined
+    return {
+      entity,
+      entityId,
+      value: stub,
+      provenance: { seq: entry.seq },
+      ...(entry.level === 'stub' ? { part: 'stub' as const } : {}),
+    }
+  }
+
+  /** Stage the deletion of every row a principal has on disk (a discard, a snapshot, a sign-out). */
+  stageDeleteEveryRow(draft: SpanDraft, principal: string): void {
+    draft.diskOnly.delete(principal)
+    const index = this.indexDraft(draft, principal)
+    const keys = new Set(index.recordKeys())
+    const staged = draft.entities.get(principal)
+    const mirror = this.entitiesOf(principal)
+    for (const row of staged === undefined ? mirror.values() : staged.values(mirror))
+      keys.add(rowKey(row.entity, row.entityId))
+    for (const key of keys) {
+      const { entity, entityId } = splitRowKey(key)
+      draft.ops.push({ kind: 'delete', store: ENTITY_STORE, key: [principal, entity, entityId] })
+    }
+    index.clearAll()
+    draft.touchedCache = true
+  }
+
+  /** The index draft of a principal inside a span's draft. */
+  indexDraft(draft: SpanDraft, principal: string): DiskIndexDraft {
+    let index = draft.indexes.get(principal)
+    if (index === undefined) {
+      index = new DiskIndexDraft(this.indexOf(principal))
+      draft.indexes.set(principal, index)
+    }
+    return index
+  }
+
+  indexOf(principal: string): DiskIndex {
+    let index = this.indexes.get(principal)
+    if (index === undefined) {
+      index = new DiskIndex()
+      this.indexes.set(principal, index)
+    }
+    return index
+  }
+
+  /** The mirror of a principal, kept (the resident set is filled in place). */
+  private mirrorOf(principal: string): RowMirror {
+    let mirror = this.entities.get(principal)
+    if (mirror === undefined) {
+      mirror = new RowMirror()
+      this.entities.set(principal, mirror)
+    }
+    return mirror
   }
 
   private degrade(
@@ -915,8 +1387,235 @@ export class IndexedDbSyncStore {
     this.options.onDegraded({ mode, cause, error })
   }
 
+  /**
+   * The cold-start read (POD-7159): the metadata, the outbox and the disk
+   * index, whole, and NO entity row. Memory then gets the resident set: the
+   * policy collections and what they come with (and every row of a device
+   * without a policy), read by key in a few batched reads. A store without
+   * an index (written before version 2, or seeded raw) is rebuilt from its
+   * rows once, in one transaction; a crash there repeats the rebuild.
+   */
   private async hydrate(): Promise<void> {
-    const tx = await this.transaction([...ALL_STORES], 'readonly')
+    const tx = await this.transaction([META_STORE, OUTBOX_STORE, INDEX_STORE], 'readonly')
+    const meta = (await requestAsPromise(tx.objectStore(META_STORE).getAll())) as StoredMeta[]
+    const outbox = (await requestAsPromise(
+      tx.objectStore(OUTBOX_STORE).getAll(),
+    )) as StoredOutboxRecord[]
+    const stored = (await requestAsPromise(
+      tx.objectStore(INDEX_STORE).getAll(),
+    )) as StoredIndexRow[]
+    const built = stored.some(
+      (row) =>
+        row.principal === STORE_PRINCIPAL &&
+        row.key === INDEX_BUILT_META_KEY &&
+        row.v === INDEX_FORMAT,
+    )
+    const buckets: { principal: string; entries: DecodedEntry[] }[] = []
+    const counts = new Map<string, number>()
+    let readable = built
+    const journals: { principal: string; key: string; value: unknown }[] = []
+    for (const row of stored) {
+      if (row.principal === STORE_PRINCIPAL) continue
+      // POD-7160: a journal row applies over the buckets, after them.
+      if (isJournalKey(row.key)) {
+        journals.push({ principal: row.principal, key: row.key, value: row.v })
+        continue
+      }
+      const entries = decodeBucket(row.v)
+      if (entries === undefined) readable = false
+      else buckets.push({ principal: row.principal, entries })
+      counts.set(row.principal, Math.max(counts.get(row.principal) ?? 0, storedBucketCount(row.v)))
+    }
+    const journalRows = this.decodeJournals(journals)
+    if (journalRows === undefined) readable = false
+    const stubsInIndex = meta.some(isStubsInIndexFlag)
+    if (!readable) {
+      // POD-7170: a store this build wrote keeps stub-level records in the
+      // index only, so its rows cannot rebuild it: start the cache cold.
+      if (stubsInIndex) await this.clearCacheRegion(outbox)
+      else await this.rebuildIndex()
+      return
+    }
+    this.stubsInIndex = stubsInIndex
+    this.entities.clear()
+    this.metas.clear()
+    this.indexes.clear()
+    this.outboxRows.clear()
+    this.nextOrdinal = 0
+    this.decodeMetas(meta)
+    // POD-7160: the count of buckets the disk keeps, before its records.
+    for (const [principal, count] of counts) this.indexOf(principal).setBucketCount(count)
+    const excluded: { principal: string; key: string }[] = []
+    for (const { principal, entries } of buckets)
+      for (const { key, entry, stub, stubRow } of entries) {
+        const { entity, entityId } = splitRowKey(key)
+        if (!this.retainsEntity(entity)) {
+          excluded.push({ principal, key })
+          continue
+        }
+        this.indexOf(principal).putRecord(key, entry)
+        const mirror = this.mirrorOf(principal)
+        if (stubRow !== undefined) mirror.set(key, stubRow)
+        else if (stub !== undefined) mirror.putStubOf(entity, entityId, stub)
+      }
+    // POD-7160: the journal rows, in commit order, over the buckets.
+    for (const { principal, key, entries, removed } of journalRows ?? []) {
+      const index = this.indexOf(principal)
+      const mirror = this.mirrorOf(principal)
+      for (const { key: record, entry, stub, stubRow } of entries) {
+        const { entity, entityId } = splitRowKey(record)
+        if (!this.retainsEntity(entity)) continue
+        index.putRecord(record, entry)
+        if (stubRow !== undefined) mirror.set(record, stubRow)
+        else {
+          mirror.unload(record)
+          if (stub !== undefined) mirror.putStubOf(entity, entityId, stub)
+        }
+      }
+      for (const record of removed) {
+        index.dropRecord(record)
+        mirror.delete(record)
+      }
+      index.noteJournalRow(key, [...entries.map((entry) => entry.key), ...removed])
+      this.scheduleIndexFold(principal)
+    }
+    // Old caches remain readable: retire excluded rows before the first read.
+    // Their index entries go with the next write of their bucket.
+    if (excluded.length > 0) {
+      const retire = await this.transaction([ENTITY_STORE], 'readwrite')
+      const completion = transactionCompletion(retire)
+      for (const row of excluded) {
+        const { entity, entityId } = splitRowKey(row.key)
+        retire.objectStore(ENTITY_STORE).delete([row.principal, entity, entityId])
+      }
+      await completion
+    }
+    for (const principal of new Set([...this.metas.keys(), ...this.indexes.keys()]))
+      await this.loadResident(principal, (keys) => this.readStoredRows(principal, keys))
+    this.adoptOutboxRows(outbox)
+  }
+
+  /** POD-7170: the store keeps stub-level records in their index entries only (its rows hold none). */
+  private stubsInIndex = false
+
+  /** Stage, once per store, the flag that says so, with the first stub-level record written. */
+  noteStubInIndex(draft: SpanDraft): void {
+    if (this.stubsInIndex) return
+    this.stubsInIndex = true
+    draft.ops.push({
+      kind: 'put',
+      store: META_STORE,
+      value: {
+        principal: STORE_PRINCIPAL,
+        key: STUBS_IN_INDEX_KEY,
+        value: true,
+      } satisfies StoredMeta,
+    })
+  }
+
+  /**
+   * POD-7170 — an unreadable index of a store whose stubs live in it: every
+   * cached row, marker and index row goes, and the cache starts cold (a first
+   * download). The outbox stays: the user's unsent writes are not cache.
+   */
+  private async clearCacheRegion(outbox: readonly StoredOutboxRecord[]): Promise<void> {
+    const stores = [ENTITY_STORE, META_STORE, INDEX_STORE]
+    const tx = await this.transaction(stores, 'readwrite')
+    const completion = transactionCompletion(tx)
+    for (const name of stores) tx.objectStore(name).clear()
+    tx.objectStore(INDEX_STORE).put({
+      principal: STORE_PRINCIPAL,
+      key: INDEX_BUILT_META_KEY,
+      v: INDEX_FORMAT,
+    } satisfies StoredIndexRow)
+    await completion
+    this.entities.clear()
+    this.metas.clear()
+    this.indexes.clear()
+    this.outboxRows.clear()
+    this.nextOrdinal = 0
+    this.stubsInIndex = false
+    this.adoptOutboxRows(outbox)
+  }
+
+  private decodeStates(meta: readonly StoredMeta[]): void {
+    const rows = new Map<string, StoredMeta[]>()
+    for (const row of meta) {
+      if (row.principal === STORE_PRINCIPAL) continue
+      const list = rows.get(row.principal) ?? []
+      list.push(row)
+      rows.set(row.principal, list)
+    }
+    for (const [principal, list] of rows)
+      for (const [key, state] of decodeMarkerStates(list))
+        this.indexOf(principal).putInstance(key, state)
+  }
+
+  private decodeMetas(meta: readonly StoredMeta[]): void {
+    const metaRows = new Map<string, StoredMeta[]>()
+    for (const row of meta) {
+      if (row.principal === STORE_PRINCIPAL) continue
+      const rows = metaRows.get(row.principal) ?? []
+      rows.push(row)
+      metaRows.set(row.principal, rows)
+    }
+    for (const [principal, rows] of metaRows) this.metas.set(principal, decodeCacheMeta(rows))
+    this.decodeStates(meta)
+  }
+
+  /**
+   * Fill memory with a principal's resident set from disk: every whole row
+   * of a device without a policy; otherwise each whole row no instance on
+   * the device holds, the policy collections and what they come with.
+   * Stub-part instances are in memory with the stub table.
+   */
+  private async loadResident(
+    principal: string,
+    read: (keys: readonly string[]) => Promise<readonly EntityRecord[]>,
+  ): Promise<void> {
+    const mirror = this.mirrorOf(principal)
+    const index = this.indexOf(principal)
+    const meta = this.metaOf(principal)
+    const markers = meta.instances
+    for (const key of index.instanceKeys())
+      if (!markers.has(key)) index.putInstance(key, NOT_INDEXED)
+    for (const key of markers.keys())
+      if (index.instance(key) === undefined) index.putInstance(key, NOT_INDEXED)
+    const loose: string[] = []
+    for (const [key, entry] of index.records())
+      if (entry.level === 'main' && (meta.policy === null || heldByNothing(entry, markers, index)))
+        loose.push(key)
+    if (loose.length > 0) installResidentRows(mirror, index, await read(loose))
+    const seeds = meta.policy === null ? [...markers.keys()] : policyInstanceKeys(meta.policy)
+    const { loaded } = await loadInstancesFromDisk(
+      {
+        index,
+        markers,
+        policy: meta.policy,
+        now: Date.now(),
+        resident: (key) => mirror.hasMain(key),
+        read,
+        install: (rows) => {
+          installResidentRows(mirror, index, rows)
+        },
+      },
+      seeds,
+    )
+    const stubParts = [...markers.values()]
+      .filter((marker) => marker.part === 'stub')
+      .map((marker) => marker.key)
+    index.setInMemory([...loaded, ...stubParts], true)
+  }
+
+  /**
+   * The index of a store written without one (version 1, or rows seeded raw),
+   * built once from every row: each record's entry, each marker's members by
+   * its rule. One transaction writes it with the flag that says it exists, so
+   * a crash before it commits leaves the store as it was and the next open
+   * builds it again. Nothing is dropped.
+   */
+  private async rebuildIndex(): Promise<void> {
+    const tx = await this.transaction([ENTITY_STORE, META_STORE, OUTBOX_STORE], 'readonly')
     const entities = (await requestAsPromise(
       tx.objectStore(ENTITY_STORE).getAll(),
     )) as StoredEntity[]
@@ -924,42 +1623,198 @@ export class IndexedDbSyncStore {
     const outbox = (await requestAsPromise(
       tx.objectStore(OUTBOX_STORE).getAll(),
     )) as StoredOutboxRecord[]
-    // Old caches remain readable without a schema reset. Retire excluded cache
-    // rows before opening the mirror, so sign-out also leaves no hidden rows.
-    const excluded = entities.filter((row) => !this.retainsEntity(row.entity))
-    if (excluded.length > 0) {
-      const retire = await this.transaction([ENTITY_STORE], 'readwrite')
-      const completion = transactionCompletion(retire)
-      for (const row of excluded) {
-        retire.objectStore(ENTITY_STORE).delete([row.principal, row.entity, row.entityId])
-      }
-      await completion
-    }
     this.entities.clear()
-    this.cursors.clear()
-    this.personalRowsCompleteAt.clear()
+    this.metas.clear()
+    this.indexes.clear()
     this.outboxRows.clear()
     this.nextOrdinal = 0
+    this.decodeMetas(meta)
+    const now = Date.now()
+    const byPrincipal = new Map<string, Map<string, EntityRecord>>()
+    const excluded: StoredEntity[] = []
     for (const row of entities) {
-      if (!this.retainsEntity(row.entity)) continue
-      const slice = this.entities.get(row.principal) ?? new Map<string, EntityRecord>()
-      slice.set(rowKey(row.entity, row.entityId), {
-        entity: row.entity,
-        entityId: row.entityId,
-        value: row.value,
-        revision: row.revision,
-        provenance: row.provenance as EntityRecord['provenance'],
-      })
-      this.entities.set(row.principal, slice)
+      if (!this.retainsEntity(row.entity)) {
+        excluded.push(row)
+        continue
+      }
+      const rows = byPrincipal.get(row.principal) ?? new Map<string, EntityRecord>()
+      rows.set(rowKey(row.entity, row.entityId), entityRecordOf(row))
+      byPrincipal.set(row.principal, rows)
     }
-    for (const row of meta) {
-      if (row.key === CURSOR_KEY)
-        this.cursors.set(row.principal, row.value as ScopedCacheCursor | null)
-      if (row.key === PERSONAL_ROWS_COMPLETE_AT_KEY) {
-        this.personalRowsCompleteAt.set(row.principal, decodePersonalRowsCompleteAt(row.value))
+    // Every row is read here once: scrub them all (POD-419), not only the resident ones.
+    const scrubbed = planSecretScrub(
+      [...byPrincipal].flatMap(([principal, rows]) =>
+        [...rows.values()].map((record) => ({
+          address: `entities[${principal}/${record.entity}/${record.entityId}]`,
+          row: { principal, record },
+          value: record.value,
+        })),
+      ),
+    )
+    for (const rewrite of scrubbed.rewrites) {
+      const { principal, record } = rewrite.row
+      byPrincipal
+        .get(principal)
+        ?.set(rowKey(record.entity, record.entityId), { ...record, value: rewrite.value })
+    }
+    this.rebuildScrub = { ...scrubbed.report, scanned: 0 }
+    const indexRows: StoredIndexRow[] = []
+    const markerRows: StoredMeta[] = []
+    const dropMarkers: { principal: string; key: string }[] = []
+    for (const principal of new Set([...byPrincipal.keys(), ...this.metas.keys()])) {
+      const rows = byPrincipal.get(principal) ?? new Map<string, EntityRecord>()
+      const meta = this.metaOf(principal)
+      const index = this.indexOf(principal)
+      const built = buildIndex({
+        rows,
+        bytes: (_key, row) => approxBytes(row),
+        markers: meta.instances,
+        policy: meta.policy,
+        now,
+      })
+      const mirror = this.mirrorOf(principal)
+      const buckets = new Map<number, (readonly [string, RecordEntry, EntityRecord])[]>()
+      // POD-7160: buckets of a bounded size, as many as the records need.
+      const count = bucketCountFor(built.entries.size)
+      index.setBucketCount(count)
+      for (const [key, entry] of built.entries) {
+        const row = rows.get(key) as EntityRecord
+        index.putRecord(key, entry)
+        const bucket = bucketOf(key, count)
+        const list = buckets.get(bucket)
+        if (list === undefined) buckets.set(bucket, [[key, entry, row]])
+        else list.push([key, entry, row])
+        if (row.part === 'stub') mirror.set(key, row)
+        else mirror.putStubOf(row.entity, row.entityId, row.value)
+      }
+      for (const [bucket, entries] of buckets)
+        indexRows.push({ principal, key: indexBucketKey(bucket), v: encodeBucket(entries, count) })
+      for (const [key, state] of built.states) {
+        index.putInstance(key, state)
+        const marker = meta.instances.get(key)
+        if (marker !== undefined)
+          markerRows.push({
+            principal,
+            key: instanceMetaKey(key),
+            value: markerWithState(marker, state),
+          })
+      }
+      // What a record comes with is recorded on it now, not as markers of its own.
+      if (built.comesWithMarkers.length > 0) {
+        const gone = new Set(built.comesWithMarkers)
+        for (const key of gone) dropMarkers.push({ principal, key })
+        this.metas.set(principal, {
+          ...meta,
+          instances: new Map([...meta.instances].filter(([key]) => !gone.has(key))),
+        })
       }
     }
+    try {
+      const write = await this.transaction([ENTITY_STORE, META_STORE, INDEX_STORE], 'readwrite')
+      const completion = transactionCompletion(write)
+      try {
+        const indexStore = write.objectStore(INDEX_STORE)
+        // A rebuild interrupted earlier may have left part of an index: start clean.
+        indexStore.clear()
+        for (const row of excluded)
+          write.objectStore(ENTITY_STORE).delete([row.principal, row.entity, row.entityId])
+        for (const rewrite of scrubbed.rewrites) {
+          const { principal, record } = rewrite.row
+          write
+            .objectStore(ENTITY_STORE)
+            .put(entityRow(principal, { ...record, value: rewrite.value }))
+        }
+        for (const row of indexRows) indexStore.put(row)
+        for (const row of markerRows) write.objectStore(META_STORE).put(row)
+        for (const { principal, key } of dropMarkers)
+          write.objectStore(META_STORE).delete([principal, instanceMetaKey(key)])
+        indexStore.put({
+          principal: STORE_PRINCIPAL,
+          key: INDEX_BUILT_META_KEY,
+          v: INDEX_FORMAT,
+        } satisfies StoredIndexRow)
+      } catch (error) {
+        try {
+          write.abort()
+        } catch {
+          // Already aborted by the failing request.
+        }
+        await completion.catch(() => undefined)
+        throw error
+      }
+      await completion
+    } catch {
+      // The index could not be written (the transaction aborted whole, so the
+      // store is as it was): this session keeps every row in memory, as a
+      // store without an index did, and the next open builds it again.
+      for (const [principal, rows] of byPrincipal) {
+        installResidentRows(
+          this.mirrorOf(principal),
+          this.indexOf(principal),
+          [...rows.values()].filter((row) => row.part !== 'stub'),
+        )
+        this.indexOf(principal).setInMemory(this.metaOf(principal).instances.keys(), true)
+      }
+      this.adoptOutboxRows(outbox)
+      return
+    }
+    for (const [principal, rows] of byPrincipal)
+      await this.loadResident(principal, async (keys) =>
+        keys.flatMap((key) => {
+          const row = rows.get(key)
+          return row === undefined ? [] : [row]
+        }),
+      )
+    for (const principal of this.metas.keys())
+      if (!byPrincipal.has(principal)) await this.loadResident(principal, async () => [])
     this.adoptOutboxRows(outbox)
+  }
+
+  /**
+   * POD-7159 — rows of one principal read from disk by key, in one readonly
+   * transaction, after every commit queued so far has settled (so a row is
+   * never older than the index that names it). Secret material an earlier
+   * build left is removed from what is read, and from disk.
+   */
+  async readStoredRows(principal: string, keys: readonly string[]): Promise<EntityRecord[]> {
+    if (keys.length === 0) return []
+    this.guardReadable()
+    await this.laneTails.cache
+    if (this.durability() === 'unavailable') return []
+    const tx = await this.transaction([ENTITY_STORE], 'readonly')
+    const store = tx.objectStore(ENTITY_STORE)
+    const found = await Promise.all(
+      keys.map((key) => {
+        const { entity, entityId } = splitRowKey(key)
+        return requestAsPromise(store.get([principal, entity, entityId])) as Promise<
+          StoredEntity | undefined
+        >
+      }),
+    )
+    const rows: EntityRecord[] = []
+    for (const row of found) if (row !== undefined) rows.push(entityRecordOf(row))
+    const scrub = planSecretScrub(
+      rows.map((record, at) => ({
+        address: `entities[${principal}/${record.entity}/${record.entityId}]`,
+        row: at,
+        value: record.value,
+      })),
+    )
+    if (scrub.rewrites.length === 0) return rows
+    for (const rewrite of scrub.rewrites) {
+      const record = rows[rewrite.row] as EntityRecord
+      rows[rewrite.row] = { ...record, value: rewrite.value }
+    }
+    this.autocommitEager((draft) => {
+      for (const rewrite of scrub.rewrites)
+        draft.ops.push({
+          kind: 'put',
+          store: ENTITY_STORE,
+          value: entityRow(principal, rows[rewrite.row] as EntityRecord),
+        })
+      draft.touchedCache = true
+    })
+    return rows
   }
 
   /**
@@ -1008,10 +1863,13 @@ export class IndexedDbSyncStore {
       })),
     )
 
-    const cursorRows = [...this.cursors].map(([principal, value]) => ({ principal, value }))
+    const cursorRows = [...this.metas].map(([principal, meta]) => ({
+      principal,
+      value: meta.cursor,
+    }))
     const cursors = planSecretScrub(
       cursorRows.map((row) => ({
-        address: `meta[${row.principal}/${CURSOR_KEY}]`,
+        address: `meta[${row.principal}/${CURSOR_META_KEY}]`,
         row,
         value: row.value,
       })),
@@ -1033,8 +1891,14 @@ export class IndexedDbSyncStore {
       })),
     )
 
-    const report = mergeScrubReports(entities.report, cursors.report, outbox.report)
-    if (report.rewritten === 0) {
+    const report = mergeScrubReports(
+      this.rebuildScrub,
+      entities.report,
+      cursors.report,
+      outbox.report,
+    )
+    this.rebuildScrub = EMPTY_SCRUB_REPORT
+    if (entities.rewrites.length + cursors.rewrites.length + outbox.rewrites.length === 0) {
       this.options.onSecretsScrubbed?.(report)
       return
     }
@@ -1050,12 +1914,14 @@ export class IndexedDbSyncStore {
         value: rewrite.value,
         ...(record.revision === undefined ? {} : { revision: record.revision }),
         ...(record.provenance === undefined ? {} : { provenance: record.provenance }),
+        ...(record.part === undefined ? {} : { part: record.part }),
+        ...(record.asOf === undefined ? {} : { asOf: record.asOf }),
       } satisfies StoredEntity)
     }
     for (const rewrite of cursors.rewrites) {
       tx.objectStore(META_STORE).put({
         principal: rewrite.row.principal,
-        key: CURSOR_KEY,
+        key: CURSOR_META_KEY,
         value: rewrite.value,
       } satisfies StoredMeta)
     }
@@ -1076,7 +1942,10 @@ export class IndexedDbSyncStore {
       this.entities.get(principal)?.set(key, { ...record, value: rewrite.value })
     }
     for (const rewrite of cursors.rewrites)
-      this.cursors.set(rewrite.row.principal, rewrite.value as ScopedCacheCursor | null)
+      this.metas.set(rewrite.row.principal, {
+        ...this.metaOf(rewrite.row.principal),
+        cursor: rewrite.value as ScopedCacheCursor | null,
+      })
     for (const rewrite of outbox.rewrites) {
       const { principal, index, stored } = rewrite.row
       const slice = this.outboxRows.get(principal)
@@ -1089,11 +1958,18 @@ export class IndexedDbSyncStore {
     const tx = await this.transaction([...ALL_STORES], 'readwrite')
     const completion = transactionCompletion(tx)
     for (const name of ALL_STORES) tx.objectStore(name).clear()
+    // An empty store's index is built: the flag says so.
+    tx.objectStore(INDEX_STORE).put({
+      principal: STORE_PRINCIPAL,
+      key: INDEX_BUILT_META_KEY,
+      v: INDEX_FORMAT,
+    } satisfies StoredIndexRow)
     await completion
     this.entities.clear()
-    this.cursors.clear()
-    this.personalRowsCompleteAt.clear()
+    this.metas.clear()
+    this.indexes.clear()
     this.outboxRows.clear()
+    this.stubsInIndex = false
   }
 
   // ── mirror accessors used by the views ───────────────────────────────────
@@ -1106,24 +1982,58 @@ export class IndexedDbSyncStore {
     return this.options.retainEntity?.(entity) ?? true
   }
 
-  entityKindRange(principal: string, entity: string): unknown {
-    // In compound-key order, every string id sorts before the array sentinel.
-    return this.options.keyRange?.bound([principal, entity], [principal, entity, []])
+  entitiesOf(principal: string): RowMirror {
+    return this.entities.get(principal) ?? new RowMirror()
   }
 
-  entitiesOf(principal: string): Map<string, EntityRecord> {
-    return this.entities.get(principal) ?? new Map()
+  metaOf(principal: string): CacheMeta {
+    return this.metas.get(principal) ?? EMPTY_CACHE_META
   }
 
-  cursorOf(principal: string): ScopedCacheCursor | null {
-    return this.cursors.get(principal) ?? null
+  /** The durable operations of metadata writes, in order. */
+  stageMetaWrites(draft: SpanDraft, principal: string, writes: readonly MetaWrite[]): void {
+    for (const write of writes) {
+      if (write.kind === 'put') {
+        draft.ops.push({
+          kind: 'put',
+          store: META_STORE,
+          value: { principal, key: write.key, value: write.value } satisfies StoredMeta,
+        })
+      } else if (write.kind === 'delete') {
+        draft.ops.push({ kind: 'delete', store: META_STORE, key: [principal, write.key] })
+      } else {
+        const range = this.options.keyRange?.bound(
+          [principal, INSTANCE_META_PREFIX],
+          [principal, INSTANCE_META_END],
+        )
+        if (range !== undefined) draft.ops.push({ kind: 'delete', store: META_STORE, key: range })
+        else
+          for (const key of (draft.metas.get(principal) ?? this.metaOf(principal)).instances.keys())
+            draft.ops.push({
+              kind: 'delete',
+              store: META_STORE,
+              key: [principal, instanceMetaKey(key)],
+            })
+      }
+    }
   }
 
-  personalRowsCompleteAtOf(principal: string): PersonalRowsCompleteness | null {
-    return trustedPersonalRowsCompleteAt(
-      this.cursorOf(principal),
-      this.personalRowsCompleteAt.get(principal) ?? null,
-    )
+  /** Forget a principal's cursor, markers, policy and load state in this draft. */
+  stageMetaReset(draft: SpanDraft, principal: string): void {
+    const before = draft.metas.get(principal) ?? this.metaOf(principal)
+    const writes: MetaWrite[] = [
+      { kind: 'delete', key: CURSOR_META_KEY },
+      { kind: 'deleteInstances' },
+    ]
+    const reset = nextCacheMeta(before, {
+      operations: [],
+      instances: [{ kind: 'dropAll' }],
+      policy: null,
+      loadingSince: null,
+    })
+    for (const write of reset.writes) if (write.kind === 'delete') writes.push(write)
+    this.stageMetaWrites(draft, principal, writes)
+    draft.metas.set(principal, EMPTY_CACHE_META)
   }
 
   outboxOf(principal: string): readonly StoredOutboxRecord[] {
@@ -1171,27 +2081,95 @@ class IndexedDbCacheStore implements ReplicaCacheStore {
 
   readCursor(): Cursor | null {
     this.store.guardReadable()
-    return cursorTriple(this.store.cursorOf(this.principal))
+    return cursorTriple(this.store.metaOf(this.principal).cursor)
   }
 
   readKindTokens(): KindTokens | undefined {
     this.store.guardReadable()
-    return this.store.cursorOf(this.principal)?.kindTokens
+    return this.store.metaOf(this.principal).cursor?.kindTokens
   }
 
-  readPersonalRowsCompleteAt(): Cursor | null {
+  readInstances(): ReadonlyMap<string, InstanceRecord> {
     this.store.guardReadable()
-    return cursorTriple(this.store.personalRowsCompleteAtOf(this.principal))
+    return this.store.metaOf(this.principal).instances
+  }
+
+  readPolicy(): CachePolicy | null {
+    this.store.guardReadable()
+    return this.store.metaOf(this.principal).policy
+  }
+
+  readLoadingSince(): number | null {
+    this.store.guardReadable()
+    return this.store.metaOf(this.principal).loadingSince
+  }
+
+  readDiskIndex(): DiskIndexReader {
+    this.store.guardReadable()
+    return this.store.indexOf(this.principal)
+  }
+
+  readDiskRows(keys: readonly string[]): Promise<readonly EntityRecord[]> {
+    return this.store.readStoredRows(this.principal, keys)
+  }
+
+  installResident(rows: readonly EntityRecord[]): readonly EntityRecord[] {
+    this.store.guardReadable()
+    return installResidentRows(
+      this.store.entitiesOf(this.principal),
+      this.store.indexOf(this.principal),
+      rows,
+    )
+  }
+
+  markInMemory(instanceKeys: readonly string[]): void {
+    this.store.guardReadable()
+    const markers = this.store.metaOf(this.principal).instances
+    this.store.indexOf(this.principal).setInMemory(
+      instanceKeys.filter((key) => markers.has(key)),
+      true,
+    )
+  }
+
+  unload(instanceKeys: readonly string[]): readonly Pick<EntityRecord, 'entity' | 'entityId'>[] {
+    this.store.guardReadable()
+    // Degraded, memory is ahead of the disk: nothing may leave it.
+    if (this.store.durability() !== 'durable') return []
+    return unloadResident(
+      this.store.entitiesOf(this.principal),
+      this.store.indexOf(this.principal),
+      instanceKeys,
+    )
+  }
+
+  touchInstance(instanceKey: string, at: number): void {
+    this.store.indexOf(this.principal).touch(instanceKey, at)
   }
 
   readEntities(): readonly EntityRecord[] {
     this.store.guardReadable()
-    return [...this.store.entitiesOf(this.principal).values()]
+    return this.store.entitiesOf(this.principal).mainRows()
   }
 
   read(entity: string, entityId: string): EntityRecord | undefined {
     this.store.guardReadable()
+    const row = this.store.entitiesOf(this.principal).getMain(rowKey(entity, entityId))
+    return row === undefined || !isMainRow(row) ? undefined : row
+  }
+
+  readRow(entity: string, entityId: string): EntityRecord | undefined {
+    this.store.guardReadable()
     return this.store.entitiesOf(this.principal).get(rowKey(entity, entityId))
+  }
+
+  readStubs(): readonly EntityRecord[] {
+    this.store.guardReadable()
+    return this.store.entitiesOf(this.principal).stubRows()
+  }
+
+  readStubTable(entity: string): StubTableReader | undefined {
+    this.store.guardReadable()
+    return this.store.entitiesOf(this.principal).stubTable(entity)
   }
 
   beginSpan(): OwnedSyncSpan {
@@ -1222,49 +2200,42 @@ class IndexedDbCacheStore implements ReplicaCacheStore {
     versions: SnapshotVersions = {},
   ): void {
     this.store.guardReadable()
-    // Reject invalid buffered certification before staging any snapshot writes.
-    for (const mutation of buffered) nextPersonalRowsCompleteAt(null, mutation)
     const install = (draft: SpanDraft): void => {
       // The atomic swap of ADR 2 D6.4: the staged slice REPLACES this principal's
       // rows, the buffered deltas apply on top, and the cursor commits — one
       // transaction, no half-installed replica.
-      const current = this.slice(draft)
-      const next = versions.kinds ? current : new ChangedKeyDraft(new Map<string, EntityRecord>())
-      const ranges = new Set<string>()
-      for (const entity of versions.kinds ?? []) {
-        const key = this.store.entityKindRange(this.principal, entity)
-        if (key === undefined) continue
-        // The durable range also removes rows a second tab added after this
-        // tab hydrated its mirror.
-        ranges.add(entity)
-        draft.ops.push({ kind: 'delete', store: ENTITY_STORE, key })
-      }
-      for (const existing of current.values(this.store.entitiesOf(this.principal))) {
-        if (versions.kinds && !versions.kinds.has(existing.entity)) continue
-        if (!ranges.has(existing.entity)) {
-          draft.ops.push({
-            kind: 'delete',
-            store: ENTITY_STORE,
-            key: [this.principal, existing.entity, existing.entityId],
-          })
-        }
-        if (versions.kinds) next.delete(rowKey(existing.entity, existing.entityId))
-      }
+      this.store.stageDeleteEveryRow(draft, this.principal)
+      const next = new ChangedKeyDraft<EntityRecord, RowMirror>(new RowMirror())
       draft.entities.set(this.principal, next)
       draft.touchedCache = true
+      const index = this.store.indexDraft(draft, this.principal)
       for (const row of rows) {
         if (!this.store.retainsEntity(row.entity)) continue
-        next.set(rowKey(row.entity, row.entityId), row)
-        draft.ops.push({ kind: 'put', store: ENTITY_STORE, value: entityRow(this.principal, row) })
+        const key = rowKey(row.entity, row.entityId)
+        next.set(key, row)
+        index.row(key, row)
+        // POD-7170: a stub lives in its index entry only.
+        if (row.part !== 'stub')
+          draft.ops.push({
+            kind: 'put',
+            store: ENTITY_STORE,
+            value: entityRow(this.principal, row),
+          })
+        else this.store.noteStubInIndex(draft)
       }
-      let head = cursor
+      // The markers and policy described the rows this replaces.
+      this.store.stageMetaReset(draft, this.principal)
+      this.stageMeta(draft, {
+        operations: [],
+        cursor,
+        ...(versions.kindTokens === undefined ? {} : { kindTokens: versions.kindTokens }),
+      })
       for (const mutation of buffered) {
         this.applyOperations(draft, next, mutation)
-        if (mutation.cursor !== undefined) head = mutation.cursor
+        this.stageMeta(draft, mutation)
+        stageIndexInstances(index, mutation.instances)
+        stageIndexComesWith(index, mutation.comesWith)
       }
-      const completeAt = certifyPersonalRowsCompleteAt(head)
-      this.setCursor(draft, snapshotCacheCursor(completeAt, versions.kindTokens))
-      this.setPersonalRowsCompleteAt(draft, completeAt)
     }
     if (span !== undefined) {
       install(this.store.draftFor(span))
@@ -1278,18 +2249,12 @@ class IndexedDbCacheStore implements ReplicaCacheStore {
     // Reaches entities and the cursor. The outbox object store is not named here,
     // and there is no method on this port through which it could be.
     this.store.autocommitEager((draft) => {
-      const current = this.slice(draft)
-      for (const row of current.values(this.store.entitiesOf(this.principal))) {
-        draft.ops.push({
-          kind: 'delete',
-          store: ENTITY_STORE,
-          key: [this.principal, row.entity, row.entityId],
-        })
-      }
-      draft.entities.set(this.principal, new ChangedKeyDraft(new Map<string, EntityRecord>()))
-      draft.cursors.set(this.principal, null)
-      draft.ops.push({ kind: 'delete', store: META_STORE, key: [this.principal, CURSOR_KEY] })
-      this.setPersonalRowsCompleteAt(draft, null)
+      this.store.stageDeleteEveryRow(draft, this.principal)
+      draft.entities.set(
+        this.principal,
+        new ChangedKeyDraft<EntityRecord, RowMirror>(new RowMirror()),
+      )
+      this.store.stageMetaReset(draft, this.principal)
       draft.touchedCache = true
     })
   }
@@ -1299,17 +2264,25 @@ class IndexedDbCacheStore implements ReplicaCacheStore {
   }
 
   private stage(draft: SpanDraft, mutation: CacheMutation): void {
-    const cursor = draft.cursors.has(this.principal)
-      ? (draft.cursors.get(this.principal) ?? null)
-      : this.store.cursorOf(this.principal)
-    const previous = draft.personalRowsCompleteAt.has(this.principal)
-      ? (draft.personalRowsCompleteAt.get(this.principal) ?? null)
-      : this.store.personalRowsCompleteAtOf(this.principal)
-    const completeness = nextCacheCompleteness(cursor, previous, mutation)
     if (mutation.operations.length > 0) this.applyOperations(draft, this.slice(draft), mutation)
-    if (mutation.cursor !== undefined && completeness.cursor !== null)
-      this.setCursor(draft, completeness.cursor)
-    this.setPersonalRowsCompleteAt(draft, completeness.marker)
+    this.stageMeta(draft, mutation)
+    // The disk index after the rows: a marker's members are rows it can see.
+    if ((mutation.instances?.length ?? 0) > 0 || (mutation.comesWith?.length ?? 0) > 0) {
+      const index = this.store.indexDraft(draft, this.principal)
+      stageIndexInstances(index, mutation.instances)
+      stageIndexComesWith(index, mutation.comesWith)
+      draft.touchedCache = true
+    }
+  }
+
+  /** The cursor, markers, policy and load state a mutation leaves, staged with their writes. */
+  private stageMeta(draft: SpanDraft, mutation: CacheMutation): void {
+    const before = draft.metas.get(this.principal) ?? this.store.metaOf(this.principal)
+    const next = nextCacheMeta(before, mutation)
+    if (next.writes.length === 0) return
+    this.store.stageMetaWrites(draft, this.principal, next.writes)
+    draft.metas.set(this.principal, next.meta)
+    draft.touchedCache = true
   }
 
   /**
@@ -1320,30 +2293,54 @@ class IndexedDbCacheStore implements ReplicaCacheStore {
    */
   private applyOperations(
     draft: SpanDraft,
-    slice: ChangedKeyDraft<EntityRecord>,
+    slice: ChangedKeyDraft<EntityRecord, RowMirror>,
     mutation: CacheMutation,
   ): void {
     draft.touchedCache = true
+    const published = this.store.entitiesOf(this.principal)
+    const index = this.store.indexDraft(draft, this.principal)
+    let diskOnly = draft.diskOnly.get(this.principal)
+    if (diskOnly === undefined) {
+      diskOnly = new DiskOnlyWrites()
+      draft.diskOnly.set(this.principal, diskOnly)
+    }
     for (const op of mutation.operations) {
       if (!this.store.retainsEntity(op.entity)) continue
-      if (op.kind === 'upsert') {
-        const row: EntityRecord = {
-          entity: op.entity,
-          entityId: op.entityId,
-          value: op.value,
-          revision: op.revision,
-          provenance: op.provenance,
+      const key = rowKey(op.entity, op.entityId)
+      // POD-7160: newest wins against the row in memory or, only on disk, its index entry.
+      const staged = stageRow(key, op, slice.get(key, published), diskOnly, index)
+      if (staged === undefined) continue
+      const row = staged.row
+      if (row !== null) {
+        if (staged.memory) slice.set(key, row)
+        const before = index.record(key)?.level
+        index.row(key, row, op.kind === 'upsert' ? op.holders : undefined)
+        if (row.part !== 'stub')
+          draft.ops.push({
+            kind: 'put',
+            store: ENTITY_STORE,
+            value: entityRow(this.principal, row),
+          })
+        else {
+          // POD-7170: a stub-level record has no entity row (its index entry
+          // stores the stub); one taken back to its stub drops its whole row.
+          this.store.noteStubInIndex(draft)
+          if (before === 'main')
+            draft.ops.push({
+              kind: 'delete',
+              store: ENTITY_STORE,
+              key: [this.principal, op.entity, op.entityId],
+            })
         }
-        slice.set(rowKey(op.entity, op.entityId), row)
-        draft.ops.push({ kind: 'put', store: ENTITY_STORE, value: entityRow(this.principal, row) })
         continue
       }
+      index.row(key, null)
       // `remove` (tombstone, global) and `evict` (this principal's view only) both
       // drop the row from THIS principal's slice — and under a per-principal
       // keyspace that is the whole difference, because an evict must not touch
       // anybody else's copy. Amendment 1 D14.5's distinction is preserved upstream
       // in the envelope's op and, for the port, by `cacheOperations()`.
-      slice.delete(rowKey(op.entity, op.entityId))
+      slice.delete(key)
       draft.ops.push({
         kind: 'delete',
         store: ENTITY_STORE,
@@ -1352,46 +2349,11 @@ class IndexedDbCacheStore implements ReplicaCacheStore {
     }
   }
 
-  private setCursor(draft: SpanDraft, cursor: ScopedCacheCursor): void {
-    draft.cursors.set(this.principal, cursor)
-    draft.touchedCache = true
-    draft.ops.push({
-      kind: 'put',
-      store: META_STORE,
-      value: { principal: this.principal, key: CURSOR_KEY, value: cursor } satisfies StoredMeta,
-    })
-  }
-
-  private setPersonalRowsCompleteAt(
-    draft: SpanDraft,
-    marker: PersonalRowsCompleteness | null,
-  ): void {
-    draft.personalRowsCompleteAt.set(this.principal, marker)
-    draft.touchedCache = true
-    draft.ops.push(
-      marker === null
-        ? {
-            kind: 'delete',
-            store: META_STORE,
-            key: [this.principal, PERSONAL_ROWS_COMPLETE_AT_KEY],
-          }
-        : {
-            kind: 'put',
-            store: META_STORE,
-            value: {
-              principal: this.principal,
-              key: PERSONAL_ROWS_COMPLETE_AT_KEY,
-              value: marker,
-            } satisfies StoredMeta,
-          },
-    )
-  }
-
   /** Stage only changed keys; published rows stay untouched until publish. */
-  private slice(draft: SpanDraft): ChangedKeyDraft<EntityRecord> {
+  private slice(draft: SpanDraft): ChangedKeyDraft<EntityRecord, RowMirror> {
     const staged = draft.entities.get(this.principal)
     if (staged !== undefined) return staged
-    const changes = new ChangedKeyDraft<EntityRecord>()
+    const changes = new ChangedKeyDraft<EntityRecord, RowMirror>()
     draft.entities.set(this.principal, changes)
     return changes
   }
@@ -1504,6 +2466,22 @@ class IndexedDbOutboxStore implements OutboxStorePort {
   }
 }
 
+/** A stored entity row, as the port's record. */
+function entityRecordOf(row: StoredEntity): EntityRecord {
+  return {
+    entity: row.entity,
+    entityId: row.entityId,
+    value: row.value,
+    revision: row.revision,
+    provenance: row.provenance as EntityRecord['provenance'],
+    ...(row.part === 'stub' ? { part: 'stub' as const } : {}),
+    ...(typeof row.asOf === 'number' ? { asOf: row.asOf } : {}),
+  }
+}
+
+/** The state of a marker the index has no members for: only the server can answer it. */
+const NOT_INDEXED = Object.freeze({ lastReadAt: 0, stale: false, indexed: false })
+
 const entityRow = (principal: string, row: EntityRecord): StoredEntity => ({
   principal,
   entity: row.entity,
@@ -1511,6 +2489,8 @@ const entityRow = (principal: string, row: EntityRecord): StoredEntity => ({
   value: row.value,
   revision: row.revision,
   provenance: row.provenance,
+  ...(row.part === undefined ? {} : { part: row.part }),
+  ...(row.asOf === undefined ? {} : { asOf: row.asOf }),
 })
 
 /**
@@ -1539,10 +2519,12 @@ function openDatabase(
   factory: IdbFactoryLike,
   name: string,
   timeoutMs: number = IDB_OPEN_TIMEOUT_MS,
+  options?: Pick<IndexedDbStoreOptions, 'keyRange' | 'onSchemaUpgrade'>,
 ): Promise<IdbDatabaseLike> {
   return new Promise<IdbDatabaseLike>((resolve, reject) => {
     const request = factory.open(name, REPLICA_SCHEMA_VERSION)
     let settled = false
+    let upgraded: { from: number; to: number; cachePrincipalsReset: number } | undefined
     const timer = setTimeout(() => {
       if (settled) return
       settled = true
@@ -1554,8 +2536,22 @@ function openDatabase(
       clearTimeout(timer)
       fn()
     }
-    request.onupgradeneeded = () => {
-      upgradeSchema(request.result)
+    request.onupgradeneeded = (event) => {
+      const from = (event as { oldVersion?: number } | undefined)?.oldVersion ?? 0
+      upgraded = { from, to: REPLICA_SCHEMA_VERSION, cachePrincipalsReset: 0 }
+      upgradeSchema(
+        request.result,
+        request.transaction === null
+          ? undefined
+          : {
+              transaction: request.transaction,
+              oldVersion: from,
+              keyRange: options?.keyRange,
+              onLegacyReset: (count) => {
+                if (upgraded !== undefined) upgraded.cachePrincipalsReset = count
+              },
+            },
+      )
     }
     // Another connection is holding the version lock. Do not wait it out —
     // the timeout is the bound. A later success still closes the late handle.
@@ -1576,6 +2572,13 @@ function openDatabase(
       }
       finish(() => {
         resolve(db)
+        if (upgraded !== undefined) {
+          try {
+            options?.onSchemaUpgrade?.(upgraded)
+          } catch {
+            // Observability cannot refuse an already committed database open.
+          }
+        }
       })
     }
     request.onerror = () => {
@@ -1613,3 +2616,9 @@ function unavailableDatabase(): IdbDatabaseLike {
     onversionchange: null,
   }
 }
+
+/** POD-7170: the store-wide meta row that says stub-level records live in the index only. */
+const STUBS_IN_INDEX_KEY = 'stubs-in-index'
+
+const isStubsInIndexFlag = (row: StoredMeta): boolean =>
+  row.principal === STORE_PRINCIPAL && row.key === STUBS_IN_INDEX_KEY

@@ -13,15 +13,20 @@ import {
 } from '@podium/model'
 import { PodiumSettings } from '@podium/runtime'
 import { fixtureWriteScope } from '@podium/sync/testing'
+import { sql } from 'drizzle-orm'
 import { afterAll, describe, expect, it } from 'vitest'
 import { DRIZZLE_MIGRATIONS } from './migrations/drizzle-manifest.generated'
 import { deriveRepoId } from './repo-id'
 import type { SessionRow } from './store'
 import { openTestStore } from './test-support/open-test-store'
+import { testStoreEngine } from './test-support/pg-test-database'
+import { storeSql } from './test-support/store-sql'
 
 /** One person's pins by kind, read the way the boot reconcile reads them. */
 async function pinsOf(
-  repo: { allPinsForBootReconcile(): Promise<{ userId: string; kind: string; entityId: string }[]> },
+  repo: {
+    allPinsForBootReconcile(): Promise<{ userId: string; kind: string; entityId: string }[]>
+  },
   userId: string,
 ): Promise<{ panels: string[]; worktrees: string[]; repos: string[] }> {
   const pins = (await repo.allPinsForBootReconcile()).filter((p) => p.userId === userId)
@@ -32,7 +37,9 @@ async function pinsOf(
 /** One person's tab orders by worktree, read the way the boot reconcile reads them. */
 async function tabOrdersOf(
   repo: {
-    allTabOrdersForBootReconcile(): Promise<{ userId: string; entityId: string; sessionIds: string[] }[]>
+    allTabOrdersForBootReconcile(): Promise<
+      { userId: string; entityId: string; sessionIds: string[] }[]
+    >
   },
   userId: string,
 ): Promise<Record<string, string[]>> {
@@ -61,15 +68,22 @@ async function tmpDbPath(): Promise<string> {
 }
 
 describe('SessionStore repos', () => {
-  it('reports the newest migration recorded by a real migrated store', async () => {
-    const store = await openTestStore(':memory:')
-    const expected = DRIZZLE_MIGRATIONS.filter(m => !m.sql.startsWith('-- after-local-identity-import'))
-      .map(({ name }) => name)
-      .sort()
-      .at(-1)
-    expect(await store.schemaVersionForTransfer()).toBe(expected)
-    await store.close()
-  })
+  // The transfer's schema stamp and fence are a SQLite file's: hosted Postgres has no transfer
+  // (POD-6958 design 2.9).
+  it.skipIf(testStoreEngine() === 'pg')(
+    'reports the newest migration recorded by a real migrated store',
+    async () => {
+      const store = await openTestStore(':memory:')
+      const expected = DRIZZLE_MIGRATIONS.filter(
+        (m) => !m.sql.startsWith('-- after-local-identity-import'),
+      )
+        .map(({ name }) => name)
+        .sort()
+        .at(-1)
+      expect(await store.schemaVersionForTransfer()).toBe(expected)
+      await store.close()
+    },
+  )
 
   it('starts empty, adds, dedupes, lists in insertion order, removes', async () => {
     const store = await openTestStore(':memory:')
@@ -83,14 +97,17 @@ describe('SessionStore repos', () => {
     await store.close()
   })
 
-  it('rejects SQLite writes while a transfer fence is held, then reopens them', async () => {
-    const store = await openTestStore(':memory:')
-    await store.beginTransferFence()
-    await expect(store.repos.addRepo('/home/u/fenced', store.hostMachineId)).rejects.toThrow()
-    await store.endTransferFence()
-    await store.repos.addRepo('/home/u/reopened', store.hostMachineId)
-    await store.close()
-  })
+  it.skipIf(testStoreEngine() === 'pg')(
+    'rejects SQLite writes while a transfer fence is held, then reopens them',
+    async () => {
+      const store = await openTestStore(':memory:')
+      await store.beginTransferFence()
+      await expect(store.repos.addRepo('/home/u/fenced', store.hostMachineId)).rejects.toThrow()
+      await store.endTransferFence()
+      await store.repos.addRepo('/home/u/reopened', store.hostMachineId)
+      await store.close()
+    },
+  )
 
   it('persists repos across instances on the same file', async () => {
     const file = await tmpDbPath()
@@ -387,7 +404,9 @@ describe('SessionStore sessions', () => {
     const agent = row({ id: asSessionId('a'), name: 'Session title slot', nameSource: 'agent' })
     await s.sessions.upsertSession(fixtureWriteScope(), user)
     await s.sessions.upsertSession(fixtureWriteScope(), agent)
-    expect(await s.sessions.loadSessions()).toEqual([user, agent])
+    // `loadSessions` orders by `created_at ASC, id ASC` (one order on both engines):
+    // the two share a created_at, so 'a' comes first.
+    expect(await s.sessions.loadSessions()).toEqual([agent, user])
 
     // A value that is neither must never read back as one that could out-rank the
     // user — an unknown source degrades to "nobody named it".
@@ -777,7 +796,12 @@ describe('SessionStore sessions', () => {
     // A per-user WRITE with no identity fails CLOSED — it never falls back to an
     // operator. Reads tolerate an unknown user (an empty slice is the truth).
     await expect(
-      store.sessions.markSessionRead(fixtureWriteScope(), asUserId(''), asSessionId('s_read'), 't'),
+      store.sessions.markSessionRead(
+        fixtureWriteScope(),
+        asUserId(''),
+        asSessionId('s_read'),
+        '2026-07-01T00:00:00.000Z',
+      ),
     ).rejects.toThrow(/no user id/)
     await store.close()
   })
@@ -831,7 +855,7 @@ describe('SessionStore drafts', () => {
 // not in-process.
 
 describe('SessionStore pins', () => {
-  it('starts empty, adds, dedupes, lists by kind in insertion order, and removes', async () => {
+  it('starts empty, adds, dedupes, lists by kind oldest first, and removes', async () => {
     const store = await openTestStore(':memory:')
     expect(await pinsOf(store.sessions, firstAdminMemberId())).toEqual({
       panels: [],
@@ -840,15 +864,26 @@ describe('SessionStore pins', () => {
     })
 
     await store.sessions.addPin(firstAdminMemberId(), 'repo', '/repo/b', '2026-11-08T00:00:00.000Z')
-    await store.sessions.addPin(firstAdminMemberId(), 'worktree', '/repo/b-feature', '2026-11-08T00:00:00.000Z')
-    await store.sessions.addPin(firstAdminMemberId(), 'panel', 'session-2', '2026-11-08T00:00:00.000Z')
+    await store.sessions.addPin(
+      firstAdminMemberId(),
+      'worktree',
+      '/repo/b-feature',
+      '2026-11-08T00:00:00.000Z',
+    )
+    await store.sessions.addPin(
+      firstAdminMemberId(),
+      'panel',
+      'session-2',
+      '2026-11-08T00:00:00.000Z',
+    )
     await store.sessions.addPin(firstAdminMemberId(), 'repo', '/repo/a', '2026-11-08T00:00:00.000Z')
     await store.sessions.addPin(firstAdminMemberId(), 'repo', '/repo/b', '2026-11-08T00:00:00.000Z')
 
     expect(await pinsOf(store.sessions, firstAdminMemberId())).toEqual({
       panels: ['session-2'],
       worktrees: ['/repo/b-feature'],
-      repos: ['/repo/b', '/repo/a'],
+      // Oldest first; pins made at one instant in key order (POD-7024: the same on both engines).
+      repos: ['/repo/a', '/repo/b'],
     })
 
     await store.sessions.removePin(firstAdminMemberId(), 'repo', '/repo/b')
@@ -863,7 +898,12 @@ describe('SessionStore pins', () => {
   it('removes a panel pin when the session is deleted', async () => {
     const store = await openTestStore(':memory:')
     await store.sessions.upsertSession(fixtureWriteScope(), row({ id: asSessionId('session-1') }))
-    await store.sessions.addPin(firstAdminMemberId(), 'panel', 'session-1', '2026-11-08T00:00:00.000Z')
+    await store.sessions.addPin(
+      firstAdminMemberId(),
+      'panel',
+      'session-1',
+      '2026-11-08T00:00:00.000Z',
+    )
 
     await store.sessions.purgeSession(fixtureWriteScope(), asSessionId('session-1'))
 
@@ -968,7 +1008,7 @@ describe('SessionStore offers', () => {
     expect(await store.sessions.listOffers()).toEqual({ s1: OFFER })
 
     // A subsequent offer replaces the previous one.
-    const next = { message: 'Ready to land', actions: [], createdAt: 't2' }
+    const next = { message: 'Ready to land', actions: [], createdAt: '2026-07-01T00:00:02.000Z' }
     await store.sessions.setOffer(fixtureWriteScope(), asSessionId('s1'), next)
     expect(await store.sessions.listOffers()).toEqual({ s1: next })
 
@@ -977,16 +1017,20 @@ describe('SessionStore offers', () => {
     await store.close()
   })
 
-  it('drops a row with corrupt JSON actions instead of throwing', async () => {
-    const store = await openTestStore(':memory:')
-    await store.sessions.setOffer(fixtureWriteScope(), asSessionId('good'), OFFER)
-    // Simulate a corrupt persisted row.
-    ;(store as unknown as { db: { prepare(q: string): { run(...a: unknown[]): unknown } } }).db
-      .prepare('UPDATE offers SET actions = ? WHERE session_id = ?')
-      .run('{not json', 'good')
-    expect(await store.sessions.listOffers()).toEqual({})
-    await store.close()
-  })
+  // A json column on Postgres refuses the corrupt text at the write: SQLite only.
+  it.skipIf(testStoreEngine() === 'pg')(
+    'drops a row with corrupt JSON actions instead of throwing',
+    async () => {
+      const store = await openTestStore(':memory:')
+      await store.sessions.setOffer(fixtureWriteScope(), asSessionId('good'), OFFER)
+      // Simulate a corrupt persisted row.
+      await storeSql(store).run(
+        sql`UPDATE offers SET actions = ${'{not json'} WHERE session_id = ${'good'}`,
+      )
+      expect(await store.sessions.listOffers()).toEqual({})
+      await store.close()
+    },
+  )
 
   it('removes an offer when the session is purged', async () => {
     const store = await openTestStore(':memory:')
@@ -1346,27 +1390,31 @@ describe('SessionStore superagent threads', () => {
     await s.close()
   })
 
-  it('tolerates a corrupt tool_calls column instead of dropping the whole thread', async () => {
-    // One message with unparseable tool_calls must NOT throw out of the row map and
-    // blank the entire thread's history — quarantine that field to undefined, keep
-    // the message and the rest of the thread.
-    const s = await openTestStore(':memory:')
-    await s.superagent.appendSuperagentMessage(asThreadId('global'), {
-      role: 'assistant',
-      content: 'a',
-    })
-    await s.superagent.appendSuperagentMessage(asThreadId('global'), {
-      role: 'assistant',
-      content: 'b',
-    })
-    ;(s as unknown as { db: { prepare(q: string): { run(...a: unknown[]): unknown } } }).db
-      .prepare("UPDATE superagent_messages SET tool_calls = '{bad' WHERE content = 'a'")
-      .run()
+  // A json column on Postgres refuses the corrupt text at the write: SQLite only.
+  it.skipIf(testStoreEngine() === 'pg')(
+    'tolerates a corrupt tool_calls column instead of dropping the whole thread',
+    async () => {
+      // One message with unparseable tool_calls must NOT throw out of the row map and
+      // blank the entire thread's history — quarantine that field to undefined, keep
+      // the message and the rest of the thread.
+      const s = await openTestStore(':memory:')
+      await s.superagent.appendSuperagentMessage(asThreadId('global'), {
+        role: 'assistant',
+        content: 'a',
+      })
+      await s.superagent.appendSuperagentMessage(asThreadId('global'), {
+        role: 'assistant',
+        content: 'b',
+      })
+      await storeSql(s).run(
+        sql`UPDATE superagent_messages SET tool_calls = '{bad' WHERE content = 'a'`,
+      )
 
-    await s.superagent.loadSuperagentMessages('global')
-    const msgs = await s.superagent.loadSuperagentMessages('global')
-    expect(msgs.map((m) => m.content)).toEqual(['a', 'b'])
-    expect(msgs[0]?.toolCalls).toBeUndefined()
-    await s.close()
-  })
+      await s.superagent.loadSuperagentMessages('global')
+      const msgs = await s.superagent.loadSuperagentMessages('global')
+      expect(msgs.map((m) => m.content)).toEqual(['a', 'b'])
+      expect(msgs[0]?.toolCalls).toBeUndefined()
+      await s.close()
+    },
+  )
 })

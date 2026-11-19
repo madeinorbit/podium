@@ -4,9 +4,7 @@ import { expect, it, vi } from 'vitest'
 import { insideReader, measureWork } from '../../../tests/worklist/harness/src/work-meter'
 import { issuePages, type PageIssue } from './issue-page'
 import { MobxPool } from './pool'
-import { createColdIndex } from './shared/cold-index'
 import { createIssueQuestions } from './shared/issue-questions'
-import { SCHEMA } from './shared/schema'
 import type { RowRecord, RowSourceEvent } from './shared/source'
 import { LOADING, type Loaded } from './worklist/rollup'
 
@@ -144,7 +142,7 @@ it('bounds a file-tab page selection and updates with large histories sharing it
       const control = await measure('planted whole-path-history winner scan', () => {
         let best: { id: string; seq: number; worktreePath: string } | undefined
         for (const id of pool.queries.ids({ kind: 'containingIssues', cwd: '/shared/src/file' })) {
-          const value = omitGone(pool.row('issue', id, 'summary')) as Loaded<{
+          const value = omitGone(pool.row('issue', id)) as Loaded<{
             id: string
             seq: number
             worktreePath: string
@@ -241,21 +239,17 @@ it('preserves path boundaries, trailing roots, insertion ties and source-forked 
   expect(fork.childCounts('root')).toEqual({ childCount: 2, childDoneCount: 2 })
 })
 
-it('honors resident path/eligibility overlays, cold source changes and replacement without a catalog demand', () => {
-  let source = createColdIndex(SCHEMA)
+it('honors resident path/eligibility overlays, source changes and replacement without a catalog demand', () => {
   const a = issue('a', 1, '/shared'),
     b = issue('b', 2, '/shared')
-  source.apply({ type: 'replace', rows: [a, b] })
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(old) }, undefined, {
-    cold: () => source,
     load: () => undefined,
     schedule: () => () => {},
   })
-  pool.apply({ type: 'replace', rows: [] })
+  pool.apply({ type: 'replace', rows: [a, b] })
   const seen: (string | undefined)[] = []
   const stop = autorun(() => seen.push(pool.queries.containingIssueId('/shared/file')))
   const publish = (event: RowSourceEvent) => {
-    source.apply(event)
     pool.apply(event)
   }
   try {
@@ -263,8 +257,7 @@ it('honors resident path/eligibility overlays, cold source changes and replaceme
     pool.apply({ type: 'update', rows: [issue('a', 1, '/elsewhere')] })
     expect(seen.at(-1)).toBe('b')
     const before = seen.length
-    // A cold source update cannot displace a resident edit at the same key.
-    source.apply({ type: 'update', rows: [issue('a', 0, '/shared')] })
+    // An empty publication moves nothing.
     pool.apply({ type: 'update', rows: [] })
     expect(seen).toHaveLength(before)
     publish({ type: 'update', rows: [issue('b', 2, '/shared', { archived: true })] })
@@ -273,9 +266,7 @@ it('honors resident path/eligibility overlays, cold source changes and replaceme
     expect(seen.at(-1)).toBe('pending')
     pool.apply({ type: 'update', rows: [issue('pending', 3, '/shared', { deletedAt: old })] })
     expect(seen.at(-1)).toBeUndefined()
-    source = createColdIndex(SCHEMA)
-    source.apply({ type: 'replace', rows: [issue('replacement', 7, '/shared')] })
-    pool.apply({ type: 'replace', rows: [] })
+    pool.apply({ type: 'replace', rows: [issue('replacement', 7, '/shared')] })
     expect(seen.at(-1)).toBe('replacement')
   } finally {
     stop()

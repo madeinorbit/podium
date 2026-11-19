@@ -7,7 +7,6 @@
   "exports": {
     ".": "./src/janitor.ts",
     "./worker-client": "./src/worker-client.ts",
-    "./worker-embed": "./src/janitor-worker-embed.ts",
     "./worker": "./src/janitor-worker.ts"
   },
   "dependencies": {

@@ -9,6 +9,12 @@ import { Session } from './session'
 
 const MACHINE = asMachineId('slice-machine')
 
+/**
+ * The timers the repository's slice scheduling uses, faked once its store is open. Not
+ * `setImmediate`: a Postgres store's I/O resolves through it (POD-6994).
+ */
+const FAKED = ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] as const
+
 function makeSession(index: number): Session {
   return new Session({
     ownerUserId: firstAdminMemberId(),
@@ -67,8 +73,8 @@ afterEach(() => {
 
 describe('SessionRepository volatile capture slices [POD-2322]', () => {
   it('drains at most 32 candidates and reports deterministic progress', async () => {
-    vi.useFakeTimers()
     const { repo, rows, upserts } = await fixture(40)
+    vi.useFakeTimers({ toFake: [...FAKED] })
     for (const row of rows) repo.markVolatileSessionDirty(row.sessionId)
 
     const first = await repo.drainVolatileCaptureSlice()
@@ -83,8 +89,8 @@ describe('SessionRepository volatile capture slices [POD-2322]', () => {
   })
 
   it('stops on the CPU budget only between complete candidates', async () => {
-    vi.useFakeTimers()
     const { repo, rows, upserts } = await fixture(5)
+    vi.useFakeTimers({ toFake: [...FAKED] })
     for (const row of rows) repo.markVolatileSessionDirty(row.sessionId)
     const ticks = [0, 5, 10]
 
@@ -100,7 +106,7 @@ describe('SessionRepository volatile capture slices [POD-2322]', () => {
 
   it('keeps a same-slice mutation pending and persists its newest value next', async () => {
     const { repo, rows, store, upsert, realUpsert } = await fixture(1)
-    vi.useFakeTimers()
+    vi.useFakeTimers({ toFake: [...FAKED] })
     const row = rows[0]!
     const first = asMachineId('first-target')
     const latest = asMachineId('latest-target')
@@ -120,8 +126,8 @@ describe('SessionRepository volatile capture slices [POD-2322]', () => {
   })
 
   it('keeps a failed slice pending and schedules the existing retry', async () => {
-    vi.useFakeTimers()
     const { repo, rows, commit, runScheduledBroadcast } = await fixture(2)
+    vi.useFakeTimers({ toFake: [...FAKED] })
     for (const row of rows) repo.markVolatileSessionDirty(row.sessionId)
     // Enter the state the production timer has just before it drains: the
     // initial zero-delay handle is cleared, so a failure can arm the retry.
@@ -140,8 +146,8 @@ describe('SessionRepository volatile capture slices [POD-2322]', () => {
   })
 
   it('the synchronous barrier drains the complete backlog', async () => {
-    vi.useFakeTimers()
     const { repo, rows, upserts } = await fixture(100)
+    vi.useFakeTimers({ toFake: [...FAKED] })
     for (const row of rows) repo.markVolatileSessionDirty(row.sessionId)
 
     const changes = await repo.flushVolatileSessionCaptures()

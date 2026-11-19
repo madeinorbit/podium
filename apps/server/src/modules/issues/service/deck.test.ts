@@ -56,8 +56,8 @@ async function fixture() {
       cwd: '/repo',
       machineId: store.hostMachineId,
       status: 'live',
-      createdAt: '2026-10-15T00:00:00Z',
-      lastActiveAt: '2026-10-15T00:00:00Z',
+      createdAt: '2026-10-15T00:00:00.000Z',
+      lastActiveAt: '2026-10-15T00:00:00.000Z',
       origin: { kind: 'spawn' },
       archived: false,
       ...patch,
@@ -73,7 +73,7 @@ const agentState = (
   phase: NonNullable<SessionMeta['agentState']>['phase'],
 ): NonNullable<SessionMeta['agentState']> => ({
   phase,
-  since: '2026-10-15T00:00:00Z',
+  since: '2026-10-15T00:00:00.000Z',
   nativeSubagentCount: 0,
 })
 
@@ -139,7 +139,7 @@ it('shows marker-derived seats and shared session words, excluding non-roster se
     observedModel: 'actual',
   })
   seat('helper', task.id, {
-    offer: { message: 'Review ready', actions: [], createdAt: '2026-10-15T00:00:00Z' },
+    offer: { message: 'Review ready', actions: [], createdAt: '2026-10-15T00:00:00.000Z' },
   })
   seat('archived', task.id, { archived: true, agentState: agentState('errored') })
   seat('headless', task.id, { headless: true })
@@ -148,7 +148,7 @@ it('shows marker-derived seats and shared session words, excluding non-roster se
     status: 'hibernated' as const,
     resume: { kind: 'codex' as const, value: 'same' },
   }
-  seat('old', task.id, { ...parked, lastActiveAt: '2026-10-14T00:00:00Z' })
+  seat('old', task.id, { ...parked, lastActiveAt: '2026-10-14T00:00:00.000Z' })
   seat('new', task.id, parked)
   await svc.crud.setCoordinator(svc.reports.store.serverWriter, root.id, coordinator.sessionId)
   await svc.crud.setCoordinator(svc.reports.store.serverWriter, phase.id, lead.sessionId)
@@ -195,7 +195,7 @@ it('asks only through a live coordinator, and escalates delegate exceptions (POD
   asking.agentState = agentState('errored')
   expect(await words()).toEqual({ root: 'error', reviewed: 'error' })
   asking.agentState = { ...agentState('idle'), idle: { kind: 'question' } }
-  coordinator.offer = { message: 'Ready', actions: [], createdAt: '2026-10-15T00:00:00Z' }
+  coordinator.offer = { message: 'Ready', actions: [], createdAt: '2026-10-15T00:00:00.000Z' }
   expect((await words()).root).toBe('needs-you')
   coordinator.offer = undefined
   coordinator.status = 'exited'
@@ -276,7 +276,7 @@ it('includes pending permission asks in session and task words', async () => {
     source: 'protocol',
     answerable: 'structured',
     fingerprint: 'ask',
-    askedAt: '2026-10-15T00:00:00Z',
+    askedAt: '2026-10-15T00:00:00.000Z',
   })
   const deck = await svc.reports.deck(root.id)
   expect(deck.root.word).toBe('needs-you')
@@ -311,7 +311,7 @@ it('collapses parked twins across deck boundaries without letting a private twin
     resume,
     refIssueId: root.id,
     refLetter: 'A',
-    lastActiveAt: '2026-10-14T00:00:00Z',
+    lastActiveAt: '2026-10-14T00:00:00.000Z',
   })
   const current = seat('current', elsewhere.id, { status: 'hibernated', resume })
   await svc.crud.create(svc.reports.store.serverWriter, {

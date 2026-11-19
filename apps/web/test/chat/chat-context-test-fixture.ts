@@ -22,10 +22,7 @@ import type {
   ReplicaAddressedBatch,
 } from '@podium/client-core/replica'
 import { MobxPool } from '@podium/client-graph'
-import {
-  CHAT_CONTEXT_ENTITIES,
-  CHAT_CONTEXT_SUMMARIES,
-} from '@podium/client-graph/chat-context-schema'
+import { CHAT_CONTEXT_ENTITIES } from '@podium/client-graph/chat-context-schema'
 import { ChatContextSource } from '@podium/client-graph/chat-context-source'
 import { NOTICE_ENTITIES } from '@podium/client-graph/notice-schema'
 import { NoticeSource } from '@podium/client-graph/notice-source'
@@ -61,7 +58,6 @@ export async function createChatContextFixture(resumeTwins = false) {
   const data = noticeFixture()
   const rawSessions = data.sessions.map((row, index) => ({
     ...row,
-    privateBody: 'Undeclared cold payload',
     issueId: asIssueId(index ? 'cold-issue' : 'chat-issue'),
     displayRef: index ? 'SYN-2-A' : 'SYN-1-A',
     refRepoId: asRepoId('chat-repo'),
@@ -273,7 +269,6 @@ export async function createChatContextFixture(resumeTwins = false) {
     { coarseNow: Date.parse('2026-10-01T13:00:00Z'), selectedIssueId: null },
     undefined,
     {
-      summaries: CHAT_CONTEXT_SUMMARIES,
       load: (entity, id) =>
         (entity === 'issue' ? issues : rawSessions).find(
           (row) => ('id' in row ? row.id : row.sessionId) === id,

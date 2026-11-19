@@ -278,6 +278,8 @@ export {
   ISSUE_COMMAND_NAMES,
   ISSUE_CONTRACT_LIST,
   ISSUE_CONTRACTS,
+  ISSUE_SEARCH_PAGE_DEFAULT,
+  ISSUE_SEARCH_PAGE_MAX,
   type IssueContractName,
   type IssueUpdatePatch,
 } from './issues/contracts'

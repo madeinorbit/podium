@@ -26,6 +26,7 @@ import {
 } from '@podium/sync'
 import { authorityCommitWriter } from '@podium/sync/testing'
 import { describe, expect, it } from 'vitest'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import { databaseRecords } from '../../sync/record-source'
 import { LayoutService } from './service'
 
@@ -81,7 +82,8 @@ function memoryStore(): AuthorityStore {
 
 /** Minimal layout store — only the methods LayoutService uses, with the
  *  change capture the table's triggers keep (POD-6920): a row whose value
- *  changes is captured under its key, and a drain takes the captured rows. */
+ *  changes is captured under its key, workspace first as the triggers key it
+ *  (POD-7021), and a drain takes the captured rows. */
 function memoryLayoutRepo() {
   const byUser = new Map<string, Map<string, unknown>>()
   let captured: CapturedRow[] = []
@@ -91,10 +93,11 @@ function memoryLayoutRepo() {
       kind: 'userLayout',
       source: 0,
       op,
-      oldKey: op === 'i' ? null : [userId, key],
-      newKey: op === 'd' ? null : [userId, key],
+      oldKey: op === 'i' ? null : [SELF_HOSTED_WORKSPACE_ID, userId, key],
+      newKey: op === 'd' ? null : [SELF_HOSTED_WORKSPACE_ID, userId, key],
     })
   return {
+    workspaceId: SELF_HOSTED_WORKSPACE_ID,
     async drainCapture(): Promise<CapturedRow[]> {
       const out = captured
       captured = []

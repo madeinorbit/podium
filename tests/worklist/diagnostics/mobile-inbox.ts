@@ -7,11 +7,6 @@ export function createMobileInboxSnapshotViews(pool: MobxPool) {
   const views = createMobileInboxViews(pool)
   return {
     ...views,
-    inbox: () => ({
-      groups: views.inbox().groups,
-      booting: views.inbox().booting,
-      outboxSize: views.inbox().outboxSize,
-    }),
     screening: () => ({ queue: views.screening().queue, booting: views.screening().booting }),
   }
 }

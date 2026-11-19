@@ -1,34 +1,39 @@
+// workspace-scoped (POD-6959)
+
 import { DEFAULT_FLEET_UPDATE_CHANNEL, UpdateChannel } from '@podium/model'
 import { eq, inArray, sql } from 'drizzle-orm'
 import { z } from 'zod'
-import { meta } from '../migrations/schema'
-import type { StoreDrizzle, StoreQueries } from './executor/sync-drizzle'
-import { prepared } from './executor/sync-drizzle'
+import { captureWrite } from '../sync/capture-pg'
+import type { StoreDb, WorkspaceQueries } from './executor/sync-drizzle'
+import { preparedGlobal } from './executor/sync-drizzle'
 import { MachineRecordWrites } from './machine-record-writes'
 
+// The fleet channel and the update execution are install keys of `meta` (one per
+// installation, workspace-manifest.ts INSTALL_META_KEYS), so every definition here is global.
 const FLEET_CHANNEL = 'machines.fleet-channel.v1'
 const UPDATE_EXECUTION = 'updates.execution.v1'
-const channelRow = prepared((db: StoreDrizzle) =>
-  db.select({ value: meta.value }).from(meta).where(eq(meta.key, FLEET_CHANNEL)).prepare(),
+const channelRow = preparedGlobal((db, t) =>
+  db.select({ value: t.meta.value }).from(t.meta).where(eq(t.meta.key, FLEET_CHANNEL)).prepare(),
 )
-const contextRows = prepared((db: StoreDrizzle) =>
+const contextRows = preparedGlobal((db, t) =>
   db
-    .select({ key: meta.key, value: meta.value })
-    .from(meta)
-    .where(inArray(meta.key, [FLEET_CHANNEL, UPDATE_EXECUTION]))
+    .select({ key: t.meta.key, value: t.meta.value })
+    .from(t.meta)
+    .where(inArray(t.meta.key, [FLEET_CHANNEL, UPDATE_EXECUTION]))
     .prepare(),
 )
-const setChannel = prepared((db: StoreDrizzle) =>
-  db
-    .insert(meta)
-    .values({ key: FLEET_CHANNEL, value: sql.placeholder('channel') })
-    .onConflictDoUpdate({
-      target: meta.key,
-      set: { value: sql`excluded.value` },
-      setWhere: sql`${meta.value} <> excluded.value`,
-    })
-    .returning({ key: meta.key })
-    .prepare(),
+const setChannel = preparedGlobal((db, t) =>
+  captureWrite(
+    db
+      .insert(t.meta)
+      .values({ key: FLEET_CHANNEL, value: sql.placeholder('channel') })
+      .onConflictDoUpdate({
+        target: t.meta.key,
+        set: { value: sql`excluded.value` },
+        setWhere: sql`${t.meta.value} <> excluded.value`,
+      })
+      .returning({ key: t.meta.key }),
+  ).prepare(),
 )
 
 // Read only the update authority's existing durable inputs, without constructing
@@ -38,12 +43,12 @@ const StoredTargets = z.object({
 })
 
 export class MachineRecordContextRepository {
-  private readonly db: StoreDrizzle
+  private readonly db: StoreDb
   constructor(
-    private readonly queries: StoreQueries,
+    private readonly queries: WorkspaceQueries,
     private readonly records = new MachineRecordWrites(),
   ) {
-    this.db = queries.rootDb
+    this.db = queries.db
   }
 
   /** The resolved channel and its settings source share the source write. */

@@ -1,12 +1,11 @@
-import { mkdtempSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { asIssueId, asSessionId, firstAdminMemberId } from '@podium/model'
-import { openDatabase } from '@podium/runtime/sqlite'
 import { fixtureCommitWriter, fixtureWriteScope } from '@podium/sync/testing'
+import { sql } from 'drizzle-orm'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { messageTestWriter, messageTestWriters } from '../../test-support/message-writer'
 import { openTestStore } from '../../test-support/open-test-store'
+import { testStoreEngine } from '../../test-support/pg-test-database'
+import { storeSql } from '../../test-support/store-sql'
 import { Session } from './session'
 import { SessionMetaOps, type SessionMetaOpsPorts } from './session-meta-ops'
 
@@ -23,8 +22,8 @@ afterEach(() => {
   for (const cleanup of cleanups.splice(0).reverse()) cleanup()
 })
 
-async function fixture(file = ':memory:') {
-  const store = await openTestStore(file)
+async function fixture() {
+  const store = await openTestStore(':memory:')
   cleanups.push(() => store.close())
   const sessions = new Map<typeof sessionId, Session>()
   const session = new Session({
@@ -129,24 +128,23 @@ describe('async offer persistence', () => {
     expect(ports.broadcastSessions).not.toHaveBeenCalled()
   })
 
-  it('clears a corrupt durable offer that boot omitted from memory', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'offer-corrupt-'))
-    cleanups.push(() => rmSync(dir, { recursive: true, force: true }))
-    const file = join(dir, 'store.db')
-    const { store, ops, sessions, session, repository } = await fixture(file)
-    await store.sessions.setOffer(fixtureWriteScope(), sessionId, offer)
-    const db = openDatabase(file)
-    try {
-      db.prepare('UPDATE offers SET actions = ? WHERE session_id = ?').run('{broken', sessionId)
-    } finally {
-      db.close()
-    }
-    expect(await store.sessions.listOffers()).toEqual({})
-    sessions.set(sessionId, session)
-    await ops.clearOffer(writer, sessionId)
-    expect(await store.sessions.offerCreatedAt(sessionId)).toBeUndefined()
-    expect(repository.write).toHaveBeenCalledOnce()
-  })
+  // `offers.actions` is a json column on Postgres, which refuses the broken text at the write:
+  // the corrupt offer exists only on SQLite.
+  it.skipIf(testStoreEngine() === 'pg')(
+    'clears a corrupt durable offer that boot omitted from memory',
+    async () => {
+      const { store, ops, sessions, session, repository } = await fixture()
+      await store.sessions.setOffer(fixtureWriteScope(), sessionId, offer)
+      await storeSql(store).run(
+        sql`UPDATE offers SET actions = ${'{broken'} WHERE session_id = ${sessionId}`,
+      )
+      expect(await store.sessions.listOffers()).toEqual({})
+      sessions.set(sessionId, session)
+      await ops.clearOffer(writer, sessionId)
+      expect(await store.sessions.offerCreatedAt(sessionId)).toBeUndefined()
+      expect(repository.write).toHaveBeenCalledOnce()
+    },
+  )
 
   it('waits for a durable clear and propagates its failure instead of reporting dismissal', async () => {
     const { store, ops } = await fixture()
@@ -155,9 +153,12 @@ describe('async offer persistence', () => {
     const pending = new Promise<void>((_resolve, reject) => {
       fail = reject
     })
-    vi.spyOn(store.sessions, 'clearOffer').mockReturnValue(pending)
+    const clear = vi.spyOn(store.sessions, 'clearOffer').mockReturnValue(pending)
     const dismissal = ops.dismissOffer(writer, sessionId, stamp)
     const assertion = expect(dismissal).rejects.toThrow('offer deletion refused')
+    // Fail the clear once it is awaited: on Postgres the dismissal reaches it after its own
+    // reads, and a rejection nobody awaits yet is reported as unhandled.
+    await vi.waitFor(() => expect(clear).toHaveBeenCalled())
     fail(new Error('offer deletion refused'))
     await assertion
     expect(await store.sessions.offerCreatedAt(sessionId)).toBe(stamp)

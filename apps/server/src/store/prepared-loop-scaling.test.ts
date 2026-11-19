@@ -17,7 +17,6 @@ interface MeasuredLoop {
   name: string
   targetSql: string
   executionRatio: number
-  repository(store: SessionStore): object
   run(store: SessionStore, n: number): void | Promise<void>
   check?(store: SessionStore, n: number): void | Promise<void>
 }
@@ -27,14 +26,15 @@ interface MeasuredLoop {
  * builder call constructs SQL. The returned prepared query is wrapped only to
  * establish the independent execution count; counting at the client would miss
  * the exact rebuild this gate exists to catch.
+ *
+ * The session is the store's root drizzle instance: since POD-7010 a repository
+ * holds its workspace's query handle, which wraps that instance, instead of the
+ * instance itself.
  */
-const countPreparedQueryWork = (repository: object, targetSql: string): Counts => {
+const countPreparedQueryWork = (store: SessionStore, targetSql: string): Counts => {
   const counts: Counts = { constructions: 0, executions: 0 }
-  const session = (
-    repository as {
-      rootDb: { _: { session: SQLiteSession } }
-    }
-  ).rootDb._.session
+  const session = (store.database.queries.rootDb as unknown as { _: { session: SQLiteSession } })._
+    .session
   const realPrepareQuery = session.prepareQuery.bind(session)
   session.prepareQuery = (...args: Parameters<SQLiteSession['prepareQuery']>) => {
     const prepared = realPrepareQuery(...args)
@@ -73,7 +73,6 @@ const loops: MeasuredLoop[] = [
     name: 'ConversationIndexRepository.upsert',
     targetSql: 'insert into "conversations"',
     executionRatio: 1,
-    repository: (store) => store.conversations.index,
     run: async (store, n) =>
       await store.conversations.index.upsert(
         fixtureWriteScope(),
@@ -88,7 +87,7 @@ const loops: MeasuredLoop[] = [
 const measure = async (loop: MeasuredLoop, n: number): Promise<Counts> => {
   const store = await openTestStore(':memory:')
   try {
-    const counts = countPreparedQueryWork(loop.repository(store), loop.targetSql)
+    const counts = countPreparedQueryWork(store, loop.targetSql)
     await loop.run(store, n)
     await loop.check?.(store, n)
     return counts
@@ -111,7 +110,6 @@ describe('prepared batch SQL construction', () => {
       name: 'SyncRepository.appendChanges',
       targetSql: 'insert into "changes"',
       executionRatio: 10,
-      repository: (store) => store.sync,
       run: async (store, size) => {
         await store.sync.appendChanges(
           Array.from({ length: size }, (_, i) => ({

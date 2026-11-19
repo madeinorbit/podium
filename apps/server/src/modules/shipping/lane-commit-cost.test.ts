@@ -67,6 +67,7 @@ async function world(outside: number, laneSize: number, outsideQueued = true) {
     ledger: testLedgerWriter(ledger),
   })
   const service = new ShippingService({
+    workspaceId: store.workspaceId,
     repository: store.shipping,
     issues: {
       get: async (id) => (await issues.reports.get(id))!,

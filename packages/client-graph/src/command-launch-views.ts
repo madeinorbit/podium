@@ -94,7 +94,7 @@ function createCommandLaunchViews(pool: MobxPool) {
       counts.addressedSessionReads++
       // untracked-read: launch-session-seed
       if (untracked(() => !pool.tables.session.has(id))) counts.coldSessionVisits++
-      const row = omitGone(pool.row('session', id, 'summary-fields')) as Loaded<SessionView>
+      const row = omitGone(pool.row('session', id)) as Loaded<SessionView>
       // Return the pool identity; displayed fields subscribe at their readers.
       return row && row !== LOADING ? (pool.sessionObject(id) as unknown as SessionView) : row
     },
@@ -535,14 +535,13 @@ export class CommandPaletteView {
     if (this.openingIds === LOADING) return []
     return this.openingIds.flatMap((id) => {
       const model = this.pool.issueObject(id)
-      return model.summaryResidence === 'resident' ? [model as unknown as IssueViewModel] : []
+      return model.residence === 'resident' ? [model as unknown as IssueViewModel] : []
     })
   }
   @lazy get pending() {
     return this.openingIds === LOADING
       ? 0
-      : this.openingIds.filter((id) => this.pool.issueObject(id).summaryResidence === 'loading')
-          .length
+      : this.openingIds.filter((id) => this.pool.issueObject(id).residence === 'loading').length
   }
   @lazy({ equals: compareShallow }) get repos() {
     return this.repoOrder.flatMap((id) => here(this.pool.model('repository', id)) ?? [])

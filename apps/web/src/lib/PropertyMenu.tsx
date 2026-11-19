@@ -51,6 +51,9 @@ export function PropertyMenu({
    */
   footnote?: string
   onOpenChange?: (open: boolean) => void
+  /** A remote choice list owns its query and already supplies matching options. */
+  query?: string
+  onQueryChange?: (query: string) => void
   /** Select by typing on the closed, focused trigger, like a native select. */
   typeahead?: boolean
 }): JSX.Element {
@@ -78,9 +81,12 @@ function PropertyMenuChoices({
   allowFreeText = false,
   placeholder = 'Filter…',
   footnote,
+  query: suppliedQuery,
+  onQueryChange,
 }: Omit<Parameters<typeof PropertyMenu>[0], 'trigger' | 'onOpenChange'>): JSX.Element {
-  const [query, setQuery] = useState('')
-  const filtered = filterPropertyOptions(options, query)
+  const [localQuery, setLocalQuery] = useState('')
+  const query = suppliedQuery ?? localQuery
+  const filtered = onQueryChange ? options : filterPropertyOptions(options, query)
   const exact = options.some((o) => o.label.toLowerCase() === query.trim().toLowerCase())
   return (
     <DropdownMenuContent align="start" className="w-56">
@@ -92,7 +98,10 @@ function PropertyMenuChoices({
           value={query}
           placeholder={placeholder}
           className="h-[26px] rounded-md border-hairline-soft bg-background text-[11.5px] placeholder:text-text-faint focus-visible:border-hairline-soft focus-visible:ring-2 focus-visible:ring-ring/40 md:text-[11.5px]"
-          onChange={(e) => setQuery(e.target.value)}
+          onChange={(e) => {
+            if (suppliedQuery === undefined) setLocalQuery(e.target.value)
+            onQueryChange?.(e.target.value)
+          }}
           onKeyDown={(e) => {
             // Let Escape propagate so Base UI closes the menu; swallow the
             // rest so the menu's label-typeahead doesn't steal keystrokes.

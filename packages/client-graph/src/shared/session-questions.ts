@@ -2,7 +2,7 @@ import { attentionGroup } from '@podium/client-core/focus'
 import type { SessionView } from '@podium/client-core/session-values'
 import { type IssueCloseMemberCounts, isSessionWorking } from '@podium/client-core/values'
 import { machinePathAncestors, machinePathKey, machinePathSeparator } from '@podium/model/browser'
-import { createKeyedAnswer, createKeyedAnswerBuilder, type KeyedAnswer } from '../query-result'
+import { createBucketWriter, createKeyedAnswer, createKeyedAnswerBuilder, type KeyedAnswer } from '../query-result'
 import type { SessionActivityQuestion } from './session-activity'
 import { sessionReferenceKey } from './session-reference'
 
@@ -149,6 +149,7 @@ export function createSessionQuestions(
   let visits = 0, activityVisits = 0, activityPathsBuilt = 0
   const updates = { close: 0, setupCount: 0, setupAgent: 0, reference: 0, triage: 0, recent: 0, machine: 0, activity: 0 }
   let building = false
+  const buckets = createBucketWriter()
   let builders: (() => unknown)[] = []
   function newAnswer<T>(compare?: (a: T, b: T) => number, point?: (value: T) => number): KeyedAnswer<T> {
     if (!building) return createKeyedAnswer(compare, point)
@@ -206,11 +207,14 @@ export function createSessionQuestions(
     const before = collection.get(key), previous = before?.answer.get(id)
     if (previous && next && compare(previous, next) === 0) return
     if (previous === next) return
-    const answer = (building ? before?.answer : before?.answer.fork()) ?? newAnswer<T>(compare)
+    const answer = building
+      ? (before?.answer ?? newAnswer<T>(compare))
+      : buckets.writable(before?.answer, () => newAnswer<T>(compare))
     if (next) answer.set(id, '', next)
     else answer.delete(id)
-    if (next || answer.first()) collection.set(key, key, { id: key, answer })
-    else collection.delete(key)
+    if (next || answer.first()) {
+      if (answer !== before?.answer) collection.set(key, key, { id: key, answer })
+    } else collection.delete(key)
     touch(key)
   }
   /** Each declared answer reads only these scalar inputs. Presence and source
@@ -326,9 +330,12 @@ export function createSessionQuestions(
     get visits() { return visits },
     get activityVisits() { return activityVisits },
     get activityPathsBuilt() { return activityPathsBuilt },
-    fork: (isCollapsed, orderKey) => createSessionQuestions(isCollapsed, orderKey,
+    fork: (isCollapsed, orderKey) => {
+      buckets.share()
+      return createSessionQuestions(isCollapsed, orderKey,
       { facts, triage, recent, machines, activities, revisions, future, expired, closeMembers, closeCounts, references, workspaceMembers,
-        setupAgents, setupMembers, setupCount, version, replacement }, setupOrder),
+        setupAgents, setupMembers, setupCount, version, replacement }, setupOrder)
+    },
     clear() {
       facts = newAnswer<FiledSessionFacts>()
       triage = newAnswer<TriageSession>(compareTriageSessions)

@@ -35,7 +35,9 @@ export class StoreModelLedger extends Ledger {
       for (const row of await store.sync.drainCapture()) {
         if (row.kind !== 'userLayout') continue
         for (const captured of [row.oldKey, row.newKey]) {
-          const name = captured?.[1]
+          // A userLayout key is [workspace_id, user_id, key]: the workspace leads every
+          // key on a workspace table (POD-7021).
+          const name = captured?.[2]
           if (typeof name !== 'string' || !name.startsWith(PREFIX)) continue
           const [kind, id] = JSON.parse(name.slice(PREFIX.length)) as [MetadataEntityKind, string]
           const ids = out.get(kind) ?? []

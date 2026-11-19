@@ -1,3 +1,4 @@
+// workspace-scoped (POD-6959)
 /**
  * THE QUOTA WINDOW LEDGER — one row per run of a plan window, folded on write.
  *
@@ -32,10 +33,16 @@ import {
   type QuotaWindowInstance,
   type UserId,
 } from '@podium/model'
-import { and, asc, desc, eq, gte, lt, sql } from 'drizzle-orm'
-import { quotaWindows } from '../migrations/schema'
-import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
-import { param, prepared } from './executor/sync-drizzle'
+import { asc, desc, eq, gte, lt, sql } from 'drizzle-orm'
+import type { quotaWindows } from '../migrations/schema'
+import { dialectPrepared } from './executor/dialect-prepared'
+import type {
+  StoreTables,
+  TransactionRunner,
+  WorkspaceDb,
+  WorkspaceQueries,
+} from './executor/sync-drizzle'
+import { inWorkspace, param, prepared, WORKSPACE } from './executor/sync-drizzle'
 
 /** Quantisation behind the uniqueness constraint only — never an identity test. */
 const RESET_BUCKET_MS = 60_000
@@ -114,33 +121,37 @@ function toWire(row: Row, nowMs: number): QuotaWindowHistoryWire {
   }
 }
 
-// Every query this repository runs, prepared once per store [POD-6147].
+// Every query this repository runs, prepared once per store [POD-6147], each
+// held to the repository's workspace (POD-6959 design 2.4): the ledger is one
+// workspace's, so its listings, its count and its prune never reach another's.
 
-const seriesIs = () =>
-  and(
-    eq(quotaWindows.accountKey, param(quotaWindows.accountKey, 'accountKey')),
-    eq(quotaWindows.windowKey, param(quotaWindows.windowKey, 'windowKey')),
+const seriesIs = (t: StoreTables) =>
+  inWorkspace(
+    t.quotaWindows,
+    eq(t.quotaWindows.accountKey, param(t.quotaWindows.accountKey, 'accountKey')),
+    eq(t.quotaWindows.windowKey, param(t.quotaWindows.windowKey, 'windowKey')),
   )
 
-const bucketIs = () =>
-  and(
-    eq(quotaWindows.accountKey, param(quotaWindows.accountKey, 'accountKey')),
-    eq(quotaWindows.windowKey, param(quotaWindows.windowKey, 'windowKey')),
-    eq(quotaWindows.resetsAtBucket, param(quotaWindows.resetsAtBucket, 'bucket')),
+const bucketIs = (t: StoreTables) =>
+  inWorkspace(
+    t.quotaWindows,
+    eq(t.quotaWindows.accountKey, param(t.quotaWindows.accountKey, 'accountKey')),
+    eq(t.quotaWindows.windowKey, param(t.quotaWindows.windowKey, 'windowKey')),
+    eq(t.quotaWindows.resetsAtBucket, param(t.quotaWindows.resetsAtBucket, 'bucket')),
   )
 
-const newestWindowOfSeries = prepared((db: StoreDrizzle) =>
+const newestWindowOfSeries = prepared((db, t) =>
   db
     .select()
-    .from(quotaWindows)
-    .where(seriesIs())
-    .orderBy(desc(quotaWindows.resetsAtMs))
+    .from(t.quotaWindows)
+    .where(seriesIs(t))
+    .orderBy(desc(t.quotaWindows.resetsAtMs))
     .limit(1)
     .prepare(),
 )
 
-const windowOfBucket = prepared((db: StoreDrizzle) =>
-  db.select().from(quotaWindows).where(bucketIs()).prepare(),
+const windowOfBucket = prepared((db, t) =>
+  db.select().from(t.quotaWindows).where(bucketIs(t)).prepare(),
 )
 
 const windowPlaceholders = {
@@ -166,82 +177,158 @@ const windowPlaceholders = {
 // `excluded`, which the builder has no expression for. The conflict target
 // is the composite primary key, unchanged, and this statement was already an
 // `ON CONFLICT` rather than an `OR REPLACE`.
-const insertWindow = prepared((db: StoreDrizzle) =>
-  db
-    .insert(quotaWindows)
-    .values({
-      accountKey: sql.placeholder('accountKey'),
-      agent: sql.placeholder('agent'),
-      windowKey: sql.placeholder('windowKey'),
-      resetsAtBucket: sql.placeholder('bucket'),
-      ownerUserId: sql.placeholder('owner'),
-      ...windowPlaceholders,
-    })
-    .onConflictDoUpdate({
-      target: [quotaWindows.accountKey, quotaWindows.windowKey, quotaWindows.resetsAtBucket],
-      set: {
-        peakPercent: sql`MAX(${quotaWindows.peakPercent}, excluded.peak_percent)`,
-        lastSeenMs: sql`MAX(${quotaWindows.lastSeenMs}, excluded.last_seen_ms)`,
-        sampleCount: sql`${quotaWindows.sampleCount} + 1`,
-      },
-    })
-    .prepare(),
+//
+// TWO FORMS [POD-6995, POD-6958 design 2.1 step 4]: SQLite's scalar `MAX(a, b)`
+// takes two arguments; Postgres's `max` is an aggregate only, and its scalar
+// maximum is `GREATEST(a, b)`. Everything else is the same source. Neither
+// column is nullable, so the two agree on every value (they differ only on NULL:
+// SQLite's `MAX` yields NULL, Postgres's `GREATEST` ignores it).
+const insertWindowPlaceholders = {
+  workspaceId: WORKSPACE,
+  accountKey: sql.placeholder('accountKey'),
+  agent: sql.placeholder('agent'),
+  windowKey: sql.placeholder('windowKey'),
+  resetsAtBucket: sql.placeholder('bucket'),
+  ownerUserId: sql.placeholder('owner'),
+  ...windowPlaceholders,
+}
+
+const insertWindowTarget = (t: StoreTables) => [
+  t.quotaWindows.workspaceId,
+  t.quotaWindows.accountKey,
+  t.quotaWindows.windowKey,
+  t.quotaWindows.resetsAtBucket,
+]
+
+const insertWindow = dialectPrepared<InsertWindowValues, void>()({
+  sqlite: (db, t) =>
+    db
+      .insert(t.quotaWindows)
+      .values(insertWindowPlaceholders)
+      .onConflictDoUpdate({
+        target: insertWindowTarget(t),
+        set: {
+          peakPercent: sql`MAX(${t.quotaWindows.peakPercent}, excluded.peak_percent)`,
+          lastSeenMs: sql`MAX(${t.quotaWindows.lastSeenMs}, excluded.last_seen_ms)`,
+          sampleCount: sql`${t.quotaWindows.sampleCount} + 1`,
+        },
+      })
+      .prepare(),
+  pg: (db, t) =>
+    db
+      .insert(t.quotaWindows)
+      .values(insertWindowPlaceholders)
+      .onConflictDoUpdate({
+        target: insertWindowTarget(t),
+        set: {
+          peakPercent: sql`GREATEST(${t.quotaWindows.peakPercent}, excluded.peak_percent)`,
+          lastSeenMs: sql`GREATEST(${t.quotaWindows.lastSeenMs}, excluded.last_seen_ms)`,
+          sampleCount: sql`${t.quotaWindows.sampleCount} + 1`,
+        },
+      })
+      .prepare(),
+})
+
+const updateWindow = prepared((db, t) =>
+  db.update(t.quotaWindows).set(windowPlaceholders).where(bucketIs(t)).prepare(),
 )
 
-const updateWindow = prepared((db: StoreDrizzle) =>
-  db.update(quotaWindows).set(windowPlaceholders).where(bucketIs()).prepare(),
-)
-
-const windowsSince = prepared((db: StoreDrizzle) =>
+const windowsSince = prepared((db, t) =>
   db
     .select()
-    .from(quotaWindows)
-    .where(gte(quotaWindows.resetsAtMs, param(quotaWindows.resetsAtMs, 'sinceMs')))
+    .from(t.quotaWindows)
+    .where(
+      inWorkspace(
+        t.quotaWindows,
+        gte(t.quotaWindows.resetsAtMs, param(t.quotaWindows.resetsAtMs, 'sinceMs')),
+      ),
+    )
     .orderBy(
-      asc(quotaWindows.accountKey),
-      asc(quotaWindows.windowKey),
-      asc(quotaWindows.resetsAtMs),
+      asc(t.quotaWindows.accountKey),
+      asc(t.quotaWindows.windowKey),
+      asc(t.quotaWindows.resetsAtMs),
     )
     .prepare(),
 )
 
 /** One owner's windows that reset at or after `sinceMs`, in the served order,
  *  read along `idx_quota_windows_owner` (POD-6300). */
-const ownerWindowsSince = prepared((db: StoreDrizzle) =>
+const ownerWindowsSince = prepared((db, t) =>
   db
     .select()
-    .from(quotaWindows)
+    .from(t.quotaWindows)
     .where(
-      and(
-        eq(quotaWindows.ownerUserId, param(quotaWindows.ownerUserId, 'owner')),
-        gte(quotaWindows.resetsAtMs, param(quotaWindows.resetsAtMs, 'sinceMs')),
+      inWorkspace(
+        t.quotaWindows,
+        eq(t.quotaWindows.ownerUserId, param(t.quotaWindows.ownerUserId, 'owner')),
+        gte(t.quotaWindows.resetsAtMs, param(t.quotaWindows.resetsAtMs, 'sinceMs')),
       ),
     )
     .orderBy(
-      asc(quotaWindows.accountKey),
-      asc(quotaWindows.windowKey),
-      asc(quotaWindows.resetsAtMs),
+      asc(t.quotaWindows.accountKey),
+      asc(t.quotaWindows.windowKey),
+      asc(t.quotaWindows.resetsAtMs),
     )
     .prepare(),
 )
 
-const trailOfBucket = prepared((db: StoreDrizzle) =>
-  db.select({ trailJson: quotaWindows.trailJson }).from(quotaWindows).where(bucketIs()).prepare(),
-)
-
-const pruneWindows = prepared((db: StoreDrizzle) =>
+const trailOfBucket = prepared((db, t) =>
   db
-    .delete(quotaWindows)
-    .where(lt(quotaWindows.resetsAtMs, param(quotaWindows.resetsAtMs, 'cutoffMs')))
+    .select({ trailJson: t.quotaWindows.trailJson })
+    .from(t.quotaWindows)
+    .where(bucketIs(t))
     .prepare(),
 )
 
-const windowCount = prepared((db: StoreDrizzle) =>
-  db.select({ n: sql<number>`COUNT(*)` }).from(quotaWindows).prepare(),
+const pruneWindows = prepared((db, t) =>
+  db
+    .delete(t.quotaWindows)
+    .where(
+      inWorkspace(
+        t.quotaWindows,
+        lt(t.quotaWindows.resetsAtMs, param(t.quotaWindows.resetsAtMs, 'cutoffMs')),
+      ),
+    )
+    .prepare(),
+)
+
+const windowCount = prepared((db, t) =>
+  db
+    .select({ n: sql<number>`COUNT(*)` })
+    .from(t.quotaWindows)
+    .where(inWorkspace(t.quotaWindows))
+    .prepare(),
 )
 
 /** The rewritable columns of one window instance, as placeholder values. */
-function windowValues(instance: QuotaWindowInstance) {
+interface WindowValues {
+  readonly label: string
+  readonly scopeModel: string | null
+  readonly plan: string | null
+  readonly resetsAtMs: number
+  readonly startedAtMs: number | null
+  readonly windowMinutes: number
+  readonly firstSeenMs: number
+  readonly lastSeenMs: number
+  readonly firstPercent: number
+  readonly peakPercent: number
+  readonly lastPercent: number
+  readonly sampleCount: number
+  readonly partial: boolean
+  readonly source: QuotaWindowInstance['source']
+  readonly trailJson: string
+}
+
+/** The values {@link insertWindow} runs with: a window's key, bucket and owner, and its columns. */
+interface InsertWindowValues extends WindowValues {
+  readonly accountKey: string
+  readonly agent: string
+  readonly windowKey: string
+  readonly bucket: number
+  readonly owner: UserId | null
+}
+
+function windowValues(instance: QuotaWindowInstance): WindowValues {
   return {
     label: instance.label,
     scopeModel: instance.scopeModel ?? null,
@@ -262,18 +349,19 @@ function windowValues(instance: QuotaWindowInstance) {
 }
 
 export class QuotaHistoryRepository {
-  private readonly rootDb: StoreDrizzle
+  private readonly scope: WorkspaceDb
   protected readonly createOrJoinTransaction: TransactionRunner
 
-  constructor(queries: StoreQueries) {
-    this.rootDb = queries.rootDb
+  /** One workspace's queries (POD-6959 design 2.4): every statement binds its workspace. */
+  constructor(queries: WorkspaceQueries) {
+    this.scope = queries.db
     this.createOrJoinTransaction = queries.createOrJoinTransaction
   }
 
   /** The query builder, resolved on every access so B1 changes this line and nothing else
    *  [POD-3221 spec rule 34a]. */
-  protected get db() {
-    return this.rootDb
+  protected get db(): WorkspaceDb {
+    return this.scope
   }
 
   /**
@@ -357,8 +445,9 @@ export class QuotaHistoryRepository {
     })
   }
 
-  /** Every window that reset at or after `sinceMs`, oldest first, WHOEVER owns
-   *  it. For the ledger's own tests and maintenance; never served to a member. */
+  /** Every window of this workspace that reset at or after `sinceMs`, oldest
+   *  first, WHOEVER owns it. For the ledger's own tests and maintenance; never
+   *  served to a member. */
   async list(sinceMs: number, nowMs: number): Promise<QuotaWindowHistoryWire[]> {
     const rows = await windowsSince(this.db).all({ sinceMs })
     return rows.map((r) => toWire(r, nowMs))

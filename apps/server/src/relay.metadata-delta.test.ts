@@ -11,7 +11,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { userClientPrincipal } from './gateway/client-principal'
 import { SessionRegistry } from './relay'
 import { authoritySnapshot } from './test-support/authority-snapshot'
-import { workerSnapshot } from './test-support/bootstrap-snapshot'
+import { worldSnapshot } from './test-support/bootstrap-snapshot'
 import { attachTestClient } from './test-support/client-transport'
 import { feedDelta } from './test-support/feed-delta'
 import { attachHostDaemon } from './test-support/host-daemon'
@@ -257,7 +257,7 @@ describe('SessionRegistry metadata deltas', () => {
 
     // The cursor a client held while it was away — nothing tucked yet.
     const principal = userClientPrincipal('reconnecting', firstAdminMemberId(), 'admin')
-    const away = await workerSnapshot(registry, principal)
+    const away = await worldSnapshot(registry, principal)
     expect(away.issueUserStates?.find((i) => i.entityId === w.id)?.tuckedAt ?? null).toBeNull()
 
     // A SECOND client is watching while the first one tucks.

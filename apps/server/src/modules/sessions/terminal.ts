@@ -1354,7 +1354,7 @@ export class SessionTerminal {
   private clientAttribution(client: ClientConn): ReturnType<typeof perfPrincipal> {
     const cached = this.clientAttributions.get(client)
     if (cached) return cached
-    const attribution = perfPrincipal(feedPrincipalOf(client.principal))
+    const attribution = perfPrincipal(client.workspaceId, feedPrincipalOf(client.principal))
     this.clientAttributions.set(client, attribution)
     return attribution
   }

@@ -1,5 +1,4 @@
 import type { PoolScreen } from '@podium/client-graph/host'
-import { MISSION_SUMMARIES } from '@podium/client-graph/mission-schema'
 import { chatContextPoolScreen } from '@/features/chat/chat-context-pool-screen'
 import { noticePoolScreen } from '@/features/chat/notice-pool-screen'
 import { issueBoardPoolScreen } from '@/features/issues/board-pool-screen'
@@ -32,7 +31,6 @@ export const poolBackedScreens: readonly PoolScreen[] = [
   },
   {
     id: 'sidebar',
-    options: () => ({ summaries: MISSION_SUMMARIES }),
     // POD-5423: the sidebar draws the worklist's lanes, so it holds them filed
     // from the pool's attachment (its first paint finds them filed).
     attach: async (_runtime, pool) => pool.worklist.retain(),

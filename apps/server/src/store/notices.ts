@@ -1,3 +1,4 @@
+// workspace-scoped (POD-6959)
 /**
  * THE NOTICE INBOX STORE (POD-6881, credential management spec §13).
  *
@@ -16,20 +17,29 @@
  */
 
 import type { UserId } from '@podium/model'
-import { and, desc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm'
-import { notices } from '../migrations/schema'
+import { desc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm'
+import type { notices } from '../migrations/schema'
+import { captureWrite } from '../sync/capture-pg'
 import { type ChangeLogCommit, inChangeLogTransaction } from './change-log-commit'
-import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
+import type {
+  StoreTables,
+  TransactionRunner,
+  WorkspaceDb,
+  WorkspaceQueries,
+} from './executor/sync-drizzle'
 import {
   inListOf,
   inListSize,
   inListValues,
+  inWorkspace,
   param,
   prepared,
   preparedFamily,
+  WORKSPACE,
 } from './executor/sync-drizzle'
 
-export type NoticeRow = typeof notices.$inferSelect
+/** A notice row, without the workspace it belongs to (the repository's own). */
+export type NoticeRow = Omit<typeof notices.$inferSelect, 'workspaceId'>
 
 /** A notice to open: everything but the read and resolve marks. */
 export type NewNotice = Omit<NoticeRow, 'readAt' | 'resolvedAt' | 'subjectAnchor' | 'body'> & {
@@ -48,170 +58,214 @@ const CAP_BATCH = 500
 
 // Every query this repository runs, prepared once per store [POD-6147].
 
-const recipientIs = () => eq(notices.recipientUserId, param(notices.recipientUserId, 'recipient'))
+/** Every column of a notice but its workspace, which a row never carries out. */
+const NOTICE_COLUMNS = (t: StoreTables) => ({
+  id: t.notices.id,
+  recipientUserId: t.notices.recipientUserId,
+  kind: t.notices.kind,
+  subjectKind: t.notices.subjectKind,
+  subjectId: t.notices.subjectId,
+  subjectAnchor: t.notices.subjectAnchor,
+  title: t.notices.title,
+  body: t.notices.body,
+  dedupeKey: t.notices.dedupeKey,
+  createdAt: t.notices.createdAt,
+  readAt: t.notices.readAt,
+  resolvedAt: t.notices.resolvedAt,
+})
+
+const recipientIs = (t: StoreTables) =>
+  eq(t.notices.recipientUserId, param(t.notices.recipientUserId, 'recipient'))
 
 /** Open notices by id: what the `inboxNotice` record builder reads. */
-const openOfIds = preparedFamily((db: StoreDrizzle, size: number) =>
+const openOfIds = preparedFamily((db, t, size: number) =>
   db
-    .select()
-    .from(notices)
-    .where(and(inListOf(notices.id, size, 'ids'), isNull(notices.resolvedAt)))
+    .select(NOTICE_COLUMNS(t))
+    .from(t.notices)
+    .where(inWorkspace(t.notices, inListOf(t.notices.id, size, 'ids'), isNull(t.notices.resolvedAt)))
     .prepare(),
 )
 
 /** Every open notice, in id order: the record builder's full stream. A seek on
  *  `idx_notices_open` (resolved_at, id) reads only the open rows, already in id
  *  order, however long the resolved history. */
-const allOpen = prepared((db: StoreDrizzle) =>
-  db.select().from(notices).where(isNull(notices.resolvedAt)).orderBy(notices.id).prepare(),
-)
-
-const insertNotice = prepared((db: StoreDrizzle) =>
+const allOpen = prepared((db, t) =>
   db
-    .insert(notices)
-    .values({
-      id: sql.placeholder('id'),
-      recipientUserId: sql.placeholder('recipient'),
-      kind: sql.placeholder('kind'),
-      subjectKind: sql.placeholder('subjectKind'),
-      subjectId: sql.placeholder('subjectId'),
-      subjectAnchor: sql.placeholder('subjectAnchor'),
-      title: sql.placeholder('title'),
-      body: sql.placeholder('body'),
-      dedupeKey: sql.placeholder('dedupeKey'),
-      createdAt: sql.placeholder('createdAt'),
-    })
-    // The one unique constraint that can fire is the open-dedupe index.
-    .onConflictDoNothing()
-    .returning()
+    .select(NOTICE_COLUMNS(t))
+    .from(t.notices)
+    .where(inWorkspace(t.notices, isNull(t.notices.resolvedAt)))
+    .orderBy(t.notices.id)
     .prepare(),
 )
 
-const openNoticeOfKey = prepared((db: StoreDrizzle) =>
+const insertNotice = prepared((db, t) =>
+  captureWrite(
+    db
+      .insert(t.notices)
+      .values({
+        workspaceId: WORKSPACE,
+        id: sql.placeholder('id'),
+        recipientUserId: sql.placeholder('recipient'),
+        kind: sql.placeholder('kind'),
+        subjectKind: sql.placeholder('subjectKind'),
+        subjectId: sql.placeholder('subjectId'),
+        subjectAnchor: sql.placeholder('subjectAnchor'),
+        title: sql.placeholder('title'),
+        body: sql.placeholder('body'),
+        dedupeKey: sql.placeholder('dedupeKey'),
+        createdAt: sql.placeholder('createdAt'),
+      })
+      // The one unique constraint that can fire is the open-dedupe index.
+      .onConflictDoNothing()
+      .returning(NOTICE_COLUMNS(t)),
+  ).prepare(),
+)
+
+const openNoticeOfKey = prepared((db, t) =>
   db
-    .select()
-    .from(notices)
+    .select(NOTICE_COLUMNS(t))
+    .from(t.notices)
     .where(
-      and(
-        eq(notices.dedupeKey, param(notices.dedupeKey, 'dedupeKey')),
-        recipientIs(),
-        isNull(notices.resolvedAt),
+      inWorkspace(
+        t.notices,
+        eq(t.notices.dedupeKey, param(t.notices.dedupeKey, 'dedupeKey')),
+        recipientIs(t),
+        isNull(t.notices.resolvedAt),
       ),
     )
     .limit(1)
     .prepare(),
 )
 
-const resolveKey = prepared((db: StoreDrizzle) =>
-  db
-    .update(notices)
-    .set({ resolvedAt: sql.placeholder('at') })
-    .where(
-      and(eq(notices.dedupeKey, param(notices.dedupeKey, 'dedupeKey')), isNull(notices.resolvedAt)),
-    )
-    .returning()
-    .prepare(),
+const resolveKey = prepared((db, t) =>
+  captureWrite(
+    db
+      .update(t.notices)
+      .set({ resolvedAt: sql.placeholder('at') })
+      .where(
+        inWorkspace(
+          t.notices,eq(t.notices.dedupeKey, param(t.notices.dedupeKey, 'dedupeKey')), isNull(t.notices.resolvedAt)),
+      )
+      .returning(NOTICE_COLUMNS(t)),
+  ).prepare(),
 )
 
-const openOfRecipient = prepared((db: StoreDrizzle) =>
+const openOfRecipient = prepared((db, t) =>
   db
-    .select()
-    .from(notices)
-    .where(and(recipientIs(), isNull(notices.resolvedAt)))
-    .orderBy(desc(notices.createdAt), desc(notices.id))
+    .select(NOTICE_COLUMNS(t))
+    .from(t.notices)
+    .where(inWorkspace(t.notices, recipientIs(t), isNull(t.notices.resolvedAt)))
+    .orderBy(desc(t.notices.createdAt), desc(t.notices.id))
     .limit(sql.placeholder('limit'))
     .prepare(),
 )
 
-const openOfRecipientBefore = prepared((db: StoreDrizzle) =>
+const openOfRecipientBefore = prepared((db, t) =>
   db
-    .select()
-    .from(notices)
+    .select(NOTICE_COLUMNS(t))
+    .from(t.notices)
     .where(
-      and(
-        recipientIs(),
-        isNull(notices.resolvedAt),
-        sql`(${notices.createdAt}, ${notices.id}) < (${sql.placeholder('beforeAt')}, ${sql.placeholder('beforeId')})`,
+      inWorkspace(
+        t.notices,
+        recipientIs(t),
+        isNull(t.notices.resolvedAt),
+        sql`(${t.notices.createdAt}, ${t.notices.id}) < (${sql.placeholder('beforeAt')}, ${sql.placeholder('beforeId')})`,
       ),
     )
-    .orderBy(desc(notices.createdAt), desc(notices.id))
+    .orderBy(desc(t.notices.createdAt), desc(t.notices.id))
     .limit(sql.placeholder('limit'))
     .prepare(),
 )
 
-const unreadCount = prepared((db: StoreDrizzle) =>
+const unreadCount = prepared((db, t) =>
   db
     .select({ n: sql<number>`count(*)` })
-    .from(notices)
-    .where(and(recipientIs(), isNull(notices.resolvedAt), isNull(notices.readAt)))
-    .prepare(),
-)
-
-const markOneRead = prepared((db: StoreDrizzle) =>
-  db
-    .update(notices)
-    .set({ readAt: sql.placeholder('at') })
+    .from(t.notices)
     .where(
-      and(
-        eq(notices.id, param(notices.id, 'id')),
-        recipientIs(),
-        isNull(notices.readAt),
-        isNull(notices.resolvedAt),
+      inWorkspace(
+        t.notices,
+        recipientIs(t),
+        isNull(t.notices.resolvedAt),
+        isNull(t.notices.readAt),
       ),
     )
-    .returning()
     .prepare(),
 )
 
-const markEveryRead = prepared((db: StoreDrizzle) =>
-  db
-    .update(notices)
-    .set({ readAt: sql.placeholder('at') })
-    .where(and(recipientIs(), isNull(notices.resolvedAt), isNull(notices.readAt)))
-    .returning()
-    .prepare(),
+const markOneRead = prepared((db, t) =>
+  captureWrite(
+    db
+      .update(t.notices)
+      .set({ readAt: sql.placeholder('at') })
+      .where(
+        inWorkspace(
+          t.notices,
+          eq(t.notices.id, param(t.notices.id, 'id')),
+          recipientIs(t),
+          isNull(t.notices.readAt),
+          isNull(t.notices.resolvedAt),
+        ),
+      )
+      .returning(NOTICE_COLUMNS(t)),
+  ).prepare(),
 )
 
-const resolveReadEventsPastCap = prepared((db: StoreDrizzle) =>
-  db
-    .update(notices)
-    .set({ resolvedAt: sql.placeholder('at') })
-    .where(
-      inArray(
-        notices.id,
-        db
-          .select({ id: notices.id })
-          .from(notices)
-          .where(
-            and(
-              recipientIs(),
-              isNull(notices.resolvedAt),
-              isNotNull(notices.readAt),
-              inArray(notices.kind, EVENT_KINDS),
-            ),
-          )
-          .orderBy(desc(notices.createdAt), desc(notices.id))
-          .limit(CAP_BATCH)
-          .offset(sql.placeholder('keep')),
-      ),
-    )
-    .returning()
-    .prepare(),
+const markEveryRead = prepared((db, t) =>
+  captureWrite(
+    db
+      .update(t.notices)
+      .set({ readAt: sql.placeholder('at') })
+      .where(inWorkspace(t.notices, recipientIs(t), isNull(t.notices.resolvedAt), isNull(t.notices.readAt)))
+      .returning(NOTICE_COLUMNS(t)),
+  ).prepare(),
+)
+
+const resolveReadEventsPastCap = prepared((db, t) =>
+  captureWrite(
+    db
+      .update(t.notices)
+      .set({ resolvedAt: sql.placeholder('at') })
+      .where(
+        inWorkspace(
+          t.notices,
+          inArray(
+            t.notices.id,
+            db
+              .select({ id: t.notices.id })
+              .from(t.notices)
+              .where(
+                inWorkspace(
+                  t.notices,
+                recipientIs(t),
+                isNull(t.notices.resolvedAt),
+                isNotNull(t.notices.readAt),
+                  inArray(t.notices.kind, EVENT_KINDS),
+                ),
+              )
+              .orderBy(desc(t.notices.createdAt), desc(t.notices.id))
+              .limit(CAP_BATCH)
+              .offset(sql.placeholder('keep')),
+          ),
+        ),
+      )
+      .returning(NOTICE_COLUMNS(t)),
+  ).prepare(),
 )
 
 export class NoticesRepository {
-  private readonly rootDb: StoreDrizzle
+  private readonly scope: WorkspaceDb
   protected readonly createOrJoinTransaction: TransactionRunner
   private feedCapture: NoticeFeedCapture | undefined
 
-  constructor(queries: StoreQueries) {
-    this.rootDb = queries.rootDb
+  /** One workspace's queries: its notices are that workspace's (POD-6959). */
+  constructor(queries: WorkspaceQueries) {
+    this.scope = queries.db
     this.createOrJoinTransaction = queries.createOrJoinTransaction
   }
 
   /** Resolved on every access so ambient transaction routing applies [POD-3221 rule 34a]. */
-  private get db(): StoreDrizzle {
-    return this.rootDb
+  private get db(): WorkspaceDb {
+    return this.scope
   }
 
   /** Install the change-log commit every write runs as (`inboxNotice`). */

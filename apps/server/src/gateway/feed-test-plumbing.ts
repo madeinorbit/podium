@@ -89,6 +89,7 @@ export async function feedTestPlumbing(
   let identity: FeedIdentity | null = null
   const subscriptions = new SubscriptionRegistry()
   const serving = new FeedServing({
+    workspaceId: store.workspaceId,
     authority: ledger.authority,
     identity: new FeedIdentityRegistry(
       {

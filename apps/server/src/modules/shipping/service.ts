@@ -24,6 +24,7 @@ import {
   type ShipOrderState,
   type ShipStep,
   shipRepairRef,
+  type WorkspaceId,
 } from '@podium/model'
 
 import type { ShippingJobRequestMessage, ShippingJobResult } from '@podium/protocol/daemon'
@@ -271,6 +272,8 @@ export interface ShippingEvidencePort
 }
 
 export interface ShippingServiceDeps {
+  /** The workspace whose orders this service ships; its green-prefix cache keys by it. */
+  workspaceId: WorkspaceId
   repository: ShippingRepository
   issues: ShippingIssuePort
   ledger: ShippingLedgerPort
@@ -2880,6 +2883,7 @@ export class ShippingService {
     )
     const durableRepair = await this.repairCandidate(attempt)
     const scope = {
+      workspaceId: this.deps.workspaceId,
       repoId: manifest.lane.repoId,
       targetBranch: manifest.lane.targetBranch,
       targetSha: manifest.lane.expectedTargetSha,

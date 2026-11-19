@@ -61,7 +61,7 @@ export function useStaleDockShellIds(): SessionId[] {
           return left < right ? -1 : left > right ? 1 : a.localeCompare(b)
         })
         .flatMap((id) => {
-          const row = omitGone(pool.row('session', id, 'summary-fields'))
+          const row = omitGone(pool.row('session', id))
           return row && typeof row !== 'symbol' ? [row as unknown as DockShellLifecycleSession] : []
         })
       return staleDockShellIds(dockShells, sessions)

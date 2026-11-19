@@ -4,33 +4,25 @@
  * carrying both families so INSERT column/value arity cannot drift silently.
  */
 
-import { actorUser, asMachineId, asSessionId, firstAdminMemberId } from '@podium/model'
+import { actorUser, asMachineId, asSessionId, asUserId } from '@podium/model'
 import { fixtureWriteScope } from '@podium/sync/testing'
 import { describe, expect, it } from 'vitest'
-import { openMigratedTestDatabase } from '../test-support/migrated-database'
-import { createBunStoreExecutor } from './executor'
+import { drainedRepository } from '../test-support/drained-repository'
+import { openSliceStore, type SliceStore } from '../test-support/pg-slice-tables'
 import { SessionsRepository } from './sessions'
 import type { SessionRow } from './types'
 
-/**
- * Stage A's synchronous drizzle seam, built the way `SessionStore` asserts it
- * [POD-3221 spec rule 27b]. A converted repository takes this in the slot its
- * executor occupied. Local to this file on purpose: hoisting it into
- * `test-support` would put six parallel conversion waves in one shared file.
- */
-const stageQueries = (database: Parameters<typeof createBunStoreExecutor>[0]['database']) => {
-  const stage = createBunStoreExecutor({ database }).queries
-  if (!stage) throw new Error('the synchronous query capability is absent on this handle')
-  return stage
-}
+// A member's id; `sessions` names no member row, and a Postgres clone seeds none.
+const OWNER = asUserId('user:alice')
 
 describe('session upsert rebase seam', () => {
   it('persists driver, login, and creator columns in one current-schema row', async () => {
-    const db = openMigratedTestDatabase()
-    const sessions = new SessionsRepository(stageQueries(db))
+    // On the run's engine: SQLite on the store shard, Postgres on `server-store-pg` (POD-6983).
+    const slice = await openSliceStore()
+    const sessions = drainedRepository(slice, new SessionsRepository(slice.queries))
     const row: SessionRow = {
       id: asSessionId('session-rebase-seam'),
-      ownerUserId: firstAdminMemberId(),
+      ownerUserId: OWNER,
       agentKind: 'codex',
       loginHarness: 'codex',
       selectedDriverId: 'codex-app-server',
@@ -70,8 +62,8 @@ describe('session upsert rebase seam', () => {
       deletionSource: null,
       deletedByIssueId: null,
       createdBy: {
-        actor: actorUser(firstAdminMemberId()),
-        onBehalfOf: firstAdminMemberId(),
+        actor: actorUser(OWNER),
+        onBehalfOf: OWNER,
       },
     }
 
@@ -83,7 +75,7 @@ describe('session upsert rebase seam', () => {
         createdBy: row.createdBy,
       })
     } finally {
-      db.close()
+      await slice.close()
     }
   })
 })

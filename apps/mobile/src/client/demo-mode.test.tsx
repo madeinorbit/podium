@@ -25,7 +25,8 @@ vi.mock('@react-native-async-storage/async-storage', () => ({
 vi.mock('./ServerProfileGate', () => ({ useOptionalServerProfile: () => null }))
 
 import { DEMO_ISSUES, DEMO_SESSIONS, demoEnabled } from './demoData'
-import { useConnected, useIssues, useSessions } from './hooks'
+import { useConnected } from './hooks'
+import { useIssues, useSessions } from '../../test/roster-hooks'
 import { MobileClientProvider } from './MobileClientProvider'
 import { useMobilePoolProjection } from './mobile-pool'
 
