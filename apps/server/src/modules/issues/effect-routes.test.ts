@@ -8,7 +8,7 @@ import { memberFacts } from '../../store/fixtures/test-support'
  * write is an effect record, created through `effects.create` on `sync.submit`.
  * For each: the record arrives through `sync.submit` with its provenance and a
  * receipt at the head; a replay answers the recorded result and runs nothing;
- * the target check refuses a member whose grant on the issue was revoked. The
+ * tasks remain shared with members independently of issue grant edges. The
  * old route is an adapter onto `effects.create`, and none is left in the
  * direct-write census. With no daemon to run it, the old command is refused at
  * once and creates nothing: it never does the work itself.
@@ -176,32 +176,45 @@ describe.each(Object.keys(CASES))('issues.%s on sync.submit', (name) => {
     expect((await rowsOf(o, env.mutationId)).length).toBe(written)
   })
 
-  it('the target check refuses a member whose grant on the issue was revoked', async () => {
+  it('shared-task admission and replay do not depend on issue grant edges', async () => {
     const o = await makeOracle()
-    const issue = await newIssue(o, `${name} granted`)
-    const user = await member(o, `usr_grantee_${name}_6603`)
+    const issue = await newIssue(o, `${name} shared`)
+    const user = await member(o, `usr_member_${name}_6603`)
     const principal = userCommandPrincipal(user, 'member')
-    const asMember = async (env: SyncSubmitInput) =>
-      await o.reg.modules.syncWrite.submit(env, principal, 'trpc')
+    const asMember = (env: SyncSubmitInput) =>
+      o.reg.modules.syncWrite.submit(env, principal, 'trpc')
+    const executor = o.reg.modules.effects?.executors.get(CASES[name]?.kind as string)
+    const run = vi.spyOn(executor as NonNullable<typeof executor>, 'run')
 
-    // Without a grant, the issue is not theirs: refused before any record.
-    const before = await asMember(
-      recordEnvelope(name, issue.id, mintDeviceId('eff_'), `m-${name}-0`),
-    )
-    expect(before.outcome).toBe('rejected')
+    // Workspace tasks are shared; a grant is neither needed nor a second gate.
+    const before = recordEnvelope(name, issue.id, mintDeviceId('eff_'), `m-${name}-0`)
+    appliedReply(await asMember(before))
+    await o.reg.modules.effects?.runner.idle()
+    expect(run).toHaveBeenCalledTimes(1)
 
     await o.store.grants.upsert(grant(issue.id, user))
     const granted = recordEnvelope(name, issue.id, mintDeviceId('eff_'), `m-${name}-1`)
     appliedReply(await asMember(granted))
     await o.reg.modules.effects?.runner.idle()
+    expect(run).toHaveBeenCalledTimes(2)
 
     await o.store.grants.remove('issue', issue.id, user, 'write')
-    const replay = await asMember(granted)
-    expect(replay.outcome).toBe('rejected')
-    const fresh = await asMember(
-      recordEnvelope(name, issue.id, mintDeviceId('eff_'), `m-${name}-2`),
-    )
-    expect(fresh.outcome).toBe('rejected')
+    const replay = appliedReply(await asMember(granted))
+    expect(replay.replayed).toBe(true)
+    await o.reg.modules.effects?.runner.idle()
+    expect(run).toHaveBeenCalledTimes(2)
+
+    const fresh = recordEnvelope(name, issue.id, mintDeviceId('eff_'), `m-${name}-2`)
+    appliedReply(await asMember(fresh))
+    await o.reg.modules.effects?.runner.idle()
+    expect(run).toHaveBeenCalledTimes(3)
+
+    // Shared does not mean arbitrary: an absent task is refused before creation.
+    const missingId = mintDeviceId('eff_')
+    const missing = await asMember(recordEnvelope(name, 'missing-task', missingId, `m-${name}-3`))
+    expect(missing).toMatchObject({ outcome: 'rejected', refusal: { kind: 'target-not-found' } })
+    expect(await o.store.effects.get(missingId)).toBeUndefined()
+    expect(run).toHaveBeenCalledTimes(3)
   })
 })
 

@@ -249,10 +249,13 @@ describe('sessions.answerAskUserQuestion is a session.answer record', () => {
       ),
     )
     expect(reply).toMatchObject({ outcome: 'rejected' })
-    // The old route refuses in its own words, before any record.
-    await expect(
-      call.sessions.answerAskUserQuestion({ sessionId, choices: [{ optionIndices: [1] }] }),
-    ).rejects.toThrow(/only its parent or the operator/)
+    // The route conceals the inaccessible session exactly as an unknown ask.
+    // Both adapters must refuse before recording an effect or contacting its driver.
+    const concealed = await call.sessions.answerAskUserQuestion({
+      sessionId,
+      choices: [{ optionIndices: [1] }],
+    })
+    expect(concealed).toEqual({ ok: false })
     await settle()
     expect(insert).not.toHaveBeenCalled()
     expect(deliver).not.toHaveBeenCalled()
