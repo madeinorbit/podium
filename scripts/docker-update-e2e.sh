@@ -765,7 +765,8 @@ wait_for() {
 # product was still working through". That ambiguity cost this epic hours. Note
 # the 300s waits equal the download timeout exactly: they were sized from one
 # half of the budget and the margin was missed.
-UPDATE_MACHINES_SILENCE_BUDGET_S=$((5 * 60 + 2 * 60))
+# The delivery stall bound is one minute; the machines step adds one minute.
+UPDATE_MACHINES_SILENCE_BUDGET_S=$((60 + 60))
 say_watch_budget() {
   local waited=$1
   (( waited < UPDATE_MACHINES_SILENCE_BUDGET_S )) || return 0
