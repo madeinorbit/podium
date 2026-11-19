@@ -123,7 +123,8 @@ function decorate<T extends object, V>(
     // Removing it deletes a declared field of MobX's ComputedValue, which
     // turns that object into a slow dictionary-mode object in V8 for every
     // MobX operation on it afterwards.
-    let phase: 'reading' | 'watched' | 'held' | 'kept' = 'reading'
+    // Typed wide: the hook below changes it, which narrowing cannot see.
+    let phase = 'reading' as 'reading' | 'watched' | 'held' | 'kept'
     let temporary: Temporary | undefined
     const unwatched = () => {
       const slots = (this as Holder)[SLOTS]
