@@ -95,12 +95,6 @@ interface ScreenCase {
   readonly budgetMs: number
   /** Reads only the policy's collections: always resident, memory never lets it go. */
   readonly alwaysResident?: true
-  /**
-   * A hold of this screen outlives it until the pool next recomputes, so one
-   * instance it left may still be held at the first idle tick: the issue that
-   * fixes it. Every other check of the forced-unload case still runs.
-   */
-  readonly lateRelease?: `POD-${number}`
 }
 
 const SEARCH_HITS = Array.from({ length: 12 }, (_, i) => `H${i + 1}`)
@@ -186,8 +180,6 @@ const SCREENS: readonly ScreenCase[] = [
     },
     readers: (device) => phoneMissionReaders(device, 'M5'),
     budgetMs: serverLoadingBudget(DECLARED_HOPS.phoneMission),
-    // Its lookup of the selected task stays held after it closes.
-    lateRelease: 'POD-7185',
   },
 ]
 
@@ -348,11 +340,10 @@ describe('open, leave, the warm budget unloads it, reopen offline: complete with
       // (released longest ago); the policy's collections stay.
       expect(d.replica.stats().shrinks).toBeGreaterThan(0)
       const inMemory = d.memoryInstances()
-      if (screen.lateRelease === undefined)
-        expect(
-          left.filter((key) => inMemory.has(key)),
-          `the screen left memory (held now: ${JSON.stringify(d.replica.heldForTest())}; ${JSON.stringify(d.replica.stats())})`,
-        ).toEqual([])
+      expect(
+        left.filter((key) => inMemory.has(key)),
+        `the screen left memory (held now: ${JSON.stringify(d.replica.heldForTest())}; ${JSON.stringify(d.replica.stats())})`,
+      ).toEqual([])
       expect(
         [...before].filter((key) => !inMemory.has(key)),
         'always resident',

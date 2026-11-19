@@ -1,7 +1,7 @@
-import { omitGone } from './lookup'
 import { cachedKey } from './cached'
-import type { MobxPool } from './pool'
+import { omitGone } from './lookup'
 import { MISSION_SCHEMA } from './mission-schema'
+import type { MobxPool } from './pool'
 import { LOADING, type Loaded } from './worklist/rollup'
 
 /** A mission member set has no ordering contract. Consumers needing issue or
@@ -24,19 +24,18 @@ export function createMissionViews(pool: MobxPool): MissionViews {
   // it and is released with its last observer. A gesture has no observer: it
   // computes afresh, bounded by the ancestry or the one mission it addresses.
   // No reaction keeps a visited id's computed alive (review finding 2).
-  const rootRow = (id: string) => {
-    // The one reader overlays pending values on both rows and summaries.
-    let row = omitGone(pool.row('issue', id))
-    // stage is required on every full issue and on our declared summary.
-    // Without it an empty/partial summary cannot answer optional parents.
-    if (row && row !== LOADING && !Object.hasOwn(row, 'stage')) row = omitGone(pool.row('issue', id))
-    return row as Loaded<{ archived?: boolean; deletedAt?: string | null }>
-  }
+  // Root identity needs only parent and archive/delete fields. Stubs keep
+  // that ancestry available after memory unloads the mission, so reopening
+  // can request its tree without first reloading each addressed ancestor.
+  const rootRow = (id: string) => omitGone(pool.stub(id))
   const hidden = cachedKey('Mission', 'hidden', (id): Loaded<boolean> => {
     const row = rootRow(id)
     return row === undefined || row === LOADING ? row : Boolean(row.archived || row.deletedAt)
   })
-  const resident = cachedKey('Mission', 'resident', id => omitGone(pool.row('issue', id, 'mark')) !== LOADING)
+  const parents = cachedKey('Mission', 'parent', (id): Loaded<string> => {
+    const row = rootRow(id)
+    return row === LOADING ? LOADING : row?.parentId ?? undefined
+  })
 
   const roots = cachedKey('Mission', 'root', (id): Loaded<string> => {
     stats.roots++
@@ -46,14 +45,12 @@ export function createMissionViews(pool: MobxPool): MissionViews {
     const seen = new Set<string>()
     while (!seen.has(current)) {
       seen.add(current)
-      const parentId = pool.graph.one('issue', current, MISSION_SCHEMA.root.parent)
+      const parentId = parents(current)
+      if (parentId === LOADING) return LOADING
       if (!parentId) break
       const parent = hidden(parentId)
       if (parent === LOADING) return LOADING
       if (parent === undefined || parent) break
-      // Navigation waits for a live ancestor's full row, as the sidebar did
-      // before this cache. Archived/deleted ancestors stop at the summary.
-      if (!resident(parentId)) { omitGone(pool.row('issue', parentId)); return LOADING }
       current = parentId
     }
     return current

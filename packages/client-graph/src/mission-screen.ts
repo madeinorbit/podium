@@ -566,7 +566,7 @@ export function missionRootId(
     // roster/counts can need the tree that the opening will read: waiting
     // for them here prevents that disk load from ever being requested after
     // an offline restart. The screen owns readiness once its root is known.
-    const root = omitGone(pool.row('issue', rootId))
+    const root = omitGone(pool.stub(rootId))
     return root === LOADING ? LOADING : root ? rootId : undefined
   }
   // Cold and unknown selections spend the shared load window; gone selections
