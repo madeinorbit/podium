@@ -18,6 +18,7 @@
 // Each path is driven through the daemon's own composition. The headless path
 // is the host-runtime port's two lines (context over the snapshot, then
 // `headlessTurnChildEnv`), which live inline in the runtime wiring.
+
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -27,6 +28,7 @@ import { asSessionId, type SessionId } from '@podium/model'
 import type { SpawnOptions } from '@podium/process/screen'
 import { afterAll, describe, expect, it } from 'vitest'
 import { type BufferedHarnessRequest, executeBufferedHarnessTurn } from './buffered-harness.js'
+import { memoryMarkers, SessionAccessStore } from './control/access'
 import type { DaemonContext } from './control/context'
 import { sessionProcessEnv } from './control/session.js'
 import { headlessTurnChildEnv } from './control/session-env.js'
@@ -127,6 +129,7 @@ async function terminalEnv(sessionEnv?: Record<string, string>) {
     observers: { initSessionObservers: () => {}, clearSession: () => {} },
     sessionCwdTracker: { setLaunchCwd: async () => {}, clear: () => {} },
     hookEndpointFor: (id: string) => `http://127.0.0.1:1/hook/${id}`,
+    access: new SessionAccessStore({ markers: memoryMarkers() }),
   } as unknown as DaemonContext
   ctx.agentRuntime = testTerminalRuntime(
     ctx,

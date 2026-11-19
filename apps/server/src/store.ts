@@ -56,11 +56,14 @@ import type { IdentityDatabase, PgDb, SqliteDb } from '@podium/identity'
 import { createLogger } from '@podium/logger'
 import { asMachineId, type MachineId, type WorkspaceId } from '@podium/model'
 import { stateDir } from '@podium/runtime/config'
+import { resolveInstanceId } from '@podium/runtime/instance'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
 import type { UpdateSigningKey } from '@podium/runtime/update-signing-key'
+import { fileKeyProvider, resolveVaultKeyPath } from '@podium/runtime/vault-key'
 import { SyncRepository } from '@podium/sync'
 import { isFeatureEnabled } from './features'
 import type { BackupPreflight } from './migrations/backup'
+import { type SnapshotStamp, scrubLegacySnapshots } from './migrations/legacy-snapshot-scrub'
 import type { SnapshotVerifierDeps } from './migrations/snapshot-verifier'
 import {
   openStoreLifecycle,
@@ -68,15 +71,17 @@ import {
   type StoreLifecycle,
 } from './migrations/store-lifecycle'
 import { syncServerTables } from './migrations/sync-server-tables'
+import { importLegacyCredentials, legacyValuesToDestroy } from './modules/credentials/legacy-import'
+import { Vault } from './modules/credentials/vault'
 import { OperationStore } from './modules/operations/store'
 import { UpdateRecoveryStore } from './modules/updates/recovery-store'
 import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
-import { AccountsRepository } from './store/accounts'
 import { AgentProfilesRepository } from './store/agent-profiles'
 import { ArtifactUploadsRepository } from './store/artifact-uploads'
 import { AutomationsRepository } from './store/automations'
 import { CheckoutsRepository } from './store/checkouts'
 import { ConversationsRepository } from './store/conversations'
+import { CredentialsRepository, type VaultKeyCheck } from './store/credentials'
 import { provisionWorkspaceFeed } from './store/database'
 import { EffectsRepository } from './store/effects'
 import { EventsRepository } from './store/events'
@@ -97,19 +102,31 @@ import { IdentityUpgradeRepository } from './store/identity-upgrade'
 import { InteractionsRepository } from './store/interactions'
 import { IssuesRepository } from './store/issues'
 import { JanitorReadsRepository } from './store/janitor-reads'
+import {
+  applyLegacyDestruction,
+  compactDatabase,
+  hasLegacyPlaintextRows,
+  LEGACY_PLAINTEXT_SNAPSHOTS_KEY,
+  type LegacyPlaintextOptions,
+  type LegacyPlaintextReport,
+  readLegacyPlaintextState,
+  writeLegacyPlaintextState,
+} from './store/legacy-plaintext'
 import { LocksRepository } from './store/locks'
 import { MachinesRepository, RETIRED_MACHINE_SENTINELS } from './store/machines'
 import { MaintenanceRepository } from './store/maintenance'
 import { MessagesRepository } from './store/messages'
 import { MessagingSessionAttachmentsRepository } from './store/messaging-session-attachments'
 import { MessagingTopicsRepository } from './store/messaging-topics'
+import { NativeLoginsRepository } from './store/native-logins'
+import { NoticesRepository } from './store/notices'
 import { NotificationFactsRepository } from './store/notification-facts'
 import { ObservationCheckpointsRepository } from './store/observation-checkpoints'
 import { PendingUploadsRepository } from './store/pending-uploads'
 import { QuotaHistoryRepository } from './store/quota-history'
 import { ReadWatermarksRepository } from './store/read-watermarks'
 import { normalizeRepoPath, ReposRepository } from './store/repos'
-import { ServerSecretsRepository } from './store/server-secrets'
+import { ServerSecretsRepository, VAULT_SEALED_SECRET_KEYS } from './store/server-secrets'
 import { SessionsRepository } from './store/sessions'
 import { SettingsRepository } from './store/settings'
 import { SettingsAuditRepository } from './store/settings-audit'
@@ -189,6 +206,10 @@ export function storeMigratesAtBoot(
 /** What {@link StoreDatabase.open} takes beyond the path and the host machine. */
 export type StoreDatabaseOptions = SnapshotVerifierDeps & {
   queryOnly?: boolean
+  /** The vault's outside key file. Default: `resolveVaultKeyPath` for this instance. */
+  vaultKeyFile?: string
+  /** Test seams for destroying the old plaintext keys (`store/legacy-plaintext.ts`). */
+  legacyPlaintext?: LegacyPlaintextOptions
   /**
    * `whenLogAttaches` is a test store's (`openTestStore`): no change is
    * captured until a change log attaches to the store
@@ -356,7 +377,12 @@ export class StoreDatabase {
     try {
       if (lifecycle.applied.length > 0)
         log.info('applied migrations', { applied: lifecycle.applied })
-      const store = new StoreDatabase(location, hostMachineId, lifecycle)
+      const store = new StoreDatabase(location, hostMachineId, lifecycle, {
+        vaultKeyPath:
+          options.vaultKeyFile ?? resolveVaultKeyPath(process.env, resolveInstanceId(process.env)),
+        queryOnly: options.queryOnly === true,
+        legacyPlaintext: options.legacyPlaintext ?? {},
+      })
       const backfillStarted = performance.now()
       await store.boot(options.bootWorkspace, options.queryOnly === true)
       bootStage('backfill', backfillStarted)
@@ -396,6 +422,16 @@ export class StoreDatabase {
     hostMachineId: MachineId,
     /** The engine's lifecycle steps, and the executor every repository runs on. */
     private readonly lifecycle: StoreLifecycle,
+    /**
+     * How each workspace's store opens its vault (credential management design §7):
+     * the installation's outside key file, whether this boot may write, and the
+     * seams of the old plaintext keys' destruction.
+     */
+    private readonly vaultBoot: {
+      readonly vaultKeyPath: string
+      readonly queryOnly: boolean
+      readonly legacyPlaintext: LegacyPlaintextOptions
+    },
   ) {
     // The value crosses into its id space HERE, once: it arrives as the bytes of a
     // state-dir file (or a fresh mint) and leaves as the machine identity every row,
@@ -435,6 +471,21 @@ export class StoreDatabase {
     const store = new SessionStore(this, bootWorkspace)
     this.workspaces.set(bootWorkspace, Promise.resolve(store))
     await store.refuseAndRepair()
+    const vaultStarted = performance.now()
+    await store.openVault(this.vaultBoot.vaultKeyPath, queryOnly)
+    // LEGACY(remove-after: 2027-05): moves keys stored before the vault into it; removing it ends direct upgrades from versions before 2026-11 and drops the accounts table
+    if (!queryOnly && this.lifecycle.legacyIdentityStorage) {
+      await store.importLegacyCredentials()
+      try {
+        store.legacyPlaintextReport = await this.destroyLegacyPlaintext(
+          store,
+          this.vaultBoot.legacyPlaintext,
+        )
+      } catch (error) {
+        log.error('destroying the old plaintext keys failed', { err: error })
+      }
+    }
+    bootStage('vault', vaultStarted)
     // Search is one switch (PDM-25): the `command-palette` flag that shows Cmd+K
     // also decides whether this boot carries a full-text index at all. Read ONCE,
     // here — flipping the toggle takes effect at the next boot, so nothing has to
@@ -487,6 +538,7 @@ export class StoreDatabase {
       const store = new SessionStore(this, workspaceId)
       try {
         await store.refuseAndRepair()
+        await store.openVault(this.vaultBoot.vaultKeyPath, this.vaultBoot.queryOnly)
         await store.seed()
       } catch (error) {
         // A workspace nobody provisioned has no feed row, and a Postgres store refuses
@@ -503,6 +555,73 @@ export class StoreDatabase {
       if (this.workspaces.get(workspaceId) === opening) this.workspaces.delete(workspaceId)
     })
     return await opening
+  }
+
+  // LEGACY(remove-after: 2027-05): moves keys stored before the vault into it; removing it ends direct upgrades from versions before 2026-11 and drops the accounts table
+  /** Scrub the retained upgrade snapshots; returns the problems, by path and reason. */
+  private scrubSnapshots(knownValues: readonly string[]): string[] {
+    const stored = this.db
+      .prepare('SELECT value FROM meta WHERE key = ?')
+      .get(LEGACY_PLAINTEXT_SNAPSHOTS_KEY) as { value: string } | undefined
+    const done = stored ? (JSON.parse(stored.value) as SnapshotStamp[]) : []
+    const results = scrubLegacySnapshots(this.location, { knownValues, done })
+    const stamps = results.flatMap((result) => (result.stamp ? [result.stamp] : []))
+    this.db
+      .prepare(
+        'INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
+      )
+      .run(LEGACY_PLAINTEXT_SNAPSHOTS_KEY, JSON.stringify(stamps))
+    const problems = results.flatMap((result) =>
+      result.outcome === 'failed' ? [`${result.path}: ${result.reason}`] : [],
+    )
+    const scrubbed = results.filter((result) => result.outcome === 'scrubbed').length
+    if (scrubbed > 0) log.info('removed the old keys from the retained snapshots', { scrubbed })
+    if (problems.length > 0) {
+      log.warn('some retained snapshots still hold old keys or could not be read', { problems })
+    }
+    return problems
+  }
+
+  // LEGACY(remove-after: 2027-05): moves keys stored before the vault into it; removing it ends direct upgrades from versions before 2026-11 and drops the accounts table
+  /**
+   * Destroy the old plaintext keys the import moved (`store/legacy-plaintext.ts`):
+   * check each against its credential, delete the confirmed ones, compact the
+   * file, scrub the retained snapshots. Nothing once a pass left nothing.
+   */
+  private async destroyLegacyPlaintext(
+    store: SessionStore,
+    options: LegacyPlaintextOptions,
+  ): Promise<LegacyPlaintextReport> {
+    if (options.destroy === false) return { ran: false }
+    const state = readLegacyPlaintextState(this.db)
+    if (state === 'done' && !hasLegacyPlaintextRows(this.db)) return { ran: false }
+    const { destroy, leftInPlace } = await legacyValuesToDestroy({
+      users: store.users,
+      credentials: store.credentials,
+      grants: store.grants,
+      vault: store.vault,
+    })
+    // What the snapshots are searched for once scrubbed, besides what each holds.
+    const knownValues = [...destroy.map((value) => value.value)]
+    for (const key of VAULT_SEALED_SECRET_KEYS) {
+      const value = await store.secrets.get(key)
+      if (value) knownValues.push(value)
+    }
+    return await this.executor.exclusive(async () => {
+      const destroyed = applyLegacyDestruction(this.db, destroy)
+      const compaction =
+        readLegacyPlaintextState(this.db) === 'compaction-pending'
+          ? compactDatabase(this.db, options)
+          : 'skipped'
+      const snapshotProblems = this.location === ':memory:' ? [] : this.scrubSnapshots(knownValues)
+      if (compaction !== 'busy' && leftInPlace.length === 0 && snapshotProblems.length === 0) {
+        writeLegacyPlaintextState(this.db, 'done')
+      }
+      if (destroyed > 0 || compaction !== 'skipped') {
+        log.info('destroyed the old plaintext keys', { destroyed, compaction })
+      }
+      return { ran: true, destroyed, leftInPlace, compaction, snapshotProblems }
+    })
   }
 
   /** The exact newest migration identity the transfer target will verify. */
@@ -756,9 +875,20 @@ export class SessionStore {
    *  changed which setting, and who was refused. Server-only and projected into
    *  nothing; see `store/settings-audit.ts` for why that is load-bearing. */
   readonly settingsAudit: SettingsAuditRepository
-  /** Managed LLM credentials [spec:SP-6454] — server-held, injected at spawn.
-   *  Deliberately NOT in the settings blob, which round-trips to the browser. */
-  readonly accounts: AccountsRepository
+  /** Each member's D11 choices for their native logins, and the copies made under them. */
+  readonly nativeLogins: NativeLoginsRepository
+  /** Credentials and their sealed secrets (credential management design §4). */
+  readonly credentials: CredentialsRepository
+  /** The vault as the credentials repository sees it; set once the store opens it. */
+  private vaultKeyCheck: VaultKeyCheck | undefined
+  private openedVault: Vault | undefined
+  /** What destroying the old plaintext keys did at this start (tests read it). */
+  legacyPlaintextReport: LegacyPlaintextReport | undefined
+  /** The credential vault (credential management design §7), opened at boot. */
+  get vault(): Vault {
+    if (!this.openedVault) throw new Error("the vault is opened with the workspace's store")
+    return this.openedVault
+  }
   readonly machines: MachinesRepository
   /** The `(entityRef, granteeUserId, verb)` grant edges (POD-1079, ADR 9 D2) —
    *  read live at every access decision, never cached into a rights snapshot. */
@@ -775,6 +905,8 @@ export class SessionStore {
   readonly events: EventsRepository
   /** Cross-producer notification deduplication [spec:SP-ba61]. */
   readonly notificationFacts: NotificationFactsRepository
+  /** Each person's notice inbox (POD-6881, credential management spec §13). */
+  readonly notices: NoticesRepository
   /** One row per run of a plan quota window (POD-1571) — the only place Podium
    *  keeps a quota number after the live read that produced it goes stale. */
   readonly quotaHistory: QuotaHistoryRepository
@@ -891,7 +1023,8 @@ export class SessionStore {
     this.dockShells = new UserDockShellRepository(this.queries)
     this.readPositions = new UserReadPositionRepository(this.queries)
     this.settingsAudit = new SettingsAuditRepository(this.queries)
-    this.accounts = new AccountsRepository(this.queries)
+    this.nativeLogins = new NativeLoginsRepository(this.queries)
+    this.credentials = new CredentialsRepository(this.queries, () => this.vaultKeyCheck)
     this.grants = new GrantsRepository(this.queries)
     this.machines = new MachinesRepository(
       this.queries,
@@ -906,6 +1039,7 @@ export class SessionStore {
     this.telegramBindings = new TelegramBindingsRepository(this.queries)
     this.events = new EventsRepository(this.queries)
     this.notificationFacts = new NotificationFactsRepository(this.queries)
+    this.notices = new NoticesRepository(this.queries)
     this.quotaHistory = new QuotaHistoryRepository(this.queries)
     this.transcriptCosts = new TranscriptCostsRepository(this.queries)
     this.messages = new MessagesRepository(this.queries)
@@ -924,6 +1058,62 @@ export class SessionStore {
     this.operations = new OperationStore(this.queries)
     this.messagingTopics = new MessagingTopicsRepository(this.queries)
     this.messagingSessionAttachments = new MessagingSessionAttachmentsRepository(this.queries)
+  }
+
+  /**
+   * Open the vault, then seal the server secrets it protects and move the keys
+   * stored before it. A missing or unusable key never fails the boot: the vault
+   * reports why (`podium vault status`) and the credentials it holds read
+   * "needs attention". A read-only (recovery) boot writes nothing.
+   */
+  async openVault(keyPath: string, readOnly: boolean): Promise<void> {
+    const vault = await Vault.open({
+      keyPath,
+      provider: () => fileKeyProvider(keyPath),
+      store: {
+        readVaultKey: () => this.credentials.readVaultKey(),
+        insertVaultKeyIfAbsent: (keyId, wrapped) =>
+          this.credentials.insertVaultKeyIfAbsent(keyId, wrapped),
+        deleteVaultKeyAndSecrets: (reason) =>
+          this.queries.createOrJoinTransaction(async () => {
+            const affected = await this.credentials.deleteVaultKeyAndSecrets(reason)
+            await this.secrets.clearSealed()
+            return affected
+          }),
+      },
+    })
+    this.openedVault = vault
+    this.vaultKeyCheck = vault
+    this.secrets.useVault(vault)
+    const status = vault.status()
+    if (status.problem) {
+      log.warn('the credential vault cannot use its key', {
+        state: status.state,
+        keyPath,
+        problem: status.problem,
+      })
+    }
+    if (readOnly) return
+    try {
+      await this.secrets.sealInPlace()
+    } catch (error) {
+      log.error('sealing the server secrets failed', { err: error })
+    }
+  }
+
+  // LEGACY(remove-after: 2027-05): moves keys stored before the vault into it; removing it ends direct upgrades from versions before 2026-11 and drops the accounts table
+  /** Move the keys stored before the vault into it: the self-hosted workspace's, at boot. */
+  async importLegacyCredentials(): Promise<void> {
+    try {
+      await importLegacyCredentials({
+        users: this.users,
+        credentials: this.credentials,
+        grants: this.grants,
+        vault: this.vault,
+      })
+    } catch (error) {
+      log.error('moving the old keys into the vault failed', { err: error })
+    }
   }
 
   /**

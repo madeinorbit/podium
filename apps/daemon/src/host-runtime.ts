@@ -1,4 +1,4 @@
-import { mkdir, readFile, stat } from 'node:fs/promises'
+import { mkdir, readFile, rm, stat } from 'node:fs/promises'
 import { homedir, hostname } from 'node:os'
 import { isAbsolute, join } from 'node:path'
 import {
@@ -127,6 +127,7 @@ import { BindingStore } from './binding-store'
 import { createBrowserOpenManager } from './browser-open'
 import { deliveryCaps } from './build-report'
 import { ComposerSyncEngine } from './composer-sync'
+import { type AccessMarker, SessionAccessStore } from './control/access'
 import type { DaemonContext, DurableBackend } from './control/context'
 import { readMemoryBreakdown } from './control/discovery'
 import { reportInventory, startInventoryRefresh } from './control/inventory'
@@ -153,9 +154,14 @@ import { createFrameGuard, type FrameGuard } from './frame-guards'
 import { createFrameSink } from './frame-sink'
 import { createGrantRunner } from './grant-apply'
 import { sweepHandoffStage, transcriptForExport } from './handoff-package'
-import { managementQuotaFetcher } from './harness-management.js'
+import { managementQuotaFetcher, resolveManagementAccount } from './harness-management.js'
 import { DaemonHarnessRuntime } from './harness-runtime'
 import { withHarnessVersionReporting } from './harness-version-reporting'
+import { probeCodexLaunchHookTrust } from './homes/codex-hook-probe'
+import { CodexHookTrust } from './homes/codex-hook-trust'
+import { homeQuotaReader } from './homes/probes'
+import { HomeRegistry, homeDiscoveryRoots } from './homes/registry'
+import { stopHome, systemProcessPorts } from './homes/stop'
 import { createHostDiskSampler, sampleHostLoad, sampleHostMemory } from './host-metrics'
 import { loadIdentity } from './identity'
 import type { DaemonInstanceBootstrap } from './instance-bootstrap'
@@ -197,6 +203,7 @@ import {
 import { createSessionClientScope } from './session/clients.js'
 import { driverSlotsOver } from './session/driver-slots.js'
 import { createSessionEngineScope } from './session/engines.js'
+import { createEngineJournal } from './session/journal.js'
 import { SessionRegistry } from './session/registry.js'
 import { SessionBinding } from './session-binding'
 import { driverHarnessContextFrom, engineSessionHarnessContext } from './session-harness-context'
@@ -655,10 +662,68 @@ export async function createDaemonHostRuntime(args: {
       stopLoopAttribution = startLoopAttribution()
     }
   }
+  // Podium's harness homes (credential management §10). Removing one first
+  // stops what runs in it: wired below once the engines exist.
+  const homesRoot = opts.homesDir ?? join(stateDir(), 'homes')
+  const settledCommandEnv = (): Record<string, string> =>
+    Object.fromEntries(
+      Object.entries(harnessRuntime?.settled()?.commandEnvironment.env ?? {}).filter(
+        (entry): entry is [string, string] => entry[1] !== undefined,
+      ),
+    )
+  const codexHookTrust = new CodexHookTrust({
+    root: homesRoot,
+    probe: ({ installation, flags, probeHome }) =>
+      probeCodexLaunchHookTrust({
+        executable: installation.executable,
+        env: { ...settledCommandEnv(), CODEX_HOME: probeHome },
+        flags,
+        cwd: probeHome,
+      }),
+    // The throwaway home: Codex's daemon there stopped, then deleted.
+    cleanProbeHome: async (probeHome) => {
+      await stopHome(
+        { homeId: 'probe', credentialId: 'probe', harness: 'codex', dir: probeHome },
+        {
+          ...systemProcessPorts,
+          sessionsIn: () => [],
+          stopSession: async () => undefined,
+          codexExecutable: () => harnessRuntime?.settled()?.executables.get('codex')?.path,
+          commandEnv: settledCommandEnv,
+        },
+      )
+      await rm(probeHome, { recursive: true, force: true })
+    },
+  })
+  const homes = new HomeRegistry({
+    root: homesRoot,
+    beforeRemove: (home) =>
+      stopHome(home, {
+        ...systemProcessPorts,
+        sessionsIn: (homeId) =>
+          [...ctx.sessions.entries()]
+            .filter(
+              ([sessionId, session]) =>
+                session.harnessContext?.harnessHome?.id === homeId ||
+                ctx.access.homeIdOf(sessionId) === homeId,
+            )
+            .map(([sessionId]) => sessionId),
+        // The daemon's own decision, not the server's kill: so it says the
+        // process ended, the way an exit would, or the session reads live.
+        stopSession: async (sessionId) => {
+          await stopSessionProcess(ctx, { sessionId: sessionId as SessionId })
+          ctx.send({ type: 'agentExit', sessionId: sessionId as SessionId, code: 143 })
+        },
+        codexExecutable: () => harnessRuntime?.settled()?.executables.get('codex')?.path,
+        commandEnv: settledCommandEnv,
+      }),
+  })
   const discoveryLoop = createDiscoveryLoop({
     workerClient,
     send,
     homeDir,
+    // Every Podium home is scanned too (§10): its directory is that harness's root.
+    extraRoots: () => homeDiscoveryRoots(homes.list()),
     cachePath: opts.discovery?.cachePath,
     background: opts.discovery?.background ?? true,
     intervalMs: opts.discovery?.scanIntervalMs ?? DEFAULT_DISCOVERY_SCAN_INTERVAL_MS,
@@ -1078,6 +1143,12 @@ export async function createDaemonHostRuntime(args: {
   const ctx: DaemonContext = {
     send,
     topicWatches,
+    // Secrets in memory; only "this session needs a credential" on disk.
+    access: new SessionAccessStore({
+      markers: createEngineJournal<AccessMarker>({ namespace: 'session-access' }),
+    }),
+    homes,
+    codexHookTrust,
     ...(args.picturesAccepted ? { picturesAccepted: args.picturesAccepted } : {}),
     acknowledgeQueueDrainReport: args.acknowledgeQueueDrainReport,
     acknowledgeRuntimeEvent: args.acknowledgeRuntimeEvent,
@@ -1120,6 +1191,18 @@ export async function createDaemonHostRuntime(args: {
       ...(accountHome ? { accountHome } : {}),
       homeDir: homeDir ?? machineHome,
       ...(harnessRuntime ? { harnessRuntime } : {}),
+    }),
+    // Each Podium home's quota, read in that home (credential management §10).
+    homeQuota: homeQuotaReader({
+      homes: () => homes.list(),
+      account: async () => {
+        const account = await resolveManagementAccount({
+          ...(accountHome ? { accountHome } : {}),
+          homeDir: homeDir ?? machineHome,
+          ...(harnessRuntime ? { harnessRuntime } : {}),
+        })
+        return account ? { home: account.home, env: account.machineEnv } : undefined
+      },
     }),
     usageMemo: {},
     portableStateFence,
@@ -1307,6 +1390,7 @@ export async function createDaemonHostRuntime(args: {
   const sessionEngines = createSessionEngineScope(engineDurable, {
     sessions: ctx.sessions,
     socketRoot: engineSocketRoot,
+    access: ctx.access,
     // Engines never follow the terminal `--backend`, so an explicit `none`
     // (which skips the boot probe) must not refuse them: probe lazily, the
     // same memoized resolve the host adapter itself runs at first spawn.
@@ -1619,9 +1703,24 @@ export async function createDaemonHostRuntime(args: {
       engines: () => sessionEngines,
       // ONE RECIPE (POD-6535): the turn's account context over this snapshot,
       // the same credential home every other session child runs under.
-      turnChildEnv: ({ agent, specEnv, credentialEnv, snapshot, execEnv, envOverlay }) => {
+      turnChildEnv: ({
+        agent,
+        sessionId,
+        specEnv,
+        credentialEnv,
+        snapshot,
+        execEnv,
+        envOverlay,
+      }) => {
         const { env, strip } = headlessTurnChildEnv({
-          context: driverHarnessContextFrom(ctx, snapshot, agent as BuiltinHarnessKind, undefined),
+          // In the session's home when its credential names one (§10).
+          context: driverHarnessContextFrom(
+            ctx,
+            snapshot,
+            agent as BuiltinHarnessKind,
+            undefined,
+            sessionId,
+          ),
           ...(credentialEnv ? { credentialEnv } : {}),
           ...(specEnv ? { instanceEnv: specEnv } : {}),
           ...(execEnv ? { execEnv } : {}),
@@ -2019,6 +2118,9 @@ export async function createDaemonHostRuntime(args: {
       }
     }
     ctx.sessions.clear()
+    // The secrets go with the process; the markers stay, so the next daemon
+    // waits for the server's refresh instead of starting bare.
+    ctx.access.clearMemory()
     try {
       await reapServerSessionsBeforeDispose(serverReaps, () => {
         closeAgentRuntime?.dispose()

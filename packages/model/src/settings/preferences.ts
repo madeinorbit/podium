@@ -59,8 +59,9 @@
 import { z } from 'zod'
 import { HarnessAgent } from '../entities/agent'
 import { PerUserSingletonKey } from '../fields/per-user-key'
-import { AccountIdField } from '../ids'
+import { AccountIdField, CredentialIdField } from '../ids'
 import { asAccountId } from '../ids/brands'
+import { CidrRange } from '../net/cidr'
 
 // ---------------------------------------------------------------------------
 // PERSONAL — the `(userId)`-keyed halves
@@ -85,6 +86,9 @@ export const RoleBackend = z.object({
    *  DOCUMENTED value here meaning "the role's default", so a validating schema
    *  would reject settings blobs that parse today (POD-362). */
   accountId: AccountIdField.default(asAccountId('')),
+  /** The credential this role's direct model calls run on (credential management
+   *  §9). When set it wins over `accountId`; absent: `accountId` decides. */
+  credentialId: CredentialIdField.optional(),
   model: z.string().default('auto'),
   effort: z.string().default('auto'),
   harness: HarnessAgent.optional(),
@@ -166,12 +170,26 @@ export type AutoContinuePreferences = z.infer<typeof AutoContinuePreferences>
  * anything acts on it, and UNKNOWN CHATS MUST FAIL CLOSED — never fall back to
  * an operator identity.
  */
+/**
+ * PUSH PER NOTICE KIND (POD-6881). A mention and a credential that needs
+ * attention are pushed by default; a credential someone shared is not.
+ */
+export const NoticePushPreferences = z.object({
+  mention: z.boolean().default(true),
+  credentialAttention: z.boolean().default(true),
+  credentialShared: z.boolean().default(false),
+})
+export type NoticePushPreferences = z.infer<typeof NoticePushPreferences>
+
 export const NotificationRouting = z.object({
   web: z.boolean().default(true),
   /** ntfy.sh topic for mobile push (empty = off). */
   ntfyTopic: z.string().default(''),
   /** Telegram chat id or @channelusername for global server push (empty = off). */
   telegramChatId: z.string().default(''),
+  /** Which notice kinds are pushed to the channels above (POD-6881, spec §13).
+   *  The inbox shows every kind; this only decides the push. */
+  notices: NoticePushPreferences.default({}),
 })
 export type NotificationRouting = z.infer<typeof NotificationRouting>
 
@@ -190,11 +208,19 @@ export type NotificationRouting = z.infer<typeof NotificationRouting>
  * non-grantable BY CONSTRUCTION (ADR 9 D3 rule 4), so the class is a matrix
  * annotation on the family and never a per-row value a writer could set wrong.
  */
+/** Per harness, the credential a launch uses when it names none. */
+export const CredentialDefaults = z.record(HarnessAgent, CredentialIdField)
+export type CredentialDefaults = z.infer<typeof CredentialDefaults>
+
 export const PersonalPreferences = PerUserSingletonKey.extend({
   roles: Roles.default({}),
   sidebar: Sidebar.default({}),
   autoContinue: AutoContinuePreferences.default({}),
   notifications: NotificationRouting.default({}),
+  /** The credential each harness uses when a launch names none (credential
+   *  management §9 "Choosing for a session"). A harness absent here falls back
+   *  to no credential: its own login on the machine. */
+  credentialDefaults: CredentialDefaults.default({}),
 })
 export type PersonalPreferences = z.infer<typeof PersonalPreferences>
 
@@ -394,6 +420,22 @@ export const DeploymentPreferences = z.object({
   telemetrySince: z.number().optional(),
 })
 
+/**
+ * WHICH NETWORKS A DAEMON MAY CONNECT OVER WITHOUT TLS AND STILL RECEIVE
+ * CREDENTIALS (credential management §8).
+ *
+ * INSTANCE tier: the server judges each daemon connection, and there is one
+ * judgement for everybody. Written by an admin person only, never by an agent
+ * acting for one (`records.instancePreferences.edit` refuses that leaf for an
+ * agent principal). Each entry is an IPv4 or IPv6 range such as a VPN's
+ * (`100.64.0.0/10`, `fd7a:115c:a1e0::/48`). Empty: only `wss` and same-computer
+ * connections count as safe.
+ */
+export const DaemonLinkPolicy = z.object({
+  trustedNetworks: z.array(CidrRange).default([]),
+})
+export type DaemonLinkPolicy = z.infer<typeof DaemonLinkPolicy>
+
 export const InstancePreferences = z.object({
   hibernation: HibernationPolicy.default({}),
   gitWorkflow: GitWorkflowPolicy.default({}),
@@ -407,5 +449,6 @@ export const InstancePreferences = z.object({
   worktreeGc: WorktreeGcPolicy.default({}),
   transcripts: TranscriptPolicy.default({}),
   deployment: DeploymentPreferences.default({}),
+  daemonLink: DaemonLinkPolicy.default({}),
 })
 export type InstancePreferences = z.infer<typeof InstancePreferences>

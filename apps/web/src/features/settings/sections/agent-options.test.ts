@@ -1,77 +1,62 @@
 import { BUNDLED_DESCRIPTORS } from '@podium/harness/browser'
-import { type AccountView, asAccountId } from '@podium/model/browser'
+import type { CredentialView } from '@podium/model'
+import { asAccountId, asCredentialId, asMachineId, asUserId } from '@podium/model/browser'
 import type { HarnessDescriptorWire } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import { agentOptions, backendForAgent } from './agent-options'
 
-const managed = (provider: string, patch: Partial<AccountView> = {}): AccountView => ({
-  id: `managed:${provider}`,
-  provider,
-  source: 'managed',
-  kind: 'api-key',
-  status: 'connected',
-  credentialSource: 'stored',
-  ...patch,
-})
-const accounts: AccountView[] = [
+const accounts: CredentialView[] = [
   {
-    id: 'native:codex:person',
-    provider: 'openai',
-    source: 'native',
-    harness: 'codex',
-    identity: 'person@example.com',
-    machines: ['Workstation', 'Laptop'],
-    status: 'connected',
+    id: asCredentialId('cred_found-codex'),
+    ownerUserId: asUserId('user:me'),
+    label: 'Codex',
+    type: 'openai.chatgpt-login',
+    identity: { email: 'person@example.com' },
+    status: 'ok',
+    access: 'owner',
+    homes: [],
+    allowedMachines: [],
+    sessionCount: 0,
+    nativeLogin: {
+      harness: 'codex',
+      required: false,
+      keptOn: [],
+      useOnMyMachines: false,
+      machines: [
+        { id: asMachineId('workstation'), name: 'Workstation', state: 'in' },
+        { id: asMachineId('laptop'), name: 'Laptop', state: 'in' },
+      ],
+    },
   },
-  managed('anthropic'),
-  managed('openai', { credentialSource: 'shared', sharedBy: 'Ana' }),
-  managed('openrouter'),
-  managed('claude-oauth', { provider: 'anthropic', kind: 'oauth' }),
 ]
 
 describe('Agent choices', () => {
-  it('pairs each connected managed credential with every harness it can drive (#216)', () => {
+  it('offers every agent program the fleet serves, once, by harness', () => {
     const future = {
       ...BUNDLED_DESCRIPTORS[0],
       kind: 'future-cli',
       provider: 'anthropic',
       label: 'Future CLI',
     } as HarnessDescriptorWire
-    const options = agentOptions(accounts, false, [...BUNDLED_DESCRIPTORS, future])
-    expect(
-      options
-        .filter((option) => option.accountId === 'managed:anthropic')
-        .map((option) => option.harness),
-    ).toEqual(['claude-code', 'future-cli'])
-    expect(options.find((option) => option.accountId === 'managed:claude-oauth')?.harness).toBe(
-      'claude-code',
-    )
-    expect(options.find((option) => option.accountId === 'managed:openai')?.harness).toBe('codex')
-    expect(options.some((option) => option.accountId === 'managed:openrouter')).toBe(false)
+    const options = agentOptions(accounts, [...BUNDLED_DESCRIPTORS, future])
+    expect(options.map((option) => option.harness)).toContain('future-cli')
+    expect(options.map((option) => option.harness)).toContain('claude-code')
     expect(new Set(options.map((option) => option.value)).size).toBe(options.length)
+    for (const option of options) expect(option.value).toBe(option.harness)
   })
 
-  it('groups personal logins and keys separately from the resolved shared key', () => {
+  it("names who a program is signed in as on the person's machines, and nothing for a logged-out one", () => {
     const options = agentOptions(accounts)
-    const native = options.find((option) => option.accountId === 'native:codex:person')
-    expect(native?.group).toBe('Signed in on your machines')
-    expect(native?.hint).toBe('person@example.com · Workstation, Laptop')
-    expect(options.find((option) => option.accountId === 'managed:anthropic')?.group).toBe(
-      'Using your API key',
+    expect(options.find((option) => option.harness === 'codex')?.hint).toBe(
+      'person@example.com · Workstation, Laptop',
     )
-    const shared = options.find((option) => option.accountId === 'managed:openai')
-    expect(shared?.group).toBe('Shared with you')
-    expect(shared?.hint).toBe('Ana’s OpenAI key')
-    expect(shared?.help).toContain('you have no OpenAI key of your own')
-    expect(shared?.help).toContain('Billed per token to their key')
+    expect(options.find((option) => option.harness === 'claude-code')?.hint).toBe('')
   })
 
-  it('offers native logins only for the superagent, and never invents an unconfigured key', () => {
-    expect(agentOptions(accounts, true).map((option) => option.accountId)).toEqual([
-      'native:codex:person',
-    ])
-    expect(agentOptions([managed('openai', { status: 'not-configured' })])).toEqual([])
-    expect(agentOptions([])).toEqual([])
+  it('says where the credential comes from, and writes no account id', () => {
+    const codex = agentOptions(accounts).find((option) => option.harness === 'codex')
+    expect(codex?.help).toContain('default credential')
+    expect(codex).not.toHaveProperty('accountId')
   })
 })
 
@@ -82,43 +67,38 @@ describe('Compatible agent changes', () => {
     model: 'shared-model',
     effort: 'high',
   }
-  const next = { accountId: asAccountId('managed:anthropic'), harness: 'claude-code' as const }
+  const next = { harness: 'claude-code' as const }
+  /** A pick clears an account id saved before credentials and writes only the harness. */
+  const picked = { accountId: asAccountId(''), harness: 'claude-code' as const }
 
-  it('writes both account and harness and retains a model and effort supported by the destination', () => {
+  it('writes the harness, clears the old account id, and retains a model and effort the destination supports', () => {
     expect(
       backendForAgent(backend, 'codex', next, [
         { value: 'shared-model', label: 'Shared', efforts: ['high'] },
       ]),
-    ).toEqual({ ...backend, ...next })
+    ).toEqual({ ...backend, ...picked })
   })
   it('resets only an unsupported effort when the model remains available', () => {
     expect(
       backendForAgent(backend, 'codex', next, [
         { value: 'shared-model', label: 'Shared', efforts: ['low'] },
       ]),
-    ).toEqual({ ...backend, ...next, effort: 'auto' })
+    ).toEqual({ ...backend, ...picked, effort: 'auto' })
   })
   it('resets model and effort when the destination catalog cannot run them', () => {
     expect(
       backendForAgent(backend, 'codex', next, [{ value: 'different', label: 'Different' }]),
-    ).toEqual({ ...backend, ...next, model: 'auto', effort: 'auto' })
+    ).toEqual({ ...backend, ...picked, model: 'auto', effort: 'auto' })
   })
-  it('keeps an unreported custom model when only its credential changes', () => {
-    expect(
-      backendForAgent(backend, 'codex', {
-        accountId: asAccountId('managed:openai'),
-        harness: 'codex',
-      }),
-    ).toEqual({ ...backend, accountId: 'managed:openai' })
+  it('keeps an unreported custom model when the same harness is picked again', () => {
+    expect(backendForAgent(backend, 'codex', { harness: 'codex' })).toEqual({
+      ...backend,
+      accountId: '',
+    })
   })
-  it('replaces a stale harness when selecting a native login', () => {
-    expect(
-      backendForAgent(backend, 'codex', {
-        accountId: asAccountId('native:claude-code'),
-        harness: 'claude-code',
-      }),
-    ).toMatchObject({
-      accountId: 'native:claude-code',
+  it('resets model and effort for another harness with no report', () => {
+    expect(backendForAgent(backend, 'codex', { harness: 'claude-code' })).toMatchObject({
+      accountId: '',
       harness: 'claude-code',
       model: 'auto',
       effort: 'auto',

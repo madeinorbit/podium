@@ -1,7 +1,8 @@
 import type { AgentSessionHandle } from '@podium/harness/driver/host'
 import { asSessionId } from '@podium/model'
-import { RuntimeDraftRequestMessage, parseControlMessage, parseDaemonMessage, type DaemonMessage } from '@podium/protocol/daemon'
+import { type DaemonMessage, parseControlMessage, parseDaemonMessage, RuntimeDraftRequestMessage } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'
+import { memoryMarkers, SessionAccessStore } from '../control/access'
 import type { DaemonContext } from '../control/context'
 import { runtimeHandlers } from './handlers'
 
@@ -13,6 +14,7 @@ async function dispatch(operation: { verb: 'get' } | { verb: 'set'; text: string
   const ctx = {
     send: (message: DaemonMessage) => sent.push(message),
     agentRuntime: { handleFor: () => draft ? { draft } : undefined },
+    access: new SessionAccessStore({ markers: memoryMarkers() }),
   } as unknown as DaemonContext
   const frame = parseControlMessage(JSON.stringify({ ...request, operation }))
   if (frame.type !== 'runtimeDraftRequest') throw new Error('wrong frame')

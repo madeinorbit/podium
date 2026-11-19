@@ -10,6 +10,7 @@ vi.mock('./header-data', () => ({
 vi.mock('@/lib/use-feature', () => ({ useFeature: () => false }))
 vi.mock('@/features/machines/HostIndicators', () => ({ HeaderHostIndicators: () => null }))
 vi.mock('./HostedWorkspaceSwitcher', () => ({ HostedWorkspaceSwitcher: () => null }))
+vi.mock('@/features/notices/NoticeTray', () => ({ NoticeTray: () => null }))
 
 afterEach(() => {
   cleanup()

@@ -18,11 +18,13 @@ import {
   supported,
   unsupported,
 } from '../../manifest.js'
+import { classifyClaudeAuthStatus } from '../../manifests/claude-auth-status.js'
 import { claudeTranscriptClassifierRules } from '../../manifests/claude-code-classifier.js'
 import { classifyClaudeLoginStatus } from '../../manifests/claude-login-status.js'
 import { createTranscriptClassifier } from '../../observer.js'
 import { claudeCodeCatalog } from './catalog.js'
 import { claudeComposer } from './composer.js'
+import { claudeConversationFile } from './conversation-file.js'
 import { claudeCredentials } from './credentials.js'
 import { claudeCodeDescriptor } from './descriptor.js'
 import { createClaudeCodeConversationProvider } from './discovery.js'
@@ -133,6 +135,7 @@ export const claudeCodeManifest: AgentManifest = {
     // Claude answering the word "login" and no auth flow ever ran. `claude auth login`
     // is the real sign-in entry point [POD-1307].
     loginCommand: supported({ args: ['auth', 'login'] }),
+    signOutCommand: { args: ['auth', 'logout'] },
     loginIdentity: supported((homeDir, env?: HarnessEnvironment) =>
       claudeCredentials.identity(credentialFileReader(claudeCredentials, homeDir, env)),
     ),
@@ -148,6 +151,24 @@ export const claudeCodeManifest: AgentManifest = {
     // in your environment" modal, whose one-time approval is then remembered per
     // key in `.claude.json` — after which the switch is permanently silent.
     foreignCredentialEnv: ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'],
+    accepts: [
+      { type: 'anthropic.api-key', deliver: { kind: 'env', variable: 'ANTHROPIC_API_KEY' } },
+      {
+        type: 'anthropic.claude-token',
+        deliver: { kind: 'env', variable: 'CLAUDE_CODE_OAUTH_TOKEN' },
+      },
+      { type: 'anthropic.claude-login', deliver: { kind: 'home' } },
+    ],
+    // Claude Code's documented switch: scrub Anthropic and cloud-provider
+    // credentials from the environment of the commands it runs.
+    hideFromCommands: { env: { CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: '1' } },
+    // What a started session is on, in Claude Code's own words (credential
+    // management §9 "Launching"): the same command as the login probe.
+    authStatusProbe: {
+      args: ['auth', 'status'],
+      timeoutMs: 12_000,
+      classify: classifyClaudeAuthStatus,
+    },
     detectLogin(homeDir, env: HarnessEnvironment) {
       // The account env (POD-6536): its selector, never the daemon's own.
       const configDir = claudeRoots(homeDir, env).state
@@ -369,6 +390,7 @@ export const claudeCodeManifest: AgentManifest = {
       if (!path) throw new Error('Claude transcript not found')
       return { path }
     },
+    ...claudeConversationFile,
   }),
 
   // Claude Code's own domains: only the OAuth authorize path is a login; every

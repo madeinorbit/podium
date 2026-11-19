@@ -51,6 +51,11 @@
       "@podium/source": "./src/records/index.ts",
       "types": "./src/records/index.ts",
       "import": "./src/records/index.ts"
+    },
+    "./credentials": {
+      "@podium/source": "./src/credentials/contracts.ts",
+      "types": "./src/credentials/contracts.ts",
+      "import": "./src/credentials/contracts.ts"
     }
   },
   "scripts": {

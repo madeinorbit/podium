@@ -46,6 +46,7 @@ import {
   parseIssueUserStateRowId,
   parseLayoutRowId,
   parseMachineAccessRowId,
+  parseNoticeRowId,
   parseMessageRecordRowId,
   parsePinRowId,
   parseReadPositionRowId,
@@ -321,6 +322,8 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
         if (entity === 'superagentThread') return 'per-user-state'
         // A member's own access to a machine (POD-6644): their row alone.
         if (entity === 'machineAccess') return 'per-user-state'
+        // A notice (POD-6881, spec §13): private to its recipient.
+        if (entity === 'inboxNotice') return 'per-user-state'
         if (
           entity === 'session' ||
           entity === 'issueProjection' ||
@@ -554,6 +557,13 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
         if (ref.entity === 'superagentThread') {
           try {
             return parseSuperagentThreadRowId(ref.entityId).userId
+          } catch {
+            return null
+          }
+        }
+        if (ref.entity === 'inboxNotice') {
+          try {
+            return parseNoticeRowId(ref.entityId).userId
           } catch {
             return null
           }

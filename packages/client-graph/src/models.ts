@@ -2,13 +2,13 @@ import type { IssueBriefWire, IssueDescriptionWire, IssuePanelTodoWire, IssuePan
 import type { LayoutWire } from '@podium/model'
 import { type IssueNavigationModel, issuePendingDecision, missionTaskBucket, type MissionTaskBucket } from '@podium/client-core/values'
 import { type LiveStore, lastValue } from '@podium/client-core/live'
-import type { EffectError, EffectRecordWire, EffectStatus, InstancePreferences, IssueGitState, IssuePanel, IssuePanelArtifact, IssueProjection, PersonalPreferences, PinKind, PinWire, ReadPositionWire, SuperagentThreadWire, TabOrderWire } from '@podium/model'
+import type { EffectError, EffectRecordWire, EffectStatus, InstancePreferences, IssueGitState, IssuePanel, IssuePanelArtifact, IssueProjection, NoticeWire, PersonalPreferences, PinKind, PinWire, ReadPositionWire, SuperagentThreadWire, TabOrderWire } from '@podium/model'
 import { type PodiumSettings, resolveRole } from '@podium/runtime'
 import { here, isGone, type Lookup, omitGone } from './lookup'
 import type { MessageModel, PendingInteractionModel } from './message-models'
 import { ReadObservation } from './read-observation'
 import { type FeatureId, type FeatureStates, OFFLINE_FEATURE_FACTS, resolveFeatureStates } from '@podium/protocol'
-import type { AccountModel, DeviceModel, MemberModel, RepositoryModel } from './requested-models'
+import type { CredentialModel, DeviceModel, MemberModel, RepositoryModel } from './requested-models'
 import type { AutomationModel, AutomationRunModel, MachineModel } from './synced-models'
 
 export type { AutomationModel, AutomationRunModel, MachineModel } from './synced-models'
@@ -32,7 +32,7 @@ import type {
 import { attentionGroup, effectiveRecency } from '@podium/client-core/focus'
 import type { SessionLiveFields, SessionView } from '@podium/client-core/session-values'
 import { groupRelations, type IssueCloseMemberCounts, type IssueCloseScalarSubject, type ReferentExit, motionPhase as sessionMotion, type TaskProgress } from '@podium/client-core/values'
-import { APPROVAL_EFFECT_KIND, isTurnOpen, readEffectStatus, SESSION_INTERRUPT_KIND } from '@podium/model/browser'
+import { type AccessRefusal, APPROVAL_EFFECT_KIND, credentialRefusalOfCode, isTurnOpen, readEffectStatus, SESSION_INTERRUPT_KIND } from '@podium/model/browser'
 import {
   ISSUE_ADD_SESSION_KIND,
   ISSUE_BEGIN_KIND,
@@ -979,6 +979,27 @@ export class SessionModel extends EntityModel {
     return typeof turn !== 'string' || turn === this.turnStartedAt
   }
 
+  /** The `session.launch` record that started this session, the latest when
+   *  there are several (POD-6408). */
+  @lazy get launch(): EffectModel | undefined {
+    let latest: EffectModel | undefined
+    for (const effect of this.effects.ready) {
+      if (effect.kind !== SESSION_LAUNCH_KIND) continue
+      if (latest === undefined || effect.createdAt > latest.createdAt) latest = effect
+    }
+    return latest
+  }
+  /**
+   * Why this session's start was refused for its credential (credential
+   * management §9), read from its launch record's error CODE, never from the
+   * sentence: the session that never started says why and offers the way out.
+   * Undefined for any other failure, and for a start that ran.
+   */
+  @lazy get launchRefusal(): AccessRefusal | undefined {
+    const launch = this.launch
+    return launch?.status === 'failed' ? credentialRefusalOfCode(launch.error?.code) : undefined
+  }
+
   /** The model or effort change asked for most recently on this session, as
    *  its effect record (POD-6523): its patch while it waits, the driver's
    *  answer once it ends. */
@@ -1502,6 +1523,22 @@ export class SuperagentThreadModel extends EntityModel {
 export interface SuperagentThreadModel extends Readonly<SuperagentThreadWire> {}
 
 /**
+ * ONE OF MY OPEN NOTICES (POD-6881, spec §13): a synced per-user record. The
+ * tray and the phone's inbox read it here; a notice resolved on the server
+ * leaves the pool on its own.
+ */
+export class InboxNoticeModel extends EntityModel {
+  constructor(id: string, host: ModelHost) {
+    super('inboxNotice', id, host)
+  }
+  /** Not read yet: counted on the tray. */
+  @lazy get unread(): boolean {
+    return this.readAt === undefined
+  }
+}
+export interface InboxNoticeModel extends Readonly<NoticeWire> {}
+
+/**
  * THE INSTANCE SETTINGS (POD-6677): one synced record for the whole instance,
  * every member's, resolved with defaults by the row source from its flat leaf
  * fields. Screens read it here, never `settings.get`; an admin's change on any
@@ -1587,7 +1624,7 @@ export type ModelOf = {
   issuePanelDeferred: IssuePanelDeferredModel
   issuePanelState: IssuePanelStateModel
 
-  account: AccountModel
+  credential: CredentialModel
   member: MemberModel
   device: DeviceModel
   instancePreferences: InstancePreferencesModel
@@ -1613,6 +1650,7 @@ export type ModelOf = {
   userPreferences: UserPreferencesModel
   userReadPosition: UserReadPositionModel
   superagentThread: SuperagentThreadModel
+  inboxNotice: InboxNoticeModel
   agentProfile: AgentProfileModel
   workflow: WorkflowModel
   workflowRevision: WorkflowRevisionModel
@@ -1637,6 +1675,7 @@ export const MODEL_CLASSES: Readonly<Partial<Record<EntityName, ModelClass>>> = 
   userLayout: UserLayoutModel, tabOrder: TabOrderModel, userPreferences: UserPreferencesModel,
   userReadPosition: UserReadPositionModel,
   superagentThread: SuperagentThreadModel,
+  inboxNotice: InboxNoticeModel,
   instancePreferences: InstancePreferencesModel,
 }
 

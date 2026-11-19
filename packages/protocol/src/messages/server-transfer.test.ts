@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest'
 import { ControlMessage, DaemonMessage } from '../daemon'
 import {
   canonicalServerTransferManifest,
+  SERVER_MOVE_VAULT_KEY_CAPABILITY,
   SERVER_TRANSFER_MAX_CHUNK_BYTES,
   ServerTransferChunkRequestMessage,
   ServerTransferErrorCode,
+  ServerTransferPromoteRequestMessage,
   ServerTransferResultMessage,
 } from './index'
 import { CONTROL_PLANE_CLASS, DAEMON_PLANE_CLASS } from './message-class'
@@ -132,6 +134,62 @@ describe('server transfer protocol', () => {
     ])
     expect(DAEMON_PLANE_CLASS.serverTransferResult).toBe('control.command')
     expect(DAEMON_PLANE_CLASS.serverEndpointResult).toBe('control.command')
+  })
+
+  it('carries the vault data key and its check value only in promotion', () => {
+    const promote = {
+      type: 'serverTransferPromoteRequest',
+      requestId: 'request-1',
+      transferId,
+      manifestDigest,
+      publicUrl: 'https://podium.example.com',
+      bindHost: '0.0.0.0',
+      port: 24_444,
+      targetMode: 'server',
+      idempotencyKey: 'promote-once',
+    } as const
+    const key = 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=' // 32 bytes
+    const check = 'c'.repeat(64)
+    // Absent (an empty vault, or an older source) and null both parse.
+    expect(ServerTransferPromoteRequestMessage.parse(promote)).not.toHaveProperty('vaultDataKey')
+    expect(
+      ServerTransferPromoteRequestMessage.parse({ ...promote, vaultDataKey: null }).vaultDataKey,
+    ).toBeNull()
+    expect(
+      ServerTransferPromoteRequestMessage.parse({
+        ...promote,
+        vaultDataKey: key,
+        vaultCheck: check,
+      }),
+    ).toMatchObject({ vaultDataKey: key, vaultCheck: check })
+    // A key must be 32 bytes of base64, and a check a SHA-256 HMAC in hex.
+    expect(
+      ServerTransferPromoteRequestMessage.safeParse({
+        ...promote,
+        vaultDataKey: 'AAAAAAAAAAAAAAAAAAAAAA==', // 16 bytes
+        vaultCheck: check,
+      }).success,
+    ).toBe(false)
+    expect(
+      ServerTransferPromoteRequestMessage.safeParse({
+        ...promote,
+        vaultDataKey: key,
+        vaultCheck: 'not-hex',
+      }).success,
+    ).toBe(false)
+    expect(
+      ServerTransferResultMessage.parse({
+        type: 'serverTransferResult',
+        requestId: 'request-1',
+        transferId,
+        operation: 'promote',
+        ok: false,
+        state: 'validated',
+        vaultCheck: check,
+        errorCode: 'refused',
+      }).vaultCheck,
+    ).toBe(check)
+    expect(SERVER_MOVE_VAULT_KEY_CAPABILITY).toBe('server-move.vault-key.v1')
   })
 
   it('pins strong promoted proof and stable recovery metadata on the single result family', () => {

@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { wireDaemonSocket } from './gateway/daemon-socket'
 import { PairingManager } from './hub/pairing'
 import { SessionRegistry } from './relay'
+import { captureLogs } from './test-support/capture-logs'
 import { openTestStore } from './test-support/open-test-store'
 
 const sha256 = (s: string): string => createHash('sha256').update(s).digest('hex')
@@ -40,6 +41,55 @@ function fakeWs() {
 }
 
 const frame = (value: unknown): string => JSON.stringify(value)
+
+/**
+ * NEVER LOGGED (credential management §8; POD-6906 S2). A daemon frame that can
+ * carry a login file is named by its type only when it is dropped, never by a
+ * parse error that may quote its fields. First in the file: the drop warning is
+ * throttled per process, so no earlier drop may swallow it.
+ */
+describe('a dropped daemon frame that can carry a login file', () => {
+  it('is logged by its type only', async () => {
+    const store = await openTestStore(':memory:')
+    await store.machines.upsertMachine({
+      id: 'm-login',
+      name: 'box',
+      hostname: 'box',
+      tokenHash: sha256('tok'),
+      ownerUserId: firstAdminMemberId(),
+    })
+    const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    const ws = fakeWs()
+    wireDaemonSocket(ws as never, reg)
+    await ws.emit(
+      'message',
+      frame({ type: 'hello', machineId: 'm-login', token: 'tok', hostname: 'box' }),
+    )
+    expect(ws.sent.some((s) => s.includes('helloOk'))).toBe(true)
+    /** Obviously fake. A schema error for a bad enum quotes the value it got. */
+    const planted = 'FAKE-planted-login-file-7043'
+    const logs = captureLogs()
+    try {
+      await ws.emit(
+        'message',
+        frame({
+          type: 'credentialExportResult',
+          requestId: 'rpc-cred-export-1',
+          bundles: [{ kind: planted, contentBase64: planted }],
+          unavailable: [],
+        }),
+      )
+      const drops = logs.at('warn').filter((r) => r.msg === 'dropped a malformed frame')
+      expect(drops).toEqual([
+        expect.objectContaining({ kind: 'daemon', frameType: 'credentialExportResult' }),
+      ])
+      expect(drops[0]).not.toHaveProperty('err')
+      expect(logs.text()).not.toContain(planted)
+    } finally {
+      logs.restore()
+    }
+  })
+})
 
 describe('daemon socket auth', () => {
   it('ignores a pre-auth non-handshake frame, then attaches on a valid hello', async () => {

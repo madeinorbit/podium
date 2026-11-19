@@ -74,7 +74,8 @@ export function isLoopbackAddress(address: string | undefined): boolean {
   )
 }
 
-function isLoopbackHost(host: string | undefined): boolean {
+/** Whether a Host value (`name[:port]`) names this computer: `localhost` or a loopback address. */
+export function isLoopbackHost(host: string | undefined): boolean {
   if (!host) return false
   try {
     const hostname = new URL(`http://${host}`).hostname
@@ -95,7 +96,7 @@ function isLoopbackHost(host: string | undefined): boolean {
  * ask for X-Forwarded-Proto, so a proxy set up as asked is caught here even when it
  * rewrites everything else.
  */
-const PROXY_ONLY_HEADERS = ['forwarded', 'x-forwarded-proto', 'x-real-ip'] as const
+export const PROXY_ONLY_HEADERS = ['forwarded', 'x-forwarded-proto', 'x-real-ip'] as const
 
 /** The native boundary overwrites x-podium-peer-address from Bun.requestIP, so
  * callers cannot nominate themselves as local. Host/origin/forwarding checks

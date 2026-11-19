@@ -1,6 +1,5 @@
 import type { HarnessAgent, Inventory, MachineId, UserId } from '@podium/model'
 import { userCommandPrincipal } from './command-principal'
-import type { CodexTransport, LlmMessage, LlmTool } from './llm'
 import { LlmConfigError } from './llm-error'
 import {
   type AsyncMachineRowSource,
@@ -157,52 +156,46 @@ export async function codexAuthorizerFor(
   }
 }
 
-export interface CodexTransportDeps {
-  listMachines(): Promise<readonly CodexLoginMachineSource[]>
-  isOnline(id: MachineId): boolean
-  /** The fleet default; undefined when none resolves. */
-  defaultMachineId(): Promise<MachineId | undefined>
-  authorizerFor(owner: UserId): Promise<(machineId: MachineId) => string | undefined>
-  /** The user whose settings name the backend — the digest reads the first
-   *  admin's settings, so it spends a login that admin may use. */
-  ownerUserId(): Promise<UserId>
-  codexComplete(
-    machineId: MachineId,
-    input: {
-      model: string
-      messages: LlmMessage[]
-      tools: LlmTool[]
-      effort: 'low' | 'medium' | 'high'
-    },
-  ): Promise<{
-    ok: boolean
-    text?: string
-    toolCalls?: { id: string; name: string; arguments: string }[]
-    error?: string
-  }>
+/** What a daemon answers for one Codex turn on its login (`codexCompleteRequest`). */
+export interface CodexTurnResult {
+  ok: boolean
+  text?: string
+  toolCalls?: { id: string; name: string; arguments: string }[]
+  error?: string
 }
 
 /**
- * Build the transport a `codex`-provider client runs on (POD-4750): pick the
- * owning machine from the login catalog — scoped to the requesting user —
- * send the turn through the daemon RPC, and return ONLY the model's reply.
- * Daemon refusals and the no-reply deadline both surface as LlmConfigError
- * with the daemon's (or deadline's) actionable text.
+ * Pick the machine a login-backed direct call runs on (credential management
+ * §9), from the machines that hold that login and on which the credential may
+ * be used: the first online one, the fleet default first, else by name. Throws LlmConfigError with
+ * an actionable message naming the credential, never another person's machine:
+ * none holds it, or the one picked is offline.
  */
-export function createCodexTransport(deps: CodexTransportDeps): CodexTransport {
-  return {
-    complete: async (model, messages, tools, effort, harness) => {
-      const authorize = await deps.authorizerFor(await deps.ownerUserId())
-      const picked = pickCodexMachine(
-        codexLoginMachines(await deps.listMachines(), deps.isOnline, harness),
-        {
-          defaultMachineId: await deps.defaultMachineId(),
-          authorize,
-        },
-      )
-      const result = await deps.codexComplete(picked.machineId, { model, messages, tools, effort })
-      if (!result.ok) throw new LlmConfigError(result.error ?? 'Codex turn failed.')
-      return { text: result.text ?? '', toolCalls: result.toolCalls ?? [] }
-    },
+export function pickLoginMachine(
+  machines: readonly Pick<CodexLoginMachineSource, 'id' | 'name'>[],
+  opts: {
+    isOnline: (id: MachineId) => boolean
+    defaultMachineId?: MachineId | undefined
+    /** The credential's label, for the messages. */
+    label: string
+  },
+): { machineId: MachineId; machineName: string } {
+  if (machines.length === 0) {
+    throw new LlmConfigError(
+      `${opts.label} is not signed in on a machine where it may be used — sign in there, then retry.`,
+    )
   }
+  const ordered = [...machines].sort(
+    (a, b) =>
+      Number(b.id === opts.defaultMachineId) - Number(a.id === opts.defaultMachineId) ||
+      a.name.localeCompare(b.name) ||
+      String(a.id).localeCompare(String(b.id)),
+  )
+  const picked = ordered.find((machine) => opts.isOnline(machine.id))
+  if (!picked) {
+    throw new LlmConfigError(
+      `${opts.label} on ${ordered[0]!.name} is offline — bring its daemon online, then retry.`,
+    )
+  }
+  return { machineId: picked.id, machineName: picked.name }
 }

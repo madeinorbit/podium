@@ -149,7 +149,7 @@ export function FirstTaskActivation({
     setLoginBusyAgent(agent)
     setError(null)
     try {
-      const result = await trpc.accounts.login.mutate({
+      const result = await trpc.credentials.login.mutate({
         harness: agent as HarnessAgent,
         machineId: machine.id,
       })

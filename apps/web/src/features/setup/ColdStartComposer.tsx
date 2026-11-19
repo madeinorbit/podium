@@ -40,6 +40,15 @@ import { AttachmentStrip } from '@/features/chat/AttachmentStrip'
 import { useAttachments } from '@/features/chat/use-attachments'
 import { useComposerChord } from '@/features/chat/use-composer-chord'
 import {
+  type CredentialPick,
+  CredentialPicker,
+  shownCredential,
+} from '@/features/credentials/session/CredentialPicker'
+import {
+  useHarnessAccepts,
+  useSessionCredentials,
+} from '@/features/credentials/session/use-session-credentials'
+import {
   useSettingsPersistedUiState as usePersistedUiState,
   useSettingsCatalog,
   useSettingsDraftSeed,
@@ -443,6 +452,23 @@ export function ColdStartComposer({
   // compiles while `createDraftAgent` silently drops it.
   const requestedDriverId =
     runtimeDriversEnabled && driverChoice !== HEADED_DRIVER ? selectedHeadlessDriver?.id : undefined
+  // THE CREDENTIAL (credential management §9): the default for this harness,
+  // or what the person picked for this harness on this machine. Sent as shown;
+  // nothing is sent until the list has loaded, and the server applies the default.
+  const credentials = useSessionCredentials()
+  const acceptsOf = useHarnessAccepts(selectedMachine?.id)
+  const [credentialPick, setCredentialPick] = useState<CredentialPick | undefined>(undefined)
+  const credentialInput = {
+    harness: agent,
+    machineId: selectedMachine?.id,
+    ...(requestedDriverId !== undefined ? { driverId: requestedDriverId } : {}),
+    views: credentials.views,
+    accepts: acceptsOf(agent),
+    defaultId: credentials.defaults[agent],
+    custodianOf: credentials.custodianOf,
+    pick: credentialPick,
+  }
+  const credentialId = shownCredential(credentialInput)
   /**
    * THE SAME REFUSAL VOCABULARY AS EVERY OTHER SPAWN MENU (POD-1201).
    *
@@ -678,6 +704,7 @@ export function ColdStartComposer({
       ...(draft.model !== AUTO ? { model: draft.model } : {}),
       ...(draft.effort !== AUTO ? { effort: draft.effort } : {}),
       ...(requestedDriverId !== undefined ? { requestedDriverId } : {}),
+      ...(credentialId !== undefined ? { credentialId } : {}),
     })
     // The prompt was never written, so nothing is left to restore — but the
     // instruments were chosen and stay chosen for the next one.
@@ -861,6 +888,7 @@ export function ColdStartComposer({
         ...(draft.model !== AUTO ? { model: draft.model } : {}),
         ...(draft.effort !== AUTO ? { effort: draft.effort } : {}),
         ...(requestedDriverId !== undefined ? { requestedDriverId } : {}),
+        ...(credentialId !== undefined ? { credentialId } : {}),
       })
       // Keep prompt, attachments and ids until the authority has accepted the
       // draft vessel and its first session. The mutation and client-minted ids
@@ -1156,6 +1184,13 @@ export function ColdStartComposer({
                 placeholder="Choose a machine…"
                 onSelect={selectMachine}
               />
+              {selectedMachine ? (
+                <CredentialPicker
+                  {...credentialInput}
+                  onPick={setCredentialPick}
+                  className={chip}
+                />
+              ) : null}
               {runtimeDriversEnabled &&
               (availableHeadedDriver !== undefined || availableHeadlessDrivers.length > 0) ? (
                 <PropertyMenu

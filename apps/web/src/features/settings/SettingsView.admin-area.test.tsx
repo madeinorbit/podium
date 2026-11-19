@@ -152,7 +152,7 @@ describe('Settings rail — the admin area', () => {
     expect(railGroups()).toEqual(['Personal', 'Workspace'])
     for (const tab of [
       'Agents',
-      'AI accounts',
+      'Credentials',
       'Notifications',
       'Appearance',
       'Account',

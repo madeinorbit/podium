@@ -11,6 +11,7 @@ import type { MemberWrite } from '@podium/identity'
 import {
   type AccountId,
   asAccountId,
+  asCredentialId,
   asIssueId,
   asMachineId,
   asUserId,
@@ -58,6 +59,7 @@ export function idsFor(p = '') {
     carried: `${p}carried`,
     device: `${p}device-1`,
     fingerprint: `${p}fingerprint-1`,
+    credential: `cred_${p}00000000-0000-4000-8000-000000000001`,
     token: (tag: Tag) => `${p}${tag}-token`,
   }
 }
@@ -66,6 +68,8 @@ export const SHARED = idsFor()
 export const user = SHARED.user
 export const machine = SHARED.machine
 export const ROOT = SHARED.root
+/** The credential both workspaces hold under the same id. */
+export const CREDENTIAL = asCredentialId(SHARED.credential)
 /** The machine-1 grants bob holds: the same issue, different verbs per workspace. */
 export const bobVerbs = (tag: Tag): GrantRow['verb'][] =>
   tag === 'a' ? ['read', 'write'] : ['read']
@@ -91,6 +95,11 @@ export const TABLES = [
   'account_machine_sends',
   'native_login_opt_ins',
   'native_login_transfers',
+  'credentials',
+  'credential_secrets',
+  'credential_placements',
+  'credential_machines',
+  'vault_key',
   'client_sessions',
   'carried_sign_ins',
   'settings_audit_events',
@@ -277,20 +286,40 @@ export async function seed(store: Store, tag: Tag, ids: Ids = SHARED): Promise<v
     at,
   )
 
-  await store.accounts.connect({
-    ownerUserId: alice,
-    accountKey: ANTHROPIC,
-    provider: 'anthropic',
-    kind: 'api-key',
-    credential: `${tag}-secret`,
-    identity: `${tag}-identity`,
-    scope: 'role',
-    createdAt: 1,
+  // The old managed-key rows the one-time move into the vault reads: no repository
+  // writes them any more, so the seed does (credential management design §4).
+  const accountId = `${ANTHROPIC}@${alice}`
+  await store.run(
+    sql`INSERT INTO accounts (workspace_id, id, owner_user_id, account_key, provider, kind, credential, identity, scope, shared_with, created_at) VALUES (${WS[tag]}, ${accountId}, ${alice}, ${ANTHROPIC}, 'anthropic', 'api-key', ${`${tag}-secret`}, ${`${tag}-identity`}, 'role', ${JSON.stringify([bob])}, 1)`,
+  )
+  await store.run(
+    sql`INSERT INTO account_machine_sends (workspace_id, account_id, machine_id, sent_at) VALUES (${WS[tag]}, ${accountId}, ${m1}, ${at})`,
+  )
+  await store.credentials.insertWithSecret(
+    {
+      id: asCredentialId(ids.credential),
+      ownerUserId: alice,
+      label: `${tag} key`,
+      type: 'anthropic.api-key',
+      identity: { fingerprint: ids.fingerprint, masked: `${tag}…key` },
+      legacyId: accountId,
+      legacyKey: ANTHROPIC,
+    },
+    {
+      ciphertext: Buffer.from(`${tag}-sealed`),
+      nonce: Buffer.from(`${tag}-nonce`),
+      keyId: 'key-1',
+    },
+  )
+  await store.credentials.recordPlacement({
+    credentialId: asCredentialId(ids.credential),
+    machineId: m1,
+    kind: 'home',
   })
-  await store.accounts.share(alice, ANTHROPIC, [bob])
-  await store.accounts.markSent(alice, ANTHROPIC, m1, at)
-  await store.accounts.setOptIn(alice, 'claude-code', ids.fingerprint, true, at)
-  await store.accounts.recordTransfer(alice, {
+  await store.credentials.allowMachine(asCredentialId(ids.credential), m1, alice)
+  await store.credentials.insertVaultKeyIfAbsent('outside-1', Buffer.from(`${tag}-wrapped`))
+  await store.nativeLogins.setOptIn(alice, 'claude-code', ids.fingerprint, true, at)
+  await store.nativeLogins.recordTransfer(alice, {
     harness: 'claude-code',
     fingerprint: ids.fingerprint,
     machineId: m1,

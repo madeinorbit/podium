@@ -127,6 +127,7 @@ export interface RecordReads {
     | 'agentProfiles'
     | 'workflows'
     | 'checkouts'
+    | 'notices'
     | 'settings'
     | 'machines'
     | 'grants'
@@ -731,6 +732,7 @@ export const DATABASE_ONLY_BUILDERS: readonly Builder[] = [
   ROW_RECORDS.instancePreferences.builder,
   ROW_RECORDS.effect.builder,
   ROW_RECORDS.checkout.builder,
+  ROW_RECORDS.inboxNotice.builder,
   issueEvent,
   pendingInteraction,
   message,

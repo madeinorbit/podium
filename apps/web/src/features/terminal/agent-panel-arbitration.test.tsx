@@ -1,10 +1,11 @@
 import { ConversationService } from '@podium/client-core/conversation'
 import type { SessionView, SessionViewInput } from '@podium/client-core/session-values'
 // @vitest-environment happy-dom
-import { asSessionId } from '@podium/model'
+import { type AccessRefusal, asSessionId, type CredentialView } from '@podium/model'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { credentialView } from '@/test-support/credential-view'
 import { fixtureSnapshot as readFixture } from '@/test-support/fixture-snapshot'
 import { createPanePoolFixture } from './test-support/pane-pool.test.fixture'
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -76,6 +77,26 @@ vi.mock('@/lib/voice', () => ({
   useVoiceInput: () => ({ supported: false, listening: false, toggle: vi.fn() }),
 }))
 
+// My credentials list (the request boundary of the session's credential
+// controls). Undefined: not read yet, as in a suite that never opens one.
+let credentialViews: CredentialView[] | undefined
+vi.mock('@/features/credentials/session/use-session-credentials', async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import('@/features/credentials/session/use-session-credentials')
+  >()),
+  useSessionCredentials: () => ({
+    views: credentialViews,
+    defaults: {},
+    custodianOf: () => 'fixture-user',
+    reload: () => {},
+  }),
+  // The refusal a failed launch record names, by session (the record itself is
+  // the pool's effect model, which this fixture does not carry).
+  usePaneLaunchRefusal: (sessionId: string | undefined) =>
+    sessionId ? launchRefusals[sessionId] : undefined,
+}))
+let launchRefusals: Record<string, AccessRefusal> = {}
+
 let storeSessions: SessionView[] = []
 let storeMachines: Array<{ id: string; name: string; hostname: string; online: boolean }> = []
 let storePanelMode: Record<string, 'chat' | 'native'> = {}
@@ -100,7 +121,7 @@ const fakeTrpc = {
     sendText: { mutate: vi.fn(async () => {}) },
     transcriptRead: { query: transcriptRead },
   },
-  accounts: {
+  credentials: {
     login: { mutate: accountsLogin },
   },
 }
@@ -188,6 +209,8 @@ let container: HTMLDivElement
 let root: Root
 
 beforeEach(() => {
+  credentialViews = undefined
+  launchRefusals = {}
   storeSessions = [meta({})]
   storeMachines = []
   storePanelMode = { s1: 'native' }
@@ -273,6 +296,110 @@ describe('AgentPanel panel-mode persistence', () => {
     storeSessions = [...storeSessions, meta({ sessionId: asSessionId('login-1') })]
     await render({ active: true })
     expect(stableStoreFns.navigateToSession).toHaveBeenCalledWith(asSessionId('login-1'))
+  })
+})
+
+// The "isn't logged in" bar speaks for the machine's own login (POD-7062).
+// Every session here is on a machine whose Claude Code login is OUT; the
+// fixture turns `condition: 'logged-out'` into that machine record, and the
+// pool derives each session's condition from it.
+describe('AgentPanel login bar and the session credential', () => {
+  const apiKey = credentialView({ label: 'Team key', type: 'anthropic.api-key' })
+  const subscription = credentialView({
+    label: 'Work Max',
+    type: 'anthropic.claude-login',
+    homes: [{ machineId: 'machine-1', homeId: 'h:claude-code', state: 'in' }],
+  })
+  const sick = credentialView({
+    label: 'CI token',
+    type: 'anthropic.claude-token',
+    status: 'attention',
+    statusReason: 'It expired on Nov 10.',
+  })
+  const loggedOutOn = (credentialId?: string) =>
+    meta({
+      condition: 'logged-out',
+      machineId: 'machine-1',
+      ...(credentialId ? { credentialId } : {}),
+    } as Partial<SessionViewInput>)
+  const statusText = () =>
+    [...container.querySelectorAll('[role="status"]')].map((node) => node.textContent ?? '')
+
+  it.each([
+    ['an API key', apiKey.id],
+    ['a subscription home', subscription.id],
+    ['another member’s credential', 'cred_00000000-0000-4000-8000-0000000000ff'],
+  ])('acceptance 1: a session on %s never shows the machine login bar', async (_name, id) => {
+    credentialViews = [apiKey, subscription]
+    storePanelMode = { s1: 'chat' }
+    storeSessions = [loggedOutOn(id)]
+    await render({ active: true })
+    expect(statusText().join(' ')).not.toContain("isn't logged in")
+    // Nor is it pulled to the terminal to sign in: the chat preference holds.
+    expect(container.querySelector('[data-testid="mode-chat"]')).toBeTruthy()
+  })
+
+  it('acceptance 2: a session on its harness login that is signed out still shows the bar', async () => {
+    credentialViews = [apiKey, subscription]
+    storeSessions = [loggedOutOn()]
+    await render({ active: true })
+    expect(statusText().join(' ')).toContain("isn't logged in")
+  })
+
+  it('acceptance 3: a session on a credential that needs attention shows its notice instead', async () => {
+    credentialViews = [apiKey, sick]
+    storeSessions = [loggedOutOn(sick.id)]
+    await render({ active: true })
+    const text = statusText()
+    expect(text.join(' ')).not.toContain("isn't logged in")
+    expect(text).toContainEqual(
+      expect.stringContaining('CI token needs attention: It expired on Nov 10.'),
+    )
+    expect([...container.querySelectorAll('button')].map((b) => b.textContent)).toContain('Renew')
+  })
+})
+
+// A start refused for its credential never ran, and no session row landed for
+// it (POD-7067): the pane reads the painted session alone, on a machine whose
+// own Claude login is out. It never says the session runs on its own login,
+// and never asks for that login.
+describe('AgentPanel on a start refused for its credential (POD-7067)', () => {
+  const token = credentialView({ label: 'Placeholder token', type: 'anthropic.claude-token' })
+  const refusedOn = (credentialId?: string) =>
+    meta({
+      status: 'exited',
+      spawnFailure: 'not encrypted',
+      condition: 'logged-out',
+      machineId: 'machine-1',
+      ...(credentialId ? { credentialId } : {}),
+    } as Partial<SessionViewInput>)
+  const statusText = () =>
+    [...container.querySelectorAll('[role="status"]')].map((node) => node.textContent ?? '')
+  const chip = () =>
+    container.querySelector(
+      '[aria-label^="Credential"], [data-testid="session-credential-readout"]',
+    )
+
+  it('shows no login bar and no "Its own login" chip when no credential was named', async () => {
+    credentialViews = [token]
+    launchRefusals = { s1: 'connection-not-encrypted' }
+    storeSessions = [refusedOn()]
+    await render({ active: true })
+    const text = statusText().join(' ')
+    expect(text).toContain('This session did not start.')
+    expect(text).not.toContain("isn't logged in")
+    expect(chip()).toBeNull()
+    expect(container.textContent).not.toContain('Its own login')
+  })
+
+  it('names the credential chosen, as a readout with nothing to switch', async () => {
+    credentialViews = [token]
+    launchRefusals = { s1: 'connection-not-encrypted' }
+    storeSessions = [refusedOn(token.id)]
+    await render({ active: true })
+    expect(statusText().join(' ')).not.toContain("isn't logged in")
+    expect(chip()?.textContent).toContain('Placeholder token')
+    expect(chip()?.tagName).not.toBe('BUTTON')
   })
 })
 

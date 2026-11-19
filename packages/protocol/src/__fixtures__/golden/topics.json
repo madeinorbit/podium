@@ -124,6 +124,7 @@
             "agents": [
               {
                 "agent": "claude-code",
+                "homeId": "machines[0].agents[0].homeId",
                 "status": "ok",
                 "account": {
                   "email": "machines[0].agents[0].account.email",
@@ -149,7 +150,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"machines\":[{\"machineId\":\"machines[0].machineId\",\"machineName\":\"machines[0].machineName\",\"hostname\":\"machines[0].hostname\",\"agents\":[{\"agent\":\"claude-code\",\"status\":\"ok\",\"account\":{\"email\":\"machines[0].agents[0].account.email\",\"plan\":\"machines[0].agents[0].account.plan\"},\"windows\":[{\"key\":\"machines[0].agents[0].windows[0].key\",\"label\":\"machines[0].agents[0].windows[0].label\",\"usedPercent\":1,\"resetsAt\":\"machines[0].agents[0].windows[0].resetsAt\",\"windowMinutes\":1,\"scopeModel\":\"machines[0].agents[0].windows[0].scopeModel\"}],\"error\":\"machines[0].agents[0].error\",\"fetchedAt\":\"machines[0].agents[0].fetchedAt\"}]}]}"
+      "encoded": "{\"machines\":[{\"machineId\":\"machines[0].machineId\",\"machineName\":\"machines[0].machineName\",\"hostname\":\"machines[0].hostname\",\"agents\":[{\"agent\":\"claude-code\",\"homeId\":\"machines[0].agents[0].homeId\",\"status\":\"ok\",\"account\":{\"email\":\"machines[0].agents[0].account.email\",\"plan\":\"machines[0].agents[0].account.plan\"},\"windows\":[{\"key\":\"machines[0].agents[0].windows[0].key\",\"label\":\"machines[0].agents[0].windows[0].label\",\"usedPercent\":1,\"resetsAt\":\"machines[0].agents[0].windows[0].resetsAt\",\"windowMinutes\":1,\"scopeModel\":\"machines[0].agents[0].windows[0].scopeModel\"}],\"error\":\"machines[0].agents[0].error\",\"fetchedAt\":\"machines[0].agents[0].fetchedAt\"}]}]}"
     },
     {
       "schema": "AccountUsagePayload",
@@ -282,12 +283,13 @@
           "state": "attached",
           "reason": "daemonReadiness.reason",
           "quarantinedBindings": 1
-        }
+        },
+        "linkKind": "encrypted"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"online\":true,\"since\":\"since\",\"lastSeenAt\":\"lastSeenAt\",\"presenceSource\":\"supervisor\",\"availability\":{\"epoch\":\"availability.epoch\",\"server\":true,\"daemon\":true,\"supervisor\":true},\"daemonReadiness\":{\"state\":\"attached\",\"reason\":\"daemonReadiness.reason\",\"quarantinedBindings\":1}}"
+      "encoded": "{\"online\":true,\"since\":\"since\",\"lastSeenAt\":\"lastSeenAt\",\"presenceSource\":\"supervisor\",\"availability\":{\"epoch\":\"availability.epoch\",\"server\":true,\"daemon\":true,\"supervisor\":true},\"daemonReadiness\":{\"state\":\"attached\",\"reason\":\"daemonReadiness.reason\",\"quarantinedBindings\":1},\"linkKind\":\"encrypted\"}"
     },
     {
       "schema": "MachineProcessesPayload",

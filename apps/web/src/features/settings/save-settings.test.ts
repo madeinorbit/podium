@@ -24,13 +24,13 @@ function fakeTrpc() {
   // (POD-6677), handed to the save as its `instance` writer.
   const updateInstance = vi.fn(async (_input: { values: Record<string, unknown> }) => {})
   const setSecret = vi.fn(async () => ({
-    key: 'apiKeys.openai',
+    key: 'integrations.linearApiKey',
     present: true,
     fingerprint: 'deadbeefdeadbeef',
     updatedAt: '2026-07-30T00:00:00.000Z',
   }))
   const clearSecret = vi.fn(async () => ({
-    key: 'apiKeys.openai',
+    key: 'integrations.linearApiKey',
     present: false,
     fingerprint: null,
     updatedAt: null,
@@ -102,14 +102,14 @@ describe('resetting absent-default instance settings', () => {
 describe('offline, a secret never leaves the machine', () => {
   it('does NOT call setSecret, and reports the refusal', async () => {
     const { trpc, setSecret, clearSecret } = fakeTrpc()
-    const next = { ...base, apiKeys: { ...base.apiKeys, openai: 'sk-live-new' } }
+    const next = { ...base, integrations: { ...base.integrations, linearApiKey: 'sk-live-new' } }
     const result = await save(trpc, base, next, { online: false })
     expect(setSecret).not.toHaveBeenCalled()
     expect(clearSecret).not.toHaveBeenCalled()
-    expect(result.refusals.map((r) => r.path)).toEqual(['apiKeys.openai'])
+    expect(result.refusals.map((r) => r.path)).toEqual(['integrations.linearApiKey'])
     // The baseline does NOT advance past the refused field, so the form stays
     // dirty and the user's typed value is not silently treated as saved.
-    expect(result.saved.apiKeys.openai).toBe('')
+    expect(result.saved.integrations.linearApiKey).toBe('')
   })
 
   it('… while a preference in the same save IS written', async () => {
@@ -119,7 +119,7 @@ describe('offline, a secret never leaves the machine', () => {
     const next = {
       ...base,
       sidebar: { ...base.sidebar, repoSort: 'alphabetical' as const },
-      apiKeys: { ...base.apiKeys, openai: 'sk-live-new' },
+      integrations: { ...base.integrations, linearApiKey: 'sk-live-new' },
     }
     const result = await save(trpc, base, next, { online: false })
     expect(updatePersonal).toHaveBeenCalledWith({ values: { 'sidebar.repoSort': 'alphabetical' } })
@@ -130,12 +130,12 @@ describe('offline, a secret never leaves the machine', () => {
   it('the refusal message names the field and says why', () => {
     const message = refusalMessage([
       {
-        path: 'apiKeys.openai',
+        path: 'integrations.linearApiKey',
         reason: 'requires-connection',
         message: 'irrelevant — the bar composes its own line',
       },
     ])
-    expect(message).toContain('apiKeys.openai')
+    expect(message).toContain('integrations.linearApiKey')
     expect(message).toContain('offline')
     expect(message).toContain('never queued')
   })
@@ -148,23 +148,26 @@ describe('offline, a secret never leaves the machine', () => {
 describe('online, the commands are issued — one per tier, one per secret', () => {
   it('calls setSecret with the material and folds it into the baseline', async () => {
     const { trpc, setSecret } = fakeTrpc()
-    const next = { ...base, apiKeys: { ...base.apiKeys, openai: 'sk-live-new' } }
+    const next = { ...base, integrations: { ...base.integrations, linearApiKey: 'sk-live-new' } }
     const result = await save(trpc, base, next, { online: true })
-    expect(setSecret).toHaveBeenCalledWith({ key: 'apiKeys.openai', value: 'sk-live-new' })
+    expect(setSecret).toHaveBeenCalledWith({
+      key: 'integrations.linearApiKey',
+      value: 'sk-live-new',
+    })
     expect(result.refusals).toEqual([])
     // The secret command answers with a PRESENCE projection and never the
     // material, so the baseline is brought forward from what was sent — without
     // this the form would stay permanently dirty after a successful save.
-    expect(result.saved.apiKeys.openai).toBe('sk-live-new')
+    expect(result.saved.integrations.linearApiKey).toBe('sk-live-new')
   })
 
   it('an EMPTIED secret calls clearSecret, never setSecret with an empty value', async () => {
     const { trpc, setSecret, clearSecret } = fakeTrpc()
-    const configured = { ...base, apiKeys: { ...base.apiKeys, openai: 'sk-old' } }
+    const configured = { ...base, integrations: { ...base.integrations, linearApiKey: 'sk-old' } }
     const result = await save(trpc, configured, base, { online: true })
-    expect(clearSecret).toHaveBeenCalledWith({ key: 'apiKeys.openai' })
+    expect(clearSecret).toHaveBeenCalledWith({ key: 'integrations.linearApiKey' })
     expect(setSecret).not.toHaveBeenCalled()
-    expect(result.saved.apiKeys.openai).toBe('')
+    expect(result.saved.integrations.linearApiKey).toBe('')
   })
 
   it('splits a mixed edit across the two preference commands', async () => {
@@ -197,7 +200,7 @@ describe('online, the commands are issued — one per tier, one per secret', () 
     const next = {
       ...base,
       sidebar: { ...base.sidebar, repoSort: 'alphabetical' as const },
-      apiKeys: { ...base.apiKeys, openai: 'sk-live-new' },
+      notifications: { ...base.notifications, telegramBotToken: 'sk-live-new' },
       integrations: { ...base.integrations, linearApiKey: 'lin_api_x' },
     }
     await save(trpc, base, next, { online: true })
@@ -205,7 +208,7 @@ describe('online, the commands are issued — one per tier, one per secret', () 
       for (const call of spy.mock.calls) {
         expect(JSON.stringify(call)).not.toContain('sk-live-new')
         expect(JSON.stringify(call)).not.toContain('lin_api_x')
-        expect(JSON.stringify(call)).not.toContain('apiKeys')
+        expect(JSON.stringify(call)).not.toContain('telegramBotToken')
       }
     }
     // …and the spies were actually called, so the loop above is not empty.

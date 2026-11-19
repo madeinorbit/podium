@@ -43,7 +43,7 @@ const ui = createRoutedUiState({
   local: { get: () => null, set: readonly, subscribe: none },
   replicated: { get: (key) => layout[key], set: readonly, clear: readonly, subscribe: none },
 })
-const state = { sessions: dedupeSessionsByResume(sessions), machines, repos, settingsTab: 'accounts' }
+const state = { sessions: dedupeSessionsByResume(sessions), machines, repos, settingsTab: 'credentials' }
 const owner = withKeyedInputs({ getSnapshot: () => state, subscribe: none, ui })
 const sessionRows = new Map(sessions.map((row) => [row.sessionId as string, row]))
 const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.now() }, undefined,

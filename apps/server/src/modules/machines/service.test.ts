@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Inventory, UserId } from '@podium/model'
-import { asAccountId, asMachineId, asSessionId, asUserId, firstAdminMemberId, isMachineOfflineForLiveTerminal } from '@podium/model'
+import { asMachineId, asSessionId, asUserId, firstAdminMemberId, isMachineOfflineForLiveTerminal } from '@podium/model'
 import type { DaemonPtyInputBatch, MachineSupervisorControlMessage } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { mintSigningKeyPair, publicKeyWire } from '@podium/runtime/signing'
@@ -825,6 +825,7 @@ describe('MachinesService inventory persistence (#222)', () => {
         icon: { id: 'claude-code', viewBox: '0 0 24 24', d: 'M0 0h24v24H0z' },
         capabilities: { argvPrompt: true, effort: true, systemPrompt: true },
         catalog: { models: [], efforts: [], liveMerge: 'live-wins-when-non-empty' },
+        accepts: [],
       },
     ]
     await svc.recordInventory(MACHINE, INV, descriptors)
@@ -861,7 +862,7 @@ describe('MachinesService inventory persistence (#222)', () => {
     expect((await store.machines.getMachine(MACHINE))?.inventory).toEqual(latest)
   })
 
-  test('records the native identity fingerprint selected on the target machine', async () => {
+  test('names the harness login the target machine reports', async () => {
     const { svc, store } = await makeStoreService()
     await store.machines.upsertMachine({
     assignment: { server: false, agentExecution: true },
@@ -882,12 +883,9 @@ describe('MachinesService inventory persistence (#222)', () => {
       ],
     })
 
-    expect(await svc.nativeAccountIdForMachine(MACHINE, 'codex', asAccountId('native:codex'))).toBe(
-      'native:codex:fp-a',
-    )
-    expect(await svc.nativeAccountIdForMachine(MACHINE, 'codex', asAccountId('native:codex:fp-b'))).toBe(
-      'native:codex:fp-b',
-    )
+    expect(await svc.harnessLoginAccountId(MACHINE, 'codex')).toBe('native:codex:fp-a')
+    // A harness that reports no identity is named by its bare id.
+    expect(await svc.harnessLoginAccountId(MACHINE, 'claude-code')).toBe('native:claude-code')
   })
 
   test('a reconnect treats persisted absence as probing and a spawn wait joins the report', async () => {
@@ -1102,10 +1100,17 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
       const currentCustodian = await svc.effectiveOwner(MACHINE)
       expect((await svc.grantsForMachine(MACHINE)).filter(edge => edge.grantee !== currentCustodian)).toEqual([])
       }
-      expect(await store.settingsAudit.list()).toEqual([expect.objectContaining({
-        command: 'takeover', actorKind: 'agent', actorId: 'session:admin-agent', onBehalfOf: admin,
-        detail: { machineId: MACHINE, previousOwnerUserId: OWNER_A, newOwnerUserId: admin },
-      })])
+      // The admin's share is audited too (POD-6700), under the admin's own name.
+      expect(await store.settingsAudit.list()).toEqual([
+        expect.objectContaining({
+          command: 'machines.share', actorKind: 'user', actorId: admin, onBehalfOf: admin,
+          detail: { machineId: MACHINE, grantee: OWNER_B, verb: 'use' },
+        }),
+        expect.objectContaining({
+          command: 'takeover', actorKind: 'agent', actorId: 'session:admin-agent', onBehalfOf: admin,
+          detail: { machineId: MACHINE, previousOwnerUserId: OWNER_A, newOwnerUserId: admin },
+        }),
+      ])
     } finally { rmSync(dir, { recursive: true, force: true }) }
   })
 
@@ -1136,6 +1141,9 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
     const { svc, store, dir } = await transferWorld()
     try {
       await svc.shareMachine(MACHINE, OWNER_B, 'use', { actor: OWNER_A, onBehalfOf: OWNER_A })
+      // The share writes its own audit row (POD-6700); the takeover must add none.
+      const auditBefore = await store.settingsAudit.list()
+      expect(auditBefore).toEqual([expect.objectContaining({ command: 'machines.share' })])
       const append = vi.spyOn(store.settingsAudit, 'append').mockRejectedValueOnce(new Error('audit unavailable'))
       await expect(svc.transferMachineOwnership(MACHINE, firstAdminMemberId(), firstAdminMemberId())).rejects.toThrow('audit unavailable')
       append.mockRestore()
@@ -1144,7 +1152,7 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
       const currentCustodian = await svc.effectiveOwner(MACHINE)
       expect((await svc.grantsForMachine(MACHINE)).filter(edge => edge.grantee !== currentCustodian)).toHaveLength(1)
       }
-      expect(await store.settingsAudit.list()).toEqual([])
+      expect(await store.settingsAudit.list()).toEqual(auditBefore)
     } finally { rmSync(dir, { recursive: true, force: true }) }
   })
 

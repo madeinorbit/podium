@@ -251,6 +251,15 @@ describe('optional instance resets through the web save and HTTP transport', () 
       'codex',
     ]),
   )
+  // A role's chosen credential (credential management §9) is a personal choice
+  // like its harness: absent from the defaults, so a reset clears it.
+  const credentials = Object.fromEntries(
+    ['coding', 'superagent', 'background', 'shipwright'].map((role) => [
+      `roles.${role}.credentialId`,
+      'cred_settings-reset',
+    ]),
+  )
+  const roleChoices = { ...harnesses, ...credentials }
   const nullableHibernation = {
     'hibernation.loadPerCore': null,
     'hibernation.maxIdleSessions': null,
@@ -263,12 +272,15 @@ describe('optional instance resets through the web save and HTTP transport', () 
       settingsLeafPaths(PodiumSettings)
         .filter((path) => readSettingsLeaf(DEFAULT_SETTINGS, path) === undefined)
         .sort(),
-    ).toEqual([...Object.keys(configured), ...Object.keys(harnesses)].sort())
+    ).toEqual([...Object.keys(configured), ...Object.keys(roleChoices)].sort())
   })
 
   it('resetting all omitted optional leaves clears persisted preferences and settings still load', async () =>
     withSettingsHttp(async ({ store, user, patches, seed, save }) => {
-      const previous = await seed({ ...harnesses, ...configured, ...nullableHibernation })
+      const previous = await seed({ ...roleChoices, ...configured, ...nullableHibernation })
+      for (const [path, value] of Object.entries(roleChoices)) {
+        expect(readSettingsLeaf(previous, path)).toBe(value)
+      }
       for (const [path, value] of Object.entries(configured)) {
         expect(readSettingsLeaf(previous, path)).toBe(value)
         expect(readSettingsLeaf(await store.settings.getSettings(), path)).toBe(value)
@@ -282,7 +294,7 @@ describe('optional instance resets through the web save and HTTP transport', () 
       expect(patches).toHaveLength(2)
       expect(received).toEqual({
         ...instanceClears,
-        ...Object.fromEntries(Object.keys(harnesses).map((path) => [path, null])),
+        ...Object.fromEntries(Object.keys(roleChoices).map((path) => [path, null])),
         ...Object.fromEntries(
           Object.keys(nullableHibernation).map((path) => [
             path,
@@ -293,7 +305,7 @@ describe('optional instance resets through the web save and HTTP transport', () 
       expect(result.saved).toEqual(DEFAULT_SETTINGS)
       expect(await store.settings.getSettingsFor(user)).toEqual(DEFAULT_SETTINGS)
       expect(await store.settings.getSettings()).toEqual(DEFAULT_SETTINGS)
-      for (const path of Object.keys(harnesses)) {
+      for (const path of Object.keys(roleChoices)) {
         expect(await store.settings.userPreferences.keysFor(user)).not.toContain(path)
       }
       for (const path of Object.keys(configured)) {

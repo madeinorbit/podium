@@ -40,10 +40,12 @@ import { SessionDelegation } from '../identity/delegation'
  */
 
 import { z } from 'zod'
+import { CredentialMismatch, EffectiveAuth } from '../credentials/effective-auth'
 import { Attribution } from '../fields/attribution'
 import {
   AccountIdField,
   ConversationIdField,
+  CredentialIdField,
   IssueIdField,
   MachineIdField,
   RepoIdField,
@@ -522,7 +524,15 @@ export const SessionMetaEntity = z.object({
   /** Resolved launch configuration captured at spawn [spec:SP-dae6]. */
   model: z.string().optional(),
   effort: z.string().optional(),
+  // LEGACY(remove-after: 2027-02): reads account ids written before credentials existed; removing it stops old spellings from resolving
   accountId: AccountIdField.optional(),
+  /** The credential the session runs on (credential management §4); absent: none. */
+  credentialId: CredentialIdField.optional(),
+  /** What the harness reported it authenticated with after its last start
+   *  (credential management §9 "Launching"); absent until it reports. */
+  effectiveAuth: EffectiveAuth.optional(),
+  /** The harness answered on another identity than `credentialId` names. */
+  credentialMismatch: CredentialMismatch.optional(),
   /** The agent profile this session started from (POD-6107). */
   agentProfileId: z.string().optional(),
   /** WHO set `name` (#490): 'user' = a human named it, and no agent may overwrite it;

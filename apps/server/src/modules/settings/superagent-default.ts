@@ -68,10 +68,7 @@ export interface SuperagentDefaultSeederDeps {
   machines(): HandoffMachine[] | Promise<HandoffMachine[]>
   /** `SettingsService.updatePreferences` — routes each leaf by tier and emits
    *  `settings.changed`, so a client with Settings open sees the seed land. */
-  updatePreferences(
-    userId: UserId,
-    values: Record<string, unknown>,
-  ): void | Promise<void>
+  updatePreferences(userId: UserId, values: Record<string, unknown>): void | Promise<void>
 }
 
 export class SuperagentDefaultSeeder {

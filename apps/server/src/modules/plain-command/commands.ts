@@ -16,8 +16,8 @@
  * construction, composes it; every module is loaded by then.
  */
 
-import { ACCOUNT_PLAIN_FAMILY } from '../accounts/plain-family'
 import { CLOUD_PLAIN_FAMILY } from '../cloud/plain-family'
+import { CREDENTIALS_PLAIN_FAMILY } from '../credentials/plain-family'
 import { FLEET_PLAIN_REGISTRATIONS } from '../fleet/plain-family'
 import { HOST_PLAIN_FAMILY } from '../hosts/plain-family'
 import {
@@ -34,12 +34,12 @@ import { SESSION_PLAIN_REGISTRATIONS } from '../sessions/plain-family'
 import { SETTINGS_PLAIN_REGISTRATIONS } from '../settings/trpc'
 import { SPEC_PLAIN_FAMILY } from '../specs/plain-family'
 import { UPDATE_PLAIN_REGISTRATIONS } from '../updates/trpc'
+import { VAULT_PLAIN_FAMILY } from '../vault/plain-family'
 import { plainFamilyRegistrations } from './declare'
 import { PlainCommandRegistry, type PlainRegistration } from './registry'
 
 /** Every plain registration, family by family. */
 const registrations = (): readonly PlainRegistration[] => [
-  ...plainFamilyRegistrations(ACCOUNT_PLAIN_FAMILY),
   ...plainFamilyRegistrations(AUTH_PLAIN_FAMILY),
   ...plainFamilyRegistrations(CLOUD_PLAIN_FAMILY),
   ...FLEET_PLAIN_REGISTRATIONS,
@@ -54,6 +54,8 @@ const registrations = (): readonly PlainRegistration[] => [
   ...SETTINGS_PLAIN_REGISTRATIONS,
   ...plainFamilyRegistrations(SPEC_PLAIN_FAMILY),
   ...plainFamilyRegistrations(TELEMETRY_PLAIN_FAMILY),
+  ...plainFamilyRegistrations(VAULT_PLAIN_FAMILY),
+  ...plainFamilyRegistrations(CREDENTIALS_PLAIN_FAMILY),
   ...UPDATE_PLAIN_REGISTRATIONS,
 ]
 

@@ -14,14 +14,15 @@
  * pty, no podium-host, no server.
  */
 
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type { AgentSessionHandle, RuntimeEventBody } from '@podium/harness/driver/host'
 import { withDeliveryQueue } from '@podium/harness/driver/host'
 import { asSessionId, type SessionId } from '@podium/model'
 import type { DurableAttachment, DurableProcess } from '@podium/process/durable'
 import type { DaemonMessage } from '@podium/protocol/daemon'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
+import { memoryMarkers, SessionAccessStore } from '../control/access'
 import type { DaemonContext } from '../control/context'
 import { stopSessionProcess, wireBridge } from '../control/session'
 import { runtimeHandlers } from '../runtime/handlers'
@@ -83,6 +84,7 @@ describe('the attach CLIENT exiting is NOT the AGENT exiting', () => {
       observers: { clearSession: () => {} },
       sessionCwdTracker: { clear: () => {} },
       send: (msg: DaemonMessage) => void sent.push(msg),
+      access: new SessionAccessStore({ markers: memoryMarkers() }),
     } as unknown as DaemonContext
     const client = attachment()
     wireBridge(ctx, SESSION, client, 'codex', 'podium-s-layer-claims')
@@ -168,6 +170,7 @@ describe('forgetting the driver slot cannot strand a teardown already under way'
         clearTerminal: () => {},
       },
       send: (msg: DaemonMessage) => void sent.push(msg),
+      access: new SessionAccessStore({ markers: memoryMarkers() }),
     } as unknown as DaemonContext
 
     const retired = stopSessionProcess(ctx, { sessionId: SESSION })
@@ -206,6 +209,7 @@ describe('custody of a turn lives in exactly one place: an unbound send is refus
       }),
     } as unknown as AgentSessionHandle
     const ctx = {
+      access: new SessionAccessStore({ markers: memoryMarkers() }),
       agentRuntime: { handleFor: () => bound },
       send: (msg: DaemonMessage) => void sent.push(msg),
     } as unknown as DaemonContext
@@ -269,6 +273,7 @@ describe('a recovery forward of an unverified row is confirmed on the daemon, ne
     const ctx = {
       agentRuntime: { handleFor: () => handle },
       send: (msg: DaemonMessage) => void sent.push(msg),
+      access: new SessionAccessStore({ markers: memoryMarkers() }),
     } as unknown as DaemonContext
     const forward = (deliveryRecovery: boolean) =>
       runtimeHandlers.runtimeSendRequest(ctx, {
@@ -347,6 +352,7 @@ describe('a recovery forward of an unverified row is confirmed on the daemon, ne
     const ctx = {
       agentRuntime: { handleFor: () => current },
       send: (msg: DaemonMessage) => void sent.push(msg),
+      access: new SessionAccessStore({ markers: memoryMarkers() }),
     } as unknown as DaemonContext
     const forward = (deliveryRecovery: boolean, requestId: string) =>
       runtimeHandlers.runtimeSendRequest(ctx, {

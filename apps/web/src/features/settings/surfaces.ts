@@ -6,16 +6,18 @@ export const SETTINGS_SURFACES = ['personal', 'workspace'] as const
 export type SettingsSurface = (typeof SETTINGS_SURFACES)[number]
 export const TAB_PATHS = {
   agents: ['roles.coding', 'autoContinue.enabled', 'roles.superagent', 'roles.background'],
-  accounts: [],
+  credentials: ['credentialDefaults'],
   notifications: [
     'notifications.web',
     'notifications.ntfyTopic',
     'notifications.telegramChatId',
     'notifications.telegramBotToken',
+    // Which notice kinds are pushed (POD-6881).
+    'notifications.notices',
   ],
   appearance: ['sidebar.repoSort'],
   account: [],
-  machines: ['hibernation'],
+  machines: ['hibernation', 'daemonLink'],
   projects: [
     'gitWorkflow.defaultParentBranch',
     'gitWorkflow.autoRebaseBeforeMerge',
@@ -39,7 +41,7 @@ export const TAB_PATHS = {
 
 export const TAB_SURFACE = {
   agents: 'personal',
-  accounts: 'personal',
+  credentials: 'personal',
   notifications: 'personal',
   appearance: 'personal',
   account: 'personal',
@@ -53,10 +55,11 @@ export const TAB_SURFACE = {
   labs: 'workspace',
 } as const satisfies Record<SettingsPage, SettingsSurface>
 
-// AI accounts writes managed accounts, independently of the settings record tiers.
+// Credentials writes its own records through the credential commands; its one
+// settings leaf is the personal `credentialDefaults`.
 export const PAGE_SETTINGS_TIER = {
   agents: 'personal-preference',
-  accounts: 'personal-preference',
+  credentials: 'personal-preference',
   notifications: 'personal-preference',
   appearance: 'personal-preference',
   account: 'personal-preference',
@@ -71,11 +74,11 @@ export const PAGE_SETTINGS_TIER = {
 } as const
 
 export const NOT_ON_THIS_SCREEN: Readonly<Record<string, string>> = {
-  'apiKeys.openrouter': 'Retired: migrated into personal managed accounts on AI accounts.',
-  'apiKeys.anthropic': 'Retired: migrated into personal managed accounts on AI accounts.',
-  'apiKeys.openai': 'Retired: migrated into personal managed accounts on AI accounts.',
+  'apiKeys.openrouter': 'Retired: migrated into personal credentials on Credentials.',
+  'apiKeys.anthropic': 'Retired: migrated into personal credentials on Credentials.',
+  'apiKeys.openai': 'Retired: migrated into personal credentials on Credentials.',
   ...Object.fromEntries(
-    ['accountId', 'model', 'effort', 'harness'].map((leaf) => [
+    ['accountId', 'credentialId', 'model', 'effort', 'harness'].map((leaf) => [
       `roles.shipwright.${leaf}`,
       'Retained for the dormant Shipwright engine; no shipping engine is offered on Agents.',
     ]),

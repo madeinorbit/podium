@@ -33,6 +33,7 @@ import * as browserOpen from '../messages/browser-open'
 import * as client from '../messages/client'
 import * as codex from '../messages/codex'
 import * as control from '../messages/control'
+import * as conversation from '../messages/conversation'
 import * as credentials from '../messages/credentials'
 import * as daemon from '../messages/daemon'
 import * as daemonHandshake from '../messages/daemon-handshake'
@@ -45,18 +46,22 @@ import * as github from '../messages/github'
 import * as handoff from '../messages/handoff'
 import * as harness from '../messages/harness'
 import * as headless from '../messages/headless'
+import * as homes from '../messages/homes'
 import * as host from '../messages/host'
 import * as inventory from '../messages/inventory'
 import * as issues from '../messages/issues'
 import * as localLink from '../messages/local-link'
 import * as logs from '../messages/logs'
 import * as messageClass from '../messages/message-class'
+import * as oauthLoopback from '../messages/oauth-loopback'
 import * as posture from '../messages/posture'
 import * as runtime from '../messages/runtime'
 import * as runtimeState from '../messages/runtime-state'
 import * as search from '../messages/search'
 import * as server from '../messages/server'
 import * as serverTransfer from '../messages/server-transfer'
+import * as sessionAccess from '../messages/session-access'
+import * as sessionAuth from '../messages/session-auth'
 import * as shipping from '../messages/shipping'
 import * as sync from '../messages/sync'
 import * as terminal from '../messages/terminal'
@@ -89,6 +94,8 @@ const MODULES: ReadonlyArray<readonly [family: string, module: Record<string, un
   ['handoff', handoff],
   ['harness', harness],
   ['headless', headless],
+  ['homes', homes],
+  ['conversation', conversation],
   ['host', host],
   ['inventory', inventory],
   ['issues', issues],
@@ -96,6 +103,7 @@ const MODULES: ReadonlyArray<readonly [family: string, module: Record<string, un
   ['logs', logs],
   ['maintenance', maintenance],
   ['message-class', messageClass],
+  ['oauth-loopback', oauthLoopback],
   ['perf', perf],
   // Session posture (POD-6858): wire data only until a frame carries it.
   ['posture', posture],
@@ -108,6 +116,8 @@ const MODULES: ReadonlyArray<readonly [family: string, module: Record<string, un
   ['search', search],
   ['server', server],
   ['server-transfer', serverTransfer],
+  ['session-access', sessionAccess],
+  ['session-auth', sessionAuth],
   // Registered late (the module shipped before its family did), which is why
   // `shippingJobRequest` / `shippingJobResult` reached ControlMessage and
   // DaemonMessage with no fixture and the arm-coverage assertions failed. The

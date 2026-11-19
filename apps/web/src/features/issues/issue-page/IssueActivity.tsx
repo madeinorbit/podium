@@ -59,11 +59,14 @@ import {
   Unlock,
 } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { IssueWithBodies } from '@/app/store'
 import { useWorklistPool } from '@/app/store-worklist-pool'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
+import { AtMentionMenu } from '@/lib/at-mention/AtMentionMenu'
+import { memberMentions } from '@/lib/at-mention/mention-sources'
+import { useAtMenu, useAtTrigger } from '@/lib/at-mention/useAtMention'
 import { useMemberRoster } from '@/lib/member-roster'
 import { modChord } from '@/lib/mod-chord'
 import { cn } from '@/lib/utils'
@@ -306,6 +309,8 @@ const ActivityComment = observer(function ActivityComment({
     <div
       className="group/comment my-2 ml-[5px] rounded-lg border border-border bg-card px-3 py-2"
       data-testid="activity-comment"
+      // A notice that mentions you opens the task scrolled to this card (POD-6881).
+      data-comment-id={commentId}
     >
       <div className="mb-1 flex items-center gap-2">
         <span className="font-medium text-[11.5px] text-foreground">{author}</span>
@@ -584,6 +589,18 @@ export const CommentComposer = observer(function CommentComposer({
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset only on issue switch
   useEffect(() => setFocused(false), [issueId])
   const active = focused || value.trim().length > 0
+  // @NAME COMPLETION (POD-6881): the members who can see this task, which is
+  // every active member (design §2.2). The completed `@Display Name` is what
+  // the server matches when the comment is written, and that member is told.
+  const taRef = useRef<HTMLTextAreaElement | null>(null)
+  const roster = useMemberRoster(true)
+  const trigger = useAtTrigger({ taRef, enabled: !busy })
+  const members = roster?.members
+  const options = useMemo(
+    () => (trigger.query === null ? [] : memberMentions(members ?? [], trigger.query, 8)),
+    [members, trigger.query],
+  )
+  const mention = useAtMenu({ trigger, taRef, value, onChange, options })
   return (
     // RECEDES UNTIL USED (POD-635). Pinned chrome that is always on screen and
     // asks for nothing should not draw a full-contrast field: at rest this is a
@@ -591,10 +608,12 @@ export const CommentComposer = observer(function CommentComposer({
     // taller box — arrives on focus. The band keeps a hairline and a whisper of
     // fill because the document scrolls UNDER it and needs somewhere to stop.
     <div className="flex-none border-border/35 border-t bg-card/15 px-6 py-2.5 md:px-10">
-      <div className="mx-auto flex w-full max-w-[54rem] items-end gap-2">
+      <div className="relative mx-auto flex w-full max-w-[54rem] items-end gap-2">
+        <AtMentionMenu mention={mention} hint="↑↓ to move · ↵ to insert · esc to dismiss" />
         <Textarea
+          ref={taRef}
           value={value}
-          placeholder="Comment, or @mention an agent on this task…"
+          placeholder="Comment, or @mention someone on this task…"
           aria-label="Add a comment"
           disabled={busy}
           className={cn(
@@ -606,8 +625,14 @@ export const CommentComposer = observer(function CommentComposer({
           )}
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
-          onChange={(e) => onChange(e.target.value)}
+          onChange={(e) => {
+            onChange(e.target.value)
+            trigger.sync()
+          }}
+          onSelect={() => trigger.sync()}
           onKeyDown={(e) => {
+            // The @ menu takes the keys it uses while it is open.
+            if (mention.onKeyDown(e)) return
             if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && value.trim()) {
               e.preventDefault()
               onPost()

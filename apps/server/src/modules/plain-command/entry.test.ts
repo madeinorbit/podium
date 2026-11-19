@@ -7,7 +7,7 @@ import { ModelLedger as Ledger } from '@podium/sync/testing'
  * prove only that the double refuses.
  */
 
-import { type AnyCommandContract, accountsConnectContract } from '@podium/commands'
+import { type AnyCommandContract, credentialsUseOnMyMachinesContract } from '@podium/commands'
 import { asUserId, firstAdminMemberId } from '@podium/model'
 import { DEVICE_GRADE_PRINCIPAL } from '@podium/sync'
 import { testLedgerWriter } from '@podium/sync/testing'
@@ -64,11 +64,11 @@ const conversation = (id: string) => [
 /** A test contract over a real plain one: admin floor, `manage`, online-sensitive. */
 const probeInput = z.object({ note: z.string().min(1), level: z.number().default(3) })
 const probe = {
-  ...accountsConnectContract,
+  ...credentialsUseOnMyMachinesContract,
   name: 'test.plain',
   input: probeInput,
-  // Pinned here: accounts.connect itself is member-floor since POD-6360.
-  policy: { ...accountsConnectContract.policy, action: 'manage', roleFloor: 'admin' },
+  // Pinned here: credentials.useOnMyMachines itself is member-floor.
+  policy: { ...credentialsUseOnMyMachinesContract.policy, action: 'manage', roleFloor: 'admin' },
 } as const satisfies AnyCommandContract
 
 const admin: CommandPrincipal = userCommandPrincipal(firstAdminMemberId(), 'admin')

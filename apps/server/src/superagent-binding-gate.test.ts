@@ -5,6 +5,7 @@ import { asMachineId, asThreadId, BUILTIN_HARNESS_KINDS, firstAdminMemberId } fr
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it } from 'vitest'
 import { BindingStore } from '../../daemon/src/binding-store'
+import { memoryMarkers, SessionAccessStore } from '../../daemon/src/control/access'
 import type { DaemonContext } from '../../daemon/src/control/context'
 // The daemon's REAL binding gate, imported the way
 // apps/server/src/store/terminal-answer-contract.test.ts imports daemon code:
@@ -74,6 +75,7 @@ async function gateContext() {
     durableLabelFor: (id: string) => `gate-${id}`,
     harnessLoginState: () => 'in',
     sessions: testSessions(),
+    access: new SessionAccessStore({ markers: memoryMarkers() }),
   } as unknown as DaemonContext
   const missing = () =>
     sent.filter(

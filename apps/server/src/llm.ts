@@ -1,17 +1,16 @@
-import { bundledDescriptorFor, effectiveCatalogModel } from '@podium/harness/browser'
-import type { LlmBackend, PodiumSettings } from '@podium/runtime'
-import { LlmConfigError } from './llm-error'
 export { LlmConfigError } from './llm-error'
 
 /**
- * Minimal multi-provider chat-completion client with tool calling. One internal
- * message/tool shape; three wire adapters:
+ * The wire adapters for Podium's own model calls, with tool calling. One
+ * internal message/tool shape; three HTTP adapters, each handed one secret:
  *   - OpenAI-compatible (OpenRouter, OpenAI) — /chat/completions
  *   - Anthropic — /v1/messages
- *   - Codex (ChatGPT subscription) — the Responses API, run on the machine
- *     that owns the catalog login (see `codexTransport` below, POD-4750)
- * No SDK dependency on purpose: a few fetch shapes are smaller than a framework,
- * and the superagent loop needs nothing fancier.
+ *   - OpenAI Responses on a ChatGPT plan — /v1/responses (credential
+ *     management §11), with the access token the keeper hands out
+ * Which credential a call runs on, and so which secret an adapter receives, is
+ * decided by `modules/inference/complete.ts` through the credential resolver.
+ * A ChatGPT login's calls run on the machine that holds it (`codex-machine.ts`).
+ * No SDK dependency on purpose: a few fetch shapes are smaller than a framework.
  */
 
 export interface ToolCall {
@@ -39,14 +38,15 @@ export interface LlmResponse {
   toolCalls: ToolCall[]
 }
 
-
-export interface LlmClient {
-  complete(messages: LlmMessage[], tools: LlmTool[]): Promise<LlmResponse>
-  /** Human description for the UI ("openrouter · anthropic/claude-sonnet-4.5"). */
-  readonly label: string
+/** Tokens a provider reported for one call, when it reports them. */
+export interface LlmUsage {
+  inputTokens: number
+  outputTokens: number
 }
 
-type FetchLike = typeof fetch
+export type LlmAnswer = LlmResponse & { usage?: LlmUsage }
+
+export type FetchLike = typeof fetch
 
 /** A provider call that never settles wedges the superagent on "Thinking…" with
  *  no way out — reasoning models are slow, but not minutes-of-silence slow. Abort
@@ -69,131 +69,21 @@ async function fetchWithTimeout(
   }
 }
 
-/** Build a client for an api-kind backend. Throws LlmConfigError when unusable. */
-export function llmClient(
-  backend: LlmBackend,
-  /**
-   * The material for THIS backend's provider, resolved by the caller — POD-419.
-   *
-   * It used to be `PodiumSettings['apiKeys']`, the whole three-key object out of
-   * the settings blob. The secrets now live in the server-only keyed store, and
-   * passing one resolved key rather than a record of them is deliberate: a
-   * function that takes every key can be handed the blob again, and the blob is
-   * what round-trips to a browser. `undefined` is "not configured" and lands on
-   * the `LlmConfigError` below.
-   */
-  apiKey: string | undefined,
-  fetchImpl: FetchLike = fetch,
-  /**
-   * How a `codex` turn runs (POD-4750). The server holds no Codex login file,
-   * so the turn is performed by the daemon on the machine the login catalog
-   * names — the composition root builds this over the daemon RPC + the scoped
-   * machine picker (`codex-machine.ts`). Absent = fail closed: a codex backend
-   * with no transport is "not configured", never a local file read.
-   */
-  opts: { codexTransport?: CodexTransport } = {},
-): LlmClient {
-  if (backend.kind !== 'api') {
-    throw new LlmConfigError(
-      'harness-backed execution is chat-only and runs via the daemon — no tool client here',
-    )
-  }
-  if (backend.provider === 'codex') return codexClient(backend, opts.codexTransport)
-  const key = apiKey
-  if (!key) {
-    throw new LlmConfigError(
-      `no API key configured for ${backend.provider} — connect one in Settings → AI accounts`,
-    )
-  }
-  const label = `${backend.provider} · ${backend.model}`
-  if (backend.provider === 'anthropic') {
-    return { label, complete: async (m, t) => await anthropicComplete(fetchImpl, key, backend.model, m, t) }
-  }
-  const base =
-    backend.provider === 'openrouter' ? 'https://openrouter.ai/api/v1' : 'https://api.openai.com/v1'
-  return {
-    label,
-    complete: async (m, t) => await openaiComplete(fetchImpl, base, key, backend.model, m, t),
-  }
-}
-
-/** Codex reasoning effort: honor the backend's configured effort (SP-6454 B3),
- *  falling back to 'medium'. The Responses API takes low|medium|high. */
-function codexEffort(backend: LlmBackend): 'low' | 'medium' | 'high' {
-  const e = backend.harnessEffort
-  return e === 'low' || e === 'high' ? e : 'medium'
-}
-
-/**
- * One Codex turn on the catalog login's owning machine (POD-4750). Built by
- * the composition root over the daemon RPC + the scoped machine picker: it
- * picks the machine, sends the turn, and returns ONLY the model's reply. The
- * token never leaves that machine and never crosses this interface.
- *
- * `harness` is the backend's resolved harness — a value that flowed from the
- * role's account, selecting which login to spend. In production a `codex`
- * provider always resolves to the codex harness (the roles read path pairs
- * them); the picker matches on the value, never a literal.
- */
-export interface CodexTransport {
-  complete(
-    model: string,
-    messages: LlmMessage[],
-    tools: LlmTool[],
-    effort: 'low' | 'medium' | 'high',
-    harness: LlmBackend['harnessAgent'],
-  ): Promise<LlmResponse>
-}
-
-/** The `codex` provider needs no API key — it runs on the owning daemon's ChatGPT login. */
-function codexClient(backend: LlmBackend, transport: CodexTransport | undefined): LlmClient {
-  if (!transport) {
-    throw new LlmConfigError(
-      'Codex server AI needs a machine transport — no connected Codex login is available.',
-    )
-  }
-  const model =
-    backend.model && backend.model !== 'auto' ? backend.model : codexCatalogHead(backend)
-  const effort = codexEffort(backend)
-  const harness = backend.harnessAgent
-  return {
-    label: `codex · ${model} (ChatGPT subscription)`,
-    complete: async (m, t) => await transport.complete(model, m, t, effort, harness),
-  }
-}
-
-/**
- * What a stored model of 'auto' sends on the Codex server-AI path (POD-4805).
- *
- * Read through {@link effectiveCatalogModel} — the ONE function the settings
- * page's effective-model line also reads, so the displayed model and the
- * called model cannot disagree. 'auto' means "no opinion" everywhere else in
- * settings; the Responses API takes no such value, so the CLI's own priority
- * head is the honest default. A second hard-coded slug here would be a list
- * of its own, drifting the next time the catalog moves — which is exactly how
- * a ChatGPT login came to be sent a model it refuses. Unknown harness (no
- * catalog row): fail closed with an actionable error rather than guessing.
- */
-function codexCatalogHead(backend: LlmBackend): string {
-  const head = effectiveCatalogModel(bundledDescriptorFor(backend.harnessAgent), backend.model)
-  if (!head) {
-    throw new LlmConfigError(
-      `no Codex model catalog for harness '${backend.harnessAgent}' — pick an explicit model in Settings → Agents → Background model.`,
-    )
-  }
-  return head
-}
+/** Where the OpenAI-compatible chat route sends a call. */
+export const OPENAI_BASE = 'https://api.openai.com/v1'
+export const OPENROUTER_BASE = 'https://openrouter.ai/api/v1'
+export const ANTHROPIC_MESSAGES_URL = 'https://api.anthropic.com/v1/messages'
 
 // ---- OpenAI-compatible (OpenRouter, OpenAI) ----
 
-async function openaiComplete(
+export async function openaiChat(
   fetchImpl: FetchLike,
   base: string,
   key: string,
   model: string,
   messages: LlmMessage[],
   tools: LlmTool[],
-): Promise<LlmResponse> {
+): Promise<LlmAnswer> {
   const body = {
     model,
     messages: messages.map((m) => {
@@ -235,6 +125,7 @@ async function openaiComplete(
     throw new Error(`${base} ${res.status}: ${truncate(await res.text(), 400)}`)
   }
   const data = (await res.json()) as {
+    usage?: { prompt_tokens?: number; completion_tokens?: number }
     choices?: {
       message?: {
         content?: string | null
@@ -244,6 +135,14 @@ async function openaiComplete(
   }
   const msg = data.choices?.[0]?.message
   return {
+    ...(data.usage
+      ? {
+          usage: {
+            inputTokens: data.usage.prompt_tokens ?? 0,
+            outputTokens: data.usage.completion_tokens ?? 0,
+          },
+        }
+      : {}),
     text: msg?.content ?? '',
     toolCalls: (msg?.tool_calls ?? []).flatMap((c) =>
       c.function?.name
@@ -261,13 +160,13 @@ async function openaiComplete(
 
 // ---- Anthropic ----
 
-async function anthropicComplete(
+export async function anthropicMessages(
   fetchImpl: FetchLike,
   key: string,
   model: string,
   messages: LlmMessage[],
   tools: LlmTool[],
-): Promise<LlmResponse> {
+): Promise<LlmAnswer> {
   const system = messages
     .filter((m) => m.role === 'system')
     .map((m) => m.content)
@@ -295,7 +194,7 @@ async function anthropicComplete(
       push('user', [{ type: 'tool_result', tool_use_id: m.toolCallId, content: m.content }])
     }
   }
-  const res = await fetchWithTimeout(fetchImpl, 'https://api.anthropic.com/v1/messages', {
+  const res = await fetchWithTimeout(fetchImpl, ANTHROPIC_MESSAGES_URL, {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
@@ -322,6 +221,7 @@ async function anthropicComplete(
     throw new Error(`anthropic ${res.status}: ${truncate(await res.text(), 400)}`)
   }
   const data = (await res.json()) as {
+    usage?: { input_tokens?: number; output_tokens?: number }
     content?: { type: string; text?: string; id?: string; name?: string; input?: unknown }[]
   }
   const text = (data.content ?? [])
@@ -335,7 +235,246 @@ async function anthropicComplete(
       name: b.name as string,
       arguments: JSON.stringify(b.input ?? {}),
     }))
-  return { text, toolCalls }
+  return {
+    ...(data.usage
+      ? {
+          usage: {
+            inputTokens: data.usage.input_tokens ?? 0,
+            outputTokens: data.usage.output_tokens ?? 0,
+          },
+        }
+      : {}),
+    text,
+    toolCalls,
+  }
+}
+
+// ---- OpenAI Responses, on a ChatGPT plan (credential management §11) ----
+
+export const OPENAI_RESPONSES_URL = `${OPENAI_BASE}/responses`
+export const OPENAI_MODELS_URL = `${OPENAI_BASE}/models`
+/** OpenAI's answer when the person's plan limit (or this app's) is reached. */
+export const CHATGPT_PLAN_LIMIT_CODE = 'subscription_sharing_usage_limit_exceeded'
+
+/**
+ * One Responses call on a ChatGPT plan token. What the plan route requires
+ * (POD-6894): `store: false`, `stream: true`, the whole conversation in
+ * `input`, system text in `instructions` (a system item is refused), and none
+ * of the unsupported fields (`max_output_tokens`, `temperature`, `top_p`,
+ * `metadata`, `user`, `previous_response_id`, …). The answer is read as a
+ * server-sent event stream because the request asked for one: it carries no
+ * `text/event-stream` content type. Only `response.completed` is success.
+ *
+ * Errors read `openai-responses <status>: <code or detail>`. A plan limit that
+ * arrives mid-stream as `response.failed` is reported as status 429, the same
+ * as when it arrives before the stream.
+ */
+export async function openaiResponses(
+  fetchImpl: FetchLike,
+  token: string,
+  model: string,
+  messages: LlmMessage[],
+  tools: LlmTool[],
+): Promise<LlmAnswer> {
+  const instructions = messages
+    .filter((m) => m.role === 'system')
+    .map((m) => m.content)
+    .join('\n\n')
+  const input: Record<string, unknown>[] = []
+  for (const m of messages) {
+    if (m.role === 'system') continue
+    if (m.role === 'user') input.push({ role: 'user', content: m.content })
+    else if (m.role === 'assistant') {
+      if (m.content) input.push({ role: 'assistant', content: m.content })
+      for (const c of m.toolCalls ?? []) {
+        input.push({ type: 'function_call', call_id: c.id, name: c.name, arguments: c.arguments })
+      }
+    } else {
+      input.push({ type: 'function_call_output', call_id: m.toolCallId, output: m.content })
+    }
+  }
+  const res = await fetchWithTimeout(fetchImpl, OPENAI_RESPONSES_URL, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      accept: 'text/event-stream',
+      authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      model,
+      ...(instructions ? { instructions } : {}),
+      input,
+      ...(tools.length > 0
+        ? {
+            tools: tools.map((t) => ({
+              type: 'function',
+              name: t.name,
+              description: t.description,
+              parameters: t.parameters,
+            })),
+          }
+        : {}),
+      store: false,
+      stream: true,
+    }),
+  })
+  if (!res.ok) {
+    throw new Error(`openai-responses ${res.status}: ${responsesErrorText(await res.text())}`)
+  }
+  return await readResponsesStream(res)
+}
+
+/** `{"detail": …}` (admission) or `{"error": {"code", "message"}}`, whatever the content type. */
+function responsesErrorText(body: string): string {
+  try {
+    const parsed = JSON.parse(body) as {
+      detail?: unknown
+      error?: { code?: unknown; message?: unknown }
+    }
+    if (typeof parsed.detail === 'string') return truncate(parsed.detail, 300)
+    const code = typeof parsed.error?.code === 'string' ? parsed.error.code : undefined
+    const message = typeof parsed.error?.message === 'string' ? parsed.error.message : undefined
+    if (code || message) return truncate([code, message].filter(Boolean).join(': '), 300)
+  } catch {
+    // Not JSON: the text itself.
+  }
+  return truncate(body, 300)
+}
+
+interface ResponsesItem {
+  type?: string
+  call_id?: string
+  name?: string
+  arguments?: string
+  content?: { type?: string; text?: string }[]
+}
+
+async function readResponsesStream(res: Response): Promise<LlmAnswer> {
+  if (!res.body) throw new Error('openai-responses: the answer has no body')
+  const decoder = new TextDecoder()
+  const reader = res.body.getReader()
+  let buffer = ''
+  let deltas = ''
+  const doneItems: ResponsesItem[] = []
+  let completed: { output?: ResponsesItem[]; usage?: Record<string, unknown> } | undefined
+  const onEvent = (data: string) => {
+    if (data === '[DONE]') return
+    let event: Record<string, unknown>
+    try {
+      event = JSON.parse(data) as Record<string, unknown>
+    } catch {
+      return
+    }
+    const type = event.type
+    if (type === 'response.output_text.delta' && typeof event.delta === 'string') {
+      deltas += event.delta
+    } else if (type === 'response.output_item.done' && event.item) {
+      doneItems.push(event.item as ResponsesItem)
+    } else if (type === 'response.completed') {
+      completed = (event.response ?? {}) as typeof completed
+    } else if (type === 'response.failed' || type === 'error') {
+      const response = event.response as
+        | { error?: { code?: unknown; message?: unknown } }
+        | undefined
+      const error = (response?.error ?? event.error ?? event) as {
+        code?: unknown
+        message?: unknown
+      }
+      const code = typeof error.code === 'string' ? error.code : undefined
+      const message = typeof error.message === 'string' ? error.message : undefined
+      if (code === CHATGPT_PLAN_LIMIT_CODE) {
+        throw new Error(`openai-responses 429: ${code}`)
+      }
+      throw new Error(
+        `openai-responses failed: ${truncate([code, message].filter(Boolean).join(': ') || 'no reason given', 300)}`,
+      )
+    } else if (type === 'response.incomplete') {
+      throw new Error('openai-responses: the answer stopped before it was complete')
+    }
+  }
+  const drain = (final: boolean) => {
+    const blocks = buffer.split(/\r?\n\r?\n/)
+    buffer = final ? '' : (blocks.pop() ?? '')
+    for (const block of blocks) {
+      const data = block
+        .split(/\r?\n/)
+        .filter((line) => line.startsWith('data:'))
+        .map((line) => line.slice(5).trimStart())
+        .join('\n')
+      if (data) onEvent(data)
+    }
+  }
+  try {
+    for (;;) {
+      const { value, done } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      drain(false)
+      if (completed) break
+    }
+    buffer += decoder.decode()
+    if (!completed) drain(true)
+  } finally {
+    reader.releaseLock()
+  }
+  if (!completed) throw new Error('openai-responses: the stream ended without response.completed')
+  const items = completed.output && completed.output.length > 0 ? completed.output : doneItems
+  const text =
+    items
+      .filter((item) => item.type === 'message')
+      .flatMap((item) => item.content ?? [])
+      .filter((part) => part.type === 'output_text')
+      .map((part) => part.text ?? '')
+      .join('') || deltas
+  const toolCalls = items
+    .filter((item) => item.type === 'function_call' && item.name)
+    .map((item) => ({
+      id: item.call_id ?? `call_${Math.random().toString(36).slice(2)}`,
+      name: item.name as string,
+      arguments: item.arguments ?? '{}',
+    }))
+  const usage = completed.usage
+  return {
+    ...(usage && typeof usage.input_tokens === 'number'
+      ? {
+          usage: {
+            inputTokens: usage.input_tokens,
+            outputTokens: typeof usage.output_tokens === 'number' ? usage.output_tokens : 0,
+          },
+        }
+      : {}),
+    text,
+    toolCalls,
+  }
+}
+
+/** The models a ChatGPT plan offers for display, in OpenAI's order (`visibility: "list"`). */
+export async function listChatgptModels(
+  fetchImpl: FetchLike,
+  token: string,
+): Promise<{ slug: string; displayName: string }[]> {
+  const res = await fetchWithTimeout(
+    fetchImpl,
+    OPENAI_MODELS_URL,
+    { method: 'GET', headers: { authorization: `Bearer ${token}` } },
+    30_000,
+  )
+  if (!res.ok) {
+    throw new Error(`openai-responses ${res.status}: ${responsesErrorText(await res.text())}`)
+  }
+  const body = (await res.json()) as {
+    models?: { slug?: unknown; display_name?: unknown; visibility?: unknown }[]
+  }
+  return (body.models ?? []).flatMap((m) =>
+    m.visibility === 'list' && typeof m.slug === 'string'
+      ? [
+          {
+            slug: m.slug,
+            displayName: typeof m.display_name === 'string' ? m.display_name : m.slug,
+          },
+        ]
+      : [],
+  )
 }
 
 function parseJson(raw: string): unknown {

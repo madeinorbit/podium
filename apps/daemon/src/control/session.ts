@@ -57,6 +57,7 @@ import { measureTask } from '@podium/runtime/task-attribution'
 import type { SessionBindingTransitionOutcome } from '../binding-store'
 import { noDurableBackendRefusal } from '../durable-backend'
 import { managementLoginCommandFor } from '../harness-management.js'
+import { trustClaudeFolder } from '../homes/share'
 import { countFrame } from '../loop-attribution'
 import type { Tier } from '../output-scheduler'
 import { decideReopenScreen } from '../reopen-policy'
@@ -115,8 +116,10 @@ import {
   storedSessionPosture,
 } from '../session-posture-store'
 import { Terminal } from '../terminal/terminal.js'
+import { deliveryOverlay } from './access'
 import { type BindFacts, bindFrame, reportSize } from './applied-geometry'
 import type { ControlHandlers, DaemonContext } from './context'
+import { reportEffectiveAuth, sessionProcessEnvironment } from './effective-auth'
 import { dispatchInputBytes } from './legacy-terminal-input'
 import { shellChildEnv } from './session-env'
 
@@ -820,9 +823,18 @@ export async function launchTerminalProcess(
     // account context, built now, for this one launch. Its env and its strip
     // list follow that harness, never the 'shell' kind the pane is filed as.
     const loginContext = loginHarness
-      ? await buildSessionHarnessContext(ctx, loginHarness)
+      ? await buildSessionHarnessContext(ctx, loginHarness, sessionId)
       : undefined
     const childContext = loginContext ?? harnessContext
+    // A Claude terminal in a Podium home asks to trust its folder before the
+    // first turn; the person's own directory already knows their folders.
+    if (
+      childContext?.harnessHome &&
+      childContext.installation.kind === 'claude-code' &&
+      !loginContext
+    ) {
+      trustClaudeFolder(childContext.harnessHome.dir, spec.workdir)
+    }
     const cmd: LaunchSpec =
       loginCommand && loginContext
         ? harnessCommand(
@@ -865,11 +877,18 @@ export async function launchTerminalProcess(
     // agent-IDENTITY half rides along only for harness kinds — a shell is the
     // operator [POD-1375].
     const podiumEnv = sessionProcessEnv(ctx, sessionId, agentKind)
+    // The session's credential, from memory (credential management §8): the
+    // only credential this session chose, so it survives the inherited strip.
+    // A login pane and a shell have none.
+    const access =
+      childContext && !loginHarness ? await ctx.access.awaitAccess(sessionId) : undefined
+    const delivered =
+      childContext && !loginHarness
+        ? deliveryOverlay(agentKind, access)
+        : { env: {}, args: [], keep: [] }
     const child = childContext
       ? harnessChildEnv(childContext, {
-          // Server-resolved managed credential (SP-6454, #216): the only
-          // credential this session chose.
-          sessionEnv: spec.env,
+          sessionEnv: { ...spec.env, ...delivered.env },
           wiringEnv: {
             // The adapter's own launch env.
             ...cmd.env,
@@ -896,7 +915,11 @@ export async function launchTerminalProcess(
       // daemons, one host, and a session that looks live and swallows input.
       requireLease: true,
       label,
-      command: withArgs(cmd, instrumentedLaunchArgs(cmd.args, instrumentation.args)),
+      command: withArgs(cmd, [
+        // The harness's hide-from-commands switches lead its own arguments.
+        ...delivered.args,
+        ...instrumentedLaunchArgs(cmd.args, instrumentation.args),
+      ]),
       cwd: cmd.cwd,
       cols: orderFrame.geometry.cols,
       rows: orderFrame.geometry.rows,
@@ -918,6 +941,18 @@ export async function launchTerminalProcess(
     driverTiming.headedCliStage(sessionId, agentKind, 'native_cli_process_started', {
       adopted: session.adopted,
     })
+    // WHAT THE HARNESS SAYS IT IS ON (credential management §9 "Launching"):
+    // asked once, in the background, with this process's own environment. An
+    // adopted process was asked when it started.
+    if (childContext && !loginHarness && agentKind !== 'shell' && !session.adopted) {
+      reportEffectiveAuth(ctx, {
+        sessionId,
+        agentKind,
+        executable: childContext.installation.executable,
+        env: sessionProcessEnvironment(process.env, child),
+        access,
+      })
+    }
     const terminal = wireBridge(ctx, sessionId, session, agentKind, label)
     ctx.sessions.ensure(sessionId).harnessContext = harnessContext
     // The size the program is at: the host's WELCOME (the Terminal already
@@ -1111,7 +1146,7 @@ async function launchAgentTerminal(ctx: DaemonContext, msg: SpawnControl): Promi
     const base = sessionSpecForSpawn(
       msg,
       { driverId: profile.driverId, auth: 'unknown', role: 'interactive' },
-      await buildSessionHarnessContext(ctx, msg.agentKind as BuiltinHarnessKind),
+      await buildSessionHarnessContext(ctx, msg.agentKind as BuiltinHarnessKind, msg.sessionId),
     )
     recordSessionPosture(msg.sessionId, base.posture)
     const spec: SessionSpec = {
@@ -1187,6 +1222,13 @@ async function handleSpawn(ctx: DaemonContext, msg: SpawnControl): Promise<void>
     })
     return
   }
+  // THE SESSION'S CREDENTIAL, held in memory for its life (credential
+  // management §8). Before anything below can start a process: the terminal,
+  // an engine and every later turn apply it from the store. A spawn without
+  // one runs on the harness's own login, so whatever an earlier incarnation
+  // held is dropped.
+  if (msg.access) ctx.access.remember(msg.sessionId, msg.access, msg.agentKind)
+  else ctx.access.forget(msg.sessionId)
   const requestedDriverId = spawnNamedServerDriver(msg.requestedDriverId)
   driverTiming.sessionRequested({
     sessionId: msg.sessionId,
@@ -1710,6 +1752,7 @@ async function adoptHeadlessSession(ctx: DaemonContext, msg: ReattachControl): P
       const harnessContext = await buildSessionHarnessContext(
         ctx,
         msg.agentKind as BuiltinHarnessKind,
+        msg.sessionId,
       )
       const mcpServers: SessionSpec['mcpServers'] = {
         supported: false,
@@ -2101,7 +2144,11 @@ export async function launchServerDriverSession(
   // default: a known logout always selects the PTY login path, so probing a
   // server binary first can only delay the same answer.
   const loginState = ctx.harnessLoginState(msg.agentKind)
-  const selectionAuth = selectionAuthForLogin(msg.agentKind, loginState, msg.env)
+  const selectionAuth = selectionAuthForLogin(msg.agentKind, loginState, {
+    ...msg.env,
+    // The delivered credential decides the auth mode as the frame env once did.
+    ...deliveryOverlay(msg.agentKind, msg.access).env,
+  })
   const terminalLoginReason =
     selectionAuth === 'logged-out'
       ? loginState === 'out'
@@ -2134,6 +2181,7 @@ export async function launchServerDriverSession(
           admissionSnapshot,
           msg.agentKind as BuiltinHarnessKind,
           driverId,
+          msg.sessionId,
         )
       } catch {
         context = undefined
@@ -2376,6 +2424,7 @@ export async function launchServerDriverSession(
           ctx,
           msg.agentKind as BuiltinHarnessKind,
           resolution.driverId,
+          msg.sessionId,
         )),
     )
     recordSessionPosture(msg.sessionId, spec.posture)
@@ -3059,6 +3108,8 @@ async function stopSessionProcessOnce(
   }
   removeSessionUploads(msg.sessionId, ctx.portableStateFence)
   removeSessionInstructions(ctx, msg.sessionId)
+  // The session's processes are going: its credential goes with them.
+  ctx.access.forget(msg.sessionId)
   const results = await Promise.allSettled(reaps)
   // Give cooperative teardown its flush window before escalating descendants.
   const descendants = await reapInstanceSessionProcesses({

@@ -1,4 +1,5 @@
 import {
+  harnessAccepts,
   harnessPortableCredential,
   harnessSupportsCredentialPropagation,
 } from '@podium/harness/metadata'
@@ -8,7 +9,7 @@ import { HOST_REPOS } from '@podium/model'
 import { CAP_CREDENTIAL_IDENTITY_GUARD, type PortableCredentialBundle } from '@podium/protocol'
 import { buildLoginCatalog, catalogEntriesForHarness } from '../../login-catalog'
 import type { SessionStore } from '../../store'
-import type { NativeLoginOptIn } from '../../store/accounts'
+import type { NativeLoginOptIn } from '../../store/native-logins'
 import type { DaemonRpcService } from './rpc'
 import type { MachinesService } from './service'
 
@@ -61,9 +62,35 @@ interface AttemptState {
 
 interface LoginPropagationDeps {
   store: SessionStore
-  machines: Pick<MachinesService, 'hasDaemon' | 'capabilityRejection' | 'daemonSupports'>
+  machines: Pick<
+    MachinesService,
+    'hasDaemon' | 'capabilityRejection' | 'daemonSupports' | 'loginLinkUnsafe'
+  >
   rpc: Pick<DaemonRpcService, 'credentialExport' | 'credentialInstall'>
   now?: () => number
+}
+
+/** Who a login file would cross a link from or to. */
+type LinkRole = 'donor' | 'target'
+
+/** The refusal for a login file that may not cross this link, logged once. */
+function refuseLink(
+  role: LinkRole,
+  machineId: MachineId,
+  unsafe: string,
+  input: LoginPropagationTrigger,
+): LoginPropagationResult {
+  log.warn('login propagation refused: the login file may not cross this link', {
+    side: role,
+    machineId,
+    reason: unsafe,
+    targetMachineId: input.targetMachineId,
+    agentKind: input.agentKind,
+  })
+  return {
+    status: 'skipped',
+    reason: `login not copied over the ${role} link (${machineId}): ${unsafe}`,
+  }
 }
 
 function propagationKey(input: LoginPropagationTrigger, ownerUserId: UserId): string {
@@ -72,8 +99,9 @@ function propagationKey(input: LoginPropagationTrigger, ownerUserId: UserId): st
 
 /**
  * Server-owned coordinator for native login bytes. The only raw bundle lifetime
- * here is the export → server-secret row → install turn; no client projection
- * or replicated settings path receives it.
+ * here is the export → install turn, held in memory by that one call and never
+ * written to the database [POD-7044]; no client projection or replicated
+ * settings path receives it.
  *
  * WHAT IS COPIED, AND WHERE (POD-6301; design §2.5, D11; September addendum
  * §4-5). Only a login its owner ticked ("use this connection on all machines I
@@ -91,6 +119,10 @@ function propagationKey(input: LoginPropagationTrigger, ownerUserId: UserId): st
  * - A transfer whose choice or target custody changed after export, or older
  *   than {@link LOGIN_TRANSFER_MAX_AGE_MS}, is stale and refused.
  * - Several ticked logins that fit one harness are not chosen between.
+ * - The login file crosses only a link the server judged safe (credential
+ *   management §8; POD-6906 S2): the donor's link before export, the target's
+ *   before export and again before install. A plain or unclassified link
+ *   copies nothing, and the refusal is logged.
  */
 export class LoginPropagationService {
   private readonly attempts = new Map<string, AttemptState>()
@@ -190,7 +222,7 @@ export class LoginPropagationService {
 
   /** Is the owner's choice for this login still the ticked one read earlier? */
   private async stillTicked(ownerUserId: UserId, chosen: NativeLoginOptIn): Promise<boolean> {
-    const fresh = await this.deps.store.accounts.optInFor(
+    const fresh = await this.deps.store.nativeLogins.optInFor(
       ownerUserId,
       chosen.harness,
       chosen.fingerprint,
@@ -204,7 +236,7 @@ export class LoginPropagationService {
     machineId: MachineId,
     outcome: 'installed' | 'preserved',
   ): Promise<void> {
-    await this.deps.store.accounts.recordTransfer(ownerUserId, {
+    await this.deps.store.nativeLogins.recordTransfer(ownerUserId, {
       harness: chosen.harness,
       fingerprint: chosen.fingerprint,
       machineId,
@@ -212,6 +244,33 @@ export class LoginPropagationService {
       revision: chosen.revision,
       at: new Date(this.now()).toISOString(),
     })
+  }
+
+  /**
+   * What Podium placed on the target, for the owner's credential that names
+   * this login (credential management §8 "cleanup"): removing that credential
+   * removes the copied file again. A login no credential names places nothing.
+   */
+  private async recordPlacement(
+    ownerUserId: UserId,
+    harness: PropagatableHarness,
+    fingerprint: string,
+    machineId: MachineId,
+  ): Promise<void> {
+    const homeTypes = harnessAccepts(harness).filter((line) => line.deliver.kind === 'home')
+    for (const line of homeTypes) {
+      const credential = await this.deps.store.credentials.findByIdentity({
+        ownerUserId,
+        type: line.type,
+        fingerprint,
+      })
+      if (!credential) continue
+      await this.deps.store.credentials.recordPlacement({
+        credentialId: credential.id,
+        machineId,
+        kind: 'propagated-file',
+      })
+    }
   }
 
   private async run(input: {
@@ -241,7 +300,7 @@ export class LoginPropagationService {
     }
 
     // THE OWNER'S TICKED LOGINS for this harness. Nothing ticked, nothing copied.
-    const ticked = (await this.deps.store.accounts.optInsFor(input.ownerUserId)).filter(
+    const ticked = (await this.deps.store.nativeLogins.optInsFor(input.ownerUserId)).filter(
       (choice) =>
         choice.enabled &&
         choice.harness === input.harness &&
@@ -289,12 +348,20 @@ export class LoginPropagationService {
       ...(await this.deps.store.machines.getMachines([...donorIds])).values(),
     ])
     const entries = catalogEntriesForHarness(catalog, input.harness)
-    const donorFor = (fingerprint: string): MachineId | undefined =>
-      entries
-        .find((entry) => entry.fingerprint === fingerprint)
-        ?.machines.find(
-          (machine) => machine.harness === input.harness && donorIds.has(machine.machineId),
-        )?.machineId
+    // A donor whose link may carry the login file is preferred; one that may not
+    // is still chosen when it is the only one, so the refusal below is logged.
+    const donorFor = (fingerprint: string): MachineId | undefined => {
+      const holders =
+        entries
+          .find((entry) => entry.fingerprint === fingerprint)
+          ?.machines.filter(
+            (machine) => machine.harness === input.harness && donorIds.has(machine.machineId),
+          )
+          .map((machine) => machine.machineId) ?? []
+      return (
+        holders.find((id) => this.deps.machines.loginLinkUnsafe(id) === undefined) ?? holders[0]
+      )
+    }
     const fits = wanted.flatMap((choice) => {
       const donor = donorFor(choice.fingerprint)
       return donor ? [{ choice, donor }] : []
@@ -332,6 +399,12 @@ export class LoginPropagationService {
         upgradeRequired: true,
       }
     }
+    // THE LINKS: the file leaves the donor and reaches the target only over a
+    // link the server judged safe. Both are judged before anything is exported.
+    const donorUnsafe = this.deps.machines.loginLinkUnsafe(donor)
+    if (donorUnsafe) return refuseLink('donor', donor, donorUnsafe, input.input)
+    const targetUnsafe = this.deps.machines.loginLinkUnsafe(targetId)
+    if (targetUnsafe) return refuseLink('target', targetId, targetUnsafe, input.input)
     // The transfer's age counts from the choice it was read under.
     const readAt = this.now()
     const exported = await this.deps.rpc.credentialExport([kind], donor, {
@@ -341,55 +414,49 @@ export class LoginPropagationService {
     const bundle = exported.bundles.find((candidate) => candidate.kind === kind)
     if (!bundle) return { status: 'failed', reason: 'donor credential unavailable' }
 
-    const transferId = await this.deps.store.secrets.putNativeLoginTransfer(
-      input.ownerUserId,
-      bundle,
-      new Date(this.now()).toISOString(),
-    )
-    try {
-      // INSTALL, after re-reading the owner's choice and the target's custody.
-      // A transfer that outlived either, or its age limit, is stale.
-      if (this.now() - readAt > LOGIN_TRANSFER_MAX_AGE_MS) {
-        return { status: 'skipped', reason: 'stale transfer refused: it waited too long' }
-      }
-      if (!(await this.stillTicked(input.ownerUserId, choice))) {
-        return { status: 'skipped', reason: 'stale transfer refused: the choice changed' }
-      }
-      if ((await this.deps.store.machines.custodian(targetId)) !== input.ownerUserId) {
-        return { status: 'skipped', reason: 'stale transfer refused: the target owner changed' }
-      }
-      if ((await this.deps.store.machines.getMachine(targetId))?.podiumManaged === false) {
-        return { status: 'skipped', reason: 'stale transfer refused: target keeps its own logins' }
-      }
-      const serverBundle = await this.deps.store.secrets.getNativeLoginTransfer(
-        input.ownerUserId,
-        transferId,
-      )
-      if (!serverBundle) return { status: 'failed', reason: 'transfer secret unavailable' }
-      // A reconnect during export may have replaced the capable target with an
-      // older daemon. Recheck the live socket immediately before installation.
-      if (!this.deps.machines.daemonSupports(targetId, CAP_CREDENTIAL_IDENTITY_GUARD)) {
-        return {
-          status: 'failed',
-          reason: `Upgrade the target daemon on ${targetId} before copying a login: it cannot preserve a different installed account.`,
-          upgradeRequired: true,
-        }
-      }
-      const installed = await this.deps.rpc.credentialInstall([serverBundle], targetId, {
-        propagation: true,
-        expectedFingerprint: choice.fingerprint,
-      })
-      if (installed.preserved?.includes(kind)) {
-        await this.record(input.ownerUserId, choice, targetId, 'preserved')
-        return { status: 'preserved', reason: 'the target holds a different login, which was kept' }
-      }
-      if (!installed.installed.includes(kind)) {
-        return { status: 'failed', reason: 'target refused credential propagation' }
-      }
-      await this.record(input.ownerUserId, choice, targetId, 'installed')
-      return { status: 'propagated', donorMachineId: donor, fingerprint: choice.fingerprint }
-    } finally {
-      await this.deps.store.secrets.clearNativeLoginTransfer(input.ownerUserId, transferId)
+    // The bundle stays in this call's memory until install [POD-7044]. It was
+    // once parked in a plain server_secrets row, which a crash left behind and
+    // a delete left in free pages; no copy of the database may hold a login.
+    //
+    // INSTALL, after re-reading the owner's choice and the target's custody.
+    // A transfer that outlived either, or its age limit, is stale.
+    if (this.now() - readAt > LOGIN_TRANSFER_MAX_AGE_MS) {
+      return { status: 'skipped', reason: 'stale transfer refused: it waited too long' }
     }
+    if (!(await this.stillTicked(input.ownerUserId, choice))) {
+      return { status: 'skipped', reason: 'stale transfer refused: the choice changed' }
+    }
+    if ((await this.deps.store.machines.custodian(targetId)) !== input.ownerUserId) {
+      return { status: 'skipped', reason: 'stale transfer refused: the target owner changed' }
+    }
+    if ((await this.deps.store.machines.getMachine(targetId))?.podiumManaged === false) {
+      return { status: 'skipped', reason: 'stale transfer refused: target keeps its own logins' }
+    }
+    // A reconnect during export may have replaced the capable target with an
+    // older daemon. Recheck the live socket immediately before installation.
+    if (!this.deps.machines.daemonSupports(targetId, CAP_CREDENTIAL_IDENTITY_GUARD)) {
+      return {
+        status: 'failed',
+        reason: `Upgrade the target daemon on ${targetId} before copying a login: it cannot preserve a different installed account.`,
+        upgradeRequired: true,
+      }
+    }
+    // The target may have reconnected over another link during the export.
+    const installUnsafe = this.deps.machines.loginLinkUnsafe(targetId)
+    if (installUnsafe) return refuseLink('target', targetId, installUnsafe, input.input)
+    const installed = await this.deps.rpc.credentialInstall([bundle], targetId, {
+      propagation: true,
+      expectedFingerprint: choice.fingerprint,
+    })
+    if (installed.preserved?.includes(kind)) {
+      await this.record(input.ownerUserId, choice, targetId, 'preserved')
+      return { status: 'preserved', reason: 'the target holds a different login, which was kept' }
+    }
+    if (!installed.installed.includes(kind)) {
+      return { status: 'failed', reason: 'target refused credential propagation' }
+    }
+    await this.record(input.ownerUserId, choice, targetId, 'installed')
+    await this.recordPlacement(input.ownerUserId, input.harness, choice.fingerprint, targetId)
+    return { status: 'propagated', donorMachineId: donor, fingerprint: choice.fingerprint }
   }
 }

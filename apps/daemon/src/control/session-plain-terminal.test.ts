@@ -6,6 +6,7 @@ import { type AgentKind, asSessionId, type ResumeRef, type SessionId } from '@po
 import type { SpawnOptions } from '@podium/process/screen'
 import { afterAll, beforeEach, expect, it, vi } from 'vitest'
 import { attachTestTerminal, stubDurable, testSessions } from '../session/testing.js'
+import { memoryMarkers, SessionAccessStore } from './access'
 import type { DaemonContext } from './context'
 
 /** Keep any launch artifacts inside a disposable test directory. */
@@ -79,6 +80,7 @@ function contextForSpawn(): DaemonContext {
     sessionCwdTracker: { setLaunchCwd: async () => {}, clear: () => {} },
     hookEndpointFor: (id: string) => `http://127.0.0.1:1/hook/${id}`,
     agentRelayEndpointFor: (id: string) => `http://127.0.0.1:1/relay/${id}`,
+    access: new SessionAccessStore({ markers: memoryMarkers() }),
   } as unknown as DaemonContext
 }
 

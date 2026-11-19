@@ -1,6 +1,7 @@
 import { asSessionId } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it } from 'vitest'
+import { memoryMarkers, SessionAccessStore } from './access'
 import type { DaemonContext } from './context'
 import { MISSING_SESSION_BINDING_MESSAGE, sessionHandlers } from './session'
 
@@ -10,6 +11,7 @@ function refusalContext(sent: DaemonMessage[]): DaemonContext {
   // cannot accidentally make the path succeed.
   return {
     send: (message: DaemonMessage) => sent.push(message),
+    access: new SessionAccessStore({ markers: memoryMarkers() }),
   } as unknown as DaemonContext
 }
 

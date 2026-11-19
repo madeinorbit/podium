@@ -905,6 +905,9 @@ export const RECORD_SOURCES: RecordSources = {
   instancePreferences: ROW_RECORDS.instancePreferences.sources,
   effect: ROW_RECORDS.effect.sources,
   checkout: ROW_RECORDS.checkout.sources,
+  // A notice is on its recipient's feed while it is open (POD-6881): resolving
+  // it takes it off, and what is written to it afterwards reaches no record.
+  inboxNotice: ROW_RECORDS.inboxNotice.sources,
   issueEvent: [
     via(
       podiumEvents,

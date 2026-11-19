@@ -13,8 +13,8 @@ import { asUserId } from '@podium/model'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it } from 'vitest'
 import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
-import { AccountsRepository } from '../store/accounts'
 import { workspaceQueries } from '../store/executor/sync-drizzle'
+import { NativeLoginsRepository } from '../store/native-logins'
 import { stageASeam } from '../test-support/stage-a-seam'
 import { DRIZZLE_MIGRATIONS } from './drizzle-manifest.generated'
 import { runDrizzleMigrations } from './index'
@@ -112,7 +112,7 @@ describe(`migration ${MIGRATION}`, () => {
       // schema (its queries name the workspace column, POD-7019), so the rest of the chain runs
       // first; a later migration re-keys the solo member, so the owner is read again.
       runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
-      const accounts = new AccountsRepository(
+      const accounts = new NativeLoginsRepository(
         workspaceQueries(stageASeam(db), SELF_HOSTED_WORKSPACE_ID),
       )
       const [first] = optIns(db) as { owner: string }[]

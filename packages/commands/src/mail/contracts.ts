@@ -176,6 +176,10 @@ export const spawnAgentInput = z.object({
   workflowStepId: z.string().max(256).optional(),
   /** An agent profile by name or id (POD-6107); defaults to the issue's profile. */
   agentProfile: z.string().trim().min(1).max(100).optional(),
+  /** The credential the child runs on (credential management §9): a label, an
+   *  id, or `none` for the harness's own login, matched among the credentials
+   *  the person the caller acts for can use. A reference, never a secret. */
+  credential: z.string().trim().min(1).max(200).optional(),
 })
 
 export const awaitAgentInput = z.object({

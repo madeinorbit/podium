@@ -51,6 +51,32 @@ export type SessionValueInput = {
   refLetter?: string
   refDraft?: number
   handoffTargetMachineId?: string
+  credentialId?: string | null
+  // LEGACY(remove-after: 2027-02): reads account ids written before credentials existed; removing it stops old spellings from resolving
+  accountId?: string | null
+}
+
+/**
+ * THE MACHINE'S LOGIN SPEAKS ONLY FOR A SESSION ON IT (credential management
+ * §9). A session with no credential runs on whatever its harness is signed in
+ * to on the machine, so the machine's "logged out" is its condition. A session
+ * on a credential (an API key, a subscription home, a token, another member's)
+ * never reads the machine's login: its health is the credential's.
+ */
+export function runsOnOwnLogin(
+  session: Pick<SessionValueInput, 'credentialId' | 'accountId'>,
+): boolean {
+  return !session.credentialId && !session.accountId
+}
+
+/** The session's condition from its machine's logged-out harnesses. */
+export function loginCondition(
+  session: Pick<SessionValueInput, 'agentKind' | 'credentialId' | 'accountId'>,
+  loggedOutHarnesses: readonly string[] | undefined,
+): 'logged-out' | undefined {
+  return runsOnOwnLogin(session) && loggedOutHarnesses?.includes(session.agentKind ?? '')
+    ? 'logged-out'
+    : undefined
 }
 export interface SessionHomes {
   /** False while the principal-bound cache has not yet caught up with the feed. */
@@ -77,7 +103,9 @@ export function sessionValues(session: SessionValueInput, homes: SessionHomes = 
   }
   const { userState, repo, machine, handoffMachine } = homes
   const joined = session as SessionValueInput & Partial<SessionValues>
-  const readAt = Object.hasOwn(homes, 'userState') ? userState?.readAt ?? null : joined.readAt ?? null
+  const readAt = Object.hasOwn(homes, 'userState')
+    ? (userState?.readAt ?? null)
+    : (joined.readAt ?? null)
   let displayRef: string | undefined
   if (repo?.prefix) {
     if (session.refSeq !== undefined && session.refLetter) {
@@ -93,13 +121,20 @@ export function sessionValues(session: SessionValueInput, homes: SessionHomes = 
   return {
     readAt,
     // No personal source row means no read cursor, just as an explicit null does.
-    unread: (userState !== undefined || homes.userStatesLoaded !== false)
-      && activityAfterRead(readAt, session.lastActiveAt ?? ''),
+    unread:
+      (userState !== undefined || homes.userStatesLoaded !== false) &&
+      activityAfterRead(readAt, session.lastActiveAt ?? ''),
     snoozedUntil: Object.hasOwn(homes, 'userState') ? userState?.snoozedUntil : joined.snoozedUntil,
     displayRef: Object.hasOwn(homes, 'repo') ? displayRef : joined.displayRef,
-    machineName: Object.hasOwn(homes, 'machine') ? machine?.name ?? '' : joined.machineName ?? '',
-    condition: Object.hasOwn(homes, 'machine') ? machine?.loggedOutHarnesses.includes(session.agentKind ?? '') ? 'logged-out' : undefined : joined.condition,
-    handoffTarget: Object.hasOwn(homes, 'handoffMachine') ? handoffMachine?.name : joined.handoffTarget,
+    machineName: Object.hasOwn(homes, 'machine')
+      ? (machine?.name ?? '')
+      : (joined.machineName ?? ''),
+    condition: Object.hasOwn(homes, 'machine')
+      ? loginCondition(session, machine?.loggedOutHarnesses)
+      : joined.condition,
+    handoffTarget: Object.hasOwn(homes, 'handoffMachine')
+      ? handoffMachine?.name
+      : joined.handoffTarget,
   }
 }
 

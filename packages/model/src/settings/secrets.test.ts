@@ -28,7 +28,6 @@ import {
 } from './classification'
 import { InstancePreferences, PersonalPreferences } from './preferences'
 import {
-  ApiKeySecrets,
   IntegrationSecrets,
   NOT_A_SETTINGS_SECRET,
   NotificationSecrets,
@@ -54,8 +53,16 @@ import {
  *     path NAME, not material. An over-matching detector is not a safe one: it
  *     forces the next reader to add exclusions, and an exclusion list is where a
  *     real leak eventually hides.
+ *
+ * `credential` counts only as the noun a name ENDS on (`credential`,
+ * `credentials.openai`, `oauthCredential`): that names the credential itself.
+ * Followed by another word it qualifies that word instead, and names something
+ * ABOUT a credential: `credentialId` is a reference (the same presence-not-value
+ * shape as `accountId`), `credentialDefaults` maps a harness to such ids, and
+ * `credentialAttention` is a notice preference. `(?![a-z])` under `i` rejects
+ * any following letter, so this is one rule rather than a list of exclusions.
  */
-const SECRET_SHAPED = /password|credential|hash|secret|token|salt|apikey/i
+const SECRET_SHAPED = /password|credentials?(?![a-z])|hash|secret|token|salt|apikey/i
 
 /** Every wire / read projection this issue introduces. Enumerated so a new one
  *  added without being checked is a visible omission in THIS list, not an
@@ -101,7 +108,7 @@ describe('the presence projection is built INDEPENDENTLY of the stored secret', 
     // keys and SUCCEED (POD-640's trap), so `safeParse().success` proves nothing
     // about shape. Keyed on the parsed OUTPUT instead.
     const parsed = SecretPresenceWire.parse({
-      key: 'apiKeys.anthropic',
+      key: 'integrations.linearApiKey',
       present: true,
       fingerprint: 'ab12',
       updatedAt: '2026-07-30T00:00:00.000Z',
@@ -115,10 +122,13 @@ describe('the presence projection is built INDEPENDENTLY of the stored secret', 
     // `null` is a representable "configured, no fingerprint"; an absent key would
     // be indistinguishable from "nobody threaded the value" (the
     // `UserCredential.passwordHash` rule).
-    const missing = SecretPresenceWire.safeParse({ key: 'apiKeys.openai', present: false })
+    const missing = SecretPresenceWire.safeParse({
+      key: 'notifications.telegramBotToken',
+      present: false,
+    })
     expect(missing.success).toBe(false)
     const explicit = SecretPresenceWire.safeParse({
-      key: 'apiKeys.openai',
+      key: 'notifications.telegramBotToken',
       present: false,
       fingerprint: null,
       updatedAt: null,
@@ -130,10 +140,12 @@ describe('the presence projection is built INDEPENDENTLY of the stored secret', 
     // Without this, `present: true` could be derived from a row holding '' and
     // the presence bit would mean nothing.
     expect(
-      ServerSecret.safeParse({ key: 'apiKeys.openai', value: '', updatedAt: 'now' }).success,
+      ServerSecret.safeParse({ key: 'integrations.linearApiKey', value: '', updatedAt: 'now' })
+        .success,
     ).toBe(false)
     expect(
-      ServerSecret.safeParse({ key: 'apiKeys.openai', value: 'sk-x', updatedAt: 'now' }).success,
+      ServerSecret.safeParse({ key: 'integrations.linearApiKey', value: 'lin-x', updatedAt: 'now' })
+        .success,
     ).toBe(true)
   })
 
@@ -179,6 +191,20 @@ describe('the key-name detector over every projection', () => {
     expect(SECRET_SHAPED.test('notifications.telegramChatId')).toBe(false)
     expect(SECRET_SHAPED.test('notifications.ntfyTopic')).toBe(false)
     expect(SECRET_SHAPED.test('roles.coding.accountId')).toBe(false)
+    // A credential's id, a map of ids and a notice about a credential name no
+    // material, any more than `accountId` does.
+    expect(SECRET_SHAPED.test('roles.coding.credentialId')).toBe(false)
+    expect(SECRET_SHAPED.test('credentialDefaults')).toBe(false)
+    expect(SECRET_SHAPED.test('notifications.notices.credentialAttention')).toBe(false)
+  })
+
+  it('still fires on the CREDENTIAL ITSELF, wherever the word ends the name', () => {
+    // The other arm of the id rule above: a leaf, a parent and a qualified
+    // credential all name material.
+    expect(SECRET_SHAPED.test('credential')).toBe(true)
+    expect(SECRET_SHAPED.test('credentials.openai')).toBe(true)
+    expect(SECRET_SHAPED.test('roles.coding.oauthCredential')).toBe(true)
+    expect(SECRET_SHAPED.test('roles.coding.credentialSecret')).toBe(true)
   })
 
   it('matches on the FULL PATH, so a parent that names the secret is not missed', () => {
@@ -194,14 +220,10 @@ describe('the key-name detector over every projection', () => {
     // what POD-419 still has to scrub. If this list ever empties, the scrub
     // landed; if it grows, a new secret arrived in the blob.
     const legacy = [
-      ...settingsLeafPaths(ApiKeySecrets, 'apiKeys'),
       ...settingsLeafPaths(IntegrationSecrets, 'integrations'),
       ...settingsLeafPaths(NotificationSecrets, 'notifications'),
     ]
     expect(legacy.filter((p) => SECRET_SHAPED.test(p)).sort()).toEqual([
-      'apiKeys.anthropic',
-      'apiKeys.openai',
-      'apiKeys.openrouter',
       'integrations.linearApiKey',
       'notifications.telegramBotToken',
     ])
@@ -211,7 +233,9 @@ describe('the key-name detector over every projection', () => {
 describe('the vocabulary and its neighbours', () => {
   it('is one closed set — enum and array cannot drift apart', () => {
     expect(ServerSecretKey.options).toEqual([...SERVER_SECRET_KEYS])
-    expect(ServerSecretKey.safeParse('apiKeys.anthropic').success).toBe(true)
+    expect(ServerSecretKey.safeParse('integrations.linearApiKey').success).toBe(true)
+    // The provider keys left for credentials (credential management §18).
+    expect(ServerSecretKey.safeParse('apiKeys.anthropic').success).toBe(false)
     expect(ServerSecretKey.safeParse('sidebar.repoSort').success).toBe(false)
   })
 

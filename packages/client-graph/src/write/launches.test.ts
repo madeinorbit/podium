@@ -374,6 +374,80 @@ describe('a draft-agent start as a launch effect (POD-6408)', () => {
   })
 })
 
+/**
+ * A START REFUSED FOR ITS CREDENTIAL (POD-7067): no session row ever lands, so
+ * the painted session is all the pane reads. It names the credential chosen,
+ * or it reads as on its harness's own login: the chip says "Its own login" and
+ * a signed-out machine raises the "isn't logged in" bar.
+ */
+describe('a start on a chosen credential (POD-7067)', () => {
+  const CREDENTIAL = 'cred_00000000-0000-4000-8000-0000000000dd'
+  const credentialRecord = (status: EffectStatus, error?: string): EffectRecordWire => {
+    const record = launchRecord(status)
+    return {
+      ...record,
+      input: { ...(record.input as object), credentialId: CREDENTIAL },
+      effect: {
+        status,
+        attempts: 1,
+        ...(error
+          ? { error: { code: 'credential:connection-not-encrypted', message: error } }
+          : {}),
+      },
+    } as EffectRecordWire
+  }
+
+  it('paints the starting session on the credential the start chose', async () => {
+    const p = pool({ record: credentialRecord })
+    p.tx.spawnDraftAgent({
+      sessionId: SESSION,
+      issueId: ISSUE,
+      mutationId: asMutationId('m-spawn'),
+      target: TARGET,
+      agentKind: 'claude-code',
+      credentialId: CREDENTIAL as never,
+    })
+    await Promise.resolve()
+    expect(p.shown('sessions', SESSION)).toMatchObject({
+      status: 'starting',
+      credentialId: CREDENTIAL,
+    })
+    p.confirmed('failed', 'not encrypted')
+    expect(p.shown('sessions', SESSION)).toMatchObject({
+      status: 'exited',
+      credentialId: CREDENTIAL,
+    })
+    p.tx.dispose()
+  })
+
+  it('a refused start read back from its record alone still names its credential', () => {
+    const p = pool({
+      effects: [credentialRecord('failed', 'not encrypted')],
+      record: credentialRecord,
+    })
+    expect(p.shown('sessions', SESSION)).toMatchObject({
+      status: 'exited',
+      credentialId: CREDENTIAL,
+    })
+    p.tx.dispose()
+  })
+
+  it('a start on its harness login paints no credential', async () => {
+    const p = pool()
+    p.tx.spawnDraftAgent({
+      sessionId: SESSION,
+      issueId: ISSUE,
+      mutationId: asMutationId('m-spawn'),
+      target: TARGET,
+      agentKind: 'claude-code',
+      credentialId: null,
+    })
+    await Promise.resolve()
+    expect(p.shown('sessions', SESSION)).not.toHaveProperty('credentialId')
+    p.tx.dispose()
+  })
+})
+
 const startTask = (p: ReturnType<typeof pool>, mutationId = asMutationId('m-task')) =>
   p.tx.spawnIssueAgent({
     sessionId: SESSION,

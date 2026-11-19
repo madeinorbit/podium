@@ -26,6 +26,7 @@ import { memberFacts } from './store/fixtures/test-support'
 import { captureLogs } from './test-support/capture-logs'
 import { attachTestClient } from './test-support/client-transport'
 import { attachDaemonWithInventory, fixtureInventory } from './test-support/daemon-inventory'
+import { seedLegacyKeyCredential } from './test-support/legacy-key-credential'
 import { openTestStore } from './test-support/open-test-store'
 import { clientSessionViews } from './test-support/session-views'
 
@@ -576,24 +577,13 @@ async function handoffRegistry(
     // sent there; the admin's native login is never used for him (design §2.4,
     // §2.5; 26568b8f5f). Selected on Bob's coding role and sent to both machines.
     const accountId = asAccountId('managed:anthropic')
-    await store.accounts.upsert({
-      id: accountId,
-      ownerUserId: opts.secondMember,
-      provider: 'anthropic',
-      kind: 'api-key',
-      credential: 'sk-ant-bob',
-      identity: 'bob@example.com',
-      scope: 'role',
-      createdAt: 1,
+    await seedLegacyKeyCredential(store, {
+      owner: opts.secondMember,
+      accountKey: accountId,
+      type: 'anthropic.api-key',
+      secret: 'sk-ant-bob',
+      sentTo: [asMachineId('m1'), asMachineId('m2')],
     })
-    for (const machineId of ['m1', 'm2'] as const) {
-      await store.accounts.markSent(
-        opts.secondMember,
-        accountId,
-        asMachineId(machineId),
-        '2026-11-04T00:00:00.000Z',
-      )
-    }
     const settings = await store.settings.getSettingsFor(opts.secondMember)
     await store.settings.setSettingsFor(
       opts.secondMember,

@@ -23,8 +23,10 @@ import type {
   WriteScope,
 } from '@podium/sync'
 import type { ClientConn, ClientRegistry } from '../../gateway/client-registry'
+import type { DaemonLinkKind } from '../../gateway/daemon-link-kind'
 import type { SessionStore } from '../../store'
 import type { EventBus } from '../bus'
+import type { AttachAccessDeps } from '../credentials/attach-access'
 import type { WriteFunnel } from '../funnel'
 import type { DurableIssueAccessIndex } from '../issues/access-index'
 import type { DaemonRpcService } from '../machines/rpc'
@@ -255,6 +257,17 @@ export interface SessionLifecycleDeps {
    */
   residency?: { evictParked?: boolean; sweepIntervalMs?: number }
   machines: MachinesService
+  /**
+   * The server's judgement of each connected daemon's connection (credential
+   * management §8), `registry.daemonLinks.daemonLinkKind`. Absent: no daemon
+   * reads as connected, so a vault credential is refused, never sent.
+   */
+  daemonLinkKind?(machineId: MachineId): DaemonLinkKind | undefined
+  /**
+   * Issues the token a session on a type Podium renews runs on (the ChatGPT
+   * plan keeper, epic Task 15). Absent: such a credential is refused.
+   */
+  issueToken?: AttachAccessDeps['issueToken']
   rpc: DaemonRpcService
   /** Start-path notification; the propagation service decides whether login is needed. */
   onSpawnTargetLogin?(input: {

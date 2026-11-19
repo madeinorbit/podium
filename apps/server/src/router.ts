@@ -44,11 +44,11 @@ import {
 } from './cloud-runtime'
 import { getFeatureStates } from './features'
 import { buildJoinCommand } from './hub/machines-join'
-import { accountFamilyProcedures } from './modules/accounts/trpc'
 import { agentProfileFamilyProcedures } from './modules/agent-profiles/trpc'
 import { automationProcedures } from './modules/automations/trpc'
 import { cloudFamilyProcedures } from './modules/cloud/trpc'
 import { conversationFamilyProcedures } from './modules/conversations/trpc'
+import { credentialFamilyProcedures } from './modules/credentials/trpc'
 import { familyState, queryProcedures } from './modules/derived-family'
 import { fileFamilyProcedures } from './modules/files/trpc'
 import { REPO_QUERIES } from './modules/fleet/queries'
@@ -77,6 +77,7 @@ import {
   USAGE_QUERIES,
 } from './modules/misc-queries'
 import { modelFamilyProcedures } from './modules/models/trpc'
+import { NOTICE_QUERIES } from './modules/notices/queries'
 import { operationProcedures } from './modules/operations/trpc'
 import { perfFamilyProcedures } from './modules/perf/trpc'
 import { SESSION_QUERIES, SNOOZE_QUERIES } from './modules/sessions/queries'
@@ -88,6 +89,7 @@ import { specFamilyProcedures } from './modules/specs/trpc'
 import { superagentFamilyProcedures } from './modules/superagent/trpc'
 import { syncWriteProcedures } from './modules/sync-write/trpc'
 import { updateProcedures } from './modules/updates/trpc'
+import { vaultFamilyProcedures } from './modules/vault/trpc'
 import type { RegistryModules } from './relay'
 import { canonicalizeRepoOrigin } from './repo-id'
 import { browseDirectories } from './repo-registry'
@@ -322,6 +324,9 @@ export const appRouter = t.router({
   // layout: sidebar/tab chrome that follows a person across devices (not device-local
   // route/selection/pane geometry — those stay in client ui-state, POD-403).
   layout: t.router(layoutFamilyProcedures()),
+  // A person's notice inbox (POD-6881): their own open notices. The read marks
+  // are `notices.markRead` / `notices.markAllRead` on `sync.submit`.
+  notices: t.router(queryProcedures('notices', NOTICE_QUERIES)),
   // shells: server-owned dock-shell mapping (POD-4436) — per user, per worktree
   // → shell session, so the same dock shell opens on every device. Tab shells
   // stay unmapped by design (SP-75b1) and go through sessions.create directly.
@@ -379,13 +384,8 @@ export const appRouter = t.router({
   // read. The apps resolve them from `welcome` and the instance settings record.
   features: t.router(queryProcedures('features', FEATURE_QUERIES)),
   telemetry: t.router(telemetryFamilyProcedures()),
-  /**
-   * THE ACCOUNT SURFACE IS DERIVED (POD-314) — the Accounts & Keys hub
-   * (SP-6454): native CLI logins on this machine (observed read-only) plus the
-   * managed credentials Podium holds. Read at call-time, never cached as truth,
-   * and never returning a credential — only its masked `identity`.
-   */
-  accounts: t.router(accountFamilyProcedures()),
+  vault: t.router(vaultFamilyProcedures()),
+  credentials: t.router(credentialFamilyProcedures()),
   // PER-USER STATE (POD-380): the caller's saved orders.
   // setPrefix · add · addMany · remove — DERIVED (POD-384). Store-level
   // validation (^[A-Z]{2,5}$, server-wide prefix uniqueness, absolute paths) is

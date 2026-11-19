@@ -102,6 +102,7 @@ export const fixtureManifest: AgentManifest = {
     // An inherited key must not silently reselect the double's account — the
     // same hazard the shipped harnesses declare, at fixture scale.
     foreignCredentialEnv: ['FIXTURE_API_KEY'],
+    accepts: [],
     detectLogin(homeDir) {
       let contents: string
       try {

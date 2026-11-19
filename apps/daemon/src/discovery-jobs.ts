@@ -3,7 +3,7 @@ import {
   scanAgentConversationsCached,
   summarizePaths,
 } from '@podium/harness'
-import type { ConversationDiagnosticWire, ConversationDiscoveryWire } from '@podium/model'
+import type { AgentKind, ConversationDiagnosticWire, ConversationDiscoveryWire } from '@podium/model'
 import { diagnosticToWire, summaryToWire } from './conversation-wire.js'
 import {
   attributeMemory,
@@ -31,6 +31,8 @@ export function runMemoryBreakdownJob(input: MemoryBreakdownJobInput): MemoryAtt
 
 export interface IndexRefreshJobInput {
   homeDir?: string
+  /** More conversation roots per harness: Podium's homes (credential management §10). */
+  extraRoots?: Partial<Record<AgentKind, string[]>>
   cachePath?: string
   /**
    * Targeted rescan: when set, re-summarize ONLY these transcript file paths (the
@@ -89,10 +91,12 @@ export async function runIndexRefreshJob(
     input.paths && input.paths.length > 0
       ? await summarizePaths(input.paths, {
           cache,
+          ...(input.extraRoots ? { extraRoots: input.extraRoots } : {}),
           ...(input.homeDir ? { homeDir: input.homeDir } : {}),
         })
       : await scanAgentConversationsCached({
           cache,
+          ...(input.extraRoots ? { extraRoots: input.extraRoots } : {}),
           ...(input.homeDir ? { homeDir: input.homeDir } : {}),
         })
   // Paths-mode is always a delta of the dirty files (`full` is ignored); otherwise

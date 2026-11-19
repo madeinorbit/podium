@@ -19,6 +19,7 @@ import { FeedCursorField, SyncKindTokens } from './feed'
 import { ClientLogOrigin } from './logs'
 import { NativeBindingReceipt } from './native-binding'
 import { SessionPostureSchema } from './posture'
+import { AccessField } from './session-access'
 
 const positiveInt = z.number().int().positive()
 
@@ -518,9 +519,9 @@ export const SpawnMessage = z.object({
   // distinct from initialPrompt: adapters deliver them through their native
   // system/developer/rules/config channel, never as a user-authored turn.
   instructions: z.array(AgentInstruction).optional(),
-  // Managed-credential + environment vars resolved SERVER-side and merged into the
-  // daemon's spawn env overlay (SP-6454, #216). Generic on purpose — an LLM
-  // credential, a GitHub token (#214) and machine-level pins (#234) all ride here.
+  // Environment vars resolved SERVER-side and merged into the daemon's spawn env
+  // overlay (SP-6454). NEVER a credential: a credential rides `access` below
+  // (credential management §8), which the daemon keeps in memory only.
   // Additive + optional: an older daemon ignores it, an older server omits it.
   env: z.record(z.string(), z.string()).optional(),
   // Seed the CLI's theme with per-session official flags so it follows the
@@ -568,6 +569,14 @@ export const SpawnMessage = z.object({
    * the default, as it always did.
    */
   posture: SessionPostureSchema.optional(),
+  /**
+   * WHAT THIS SESSION RUNS ON (credential management §8): the credential the
+   * server resolved and, for an `env` delivery, its secret. Sent only to a
+   * daemon that offered `CAP_SESSION_ACCESS`; absent means the harness's own
+   * login. The daemon keeps it in memory for the session's life and applies it
+   * at every process start; this frame type is never logged.
+   */
+  access: AccessField.optional(),
 })
 export const ReattachMessage = z.object({
   type: z.literal('reattach'),

@@ -874,6 +874,7 @@ const insertComment = prepared((db, t) =>
       createdAt: sql.placeholder('createdAt'),
       actor: sql.placeholder('actor'),
       onBehalfOf: sql.placeholder('onBehalfOf'),
+      mentions: sql.placeholder('mentions'),
     })
     .prepare(),
 )
@@ -909,6 +910,7 @@ const editComment = prepared((db, t) =>
       editedAt: sql.placeholder('editedAt') as unknown as string,
       editedBy: sql.placeholder('editedBy') as unknown as string,
       editedOnBehalfOf: sql.placeholder('editedOnBehalfOf') as unknown as string,
+      mentions: sql.placeholder('mentions') as unknown as string,
     })
     .where(inWorkspace(t.issueComments, eq(t.issueComments.id, param(t.issueComments.id, 'id'))))
     .prepare(),
@@ -2976,6 +2978,7 @@ export class IssuesRepository {
       createdAt: c.createdAt,
       actor: c.actor ?? null,
       onBehalfOf: c.onBehalfOf ?? null,
+      mentions: c.mentions ?? null,
     })
   }
 
@@ -2995,8 +2998,10 @@ export class IssuesRepository {
     editedAt: string
     editedBy: string
     editedOnBehalfOf: string | null
+    /** The members the new body mentions, as stored JSON (POD-6881). */
+    mentions?: string | null
   }): Promise<void> {
-    await editComment(this.db).run(edit)
+    await editComment(this.db).run({ ...edit, mentions: edit.mentions ?? null })
   }
 
   async deleteIssueComment(id: string): Promise<void> {

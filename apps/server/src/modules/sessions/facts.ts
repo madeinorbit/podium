@@ -2,6 +2,7 @@ import type {
   AccountId,
   AgentKind,
   AgentRuntimeState,
+  CredentialId,
   IssueId,
   MachineId,
   ResumeRef,
@@ -107,6 +108,7 @@ export interface SessionFacts {
   model?: string
   effort?: string
   accountId?: AccountId
+  credentialId?: CredentialId
   observedModel?: string
   observedEffort?: string
   requestedModel?: string
@@ -166,6 +168,7 @@ function factsOf(
     ...(session.model ? { model: session.model } : {}),
     ...(session.effort ? { effort: session.effort } : {}),
     ...(session.accountId ? { accountId: session.accountId } : {}),
+    ...(session.credentialId ? { credentialId: session.credentialId } : {}),
     ...(session.observedModel ? { observedModel: session.observedModel } : {}),
     ...(session.observedEffort ? { observedEffort: session.observedEffort } : {}),
     ...(session.requestedModel ? { requestedModel: session.requestedModel } : {}),

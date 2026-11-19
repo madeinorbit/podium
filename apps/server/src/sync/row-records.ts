@@ -13,6 +13,7 @@ import {
   parseIssueDepId,
   parseIssueUserStateRowId,
   parseLayoutRowId,
+  parseNoticeRowId,
   parsePinRowId,
   parseReadPositionRowId,
   parseSubscriptionRowId,
@@ -38,6 +39,7 @@ import {
   issueDescriptionOf,
   issueRowToProjection,
 } from '../modules/issues/projection'
+import { noticeWireOf } from '../modules/notices/records'
 import { superagentThreadWireOf } from '../modules/superagent/thread-records'
 import { checkoutWireOf } from '../store/checkout-record'
 import { bindingFor } from '../store/executor/binding'
@@ -57,6 +59,7 @@ const {
   issueDeps,
   issues,
   issueUserState,
+  notices,
   pins,
   subscriptions,
   superagentThreads,
@@ -440,5 +443,19 @@ export const ROW_RECORDS = {
       all: ({ store }) => store.checkouts.all(),
     },
     checkoutWireOf,
+  ),
+  inboxNotice: rowRecord(
+    'inboxNotice',
+    {
+      table: notices,
+      key: { recipientUserId: notices.recipientUserId, noticeId: notices.id },
+      rows: `{row}.${notices.resolvedAt.name} IS NULL`,
+    },
+    {
+      byIds: ({ store }, ids) =>
+        store.notices.openByIds(parsed(ids, parseNoticeRowId).map((key) => key.noticeId)),
+      all: ({ store }) => store.notices.allOpen(),
+    },
+    noticeWireOf,
   ),
 } as const

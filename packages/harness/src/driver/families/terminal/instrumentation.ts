@@ -335,6 +335,8 @@ export async function installTerminalInstrumentation(input: {
   settingsDir: string
   /** Host telemetry plumbing for the harness version probe (best-effort). */
   reportVersionProbe?: (harness: string, output: string) => void
+  /** Hook trust for a launch in a Podium home (`InstrumentationDestination`). */
+  launchHookTrust?: InstrumentationDestination['launchHookTrust']
 }): Promise<InstalledTerminalInstrumentation> {
   const { spec, sections } = input
   const channel = spec.instrumentation
@@ -351,6 +353,7 @@ export async function installTerminalInstrumentation(input: {
     settingsDir: input.settingsDir,
     harnessContext: spec.harnessContext,
     ...(input.reportVersionProbe ? { reportVersionProbe: input.reportVersionProbe } : {}),
+    ...(input.launchHookTrust ? { launchHookTrust: input.launchHookTrust } : {}),
   }
   // The install scope is adapter-declared: one strategy per `scope.kind`,
   // looked up — never an `if` on a harness-shaped flag. The `home` strategy

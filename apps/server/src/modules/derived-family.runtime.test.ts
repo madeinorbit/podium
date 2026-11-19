@@ -31,8 +31,8 @@
 
 import { describe, expect, it } from 'vitest'
 import { appRouter } from '../router'
-import { ACCOUNT_COMMANDS_TRPC } from './accounts/registry'
 import { CLOUD_COMMANDS_TRPC } from './cloud/registry'
+import { CREDENTIAL_COMMANDS_TRPC } from './credentials/commands'
 import { FILE_COMMANDS_TRPC } from './files/registry'
 import { HOST_COMMANDS_TRPC } from './hosts/registry'
 import {
@@ -45,6 +45,7 @@ import { INTERACTION_COMMANDS_TRPC } from './interactions/registry'
 import { LOGS_COMMANDS_TRPC } from './logs/registry'
 import { MODEL_COMMANDS_TRPC } from './models/registry'
 import { PERF_COMMANDS_TRPC } from './perf/commands'
+import { VAULT_COMMANDS_TRPC } from './vault/registry'
 
 /** A tRPC v11 procedure record carries its verb on `_def.type`. Read
  *  structurally so this test does not depend on a tRPC helper's shape. */
@@ -64,7 +65,6 @@ const FAMILIES = [
   { router: 'models', table: MODEL_COMMANDS_TRPC },
   { router: 'files', table: FILE_COMMANDS_TRPC },
   { router: 'hosts', table: HOST_COMMANDS_TRPC },
-  { router: 'accounts', table: ACCOUNT_COMMANDS_TRPC },
   { router: 'cloud', table: CLOUD_COMMANDS_TRPC },
   { router: 'setup', table: SETUP_COMMANDS_TRPC },
   { router: 'auth', table: AUTH_COMMANDS_TRPC },
@@ -72,6 +72,8 @@ const FAMILIES = [
   // Client log ingestion (chunk 3 of the logging strategy) — derived on the
   // same builder, so it is pinned by the same non-vacuity floor below.
   { router: 'logs', table: LOGS_COMMANDS_TRPC },
+  { router: 'vault', table: VAULT_COMMANDS_TRPC },
+  { router: 'credentials', table: CREDENTIAL_COMMANDS_TRPC },
 ] as const
 
 const routerRecord = (name: string): Record<string, unknown> =>

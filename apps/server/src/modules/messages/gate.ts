@@ -22,7 +22,7 @@
 
 import { type HumanCeiling, SINGLE_USER_CEILING, type TransportTag } from '@podium/commands'
 import type {
-  AccountId,
+  CredentialId,
   HarnessRefEntry,
   IssueId,
   MachineId,
@@ -99,6 +99,8 @@ export interface MessageGateDeps {
     workflowStepId?: string
     /** The agent profile to start from (POD-6107); SessionStart resolves it. */
     agentProfileId?: string
+    /** The credential the spawn named, already resolved (`null`: none). */
+    credentialId?: CredentialId | null
   }): Promise<{
     sessionId: SessionId
     agentId?: string
@@ -107,10 +109,14 @@ export interface MessageGateDeps {
     effort?: string | null
     machine?: string
     machineId?: MachineId
-    accountId?: AccountId | null
+    /** The credential the session runs on; `null`: none. */
+    credentialId?: CredentialId | null
     /** The task prompt as the spawner's message, when it was queued as one. */
     promptMessageId?: string
   }>
+  /** The credential a spawn names (`--credential`), for the person it runs
+   *  for: `SessionLifecycle.launchCredential`. Throws the refusal's sentence. */
+  launchCredential?(ref: string, owner: UserId): Promise<CredentialId | null | undefined>
   /** Wait for the current daemon connection's first inventory before spawning. */
   awaitMachineInventory?(machineId: MachineId): Promise<void>
   /** The launch for a workflow run step that pins an agent profile (POD-6114):

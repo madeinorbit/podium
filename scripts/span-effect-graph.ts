@@ -670,10 +670,6 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
     kind: 'contained',
     why: 'The injected updater clock supplies checkpoint timestamps through a read of time with no external publication.',
   },
-  'apps/server/src/store/accounts.ts#AccountsRepository.onRemoved': {
-    kind: 'contained',
-    why: 'The audit row for a taken-back send [POD-6699]: the accounts.unsend handler binds it to SettingsAuditRepository.append, an INSERT that joins this transaction, so a rollback takes the record with the removal and nothing outside the process saw it.',
-  },
   'apps/server/src/store/user-preferences.ts#UserPreferencesRepository.written': {
     kind: 'contained',
     why: "The settings repository's per-operation memo invalidation after a preference row write [POD-6218]: it forgets an in-process resolution, performs no I/O and publishes nothing, so a rollback leaves nothing outside the process changed.",
@@ -786,6 +782,14 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
   'apps/server/src/store/effects.ts#EffectFeedCapture.EffectFeedCapture': {
     kind: 'contained',
     why: "The effect record feed's capture [POD-6357]: it appends the rows' feed changes to the change log through Ledger.commit, which joins this same transaction and defers subscriber delivery past the outermost commit. The trigger is registered separately with afterCommit. A rollback takes the appended changes with it and nothing outside the process saw them.",
+  },
+  'apps/server/src/store/notices.ts#NoticesRepository.query': {
+    kind: 'opaque',
+    why: "The notices repository's own write callback, handed to its write funnel (write) [POD-6881]; every caller's query is declared in the same file and is checked there, exactly as SuperagentRepository.query is.",
+  },
+  'apps/server/src/store/notices.ts#NoticeFeedCapture.NoticeFeedCapture': {
+    kind: 'contained',
+    why: "The inboxNotice record feed's capture [POD-6881]: it appends the written rows' inboxNotice changes to the change log through Ledger.capture, which joins this same transaction and defers subscriber delivery past the outermost commit. A rollback takes the appended changes with it and nothing outside the process saw them.",
   },
   'apps/server/src/store/superagent.ts#SuperagentRepository.query': {
     kind: 'opaque',

@@ -75,22 +75,6 @@ test.skip(
 test.describe.configure({ timeout: 90_000 })
 test.beforeEach(async ({ page }) => deferUpdateOffers(page))
 
-async function seedStaleCodexWorkLlm(): Promise<void> {
-  const trpc = makeTrpc('http://localhost:8799')
-  for (const provider of ['anthropic', 'openai', 'openrouter'] as const) {
-    await trpc.accounts.connect.mutate({
-      provider,
-      kind: 'api-key',
-      credential: `sk-browser-fixture-${provider}`,
-    })
-  }
-  // workLlm migrated onto roles.background; seed that shape on my settings record.
-  await setMyPreferences(trpc, {
-    'roles.background.accountId': nativeAccountId('codex'),
-    'roles.background.model': 'gpt-5.5',
-  })
-}
-
 async function openShell(page: Page): Promise<void> {
   await page.addInitScript(() => {
     ;(window as Window & { __PODIUM_SKIP_SETUP__?: boolean }).__PODIUM_SKIP_SETUP__ = true
@@ -116,10 +100,6 @@ function section(page: Page, name: string) {
     .locator('xpath=ancestor::section[1]')
 }
 
-function backgroundWorkSection(page: Page) {
-  return section(page, 'Background model')
-}
-
 function superagentSection(page: Page) {
   return section(page, 'Superagent')
 }
@@ -128,19 +108,17 @@ function newSessionsSection(page: Page) {
   return section(page, 'New sessions')
 }
 
-function accountsSection(page: Page) {
-  return section(page, 'Logins on your machines')
+function credentialsSection(page: Page) {
+  return section(page, 'Your credentials')
 }
 
-test('native account profile labels render when available', async ({ page }) => {
+test('found-login identity labels render when available', async ({ page }) => {
   const trpc = makeTrpc('http://localhost:8799')
-  const accounts = await trpc.accounts.list.query()
+  const accounts = await trpc.credentials.list.query()
   // The harness always seeds the long-identity login (POD-4730) — match that
   // address itself, never host state. A missing seed is a harness failure, so
   // fail loudly instead of skipping.
-  const rows = accounts.filter(
-    (account) => account.status === 'connected' && account.identity === E2E_LONG_IDENTITY_EMAIL,
-  )
+  const rows = accounts.filter((account) => account.identity.email === E2E_LONG_IDENTITY_EMAIL)
   expect(rows.length).toBeGreaterThan(0)
 
   await page.setViewportSize({ width: 1280, height: 900 })
@@ -150,10 +128,12 @@ test('native account profile labels render when available', async ({ page }) => 
     .getByRole('button', { name: 'Settings', exact: true })
     .click({ timeout: 15_000 })
   const settings = page.getByRole('dialog', { name: 'Settings' })
-  await settings.getByRole('button', { name: 'AI accounts', exact: true }).click()
+  await settings.getByRole('button', { name: 'Credentials', exact: true }).click()
 
-  const section = accountsSection(page)
-  const value = section.getByText(E2E_LONG_IDENTITY_EMAIL, { exact: true })
+  const section = credentialsSection(page)
+  const value = section
+    .locator('.settings-entity-title .font-mono')
+    .filter({ hasText: E2E_LONG_IDENTITY_EMAIL })
   await expect(value).toBeVisible()
   // The full identity fits the row without clipping, even for the long fixture.
   const layout = await value.evaluate((element) => ({
@@ -256,33 +236,6 @@ test('superagent saves model and segmented effort immediately', async ({ page })
       'roles.superagent.model': 'gpt-5.4',
       'roles.superagent.effort': 'xhigh',
     })
-})
-
-test('background LLM only offers executable API accounts', async ({ page }) => {
-  await seedStaleCodexWorkLlm()
-  await page.setViewportSize({ width: 1280, height: 900 })
-  await openShell(page)
-
-  const settings = await openAgents(page)
-  await expect(
-    settings.getByRole('heading', { name: 'Background model', exact: true }),
-  ).toBeVisible()
-
-  const section = backgroundWorkSection(page)
-  const account = section.getByRole('combobox', { name: 'Runs on', exact: true })
-  // POD-4475: one descriptor label per harness ('Codex' + identity/machine
-  // suffixes) instead of 'Codex (ChatGPT)'.
-  await expect(account).toContainText(/^Codex/)
-  await account.click()
-  // Every connected Codex login adds its own suffixed option next to the base
-  // descriptor one (the POD-4730 long-identity fixture does so deterministically),
-  // so assert at least one Codex option rather than exactly one.
-  await expect(page.getByRole('option', { name: /^Codex/ }).first()).toBeVisible()
-  await expect(page.getByRole('option', { name: /^Anthropic/ })).toBeVisible()
-  await expect(page.getByRole('option', { name: /^OpenAI/ })).toBeVisible()
-  await expect(page.getByRole('option', { name: /^OpenRouter/ })).toBeVisible()
-  await expect(page.getByRole('option', { name: /Claude Code/ })).toHaveCount(0)
-  await expect(page.getByRole('option', { name: /^Grok/ })).toHaveCount(0)
 })
 
 test('idle-session convergence target round-trips and renders', async ({ page }) => {

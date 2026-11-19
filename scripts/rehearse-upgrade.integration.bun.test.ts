@@ -81,6 +81,30 @@ function carryOverLine(bootLog: string): { endsAt: string; oldSignIns: number } 
   return undefined
 }
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000
+
+/**
+ * Old keys a state directory from before the credential vault holds in plain
+ * text (credential management plan Task 21), all obviously fake: the fixture's
+ * `accounts` key, plus an `apiKeys.*` secret and the Linear and Telegram secrets.
+ */
+const OLD_KEYS = {
+  'apiKeys.openai': 'FAKE-sk-openai-rehearsal-0201',
+  'integrations.linearApiKey': 'FAKE-lin_api_rehearsal_0202',
+  'notifications.telegramBotToken': 'FAKE-123456:telegram-rehearsal-0203',
+} as const
+const ACCOUNT_KEY = 'fixture-only-provider-key'
+
+/** Every planted old value found in the database files of `dir` (`podium.db*`, snapshots included). */
+function oldKeysIn(dir: string): string[] {
+  const bytes = Buffer.concat(
+    readdirSync(dir)
+      .filter((name) => name.startsWith('podium.db'))
+      .map((name) => readFileSync(join(dir, name))),
+  )
+  return [ACCOUNT_KEY, ...Object.values(OLD_KEYS)].filter((value) =>
+    bytes.includes(Buffer.from(value, 'utf8')),
+  )
+}
 const RETIRED_LABELS = ['upstream', 'server-transfer-claim']
 
 describe('upgrade rehearsal', () => {
@@ -398,6 +422,11 @@ describe('upgrade rehearsal', () => {
             db.prepare('UPDATE users SET email = ? WHERE id = ?').run(`${name}@example.test`, id)
           credentials.set(id, { password, hash })
         }
+        const secret = db.prepare(
+          'INSERT OR REPLACE INTO server_secrets (key, value, updated_at) VALUES (?, ?, ?)',
+        )
+        for (const [key, value] of Object.entries(OLD_KEYS))
+          secret.run(key, value, '2026-08-21T12:00:00.000Z')
         before = ownership(db)
         expect(before.tasks.length).toBeGreaterThan(0)
         expect(before.machineKeys.length).toBeGreaterThan(0)
@@ -430,6 +459,8 @@ describe('upgrade rehearsal', () => {
         db.close()
       }
       const sourceBefore = createHash('sha256').update(readFileSync(sourcePath)).digest('hex')
+      // The canary: the search finds every planted old key in the source first.
+      expect(oldKeysIn(source)).toEqual([ACCOUNT_KEY, ...Object.values(OLD_KEYS)])
       const rehearsedAt = Date.now()
       const output = await rehearse(source, join(root, `member-copy-${multiple}`))
       expect(createHash('sha256').update(readFileSync(sourcePath)).digest('hex')).toBe(sourceBefore)
@@ -455,10 +486,32 @@ describe('upgrade rehearsal', () => {
         expect(upgraded.prepare('SELECT DISTINCT workspace_id FROM client_sessions').all()).toEqual(
           [{ workspace_id: 'local' }],
         )
-        expect({ ...after, logins: kept(after.logins) }).toEqual({
+        expect({ ...after, providerKeys: [], logins: kept(after.logins) }).toEqual({
           ...before,
+          providerKeys: [],
           logins: kept(before.logins),
         })
+        // The old keys are credentials now (Task 21): the `accounts` table is
+        // emptied once each key reads back from the vault, and no database file
+        // in the state directory, the boot's own migration snapshot included,
+        // holds a planted value any more.
+        expect(after.providerKeys).toEqual([])
+        // (The provider-keys migration had already moved the workspace `apiKeys.*`
+        // secret into an `accounts` row of the first admin, POD-6360.)
+        expect(
+          upgraded
+            .prepare(
+              "SELECT type, owner_user_id AS owner FROM credentials WHERE status = 'ok' ORDER BY type",
+            )
+            .all(),
+        ).toEqual([
+          { type: 'anthropic.api-key', owner: 'mem_upgrade_alice' },
+          { type: 'openai.api-key', owner: 'mem_upgrade_alice' },
+        ])
+        expect(
+          readdirSync(join(output, 'state')).some((name) => name.startsWith('podium.db.backup-v')),
+        ).toBe(true)
+        expect(oldKeysIn(join(output, 'state'))).toEqual([])
         expect(after.logins).toEqual(kept(before.logins))
         // The boot log names the end of the carry-over period and how many
         // old sign-ins could still be carried: those of a person's three labels.

@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import type {
+  AcceptedCredential,
   AgentQuotaWire,
   HarnessRef,
   ResumeRef,
@@ -329,6 +330,58 @@ export interface HarnessInventory {
    * Empty array = this harness has no such variable (declare it, don't omit it).
    */
   foreignCredentialEnv: readonly string[]
+  /**
+   * The credential types this harness accepts and how each one is delivered
+   * (credential management spec §5). Whether a credential can be used for a
+   * session is the match between its type and these lines; a pairing not
+   * declared here cannot be selected.
+   *
+   * Only types this harness can already run on today. A harness's own login
+   * that is none of the registry's types gets no line and stays "no
+   * credential". Empty array = it accepts none (declare it, don't omit it).
+   */
+  accepts: readonly AcceptedCredential[]
+  /**
+   * What a launch sets so the commands the agent runs do not inherit the
+   * delivered credential, where the harness documents such a switch. It
+   * prevents accidents; it is not a barrier (spec §14). Absent: no switch.
+   */
+  hideFromCommands?: HideFromCommands
+  /**
+   * The harness's own answer to "which login are you on", read with a
+   * session's exact environment after it started (credential management §9
+   * "Launching"). Absent: the harness has no such command, and a session on it
+   * reports `unknown`.
+   */
+  authStatusProbe?: HarnessAuthStatusProbe
+  /**
+   * The harness's own sign-out, run in a Podium home before the home is
+   * deleted (credential management §8 "cleanup"). Never run in the harness's
+   * own directory. Absent: the harness has no sign-out command.
+   */
+  signOutCommand?: { readonly args: readonly string[] }
+}
+
+/** What a harness says it authenticated with. Never a secret. */
+export interface ReportedAuth {
+  readonly method: 'api-key' | 'subscription' | 'token' | 'unknown'
+  /** The environment variable the harness says it read the credential from. */
+  readonly sourceVariable?: string
+  /** A subscription login's account, and its login-identity fingerprint. */
+  readonly email?: string
+  readonly fingerprint?: string
+}
+
+export interface HarnessAuthStatusProbe {
+  readonly args: readonly string[]
+  readonly timeoutMs: number
+  classify(result: LoginCommandResult): ReportedAuth
+}
+
+/** Environment and arguments a launch adds to keep credentials out of agent commands. */
+export interface HideFromCommands {
+  env?: Readonly<Record<string, string>>
+  args?: readonly string[]
 }
 
 /** Prefer a recognizable name + email without duplicating equal values. */
@@ -984,6 +1037,17 @@ export interface InstrumentationDestination {
   /** Host telemetry plumbing: report one harness `--version` probe's raw output.
    *  Best-effort observations only, never an admission requirement. */
   reportVersionProbe?: (harness: string, output: string) => void
+  /**
+   * Trust for hooks a harness takes at launch, in a home Podium created
+   * (credential management §10): the harness's own hash per hook key for
+   * exactly these launch flags, read from the harness and cached by the host.
+   * Undefined when it cannot be had; the install then degrades as untrusted.
+   * Codex only today.
+   */
+  launchHookTrust?: (
+    installation: HarnessContext['installation'],
+    flags: readonly string[],
+  ) => Promise<Readonly<Record<string, string>> | undefined>
 }
 
 /** What an install produced: CLI wiring plus how degraded the global part is.
@@ -1627,6 +1691,34 @@ export interface HarnessHandoffTranscript {
     homeDir: string
     resumeValue: string
   }): Promise<{ path: string; relativeDir?: string }>
+  /**
+   * WHERE THE CONVERSATION IS IN ONE CONFIGURATION DIRECTORY (credential
+   * management §9 "Switching", §10 "Homes"; epic Task 11). `stateDir` is the
+   * harness's state root for a home (`roots(home, { VAR: dir }).state`). The
+   * answer is a file inside `stateDir`, or undefined: never a path elsewhere
+   * that an index there points at. Absent: a switch cannot move this harness's
+   * conversation between homes.
+   */
+  locateInHome?(input: {
+    stateDir: string
+    cwd: string
+    resumeValue: string
+  }): Promise<string | undefined>
+  /** Other files of the conversation to copy beside it (absolute, may not exist). */
+  companions?(path: string): string[]
+  /**
+   * One record of a conversation that continues on another account or model
+   * provider: undefined leaves it out, the same object keeps it as it was, a
+   * new object replaces it. Codex leaves out encrypted reasoning when the
+   * account changes (POD-6893 §3: a foreign one is refused with 400) and
+   * records the provider the target runs on. Absent: every record carries over.
+   */
+  carryRecord?(
+    record: unknown,
+    change: { accountChanged: boolean; modelProvider?: string },
+  ): unknown
+  /** After the file was placed or rewritten: the harness's own bookkeeping. */
+  afterPlace?(input: { stateDir: string; resumeValue: string; path: string }): Promise<void>
 }
 
 // ---------------------------------------------------------------------------

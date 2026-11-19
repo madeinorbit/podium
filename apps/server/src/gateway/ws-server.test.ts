@@ -12,6 +12,12 @@ import { CLIENT_WIRE_VERSION } from '@podium/protocol'
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import {
+  ACCEPT_PLAIN_DAEMON_LINKS,
+  DaemonLinks,
+  daemonLinkFactsOf,
+  PLAIN_DAEMON_LINK_REFUSAL,
+} from './daemon-link-kind'
 
 /** A heartbeat that never fires: this test is about one frame, not liveness. */
 const SILENT_TIMERS = { setInterval: () => 0, clearInterval: () => {} }
@@ -126,5 +132,64 @@ describe('HTTP sync capability cutover', () => {
     } finally {
       await handle.close()
     }
+  })
+})
+
+describe('a daemon on a plain link from another computer', () => {
+  const linksRegistry = () =>
+    ({
+      daemonLinks: new DaemonLinks({ trustedNetworks: () => [], kindChanged: () => {} }),
+    }) as never
+
+  async function upgradeFrom(peer: string, accept: boolean | undefined, path = '/daemon') {
+    const { attachWebSockets } = await import('./ws-server')
+    const handle = attachWebSockets(
+      linksRegistry(),
+      {},
+      {
+        timers: SILENT_TIMERS,
+        daemonLink: (request) => daemonLinkFactsOf(request, peer, 0),
+        ...(accept === undefined ? {} : { acceptPlainDaemonLinks: accept }),
+      },
+    )
+    const upgrade = vi.fn((_request: Request, _options: { data: unknown }) => true)
+    try {
+      const response = await handle.handleRequest(new Request(`http://podium.example${path}`), {
+        upgrade,
+        port: 0,
+        stop() {},
+      } as never)
+      return { response, upgrade }
+    } finally {
+      await handle.close()
+    }
+  }
+
+  it('is accepted until the removal date, and its link travels with the socket', async () => {
+    expect(ACCEPT_PLAIN_DAEMON_LINKS).toBe(true)
+    const { response, upgrade } = await upgradeFrom('192.168.7.20', undefined)
+    expect(response).toBeUndefined()
+    expect(upgrade.mock.calls[0]?.[1].data).toMatchObject({
+      kind: 'daemon',
+      link: { clientAddress: '192.168.7.20', hasProxyHeaders: false },
+    })
+  })
+
+  it.each([
+    '/daemon',
+    '/machine',
+  ])('with the switch flipped, %s is refused at connect with the message', async (path) => {
+    const { response, upgrade } = await upgradeFrom('192.168.7.20', false, path)
+    expect(response?.status).toBe(403)
+    expect(await response?.text()).toBe(PLAIN_DAEMON_LINK_REFUSAL)
+    expect(PLAIN_DAEMON_LINK_REFUSAL).toContain('wss')
+    expect(PLAIN_DAEMON_LINK_REFUSAL).toContain('Trusted networks')
+    expect(upgrade).not.toHaveBeenCalled()
+  })
+
+  it('with the switch flipped, a daemon on this computer still connects', async () => {
+    const { response, upgrade } = await upgradeFrom('127.0.0.1', false)
+    expect(response).toBeUndefined()
+    expect(upgrade).toHaveBeenCalledTimes(1)
   })
 })

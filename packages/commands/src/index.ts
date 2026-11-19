@@ -22,26 +22,6 @@
  * import site was repointed instead.
  */
 
-export {
-  ACCOUNT_CONTRACT_NAMES,
-  ACCOUNT_CONTRACTS,
-  AccountConnectInput,
-  type AccountContractName,
-  accountsConnectContract,
-  accountsConnectInput,
-  accountsDisconnectContract,
-  accountsDisconnectInput,
-  accountsLoginContract,
-  accountsLoginInput,
-  accountsSendContract,
-  accountsSendInput,
-  accountsShareContract,
-  accountsShareInput,
-  accountsUnsendContract,
-  accountsUnsendInput,
-  accountsUseOnMyMachinesContract,
-  accountsUseOnMyMachinesInput,
-} from './accounts/contracts'
 export { AgentProfileRef } from './agent-profiles/contracts'
 export {
   AUTOMATION_CONTRACT_NAMES,
@@ -125,6 +105,34 @@ export {
   conversationsSetMetaContract,
   conversationsSetMetaInput,
 } from './conversations/contracts'
+export {
+  CREDENTIAL_CONTRACT_NAMES,
+  CREDENTIAL_CONTRACTS,
+  CREDENTIAL_MACHINE_DISCLOSURE,
+  CREDENTIAL_SHARE_DISCLOSURE,
+  CREDENTIAL_SHARE_WARNING,
+  type CredentialContractName,
+  CredentialGrantee,
+  CredentialGrantVerb,
+  credentialsAddInput,
+  credentialsAllowMachineInput,
+  credentialsChatgptSignInCompleteInput,
+  credentialsChatgptSignInStartInput,
+  credentialsDisallowMachineInput,
+  credentialsRemoveInput,
+  credentialsRenameInput,
+  credentialsRenewInput,
+  credentialsShareInput,
+  credentialsSignInCancelInput,
+  credentialsSignInStartInput,
+  credentialsUnshareInput,
+} from './credentials/contracts'
+export {
+  credentialsLoginContract,
+  credentialsLoginInput,
+  credentialsUseOnMyMachinesContract,
+  credentialsUseOnMyMachinesInput,
+} from './credentials/native-login-contracts'
 export {
   EFFECT_CONFLICT_RULE,
   EFFECT_CONTRACTS,
@@ -389,6 +397,16 @@ export {
   modelsRefreshContract,
   modelsRefreshInput,
 } from './models/contracts'
+// The per-person notice inbox (POD-6881, credential management spec §13).
+export {
+  NOTICE_SYNC_COMMANDS,
+  type NoticeListInput,
+  type NoticeMarkReadInput,
+  noticeCommands,
+  noticeListInput,
+  noticeMarkAllReadInput,
+  noticeMarkReadInput,
+} from './notices/contracts'
 export {
   OPERATION_CONTRACT_NAMES,
   OPERATION_CONTRACTS,
@@ -503,6 +521,13 @@ export {
 } from './sessions/rename'
 export * from './sessions/session-state-commands'
 export {
+  type SessionSwitchCredentialInput,
+  type SessionSwitchCredentialOutput,
+  SwitchContinuation,
+  sessionSwitchCredentialInput,
+  sessionSwitchCredentialOutput,
+} from './sessions/switch-credential'
+export {
   CONTRACT_TIER,
   contractMatrixRow,
   ONLINE_ONLY_SETTINGS_COMMANDS,
@@ -569,6 +594,14 @@ export {
   superagentStartBtwInput,
   superagentUserFocus,
 } from './superagent/contracts'
+export {
+  VAULT_CONTRACT_NAMES,
+  VAULT_CONTRACTS,
+  type VaultContractName,
+  type VaultResetInput,
+  vaultResetContract,
+  vaultResetInput,
+} from './vault/contracts'
 export {
   WORKFLOW_ADVANCE_NAMES,
   WORKFLOW_CONTRACTS,

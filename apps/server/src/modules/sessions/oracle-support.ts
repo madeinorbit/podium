@@ -47,9 +47,10 @@ import {
   type MachineId,
   type SessionId,
 } from '@podium/model'
-import { CLIENT_WIRE_VERSION, type ServerMessage } from '@podium/protocol'
+import { CAP_SESSION_ACCESS, CLIENT_WIRE_VERSION, type ServerMessage } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 
+import { IN_PROCESS_DAEMON_LINK } from '../../gateway/daemon-link-kind'
 import { SessionRegistry } from '../../relay'
 import { RepoRegistry } from '../../repo-registry'
 import { appRouter } from '../../router'
@@ -256,25 +257,29 @@ export async function makeOracle(
   const client: ServerMessage[] = []
   /** Extra sinks the relay helper installs; the daemon send fn is single-slot. */
   const relayWaiters: ((msg: ControlMessage) => void)[] = []
-  await reg.gateway.attachDaemon(
-    machineId,
-    confirmingRetirement(reg, machineId, (msg) => {
-      daemon.push(msg)
-      for (const waiter of relayWaiters) waiter(msg)
-      // Answer the one RPC a session write makes of its daemon: `stop` inspects the
-      // worktree for unsaved work. A clean tree is the ordinary case; leaving it
-      // unanswered would turn every stop test into a 20s RPC timeout rather than a
-      // characterization. Tests that want the dirty-tree refusal drive it explicitly.
-      if (msg.type === 'repoOpRequest') {
-        reg.gateway.routeDaemonFrame(machineId, {
-          type: 'repoOpResult',
-          requestId: msg.requestId,
-          ok: true,
-          output: '',
-        })
-      }
-    }),
-  )
+  // A daemon of this build on a link that never leaves the computer, as
+  // `attachHostDaemon` attaches one: the socket accept path records the link
+  // before the attach, and the daemon takes a session's credential
+  // (`CAP_SESSION_ACCESS`). Without both, a launch on a member's own
+  // credential is refused as if the machine were offline.
+  const peer = confirmingRetirement(reg, machineId, (msg) => {
+    daemon.push(msg)
+    for (const waiter of relayWaiters) waiter(msg)
+    // Answer the one RPC a session write makes of its daemon: `stop` inspects the
+    // worktree for unsaved work. A clean tree is the ordinary case; leaving it
+    // unanswered would turn every stop test into a 20s RPC timeout rather than a
+    // characterization. Tests that want the dirty-tree refusal drive it explicitly.
+    if (msg.type === 'repoOpRequest') {
+      reg.gateway.routeDaemonFrame(machineId, {
+        type: 'repoOpResult',
+        requestId: msg.requestId,
+        ok: true,
+        output: '',
+      })
+    }
+  })
+  reg.daemonLinks.connected(machineId, IN_PROCESS_DAEMON_LINK, peer)
+  await reg.gateway.attachDaemon(machineId, peer, [CAP_SESSION_ACCESS])
   // A real daemon reports its current inventory immediately after attaching.
   // Without this frame the fixture describes a connection that is permanently
   // mid-probe, and every harness-gated command exercises reconnect timing

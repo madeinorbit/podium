@@ -2,8 +2,8 @@ import { execFileSync } from 'node:child_process'
 import { copyFile, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
-import { DriverRefusalError, type SessionArchive } from '@podium/harness/driver/host'
 import { claudeProjectSlug, codexTranscriptPlacement } from '@podium/harness'
+import { DriverRefusalError, type SessionArchive } from '@podium/harness/driver/host'
 import {
   asMachineId,
   asRepoId,
@@ -12,8 +12,9 @@ import {
   type ResumeRef,
   type SessionId,
 } from '@podium/model'
-import { describe, expect, it } from 'vitest'
 import type { DaemonMessage } from '@podium/protocol/daemon'
+import { describe, expect, it } from 'vitest'
+import { memoryMarkers, SessionAccessStore } from './control/access'
 import type { DaemonContext } from './control/context'
 import { handoffHandlers } from './control/handoff'
 import {
@@ -113,6 +114,7 @@ function driverContext(archive?: SessionArchive | Error, sessionId?: SessionId):
     agentRuntime: {
       handleFor: (id: SessionId) => (sessionId && id === sessionId ? handle : undefined),
     },
+    access: new SessionAccessStore({ markers: memoryMarkers() }),
   } as unknown as DaemonContext
 }
 
@@ -401,6 +403,7 @@ describe('handoff driver bridge (POD-4306 F16)', () => {
     const ctx = {
       machineId: 'target-machine',
       send: (message: DaemonMessage) => sent.push(message),
+      access: new SessionAccessStore({ markers: memoryMarkers() }),
     } as unknown as DaemonContext
     handoffHandlers.handoffImportRequest(ctx, {
       type: 'handoffImportRequest',
@@ -617,6 +620,7 @@ describe('handoff export control bridge (live handle vs parked)', () => {
         }),
         adoptTransfer: () => ({ agentKind }),
       },
+      access: new SessionAccessStore({ markers: memoryMarkers() }),
     } as unknown as DaemonContext
     handoffHandlers.handoffExportRequest(ctx, {
       type: 'handoffExportRequest',
@@ -683,6 +687,7 @@ describe('handoff export control bridge (live handle vs parked)', () => {
         transition: async () => ({ status: 'applied' as const, binding: { agentKind: 'claude-code' } }),
         adoptTransfer: () => ({ agentKind: 'claude-code' }),
       },
+      access: new SessionAccessStore({ markers: memoryMarkers() }),
     } as unknown as DaemonContext
     // Need the real base: recompute from the worktree's repo.
     const { execFile } = await import('node:child_process')

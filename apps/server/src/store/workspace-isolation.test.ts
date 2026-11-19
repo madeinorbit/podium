@@ -84,6 +84,10 @@ const INSTALL_REPOSITORIES: Record<string, string> = {
 const FACADES: Record<string, string> = {
   conversations:
     'only ensureFts; its index, registry, mirror and transcript index are exercised by name',
+  openedVault:
+    "the workspace's vault: it holds no statement; its key rows are the credentials repository's (vault_key), exercised there",
+  vaultKeyCheck:
+    'the same vault, as the credentials repository asks it whether a key opens; no statement of its own',
 }
 
 const isInstance = (value: unknown): value is object =>
@@ -477,14 +481,42 @@ const peopleGroup: Group = {
         )
       },
     },
-    accounts: {
+    nativeLogins: {
       read: async ({ store }) => ({
-        all: await store.accounts.list(),
-        shared: await store.accounts.sharedWithUser(people.user('bob')),
-        optIns: await store.accounts.optInsFor(people.user()),
+        optIns: await store.nativeLogins.optInsFor(people.user()),
+        transfers: await store.nativeLogins.transfersFor(people.user()),
       }),
       write: async ({ store }) => {
-        await store.accounts.disconnect(people.user(), people.ANTHROPIC)
+        await store.nativeLogins.setOptIn(
+          people.user(),
+          'claude-code',
+          people.SHARED.fingerprint,
+          false,
+          AT,
+        )
+      },
+    },
+    credentials: {
+      read: async ({ store }) => ({
+        one: await store.credentials.get(people.CREDENTIAL),
+        visible: await store.credentials.listVisibleTo(people.user()),
+        many: await store.credentials.getMany([people.CREDENTIAL]),
+        machines: [...(await store.credentials.allowedMachinesOf([people.CREDENTIAL])).entries()],
+        placements: await store.credentials.listPlacements(people.CREDENTIAL),
+        live: await store.credentials.listLivePlacementsOfOwner(people.user()),
+        secret: await store.credentials.latestSecret(people.CREDENTIAL),
+        legacy: await store.credentials.legacyAccountRows(),
+        sends: await store.credentials.legacyAccountSends(),
+        vaultKey: await store.credentials.readVaultKey(),
+      }),
+      write: async ({ store, tag }) => {
+        await store.credentials.rename(people.CREDENTIAL, `${tag} renamed`)
+        await store.credentials.setPlacementState(
+          { credentialId: people.CREDENTIAL, machineId: people.machine(), kind: 'home' },
+          'removal-pending',
+        )
+        await store.credentials.disallowMachine(people.CREDENTIAL, people.machine())
+        await store.credentials.remove(people.CREDENTIAL)
       },
     },
     signInCarryOver: {
@@ -720,6 +752,24 @@ const remainingGroup: Group = {
         await store.quotaHistory.prune(Number.MAX_SAFE_INTEGER)
       },
     },
+    notices: {
+      read: async ({ store }) => ({
+        open: await store.notices.listOpen(remaining.RECIPIENT, { limit: 10 }),
+        byIds: await store.notices.openByIds([remaining.noticeId(1), remaining.noticeId(2)]),
+        all: await store.notices.allOpen(),
+        unread: await store.notices.countUnread(remaining.RECIPIENT),
+      }),
+      write: async ({ store }) => {
+        await store.notices.markRead(
+          remaining.RECIPIENT,
+          remaining.noticeId(2),
+          remaining.REMARKED_AT,
+        )
+        await store.notices.resolveReadEventsBeyond(remaining.RECIPIENT, 0, remaining.REMARKED_AT)
+        await store.notices.markAllRead(remaining.RECIPIENT, remaining.REMARKED_AT)
+        await store.notices.resolveByKey(remaining.NOTICE_KEY, remaining.REMARKED_AT)
+      },
+    },
     operations: {
       read: async ({ store }) => ({
         history: await store.operations.history(),
@@ -860,7 +910,7 @@ const othersGroup: Group = {
       version: MODEL_CATALOG_VERSION,
     })
     await store.settings.recordSetupEnrollment('request', `${tag}-receipt`)
-    await store.secrets.set('apiKeys.openrouter', `${tag}-key`, AT)
+    await store.secrets.set('notifications.telegramBotToken', `${tag}-key`, AT)
     await store.sync.appendChanges(
       [{ entity: 'session', entityId: S1, op: 'upsert', payload: JSON.stringify({ tag }) }],
       1000,
@@ -913,11 +963,11 @@ const othersGroup: Group = {
     },
     secrets: {
       read: async ({ store }) => ({
-        key: await store.secrets.get('apiKeys.openrouter'),
+        key: await store.secrets.get('notifications.telegramBotToken'),
         presence: await store.secrets.presence(),
       }),
       write: async ({ store }) => {
-        await store.secrets.clear('apiKeys.openrouter')
+        await store.secrets.clear('notifications.telegramBotToken')
       },
     },
     sync: {

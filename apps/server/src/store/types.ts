@@ -7,6 +7,7 @@ import type {
   AccountId,
   AgentRuntimeState,
   Attribution,
+  CredentialId,
   Geometry,
   HarnessRefEntry,
   IssueId,
@@ -164,6 +165,11 @@ export interface SessionRow {
   requestedEffort?: string | null
   /** Account selection, not credential material. */
   accountId?: AccountId | null
+  credentialId?: CredentialId | null
+  /** What the harness reported it authenticated with (credential management §9). */
+  effectiveAuth?: import('@podium/model').EffectiveAuth | null
+  /** The harness answered on another identity than `credentialId` names. */
+  credentialMismatch?: import('@podium/model').CredentialMismatch | null
   /** Harness authenticated by this shell; null for every ordinary session. */
   loginHarness?: import('@podium/model').HarnessAgent | null
   cwd: string
@@ -561,6 +567,9 @@ export interface IssueCommentRow {
   editedAt?: string | null
   editedBy?: string | null
   editedOnBehalfOf?: string | null
+  /** The member ids the comment mentions, as a JSON array (POD-6881). NULL =
+   *  written before mentions were stored. */
+  mentions?: string | null
 }
 
 /** The two task texts that keep a revision history (POD-6289). */

@@ -31,7 +31,7 @@ import { directPtyDurableForTests } from '@podium/process/durable'
 import { hasBunTerminal } from '@podium/process/pty'
 import { SpawnMessage } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
-import { credentialEnv } from '@podium/runtime'
+import { memoryMarkers, SessionAccessStore } from '../src/control/access'
 import type { DaemonContext } from '../src/control/context'
 import { launchSpawn, launchTerminalProcess, sessionSpecForSpawn } from '../src/control/session'
 import { terminalProfileFor } from '../src/runtime/registry'
@@ -170,6 +170,7 @@ async function dumpEnvOfSpawnedProcess(
     sessionCwdTracker: { setLaunchCwd: async () => {}, clear: () => {} },
     hookEndpointFor: (id: string) => `http://127.0.0.1:1/hook/${id}`,
     agentRelayEndpointFor: (id: string) => `http://127.0.0.1:1/relay/${id}`,
+    access: new SessionAccessStore({ markers: memoryMarkers() }),
   } as unknown as DaemonContext
 
   // The real wire frame through the real schema.
@@ -247,7 +248,7 @@ it('runs on the Bun terminal PTY — the backend the shipped daemon uses', () =>
 })
 
 it('POSITIVE: a managed credential reaches the real spawned process env (Bun backend)', async () => {
-  const env = credentialEnv({ provider: 'anthropic', kind: 'api-key', credential: CREDENTIAL })
+  const env = { ANTHROPIC_API_KEY: CREDENTIAL }
   expect(env).toEqual({ ANTHROPIC_API_KEY: CREDENTIAL })
 
   const dump = await dumpEnvOfSpawnedProcess('bun-managed', env)

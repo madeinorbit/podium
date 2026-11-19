@@ -22,6 +22,7 @@ import type { SuperagentUserFocus } from '@podium/commands'
 import { createLogger, describeError } from '@podium/logger'
 import {
   type AccountId,
+  asAccountId,
   asIssueId,
   asSessionId,
   asThreadId,
@@ -52,7 +53,7 @@ import type {
   SuperagentMessageRow,
   SuperagentThreadRow,
 } from '../../store'
-import { selectHarnessAccountId } from '../sessions/harness-account'
+import { legacyRoleDefault } from '../sessions/launch-config'
 import type { SessionWriter } from '../sessions/session-lifecycle-types'
 import { sessionPostureFor } from '../sessions/session-posture'
 import { afterCommitOrNow } from './after-commit'
@@ -1026,10 +1027,10 @@ export class SuperagentService {
    * before dispatch, so it must be stable per session and non-empty — and it
    * should name the login the harness will actually run under, the way headed
    * rows do. The role PREFERENCE here is the superagent's own: its role when
-   * it names this harness, else the coding role. The SELECTION from that
-   * preference is the one shared rule (`selectHarnessAccountId`, the same
-   * function `SessionStart.spawn` calls), so the composer path and the
-   * superagent path resolve the same account for the same settings.
+   * it names this harness, else the coding role. The SELECTION is the one a
+   * headed launch makes (`credentialDefaults`, then `legacyRoleDefault`, the
+   * rule `SessionLaunchConfig.selectCredential` uses), so the composer path and
+   * the superagent path choose the same credential for the same settings.
    * Never throws: a settings/inventory read error is `ok: false`, so the mint
    * path can fall back to the native login (the worst case is a harness-level
    * login error at dispatch) and the reuse path can keep its bound row
@@ -1046,13 +1047,20 @@ export class SuperagentService {
         superBackend.execution === 'harness' && superBackend.harness === agent
           ? superBackend.accountId
           : resolveRole(settings, 'coding').accountId
-      const selected = selectHarnessAccountId(agent, roleAccount)
-      const resolved = await this.modules.machines.nativeAccountIdForMachine(
-        machineId,
-        agent,
-        selected,
-      )
-      return { ok: true, accountId: resolved || nativeAccountId(agent) }
+      // The same choice a headed launch makes: the person's default for this
+      // harness, then their role account where this harness accepts it. With
+      // none, the turn names the login the machine reports for the harness.
+      const credentialId =
+        settings.credentialDefaults[agent] ??
+        (await legacyRoleDefault(this.store, agent, roleAccount, ownerUserId))
+      // A key the role names that no longer exists keeps its old id, so the
+      // turn is refused with the reason rather than run on the machine's login.
+      if (credentialId === 'missing') return { ok: true, accountId: roleAccount }
+      if (credentialId) return { ok: true, accountId: asAccountId(credentialId) }
+      return {
+        ok: true,
+        accountId: await this.modules.machines.harnessLoginAccountId(machineId, agent),
+      }
     } catch {
       return { ok: false }
     }

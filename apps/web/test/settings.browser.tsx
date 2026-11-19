@@ -77,7 +77,7 @@ function Surface() {
       // Provider start installs the real hub listeners in its passive effect.
       fixture.publishMachines()
       if (!active) return
-      referenceState(runtime).setSettingsTab('accounts')
+      referenceState(runtime).setSettingsTab('credentials')
       ready = currentPool !== null
     })
     return () => {
@@ -148,7 +148,7 @@ const driver = {
   async preferences() {
     for (let step = 0; step < 20; step++) {
       owner.deviceState.set('podium.sounds.enabled', step % 2 ? 'true' : 'false')
-      referenceState(owner).setSettingsTab(step % 2 ? 'accounts' : 'notifications')
+      referenceState(owner).setSettingsTab(step % 2 ? 'credentials' : 'notifications')
       await nextFrame()
     }
   },

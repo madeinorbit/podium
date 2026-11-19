@@ -37,6 +37,8 @@ import {
 } from '@podium/commands'
 import {
   asUserId,
+  CredentialIdField,
+  credentialRefusalCode,
   type EffectTarget,
   type MachineId,
   mintDeviceId,
@@ -59,6 +61,7 @@ import {
 import type { RegistryModules } from '../../relay'
 import type { EffectRow } from '../../store/effects'
 import type { UsersRepository } from '../../store/users'
+import { credentialRefusalIn } from '../credentials/refusal-error'
 import { publishedInputOf } from '../effects/published-input'
 import type { EffectExecutor, EffectOutcome } from '../effects/registry'
 import { NO_TARGET } from '../sync-write/registry'
@@ -156,6 +159,8 @@ export const SessionLaunchInput = sessionCommandPlaneInputs.create
         workflowRunId: z.string().optional(),
         workflowStepId: z.string().optional(),
         agentProfileId: z.string().optional(),
+        /** The credential the spawn named, resolved by its write (`null`: none). */
+        credentialId: CredentialIdField.nullable().optional(),
       })
       .strict()
       .optional(),
@@ -256,7 +261,7 @@ export function registerSessionLaunchEffect(deps: SessionLaunchEffectDeps): {
         }
       } catch (error) {
         remember(record.id, error)
-        return refused(error instanceof Error ? error.message : String(error))
+        return launchFailed(error)
       }
     }
     const capability = userCommandPrincipal(asUserId(writer.id), writer.role).capability
@@ -298,7 +303,7 @@ export function registerSessionLaunchEffect(deps: SessionLaunchEffectDeps): {
       return { status: 'succeeded', result }
     } catch (error) {
       remember(record.id, error)
-      return refused(error instanceof Error ? error.message : String(error))
+      return launchFailed(error)
     }
   }
 
@@ -422,6 +427,7 @@ async function spawnAgentNow(
     ...(spawn.workflowRunId !== undefined ? { workflowRunId: spawn.workflowRunId } : {}),
     ...(spawn.workflowStepId !== undefined ? { workflowStepId: spawn.workflowStepId } : {}),
     ...(spawn.agentProfileId !== undefined ? { agentProfileId: spawn.agentProfileId } : {}),
+    ...(spawn.credentialId !== undefined ? { credentialId: spawn.credentialId } : {}),
   })
 }
 
@@ -429,6 +435,19 @@ const refused = (message: string): EffectOutcome => ({
   status: 'failed',
   error: { code: 'refused', message },
 })
+
+/**
+ * A launch that failed: refused for its credential, the record's error code
+ * names the refusal (`credential:<refusal>`), so a client says why and offers
+ * the way out by the code, never by the sentence (credential management §9).
+ */
+function launchFailed(error: unknown): EffectOutcome {
+  const message = error instanceof Error ? error.message : String(error)
+  const refusal = credentialRefusalIn(error)?.refusal
+  return refusal
+    ? { status: 'failed', error: { code: credentialRefusalCode(refusal), message } }
+    : refused(message)
+}
 
 /**
  * The browser files a launch's record names, read back from the pending-upload

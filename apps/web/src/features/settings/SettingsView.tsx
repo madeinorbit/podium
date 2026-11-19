@@ -6,12 +6,8 @@ import {
 import { instancePreferences } from '@podium/client-graph/instance-preferences'
 import { here } from '@podium/client-graph/lookup'
 import { myPreferences } from '@podium/client-graph/per-user-records'
-import {
-  INSTANCE_PREFERENCES_ROW_ID,
-  SETTINGS_PATH_TIERS,
-  type ServerSecretKey,
-} from '@podium/model/browser'
-import { DEFAULT_SETTINGS, type PodiumSettings } from '@podium/runtime'
+import { INSTANCE_PREFERENCES_ROW_ID, type ServerSecretKey } from '@podium/model/browser'
+import type { PodiumSettings } from '@podium/runtime'
 import { observer } from 'mobx-react-lite'
 import type { JSX } from 'react'
 import { Suspense, useCallback, useEffect, useMemo, useState } from 'react'
@@ -24,9 +20,9 @@ import { throughRestarts } from '@/lib/chunk-recovery'
 import { useDeadlineNow } from '@/lib/clock-hooks'
 import { lazy } from '@/lib/lazy-surface'
 import { AdminViewerContext, useAdminSections } from './admin-viewer'
+import { composedSettings } from './composed-settings'
 import { SETTINGS_GROUPS } from './page-definitions'
 import { useSettingsTab } from './readers'
-import { accountKey, useSettingsRecords } from './record-readers'
 import { SettingsOpening } from './SettingsOpening'
 import { settingsChange } from './save-settings'
 import type { SecretSurfaceState } from './secret-presence'
@@ -43,11 +39,10 @@ import {
 } from './sections/notifications'
 import { PrivacySection } from './sections/privacy'
 import {
-  type AccountView,
-  SettingsControlsContext,
   type SettingsControlsState,
   useSettingsPermitted,
 } from './sections/shared'
+import { TrustedNetworksSection } from './sections/trusted-networks'
 import { WorkflowSection } from './sections/workflow'
 import { SettingsPageSection } from './settings-anchors'
 import { SettingsFrame } from './settings-frame'
@@ -58,10 +53,10 @@ import { adminSectionOf, visibleSettingsGroups } from './surfaces'
 export { SETTINGS_GROUPS, SETTINGS_TABS } from './page-definitions'
 export type SettingsTab = SettingsPage
 
-// Account connection and login controls are only needed on the AI accounts page.
-const AccountsSection = lazy(() =>
-  throughRestarts(() => import('./sections/accounts')).then((module) => ({
-    default: module.AccountsSection,
+// The credential list, its dialogs and the login controls are only needed on Credentials.
+const CredentialsSection = lazy(() =>
+  throughRestarts(() => import('@/features/credentials/CredentialsSection')).then((module) => ({
+    default: module.CredentialsSection,
   })),
 )
 // The repository table, its prefix editor and the grouping model behind it are
@@ -105,10 +100,9 @@ const UpdatesSection = lazy(() =>
   })),
 )
 
-/** The live settings, per-control writer, accounts and short-flow state. */
+/** The live settings, per-control writer and short-flow state. */
 interface SectionContext {
   settings: PodiumSettings
-  accounts: AccountView[]
   patch: (p: Partial<PodiumSettings>) => void
   trpc: Trpc
   telegramSetup: TelegramSetupState
@@ -131,17 +125,15 @@ interface SectionContext {
 /** The page-to-section lookup. Controls edit their own settings leaves; the
  * address flow owns its explicit setup form. */
 const SECTION_VIEWS: Record<SettingsPage, (ctx: SectionContext) => JSX.Element> = {
-  agents: ({ settings, accounts, patch }) => (
-    <AgentsSection settings={settings} accounts={accounts} patch={patch} />
-  ),
+  agents: ({ settings, patch }) => <AgentsSection settings={settings} patch={patch} />,
   appearance: ({ settings, patch }) => (
     <SettingsPageSection id="appearance">
       <AppearanceSection settings={settings} patch={patch} />
     </SettingsPageSection>
   ),
-  accounts: () => (
-    <SettingsPageSection id="accounts">
-      <AccountsSection />
+  credentials: ({ settings, patch }) => (
+    <SettingsPageSection id="credentials">
+      <CredentialsSection settings={settings} patch={patch} />
     </SettingsPageSection>
   ),
   notifications: (ctx) => (
@@ -173,6 +165,9 @@ const SECTION_VIEWS: Record<SettingsPage, (ctx: SectionContext) => JSX.Element> 
       </SettingsPageSection>
       <SettingsPageSection id="hibernation">
         <HibernationSettingsSection settings={settings} patch={patch} />
+      </SettingsPageSection>
+      <SettingsPageSection id="trusted-networks">
+        <TrustedNetworksSettingsSection settings={settings} patch={patch} />
       </SettingsPageSection>
     </>
   ),
@@ -234,6 +229,15 @@ function HibernationSettingsSection({
   return permitted ? <IdleSessionLimits settings={settings} patch={patch} /> : null
 }
 
+/** Which networks count as safe for credentials: admins only, like the limits above. */
+function TrustedNetworksSettingsSection({
+  settings,
+  patch,
+}: Pick<SectionContext, 'settings' | 'patch'>) {
+  const permitted = useSettingsPermitted('records.instancePreferences.edit')
+  return permitted ? <TrustedNetworksSection settings={settings} patch={patch} /> : null
+}
+
 function IdleSessionLimits({ settings, patch }: Pick<SectionContext, 'settings' | 'patch'>) {
   const idleCapUnmet = usePoolIdleCapUnmetCount()
   return <HibernationSection settings={settings} patch={patch} idleCapUnmet={idleCapUnmet} />
@@ -289,9 +293,6 @@ const SettingsViewBody = observer(function SettingsViewBody({
   )
   const settings = record ?? null
   const [feedback, setFeedback] = useState<SettingsControlsState['feedback']>({})
-  const readAccounts = useCallback(() => trpc.accounts.list.query(), [trpc])
-  const { request: accountRequest } = useSettingsRecords('account', readAccounts, accountKey)
-  const accounts = accountRequest?.models ?? []
   /**
    * THE SECRET SURFACE, AND WHY IT HAS ONLY THREE STATES (POD-421).
    *
@@ -582,7 +583,6 @@ const SettingsViewBody = observer(function SettingsViewBody({
             )}
             {SECTION_VIEWS[tab]({
               settings,
-              accounts,
               patch,
               trpc,
               telegramSetup,
@@ -625,38 +625,3 @@ const SettingsViewBody = observer(function SettingsViewBody({
     </TelegramSetupContext.Provider>
   )
 })
-
-/** The personal groups: my `userPreferences` record (POD-6673). */
-const PERSONAL_GROUPS = new Set(['roles', 'sidebar', 'autoContinue', 'notifications'])
-
-/** The instance groups: the `instancePreferences` record (POD-6677). */
-const INSTANCE_GROUPS = new Set(
-  SETTINGS_PATH_TIERS.filter((field) => field.tier === 'instance-preference').map(
-    (field) => field.path.split('.')[0]!,
-  ),
-)
-
-/** The settings the screen edits: every group read live from its home, the
- *  personal ones from my synced record and the instance ones from the
- *  instance's. A secret-only group (`apiKeys`, `integrations`) is never on
- *  either record: it reads as the blank default, and the secret surface shows
- *  only whether a secret is set. */
-function composedSettings(
-  instance: () => Readonly<Record<string, unknown>> | undefined,
-  mine: () => Readonly<Record<string, unknown>> | undefined,
-): PodiumSettings {
-  const out: Record<string, unknown> = {}
-  const blank = DEFAULT_SETTINGS as unknown as Record<string, unknown>
-  for (const key of new Set(SETTINGS_PATH_TIERS.map((field) => field.path.split('.')[0]!))) {
-    Object.defineProperty(out, key, {
-      enumerable: true,
-      get: () =>
-        PERSONAL_GROUPS.has(key)
-          ? mine()?.[key]
-          : INSTANCE_GROUPS.has(key)
-            ? instance()?.[key]
-            : blank[key],
-    })
-  }
-  return out as PodiumSettings
-}

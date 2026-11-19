@@ -79,6 +79,8 @@ export const cursorManifest: AgentManifest = {
     portableCredential: unsupported('Cursor credential portability is not supported yet'),
     // Wins over the file-stored account in ~/.config/cursor/auth.json.
     foreignCredentialEnv: ['CURSOR_API_KEY'],
+    // A Cursor key or login is none of the registry's credential types.
+    accepts: [],
     detectLogin: () => ({ state: 'unknown' }),
   },
 

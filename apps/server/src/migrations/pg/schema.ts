@@ -585,6 +585,160 @@ export const conversations = pgTable(
   ],
 )
 
+export const credentialMachines = pgTable(
+  'credential_machines',
+  {
+    credentialId: textC('credential_id')
+      .notNull()
+      .$type<SqliteRow<'credentialMachines'>['credentialId']>(),
+    machineId: textC('machine_id').notNull().$type<SqliteRow<'credentialMachines'>['machineId']>(),
+    allowedBy: textC('allowed_by').notNull().$type<SqliteRow<'credentialMachines'>['allowedBy']>(),
+    createdAt: isoTimestamp('created_at')
+      .notNull()
+      .$type<SqliteRow<'credentialMachines'>['createdAt']>(),
+    workspaceId: textC('workspace_id')
+      .notNull()
+      .$type<SqliteRow<'credentialMachines'>['workspaceId']>(),
+  },
+  (table) => [
+    primaryKey({
+      name: 'credential_machines_pk',
+      columns: [table.workspaceId, table.credentialId, table.machineId],
+    }),
+    foreignKey({
+      name: 'fk_credential_machines_credential_id_credentials_id_fk',
+      columns: [table.workspaceId, table.credentialId],
+      foreignColumns: [credentials.workspaceId, credentials.id],
+    }).onDelete('cascade'),
+  ],
+)
+
+export const credentialPlacements = pgTable(
+  'credential_placements',
+  {
+    credentialId: textC('credential_id')
+      .notNull()
+      .$type<SqliteRow<'credentialPlacements'>['credentialId']>(),
+    machineId: textC('machine_id')
+      .notNull()
+      .$type<SqliteRow<'credentialPlacements'>['machineId']>(),
+    kind: textC('kind').notNull().$type<SqliteRow<'credentialPlacements'>['kind']>(),
+    homeId: textC('home_id').$type<SqliteRow<'credentialPlacements'>['homeId']>(),
+    state: textC('state')
+      .notNull()
+      .default(sql`'present'`)
+      .$type<SqliteRow<'credentialPlacements'>['state']>(),
+    createdAt: isoTimestamp('created_at')
+      .notNull()
+      .$type<SqliteRow<'credentialPlacements'>['createdAt']>(),
+    removedAt: isoTimestamp('removed_at').$type<SqliteRow<'credentialPlacements'>['removedAt']>(),
+    workspaceId: textC('workspace_id')
+      .notNull()
+      .$type<SqliteRow<'credentialPlacements'>['workspaceId']>(),
+  },
+  (table) => [
+    primaryKey({
+      name: 'credential_placements_pk',
+      columns: [table.workspaceId, table.credentialId, table.machineId, table.kind],
+    }),
+    index('idx_credential_placements_pending')
+      .on(table.workspaceId, table.machineId, table.credentialId, table.kind)
+      .where(sql`"state" = 'removal-pending'`),
+    foreignKey({
+      name: 'fk_credential_placements_credential_id_credentials_id_fk',
+      columns: [table.workspaceId, table.credentialId],
+      foreignColumns: [credentials.workspaceId, credentials.id],
+    }).onDelete('cascade'),
+    check('credential_placements_kind', sql`kind IN ('home', 'propagated-file')`),
+    check('credential_placements_state', sql`state IN ('present', 'removal-pending', 'removed')`),
+  ],
+)
+
+export const credentialSecrets = pgTable(
+  'credential_secrets',
+  {
+    credentialId: textC('credential_id')
+      .notNull()
+      .$type<SqliteRow<'credentialSecrets'>['credentialId']>(),
+    version: int8('version').notNull().$type<SqliteRow<'credentialSecrets'>['version']>(),
+    ciphertext: textC('ciphertext').notNull().$type<SqliteRow<'credentialSecrets'>['ciphertext']>(),
+    nonce: textC('nonce').notNull().$type<SqliteRow<'credentialSecrets'>['nonce']>(),
+    keyId: textC('key_id').notNull().$type<SqliteRow<'credentialSecrets'>['keyId']>(),
+    createdAt: isoTimestamp('created_at')
+      .notNull()
+      .$type<SqliteRow<'credentialSecrets'>['createdAt']>(),
+    workspaceId: textC('workspace_id')
+      .notNull()
+      .$type<SqliteRow<'credentialSecrets'>['workspaceId']>(),
+  },
+  (table) => [
+    primaryKey({
+      name: 'credential_secrets_pk',
+      columns: [table.workspaceId, table.credentialId, table.version],
+    }),
+    foreignKey({
+      name: 'fk_credential_secrets_credential_id_credentials_id_fk',
+      columns: [table.workspaceId, table.credentialId],
+      foreignColumns: [credentials.workspaceId, credentials.id],
+    }).onDelete('cascade'),
+  ],
+)
+
+export const credentials = pgTable(
+  'credentials',
+  {
+    id: textC('id').notNull().$type<SqliteRow<'credentials'>['id']>(),
+    ownerUserId: textC('owner_user_id').notNull().$type<SqliteRow<'credentials'>['ownerUserId']>(),
+    label: textC('label').notNull().$type<SqliteRow<'credentials'>['label']>(),
+    type: textC('type').notNull().$type<SqliteRow<'credentials'>['type']>(),
+    identity: jsonText('identity')
+      .notNull()
+      .default(sql`'{}'`)
+      .$type<SqliteRow<'credentials'>['identity']>(),
+    identityFingerprint:
+      textC('identity_fingerprint').$type<SqliteRow<'credentials'>['identityFingerprint']>(),
+    status: textC('status')
+      .notNull()
+      .default(sql`'ok'`)
+      .$type<SqliteRow<'credentials'>['status']>(),
+    statusReason: textC('status_reason').$type<SqliteRow<'credentials'>['statusReason']>(),
+    expiresAt: isoTimestamp('expires_at').$type<SqliteRow<'credentials'>['expiresAt']>(),
+    verifiedAt: isoTimestamp('verified_at').$type<SqliteRow<'credentials'>['verifiedAt']>(),
+    limitReachedUntil:
+      isoTimestamp('limit_reached_until').$type<SqliteRow<'credentials'>['limitReachedUntil']>(),
+    legacyId: textC('legacy_id').$type<SqliteRow<'credentials'>['legacyId']>(),
+    legacyKey: textC('legacy_key').$type<SqliteRow<'credentials'>['legacyKey']>(),
+    createdAt: isoTimestamp('created_at').notNull().$type<SqliteRow<'credentials'>['createdAt']>(),
+    updatedAt: isoTimestamp('updated_at').notNull().$type<SqliteRow<'credentials'>['updatedAt']>(),
+    workspaceId: textC('workspace_id').notNull().$type<SqliteRow<'credentials'>['workspaceId']>(),
+  },
+  (table) => [
+    primaryKey({ name: 'credentials_pk', columns: [table.workspaceId, table.id] }),
+    index('idx_credentials_owner').on(
+      table.workspaceId,
+      table.ownerUserId,
+      table.createdAt,
+      table.id,
+    ),
+    index('idx_credentials_identity').on(
+      table.workspaceId,
+      table.ownerUserId,
+      table.type,
+      table.identityFingerprint,
+    ),
+    uniqueIndex('credentials_legacy_id').on(table.workspaceId, table.legacyId),
+    uniqueIndex('credentials_owner_legacy_key').on(
+      table.workspaceId,
+      table.ownerUserId,
+      table.legacyKey,
+    ),
+    index('idx_credentials_expiry')
+      .on(table.workspaceId, table.expiresAt)
+      .where(sql`"expires_at" IS NOT NULL`),
+    check('credentials_status', sql`status IN ('ok', 'attention', 'revoked')`),
+  ],
+)
+
 export const deliveryReceipts = pgTable(
   'delivery_receipts',
   {
@@ -762,6 +916,7 @@ export const issueComments = pgTable(
     editedBy: textC('edited_by').$type<SqliteRow<'issueComments'>['editedBy']>(),
     editedOnBehalfOf:
       textC('edited_on_behalf_of').$type<SqliteRow<'issueComments'>['editedOnBehalfOf']>(),
+    mentions: jsonText('mentions').$type<SqliteRow<'issueComments'>['mentions']>(),
     workspaceId: textC('workspace_id').notNull().$type<SqliteRow<'issueComments'>['workspaceId']>(),
   },
   (table) => [
@@ -1761,6 +1916,42 @@ export const nativeLoginTransfers = pgTable(
   ],
 )
 
+export const notices = pgTable(
+  'notices',
+  {
+    id: textC('id').notNull().$type<SqliteRow<'notices'>['id']>(),
+    recipientUserId: textC('recipient_user_id')
+      .notNull()
+      .$type<SqliteRow<'notices'>['recipientUserId']>(),
+    kind: textC('kind').notNull().$type<SqliteRow<'notices'>['kind']>(),
+    subjectKind: textC('subject_kind').notNull().$type<SqliteRow<'notices'>['subjectKind']>(),
+    subjectId: textC('subject_id').notNull().$type<SqliteRow<'notices'>['subjectId']>(),
+    subjectAnchor: textC('subject_anchor').$type<SqliteRow<'notices'>['subjectAnchor']>(),
+    title: textC('title').notNull().$type<SqliteRow<'notices'>['title']>(),
+    body: textC('body').$type<SqliteRow<'notices'>['body']>(),
+    dedupeKey: textC('dedupe_key').notNull().$type<SqliteRow<'notices'>['dedupeKey']>(),
+    createdAt: isoTimestamp('created_at').notNull().$type<SqliteRow<'notices'>['createdAt']>(),
+    readAt: isoTimestamp('read_at').$type<SqliteRow<'notices'>['readAt']>(),
+    resolvedAt: isoTimestamp('resolved_at').$type<SqliteRow<'notices'>['resolvedAt']>(),
+    workspaceId: textC('workspace_id').notNull().$type<SqliteRow<'notices'>['workspaceId']>(),
+  },
+  (table) => [
+    primaryKey({ name: 'notices_pk', columns: [table.workspaceId, table.id] }),
+    uniqueIndex('notices_open_dedupe')
+      .on(table.workspaceId, table.recipientUserId, table.dedupeKey)
+      .where(sql`"resolved_at" IS NULL`),
+    index('idx_notices_dedupe_key').on(table.workspaceId, table.dedupeKey),
+    index('idx_notices_open').on(table.workspaceId, table.resolvedAt, table.id),
+    index('idx_notices_recipient_open').on(
+      table.workspaceId,
+      table.recipientUserId,
+      table.resolvedAt,
+      table.createdAt,
+      table.id,
+    ),
+  ],
+)
+
 export const notificationFacts = pgTable(
   'notification_facts',
   {
@@ -2423,6 +2614,10 @@ export const sessions = pgTable(
     requestedModel: textC('requested_model').$type<SqliteRow<'sessions'>['requestedModel']>(),
     requestedEffort: textC('requested_effort').$type<SqliteRow<'sessions'>['requestedEffort']>(),
     accountId: textC('account_id').$type<SqliteRow<'sessions'>['accountId']>(),
+    credentialId: textC('credential_id').$type<SqliteRow<'sessions'>['credentialId']>(),
+    effectiveAuth: jsonText('effective_auth').$type<SqliteRow<'sessions'>['effectiveAuth']>(),
+    credentialMismatch:
+      jsonText('credential_mismatch').$type<SqliteRow<'sessions'>['credentialMismatch']>(),
     loginHarness: textC('login_harness').$type<SqliteRow<'sessions'>['loginHarness']>(),
     cwd: textC('cwd').notNull().$type<SqliteRow<'sessions'>['cwd']>(),
     title: textC('title').notNull().$type<SqliteRow<'sessions'>['title']>(),
@@ -2586,6 +2781,9 @@ export const sessions = pgTable(
     index('idx_sessions_asking')
       .on(table.workspaceId, table.asksUser)
       .where(sql`"asks_user" = true`),
+    index('idx_sessions_credential')
+      .on(table.workspaceId, table.credentialId)
+      .where(sql`"credential_id" IS NOT NULL AND "deleted_at" IS NULL`),
     check(
       'sessions_stop_reason_check',
       sql`stop_reason IS NULL OR stop_reason IN ('self', 'parent', 'forced', 'exited')`,
@@ -3879,6 +4077,23 @@ export const users = pgTable(
     primaryKey({ name: 'users_pk', columns: [table.workspaceId, table.id] }),
     uniqueIndex('users_email_unique').on(table.workspaceId, sql`lower("email")`),
     uniqueIndex('users_account_id_unique').on(table.workspaceId, table.cloudAccountId),
+  ],
+)
+
+export const vaultKey = pgTable(
+  'vault_key',
+  {
+    id: int8('id').notNull().$type<SqliteRow<'vaultKey'>['id']>(),
+    keyId: textC('key_id').notNull().$type<SqliteRow<'vaultKey'>['keyId']>(),
+    wrappedDataKey: textC('wrapped_data_key')
+      .notNull()
+      .$type<SqliteRow<'vaultKey'>['wrappedDataKey']>(),
+    createdAt: isoTimestamp('created_at').notNull().$type<SqliteRow<'vaultKey'>['createdAt']>(),
+    workspaceId: textC('workspace_id').notNull().$type<SqliteRow<'vaultKey'>['workspaceId']>(),
+  },
+  (table) => [
+    primaryKey({ name: 'vault_key_pk', columns: [table.workspaceId, table.id] }),
+    check('vault_key_one_row', sql`id = 1`),
   ],
 )
 

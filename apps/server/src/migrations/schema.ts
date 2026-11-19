@@ -121,6 +121,7 @@ import type {
   AutomationId,
   AutomationRunId,
   ConversationId,
+  CredentialId,
   DeliveryReceiptId,
   IssueId,
   IssuePanelItemId,
@@ -197,6 +198,16 @@ export const sessions = sqliteTable(
     requestedModel: text('requested_model'),
     requestedEffort: text('requested_effort'),
     accountId: text('account_id').$type<AccountId>(),
+    /** The credential the session runs on (credential management §4). NULL: none,
+     *  or a session from before credentials, read through its `account_id`. */
+    credentialId: text('credential_id').$type<CredentialId>(),
+    /** What the harness reported it authenticated with after its last start
+     *  (credential management §9 "Launching"): JSON `EffectiveAuth`. NULL:
+     *  nothing reported yet. Holds no secret. */
+    effectiveAuth: text('effective_auth'),
+    /** JSON `CredentialMismatch` while the harness answers on another identity
+     *  than `credential_id` names; NULL once a start answers as the choice. */
+    credentialMismatch: text('credential_mismatch'),
     /** Harness authenticated by an interactive shell. Its presence protects the
      *  shell from generic idle reaping for the full durable session lifetime. */
     loginHarness: text('login_harness'),
@@ -481,6 +492,11 @@ export const sessions = sqliteTable(
     index('idx_sessions_asking')
       .on(table.workspaceId, table.asksUser)
       .where(sql`${table.asksUser} = 1`),
+    // The live sessions on a credential (credential management §7, §8): what a
+    // renewal restarts and a removal stops. Partial: sessions with a credential.
+    index('idx_sessions_credential')
+      .on(table.workspaceId, table.credentialId)
+      .where(sql`${table.credentialId} IS NOT NULL AND ${table.deletedAt} IS NULL`),
     check(
       'sessions_stop_reason_check',
       sql`stop_reason IS NULL OR stop_reason IN ('self', 'parent', 'forced', 'exited')`,
@@ -2086,6 +2102,10 @@ export const issueComments = sqliteTable(
     editedAt: text('edited_at'),
     editedBy: text('edited_by'),
     editedOnBehalfOf: text('edited_on_behalf_of'),
+    /** The members this comment mentions (POD-6881, spec §13): a JSON array of
+     *  user ids, matched against the member list when the comment was written
+     *  or last edited. NULL = written before mentions were stored. */
+    mentions: text('mentions'),
     ...workspaceColumn(),
   },
   // Ordered as an issue's comments are read, so the read needs no sort (POD-6148).
@@ -4553,6 +4573,232 @@ export const pendingUploads = sqliteTable(
     check(
       'pending_uploads_claim_pair',
       sql`(claimed_issue_id IS NULL) = (claimed_artifact_id IS NULL)`,
+    ),
+  ],
+)
+/**
+ * CREDENTIALS (credential management design §4; POD-6889).
+ *
+ * A credential is a record: whose it is, what type it is, whether it is healthy.
+ * The secret is never part of it. Types stored in the vault keep their secret in
+ * `credential_secrets`, sealed by the vault (`modules/credentials/vault.ts`); the
+ * others keep it in a harness home on a machine, which Podium only records.
+ *
+ * `identity` is JSON with no secret in it (fingerprint, email, plan,
+ * organisation). `identity_fingerprint` repeats the fingerprint so the lookup of
+ * a login found on a machine is an indexed read rather than a JSON scan.
+ *
+ * LEGACY(remove-after: 2027-05): moves keys stored before the vault into it; removing it ends direct upgrades from versions before 2026-11 and drops the accounts table
+ * `legacy_id` names the row a credential was moved from (an `accounts` id or an
+ * `apiKeys.*` server secret), and `legacy_key` the id sessions and settings
+ * recorded for it (`managed:anthropic`), unique per owner, so an old session's
+ * account id still resolves.
+ */
+export const credentials = sqliteTable(
+  'credentials',
+  {
+    id: text().notNull(),
+    ownerUserId: text('owner_user_id').$type<UserId>().notNull(),
+    label: text().notNull(),
+    type: text().notNull(),
+    identity: text().default('{}').notNull(),
+    identityFingerprint: text('identity_fingerprint'),
+    status: text().default('ok').notNull(),
+    statusReason: text('status_reason'),
+    expiresAt: text('expires_at'),
+    verifiedAt: text('verified_at'),
+    /** ISO time until which the provider reported a plan or rate limit reached. */
+    limitReachedUntil: text('limit_reached_until'),
+    legacyId: text('legacy_id'),
+    legacyKey: text('legacy_key'),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at').notNull(),
+    ...workspaceColumn(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.workspaceId, table.id], name: 'credentials_pk' }),
+    index('idx_credentials_owner').on(
+      table.workspaceId,
+      table.ownerUserId,
+      table.createdAt,
+      table.id,
+    ),
+    index('idx_credentials_identity').on(
+      table.workspaceId,
+      table.ownerUserId,
+      table.type,
+      table.identityFingerprint,
+    ),
+    uniqueIndex('credentials_legacy_id').on(table.workspaceId, table.legacyId),
+    uniqueIndex('credentials_owner_legacy_key').on(
+      table.workspaceId,
+      table.ownerUserId,
+      table.legacyKey,
+    ),
+    // The expiry sweep (credential management §7): the few credentials with an expiry.
+    index('idx_credentials_expiry')
+      .on(table.workspaceId, table.expiresAt)
+      .where(sql`${table.expiresAt} IS NOT NULL`),
+    check('credentials_status', sql`status IN ('ok', 'attention', 'revoked')`),
+  ],
+)
+
+/**
+ * A credential's sealed secret. AES-256-GCM under the vault's data key, with the
+ * credential id, type and version bound in as authenticated data, so a row moved
+ * to another credential, type or version does not open. `key_id` names the data
+ * key that sealed it. One row per version; a write keeps only the newest.
+ */
+export const credentialSecrets = sqliteTable(
+  'credential_secrets',
+  {
+    credentialId: text('credential_id').notNull(),
+    version: integer().notNull(),
+    ciphertext: text().notNull(),
+    nonce: text().notNull(),
+    keyId: text('key_id').notNull(),
+    createdAt: text('created_at').notNull(),
+    ...workspaceColumn(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.workspaceId, table.credentialId, table.version],
+      name: 'credential_secrets_pk',
+    }),
+    workspaceRef({
+      name: 'fk_credential_secrets_credential_id_credentials_id_fk',
+      columns: [table.workspaceId, table.credentialId],
+      foreignColumns: [credentials.workspaceId, credentials.id],
+      onDelete: 'cascade',
+    }),
+  ],
+)
+
+/** What Podium created on a machine for a credential, so it can be removed (rule R4). */
+export const credentialPlacements = sqliteTable(
+  'credential_placements',
+  {
+    credentialId: text('credential_id').notNull(),
+    machineId: text('machine_id').$type<MachineId>().notNull(),
+    kind: text().notNull(),
+    /** A home placement's daemon home id (`<credentialId>:<harness>`); null for a copy. */
+    homeId: text('home_id'),
+    state: text().default('present').notNull(),
+    createdAt: text('created_at').notNull(),
+    removedAt: text('removed_at'),
+    ...workspaceColumn(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.workspaceId, table.credentialId, table.machineId, table.kind],
+      name: 'credential_placements_pk',
+    }),
+    workspaceRef({
+      name: 'fk_credential_placements_credential_id_credentials_id_fk',
+      columns: [table.workspaceId, table.credentialId],
+      foreignColumns: [credentials.workspaceId, credentials.id],
+      onDelete: 'cascade',
+    }),
+    // A machine that reconnects confirms what was waiting for it (§8 "cleanup").
+    index('idx_credential_placements_pending')
+      .on(table.workspaceId, table.machineId, table.credentialId, table.kind)
+      .where(sql`${table.state} = 'removal-pending'`),
+    check('credential_placements_kind', sql`kind IN ('home', 'propagated-file')`),
+    check('credential_placements_state', sql`state IN ('present', 'removal-pending', 'removed')`),
+  ],
+)
+
+/** Machines a credential's owner allowed beyond their own (design §8). */
+export const credentialMachines = sqliteTable(
+  'credential_machines',
+  {
+    credentialId: text('credential_id').notNull(),
+    machineId: text('machine_id').$type<MachineId>().notNull(),
+    allowedBy: text('allowed_by').$type<UserId>().notNull(),
+    createdAt: text('created_at').notNull(),
+    ...workspaceColumn(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.workspaceId, table.credentialId, table.machineId],
+      name: 'credential_machines_pk',
+    }),
+    workspaceRef({
+      name: 'fk_credential_machines_credential_id_credentials_id_fk',
+      columns: [table.workspaceId, table.credentialId],
+      foreignColumns: [credentials.workspaceId, credentials.id],
+      onDelete: 'cascade',
+    }),
+  ],
+)
+
+/**
+ * A workspace's vault data key, wrapped by the outside key (a key file outside
+ * the state directory, one per installation). `key_id` names the outside key. One
+ * row per workspace (`id` is always 1): each workspace's secrets are sealed under
+ * its own data key, so a workspace's rows never open with another's key. No row:
+ * the vault is empty and creates its data key at the first seal. A row the
+ * outside key cannot open: the vault is locked (`podium vault status`).
+ */
+export const vaultKey = sqliteTable(
+  'vault_key',
+  {
+    id: integer().notNull(),
+    keyId: text('key_id').notNull(),
+    wrappedDataKey: text('wrapped_data_key').notNull(),
+    createdAt: text('created_at').notNull(),
+    ...workspaceColumn(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.workspaceId, table.id], name: 'vault_key_pk' }),
+    check('vault_key_one_row', sql`id = 1`),
+  ],
+)
+
+/**
+ * THE NOTICE INBOX (POD-6881, credential management spec §13): one row per
+ * notice, for one person. Open notices (`resolved_at IS NULL`) stream to their
+ * recipient as the per-user record `inboxNotice`; a resolved one leaves the feed
+ * and stays here as history.
+ *
+ * No foreign key to `users`, like the other per-user tables: a notice follows
+ * its recipient, and the subject it names may be deleted before it is resolved.
+ */
+export const notices = sqliteTable(
+  'notices',
+  {
+    id: text().notNull(),
+    recipientUserId: text('recipient_user_id').$type<UserId>().notNull(),
+    kind: text().notNull(),
+    subjectKind: text('subject_kind').notNull(),
+    subjectId: text('subject_id').notNull(),
+    subjectAnchor: text('subject_anchor'),
+    title: text().notNull(),
+    body: text(),
+    dedupeKey: text('dedupe_key').notNull(),
+    createdAt: text('created_at').notNull(),
+    readAt: text('read_at'),
+    resolvedAt: text('resolved_at'),
+    ...workspaceColumn(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.workspaceId, table.id], name: 'notices_pk' }),
+    // One open notice per person and key: a second emit of an open condition is a no-op.
+    uniqueIndex('notices_open_dedupe')
+      .on(table.workspaceId, table.recipientUserId, table.dedupeKey)
+      .where(sql`${table.resolvedAt} IS NULL`),
+    // resolveNotices(key) across every recipient.
+    index('idx_notices_dedupe_key').on(table.workspaceId, table.dedupeKey),
+    // Every open notice in id order: the record builder's full stream (`allOpen`)
+    // seeks the open ones and reads them in order, never the resolved history.
+    index('idx_notices_open').on(table.workspaceId, table.resolvedAt, table.id),
+    // A person's open notices, newest first.
+    index('idx_notices_recipient_open').on(
+      table.workspaceId,
+      table.recipientUserId,
+      table.resolvedAt,
+      table.createdAt,
+      table.id,
     ),
   ],
 )

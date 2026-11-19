@@ -1,87 +1,68 @@
 import { AUTO, type ModelChoice } from '@podium/client-core/agent-models'
-import { type AccountId, type AccountView, asAccountId } from '@podium/model/browser'
+import type { CredentialView } from '@podium/model'
+import { asAccountId } from '@podium/model/browser'
 import type { HarnessDescriptorWire } from '@podium/protocol'
 import type { HarnessAgent, RoleBackend } from '@podium/runtime'
 import { issueAgentDescriptors } from '@/lib/issue-agents'
-import { managedCodingHarnesses } from '@/lib/managed-harness-pairing'
 
-export type AgentGroup = 'Signed in on your machines' | 'Using your API key' | 'Shared with you'
-
+/**
+ * One choice of agent program for a role. The program is all the role picks:
+ * the credential a session runs on is the one its launch names, then the
+ * person's default for that program (Credentials), then the program's own
+ * login on the machine (credential management §9 "Choosing for a session").
+ */
 export interface AgentOption {
-  value: string
-  accountId: AccountId
+  value: HarnessAgent
   harness: HarnessAgent
-  group: AgentGroup
   label: string
   hint: string
   help: string
 }
 
-export const providerNames: Readonly<Record<string, string>> = {
-  anthropic: 'Anthropic',
-  openai: 'OpenAI',
-  openrouter: 'OpenRouter',
-}
-
-/** A picker value identifies both the credential and the CLI it authenticates. */
-export function agentOptionValue(accountId: string, harness: string): string {
-  return JSON.stringify([accountId, harness])
-}
-
-/** The account directory has already resolved own-key > shared-key precedence.
- * Only its connected credentials become agent choices. */
+/** Every agent program this fleet serves, with who it is signed in as on the person's machines. */
 export function agentOptions(
-  accounts: readonly AccountView[],
-  nativeOnly = false,
+  accounts: readonly CredentialView[],
   served?: readonly HarnessDescriptorWire[],
 ): AgentOption[] {
-  const descriptors = issueAgentDescriptors(served)
-  return accounts.flatMap((account): AgentOption[] => {
-    if (account.status !== 'connected') return []
-    const accountId = asAccountId(account.id)
-    if (account.source === 'native' && account.harness) {
-      const harness = account.harness
-      const label = descriptors.find((d) => d.kind === harness)?.label ?? harness
-      return [
-        {
-          value: agentOptionValue(accountId, harness),
-          accountId,
-          harness,
-          group: 'Signed in on your machines',
-          label,
-          hint: [account.identity, account.machines?.join(', ')].filter(Boolean).join(' · '),
-          help: 'Runs the CLI with the login already on the machine. Usage counts against that subscription or account.',
-        },
-      ]
+  return issueAgentDescriptors(served).map((descriptor) => {
+    const harness = descriptor.kind as HarnessAgent
+    const logins = accounts.filter(
+      (view) =>
+        view.access === 'owner' &&
+        view.nativeLogin?.harness === harness &&
+        view.nativeLogin.machines.some((machine) => machine.state === 'in'),
+    )
+    const hint = [
+      ...new Set(
+        logins.flatMap((view) => [
+          view.identity.email,
+          view.nativeLogin?.machines
+            .filter((machine) => machine.state === 'in')
+            .map((machine) => machine.name)
+            .join(', '),
+        ]),
+      ),
+    ]
+      .filter(Boolean)
+      .join(' · ')
+    return {
+      value: harness,
+      harness,
+      label: descriptor.label,
+      hint,
+      help: `Runs ${descriptor.label} on your default credential for it (set under Credentials), or on the login already on the machine.`,
     }
-    if (nativeOnly || account.source !== 'managed') return []
-    const provider = providerNames[account.provider] ?? account.provider
-    const shared = account.credentialSource === 'shared'
-    const owner = account.sharedBy || 'another member'
-    const credential = account.kind === 'oauth' ? 'subscription' : `${provider} key`
-    return managedCodingHarnesses(accountId, descriptors).map((harness) => {
-      const label = descriptors.find((d) => d.kind === harness)?.label ?? harness
-      return {
-        value: agentOptionValue(accountId, harness),
-        accountId,
-        harness,
-        group: shared ? 'Shared with you' : 'Using your API key',
-        label,
-        hint: shared ? `${owner}’s ${credential}` : `your ${credential}`,
-        help: shared
-          ? `Runs ${label} with the ${credential} ${owner} shared. Used because you have no ${credential} of your own. Add your own under AI accounts to stop using theirs. ${account.kind === 'oauth' ? 'Usage counts against their subscription.' : 'Billed per token to their key.'}`
-          : `Runs ${label} with your ${credential}. ${account.kind === 'oauth' ? 'Usage counts against your subscription.' : 'Billed per token.'}`,
-      }
-    })
   })
 }
 
-/** Keep a choice when the next catalog accepts it. With no report, changing
- * only the credential for the same harness is not evidence it became invalid. */
+/** Keep a choice when the next catalog accepts it. With no report, picking the
+ * same harness again is not evidence it became invalid. The pick clears an
+ * account id saved before credentials (`roles.<role>.accountId`), which would
+ * otherwise keep deciding the harness; nothing writes a new one. */
 export function backendForAgent(
   backend: RoleBackend,
   currentHarness: HarnessAgent,
-  next: Pick<AgentOption, 'accountId' | 'harness'>,
+  next: Pick<AgentOption, 'harness'>,
   reported?: readonly ModelChoice[],
 ): RoleBackend {
   const known = reported !== undefined && reported.length > 0
@@ -108,7 +89,7 @@ export function backendForAgent(
         : !known && next.harness === currentHarness && model === backend.model
           ? backend.effort
           : AUTO
-  return { ...backend, accountId: next.accountId, harness: next.harness, model, effort }
+  return { ...backend, accountId: asAccountId(''), harness: next.harness, model, effort }
 }
 
 /** API providers have no model-directory endpoint. These small lists are only

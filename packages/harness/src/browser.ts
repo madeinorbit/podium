@@ -272,6 +272,35 @@ function asString(value: unknown): string | undefined {
  * tolerance (ignore extras, default missing, skip invalid) is three lines
  * spelled out rather than a schema option set.
  */
+/**
+ * The accepted credential lines of a served frame, with the zod parser's
+ * tolerance: absent (a daemon from before the field) is an empty list; a line
+ * without a type or a delivery kind is dropped, never guessed; unknown type ids
+ * and delivery kinds are kept for the reader to ignore.
+ */
+function parseAccepts(value: unknown): HarnessDescriptorWire['accepts'] {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((line) => {
+    if (!isRecord(line) || !isRecord(line.deliver)) return []
+    const type = asString(line.type)
+    const kind = asString(line.deliver.kind)
+    if (!type || !kind) return []
+    const variable = asString(line.deliver.variable)
+    const drivers = Array.isArray(line.drivers)
+      ? line.drivers.filter(
+          (driver): driver is string => typeof driver === 'string' && driver.length > 0,
+        )
+      : undefined
+    return [
+      {
+        type,
+        deliver: { kind, ...(variable !== undefined ? { variable } : {}) },
+        ...(drivers ? { drivers } : {}),
+      },
+    ]
+  })
+}
+
 export function parseServedDescriptors(frame: unknown): HarnessDescriptorWire[] {
   if (!Array.isArray(frame)) return []
   const out: HarnessDescriptorWire[] = []
@@ -349,6 +378,7 @@ export function parseServedDescriptors(frame: unknown): HarnessDescriptorWire[] 
             ? catalog.liveMerge
             : 'live-wins-when-non-empty',
       },
+      accepts: parseAccepts(entry.accepts),
       ...(command !== undefined || installHint !== undefined || signedOutHint !== undefined
         ? {
             login: {

@@ -173,6 +173,7 @@ export const NotificationsSection = observer(function NotificationsSection({
           />
         </Row>
       </Section>
+      <NoticePushSection settings={settings} patch={patch} />
       {canManageSecrets && bot?.present && (
         <Section
           title="Telegram bot"
@@ -420,6 +421,64 @@ function useNotificationPermission() {
   }
   return { permission, error, pending, grant }
 }
+/**
+ * WHICH NOTICES REACH YOUR PHONE (POD-6881, spec §13). Every notice shows in
+ * the tray; these choose which kinds are also pushed through Telegram and
+ * ntfy above. A mention and a credential that needs attention are on by
+ * default.
+ */
+const NOTICE_PUSH_ROWS = [
+  {
+    key: 'mention',
+    label: 'Mentions',
+    description: 'Someone wrote your name in a task comment.',
+  },
+  {
+    key: 'credentialAttention',
+    label: 'Credentials that need attention',
+    description: 'One of your credentials stopped working or is about to expire.',
+  },
+  {
+    key: 'credentialShared',
+    label: 'Credentials shared with you',
+    description: 'Someone gave you use of one of their credentials.',
+  },
+] as const
+
+const NoticePushSection = observer(function NoticePushSection({
+  settings,
+  patch,
+}: {
+  settings: PodiumSettings
+  patch: (p: Partial<PodiumSettings>) => void | Promise<void>
+}): JSX.Element {
+  const pushed = settings.notifications.notices
+  return (
+    <Section
+      title="Notices on your phone"
+      hint="Every notice shows in the bell at the top. These also send it to your phone."
+    >
+      {NOTICE_PUSH_ROWS.map((row) => (
+        <SwitchRow
+          key={row.key}
+          setting={`notifications.notices.${row.key}`}
+          label={row.label}
+          description={row.description}
+          value={pushed[row.key]}
+          onChange={(on) =>
+            patch({
+              notifications: {
+                ...settings.notifications,
+                notices: { ...pushed, [row.key]: on },
+              },
+            })
+          }
+        />
+      ))}
+    </Section>
+  )
+})
+
 const BrowserNotificationsRow = observer(function BrowserNotificationsRow({
   settings,
   patch,

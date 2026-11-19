@@ -49,6 +49,7 @@ import {
   topicKey,
 } from '@podium/protocol'
 import { hasLegacyAbduco, legacyAbducoBin } from '../../../packages/pty/src/legacy-abduco-fixture'
+import { memoryMarkers, SessionAccessStore } from './control/access'
 
 /**
  * A member id, as a FIXTURE (A2). The daemon opens no instance, so
@@ -1347,6 +1348,7 @@ function defaultServerSpawnContext(
       },
       inventory: async () => ({ os: 'linux', arch: 'x64', agents: [], tools: [] }),
     } as unknown as Parameters<typeof createDaemonMachineRuntime>[0]),
+    access: new SessionAccessStore({ markers: memoryMarkers() }),
   } as unknown as DaemonContext
 }
 
@@ -1519,6 +1521,7 @@ describe('default server-driver spawn integration', () => {
       outputScheduler: { remove: vi.fn() },
       portableStateFence: { runSync: (fn: () => void) => fn() },
       instanceUuid: undefined,
+      access: new SessionAccessStore({ markers: memoryMarkers() }),
     } as unknown as DaemonContext
     const sessionId = asSessionId('entry-owned-codex')
     sessionHandlers.spawn(

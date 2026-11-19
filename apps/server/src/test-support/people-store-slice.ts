@@ -3,7 +3,7 @@
  * POD-6958 design 2.10].
  *
  * The group's repositories (machines and their record context, grants, repos,
- * checkouts, accounts, users and the sign-in carry-over, server secrets, settings and
+ * checkouts, native logins and credentials, users and the sign-in carry-over, server secrets, settings and
  * their audit, agent profiles, the identity upgrade's reads) built as `store.ts` builds
  * them, over the two-engine slice's store (`openSliceStore`): a migrated in-memory
  * SQLite database on the store shard, a clone of the run's Postgres template on the
@@ -22,9 +22,9 @@
 import { randomUUID } from 'node:crypto'
 import { asWorkspaceId } from '@podium/model'
 import type { SQL } from 'drizzle-orm'
-import { AccountsRepository } from '../store/accounts'
 import { AgentProfilesRepository } from '../store/agent-profiles'
 import { CheckoutsRepository } from '../store/checkouts'
+import { CredentialsRepository } from '../store/credentials'
 import { provisionWorkspaceFeed } from '../store/database'
 import type { QueryClient } from '../store/executor/driver'
 import { createStoreExecutor, type RootStoreExecutor } from '../store/executor/executor'
@@ -36,6 +36,7 @@ import { type GlobalQueries, legacyWorkspaceQueries } from '../store/executor/sy
 import { GrantsRepository } from '../store/grants'
 import { IdentityUpgradeRepository } from '../store/identity-upgrade'
 import { MachinesRepository } from '../store/machines'
+import { NativeLoginsRepository } from '../store/native-logins'
 import { ReposRepository } from '../store/repos'
 import { ServerSecretsRepository } from '../store/server-secrets'
 import { SessionsRepository } from '../store/sessions'
@@ -57,7 +58,9 @@ export interface PeopleStoreSlice {
   readonly grants: GrantsRepository
   readonly repos: ReposRepository
   readonly checkouts: CheckoutsRepository
-  readonly accounts: AccountsRepository
+  readonly nativeLogins: NativeLoginsRepository
+  /** Credentials and their sealed secrets, with no vault: a seal is the caller's. */
+  readonly credentials: CredentialsRepository
   readonly users: UsersRepository
   readonly signInCarryOver: SignInCarryOverRepository
   readonly secrets: ServerSecretsRepository
@@ -78,7 +81,7 @@ export interface PeopleStoreSlice {
     readonly machines: MachinesRepository
     readonly grants: GrantsRepository
     readonly repos: ReposRepository
-    readonly accounts: AccountsRepository
+    readonly nativeLogins: NativeLoginsRepository
     readonly users: UsersRepository
     readonly sessions: SessionsRepository
   }
@@ -106,7 +109,8 @@ function repositoriesOver(queries: SliceStore['queries'], tableWrites: TableWrit
     grants,
     repos: new ReposRepository(queries, () => undefined, tableWrites),
     checkouts: new CheckoutsRepository(queries),
-    accounts: new AccountsRepository(queries),
+    nativeLogins: new NativeLoginsRepository(queries),
+    credentials: new CredentialsRepository(queries, () => undefined),
     users: new UsersRepository(queries, machines, grants, signInCarryOver),
     signInCarryOver,
     secrets: new ServerSecretsRepository(queries),
@@ -152,7 +156,8 @@ function sliceOver(slice: SliceStore): PeopleStoreSlice {
     grants: drained(repositories.grants),
     repos: drained(repositories.repos),
     checkouts: drained(repositories.checkouts),
-    accounts: drained(repositories.accounts),
+    nativeLogins: drained(repositories.nativeLogins),
+    credentials: drained(repositories.credentials),
     users: drainedWithMembers(slice, repositories.users, ['memberRows']),
     signInCarryOver: drained(repositories.signInCarryOver),
     secrets: drained(repositories.secrets),
@@ -166,7 +171,7 @@ function sliceOver(slice: SliceStore): PeopleStoreSlice {
       machines: undrained.machines,
       grants: undrained.grants,
       repos: undrained.repos,
-      accounts: undrained.accounts,
+      nativeLogins: undrained.nativeLogins,
       users: undrained.users,
       sessions: undrained.sessions,
     },

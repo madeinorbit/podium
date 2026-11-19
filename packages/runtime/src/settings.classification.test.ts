@@ -40,6 +40,8 @@ const classifiedPaths = () => SETTINGS_CLASSIFICATION.map((c) => c.path)
 
 describe('the blob walk, probed before it is believed', () => {
   it('walks top-level and nested leaves of the live settings blob', () => {
+    expect(blobLeaves()).toContain('roles.background.credentialId')
+    expect(blobLeaves()).toContain('notifications.notices.credentialShared')
     expect(blobLeaves()).toContain('roles.coding.model')
     expect(blobLeaves()).toContain('roles.background.accountId')
     expect(blobLeaves()).toContain('roles.shipwright.accountId')
@@ -86,7 +88,6 @@ describe('the blob COMPOSES the model schemas — no restatement', () => {
 
   const COMPOSED: readonly [keyof typeof shape, z.ZodTypeAny][] = [
     ['roles', model.Roles],
-    ['apiKeys', model.ApiKeySecrets],
     ['integrations', model.IntegrationSecrets],
     ['hibernation', model.HibernationPolicy],
     ['sidebar', model.Sidebar],
@@ -98,6 +99,8 @@ describe('the blob COMPOSES the model schemas — no restatement', () => {
     ['worktreeGc', model.WorktreeGcPolicy],
     ['transcripts', model.TranscriptPolicy],
     ['deployment', model.DeploymentPreferences],
+    ['daemonLink', model.DaemonLinkPolicy],
+    ['credentialDefaults', model.CredentialDefaults],
   ]
 
   it('pins EVERY composable member, not a sample', () => {
@@ -126,10 +129,12 @@ describe('the blob COMPOSES the model schemas — no restatement', () => {
       'ntfyTopic',
       'telegramBotToken',
       'telegramChatId',
+      'notices',
     ])
     expect(notif.shape.web).toBe(model.NotificationRouting.shape.web)
     expect(notif.shape.ntfyTopic).toBe(model.NotificationRouting.shape.ntfyTopic)
     expect(notif.shape.telegramChatId).toBe(model.NotificationRouting.shape.telegramChatId)
+    expect(notif.shape.notices).toBe(model.NotificationRouting.shape.notices)
     expect(notif.shape.telegramBotToken).toBe(model.NotificationSecrets.shape.telegramBotToken)
   })
 
@@ -167,7 +172,6 @@ describe('the composed blob still parses exactly as before', () => {
         // to close: a default nobody wrote down is a default nobody reviewed.
         shipwright: { accountId: '', model: 'auto', effort: 'auto' },
       },
-      apiKeys: { openrouter: '', anthropic: '', openai: '' },
       integrations: { linearApiKey: '' },
       hibernation: {
         enabled: true,
@@ -179,7 +183,14 @@ describe('the composed blob still parses exactly as before', () => {
         idleShellMinutes: 60,
         backstopMinutes: 2880,
       },
-      notifications: { web: true, ntfyTopic: '', telegramBotToken: '', telegramChatId: '' },
+      notifications: {
+        web: true,
+        ntfyTopic: '',
+        telegramBotToken: '',
+        telegramChatId: '',
+        // POD-6881: which notice kinds are pushed.
+        notices: { mention: true, credentialAttention: true, credentialShared: false },
+      },
       sidebar: { repoSort: 'lastUsed', repoOrder: [] },
       gitWorkflow: { defaultParentBranch: '', autoRebaseBeforeMerge: true },
       issues: { assistantEnabled: true },
@@ -190,6 +201,8 @@ describe('the composed blob still parses exactly as before', () => {
       // Absent, not `false`: nobody has chosen, and the built-in answer is on.
       transcripts: {},
       deployment: {},
+      daemonLink: { trustedNetworks: [] },
+      credentialDefaults: {},
     })
   })
 
@@ -197,7 +210,6 @@ describe('the composed blob still parses exactly as before', () => {
     const parsed = normalizeSettings({})
     expect(Object.keys(parsed)).toEqual([
       'roles',
-      'apiKeys',
       'integrations',
       'hibernation',
       'notifications',
@@ -212,12 +224,15 @@ describe('the composed blob still parses exactly as before', () => {
       'worktreeGc',
       'transcripts',
       'deployment',
+      'daemonLink',
+      'credentialDefaults',
     ])
     expect(Object.keys(parsed.notifications)).toEqual([
       'web',
       'ntfyTopic',
       'telegramBotToken',
       'telegramChatId',
+      'notices',
     ])
   })
 

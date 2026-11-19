@@ -5,6 +5,9 @@ import type {
   AgentRuntimeState,
   Attribution,
   ConversationId,
+  CredentialId,
+  CredentialMismatch,
+  EffectiveAuth,
   Geometry,
   HarnessAgent,
   IssueId,
@@ -72,7 +75,10 @@ export interface SessionInit {
    *  nobody has changed anything yet. */
   requestedModel?: string
   requestedEffort?: string
+  effectiveAuth?: EffectiveAuth
+  credentialMismatch?: CredentialMismatch
   accountId?: AccountId
+  credentialId?: CredentialId
   /** Native harness whose interactive login owns this shell, when applicable. */
   loginHarness?: HarnessAgent
   origin: SessionOrigin
@@ -241,6 +247,10 @@ export interface SessionDurableState {
   launchPosture: LaunchPostureReport | undefined
   requestedModel: string | undefined
   requestedEffort: string | undefined
+  effectiveAuth: EffectiveAuth | undefined
+  credentialMismatch: CredentialMismatch | undefined
+  /** The credential the session runs on; a switch changes it (credential management §9). */
+  credentialId: CredentialId | undefined
   /** Whether the daemon runs the composer engine for this session, as its last
    *  bind reported (POD-859). Stored with the binding (POD-6764). */
   draftSyncEngine: boolean
@@ -273,6 +283,9 @@ export class Session {
   readonly model: string | undefined
   readonly effort: string | undefined
   readonly accountId: AccountId | undefined
+  /** The credential the session runs on; absent: none (the harness login), or a legacy `accountId`.
+   *  Durable, not identity: `sessions.switchCredential` changes it (§9). */
+  credentialId: CredentialId | undefined
   /** Durable purpose marker: login shells must outlive ordinary idle-shell reaping. */
   readonly loginHarness: HarnessAgent | undefined
   /** Workflow pass-through metadata (#285) — immutable, uninterpreted. */
@@ -424,6 +437,12 @@ export class Session {
    *  above is still the record of how it started — see `SessionLiveOverlay`. */
   requestedModel: string | undefined
   requestedEffort: string | undefined
+  /** What the harness reported it authenticated with after its last start
+   *  (credential management §9 "Launching"). Persisted: a parked session keeps
+   *  showing what it last ran on. */
+  effectiveAuth: EffectiveAuth | undefined
+  /** Set while the harness answers on another identity than `credentialId`. */
+  credentialMismatch: CredentialMismatch | undefined
   /**
    * Latest exact harness-reported context-window usage, if this harness exposes
    * it. A LIVE reading (POD-6764): never stored and never on the record; it
@@ -622,6 +641,9 @@ export class Session {
     this.launchPosture = d.launchPosture
     this.draftSyncEngine = d.draftSyncEngine
     this.handoffTargetMachineId = d.handoffTargetMachineId
+    this.effectiveAuth = d.effectiveAuth
+    this.credentialMismatch = d.credentialMismatch
+    this.credentialId = d.credentialId
     this.onUnreadRearm = init.onUnreadRearm
   }
 
@@ -888,6 +910,26 @@ export class Session {
     return true
   }
 
+  /**
+   * Adopt what the harness reported it authenticated with, and whether that
+   * disagrees with the session's credential (credential management §9). A
+   * report that agrees clears an earlier mismatch. Returns true when either
+   * actually changed.
+   */
+  setEffectiveAuth(
+    auth: EffectiveAuth,
+    mismatch: CredentialMismatch | undefined,
+    d: SessionDurableFields = this,
+  ): boolean {
+    const same =
+      JSON.stringify(auth) === JSON.stringify(d.effectiveAuth) &&
+      JSON.stringify(mismatch) === JSON.stringify(d.credentialMismatch)
+    if (same) return false
+    d.effectiveAuth = structuredClone(auth)
+    d.credentialMismatch = mismatch ? structuredClone(mismatch) : undefined
+    return true
+  }
+
   /** A live reading, set on the session itself: there is no row to write. */
   setContextUsagePercent(percent: number): boolean {
     if (!Number.isFinite(percent)) return false
@@ -987,6 +1029,11 @@ export class Session {
       requestedModel: this.requestedModel,
       requestedEffort: this.requestedEffort,
       draftSyncEngine: this.draftSyncEngine,
+      effectiveAuth: this.effectiveAuth ? structuredClone(this.effectiveAuth) : undefined,
+      credentialMismatch: this.credentialMismatch
+        ? structuredClone(this.credentialMismatch)
+        : undefined,
+      credentialId: this.credentialId,
       handoffTargetMachineId: this.handoffTargetMachineId,
       conversationPodiumId: this.conversationPodiumId,
       draftUpdatedAt: this.draftUpdatedAt,
@@ -1065,6 +1112,11 @@ export class Session {
     this.requestedModel = state.requestedModel
     this.requestedEffort = state.requestedEffort
     this.draftSyncEngine = state.draftSyncEngine
+    this.effectiveAuth = state.effectiveAuth ? structuredClone(state.effectiveAuth) : undefined
+    this.credentialMismatch = state.credentialMismatch
+      ? structuredClone(state.credentialMismatch)
+      : undefined
+    this.credentialId = state.credentialId
     if (!preserve.has('handoffTargetMachineId')) {
       this.handoffTargetMachineId = state.handoffTargetMachineId
     }
@@ -1089,7 +1141,10 @@ export class Session {
       // the transcript tail).
       requestedModel: d.requestedModel ?? null,
       requestedEffort: d.requestedEffort ?? null,
+      effectiveAuth: d.effectiveAuth ?? null,
+      credentialMismatch: d.credentialMismatch ?? null,
       accountId: this.accountId ?? null,
+      credentialId: d.credentialId ?? null,
       loginHarness: this.loginHarness ?? null,
       cwd: d.cwd,
       title: d.title,

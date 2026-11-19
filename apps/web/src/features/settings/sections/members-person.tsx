@@ -1,22 +1,18 @@
 import { relativeTime } from '@podium/client-core/focus'
-import { memberRoster } from '@podium/client-graph/member-roster'
 import type { MemberModel } from '@podium/client-graph/requested-models'
-import { KeyRound, Server } from 'lucide-react'
+import { Server } from 'lucide-react'
 import { observer } from 'mobx-react-lite'
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
+import { useState } from 'react'
 import { toast } from 'sonner'
-import { useWorklistPool } from '@/app/store-worklist-pool'
 import { Button } from '@/components/ui/button'
 import { authRequest, memberRequest } from '@/features/setup/member-api'
 import { useClock } from '@/lib/clock-hooks'
 import { useSettingsFrame } from '../settings-frame'
-import { useSettingsTrpc } from '../stable-access'
 import { SignInIcon } from './access'
-import { KeySharing, StoredKeys } from './key-sharing'
 import { deviceLabel, type MembersPage, memberRoleLabel, type SettingsPerson } from './members-data'
 import { MemberLinkResult } from './members-link-result'
 import { MemberRoleControl } from './members-role'
-import { ConfirmInline, EntityRow, providerLabel, Row, Section } from './shared'
+import { ConfirmInline, EntityRow, Row, Section } from './shared'
 
 type AccessAction = 'disable' | 'enable' | 'recovery' | 'invite' | 'remove'
 const ACCESS = {
@@ -200,7 +196,6 @@ export const MemberPerson = observer(function MemberPerson({
           false,
         )}
       </PersonDevices>
-      <PersonKeys member={member} />
       <Section title="Machines they look after" list>
         {person.machines.length ? (
           person.machines.map((machine) => (
@@ -385,63 +380,6 @@ const PersonDevices = observer(function PersonDevices({
             </p>
           )}
         </>
-      )}
-    </Section>
-  )
-})
-
-const PersonKeys = observer(function PersonKeys({ member }: { member: MemberModel }) {
-  const trpc = useSettingsTrpc()
-  const pool = useWorklistPool()
-  const directory = useMemo(() => (pool ? memberRoster(pool) : null), [pool])
-  const [keys] = useState(() => new StoredKeys())
-  const reload = useCallback(() => keys.load(() => trpc.accounts.keys.query({})), [keys, trpc])
-  useEffect(() => {
-    void reload()
-    return () => keys.dispose()
-  }, [keys, reload])
-  const own = (keys.answer ?? []).filter((key) => key.owner === member.id)
-  return (
-    <Section title="Their API keys" hint="You can change who may use a key, never see it." list>
-      {keys.error ? (
-        <p className="settings-list-note settings-prose text-destructive" role="alert">
-          {keys.error}
-        </p>
-      ) : !keys.answer ? (
-        <p className="settings-list-note settings-prose" role="status">
-          Loading keys…
-        </p>
-      ) : own.length ? (
-        own.map((key) => {
-          const label =
-            key.id === 'managed:claude-oauth'
-              ? 'Claude subscription (setup-token)'
-              : `${providerLabel(key.provider as Parameters<typeof providerLabel>[0])} API key`
-          return (
-            <Fragment key={key.id}>
-              <EntityRow
-                leading={<KeyRound size={18} />}
-                title={label}
-                trailing={
-                  <span className="settings-micro font-mono">{key.identity || 'Stored'}</span>
-                }
-              />
-              <div className="settings-list-note">
-                <KeySharing
-                  accountId={key.id}
-                  label={`${member.displayName}’s ${label}`}
-                  sharing={key.sharing}
-                  owner={key.owner}
-                  directory={directory}
-                  currentMemberId={directory?.currentMemberId}
-                  onChanged={() => void reload()}
-                />
-              </div>
-            </Fragment>
-          )
-        })
-      ) : (
-        <p className="settings-list-note settings-prose">No keys stored.</p>
       )}
     </Section>
   )

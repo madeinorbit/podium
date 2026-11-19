@@ -102,6 +102,17 @@ replacing a URL that is already set, and `--confirm-url-change` answers that
 ahead of time for a run that cannot show a prompt. Re-saving the *same* URL is
 idempotent and is never questioned.
 
+**Daemons on other computers need `wss` or a trusted network.** The daemon's connection
+follows the same rule as this URL. The server judges each daemon connection from how the
+request reached it (the scheme, and `trustedProxyHops` for a proxy it was told to trust), never
+from what the daemon says: `wss` is encrypted, a daemon on the server's own computer is local,
+an address inside the instance setting `daemonLink.trustedNetworks` is trusted, and anything
+else is plain. A plain connection from another computer receives no credentials and is
+accepted only until February 2027 (`LEGACY(remove-after: 2027-02)`); after that it is refused
+at connect. `daemonLink.trustedNetworks` is a list of IPv4 and IPv6 ranges (`100.64.0.0/10`,
+`fd7a:115c:a1e0::/48`) that only an admin person may set, in **Settings → Machines → Trusted
+networks**; a change applies to machines that are already connected.
+
 ### `PODIUM_APP_URL`
 
 Where the web UI is served from **when it is not this server** — the hosted
@@ -250,6 +261,20 @@ One turns off authentication and the other runs code that is otherwise not
 reachable. Neither should be settable from a process environment that a
 supervisor, a container platform, or a stray `.env` file can populate by
 accident. They are file-and-command only.
+
+## `PODIUM_VAULT_KEY_FILE` — a path, never the key
+
+The vault that encrypts stored secrets is unlocked by a key file kept outside the
+state directory (see [data-and-upgrades.md](data-and-upgrades.md#the-vault-key)).
+`PODIUM_VAULT_KEY_FILE` names that file, for a container or a service manager that
+mounts the key as a secret; without it the server uses
+`$XDG_CONFIG_HOME/podium/vault-<instance>.key`, else
+`~/.config/podium/vault-<instance>.key`. It is not a layered key: there is no
+`config.json` or settings value, and the key itself is never read from an
+environment variable. The file must be readable by its owner only. One that group
+or others can read is refused, with a message naming it; the server still starts,
+with the vault unable to store or open secrets until the mode is `0600`.
+`podium vault status` shows the path and the state.
 
 ## `PODIUM_LOOP_PROFILE` — layered, but not a layered key
 

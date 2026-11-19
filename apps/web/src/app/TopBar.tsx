@@ -13,6 +13,7 @@ import {
 } from 'lucide-react'
 import type { ComponentType, JSX } from 'react'
 import { HeaderHostIndicators } from '@/features/machines/HostIndicators'
+import { NoticeTray } from '@/features/notices/NoticeTray'
 import { PodiumLogo } from '@/lib/icons/PodiumLogo'
 import { type NativeDesktopBridge, nativeDesktopBridge } from '@/lib/nativeDesktop'
 import { useFeature } from '@/lib/use-feature'
@@ -143,6 +144,8 @@ export function TopBar({
           from the utilities, and a rule between an object with internal
           hairlines and two loose glyphs read as a third kind of divider. */}
       <div className="desktop-topbar-utilities">
+        {/* My notices (POD-6881): what needs me, from anywhere in Podium. */}
+        <NoticeTray />
         <UtilityNavItem
           label="Usage & analytics"
           target="usage"

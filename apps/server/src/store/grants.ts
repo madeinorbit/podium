@@ -170,6 +170,22 @@ const grantsOfResourceKeys = preparedFamily((db, t, shape: string) => {
     .prepare()
 })
 
+// The edges of one resource kind given to any of several grantees (a person and
+// the groups they belong to), served by `idx_grants_grantee`.
+const grantsToGrantees = preparedFamily((db, t, size: number) =>
+  db
+    .select()
+    .from(t.grants)
+    .where(
+      inWorkspace(
+        t.grants,
+        eq(t.grants.resourceKind, param(t.grants.resourceKind, 'resourceKind')),
+        inListOf(t.grants.grantee, size, 'grantees'),
+      ),
+    )
+    .prepare(),
+)
+
 /** `custody` keeps the stored marker when the row does not name one: two shapes. */
 const upsertGrant = preparedFamily((db, t, custody: 'set' | 'keep') =>
   captureWrite(
@@ -402,6 +418,24 @@ export class GrantsRepository {
       }
     }
     return out
+  }
+
+  /**
+   * Every edge on a resource of one kind given to one of `grantees` (a person and
+   * the groups that include them). Live, like {@link listForResource}; the caller
+   * still checks each granter's current standing.
+   */
+  async listForGrantees(resourceKind: string, grantees: readonly string[]): Promise<GrantRow[]> {
+    const unique = [...new Set(grantees)]
+    if (unique.length === 0) return []
+    const size = inListSize(unique.length)
+    const rows = await grantsToGrantees(this.db, size).all(
+      inListValues(unique, size, 'grantees', { resourceKind }),
+    )
+    return rows.flatMap((r) => {
+      const row = grantFromRow(r)
+      return row ? [row] : []
+    })
   }
 
   /**

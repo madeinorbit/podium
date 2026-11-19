@@ -35,6 +35,7 @@ import { importConfigSettings } from '../settings-config-import'
 import { createBunStoreExecutor } from '../store/executor/bun-driver'
 import type { DriverSession, QueryClient } from '../store/executor/driver'
 import type { RootStoreExecutor, StoreExecutorOptions } from '../store/executor/executor'
+import { sweepOldNativeLoginTransfers } from '../store/native-login-transfer-sweep'
 import { openStoreDatabase, storeEngineFor } from '../store-database'
 import { dropChangeCapture, installChangeCapture } from '../sync/capture-triggers'
 import { type BackupPreflight, backupSpaceShortfall, measureBackupSpace } from './backup'
@@ -179,6 +180,8 @@ export async function openSqliteStoreLifecycle(
         importEnrollmentLedger(database, directory, options.bootWorkspace)
         importUpdateSigningKey(database, directory)
       }
+      // Before anything else opens the file: the sweep checkpoints the WAL.
+      if (!options.queryOnly) sweepOldNativeLoginTransfers(database)
       stage('imports', importsStarted)
       return result
     })

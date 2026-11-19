@@ -3,7 +3,7 @@ import type { NotificationSession, SessionPhaseChange } from '@podium/client-cor
 import type { UiStore } from '@podium/client-core/ui'
 import { createDemandAtoms, lazy } from '@podium/mobx-helpers'
 import {
-  type AccountView,
+  type CredentialView,
   asSessionId,
   type CheckoutWire,
   type GitRepositoryWire,
@@ -82,6 +82,7 @@ import type {
   IssuePanelTodoWire,
   MachineAccessWire,
   MachineProjection,
+  NoticeWire,
   PersonalPreferences,
   PinWire,
   ReadPositionWire,
@@ -273,7 +274,8 @@ export interface PoolRows {
   issuePanelArtifact: Readonly<IssuePanelArtifactWire> & Readonly<Record<string, unknown>>
   issuePanelDeferred: Readonly<IssuePanelDeferredWire> & Readonly<Record<string, unknown>>
   issuePanelState: Readonly<IssuePanelStateWire> & Readonly<Record<string, unknown>>
-  account: AccountView & Readonly<Record<string, unknown>>
+  /** Credential management Task 4: a credential I own or was given, from `credentials.list`. */
+  credential: CredentialView & Readonly<Record<string, unknown>>
   member: MemberView & Readonly<Record<string, unknown>>
   device: DeviceSignInView & Readonly<Record<string, unknown>>
   repository: GitRepositoryWire & Readonly<Record<string, unknown>>
@@ -301,6 +303,8 @@ export interface PoolRows {
       Record<string, unknown>
     >
   /** POD-6675: one of my superagent threads, its feed id stamped as `id`. */
+  /** POD-6881: one of my open notices, its feed id stamped as `id`. */
+  inboxNotice: Readonly<NoticeWire> & { readonly id: string } & Readonly<Record<string, unknown>>
   superagentThread: Readonly<SuperagentThreadWire> & { readonly id: string } & Readonly<
       Record<string, unknown>
     >

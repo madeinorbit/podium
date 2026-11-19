@@ -12,10 +12,9 @@ import {
   telegramClaimCodeIsLive,
   type UserId,
 } from '@podium/model'
-import { normalizeSettings, type PodiumSettings } from '@podium/runtime'
+import type { PodiumSettings } from '@podium/runtime'
 import { configPath, onConfigChanged } from '@podium/runtime/config'
 import type { LedgerWriter } from '@podium/sync'
-import { TRPCError } from '@trpc/server'
 import type { CommandPrincipal } from '../../command-principal'
 import { ModelCatalog, type ModelCatalogSnapshot, type ModelProbe } from '../../model-catalog'
 import type { TelegramConfig } from '../../notify'
@@ -216,7 +215,7 @@ type SettingsStore = Pick<
  */
 type SecretStore = Pick<
   SessionStore['secrets'],
-  'get' | 'getOrEmpty' | 'set' | 'clear' | 'presence' | 'apiKeyFor' | 'fingerprintKey'
+  'get' | 'getOrEmpty' | 'set' | 'clear' | 'presence' | 'fingerprintKey'
 >
 
 /** What a preference write commits through: the command's own writer, or the
@@ -251,8 +250,7 @@ export interface SettingsServiceOptions {
    * It lives HERE rather than being reached out of the store by `trpc.ts`. That
    * is `rearch-audit`'s `router-triple-access` rule and it is the right shape
    * independently: a transport that can reach `sessionStore` directly is a
-   * transport that can grow a second policy for it — the same reasoning
-   * {@link apiKeyFor} already carries.
+   * transport that can grow a second policy for it.
    */
   audit: SettingsAuditPort
   /** Override the database-held MAC key in tests. */
@@ -376,9 +374,8 @@ export class SettingsService {
   /**
    * Record one settings command, applied or refused (POD-421).
    *
-   * A pass-through to {@link recordSettingsCommand}, and it exists for the
-   * reason {@link apiKeyFor} does: so the ROUTER does not reach into
-   * `sessionStore` for the audit repository. `rearch-audit`'s
+   * A pass-through to {@link recordSettingsCommand}, and it exists so the
+   * ROUTER does not reach into `sessionStore` for the audit repository. `rearch-audit`'s
    * `router-triple-access` counts exactly that, and it caught this on the first
    * run — the reach-through grew the census 18 → 19, which is the ratchet doing
    * its job on a line that was architecturally wrong for an independent reason.
@@ -613,18 +610,11 @@ export class SettingsService {
    * changed token (the notify service's replay, the messaging bridge) must react
    * whichever command wrote it.
    *
-   * The material lands in the keyed store. Provider keys use managed accounts.
+   * The material lands in the keyed store. Provider keys are credentials.
    * The RETURN carries no material: `secretPresence` names presence, an
    * opaque fingerprint and a rotation time, and has no value key by construction.
    */
   async setSecret(key: ServerSecretKey, value: string): Promise<SecretPresenceWire> {
-    if (key.startsWith('apiKeys.')) {
-      throw new TRPCError({
-        code: 'BAD_REQUEST',
-        message:
-          'Provider keys are personal managed accounts. Add or replace yours in Settings → AI accounts.',
-      })
-    }
     // POD-419: the material lands in the keyed store, never in the blob. The
     // rotation time is now DURABLE — POD-420 could only return it.
     const updatedAt = new Date(this.now()).toISOString()
@@ -718,19 +708,6 @@ export class SettingsService {
         (await this.preferenceWriter.commit({ write })).result
       : await write()
     return { previous, next }
-  }
-
-  /**
-   * The provider API key for an LLM backend's provider, or `undefined`.
-   *
-   * A pass-through to the keyed store, and it exists so the ROUTER does not have
-   * to reach into `sessionStore.secrets` itself: `rearch-audit`'s
-   * `hand-written state reach-through in router.ts` counts exactly that, and it
-   * caught this on the first run. A router that can read the secret store
-   * directly is a router that can grow a second policy for it.
-   */
-  async apiKeyFor(provider: string): Promise<string | undefined> {
-    return await this.secrets.apiKeyFor(provider)
   }
 
   /** Live per-agent model lists for ONE machine (SWR — returns cached instantly,

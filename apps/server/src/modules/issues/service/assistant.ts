@@ -2,7 +2,7 @@ import { createLogger } from '@podium/logger'
 import type { IssueProjection, SessionId } from '@podium/model'
 import { firstAdminMemberId, isMachinePathWithinRoot } from '@podium/model'
 import { buildAssistantMessages, parseAssistantJson } from '../../../issueAssistant'
-import { completeForRole, oneShotApiKey } from '../../../llm-roles'
+import { complete } from '../../inference/complete'
 import type { IssueStore } from './core'
 
 const log = createLogger('server:issues')
@@ -86,7 +86,6 @@ export class IssueAssistantDigestModule {
     // admin. The same member's credential is spent below; nobody else's.
     const store = this.store.d.store
     const actor = await firstAdminMemberId(store)
-    const settings = await this.store.d.getSettings(actor)
     const members = (await this.store.sessionsFor(row)).map((s) => ({
       agentKind: s.agentKind,
       phase: s.agentState?.phase ?? 'shell',
@@ -123,26 +122,18 @@ export class IssueAssistantDigestModule {
     }
     let result = null as ReturnType<typeof parseAssistantJson>
     try {
-      // The shared one-shot primitive (SP-6454): resolves the 'background' role's
-      // backend + account, runs one completion, parses into structured data.
-      const resp = await completeForRole(
-        {
-          settings,
-          // POD-469: the actor's managed key (own, then explicitly shared),
-          // the rule a coding spawn uses, resolved at the moment of use.
-          apiKey: async (account) =>
-            await oneShotApiKey(
-              {
-                accounts: store.accounts,
-              },
-              actor,
-              account,
-            ),
-          llm: this.store.d.llm,
-        },
-        { role: 'background', messages: buildAssistantMessages(ctx), parse: parseAssistantJson },
-      )
-      result = resp.data
+      // Podium's own model call (credential management §9): the background
+      // role names the credential, the resolver decides whether the actor may
+      // use it, and nobody else's key or login is ever spent.
+      const input = {
+        role: 'background' as const,
+        messages: buildAssistantMessages(ctx),
+        actingUserId: actor,
+      }
+      const resp = this.store.d.complete
+        ? await this.store.d.complete(input)
+        : await complete({ store }, input)
+      result = parseAssistantJson(resp.text)
     } catch (err) {
       // A refused server-AI call must not vanish (POD-4805): one warn line
       // with the backend's error text, plus the last-error slot Settings

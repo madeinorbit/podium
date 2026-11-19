@@ -63,19 +63,20 @@ export type HarnessManagementContext = Pick<
   | 'quotaFetcher'
   | 'usageMemo'
   | 'harnessLoginState'
-> & {
-  /**
-   * Inventory fallback only. The legacy prober (`agentRuntime.inventory()`) is a
-   * management read — install/version/login per harness — not a live handle. Only
-   * `inventory()` may be reached through this field; `handleFor`, `create`,
-   * `bindTerminal` and every other verb stay outside the boundary.
-   */
-  agentRuntime?: Pick<DaemonMachineRuntime, 'inventory'>
-  harnessRuntime?: Pick<
-    DaemonHarnessRuntime,
-    'current' | 'isCurrent' | 'reprobe' | 'refresh' | 'launch' | 'settled'
-  >
-}
+> &
+  Partial<Pick<DaemonContext, 'homes' | 'homeQuota'>> & {
+    /**
+     * Inventory fallback only. The legacy prober (`agentRuntime.inventory()`) is a
+     * management read — install/version/login per harness — not a live handle. Only
+     * `inventory()` may be reached through this field; `handleFor`, `create`,
+     * `bindTerminal` and every other verb stay outside the boundary.
+     */
+    agentRuntime?: Pick<DaemonMachineRuntime, 'inventory'>
+    harnessRuntime?: Pick<
+      DaemonHarnessRuntime,
+      'current' | 'isCurrent' | 'reprobe' | 'refresh' | 'launch' | 'settled'
+    >
+  }
 
 /**
  * Which HOME management reads (model probe, login) observe.

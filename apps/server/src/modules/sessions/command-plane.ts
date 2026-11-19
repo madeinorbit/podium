@@ -92,6 +92,7 @@ import {
 } from './session-access'
 import type { ExplicitWake } from './session-revival'
 import type { SessionSpawnResult } from './session-start'
+import type { CredentialSwitcher } from './switch-credential'
 // ---------------------------------------------------------------------------
 // Execution context
 // ---------------------------------------------------------------------------
@@ -129,7 +130,10 @@ export type SessionCommandServices = Pick<
   ): ReturnType<SessionLifecycle['answerAskUserQuestion']>
 } & Pick<IssueSessionLifecycle, 'resumeSession' | 'resurrectSession' | 'stopSession'> &
   // POD-6160 D2f: the command's session stays resident while it runs.
-  Partial<Pick<SessionLifecycle, 'residency'>>
+  Partial<Pick<SessionLifecycle, 'residency'>> &
+  // Epic Task 10: the named credential, checked before anything is prepared.
+  // Optional: a hand-built context that names none composes without it.
+  Partial<Pick<SessionLifecycle, 'launchCredential'>>
 
 /**
  * THE SUBSTRATE BOTH CHAT PATHS RIDE (#237) [spec:SP-34d7] — as a dispatch of
@@ -283,6 +287,9 @@ export interface SessionCommandDeps {
    * hand-built contexts of the plane's unit tests, which call the services.
    */
   lifecycleEdits?: LifecycleEditsPort
+  /** `sessions.switchCredential` (credential management §9). Absent in the
+   *  plane's hand-built test contexts. */
+  credentialSwitch?: Pick<CredentialSwitcher, 'switchCredential'>
   access: SessionAccessDeps
   ownership: MachineOwnershipIndex
   /**
@@ -510,6 +517,7 @@ export function createdOwnership(principal: CommandPrincipal): CreatedOwnership 
  * as debt, and it counted these two before they were derived.
  */
 export type CreateInput = z.infer<typeof sessionCommandPlaneInputs.create>
+export type SwitchCredentialInput = z.infer<typeof sessionCommandPlaneInputs.switchCredential>
 export type ResumeInput = z.infer<typeof sessionCommandPlaneInputs.resume>
 type InterruptInput = z.infer<typeof sessionCommandPlaneInputs.interrupt>
 type SendInput = z.infer<typeof sessionCommandPlaneInputs.sendText>
@@ -778,6 +786,12 @@ export async function createSessionNow(ctx: SessionCommandCtx, input: CreateInpu
   if (rest.machineId !== undefined) ctx.assertMachineUse(rest.machineId)
   const ownership = createdOwnership(ctx.principal)
   if (!ownership.owner) throw new Error('session creation requires an accountable human owner')
+  // THE NAMED CREDENTIAL, BEFORE ANYTHING IS PREPARED (credential management
+  // §9): an id the owner cannot use creates no clone, no draft and no session.
+  if (rest.credentialId) {
+    if (!ctx.sessions.launchCredential) throw new Error('credential choice is not wired here')
+    await ctx.sessions.launchCredential(rest.credentialId, asUserId(ownership.owner))
+  }
   const target = await ctx.sessions.workspace.prepareTarget({
     ...rest,
     use: ctx.machineUse,
@@ -977,6 +991,29 @@ export const SESSION_COMMAND_HANDLERS = {
     return (await edits.desire(input.sessionId, 'running', false)) as Awaited<
       ReturnType<SessionCommandServices['resurrectSession']>
     >
+  },
+
+  /**
+   * ANOTHER CREDENTIAL FOR THE SAME CONVERSATION (credential management §9).
+   * The session gate first; the credential is then resolved for the person the
+   * session runs for, and the switch is recorded with the caller's person as
+   * the one who switched.
+   */
+  switchCredential: async (ctx: SessionCommandCtx, input: SwitchCredentialInput) => {
+    const target = await ctx.target(input.sessionId, 'sessions.switchCredential')
+    if (!target) throw new TRPCError({ code: 'NOT_FOUND', message: 'unknown session' })
+    const switcher = ctx.deps.credentialSwitch
+    const actor = createdOwnership(ctx.principal).owner
+    if (!switcher || !actor) {
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message: 'switching is not available here',
+      })
+    }
+    return await switcher.switchCredential(
+      { ...input, sessionId: target.sessionId },
+      asUserId(actor),
+    )
   },
 
   sendText: sendHandler('wait', 'sessions.sendText'),

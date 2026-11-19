@@ -7,6 +7,7 @@
  * The queued commands are `outbox-commands.ts`.
  */
 
+import { NOTICE_SYNC_COMMANDS } from '@podium/commands'
 import { APPROVAL_REQUEST_COMMAND, registerApprovalRequest } from '../approvals/request-sync-write'
 import { AUTOMATION_SYNC_FAMILY } from '../automations/sync-write'
 import { CONVERSATION_SYNC_FAMILY } from '../conversations/sync-write'
@@ -17,6 +18,7 @@ import {
   MAIL_SYNC_FAMILY,
   registerMailAwaitObserved,
 } from '../messages/sync-write'
+import { registerNoticeCommands } from '../notices/sync-write'
 import { OFFER_SYNC_COMMANDS, registerOfferCommands } from '../sessions/offer-sync-write'
 import { registerSessionFamilyCommands } from '../sessions/sync-write'
 import { registerSessionTitle, SESSION_TITLE_COMMAND } from '../sessions/title-sync-write'
@@ -67,6 +69,8 @@ export const FAMILY_COMMAND_NAMES = [
   // Agent mail, and the claim an agent's await retires (POD-6525).
   ...MAIL_SYNC_COMMANDS,
   MAIL_AWAIT_OBSERVED,
+  // A person's read marks on their own notices (POD-6881).
+  ...NOTICE_SYNC_COMMANDS,
 ] as const
 
 /** What the families need beyond the shared deps. */
@@ -87,4 +91,5 @@ export function registerFamilyCommands(registry: SyncWriteRegistry, deps: Family
   registerApprovalRequest(registry, deps)
   registerShellCommands(registry, deps)
   registerFleetCommands(registry, { ...deps.fleet, modules: deps.modules, roleOf: deps.roleOf })
+  registerNoticeCommands(registry, { notices: () => deps.modules().notices })
 }

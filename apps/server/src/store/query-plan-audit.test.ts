@@ -125,6 +125,22 @@ function prefixStatistics(
  */
 const SMALL_TABLES: ReadonlyMap<string, string> = new Map([
   ['accounts', 'Provider accounts the operator configures by hand.'],
+  [
+    'credentials',
+    'Credentials people add by hand or sign in to, a few per person and provider. Only a vault reset updates them all.',
+  ],
+  [
+    'account_machine_sends',
+    'Machines an owner sent a key to by hand, a few per key. Read whole only by the one-time move into the vault.',
+  ],
+  [
+    'credential_placements',
+    'What Podium placed on a machine for a credential: a home or a copied login file per machine a person uses it on, a few per credential.',
+  ],
+  [
+    'credential_secrets',
+    'One sealed secret per credential (older versions are deleted on write); people add credentials by hand. Only a vault reset reads it whole.',
+  ],
   ['automations', 'Schedules people define by hand; a handful per person.'],
   ['machines', 'The fleet: one row per enrolled machine.'],
   ['repos', 'One row per repository checkout per machine.'],
@@ -191,6 +207,10 @@ const ALLOWLIST: ReadonlyMap<string, string> = new Map([
   ],
   ['apps/server/src/store/events.ts:highestEventId', MIN_MAX_SEEK],
   ['packages/sync/src/adapters/sqlite/sync-repository.ts:advanceFloor', MIN_MAX_SEEK],
+  [
+    'packages/sync/src/adapters/sqlite/sync-repository.ts:bumpCapturedKindGenerations',
+    "Retires one write's own change capture (POD-7100): sync_capture holds only the rows the open transaction captured since its last drain and is empty outside a write; the rows above the mark are found by the id range and their distinct kinds sorted in a temporary tree, a few per offline write.",
+  ],
   [
     'apps/server/src/store/issues.ts:issuesOfLabels',
     "The change capture's mapping of renamed labels to the issues carrying them (POD-6920): found through idx_issue_labels_label_id, the distinct issue ids sorted in a temporary tree, a few per label; a label rename is rare.",

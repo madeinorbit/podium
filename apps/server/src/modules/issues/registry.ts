@@ -1157,6 +1157,8 @@ const defs = {
             ...(input.agentProfile ? { agentProfile: input.agentProfile } : {}),
             ...(input.forceUnknownModel ? { forceUnknownModel: true } : {}),
             ...(input.sessionId ? { sessionId: input.sessionId as SessionId } : {}),
+            // Launch-only (credential management §9): resolved for the starter.
+            ...(input.credential ? { credential: input.credential } : {}),
           }),
         ),
       )
@@ -1426,6 +1428,7 @@ const defs = {
           ...startedOnBehalfOf(ctx),
           ...(input.sessionId ? { sessionId: input.sessionId as SessionId } : {}),
           ...(input.forceUnknownModel ? { forceUnknownModel: true } : {}),
+          ...(input.credential ? { credential: input.credential } : {}),
         }),
       )
     },

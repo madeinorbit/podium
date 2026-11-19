@@ -41,15 +41,9 @@
  * through global definitions, the same for every workspace.
  */
 
-import { createHash, randomBytes, randomUUID } from 'node:crypto'
-import {
-  SERVER_SECRET_KEYS,
-  type SecretPresenceWire,
-  type ServerSecretKey,
-  type UserId,
-} from '@podium/model'
-import type { PortableCredentialBundle as PortableCredentialBundleValue } from '@podium/protocol'
-import { PortableCredentialBundle } from '@podium/protocol'
+import { randomBytes } from 'node:crypto'
+import { createLogger } from '@podium/logger'
+import { SERVER_SECRET_KEYS, type SecretPresenceWire, type ServerSecretKey } from '@podium/model'
 import {
   INSTALLATION_META_KEY,
   INSTALLATION_PRIVATE_KEY,
@@ -58,6 +52,7 @@ import {
 } from '@podium/runtime/installation-identity'
 import { eq, sql } from 'drizzle-orm'
 import { FINGERPRINT_SECRET_KEY } from '../fingerprint-key-import'
+import type { SealedSecret, SecretBinding, Vault } from '../modules/credentials/vault'
 import type {
   StoreTables,
   TransactionRunner,
@@ -69,9 +64,44 @@ import { inWorkspace, param, prepared, preparedGlobal, WORKSPACE } from './execu
 /** Internal key of the sign-in signing secret; not a settings secret. */
 export const IDENTITY_SIGNING_SECRET_KEY = 'identity.signingSecret'
 
-function nativeLoginTransferKey(principalUserId: UserId, transferId: string): string {
-  const principal = createHash('sha256').update(principalUserId).digest('hex')
-  return 'native-login-transfer:' + principal + ':' + transferId
+const log = createLogger('server:secrets')
+
+/**
+ * The server secrets the credential vault seals (design §7: "the same primitive
+ * covers two other server secrets"). Their rows hold an envelope, never the
+ * plaintext; {@link ServerSecretsRepository.get} opens it for the callers that
+ * always had the plaintext.
+ */
+export const VAULT_SEALED_SECRET_KEYS = [
+  'integrations.linearApiKey',
+  'notifications.telegramBotToken',
+] as const satisfies readonly ServerSecretKey[]
+
+const isVaultSealedKey = (key: string): boolean =>
+  (VAULT_SEALED_SECRET_KEYS as readonly string[]).includes(key)
+
+const ENVELOPE_PREFIX = 'vault:v1:'
+
+/** The binding for a sealed server secret: the key name, so two rows cannot swap. */
+const bindingFor = (key: string): SecretBinding => ({
+  credentialId: `server-secret:${key}`,
+  type: 'server-secret',
+  version: 1,
+})
+
+function envelopeOf(sealed: SealedSecret): string {
+  return `${ENVELOPE_PREFIX}${sealed.keyId}:${sealed.nonce.toString('base64')}:${sealed.ciphertext.toString('base64')}`
+}
+
+function parseEnvelope(value: string): SealedSecret | undefined {
+  if (!value.startsWith(ENVELOPE_PREFIX)) return undefined
+  const [keyId, nonce, ciphertext] = value.slice(ENVELOPE_PREFIX.length).split(':')
+  if (!keyId || !nonce || !ciphertext) return undefined
+  return {
+    keyId,
+    nonce: Buffer.from(nonce, 'base64'),
+    ciphertext: Buffer.from(ciphertext, 'base64'),
+  }
 }
 
 // Every query this repository runs, prepared once per store [POD-6147].
@@ -181,6 +211,8 @@ const installationRow = preparedGlobal((db, t) =>
 export class ServerSecretsRepository {
   private readonly scope: WorkspaceDb
   protected readonly createOrJoinTransaction: TransactionRunner
+  private vault: Vault | undefined
+  private readonly unopenedReported = new Set<string>()
 
   /** One workspace's queries: its secrets are that workspace's (POD-7013). */
   constructor(queries: WorkspaceQueries) {
@@ -202,55 +234,6 @@ export class ServerSecretsRepository {
    * at the moment of injection rather than holding a copy, so a rotation takes
    * effect on the next use rather than on the next restart.
    */
-  /**
-   * Store one native login snapshot for the duration of a server-side transfer.
-   * The principal is hashed into the private key, so a different principal can
-   * never retrieve the row. These rows are intentionally outside the closed
-   * settings-secret vocabulary and are never part of presence().
-   */
-  async putNativeLoginTransfer(
-    principalUserId: UserId,
-    bundle: PortableCredentialBundleValue,
-    updatedAt = new Date().toISOString(),
-  ): Promise<string> {
-    const transferId = randomUUID()
-    await this.writeNativeLoginTransfer(principalUserId, transferId, bundle, updatedAt)
-    return transferId
-  }
-
-  async getNativeLoginTransfer(
-    principalUserId: UserId,
-    transferId: string,
-  ): Promise<PortableCredentialBundleValue | undefined> {
-    const row = await secretValue(this.db).get({
-      key: nativeLoginTransferKey(principalUserId, transferId),
-    })
-    if (!row) return undefined
-    try {
-      const parsed = PortableCredentialBundle.safeParse(JSON.parse(row.value))
-      return parsed.success ? parsed.data : undefined
-    } catch {
-      return undefined
-    }
-  }
-
-  async clearNativeLoginTransfer(principalUserId: UserId, transferId: string): Promise<void> {
-    await deleteSecret(this.db).run({ key: nativeLoginTransferKey(principalUserId, transferId) })
-  }
-
-  private async writeNativeLoginTransfer(
-    principalUserId: UserId,
-    transferId: string,
-    bundle: PortableCredentialBundleValue,
-    updatedAt: string,
-  ): Promise<void> {
-    await upsertSecret(this.db).run({
-      key: nativeLoginTransferKey(principalUserId, transferId),
-      value: JSON.stringify(bundle),
-      updatedAt,
-    })
-  }
-
   /** Installation key is outside the settings-secret vocabulary and presence projection.
    * Read both rows in one statement so callers never observe mismatched halves. */
   async installationIdentity(): Promise<InstallationIdentity> {
@@ -308,7 +291,81 @@ export class ServerSecretsRepository {
 
   async get(key: ServerSecretKey): Promise<string | undefined> {
     const row = await secretValue(this.db).get({ key })
-    return row?.value
+    if (!row) return undefined
+    return isVaultSealedKey(key) ? this.openSealed(key, row.value) : row.value
+  }
+
+  /** The vault that seals {@link VAULT_SEALED_SECRET_KEYS}; set by the store at boot. */
+  useVault(vault: Vault): void {
+    this.vault = vault
+  }
+
+  /**
+   * A sealed key's plaintext. A row from before the vault (plain text) is
+   * returned as it is until the boot seals it. A sealed row the vault cannot open
+   * (locked, or reset) reads as absent, which every caller already treats as "not
+   * configured"; it is reported once, without the value.
+   */
+  private openSealed(key: string, value: string): string | undefined {
+    const sealed = parseEnvelope(value)
+    if (!sealed) return value.startsWith(ENVELOPE_PREFIX) ? undefined : value
+    try {
+      if (!this.vault) throw new Error('the vault is not open yet')
+      return this.vault.open(bindingFor(key), sealed).toString('utf8')
+    } catch (error) {
+      if (!this.unopenedReported.has(key)) {
+        this.unopenedReported.add(key)
+        log.warn('a sealed server secret cannot be opened', {
+          key,
+          reason: error instanceof Error ? error.message : String(error),
+        })
+      }
+      return undefined
+    }
+  }
+
+  /** The stored form of a value: sealed for the vault's keys, refused when it cannot seal. */
+  private async storedForm(key: ServerSecretKey, value: string): Promise<string> {
+    if (!isVaultSealedKey(key)) return value
+    if (!this.vault) throw new Error('The vault is not open, so this secret cannot be stored.')
+    const plaintext = Buffer.from(value, 'utf8')
+    try {
+      return envelopeOf(await this.vault.seal(bindingFor(key), plaintext))
+    } finally {
+      plaintext.fill(0)
+    }
+  }
+
+  /**
+   * Seal, in place, any of the vault's keys still stored as plain text (rows
+   * written before the vault existed). Keeps each row's `updated_at`. Returns how
+   * many rows it sealed. Each is read back through the vault before it counts.
+   */
+  async sealInPlace(): Promise<number> {
+    let sealed = 0
+    for (const key of VAULT_SEALED_SECRET_KEYS) {
+      const row = await secretValue(this.db).get({ key })
+      if (!row || row.value.startsWith(ENVELOPE_PREFIX)) continue
+      const updatedAt = (await secretUpdatedAt(this.db).get({ key }))?.updatedAt ?? ''
+      await upsertSecret(this.db).run({
+        key,
+        value: await this.storedForm(key, row.value),
+        updatedAt: updatedAt || new Date().toISOString(),
+      })
+      if ((await this.get(key)) !== row.value) {
+        throw new Error(`sealing ${key} did not read back`)
+      }
+      sealed += 1
+    }
+    return sealed
+  }
+
+  /** Vault reset: delete the vault's keys that are stored sealed (they can no longer open). */
+  async clearSealed(): Promise<void> {
+    for (const key of VAULT_SEALED_SECRET_KEYS) {
+      const row = await secretValue(this.db).get({ key })
+      if (row?.value.startsWith(ENVELOPE_PREFIX)) await deleteSecret(this.db).run({ key })
+    }
   }
 
   /** {@link get}, with the empty string for absent — for the several consumers
@@ -331,22 +388,7 @@ export class ServerSecretsRepository {
       await this.clear(key)
       return
     }
-    await upsertSecret(this.db).run({ key, value, updatedAt })
-  }
-
-  /**
-   * The provider API key for an LLM backend's provider, or `undefined`.
-   *
-   * A CHECKED lookup rather than a cast. `LlmBackend.provider` includes `codex`,
-   * which authenticates off a local login and has no row in this vocabulary — so
-   * `apiKeys.codex` is not a `ServerSecretKey` and asserting it were one would be
-   * a well-typed lie that happens to return `undefined` today. An unrecognised
-   * provider answers "no key", which is what every caller already handles.
-   */
-  async apiKeyFor(provider: string): Promise<string | undefined> {
-    const candidate = `apiKeys.${provider}`
-    if (!(SERVER_SECRET_KEYS as readonly string[]).includes(candidate)) return undefined
-    return await this.get(candidate as ServerSecretKey)
+    await upsertSecret(this.db).run({ key, value: await this.storedForm(key, value), updatedAt })
   }
 
   async clear(key: ServerSecretKey): Promise<void> {

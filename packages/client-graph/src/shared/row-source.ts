@@ -31,6 +31,7 @@ import {
   layoutRowId,
   machineAccessRowId,
   normalizeOriginUrl,
+  noticeRowId,
   type PinKind,
   parseIssueUserStateRowId,
   parseMachineAccessRowId,
@@ -214,6 +215,8 @@ const SLICE_KINDS: ReadonlySet<ReplicaKind> = new Set([
   // POD-6644: my machine access rows (joined onto the machine), and checkouts.
   'machineAccess',
   'checkouts',
+  // POD-6881: my open notices.
+  'inboxNotices',
 ])
 
 const OVERLAID: readonly OverlayTarget[] = [
@@ -292,6 +295,9 @@ const PER_USER_KINDS = {
   userReadPosition: { replica: 'userReadPositions', target: 'userReadPositions' },
   // POD-6675: a superagent thread, keyed `superagentThreadRowId`.
   superagentThread: { replica: 'superagentThreads', target: 'superagentThreads' },
+  // POD-6881: an open notice, keyed `noticeRowId`; written by the server only,
+  // so nothing is overlaid on it.
+  inboxNotice: { replica: 'inboxNotices', target: undefined },
   // POD-6677: the one instance settings record, every member's, keyed
   // `INSTANCE_PREFERENCES_ROW_ID`.
   instancePreferences: { replica: 'instancePreferences', target: 'instancePreferences' },
@@ -326,6 +332,11 @@ function perUserIdOf(kind: string, row: AnyRow): string | undefined {
   if (kind === 'superagentThread') {
     return typeof row.ownerUserId === 'string' && typeof row.threadId === 'string'
       ? superagentThreadRowId(asUserId(row.ownerUserId), row.threadId)
+      : undefined
+  }
+  if (kind === 'inboxNotice') {
+    return typeof row.recipientUserId === 'string' && typeof row.noticeId === 'string'
+      ? noticeRowId(asUserId(row.recipientUserId), row.noticeId)
       : undefined
   }
   const user = typeof row.userId === 'string' ? asUserId(row.userId) : undefined

@@ -762,6 +762,42 @@ export function describeSyncRepositoryGolden(open: OpenSyncRepositoryFixture): v
       ])
     })
   })
+
+  describe('the change capture', () => {
+    // A store's feed already holds generations for its kinds; these pins name their own.
+    const KINDS = "kind IN ('machine', 'machineAccess')"
+    it('retires the rows above a mark: each kind up one generation, in this workspace only', async () => {
+      await fixture().seed(`DELETE FROM sync_kind WHERE ${KINDS}`)
+      await fixture().seed(
+        `INSERT INTO sync_kind (workspace_id, kind, generation) VALUES ('${SUITE_WORKSPACE_ID}', 'machine', 4), ('other', 'machine', 9)`,
+      )
+      await fixture().seed(`INSERT INTO sync_capture (id, kind, source, op, old_key, new_key) VALUES
+        (1, 'issueProjection', 0, 'u', '["i"]', '["i"]'),
+        (2, 'machine', 0, 'u', '["m"]', '["m"]'),
+        (3, 'machineAccess', 0, 'u', '["m"]', '["m"]'),
+        (4, 'machine', 1, 'i', NULL, '["m2"]')`)
+      expect(await repo.retireCapture(1)).toEqual(['machine', 'machineAccess'])
+      // Twice-captured `machine` moves once; a kind with no row starts at 1; the
+      // row below the mark and the other workspace's generation are untouched.
+      expect(
+        await stored(
+          `SELECT workspace_id, kind, generation FROM sync_kind WHERE ${KINDS} ORDER BY workspace_id, kind`,
+        ),
+      ).toEqual([
+        { workspace_id: SUITE_WORKSPACE_ID, kind: 'machine', generation: 5 },
+        { workspace_id: SUITE_WORKSPACE_ID, kind: 'machineAccess', generation: 1 },
+        { workspace_id: 'other', kind: 'machine', generation: 9 },
+      ])
+      expect(await stored('SELECT id FROM sync_capture')).toEqual([{ id: 1 }])
+      expect(await repo.readKindGenerations()).toContainEqual({ kind: 'machine', generation: 5 })
+    })
+
+    it('changes nothing when nothing was captured above the mark', async () => {
+      const before = await stored('SELECT * FROM sync_kind ORDER BY workspace_id, kind')
+      expect(await repo.retireCapture()).toEqual([])
+      expect(await stored('SELECT * FROM sync_kind ORDER BY workspace_id, kind')).toEqual(before)
+    })
+  })
 }
 
 // ---------------------------------------------------------------------------

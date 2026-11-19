@@ -4,9 +4,10 @@ import { join } from 'node:path'
 import { asSessionId } from '@podium/model'
 import { directPtyDurableForTests } from '@podium/process/durable'
 import { expect, it } from 'vitest'
+import { attachTestTerminal, testSessions } from '../session/testing.js'
+import { memoryMarkers, SessionAccessStore } from './access'
 import type { DaemonContext } from './context'
 import { sessionHandlers } from './session'
-import { attachTestTerminal, testSessions } from '../session/testing.js'
 
 it('round-trips human shell bytes without a driver and the user\'s hard redraw never submits the line', async () => {
   const root = mkdtempSync(join(tmpdir(), 'native-host-input-'))
@@ -27,6 +28,7 @@ it('round-trips human shell bytes without a driver and the user\'s hard redraw n
     observers: { recordInputOrigin: () => {} },
     composerEngine: { onInputByte: () => {} },
     outputScheduler: { flushNow: () => {} },
+    access: new SessionAccessStore({ markers: memoryMarkers() }),
   } as unknown as DaemonContext
   const type = (text: string) => sessionHandlers.input(ctx, {
     type: 'input', sessionId, inputOrigin: 'human', data: Buffer.from(text).toString('base64'),

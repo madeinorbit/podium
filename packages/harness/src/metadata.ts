@@ -81,6 +81,7 @@ export type {
   HarnessCapabilities,
   HarnessLogin,
   LoginIdentity,
+  HideFromCommands,
   PortableCredential,
 } from './manifest.js'
 // Static driver vocabulary for consumers that fingerprint declaration-derived facts.
@@ -97,10 +98,12 @@ export {
   CREDENTIAL_PROPAGATION_HARNESSES,
   driverFamilyForId,
   driverIdIsServerFamily,
+  harnessAccepts,
   harnessCapabilitiesFor,
   harnessComposerReadiness,
   harnessDetectLogin,
   harnessDisplayName,
+  harnessHideFromCommands,
   harnessInterrupt,
   harnessNeedsSubmitVerification,
   harnessObservationProvider,
@@ -130,5 +133,8 @@ export {
   hasValidCodexCredential,
   parseCodexAuthContents,
 } from './adapters/codex/auth-identity.js'
+// The model provider Codex runs a ChatGPT plan under (epic Task 15): a credential
+// switch records it in a moved thread (Task 11).
+export { CODEX_PLAN_PROVIDER_ID } from './adapters/codex/plan-provider.js'
 
 export { isCommandWrapperText, isGenericClaudeTitle, isTransientTitle, stripSpinnerFrame } from './session-title'

@@ -1,0 +1,97 @@
+{
+  "family": "conversation",
+  "note": "Golden wire fixtures (POD-360). Generated — regenerate with `bun run fixtures:wire:update`. `wire` is what a peer sends; `parseAdded` is what the schema defaults in; `parseChanged` must stay empty (parse is value-transparent); `encoded` pins the serialized bytes.",
+  "cases": [
+    {
+      "schema": "ConversationPlacement",
+      "variant": "minimal",
+      "wire": "in-place",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"in-place\""
+    },
+    {
+      "schema": "ConversationPlacement",
+      "variant": "full",
+      "wire": "in-place",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"in-place\""
+    },
+    {
+      "schema": "ConversationPrepareRequestMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "conversationPrepareRequest",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "agentKind": "claude-code",
+        "cwd": "cwd",
+        "resume": {
+          "kind": "resume.kind",
+          "value": "resume.value"
+        },
+        "toHomeId": "toHomeId",
+        "account": "account"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"conversationPrepareRequest\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"agentKind\":\"claude-code\",\"cwd\":\"cwd\",\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"toHomeId\":\"toHomeId\",\"account\":\"account\"}"
+    },
+    {
+      "schema": "ConversationPrepareRequestMessage",
+      "variant": "full",
+      "wire": {
+        "type": "conversationPrepareRequest",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "agentKind": "claude-code",
+        "cwd": "cwd",
+        "resume": {
+          "kind": "resume.kind",
+          "value": "resume.value"
+        },
+        "toHomeId": "toHomeId",
+        "account": "account",
+        "fromAccount": "fromAccount",
+        "modelProvider": "modelProvider"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"conversationPrepareRequest\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"agentKind\":\"claude-code\",\"cwd\":\"cwd\",\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"toHomeId\":\"toHomeId\",\"account\":\"account\",\"fromAccount\":\"fromAccount\",\"modelProvider\":\"modelProvider\"}"
+    },
+    {
+      "schema": "ConversationPrepareResultMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "conversationPrepareResult",
+        "requestId": "requestId",
+        "ok": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"conversationPrepareResult\",\"requestId\":\"requestId\",\"ok\":true}"
+    },
+    {
+      "schema": "ConversationPrepareResultMessage",
+      "variant": "full",
+      "wire": {
+        "type": "conversationPrepareResult",
+        "requestId": "requestId",
+        "ok": true,
+        "placed": "in-place",
+        "droppedReasoning": true,
+        "error": "error"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"conversationPrepareResult\",\"requestId\":\"requestId\",\"ok\":true,\"placed\":\"in-place\",\"droppedReasoning\":true,\"error\":\"error\"}"
+    }
+  ]
+}

@@ -7,9 +7,10 @@ import {
   agentLoginCondition,
   agentProbeTimeoutDescription,
   asMachineId,
+  type CredentialId,
   type IssueId,
-  type MachineId,
   type MachineFacts,
+  type MachineId,
   machinePathBasename,
   machinePathsEqual,
   machinesForRepoOrClone,
@@ -31,6 +32,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { NewSessionCredentialSection } from '@/features/credentials/session/NewSessionCredentialSection'
 import {
   ARTIFACTS_TAB_ARTIFACT_ID,
   useArtifactCount,
@@ -193,7 +195,12 @@ const NewPanelMenuBody = observer(function NewPanelMenuBody({
     ...repoView.machines.map((m) => m.machineId),
   ])
 
-  function create(agentKind: AgentKind, machineId?: MachineId, requestedDriverId?: string) {
+  function create(
+    agentKind: AgentKind,
+    machineId?: MachineId,
+    requestedDriverId?: string,
+    credentialId?: CredentialId | null,
+  ) {
     const cwd = cwdFor(machineId)
     // A concrete driver id is an explicit per-session selection (the
     // experimental driver row passes its id); absent is the manifest's headed
@@ -213,6 +220,7 @@ const NewPanelMenuBody = observer(function NewPanelMenuBody({
       },
       ...(issueId ? { issueId } : {}),
       ...(requestedDriverId !== undefined ? { requestedDriverId } : {}),
+      ...(credentialId !== undefined ? { credentialId } : {}),
     })
     // Server-family sessions derive Chat before startScreen/device preferences.
     // Materialize a headed row's descriptor-stated native intent before exposing
@@ -244,6 +252,19 @@ const NewPanelMenuBody = observer(function NewPanelMenuBody({
     repoView,
     machines,
     menuAgents.map((agent) => agent.kind),
+  )
+
+  const credentialSection = (machineFor: (kind: AgentKind) => MachineId | undefined) => (
+    <NewSessionCredentialSection
+      agents={menuAgents.map(({ kind, label, Icon }) => ({
+        kind,
+        label,
+        icon: <Icon className={`${MENU_GLYPH} text-text-dim`} aria-hidden="true" />,
+      }))}
+      machineFor={machineFor}
+      acceptsOf={(kind) => descriptors.find((d) => d.kind === kind)?.accepts ?? []}
+      onCreate={(kind, machineId, credentialId) => create(kind, machineId, undefined, credentialId)}
+    />
   )
 
   // Single-machine (or no machines yet): no Machines region to choose between.
@@ -283,6 +304,7 @@ const NewPanelMenuBody = observer(function NewPanelMenuBody({
         {runtimeDriversEnabled && machine ? (
           <HeadlessDriverItems machine={machine} onCreate={create} agents={menuAgents} />
         ) : null}
+        {machine ? credentialSection(() => machine.id) : null}
         {issueId ? <ArtifactsItem issueId={issueId} worktree={worktree} /> : null}
         <RecentFilesSection worktree={worktree} {...(issueId ? { issueId } : {})} />
       </DropdownMenuContent>
@@ -368,6 +390,10 @@ const NewPanelMenuBody = observer(function NewPanelMenuBody({
         })}
       </TooltipProvider>
 
+      {credentialSection((kind) => {
+        const target = targetFor(kind)
+        return target === undefined ? undefined : asMachineId(target)
+      })}
       {issueId ? <ArtifactsItem issueId={issueId} worktree={worktree} /> : null}
       <RecentFilesSection worktree={worktree} {...(issueId ? { issueId } : {})} />
     </DropdownMenuContent>

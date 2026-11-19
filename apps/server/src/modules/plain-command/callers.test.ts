@@ -22,10 +22,6 @@
  *    on the operator's own credential;
  *  - agents and the daemon: none of the 29 today. The agent rows below pin what
  *    one would get;
- *  - `accounts.share` (POD-6360): Settings → AI accounts, the owner on their own key
- *    and an admin on any key (POD-6390);
- *  - `accounts.unsend` (POD-6699): the owner taking back a sent key, or an admin
- *    taking it back for them;
  */
 
 import type { AnyCommandContract } from '@podium/commands'
@@ -43,9 +39,9 @@ import {
   resolvePrincipal,
   userCommandPrincipal,
 } from '../../command-principal'
-import { NativeLoginService } from '../accounts/native-login'
-import { ACCOUNT_COMMANDS_TRPC } from '../accounts/registry'
 import { EventBus } from '../bus'
+import { CREDENTIAL_COMMANDS_TRPC } from '../credentials/commands'
+import { NativeLoginService } from '../credentials/native-login'
 import { coarselyPermitted, contractFrontDoor } from '../front-door'
 import {
   AUTH_COMMANDS_TRPC,
@@ -56,11 +52,11 @@ import { LOGS_COMMANDS_TRPC } from '../logs/registry'
 import { MODEL_COMMANDS_TRPC } from '../models/registry'
 import { PERF_COMMANDS_TRPC } from '../perf/commands'
 import { SETTINGS_COMMANDS_TRPC } from '../settings/registry'
+import { VAULT_COMMANDS_TRPC } from '../vault/registry'
 import type { PlainTargetCheck } from './entry'
 
 const CONTRACTS = new Map<string, AnyCommandContract>(
   [
-    ...Object.values(ACCOUNT_COMMANDS_TRPC),
     ...Object.values(AUTH_COMMANDS_TRPC),
     ...Object.values(SETUP_COMMANDS_TRPC),
     ...Object.values(TELEMETRY_COMMANDS_TRPC),
@@ -68,15 +64,18 @@ const CONTRACTS = new Map<string, AnyCommandContract>(
     ...Object.values(MODEL_COMMANDS_TRPC),
     ...Object.values(PERF_COMMANDS_TRPC),
     ...Object.values(SETTINGS_COMMANDS_TRPC),
+    ...Object.values(VAULT_COMMANDS_TRPC),
+    ...Object.values(CREDENTIAL_COMMANDS_TRPC),
   ].map((c) => [c.contract.name, c.contract as AnyCommandContract]),
 )
 
 /** The commands whose table entry declares a target check (`entry.ts`, step 4). */
 const TARGET_CHECKS = new Map<string, PlainTargetCheck>(
-  Object.values(ACCOUNT_COMMANDS_TRPC).flatMap((c) =>
-    'targetPermitted' in c && c.targetPermitted
-      ? [[c.contract.name, c.targetPermitted] as const]
-      : [],
+  [...Object.values(VAULT_COMMANDS_TRPC), ...Object.values(CREDENTIAL_COMMANDS_TRPC)].flatMap(
+    (c) =>
+      'targetPermitted' in c && c.targetPermitted
+        ? [[c.contract.name, c.targetPermitted] as const]
+        : [],
   ),
 )
 
@@ -140,87 +139,86 @@ const CALLERS: readonly {
     caller: 'Settings → Account (admin-only UI)',
     expect: 'lost',
   },
-  // Every user manages their OWN harness accounts (user decision 2026-11-04):
-  // a stored key is the caller's, and only the caller's agents use it until
-  // they share it. Router-level proof that the row touched is the caller's own
-  // (and that another user's key is untouched) is in family.test.ts.
-  {
-    command: 'accounts.connect',
-    who: 'member',
-    caller: 'Settings → AI accounts, own key',
-    expect: 'ok',
-  },
-  {
-    command: 'accounts.disconnect',
-    who: 'member',
-    caller: 'Settings → AI accounts, own key',
-    expect: 'ok',
-  },
-  {
-    command: 'accounts.share',
-    who: 'member',
-    caller: 'share own key',
-    expect: 'ok',
-    input: { id: 'managed:anthropic', everyone: true, users: [] },
-  },
-  {
-    command: 'accounts.share',
-    who: 'member',
-    caller: "another user's key",
-    expect: 'floor',
-    input: { id: 'managed:anthropic', owner: 'user:caller-other', everyone: true, users: [] },
-  },
-  {
-    command: 'accounts.share',
-    who: 'admin',
-    caller: "an admin, another user's key",
-    expect: 'ok',
-    input: { id: 'managed:anthropic', owner: 'user:caller-other', everyone: false, users: [] },
-  },
-  {
-    command: 'accounts.unsend',
-    who: 'member',
-    caller: 'take back own sent key',
-    expect: 'ok',
-    input: { id: 'managed:anthropic', machineId: 'machine-shared' },
-  },
-  {
-    command: 'accounts.unsend',
-    who: 'member',
-    caller: "take back another user's sent key",
-    expect: 'floor',
-    input: { id: 'managed:anthropic', owner: 'user:caller-other', machineId: 'machine-shared' },
-  },
-  {
-    command: 'accounts.unsend',
-    who: 'admin',
-    caller: "take back another user's sent key",
-    expect: 'ok',
-    input: { id: 'managed:anthropic', owner: 'user:caller-other', machineId: 'machine-shared' },
-  },
   // Every user signs in their OWN harness accounts (user decision 2026-11-04):
   // the terminal is spawned as the member, on a machine the member may use. The
   // refusals for another user's machine or running attempt are pinned below.
   {
-    command: 'accounts.login',
+    command: 'credentials.login',
     who: 'member',
     caller: 'Settings → AI accounts, own account',
     expect: 'ok',
   },
   {
-    command: 'accounts.login',
+    command: 'credentials.login',
     who: 'member',
     caller: "agent panel's sign-in terminal",
     expect: 'ok',
   },
   {
-    command: 'accounts.login',
+    command: 'credentials.login',
     who: 'member',
     caller: 'first task activation sign-in',
     expect: 'ok',
   },
   { command: 'telemetry.set', who: 'member', caller: 'Settings → Privacy', expect: 'lost' },
   { command: 'telemetry.resetId', who: 'member', caller: 'Settings → Privacy', expect: 'lost' },
+  { command: 'vault.reset', who: 'member', caller: 'podium vault reset', expect: 'floor' },
+  // Every member manages their own credentials (credential management Task 4).
+  { command: 'credentials.add', who: 'member', caller: 'credentials page (Task 17)', expect: 'ok' },
+  {
+    command: 'credentials.allowMachine',
+    who: 'member',
+    caller: 'credentials page (Task 17)',
+    expect: 'ok',
+  },
+  {
+    command: 'credentials.disallowMachine',
+    who: 'member',
+    caller: 'credentials page (Task 17)',
+    expect: 'ok',
+  },
+  {
+    command: 'credentials.remove',
+    who: 'member',
+    caller: 'credentials page (Task 17)',
+    expect: 'ok',
+  },
+  {
+    command: 'credentials.rename',
+    who: 'member',
+    caller: 'credentials page (Task 17)',
+    expect: 'ok',
+  },
+  {
+    command: 'credentials.renew',
+    who: 'member',
+    caller: 'credentials page (Task 17)',
+    expect: 'ok',
+  },
+  {
+    command: 'credentials.share',
+    who: 'member',
+    caller: 'credentials page (Task 17)',
+    expect: 'ok',
+  },
+  {
+    command: 'credentials.unshare',
+    who: 'member',
+    caller: 'credentials page (Task 17)',
+    expect: 'ok',
+  },
+  {
+    command: 'credentials.signInStart',
+    who: 'member',
+    caller: 'credentials page → Add → Subscription (Task 9)',
+    expect: 'ok',
+  },
+  {
+    command: 'credentials.signInCancel',
+    who: 'member',
+    caller: 'credentials page → Add → Subscription (Task 9)',
+    expect: 'ok',
+  },
   {
     command: 'logs.setLevel',
     who: 'member',
@@ -230,8 +228,18 @@ const CALLERS: readonly {
   { command: 'setup.setChannel', who: 'member', caller: 'Settings → Updates', expect: 'lost' },
   // Already refused for members, by the service or the settings gate:
   { command: 'setup.activate', who: 'member', caller: 'setup activation', expect: 'floor' },
-  { command: 'settings.setSecret', who: 'member', caller: 'Settings → AI accounts → API keys', expect: 'floor' },
-  { command: 'settings.clearSecret', who: 'member', caller: 'Settings → AI accounts → API keys', expect: 'floor' },
+  {
+    command: 'settings.setSecret',
+    who: 'member',
+    caller: 'Settings → AI accounts → API keys',
+    expect: 'floor',
+  },
+  {
+    command: 'settings.clearSecret',
+    who: 'member',
+    caller: 'Settings → AI accounts → API keys',
+    expect: 'floor',
+  },
   {
     command: 'settings.secretPresence',
     who: 'member',
@@ -269,7 +277,7 @@ const CALLERS: readonly {
     'setup.connect',
     'setup.activate',
     'auth.setPassword',
-    'accounts.login',
+    'credentials.login',
   ].map((command) => ({
     command,
     who: 'bootstrap' as const,
@@ -282,30 +290,30 @@ const CALLERS: readonly {
   { command: 'perf.report', who: 'agent', caller: 'none today', expect: 'ok' },
   { command: 'telemetry.set', who: 'agent', caller: 'none today', expect: 'floor' },
   { command: 'telemetry.resetId', who: 'agent', caller: 'none today', expect: 'floor' },
-  // An agent may not sign its human in, store, remove, share or take back a key as them:
-  // refused by the target check.
-  { command: 'accounts.login', who: 'agent', caller: 'none today', expect: 'floor' },
-  { command: 'accounts.connect', who: 'agent', caller: 'none today', expect: 'floor' },
-  { command: 'accounts.disconnect', who: 'agent', caller: 'none today', expect: 'floor' },
-  {
-    command: 'accounts.share',
-    who: 'agent',
-    caller: 'none today',
-    expect: 'floor',
-    input: { id: 'managed:anthropic', everyone: true, users: [] },
-  },
-  {
-    command: 'accounts.unsend',
-    who: 'agent',
-    caller: 'none today',
-    expect: 'floor',
-    input: { id: 'managed:anthropic', machineId: 'machine-shared' },
-  },
+  // Deleting every stored secret is an admin person's decision, never an agent's.
+  { command: 'vault.reset', who: 'agent', caller: 'none today', expect: 'floor' },
+  // A credential write is a person's, never an agent's (credential management Task 4).
+  { command: 'credentials.add', who: 'agent', caller: 'none today', expect: 'floor' },
+  { command: 'credentials.allowMachine', who: 'agent', caller: 'none today', expect: 'floor' },
+  { command: 'credentials.disallowMachine', who: 'agent', caller: 'none today', expect: 'floor' },
+  { command: 'credentials.remove', who: 'agent', caller: 'none today', expect: 'floor' },
+  { command: 'credentials.rename', who: 'agent', caller: 'none today', expect: 'floor' },
+  { command: 'credentials.renew', who: 'agent', caller: 'none today', expect: 'floor' },
+  { command: 'credentials.share', who: 'agent', caller: 'none today', expect: 'floor' },
+  { command: 'credentials.unshare', who: 'agent', caller: 'none today', expect: 'floor' },
+  { command: 'credentials.signInStart', who: 'agent', caller: 'none today', expect: 'floor' },
+  { command: 'credentials.signInCancel', who: 'agent', caller: 'none today', expect: 'floor' },
+  // An agent may not sign its human in: refused by the target check.
+  { command: 'credentials.login', who: 'agent', caller: 'none today', expect: 'floor' },
 ]
 
-describe('every current caller of the 31 non-sync commands', () => {
-  it('covers the 31 commands, and only them', () => {
-    expect(CONTRACTS.size).toBe(31) // includes accounts.unsend; accounts.keys is a query
+describe('every current caller of the 40 non-sync commands', () => {
+  it('covers the 40 commands, and only them', () => {
+    // 32 on the base, which pinned 31; + vault.reset (POD-6889); + eight credentials.* (POD-6891);
+    // + chatgptSignInStart and chatgptSignInComplete (POD-6901); + signInStart and
+    // signInCancel (POD-6896); - accounts.connect, disconnect, share, send and unsend
+    // (POD-6907: the old stored keys are credentials).
+    expect(CONTRACTS.size).toBe(40)
     // None is queued any more. The two that were moved onto synced record
     // edits on purpose:
     //  - settings.updatePersonal: records.userPreferences.edit (POD-6673);
@@ -313,16 +321,8 @@ describe('every current caller of the 31 non-sync commands', () => {
     const queued = [...CONTRACTS.values()].filter((c) => c.delivery.class === 'offline-eligible')
     expect(queued.map((c) => c.name)).toEqual([])
     const plain = [...CONTRACTS.values()].filter((c) => c.delivery.class !== 'offline-eligible')
-    expect(plain).toHaveLength(31)
+    expect(plain).toHaveLength(40)
     for (const row of CALLERS) expect(CONTRACTS.has(row.command), row.command).toBe(true)
-  })
-
-  it('classifies accounts.unsend as an online-sensitive credential write', () => {
-    expect(CONTRACTS.get('accounts.unsend')).toMatchObject({
-      visibility: 'secret',
-      policy: { action: 'write', roleFloor: 'member', resource: 'secret' },
-      delivery: { class: 'online-sensitive' },
-    })
   })
 
   it.each(

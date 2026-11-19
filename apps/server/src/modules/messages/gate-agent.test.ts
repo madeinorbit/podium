@@ -5,7 +5,7 @@ import { messageTestWriter, messageTestWriters } from '../../test-support/messag
 
 import type { SessionMeta, SessionMetaInput } from '@podium/model'
 import {
-  asAccountId,
+  asCredentialId,
   asIssueId,
   asMachineId,
   asSessionId,
@@ -448,7 +448,7 @@ describe('agent spawn (gate)', () => {
         effort: 'medium',
         machine: 'fallback-box',
         machineId: asMachineId('machine-fallback'),
-        accountId: asAccountId('native:codex'),
+        credentialId: asCredentialId('cred_00000000-0000-4000-8000-0000000000aa'),
       }),
     })
     const result = await gate.dispatch(PARENT, true, 'spawnAgent', {
@@ -471,7 +471,7 @@ describe('agent spawn (gate)', () => {
       model: 'fallback-model',
       effort: 'medium',
       machineId: 'machine-fallback',
-      accountId: 'native:codex',
+      credentialId: 'cred_00000000-0000-4000-8000-0000000000aa',
     })
   })
 

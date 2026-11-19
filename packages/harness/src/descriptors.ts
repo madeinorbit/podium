@@ -101,6 +101,11 @@ function assembleDescriptor(manifest: AgentManifest): HarnessDescriptorWire {
       efforts: [...catalog.efforts],
       liveMerge: catalog.liveMerge,
     },
+    accepts: manifest.inventory.accepts.map((line) => ({
+      type: line.type,
+      deliver: { ...line.deliver },
+      ...(line.drivers ? { drivers: [...line.drivers] } : {}),
+    })),
     ...(data.login.command !== null ||
     data.login.installHint !== null ||
     data.login.signedOutHint !== null

@@ -14,16 +14,25 @@
 import { delimiter, dirname, join } from 'node:path'
 import type { BuiltinHarnessKind } from '@podium/protocol'
 import type { HarnessExecutableSnapshot } from './executable-runtime.js'
-import type { HarnessContext, HarnessInstallation } from './harness-context-types.js'
+import type {
+  HarnessContext,
+  HarnessHomeRef,
+  HarnessInstallation,
+} from './harness-context-types.js'
 import type { HarnessAccountScope, HarnessEnvironment, HarnessRoots } from './manifest.js'
 import {
+  harnessHomeVariable,
   harnessInstanceHomeEnv,
   harnessLoginReadEnv,
   manifestFor,
   serverDriverExecutable,
 } from './registry.js'
 
-export type { HarnessContext, HarnessInstallation } from './harness-context-types.js'
+export type {
+  HarnessContext,
+  HarnessHomeRef,
+  HarnessInstallation,
+} from './harness-context-types.js'
 
 /**
  * Build the context for `kind` and the account living in `home`.
@@ -147,6 +156,46 @@ export function harnessAccount(
   return Object.freeze({ home, env, roots: Object.freeze(manifest.roots(home, env)) })
 }
 
+/**
+ * An account scope moved into a Podium home (credential management §10): the
+ * harness's directory variable set to `dir` in `env`, and `roots` read again
+ * from the adapter's rule over that env. `home` (the account HOME) stays.
+ * Quota, usage, transcripts and login reads for one home take this.
+ *
+ * Throws for a harness without a home variable rather than reading the
+ * default directory under another name.
+ */
+export function withHomeScope<
+  Scope extends { readonly home: string; readonly env: HarnessEnvironment },
+>(
+  kind: BuiltinHarnessKind | string,
+  scope: Scope,
+  dir: string,
+): Scope & { readonly roots: HarnessRoots } {
+  const variable = harnessHomeVariable(kind)
+  const manifest = manifestFor(kind)
+  if (!variable || !manifest) throw new Error(`${kind} keeps no login in a home Podium can make`)
+  const env = Object.freeze({ ...scope.env, [variable]: dir }) as Scope['env']
+  return Object.freeze({ ...scope, env, roots: Object.freeze(manifest.roots(scope.home, env)) })
+}
+
+/**
+ * The same context, run in the Podium home `home` (credential management §10).
+ * Every launch path that builds a child from a context (terminal, engine,
+ * headless turn) then starts the harness in that home, its hooks install
+ * there and its observer reads there, because they all read this one value.
+ */
+export function withHarnessHome(
+  context: HarnessContext,
+  home: { id: string; dir: string },
+): HarnessContext {
+  const kind = context.installation.kind
+  const scoped = withHomeScope(kind, context, home.dir)
+  const variable = harnessHomeVariable(kind) as string
+  const harnessHome: HarnessHomeRef = Object.freeze({ id: home.id, dir: home.dir, variable })
+  return Object.freeze({ ...scoped, harnessHome })
+}
+
 function definedEnv(env: Record<string, string | undefined>): Record<string, string> {
   const out: Record<string, string> = {}
   for (const [key, value] of Object.entries(env)) if (value !== undefined) out[key] = value
@@ -257,6 +306,10 @@ export function harnessChildEnv(
     ...manifest?.environment.set,
     HOME: context.home,
     ...harnessInstanceHomeEnv(kind, context.home),
+    // The session's home outranks every layer above it: a spawn frame, a
+    // driver's pinned directory or the instance selector never move a
+    // session out of the home its credential lives in.
+    ...(context.harnessHome ? { [context.harnessHome.variable]: context.harnessHome.dir } : {}),
     ...podiumVars,
     ...(podiumCliPath ? { PODIUM_CLI_PATH: podiumCliPath } : {}),
   }

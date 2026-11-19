@@ -1,16 +1,25 @@
 import { lazy } from '@podium/mobx-helpers'
-import type { AccountView, GitRepositoryWire, MemberView } from '@podium/model'
+import type { CredentialView, GitRepositoryWire, MemberView } from '@podium/model'
 import { machinePathBasename, repoNameFromOrigin } from '@podium/model/browser'
 import type { DeviceSignInView } from '@podium/protocol'
 import { EntityModel, type ModelHost, registerModels } from './models'
 import type { EntitySpec, FieldSpec, ModelSchemaName, RowArrival } from './shared/schema'
 
-export class AccountModel extends EntityModel {
+/**
+ * A CREDENTIAL I own or was given (credential management §4), as
+ * `credentials.list` returns it. Never a secret: the record has no field for one.
+ */
+export class CredentialModel extends EntityModel {
   constructor(id: string, host: ModelHost) {
-    super('account', id, host)
+    super('credential', id, host)
+  }
+  /** The viewer may rename, renew, remove and share it. */
+  @lazy get canManage(): boolean {
+    return this.access === 'owner' || this.access === 'manage'
   }
 }
-export interface AccountModel extends Readonly<AccountView> {}
+// `id` is the model's own (a plain string); the record's branded id is the same value.
+export interface CredentialModel extends Readonly<Omit<CredentialView, 'id'>> {}
 export class MemberModel extends EntityModel {
   constructor(id: string, host: ModelHost) {
     super('member', id, host)
@@ -63,57 +72,29 @@ function record(
 }
 registerModels(
   {
-    account: record(
-      'AccountView',
-      'request:accounts.list',
+    credential: record(
+      'CredentialView',
+      'request:credentials.list',
       'id',
       {
-        // Identity and authentication availability
         id: 'id',
-        provider: 'string',
-        source: 'enum',
-        kind: 'enum',
-        harness: 'enum',
-        identity: 'string',
-        identityFingerprint: 'string',
+        ownerUserId: 'id',
+        label: 'string',
+        type: 'string',
+        identity: 'object',
         status: 'enum',
-        credentialSource: 'enum',
-        // Per-user managed key sharing
-        sharing: 'object',
-        sharedBy: 'string',
-        // Machine/login observations
-        machines: 'object',
-        serverAi: 'object',
-        loginRequired: 'boolean',
-        loginMachines: 'object',
-        loginAttempt: 'object',
-        // Where the viewer's own managed connection runs beyond their machines (POD-6300)
-        sentTo: 'object',
-        sendableTo: 'object',
-        sends: 'object',
-        // The D11 box on a native login, and where a different login was kept (POD-6301)
-        useOnMyMachines: 'boolean',
-        keptOn: 'object',
+        statusReason: 'string',
+        limitReachedUntil: 'isoDate',
+        expiresAt: 'isoDate',
+        verifiedAt: 'isoDate',
+        homes: 'object',
+        allowedMachines: 'object',
+        sessionCount: 'number',
+        access: 'enum',
+        sharedWith: 'object',
+        nativeLogin: 'object',
       },
-      [
-        'kind',
-        'harness',
-        'identity',
-        'identityFingerprint',
-        'credentialSource',
-        'sharing',
-        'sharedBy',
-        'machines',
-        'serverAi',
-        'loginRequired',
-        'loginMachines',
-        'loginAttempt',
-        'sentTo',
-        'sendableTo',
-        'sends',
-        'useOnMyMachines',
-        'keptOn',
-      ],
+      ['statusReason', 'limitReachedUntil', 'expiresAt', 'verifiedAt', 'sharedWith', 'nativeLogin'],
     ),
     member: record(
       'MemberView',
@@ -181,7 +162,7 @@ registerModels(
     })(),
   },
   {
-    account: AccountModel,
+    credential: CredentialModel,
     member: MemberModel,
     device: DeviceModel,
     repository: RepositoryModel,

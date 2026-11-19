@@ -159,6 +159,24 @@ describe('podium agent spawn', () => {
     )
   })
 
+  it('[POD-6897] --credential names the credential the child runs on, and the help says so', async () => {
+    const c = client()
+    await runAgentCli(
+      ['spawn', '--issue', '#228', '--prompt', 'review it', '--credential', 'Work key'],
+      c,
+    )
+    expect(c.messages.spawnAgent.mutate).toHaveBeenCalledWith(
+      expect.objectContaining({ issue: '#228', credential: 'Work key' }),
+    )
+    await runAgentCli(['spawn', '--issue', '#228', '--prompt', 'x', '--credential', 'none'], c)
+    expect(c.messages.spawnAgent.mutate).toHaveBeenLastCalledWith(
+      expect.objectContaining({ credential: 'none' }),
+    )
+    const help = await runAgentCli(['--help'], c)
+    expect(help).toContain('[--credential <label | id | none>]')
+    expect(help).toContain("for the harness's own login on the machine")
+  })
+
   it('[POD-4763] a spawn that got no answer is repeated under the same request id', async () => {
     const c = client()
     c.messages.spawnAgent.mutate.mockRejectedValueOnce(new Error('agent relay timed out'))

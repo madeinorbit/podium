@@ -20,6 +20,7 @@ import {
   PendingInteraction,
 } from './runtime-interactions'
 import { ObservationInputOrigin, ObservationProvenance, ProviderCursor } from './runtime-state'
+import { AccessField } from './session-access'
 
 // The interaction contract is one vocabulary with this file; it lives in its own
 // module only so the browser can take that half without the daemon plane
@@ -719,15 +720,15 @@ export const RuntimeSendRequestMessage = z.object({
    */
   held: z.literal('durable').optional(),
   /**
-   * HEADLESS PER-TURN CREDENTIAL (POD-6733): the managed account's env
-   * (`ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`, …) the server resolved for
-   * the session's owner when the turn was sent. The headless driver runs one
-   * process per turn, so the credential rides each turn rather than the
-   * establish frame, which a re-adopted session never receives again. A
-   * secret, so never part of `requestDigest`: `accountId` already names the
-   * account it came from. Appended at the END; an older daemon strips it.
+   * THE TURN'S CREDENTIAL (POD-6733; credential management §8): the access the
+   * server resolved for the session's owner when the turn was sent. A
+   * per-turn driver starts a process for every turn, and a session the daemon
+   * re-adopted after a restart never gets its establish frame again, so a
+   * headless turn carries it each time. A secret, so never part of
+   * `requestDigest` (`accountId` names the login) and never logged. Absent:
+   * the daemon applies the access it holds for the session, if any.
    */
-  env: z.record(z.string(), z.string()).optional(),
+  access: AccessField.optional(),
   /**
    * THE TURN'S LAUNCH TERMS, in Podium's words (POD-6858,
    * harness-session-posture.md §4.3): how far the agent goes without asking.

@@ -1,6 +1,7 @@
 import type { Inventory } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { memoryMarkers, SessionAccessStore } from './access'
 
 // The machine runtime owns the real CLI probe. This fake keeps the test on the
 // report/cache/rebuild behavior and proves the handler enters through that root.
@@ -32,8 +33,8 @@ vi.mock('../runtime/version-probe', async (importOriginal) => ({
 
 import {
   CODEX_VERSION_POLICY,
-  gateHarnessVersion,
   GROK_ACP_VERSION_POLICY,
+  gateHarnessVersion,
   OPENCODE_VERSION_POLICY,
 } from '@podium/harness'
 import {
@@ -122,6 +123,7 @@ function makeCtx(): { ctx: DaemonContext; sent: DaemonMessage[] } {
     machineId: 'm-test',
     homeDir: `/fake/home/${seq++}`,
     agentRuntime: { inventory: () => buildInventory() },
+    access: new SessionAccessStore({ markers: memoryMarkers() }),
   } as unknown as DaemonContext
   return { ctx, sent }
 }
@@ -153,6 +155,7 @@ function makeRuntimeCtx(opencode2Executable?: string): {
       reprobe,
       isCurrent: (candidate: unknown) => candidate === snapshot,
     },
+    access: new SessionAccessStore({ markers: memoryMarkers() }),
   } as unknown as DaemonContext
   return { ctx, sent, current, refresh, reprobe }
 }
@@ -165,7 +168,12 @@ describe('daemon inventory reporting (#222)', () => {
     const { ctx, sent } = makeCtx()
     await reportInventory(ctx)
     expect(sent).toEqual([
-      { type: 'inventoryReport', machineId: 'm-test', inventory: withBaselineDrivers(INV), descriptors: expect.any(Array) },
+      {
+        type: 'inventoryReport',
+        machineId: 'm-test',
+        inventory: withBaselineDrivers(INV),
+        descriptors: expect.any(Array),
+      },
     ])
   })
 
@@ -192,7 +200,12 @@ describe('daemon inventory reporting (#222)', () => {
     expect(reprobe).toHaveBeenCalledTimes(1)
     expect(current).not.toHaveBeenCalled()
     expect(sent).toEqual([
-      { type: 'inventoryReport', machineId: 'm-runtime', inventory: withBaselineDrivers(INV), descriptors: expect.any(Array) },
+      {
+        type: 'inventoryReport',
+        machineId: 'm-runtime',
+        inventory: withBaselineDrivers(INV),
+        descriptors: expect.any(Array),
+      },
     ])
   })
 
@@ -276,7 +289,12 @@ describe('daemon inventory reporting (#222)', () => {
         inventory: withBaselineDrivers(TIMED_OUT_INV),
         descriptors: expect.any(Array),
       },
-      { type: 'inventoryReport', machineId: 'm-test', inventory: withBaselineDrivers(INV), descriptors: expect.any(Array) },
+      {
+        type: 'inventoryReport',
+        machineId: 'm-test',
+        inventory: withBaselineDrivers(INV),
+        descriptors: expect.any(Array),
+      },
     ])
   })
 
@@ -303,7 +321,12 @@ describe('daemon inventory reporting (#222)', () => {
       await vi.advanceTimersByTimeAsync(100)
       expect(buildInventory).toHaveBeenCalledTimes(1)
       expect(sent).toEqual([
-        { type: 'inventoryReport', machineId: 'm-test', inventory: withBaselineDrivers(INV), descriptors: expect.any(Array) },
+        {
+          type: 'inventoryReport',
+          machineId: 'm-test',
+          inventory: withBaselineDrivers(INV),
+          descriptors: expect.any(Array),
+        },
       ])
       stop()
       await vi.advanceTimersByTimeAsync(200)
@@ -338,7 +361,12 @@ describe('daemon inventory reporting (#222)', () => {
     await Promise.all([stale, fresh])
 
     expect(sent).toEqual([
-      { type: 'inventoryReport', machineId: 'm-test', inventory: withBaselineDrivers(INV), descriptors: expect.any(Array) },
+      {
+        type: 'inventoryReport',
+        machineId: 'm-test',
+        inventory: withBaselineDrivers(INV),
+        descriptors: expect.any(Array),
+      },
     ])
   })
 
@@ -370,7 +398,12 @@ describe('daemon inventory reporting (#222)', () => {
 
     expect(buildInventory).toHaveBeenCalledTimes(2)
     expect(sent).toEqual([
-      { type: 'inventoryReport', machineId: 'm-test', inventory: withBaselineDrivers(INV), descriptors: expect.any(Array) },
+      {
+        type: 'inventoryReport',
+        machineId: 'm-test',
+        inventory: withBaselineDrivers(INV),
+        descriptors: expect.any(Array),
+      },
     ])
   })
 
@@ -451,4 +484,32 @@ it('reports every installed harness version as quiet, timestamped machine data',
   expect(
     sent.some((message) => message.type === 'machineDiagnostic' || message.type === 'spawnError'),
   ).toBe(false)
+})
+
+describe('one login per home (credential management §10, acceptance 5)', () => {
+  beforeEach(() => buildInventory.mockReset().mockResolvedValue(INV))
+
+  it('a daemon that keeps homes reports default first, then each home', async () => {
+    const { mkdtempSync, rmSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const { HomeRegistry } = await import('../homes/registry')
+    const root = mkdtempSync(join(tmpdir(), 'podium-inventory-homes-'))
+    try {
+      const homes = new HomeRegistry({ root: join(root, 'homes') })
+      const { home } = await homes.ensure(
+        'cred_cccccccc-0000-4000-8000-0000000000c5',
+        'claude-code',
+      )
+      const { ctx, sent } = makeCtx()
+      Object.assign(ctx, { homes, homeDir: join(root, 'person') })
+      await reportInventory(ctx)
+      const report = sent.find((frame) => frame.type === 'inventoryReport')
+      const claude = report?.type === 'inventoryReport' ? report.inventory.agents[0] : undefined
+      expect(claude?.logins?.map((login) => login.homeId)).toEqual(['default', home.homeId])
+      expect(claude?.logins?.[0]?.state).toBe('in')
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
 })

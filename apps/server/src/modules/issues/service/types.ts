@@ -15,8 +15,8 @@ import type { MetadataChange, RepoOp } from '@podium/protocol'
 import type { PodiumSettings } from '@podium/runtime'
 import type { EntityChangeSpec, LedgerCommitOp, LedgerCommitResult } from '@podium/sync'
 import type { LinearIssue } from '../../../linear'
-import type { llmClient } from '../../../llm'
 import type { IssueRow, SessionStore } from '../../../store'
+import type { CompleteInput, CompleteResult } from '../../inference/complete'
 import type { SessionFacts } from '../../sessions/facts'
 import type { PendingUploadStore } from '../pending-uploads'
 
@@ -153,8 +153,34 @@ export interface SpawnedSessionResult {
 /** Async read and spawn ports deliberately require promises (rule 52b).
  * This rejects synchronous implementations; callers still need behavioral
  * coverage because a promise can be inspected without awaiting its value. */
+/**
+ * MENTIONS IN ISSUE COMMENTS (POD-6881, credential management spec §13): the
+ * comment write asks which members a body mentions, stores them on the comment,
+ * and hands the ADDED ones over to be told; names an edit or a delete drops have
+ * their notices resolved. Every call runs inside the comment's own transaction.
+ */
+export interface CommentMentionsPort {
+  /** The active members `body` mentions (`@<display name>`), in text order. */
+  find(body: string): Promise<UserId[]>
+  /** Tell each newly mentioned member who may read the issue, except the author. */
+  raise(i: {
+    readonly issueId: IssueId
+    readonly issueRef: string
+    readonly issueTitle: string
+    readonly commentId: string
+    readonly authorName: string
+    readonly authorUserId: UserId | null
+    readonly body: string
+    readonly mentioned: readonly UserId[]
+  }): Promise<void>
+  /** Resolve the mention notices of these members for this comment. */
+  resolve(commentId: string, users: readonly UserId[]): Promise<void>
+}
+
 export interface IssueDeps {
   store: SessionStore
+  /** Mentions in comments (POD-6881). Absent: comments store and raise none. */
+  commentMentions?: CommentMentionsPort
   /** The resident RUNNING sessions' facts (live, starting, reconnecting):
    *  synchronous and free of I/O, for the worktree occupancy guards (POD-6160). */
   runningSessionFacts(): SessionFacts[]
@@ -220,6 +246,8 @@ export interface IssueDeps {
     ownerUserId?: import('@podium/model').UserId
     /** The agent profile the session starts from (POD-6107). */
     agentProfileId?: string
+    /** The credential the start named, already resolved (`null`: none). */
+    credentialId?: import('@podium/model').CredentialId | null
   }): Promise<SpawnedSessionResult>
   /**
    * The read-only half of {@link repoOp} that create uses to choose a parent branch
@@ -350,7 +378,12 @@ export interface IssueDeps {
    *  the relay; optional so existing test deps literals stay valid. */
   onWorktreesChanged?(repoPath: string, machineId?: MachineId): void
   defaultRepoBranch?(repoPath: string): Promise<string>
-  llm?: typeof llmClient
+  /**
+   * Podium's own model calls (credential management §9): the composition root
+   * binds `complete` with the machine transport. Absent, calls run over HTTP
+   * credentials only, on this store.
+   */
+  complete?(i: CompleteInput): Promise<CompleteResult>
   linearSearch?(key: string, q: string): Promise<LinearIssue[]>
   /**
    * Fired after a durable closed-predicate flip so session teardown can begin.

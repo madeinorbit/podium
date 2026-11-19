@@ -342,10 +342,22 @@ export async function translateClaudeHookPayload(payload: unknown): Promise<Agen
     case 'Stop':
       return await stopEvents(p)
     case 'StopFailure': {
-      // Field name not pinned by docs — accept the plausible spellings, then give up
-      // to 'unknown' (still errored, still retryable) rather than dropping the event.
-      const errorClass = str(p.error_type) ?? str(p.errorType) ?? str(p.matcher) ?? 'unknown'
-      return [{ kind: 'turn_failed', errorClass, retryable: RETRYABLE.has(errorClass) }]
+      // Claude Code 2.1.323 sends the class as `error` ("authentication_failed",
+      // "rate_limit", …) and its own sentence as `last_assistant_message`
+      // (recorded on a live drive, credential management Task 13). The older
+      // spellings stay accepted; with none, 'unknown' (still errored, still
+      // retryable) rather than dropping the event.
+      const errorClass =
+        str(p.error) ?? str(p.error_type) ?? str(p.errorType) ?? str(p.matcher) ?? 'unknown'
+      const detail = str(p.last_assistant_message)?.trim().slice(0, 1000)
+      return [
+        {
+          kind: 'turn_failed',
+          errorClass,
+          retryable: RETRYABLE.has(errorClass),
+          ...(detail ? { detail } : {}),
+        },
+      ]
     }
     case 'TaskCreated':
       // Dead path on Claude 2.1.x (hooks never observed). task_delta event type

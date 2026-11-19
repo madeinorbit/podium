@@ -93,6 +93,16 @@ const POST_MIGRATION_PERSONAL_KEYS = [
   'roles.shipwright.model',
   'roles.shipwright.effort',
   'roles.shipwright.harness',
+  'credentialDefaults',
+  // Credential management: the credential each role runs on.
+  'roles.coding.credentialId',
+  'roles.superagent.credentialId',
+  'roles.background.credentialId',
+  'roles.shipwright.credentialId',
+  // POD-6881: which notice kinds are pushed; absent means the kind defaults.
+  'notifications.notices.mention',
+  'notifications.notices.credentialAttention',
+  'notifications.notices.credentialShared',
 ] as const
 
 /** Lifted by the frozen SQL but since removed from the live shape. A stored row

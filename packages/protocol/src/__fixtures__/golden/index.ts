@@ -6,6 +6,7 @@ import approvals from './approvals.json' with { type: 'json' }
 import binaryEnvelope from './binary-envelope.json' with { type: 'json' }
 import browserOpen from './browser-open.json' with { type: 'json' }
 import codex from './codex.json' with { type: 'json' }
+import conversation from './conversation.json' with { type: 'json' }
 import credentials from './credentials.json' with { type: 'json' }
 import daemon from './daemon.json' with { type: 'json' }
 import daemonHandshake from './daemon-handshake.json' with { type: 'json' }
@@ -18,12 +19,14 @@ import github from './github.json' with { type: 'json' }
 import handoff from './handoff.json' with { type: 'json' }
 import harness from './harness.json' with { type: 'json' }
 import headless from './headless.json' with { type: 'json' }
+import homes from './homes.json' with { type: 'json' }
 import host from './host.json' with { type: 'json' }
 import inventory from './inventory.json' with { type: 'json' }
 import issues from './issues.json' with { type: 'json' }
 import logs from './logs.json' with { type: 'json' }
 import maintenance from './maintenance.json' with { type: 'json' }
 import model from './model.json' with { type: 'json' }
+import oauthLoopback from './oauth-loopback.json' with { type: 'json' }
 import perf from './perf.json' with { type: 'json' }
 import posture from './posture.json' with { type: 'json' }
 import presenceRooms from './presence-rooms.json' with { type: 'json' }
@@ -32,6 +35,8 @@ import runtimeState from './runtime-state.json' with { type: 'json' }
 import search from './search.json' with { type: 'json' }
 import server from './server.json' with { type: 'json' }
 import serverTransfer from './server-transfer.json' with { type: 'json' }
+import sessionAccess from './session-access.json' with { type: 'json' }
+import sessionAuth from './session-auth.json' with { type: 'json' }
 import shipping from './shipping.json' with { type: 'json' }
 import sync from './sync.json' with { type: 'json' }
 import terminal from './terminal.json' with { type: 'json' }
@@ -47,6 +52,7 @@ export const GOLDEN: Record<string, unknown> = {
   'binary-envelope': binaryEnvelope,
   'browser-open': browserOpen,
   codex: codex,
+  conversation: conversation,
   credentials: credentials,
   daemon: daemon,
   'daemon-handshake': daemonHandshake,
@@ -59,12 +65,14 @@ export const GOLDEN: Record<string, unknown> = {
   handoff: handoff,
   harness: harness,
   headless: headless,
+  homes: homes,
   host: host,
   inventory: inventory,
   issues: issues,
   logs: logs,
   maintenance: maintenance,
   model: model,
+  'oauth-loopback': oauthLoopback,
   perf: perf,
   posture: posture,
   'presence-rooms': presenceRooms,
@@ -73,6 +81,8 @@ export const GOLDEN: Record<string, unknown> = {
   search: search,
   server: server,
   'server-transfer': serverTransfer,
+  'session-access': sessionAccess,
+  'session-auth': sessionAuth,
   shipping: shipping,
   sync: sync,
   terminal: terminal,

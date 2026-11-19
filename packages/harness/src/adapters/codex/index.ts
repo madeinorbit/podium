@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { basename, dirname, join, relative } from 'node:path'
 import { createLogger } from '@podium/logger'
+import type { AcceptedCredential } from '@podium/model'
 import { promptEchoCorrelation, submitHookCorrelation } from '../../accept-correlation.js'
 import { withStateChannel } from '../../agent-state/types.js'
 import { hostTools } from '../../host-tools.js'
@@ -17,11 +18,13 @@ import {
   supported,
   unsupported,
 } from '../../manifest.js'
+import { classifyCodexLoginStatus } from '../../manifests/codex-login-status.js'
 import { scheduleStatPoll } from '../../transcript-types.js'
 import { CODEX_VERSION_POLICY, harnessVersionFloor } from '../../version-policy.js'
 import { readFreshnessFromAuthContents, readIdentityFromAuthContents } from './auth-identity.js'
 import { codexCatalog } from './catalog.js'
 import { codexComposer } from './composer.js'
+import { codexConversationFile } from './conversation-file.js'
 import { CodexCredentialAbsenceGrace } from './credential-absence-grace.js'
 import { codexCredentials } from './credentials.js'
 import { codexDescriptor } from './descriptor.js'
@@ -29,6 +32,7 @@ import { createCodexConversationProvider } from './discovery.js'
 import { codexInstall } from './install.js'
 import { codexInstrumentation } from './instrumentation.js'
 import { createOwnedCodexRolloutResolver, hostProcessInspection } from './owned-rollout.js'
+import { CHATGPT_PLAN_TOKEN_VARIABLE, codexPlanProviderArgs } from './plan-provider.js'
 import { codexMcpServerKey, codexPosture } from './posture.js'
 import { codexRoots } from './roots.js'
 import {
@@ -83,6 +87,32 @@ function maskedAccountId(accountId: string): string {
 const CODEX_AUTH_HEADERS = new Set(['x-podium-mcp-token', 'authorization'])
 
 const codexCredentialAbsenceGrace = new CodexCredentialAbsenceGrace()
+
+/** The credential types Codex accepts and how each is delivered (credential management §5). */
+const CODEX_ACCEPTS: readonly AcceptedCredential[] = [
+  { type: 'openai.api-key', deliver: { kind: 'env', variable: 'OPENAI_API_KEY' } },
+  { type: 'openai.chatgpt-login', deliver: { kind: 'home' } },
+  // A ChatGPT plan signed in to Podium reaches Codex as the token of a
+  // model provider the server driver is started with (plan Task 15); the
+  // terminal driver has no such start, so the line is limited to it.
+  {
+    type: 'openai.chatgpt-plan',
+    deliver: { kind: 'env', variable: CHATGPT_PLAN_TOKEN_VARIABLE },
+    drivers: ['codex-app-server'],
+    startArgs: codexPlanProviderArgs(),
+  },
+]
+
+/**
+ * The environment variables these lines deliver: exactly what Codex's
+ * `shell_environment_policy.exclude` must keep out of the commands the agent
+ * runs, and nothing else. Read off the lines so the names are stated once.
+ * (Its `ignore_default_excludes=false` would also strip every other *KEY*,
+ * *SECRET* and *TOKEN* variable, such as GH_TOKEN, which agents rely on.)
+ */
+function deliveredEnvVariables(lines: readonly AcceptedCredential[]): string[] {
+  return lines.flatMap((line) => (line.deliver.kind === 'env' ? [line.deliver.variable] : []))
+}
 
 /** Deterministic per-server env var carrying the bearer token to codex. */
 function bearerEnvVar(serverName: string): string {
@@ -229,7 +259,12 @@ export const codexManifest: AgentManifest = {
   inventory: {
     executable: { names: ['codex'], versionArgs: ['--version'] },
     loginCommandProbe: unsupported('Codex login detection still uses its guarded local auth file'),
-    loginCommand: supported({ args: ['login'] }),
+    // `--device-auth`: the default sign-in starts a callback server on
+    // localhost:1455 of the machine Codex runs on, which a browser on another
+    // computer (the person's, looking at a Podium terminal) cannot reach. The
+    // device flow prints a link and a one-time code instead (POD-6893 S1).
+    loginCommand: supported({ args: ['login', '--device-auth'] }),
+    signOutCommand: { args: ['logout'] },
     loginIdentity: supported((homeDir, env?: HarnessEnvironment) =>
       codexCredentials.identity(credentialFileReader(codexCredentials, homeDir, env)),
     ),
@@ -278,6 +313,21 @@ export const codexManifest: AgentManifest = {
       'OPENAI_ORG_ID',
       'OPENAI_BASE_URL',
     ],
+    accepts: CODEX_ACCEPTS,
+    hideFromCommands: {
+      args: [
+        '-c',
+        `shell_environment_policy.exclude=${JSON.stringify(deliveredEnvVariables(CODEX_ACCEPTS))}`,
+      ],
+    },
+    // What a started session is on, in Codex's own words (credential
+    // management §9 "Launching"). It reads the stored login, not the key in
+    // the environment, which is exactly the disagreement worth reporting.
+    authStatusProbe: {
+      args: ['login', 'status'],
+      timeoutMs: 12_000,
+      classify: classifyCodexLoginStatus,
+    },
     detectLogin(homeDir, env: HarnessEnvironment) {
       const path = codexAuthPath(homeDir, env)
       let contents: string
@@ -781,6 +831,7 @@ export const codexManifest: AgentManifest = {
       if (rel.startsWith('..')) throw new Error('Codex transcript is outside the sessions root')
       return { path: found.path, ...(rel ? { relativeDir: rel } : {}) }
     },
+    ...codexConversationFile,
   }),
 
   transcript: codexTranscript,

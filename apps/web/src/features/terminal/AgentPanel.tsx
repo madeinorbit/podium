@@ -17,6 +17,13 @@ import { readSessions } from '@/app/command-launch-readers'
 import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import type { Trpc } from '@/app/trpc'
 import { useConversation } from '@/features/chat/use-conversation'
+import {
+  RefusedLaunchBanner,
+  usePaneLaunchRefusal,
+} from '@/features/credentials/session/RefusedLaunchBanner'
+import { SessionCredentialChip } from '@/features/credentials/session/SessionCredentialChip'
+import { SessionCredentialNotice } from '@/features/credentials/session/SessionCredentialNotice'
+import { SessionLoginBar } from './SessionLoginBar'
 
 export { effectivePanelMode, effectivePanelMode as initialPanelMode, type PanelMode }
 
@@ -165,7 +172,7 @@ export const AgentPanel = observer(function AgentPanel({
     setLoginTerminalBusy(true)
     setLoginTerminalError(null)
     try {
-      const result = await trpc.accounts.login.mutate({
+      const result = await trpc.credentials.login.mutate({
         harness,
         ...(session.machineId ? { machineId: session.machineId } : {}),
       })
@@ -201,6 +208,8 @@ export const AgentPanel = observer(function AgentPanel({
     (heldOptimisticFirstPrompt?.sessionId === sessionId
       ? heldOptimisticFirstPrompt.text
       : undefined)
+  // A start refused for its credential never ran: it says why, not "read-only".
+  const launchRefusal = usePaneLaunchRefusal(sessionId)
   const settleOptimisticFirstPrompt = useCallback(() => {
     setHeldOptimisticFirstPrompt((current) => (current?.sessionId === sessionId ? null : current))
   }, [sessionId])
@@ -802,6 +811,11 @@ export const AgentPanel = observer(function AgentPanel({
               exited transcript with you), and distinguishes "only you" from
               "we do not know" rather than collapsing both to blank. */}
             <SessionWatchers sessionId={sessionId} view={effectiveMode} />
+            {/* THE CREDENTIAL (credential management §9): in both views, so a
+              person sees at a glance what this session spends, and switches it. */}
+            <span className="flex min-w-0 max-w-[14rem] flex-none">
+              <SessionCredentialChip session={session} />
+            </span>
             {/* CLI VIEW ONLY (POD-6264). The chat view carries the session's
               model · effort in its composer, where the next message is written;
               the CLI view has no composer, so the same chip sits here. It is a
@@ -965,19 +979,11 @@ export const AgentPanel = observer(function AgentPanel({
           </span>
         </div>
       )}
-      {session?.condition === 'logged-out' && (
-        <div
-          role="status"
-          className="flex flex-none items-center gap-2 border-b border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning"
-        >
-          <strong>{panelLabel(session.agentKind)} isn&apos;t logged in</strong>
-          <span>
-            {terminalOutlook === 'none'
-              ? 'Open a sign-in terminal to authenticate, then retry here.'
-              : 'Run its login command in this pane to continue.'}
-          </span>
-        </div>
+      {/* A start refused for its credential never ran: no login to ask for. */}
+      {session?.condition === 'logged-out' && !launchRefusal && (
+        <SessionLoginBar agentKind={session.agentKind} terminalOutlook={terminalOutlook} />
       )}
+      {session && <SessionCredentialNotice session={session} />}
       {session && <LifecycleTransitionBar session={session} />}
       {handover && <HandoverPane view={handover} background={termBg} />}
       {surface.kind === 'pending' ? (
@@ -1043,7 +1049,13 @@ export const AgentPanel = observer(function AgentPanel({
           // readable (and resumable via the composer) with a banner, instead of
           // replacing it with a dead-end pane. Shells (no transcript) still get it.
           <>
-            {outcome ? (
+            {launchRefusal ? (
+              <RefusedLaunchBanner
+                sessionId={sessionId}
+                refusal={launchRefusal}
+                firstPrompt={optimisticFirstPrompt}
+              />
+            ) : outcome ? (
               <IssueOutcomeBanner
                 sessionId={sessionId}
                 outcome={outcome}
@@ -1070,6 +1082,14 @@ export const AgentPanel = observer(function AgentPanel({
               outcome={outcome}
             />
           </>
+        ) : launchRefusal ? (
+          <div className="flex flex-1 flex-col">
+            <RefusedLaunchBanner
+              sessionId={sessionId}
+              refusal={launchRefusal}
+              firstPrompt={optimisticFirstPrompt}
+            />
+          </div>
         ) : (
           <ExitedPane
             sessionId={sessionId}

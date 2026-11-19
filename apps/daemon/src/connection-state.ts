@@ -6,9 +6,13 @@ import { isNotInConversationCause } from '@podium/model'
 import type { BindingConfirmations } from '@podium/protocol'
 import {
   CAP_CHECKOUT_CHANGED_V1,
+  CAP_CONVERSATION_PREPARE,
   CAP_CREDENTIAL_IDENTITY_GUARD,
   CAP_DAEMON_GEOMETRY_APPLIED,
+  CAP_HARNESS_HOMES,
   CAP_MACHINE_PROCESSES_V1,
+  CAP_OAUTH_LOOPBACK,
+  CAP_SESSION_ACCESS,
   CAP_TERMINAL_INPUT_BINARY_V1,
   CAP_TERMINAL_OUTPUT_BINARY_V1,
   CAP_TERMINAL_PICTURE_V1,
@@ -51,6 +55,7 @@ import WebSocket, { type RawData } from 'ws'
 import { deliveryCaps } from './build-report'
 import type { DaemonOptions, ReconnectTimers } from './daemon-options'
 import { savePairingToken, savePinnedUpdatePubkey } from './identity'
+import { plainRemoteServerWarning } from './link-warning'
 import type { QueueDrainOutbox } from './queue-drain-outbox'
 import type { DurableRuntimeEvent, RuntimeEventOutbox } from './runtime-event-outbox'
 import { decideOnProtocolMismatch, decidePostUpdate } from './self-update'
@@ -646,6 +651,8 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     if (applied.serverUrl === activeServerUrl) return
     activeServerUrl = applied.serverUrl
     log.info('daemon adopted the resolved server URL', { serverUrl: applied.serverUrl })
+    const plain = plainRemoteServerWarning(applied.serverUrl)
+    if (plain !== undefined) log.warn(plain, { serverUrl: applied.serverUrl })
     if (reconnectTimer !== undefined) {
       timers.clearTimeout(reconnectTimer)
       reconnectTimer = undefined
@@ -1107,6 +1114,18 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
         // makes it true, so the advertisement is never ahead of the behaviour.
         CAP_DAEMON_GEOMETRY_APPLIED,
         CAP_CREDENTIAL_IDENTITY_GUARD,
+        // Credential management §8: this daemon keeps a session's credential
+        // from `access` in memory and applies it at every process start.
+        CAP_SESSION_ACCESS,
+        // Credential management §11: this daemon listens on its loopback address
+        // for a ChatGPT sign-in's callback and relays only its query fields.
+        CAP_OAUTH_LOOPBACK,
+        // Credential management §10: this daemon keeps harness homes, runs
+        // sessions in them and answers the home and credential-removal requests.
+        CAP_HARNESS_HOMES,
+        // Credential management §9: this daemon places a conversation for
+        // another credential's home before a resume (`conversationPrepareRequest`).
+        CAP_CONVERSATION_PREPARE,
         // POD-4886: this daemon reports `accepted` for a held row. Offered so
         // a server that reads it can say so; sent only once it has.
         CAP_DELIVERY_ACCEPTED,

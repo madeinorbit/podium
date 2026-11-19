@@ -60,6 +60,7 @@ export function sessionCommandServices(modules: RegistryModules): SessionCommand
   const issueSessions = modules.issueSessionLifecycle
   return {
     createSession: sessions.createSession.bind(sessions),
+    launchCredential: sessions.launchCredential.bind(sessions),
     workspace: sessions.workspace,
     // The direct kill of the plane's hand-built contexts (`command-plane.ts`);
     // the routes kill through `records.session.remove`.
@@ -187,6 +188,7 @@ export async function sessionCommandCtx(
       issues: asyncSessionIssueAccess(issues),
     },
     rpc: () => modules.rpc,
+    credentialSwitch: modules.credentialSwitch,
     ownership: await ownershipSnapshotFromMachines(modules.machines),
     // THE composition root's ledger (POD-382), never a fresh one: two ledgers over
     // one durable table have two in-flight maps, and a replay arriving on the other

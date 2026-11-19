@@ -1,6 +1,11 @@
-import { asIssueId, asMachineId, asSessionId } from '@podium/model'
+import { asCredentialId, asIssueId, asMachineId, asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import { agentAcceptsArgvPrompt, draftLaunchEffect, SESSION_LAUNCH_KIND } from './spawn-agent'
+import {
+  agentAcceptsArgvPrompt,
+  draftLaunchEffect,
+  SESSION_LAUNCH_KIND,
+  sessionLaunchEffect,
+} from './spawn-agent'
 
 const base = {
   effectId: 'eff_00000000-0000-4000-8000-000000000001',
@@ -21,7 +26,12 @@ describe('spawn machine-USE placement', () => {
     expect(() =>
       draftLaunchEffect({
         ...base,
-        target: { path: '/worktree', repoPath: '/repo', machineId: asMachineId('machine-1'), placement },
+        target: {
+          path: '/worktree',
+          repoPath: '/repo',
+          machineId: asMachineId('machine-1'),
+          placement,
+        },
       }),
     ).toThrow(expect.objectContaining({ reason: placement }))
   })
@@ -50,7 +60,10 @@ describe('spawn machine-USE placement', () => {
     })
     // Per-field: a single leaked field must fail (POD-1533).
     for (const field of ['actor', 'owner', 'ownerId', 'origin', 'createdBy']) {
-      expect(Object.keys(create.input), `launch input asserts attribution field '${field}'`).not.toContain(field)
+      expect(
+        Object.keys(create.input),
+        `launch input asserts attribution field '${field}'`,
+      ).not.toContain(field)
     }
   })
 
@@ -63,6 +76,28 @@ describe('spawn machine-USE placement', () => {
       attachments: [ref],
     })
     expect(create.input).toMatchObject({ initialPrompt: 'Review the mock', attachments: [ref] })
+  })
+})
+
+describe('the credential a start names (credential management §9)', () => {
+  const target = { path: '/worktree', repoPath: '/repo', placement: 'allowed' as const }
+  const cred = asCredentialId('cred_00000000-0000-4000-8000-000000000001')
+
+  it('carries an id, or null for the harness’s own login, on both launch kinds', () => {
+    expect(draftLaunchEffect({ ...base, target, credentialId: cred }).input).toMatchObject({
+      credentialId: cred,
+    })
+    expect(draftLaunchEffect({ ...base, target, credentialId: null }).input).toMatchObject({
+      credentialId: null,
+    })
+    expect(sessionLaunchEffect({ ...base, target, credentialId: cred }).input).toMatchObject({
+      credentialId: cred,
+    })
+  })
+
+  it('names none when the start chose none, so the server applies the default', () => {
+    expect(draftLaunchEffect({ ...base, target }).input).not.toHaveProperty('credentialId')
+    expect(sessionLaunchEffect({ ...base, target }).input).not.toHaveProperty('credentialId')
   })
 })
 

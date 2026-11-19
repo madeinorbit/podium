@@ -9,7 +9,7 @@ import { FirstTaskActivation } from './FirstTaskActivation'
 const login = vi.fn()
 const useOnMyMachines = vi.fn()
 const finishRequest = vi.fn()
-/** What `accounts.list` reports: no detected account unless a test says so. */
+/** What `credentials.list` reports: no detected account unless a test says so. */
 let accounts: unknown[] = []
 const telemetryState = vi.fn()
 const telemetrySet = vi.fn()
@@ -68,7 +68,7 @@ function store() {
           })),
         },
       },
-      accounts: {
+      credentials: {
         login: { mutate: login },
         useOnMyMachines: { mutate: useOnMyMachines },
       },
@@ -84,7 +84,7 @@ vi.mock('@/app/store', () => ({
   readFixture: (selector: (value: ReturnType<typeof store>) => unknown) => selector(store()),
 }))
 
-// The detected-accounts card reads `accounts.list` into the shared record pool,
+// The detected-accounts card reads `credentials.list` into the shared record pool,
 // which this screen-pool fixture does not host: serve its rows directly.
 vi.mock('@/features/settings/record-readers', async (original) => ({
   ...(await original<typeof import('@/features/settings/record-readers')>()),
@@ -220,37 +220,17 @@ describe('FirstTaskActivation', () => {
   // POD-6301 (D11): onboarding shows the box, unticked, for each detected account.
   it('shows an unticked "use on my machines" box for each detected account', async () => {
     accounts = [
-      {
-        id: 'native:codex',
-        provider: 'openai',
-        source: 'native',
-        harness: 'codex',
-        identity: 'alice@example.com',
-        identityFingerprint: 'fp-alice',
-        status: 'connected',
-        useOnMyMachines: false,
-        keptOn: [],
-      },
-      {
-        id: 'native:claude-code',
-        provider: 'anthropic',
-        source: 'native',
-        harness: 'claude-code',
-        identity: 'alice@work.example',
-        identityFingerprint: 'fp-alice-work',
-        status: 'connected',
-        useOnMyMachines: false,
-        keptOn: [],
-      },
-      // No known identity, and a managed key: neither has the box.
-      {
-        id: 'native:grok',
-        provider: 'xai',
-        source: 'native',
-        harness: 'grok',
-        status: 'connected',
-      },
-      { id: 'managed:anthropic', provider: 'anthropic', source: 'managed', status: 'connected' },
+      ...['codex', 'claude-code'].map((harness, index) => ({
+        id: `cred_found-${harness}`,
+        label: harness,
+        access: 'owner',
+        identity: {
+          email: index ? 'alice@work.example' : 'alice@example.com',
+          fingerprint: index ? 'fp-alice-work' : 'fp-alice',
+        },
+        nativeLogin: { harness, useOnMyMachines: false, keptOn: [] },
+      })),
+      { id: 'cred_key', label: 'API key', access: 'owner' },
     ]
     useOnMyMachines.mockResolvedValue({ ok: true, enabled: true })
     render(<FirstTaskActivation route="agent" onRouteChange={vi.fn()} onComplete={vi.fn()} />)

@@ -101,6 +101,7 @@ import { registerArtifactRoute, selfHostedArtifacts } from './file-artifact-rout
 import { registerAssetRoute } from './file-asset-route'
 import { createServerFileStorage } from './file-storage'
 import { adoptStagedFirstAdminPassword, applyEnvFirstAdminPassword } from './first-admin-password'
+import { daemonLinkFactsOf, IN_PROCESS_DAEMON_LINK } from './gateway/daemon-link-kind'
 import {
   createDaemonAcceptor,
   prepareDaemonFrame,
@@ -210,6 +211,7 @@ import { syncFeedPrincipal } from './sync/route-support'
 import { registerSyncRoutes } from './sync/routes'
 import type { SyncWorkerClient } from './sync-worker/worker-client'
 import { wireTelemetry } from './telemetry'
+import { logProcedureFailure } from './trpc'
 import { TunnelHealthStore } from './tunnel-health'
 import { updateParticipantSkip, updateParticipantSkipNote } from './update-participant-skip'
 import { reportParkedUpstreamMutations } from './upstream-retirement'
@@ -1860,6 +1862,9 @@ export async function startServer(
     appUrl: () =>
       resolveAppUrl(loadConfig(), process.env) || resolvePublicUrl(loadConfig(), process.env),
     allowedOrigins,
+    // Their credentials are removed everywhere, and sessions on them flagged (§8).
+    afterMemberRemoved: async (memberId, actor) =>
+      await registry.modules.credentialHealth.removeMemberCredentials(memberId, actor),
   })
   // The admin area's viewer, Access and Audit reads (POD-6299).
   registerAdminRoutes(app, {
@@ -1971,20 +1976,8 @@ export async function startServer(
     '/trpc/*',
     trpcServer({
       router: appRouter,
-      // Error funnel: every failed /trpc call leaves a server-side trace (proc +
-      // code + the error and its cause chain — no payloads). Without this, 500s
-      // (INTERNAL_SERVER_ERROR) were completely invisible in the server log.
-      onError: ({ error, path, type }) => {
-        log.warn('tRPC procedure failed', {
-          callType: type,
-          path: path ?? '<unknown>',
-          code: error.code,
-          // `err`, not `error.message`: a TRPCError keeps the real failure in
-          // `cause`, the logger walks it recursively, and a message-only line is
-          // what hid a store refusal behind Drizzle's wrapper (POD-3802 §2).
-          err: error,
-        })
-      },
+      // Error funnel: every failed /trpc call leaves a server-side trace.
+      onError: ({ error, path, type }) => logProcedureFailure(log, { error, path, type }),
       // Everyone who reaches /trpc is the OPERATOR: the login session (clientAuthGuard
       // above) already authenticated the human, so the tracker grants full authority — no
       // separate tracker credential. Constrained agents don't come through here; they are
@@ -2201,8 +2194,14 @@ export async function startServer(
         },
       },
       // The same list and the same reporter as the HTTP plane: one statement of
-      // trust, read by both boundaries, so they cannot drift apart.
-      { allowedOrigins, onOriginRefused: reportOriginRefusal },
+      // trust, read by both boundaries, so they cannot drift apart. A daemon's
+      // link is judged from the same facts sign-in reads (credential management §8).
+      {
+        allowedOrigins,
+        onOriginRefused: reportOriginRefusal,
+        daemonLink: (request) =>
+          daemonLinkFactsOf(request, requestPeerAddresses.get(request), trustedProxyHops),
+      },
     )
     revokeConnectedDeviceSignIn = (sessionId) => ws.revokeClientCredential(sessionId)
 
@@ -2627,6 +2626,9 @@ export async function startServer(
         // component is written, so the very next call decides the machine "runs no
         // Podium daemon" -- and the write then lands after the store's scheduler
         // has begun draining, surfacing as an unhandled SchedulerClosedError.
+        // This link never leaves the computer: it is `local` for credentials.
+        const linkOwner = {}
+        registry.daemonLinks.connected(principal.machine, IN_PROCESS_DAEMON_LINK, linkOwner)
         if (registry.recoveryOnly) {
           await registry.modules.machines.attach(principal.machine, send)
           await registry.modules.machines.flushQueued(principal.machine)
@@ -2666,6 +2668,7 @@ export async function startServer(
           close: () => {
             credentialLive = false
             unregisterCredential()
+            registry.daemonLinks.disconnected(principal.machine, linkOwner)
             if (registry.recoveryOnly) registry.modules.machines.detach(principal.machine, send)
             else registry.gateway.detachDaemon(principal, transport)
           },

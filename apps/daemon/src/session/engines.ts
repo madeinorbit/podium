@@ -52,6 +52,7 @@ import {
   scopeUnitName,
 } from '@podium/process/durable'
 import { SUN_PATH_MAX, unixSocketPathBytes, unixSocketPathFits } from '@podium/runtime/unix-socket'
+import { deliveryOverlay, type SessionAccessStore, withLeadingArgs } from '../control/access'
 import { noDurableBackendRefusal } from '../durable-backend'
 import { nodePrepareLaunchPorts, type PrepareLaunchPorts, prepareLaunch } from '../session-posture'
 import { createEngineJournal } from './journal.js'
@@ -119,6 +120,13 @@ export interface SessionEngineScopeOptions {
    *  the process starts (POD-6858 Task 11): the server, with the session's
    *  driver decision. A one-shot turn serves no session and reports none. */
   onLaunchTerms?: (sessionId: SessionId, applied: AppliedTerms) => void
+  /**
+   * Each session's credential, held in memory (credential management §8). An
+   * engine started for a session gets it here, at the one place every engine
+   * starts, so no family has to carry it, journal it or remember to apply it.
+   * Absent: engines get none (tests of engines that serve no credential).
+   */
+  access?: Pick<SessionAccessStore, 'awaitAccess' | 'agentKindOf'>
 }
 
 /**
@@ -185,6 +193,18 @@ export class SessionEngineScope implements EngineProcessOwner {
       }),
     )
     if (sessionId !== undefined) this.options.onLaunchTerms?.(sessionId, applied)
+    // THE SESSION'S CREDENTIAL (credential management §8), from memory. A
+    // daemon that restarted waits here for the server's refresh and refuses
+    // the start after a bounded wait: an engine never starts on the
+    // machine's own login in its place. The delivered variable is taken off
+    // the family's strip list, which names every inherited credential.
+    const delivered =
+      sessionId !== undefined && this.options.access
+        ? deliveryOverlay(
+            this.options.access.agentKindOf(sessionId),
+            await this.options.access.awaitAccess(sessionId),
+          )
+        : undefined
     const address = listen ? this.mintAddress(req.label, sessionId) : undefined
     if (sessionId !== undefined) {
       // A fresh engine: whatever address an earlier one had is not this one's.
@@ -195,11 +215,18 @@ export class SessionEngineScope implements EngineProcessOwner {
         ...(address !== undefined ? { address } : {}),
       }
     }
+    const hidden = delivered ? withLeadingArgs(command, delivered.args) : command
     const bound =
-      listen && address !== undefined ? withTrailingArgs(command, listen.argv(address)) : command
+      listen && address !== undefined ? withTrailingArgs(hidden, listen.argv(address)) : hidden
     const attachment = toEngineAttachment(
       await adapter.spawnHeadless({
         ...spawn,
+        ...(delivered
+          ? {
+              env: { ...spawn.env, ...delivered.env },
+              stripEnv: spawn.stripEnv.filter((key) => !delivered.keep.includes(key)),
+            }
+          : {}),
         cmd: bound.cmd,
         args: [...bound.args],
         ...retention,

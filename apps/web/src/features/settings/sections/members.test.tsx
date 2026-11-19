@@ -187,7 +187,8 @@ test('admin rows open a person page and show device counts and disabled state', 
   const { ui } = await openPerson()
   expect(await screen.findByText(/anna@example.com · 1 device signed in/)).toBeTruthy()
   expect(screen.getByText('Disabled')).toBeTruthy()
-  expect(ui.getByText('Their API keys')).toBeTruthy()
+  // Being an admin gives no access to another person's credentials (credential management §12).
+  expect(ui.queryByText('Their API keys')).toBeNull()
   expect(ui.getByText('Machines they look after')).toBeTruthy()
   expect(ui.getByText('Send a password reset link')).toBeTruthy()
   expect(ui.getByText('Anna’s phone')).toBeTruthy()

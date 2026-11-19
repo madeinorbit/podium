@@ -15,6 +15,7 @@
  *   3. A restarted daemon rebuilds the context on reattach: same folders, and
  *      nothing is relaunched.
  */
+
 import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -25,6 +26,7 @@ import { asSessionId, type SessionId } from '@podium/model'
 import type { DurableAttachment } from '@podium/process/durable'
 import type { SpawnOptions } from '@podium/process/screen'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { memoryMarkers, SessionAccessStore } from './control/access'
 import type { DaemonContext } from './control/context'
 import { DaemonHarnessRuntime } from './harness-runtime'
 import { daemonRuntimeHost } from './runtime/host'
@@ -161,6 +163,7 @@ async function world(
     tailSeedGate: async () => {},
     hookEndpointFor: (id: string) => `http://127.0.0.1:1/hook/${id}`,
     agentRelayEndpointFor: (id: string) => `http://127.0.0.1:1/relay/${id}`,
+    access: new SessionAccessStore({ markers: memoryMarkers() }),
   } as unknown as DaemonContext
   const host = daemonRuntimeHost(ctx, () => {})
   ctx.agentRuntime = {

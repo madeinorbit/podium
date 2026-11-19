@@ -15,7 +15,6 @@ import { type CommandPrincipal, userCommandPrincipal } from '../../command-princ
 import type { SessionStore } from '../../store'
 import { openTestStore } from '../../test-support/open-test-store'
 import { openTestIdentity } from '../../test-support/test-identity'
-import { ACCOUNT_COMMANDS_TRPC } from '../accounts/registry'
 import { EventBus } from '../bus'
 import { AUTH_COMMANDS_TRPC } from '../instance/registry'
 import { InstanceService } from '../instance/service'
@@ -29,7 +28,6 @@ afterEach(async () => {
 })
 
 const SERVER_SECRET = 'sk-plain-path-server-secret-6360'
-const ACCOUNT_CREDENTIAL = 'sk-ant-plain-path-account-credential-6360'
 const PASSWORD = 'plain-path-password-6360'
 
 /** Every table whose rows mention `needle`, read raw. */
@@ -53,7 +51,7 @@ function tablesHolding(store: SessionStore, needle: string): string[] {
 }
 
 describe('the plain path stores no result', () => {
-  it('server secret, account credential and password are found only in their homes', async () => {
+  it('a server secret and a password are found only in their homes', async () => {
     const store = await openTestStore(':memory:')
     opened.push(store)
     const adminId = firstAdminMemberId()
@@ -73,20 +71,6 @@ describe('the plain path stores no result', () => {
       { key: 'integrations.linearApiKey', value: SERVER_SECRET },
     )
 
-    // accounts.connect, through the plain entry with the family's real handler.
-    const connected = await runPlainCommand({
-      contract: ACCOUNT_COMMANDS_TRPC.connect.contract,
-      principal: admin,
-      transport: 'trpc',
-      input: { provider: 'anthropic', kind: 'api-key', credential: ACCOUNT_CREDENTIAL },
-      run: async (input) =>
-        await ACCOUNT_COMMANDS_TRPC.connect.handler(
-          { accounts: store.accounts, callerUserId: asUserId(adminId) } as never,
-          input as never,
-        ),
-    })
-    expect(connected.outcome).toBe('applied')
-
     // auth.setPassword, through the plain entry with the family's real handler.
     const instance = new InstanceService({
       users: store.users,
@@ -105,9 +89,9 @@ describe('the plain path stores no result', () => {
 
     // The positive control: each write landed, so a miss below is not a no-op.
     expect(await store.secrets.get('integrations.linearApiKey')).toBe(SERVER_SECRET)
-    expect(tablesHolding(store, ACCOUNT_CREDENTIAL)).toEqual(['accounts'])
-    // Server secrets live in their workspace's secrets table (POD-6951).
-    expect(tablesHolding(store, SERVER_SECRET)).toEqual(['workspace_secrets'])
+    // The Linear key is sealed by the vault (credential management §7): its
+    // plaintext is in no table, only the envelope in `workspace_secrets`.
+    expect(tablesHolding(store, SERVER_SECRET)).toEqual([])
     // A password is kept only as a hash: the plaintext is nowhere.
     expect(tablesHolding(store, PASSWORD)).toEqual([])
   })

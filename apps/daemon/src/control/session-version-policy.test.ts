@@ -16,6 +16,7 @@ import {
   resetOpencodeVersionProbe,
 } from '../runtime/version-probe'
 import { testSessions } from '../session/testing.js'
+import { memoryMarkers, SessionAccessStore } from './access'
 import type { DaemonContext } from './context'
 import { launchServerDriverSession, reportHarnessVersionDiagnostic } from './session'
 
@@ -87,6 +88,7 @@ function world(harness: 'codex' | 'opencode' | 'grok') {
       adoptJournalled: async () => ({ found: false }),
       create,
     },
+    access: new SessionAccessStore({ markers: memoryMarkers() }),
   } as unknown as DaemonContext
   return { ctx, sent, create }
 }

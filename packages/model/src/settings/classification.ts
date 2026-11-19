@@ -67,17 +67,13 @@ import type {
   SecretClass,
   VisibilityClass,
 } from '../annotations/ownership'
-import {
-  pathsInSettingsTier,
-  SETTINGS_PATH_TIERS,
-  type SettingsTier,
-} from './path-tiers'
+import { pathsInSettingsTier, SETTINGS_PATH_TIERS, type SettingsTier } from './path-tiers'
 
 export {
   SETTINGS_OPEN_RECORD_LEAVES,
   SETTINGS_TIERS,
-  settingsLeafPaths,
   type SettingsTier,
+  settingsLeafPaths,
 } from './path-tiers'
 
 // ---------------------------------------------------------------------------

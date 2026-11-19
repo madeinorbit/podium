@@ -176,6 +176,12 @@ export const CLIENT_PLANE_CLASS = {
 export const CONTROL_PLANE_CLASS = {
   credentialExportRequest: 'control.command',
   credentialInstallRequest: 'control.command',
+  oauthLoopbackRequest: 'control.command',
+  oauthLoopbackCancel: 'control.command',
+  credentialRemoveRequest: 'control.command',
+  homeEnsureRequest: 'control.command',
+  homeRemoveRequest: 'control.command',
+  conversationPrepareRequest: 'control.command',
   repoOpRequest: 'control.command',
   // Handoff family (ADR 7 D7): bulk MECHANICS on the chunk frames, command
   // CLASS throughout — one correlated export/import state machine.
@@ -200,6 +206,8 @@ export const CONTROL_PLANE_CLASS = {
   modelProbeRequest: 'control.command',
   imageUploadRequest: 'control.command',
   spawn: 'control.command',
+  // A live session's access after a reconnect (credential management §8).
+  sessionAccessRefresh: 'control.command',
   reattach: 'control.command',
   agentObservationAck: 'control.command',
   agentObservationRebindAck: 'control.command',
@@ -312,6 +320,12 @@ export const CONTROL_PLANE_CLASS = {
 export const DAEMON_PLANE_CLASS = {
   credentialExportResult: 'control.command',
   credentialInstallResult: 'control.command',
+  oauthLoopbackResult: 'control.command',
+  oauthLoopbackCallback: 'control.command',
+  credentialRemoveResult: 'control.command',
+  homeEnsureResult: 'control.command',
+  homeRemoveResult: 'control.command',
+  conversationPrepareResult: 'control.command',
   repoOpResult: 'control.command',
   handoffExportResult: 'control.command',
   handoffChunkReadResult: 'control.command',
@@ -436,6 +450,10 @@ export const DAEMON_PLANE_CLASS = {
   // A daemon-produced topic value (ADR 7 Amendment 2 D21): live like hostMetrics,
   // which it replaces on a topics.v1 link; a lost one is superseded by the next.
   topicPublish: 'stream.live',
+  // WHAT A HARNESS SAID IT AUTHENTICATED WITH (credential management §9, epic
+  // Task 10). An entity fact, not a hint: a dropped one would leave a session
+  // on the wrong login looking as if nothing were wrong.
+  sessionAuth: 'control.entity',
 } as const satisfies Record<DaemonMessage['type'], PlaneClass>
 
 // ---- Derived legacy vocabulary (ADR 7 D1 bridge; one migration window) ------

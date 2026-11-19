@@ -30,6 +30,7 @@ import {
   machineRejectionMessage,
   resolveMachineChannel,
   SHARED_MACHINE_ACCOUNT_WARNING,
+  type SyncedServiceReport,
   structuralEligibility,
   type UpdateChannel,
   type UserId,
@@ -50,17 +51,19 @@ import type {
 } from '@podium/protocol'
 import {
   CAP_CREDENTIAL_IDENTITY_GUARD,
+  CAP_SESSION_ACCESS,
   SERVER_MOVE_CAPABILITY,
   supervisorGenerationOf,
   UPDATE_SPACE_CAPABILITY,
   unknownUpdateSpace,
   wireSchemaDigest,
 } from '@podium/protocol'
-import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
+import { type ControlMessage, carriesAccess, type DaemonMessage } from '@podium/protocol/daemon'
 import { stateDir } from '@podium/runtime/config'
 import { loadSupervisorState } from '@podium/runtime/machine-supervisor'
 import { requestParentEnrollment } from '@podium/runtime/parent-control'
 import { TRPCError } from '@trpc/server'
+import type { DaemonLinkKind } from '../../gateway/daemon-link-kind'
 import type { DaemonControlPeer } from '../../gateway/daemon-ports'
 import { isPrivateOwner } from '../../private-resources'
 import type { MemberCredentials } from '../../identity/member-credentials'
@@ -81,6 +84,7 @@ import {
   sha256,
 } from './enrollment'
 import { storedMachineRecordFacts } from './record-facts'
+import { RefusedSendError } from './refused-send'
 import { supersedeMachine } from './supersession'
 import { UpdateSpaceRequests } from './update-space-requests'
 import { deriveVersionState } from './version-state'
@@ -122,6 +126,22 @@ const fencedSessionOf = (delivery: PendingDaemonDelivery): SessionId | undefined
   if (RETIRING_CONTROL_TYPES.has(delivery.message.type)) return undefined
   const sessionId = (delivery.message as { sessionId?: unknown }).sessionId
   return typeof sessionId === 'string' ? (sessionId as SessionId) : undefined
+}
+
+/** A control frame whose `access` holds a secret (an `env` delivery). */
+function carriesAccessSecret(message: ControlMessage): boolean {
+  if (!carriesAccess(message.type)) return false
+  const access = (message as { access?: { delivery: { kind: string } } }).access
+  return access?.delivery.kind === 'env'
+}
+
+/** A server-transfer promote frame that holds the vault's data key (credential management §7). */
+function carriesVaultKey(message: ControlMessage): boolean {
+  return (
+    message.type === 'serverTransferPromoteRequest' &&
+    message.vaultDataKey !== undefined &&
+    message.vaultDataKey !== null
+  )
 }
 
 const sendControl = (transport: DaemonControlPeer, message: ControlMessage): void => {
@@ -318,6 +338,12 @@ export interface MachineFactsSnapshot {
 export interface MachinesDeps {
   /** Deployment configuration only; never an owner or grant input. */
   instanceId: string
+  /**
+   * The server's judgement of a connected daemon's connection (credential
+   * management §8). Read at the send, so a frame carrying a secret never goes
+   * to a socket judged `plain`. Absent: only the capability is checked.
+   */
+  daemonLinkKind?: (machineId: MachineId) => DaemonLinkKind | undefined
   /** Public half of the server update-signing key, sent on every successful machine hello. */
   updatePubkey?: () => string
   /** Old-key-signed path published with the current update key. */
@@ -1027,6 +1053,34 @@ export class MachinesService {
     return this.daemonCaps.get(machineId)?.has(cap) === true
   }
 
+  /** Why a frame carrying a secret may not go to this machine now, if it may not. */
+  private secretUnsafe(machineId: MachineId): string | undefined {
+    if (!this.daemons.has(machineId)) return 'no daemon is connected'
+    if (!this.daemonSupports(machineId, CAP_SESSION_ACCESS)) return 'its daemon is too old'
+    return this.linkUnsafe(machineId)
+  }
+
+  /** Why a secret may not go to `machineId`'s live daemon link now, if it may not. */
+  private linkUnsafe(machineId: MachineId): string | undefined {
+    if (!this.daemons.has(machineId)) return 'no daemon is connected'
+    if (this.deps.daemonLinkKind?.(machineId) === 'plain') return 'its connection is not encrypted'
+    return undefined
+  }
+
+  /**
+   * Why a login file may not cross `machineId`'s live daemon link now, if it may
+   * not (credential management §8; POD-6906 S2). Stricter than the access rule:
+   * a link the server has not classified is refused too, because a login file
+   * is a harness's whole sign-in, not one session's access.
+   */
+  loginLinkUnsafe(machineId: MachineId): string | undefined {
+    if (!this.daemons.has(machineId)) return 'no daemon is connected'
+    const kind = this.deps.daemonLinkKind?.(machineId)
+    if (kind === 'plain') return 'its connection is not encrypted'
+    if (kind === undefined) return 'the server cannot tell whether its connection is encrypted'
+    return undefined
+  }
+
   /** Wait briefly for the live daemon's first inventory, requesting it now. */
   async waitForInventory(machineId: MachineId, timeoutMs = 25_000): Promise<void> {
     if (!this.inventoryPending.has(machineId)) return
@@ -1058,6 +1112,18 @@ export class MachinesService {
    *  machine is briefly offline (flushed in order on its next attach). */
   readonly toMachine = (machineId: MachineId, msg: ControlMessage): void => {
     if (this.revokedMachines.has(machineId)) return
+    // A LOGIN FILE CROSSES ONLY A SAFE LINK AND IS NEVER QUEUED (credential
+    // management §8; POD-6906 S2). The install carries the file; the export asks
+    // the daemon to send it back over the same link. Both are judged at the send,
+    // for propagation and for the legacy pairing copy alike.
+    if (msg.type === 'credentialExportRequest' || msg.type === 'credentialInstallRequest') {
+      const unsafe = this.loginLinkUnsafe(machineId)
+      if (unsafe) {
+        throw new RefusedSendError(
+          `refusing to ${msg.type === 'credentialExportRequest' ? 'ask for' : 'send'} a login file ${msg.type === 'credentialExportRequest' ? 'from' : 'to'} ${machineId}: ${unsafe}`,
+        )
+      }
+    }
     // The RPC broker may await before sending, and the live peer can change
     // after propagation's preflight. Check the peer we actually send to; never
     // queue credential bytes for an offline or downgraded replacement.
@@ -1069,6 +1135,35 @@ export class MachinesService {
       throw new Error(
         `Upgrade the daemon on ${machineId} before copying a login: the current peer cannot enforce account identity preservation.`,
       )
+    }
+    // A SECRET IS NEVER QUEUED (credential management §8). The access was
+    // attached for the daemon connected when the launch was resolved; if that
+    // socket went away or was replaced by an older daemon or a plain link since,
+    // the frame is refused here rather than parked for whatever connects next.
+    if (carriesAccessSecret(msg)) {
+      const unsafe = this.secretUnsafe(machineId)
+      if (unsafe) {
+        throw new RefusedSendError(`refusing to send a credential to ${machineId}: ${unsafe}`)
+      }
+    }
+    // A SERVER PROMOTION IS NEVER QUEUED either (credential management §7). The
+    // transfer checked the target before committing, but the RPC awaits before it
+    // sends. A parked promote would reach whatever daemon attaches next, after the
+    // transfer timed out as uncertain or was aborted (and ahead of the abort
+    // queued behind it), with the vault key when it holds one. The key also needs
+    // a link that is not plain. The capability that matters (taking the key) is
+    // the transfer's own preflight, so only the live link is judged here.
+    if (msg.type === 'serverTransferPromoteRequest') {
+      const unsafe = carriesVaultKey(msg)
+        ? this.linkUnsafe(machineId)
+        : this.daemons.has(machineId)
+          ? undefined
+          : 'no daemon is connected'
+      if (unsafe) {
+        throw new RefusedSendError(
+          `refusing to send the server promotion to ${machineId}: ${unsafe}`,
+        )
+      }
     }
     // Keep target and origin together: aggregate task timings cannot distinguish
     // a repeated target from a sweep, or an offline queue from a fresh request.
@@ -1133,7 +1228,10 @@ export class MachinesService {
     return await this.deps.store.users.authzGenerationOf(owner)
   }
 
-  async mintClientRegistrationCode(request: { machineId: MachineId; publicKey?: string }, actor: UserId): Promise<string> {
+  async mintClientRegistrationCode(
+    request: { machineId: MachineId; publicKey?: string },
+    actor: UserId,
+  ): Promise<string> {
     return credentials.mintClientRegistrationCode(this.enrollmentHost, request, actor)
   }
 
@@ -1290,20 +1388,19 @@ export class MachinesService {
     this.unsubscribeMachineWrites()
   }
 
-  /** Resolve the native login identity available on the machine that will run a session. */
-  async nativeAccountIdForMachine(
-    machineId: MachineId,
-    agentKind: AgentKind,
-    accountId: AccountId,
-  ): Promise<AccountId> {
-    const unsuffixed = 'native:' + agentKind
-    if (accountId !== unsuffixed) return accountId
+  /**
+   * The harness login a machine reports, as the id a headless turn is fenced
+   * on (`native:<harness>:<fingerprint>`, or `native:<harness>` when it reports
+   * no identity). A turn's identity, not a credential choice: which credential
+   * a run may use is the resolver's (`modules/credentials/access.ts`).
+   */
+  async harnessLoginAccountId(machineId: MachineId, agentKind: AgentKind): Promise<AccountId> {
     const identity = (await this.deps.store.machines.getMachine(machineId))?.inventory?.agents.find(
       (agent) => agent.kind === agentKind,
     )?.login.identity
-    return identity?.fingerprint
-      ? asAccountId('native:' + agentKind + ':' + identity.fingerprint)
-      : accountId
+    return asAccountId(
+      identity?.fingerprint ? `native:${agentKind}:${identity.fingerprint}` : `native:${agentKind}`,
+    )
   }
 
   /** The password setup chose, written to the actor's account inside setup's transaction. */
@@ -1915,7 +2012,8 @@ export class MachinesService {
   private notePresence(records: readonly MachineRecord[]): void {
     for (const m of records) {
       const before = this.presence.get(m.id)
-      if (before?.lastSeenAt === m.lastSeenAt && before.presenceSource === m.presenceSource) continue
+      if (before?.lastSeenAt === m.lastSeenAt && before.presenceSource === m.presenceSource)
+        continue
       this.presence.set(m.id, { lastSeenAt: m.lastSeenAt, presenceSource: m.presenceSource })
       if (before !== undefined) this.deps.conditionChanged?.(m.id)
     }

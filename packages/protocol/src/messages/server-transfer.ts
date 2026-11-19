@@ -18,12 +18,22 @@ const operationId = z.string().min(1).max(200)
 const requestId = z.string().min(1).max(200)
 const digest = z.string().regex(/^[a-f0-9]{64}$/)
 const machineId = z.string().min(1).max(200)
+/** The vault's 32-byte data key, base64. */
+const vaultDataKey = z.string().regex(/^[A-Za-z0-9+/]{43}=$/)
+/** `vaultCheckValue(dataKey, transferId)`: HMAC-SHA256, hex. Reveals nothing about the key. */
+const vaultCheck = z.string().regex(/^[a-f0-9]{64}$/)
 
 export const SERVER_TRANSFER_MAX_CHUNK_BYTES = 512 * 1024
 export const SERVER_TRANSFER_CAPACITY_MARGIN = 0.1
 
 export const SERVER_TRANSFER_FORMAT_VERSION = 1
 export const SERVER_MOVE_CAPABILITY = 'server-move.v1'
+/**
+ * The daemon takes the vault's data key in promotion and wraps it under its own
+ * key file (credential management design §7, "Moving the server"). A source
+ * whose vault holds a data key refuses a target that does not advertise it.
+ */
+export const SERVER_MOVE_VAULT_KEY_CAPABILITY = 'server-move.vault-key.v1'
 
 /** Identity-bound portable package. Its canonical digest covers every field. */
 export const ServerTransferManifest = z.object({
@@ -155,6 +165,14 @@ export const ServerTransferPromoteRequestMessage = z.object({
   port: z.number().int().positive().max(65_535),
   targetMode: z.literal('server'),
   idempotencyKey: z.string().min(1).max(200),
+  /**
+   * The vault's data key, handed to the target in this field only; null when the
+   * source vault has none to give (empty, or locked). SECRET: never logged, never
+   * written to a journal, a stage file or the persisted promotion input.
+   */
+  vaultDataKey: vaultDataKey.nullable().optional(),
+  /** The source's check value for `vaultDataKey`; the target refuses a key that does not match it. */
+  vaultCheck: vaultCheck.optional(),
 })
 export type ServerTransferPromoteRequestMessage = z.infer<
   typeof ServerTransferPromoteRequestMessage
@@ -290,6 +308,8 @@ export const ServerTransferResultMessage = z.object({
   space: ServerTransferSpaceProof.optional(),
   proof: ServerTransferProof.optional(),
   servingProof: ServerTransferServingProof.optional(),
+  /** Promote: the target's check value for the data key it stored. */
+  vaultCheck: vaultCheck.optional(),
   errorCode: ServerTransferErrorCode.optional(),
   error: z.string().max(2_000).optional(),
 })

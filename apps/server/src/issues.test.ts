@@ -27,8 +27,8 @@ import { describe, expect, it, vi } from 'vitest'
 import { repoOpCommand } from '../../daemon/src/repo-op'
 import { systemPrincipal, userCommandPrincipal } from './command-principal'
 import { sessionsForIssue } from './issue-util'
-import { llmClient } from './llm'
 import { MODEL_CATALOG_VERSION } from './model-catalog'
+import { complete } from './modules/inference/complete'
 import { PendingUploadStore } from './modules/issues/pending-uploads'
 import { type IssueDeps, IssueService } from './modules/issues/service'
 import { ARTIFACT_READ_CAP_BYTES } from './modules/issues/service/crud'
@@ -36,13 +36,15 @@ import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
 import { sameWorktreePath } from './modules/issues/service/worktree-safety'
 import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
 import type { SessionStore } from './store'
+import { memberFacts } from './store/fixtures/test-support'
 import { artifactStoreOnDisk } from './test-support/artifact-store'
 import { captureLogs } from './test-support/capture-logs'
+import { seedLegacyKeyCredential } from './test-support/legacy-key-credential'
 import { openTestStore } from './test-support/open-test-store'
 import { seedMailboxRow } from './test-support/seed-issue-mail'
 import { seedMessage } from './test-support/seed-message'
-import { metasAsFacts, sessionReadPorts } from './test-support/session-facts'
 import { seedRows } from './test-support/seed-rows'
+import { metasAsFacts, sessionReadPorts } from './test-support/session-facts'
 
 /** The fixture's caller. `addComment` requires a principal (POD-1315) — these
  *  tests exercise the operator seam, so they say so rather than defaulting. */
@@ -54,7 +56,10 @@ async function harness(sessions: SessionMeta[] = [], opts: { originUrl?: string 
   // implicit placement), so the fixture's repo is reported by the host machine.
   // Without an origin its identity is derived from the host and path; a test
   // that moves an issue between checkouts BY IDENTITY passes `originUrl`.
-  await seedRows(store, async () => await store.repos.addRepo('/r', store.hostMachineId, opts.originUrl))
+  await seedRows(
+    store,
+    async () => await store.repos.addRepo('/r', store.hostMachineId, opts.originUrl),
+  )
   const setSessionArchived = vi.fn()
   const clearSessionOffer = vi.fn()
   const onWorktreesChanged = vi.fn()
@@ -175,8 +180,14 @@ describe('IssueService repo_id scoping (#140)', () => {
   it('unifies one origin checked out at two paths into a single #N sequence', async () => {
     const { store, deps } = await harness()
     const origin = 'git@github.com:acme/app.git'
-    await seedRows(store, async () => await store.repos.addRepo('/home/alice/app', asMachineId('m-alice'), origin))
-    await seedRows(store, async () => await store.repos.addRepo('/home/bob/app', asMachineId('m-bob'), origin)) // same origin ⇒ same repo_id
+    await seedRows(
+      store,
+      async () => await store.repos.addRepo('/home/alice/app', asMachineId('m-alice'), origin),
+    )
+    await seedRows(
+      store,
+      async () => await store.repos.addRepo('/home/bob/app', asMachineId('m-bob'), origin),
+    ) // same origin ⇒ same repo_id
     const svc = await IssueService.create(deps)
     const a = await svc.crud.create(svc.reports.store.serverWriter, {
       repoPath: '/home/alice/app',
@@ -201,8 +212,14 @@ describe('IssueService repo_id scoping (#140)', () => {
 
   it('resolveRef scopes a shared #N to the caller repo; unscoped stays ambiguous', async () => {
     const { store, deps } = await harness()
-    await seedRows(store, async () => await store.repos.addRepo('/repoA', asMachineId('mA'), 'git@github.com:o/a.git'))
-    await seedRows(store, async () => await store.repos.addRepo('/repoB', asMachineId('mB'), 'git@github.com:o/b.git')) // distinct origins
+    await seedRows(
+      store,
+      async () => await store.repos.addRepo('/repoA', asMachineId('mA'), 'git@github.com:o/a.git'),
+    )
+    await seedRows(
+      store,
+      async () => await store.repos.addRepo('/repoB', asMachineId('mB'), 'git@github.com:o/b.git'),
+    ) // distinct origins
     const svc = await IssueService.create(deps)
     const a = await svc.crud.create(svc.reports.store.serverWriter, {
       repoPath: '/repoA',
@@ -534,10 +551,17 @@ describe('IssueService unread (#124)', () => {
     // the same way it already had to for `readAt`, and reads the surviving
     // observation point. Same three cases, same rule.
     const withReadAt = async (readAt: string, updatedAt: string) => {
-      await seedRows(store, async () => await store.issues.upsertIssue(fixtureWriteScope(), { ...row, updatedAt }))
-      await seedRows(store, async () => await store.issues.setIssueUserState(fixtureWriteScope(), firstAdminMemberId(), w.id, {
-        readAt,
-      }))
+      await seedRows(
+        store,
+        async () => await store.issues.upsertIssue(fixtureWriteScope(), { ...row, updatedAt }),
+      )
+      await seedRows(
+        store,
+        async () =>
+          await store.issues.setIssueUserState(fixtureWriteScope(), firstAdminMemberId(), w.id, {
+            readAt,
+          }),
+      )
       return svc.reports.unreadFor(w.id)
     }
     // readAt AFTER all activity → read.
@@ -2062,11 +2086,15 @@ describe('IssueService.start', () => {
     // issue that identity.
     const { svc, deps, store } = await harness([], { originUrl: 'https://example.test/podium.git' })
     const order: string[] = []
-    await seedRows(store, async () => await store.repos.addRepo(
-      '/home/till/src/podium',
-      asMachineId('mach-b'),
-      'https://example.test/podium.git',
-    ))
+    await seedRows(
+      store,
+      async () =>
+        await store.repos.addRepo(
+          '/home/till/src/podium',
+          asMachineId('mach-b'),
+          'https://example.test/podium.git',
+        ),
+    )
     deps.requireMachineForRepo = vi.fn()
     deps.prepareMachineStart = vi.fn(async ({ repoPath, machineId, startPoint }) => {
       order.push(`prepare:${repoPath}:${machineId}:${startPoint}`)
@@ -2114,11 +2142,15 @@ describe('IssueService.start', () => {
     // resolve to one repoId and the guard lets the move through. The source is the
     // harness's '/r', reported with the origin (see the test above).
     const { svc, deps, store } = await harness([], { originUrl: 'https://example.test/podium.git' })
-    await seedRows(store, async () => await store.repos.addRepo(
-      '/home/till/src/podium',
-      asMachineId('mach-b'),
-      'https://example.test/podium.git',
-    ))
+    await seedRows(
+      store,
+      async () =>
+        await store.repos.addRepo(
+          '/home/till/src/podium',
+          asMachineId('mach-b'),
+          'https://example.test/podium.git',
+        ),
+    )
     deps.requireMachineForRepo = vi.fn()
     deps.prepareMachineStart = vi.fn(async () => ({ repoPath: '/home/till/src/podium' }))
     const created = await svc.crud.create(svc.reports.store.serverWriter, {
@@ -2143,11 +2175,15 @@ describe('IssueService.start', () => {
     // must start from whatever the TARGET can resolve, which prepareMachineStart returns.
     // The source is the harness's '/r', reported with the origin (see above).
     const { svc, deps, store } = await harness([], { originUrl: 'https://example.test/podium.git' })
-    await seedRows(store, async () => await store.repos.addRepo(
-      '/home/till/src/podium',
-      asMachineId('mach-b'),
-      'https://example.test/podium.git',
-    ))
+    await seedRows(
+      store,
+      async () =>
+        await store.repos.addRepo(
+          '/home/till/src/podium',
+          asMachineId('mach-b'),
+          'https://example.test/podium.git',
+        ),
+    )
     deps.requireMachineForRepo = vi.fn()
     const sha = 'e348cfe3b3bc5a1af2712b1614ea25c1b320fe03'
     deps.prepareMachineStart = vi.fn(async () => ({
@@ -2175,7 +2211,10 @@ describe('IssueService.start', () => {
     // renumber the issue into another repo. It must refuse on this path too.
     const { svc, deps, store } = await harness()
     // The target machine reports its (different) repository, as its daemon's scan would.
-    await seedRows(store, async () => await store.repos.addRepo('/somewhere/entirely-else', asMachineId('mach-b')))
+    await seedRows(
+      store,
+      async () => await store.repos.addRepo('/somewhere/entirely-else', asMachineId('mach-b')),
+    )
     deps.requireMachineForRepo = vi.fn()
     deps.prepareMachineStart = vi.fn(async () => ({ repoPath: '/somewhere/entirely-else' }))
     const created = await svc.crud.create(svc.reports.store.serverWriter, {
@@ -3051,10 +3090,14 @@ describe('IssueService.action', () => {
     const row = await svc.reports.store.deps.store.issues.getIssue(id)
     if (!row) throw new Error('row missing')
     // Row-level free, through the table the map follows (POD-6155).
-    await seedRows(svc.reports.store.deps.store, async () => await svc.reports.store.deps.store.issues.upsertIssue(fixtureWriteScope(), {
-      ...row,
-      worktreePath: null,
-    }))
+    await seedRows(
+      svc.reports.store.deps.store,
+      async () =>
+        await svc.reports.store.deps.store.issues.upsertIssue(fixtureWriteScope(), {
+          ...row,
+          worktreePath: null,
+        }),
+    )
     await svc.gitWorkflow.refreshGitState(id)
     const wire = await svc.reports.get(id)
     expect(wire?.landedAt).toEqual(expect.any(String))
@@ -3147,10 +3190,14 @@ describe('IssueService.action', () => {
     const row = await svc.reports.store.deps.store.issues.getIssue(id)
     if (!row) throw new Error('row missing')
     // Row-level free, through the table the map follows (POD-6155).
-    await seedRows(svc.reports.store.deps.store, async () => await svc.reports.store.deps.store.issues.upsertIssue(fixtureWriteScope(), {
-      ...row,
-      worktreePath: null,
-    }))
+    await seedRows(
+      svc.reports.store.deps.store,
+      async () =>
+        await svc.reports.store.deps.store.issues.upsertIssue(fixtureWriteScope(), {
+          ...row,
+          worktreePath: null,
+        }),
+    )
     release()
     await refresh
     const wire = (await svc.reports.get(id))!
@@ -3172,10 +3219,14 @@ describe('IssueService.action', () => {
     if (!row) throw new Error('row missing')
     const freed = row.worktreePath as string
     // Row-level free, through the table the map follows (POD-6155).
-    await seedRows(svc.reports.store.deps.store, async () => await svc.reports.store.deps.store.issues.upsertIssue(fixtureWriteScope(), {
-      ...row,
-      worktreePath: null,
-    }))
+    await seedRows(
+      svc.reports.store.deps.store,
+      async () =>
+        await svc.reports.store.deps.store.issues.upsertIssue(fixtureWriteScope(), {
+          ...row,
+          worktreePath: null,
+        }),
+    )
     calls.length = 0
     // Turn-end and git-activity refreshes pass the session's (deleted) cwd; two coalesce.
     await Promise.all([
@@ -3405,10 +3456,12 @@ describe('IssueService derived status (P1)', () => {
 describe('IssueService assistant', () => {
   async function harnessWithLlm(json: string) {
     const { deps } = await harness([])
-    deps.llm = (() => ({
+    deps.complete = async () => ({
+      text: json,
+      toolCalls: [],
+      servedBy: 'cred_fake' as never,
       label: 'fake',
-      complete: async () => ({ text: json, toolCalls: [] }),
-    })) as never
+    })
     deps.repoOp = vi.fn(async (op: string) => ({
       ok: true,
       output: op === 'status' ? '## issue/1-x' : 'abc plan',
@@ -3449,17 +3502,14 @@ describe('IssueService assistant', () => {
 
   it('a refused server-AI call stays non-throwing but records the actionable error (POD-4805)', async () => {
     // The daemon's refusal (e.g. a ChatGPT login sent a model it does not
-    // support) surfaces as a throw out of the llm factory — the shape
-    // `createCodexTransport` produces for a daemon `{ ok: false }` outcome.
+    // support) surfaces as a throw out of `complete` — the shape the
+    // on-machine route produces for a daemon `{ ok: false }` outcome.
     const refusal =
       "codex 400: The 'gpt-5.5' model is not supported when using Codex with a ChatGPT account."
     const { deps } = await harness([])
-    deps.llm = (() => ({
-      label: 'fake',
-      complete: async () => {
-        throw new Error(refusal)
-      },
-    })) as never
+    deps.complete = async () => {
+      throw new Error(refusal)
+    }
     deps.repoOp = vi.fn(async (op: string) => ({
       ok: true,
       output: op === 'status' ? '## issue/1-x' : 'abc plan',
@@ -3504,24 +3554,12 @@ describe('IssueService assistant', () => {
     expect(svc.gitWorkflow.backgroundLastError()).toBe(refusal)
   })
 
-  it("an unset background role names its throw: '' never reaches the Codex login (POD-4805)", async () => {
-    // Stored exactly as the acceptance run had it —
-    // {accountId:'', model:'auto', effort:'auto'} — with a Codex login on the
-    // fleet and no provider key in the secrets store. '' is the documented
-    // role default, which resolves to managed:openrouter, so the call never
-    // spends the login: llmClient throws demanding the missing key, and the
-    // digest used to swallow it without a word.
+  it('an unset background role with no key names its throw, and spends no login (POD-4805)', async () => {
+    // Stored exactly as the acceptance run had it — {accountId:'', model:'auto',
+    // effort:'auto'} — with no key anywhere. '' is the documented role default,
+    // which reads as the imported OpenRouter key: there is none, so the call is
+    // "not configured" and the digest says so instead of swallowing it.
     const { deps } = await harness([])
-    deps.llm = ((backend: never, apiKey: never) =>
-      llmClient(backend, apiKey, fetch, {
-        codexTransport: {
-          complete: async () => {
-            throw new Error(
-              'must not reach the Codex transport: unset role runs managed:openrouter',
-            )
-          },
-        },
-      })) as never
     deps.repoOp = vi.fn(async (op: string) => ({
       ok: true,
       output: op === 'status' ? '## issue/1-x' : 'abc plan',
@@ -3534,7 +3572,6 @@ describe('IssueService assistant', () => {
         },
         sessionDefaults: { agent: 'claude-code' },
         issues: { assistantEnabled: true },
-        roles: { background: { accountId: asAccountId(''), model: 'auto', effort: 'auto' } },
       })
     const svc = await IssueService.create(deps)
     const c = await svc.crud.create(svc.reports.store.serverWriter, {
@@ -3547,39 +3584,46 @@ describe('IssueService assistant', () => {
       branch: 'issue/1-x',
       stage: 'planning',
     })
+    const expected =
+      'no credential is chosen for the background role — pick one in Settings → Credentials'
     const logs = captureLogs()
     try {
       const wire = await svc.gitWorkflow.refreshAssistant(c.id)
       expect(wire.activityNotes).toBeUndefined()
-      const expected = 'no API key configured for openrouter — connect one in Settings → AI accounts'
       const warns = logs.at('warn')
       expect(warns.map((r) => r.msg)).toContain('background LLM call failed')
       expect(warns.map((r) => r.err?.message)).toContain(expected)
     } finally {
       logs.restore()
     }
-    expect(svc.gitWorkflow.backgroundLastError()).toBe(
-      'no API key configured for openrouter — connect one in Settings → AI accounts',
-    )
+    expect(svc.gitWorkflow.backgroundLastError()).toBe(expected)
   })
 
-  it("the digest spends the designated member's managed key, never another member's (POD-469)", async () => {
-    // The background role reads the first admin's settings, so it spends that
-    // admin's credential: their own managed key from the Accounts hub, then a
-    // key shared with them. Another member's unshared key is never used, even
-    // when it is the only one connected.
+  it('after the upgrade the digest runs on the imported key with untouched role settings, never another member’s', async () => {
+    // Credential management Task 12, item 5. An instance from before credentials:
+    // the OpenRouter key sits in the old accounts table and nobody touched the
+    // background role. The upgrade start moves the key into the vault; the
+    // role's default then reads as that credential. Another member's unshared
+    // key is never spent, even while it is the only one there (POD-469).
     const { deps } = await harness([])
-    const keys: (string | undefined)[] = []
-    deps.llm = ((_backend: never, apiKey: string | undefined) => {
-      keys.push(apiKey)
-      return {
-        label: 'fake',
-        complete: async () => ({
-          text: '{"activityNotes":"n","suggestedStage":"","suggestedReason":"","blockedBy":[],"dependencyNote":""}',
-          toolCalls: [],
+    const store = deps.store
+    const received: string[] = []
+    const fakeFetch = (async (_url: string | URL | Request, init?: RequestInit) => {
+      received.push(String((init?.headers as Record<string, string>).authorization))
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content:
+                  '{"activityNotes":"imported key answered","suggestedStage":"","suggestedReason":"","blockedBy":[],"dependencyNote":""}',
+              },
+            },
+          ],
         }),
-      }
-    }) as never
+      )
+    }) as typeof fetch
+    deps.complete = async (input) => await complete({ store, fetch: fakeFetch }, input)
     deps.repoOp = vi.fn(async () => ({ ok: true, output: '' })) as never
     deps.getSettings = async () =>
       normalizeSettings({
@@ -3589,20 +3633,16 @@ describe('IssueService assistant', () => {
         },
         sessionDefaults: { agent: 'claude-code' },
         issues: { assistantEnabled: true },
-        workLlm: { kind: 'api', provider: 'openrouter', model: 'm' },
       })
-    const store = deps.store
-    const connect = async (ownerUserId: UserId, credential: string) =>
-      await store.accounts.connect({
-        ownerUserId,
-        accountKey: asAccountId('managed:openrouter'),
-        provider: 'openrouter',
-        kind: 'api-key',
-        credential,
-        identity: 'mask',
-        scope: 'role',
-        createdAt: 1,
+    // A key stored under the old background default, as the one-time move left it.
+    const upgradeWith = async (ownerUserId: UserId, credential: string) => {
+      await seedLegacyKeyCredential(store, {
+        owner: ownerUserId,
+        accountKey: 'managed:openrouter',
+        type: 'openrouter.api-key',
+        secret: credential,
       })
+    }
     const svc = await IssueService.create(deps)
     const c = await svc.crud.create(svc.reports.store.serverWriter, {
       repoPath: '/r',
@@ -3615,12 +3655,34 @@ describe('IssueService assistant', () => {
       stage: 'planning',
     })
 
-    await connect(asUserId('user:other-member'), 'other-member-key')
+    // The other member is setup, not the write under test. This harness wires
+    // a change log over the store but no machine-record commit (a registry
+    // does that), so the join's captured rows are seeded, not logged.
+    const other = asUserId('user:other-member')
+    await seedRows(store, async () => {
+      await memberFacts(store).create(
+        {
+          id: other,
+          displayName: 'other',
+          role: 'member',
+          createdAt: new Date().toISOString(),
+          disabledAt: null,
+        },
+        'not-a-real-hash',
+      )
+    })
+    // Activity notes are the panel state record, not a field of the issue wire,
+    // so the digest's outcome is read there (as the test above does).
+    const notes = async () => (await store.issues.panel.state(c.id))?.text
+    await upgradeWith(other, 'sk-FAKE-other-member-key')
     await svc.gitWorkflow.refreshAssistant(c.id)
-    await connect(await firstAdminMemberId(store), 'admin-managed-key')
-    await svc.gitWorkflow.refreshAssistant(c.id)
+    expect(await notes()).toBeUndefined()
+    expect(received).toEqual([])
 
-    expect(keys).toEqual([undefined, 'admin-managed-key'])
+    await upgradeWith(await firstAdminMemberId(store), 'sk-FAKE-admin-managed-key')
+    await svc.gitWorkflow.refreshAssistant(c.id)
+    expect(await notes()).toBe('imported key answered')
+    expect(received).toEqual(['Bearer sk-FAKE-admin-managed-key'])
   })
 
   it('applySuggestion moves the stage and clears the suggestion', async () => {
@@ -4925,7 +4987,10 @@ describe('IssueService.prime (P1a)', () => {
     expect(unbound).toContain('`POD-557`')
     expect(unbound).toContain('only `POD-…` linkifies')
 
-    await seedRows(store, async () => await store.repos.addRepo('/home/u/other', store.hostMachineId, undefined, 'OTH'))
+    await seedRows(
+      store,
+      async () => await store.repos.addRepo('/home/u/other', store.hostMachineId, undefined, 'OTH'),
+    )
     const issue = await svc.crud.create(svc.reports.store.serverWriter, {
       repoPath: '/home/u/other',
       title: 'Bound',
@@ -5072,10 +5137,14 @@ describe('IssueService.issueForCwd (P1b)', () => {
     // Simulate a narrow worktree nested under the broad one (row-level, no git).
     const nested = `${broadWt}/nested/issue-narrow`
     // Row-level move, straight to the table the folder lookup reads (POD-6155).
-    await seedRows(store, async () => await store.issues.upsertIssue(fixtureWriteScope(), {
-      ...(await store.issues.getIssue(narrow.id))!,
-      worktreePath: nested,
-    }))
+    await seedRows(
+      store,
+      async () =>
+        await store.issues.upsertIssue(fixtureWriteScope(), {
+          ...(await store.issues.getIssue(narrow.id))!,
+          worktreePath: nested,
+        }),
+    )
     expect(await svc.reports.issueForCwd(`${nested}/src`)).toBe(narrow.id)
     expect(await svc.reports.issueForCwd(`${broadWt}/other`)).toBe(broad.id)
   })
@@ -5119,11 +5188,15 @@ describe('IssueService.resolveRef (display seq → internal id)', () => {
 
   it('resolves a human-facing nice id PREFIX-seq (#474)', async () => {
     const { svc, store } = await harness()
-    await seedRows(store, async () => await store.repos.addRepo(
-      '/home/u/podium',
-      asMachineId('__local__'),
-      'git@github.com:o/podium.git',
-    ))
+    await seedRows(
+      store,
+      async () =>
+        await store.repos.addRepo(
+          '/home/u/podium',
+          asMachineId('__local__'),
+          'git@github.com:o/podium.git',
+        ),
+    )
     const prefix = (await store.repos.prefixForPath('/home/u/podium'))!
     const w = await svc.crud.create(svc.reports.store.serverWriter, {
       repoPath: '/home/u/podium',
@@ -8062,33 +8135,37 @@ describe('IssueService agent mail (#103)', () => {
     await svc.commentsMail.mailInbox(svc.reports.store.serverWriter, a.id, {
       sessionId: asSessionId('sOld'),
     })
-    await seedRows(store, async () => await store.sessions.upsertSession(fixtureWriteScope(), {
-      id: asSessionId('sNew'),
-      ownerUserId: firstAdminMemberId(),
-      agentKind: 'claude-code',
-      cwd: '/r',
-      title: 'fresh agent',
-      name: null,
-      archived: false,
-      workState: null,
-      originKind: 'spawn',
-      conversationId: null,
-      resumeKind: null,
-      resumeValue: null,
-      status: 'live',
-      exitCode: null,
-      durableLabel: 'podium-sNew',
-      // Started AFTER the message was sent and consumed.
-      createdAt: '2026-06-30T01:00:00.000Z',
-      lastActiveAt: '2026-06-30T01:00:00.000Z',
-      lastOutputAt: null,
-      lastInputAt: null,
-      lastResumedAt: null,
-      spawnedBy: null,
-      machineId: asMachineId('m1'),
-      headless: false,
-      issueId: a.id,
-    }))
+    await seedRows(
+      store,
+      async () =>
+        await store.sessions.upsertSession(fixtureWriteScope(), {
+          id: asSessionId('sNew'),
+          ownerUserId: firstAdminMemberId(),
+          agentKind: 'claude-code',
+          cwd: '/r',
+          title: 'fresh agent',
+          name: null,
+          archived: false,
+          workState: null,
+          originKind: 'spawn',
+          conversationId: null,
+          resumeKind: null,
+          resumeValue: null,
+          status: 'live',
+          exitCode: null,
+          durableLabel: 'podium-sNew',
+          // Started AFTER the message was sent and consumed.
+          createdAt: '2026-06-30T01:00:00.000Z',
+          lastActiveAt: '2026-06-30T01:00:00.000Z',
+          lastOutputAt: null,
+          lastInputAt: null,
+          lastResumedAt: null,
+          spawnedBy: null,
+          machineId: asMachineId('m1'),
+          headless: false,
+          issueId: a.id,
+        }),
+    )
     expect(
       (await svc.commentsMail.mailPending(a.id, { sessionId: asSessionId('sNew') })).unread,
     ).toBe(0)
@@ -8104,32 +8181,36 @@ describe('IssueService agent mail (#103)', () => {
     // Nobody was live when it was sent: it is still queued, so the next session
     // to arrive must be told about it even though it predates that session.
     await seedIssueMail(store, a.id, 'msg_held', { fromSession: asSessionId('sSender') })
-    await seedRows(store, async () => await store.sessions.upsertSession(fixtureWriteScope(), {
-      id: asSessionId('sLate'),
-      ownerUserId: firstAdminMemberId(),
-      agentKind: 'claude-code',
-      cwd: '/r',
-      title: 'late agent',
-      name: null,
-      archived: false,
-      workState: null,
-      originKind: 'spawn',
-      conversationId: null,
-      resumeKind: null,
-      resumeValue: null,
-      status: 'live',
-      exitCode: null,
-      durableLabel: 'podium-sLate',
-      createdAt: '2026-06-30T01:00:00.000Z',
-      lastActiveAt: '2026-06-30T01:00:00.000Z',
-      lastOutputAt: null,
-      lastInputAt: null,
-      lastResumedAt: null,
-      spawnedBy: null,
-      machineId: asMachineId('m1'),
-      headless: false,
-      issueId: a.id,
-    }))
+    await seedRows(
+      store,
+      async () =>
+        await store.sessions.upsertSession(fixtureWriteScope(), {
+          id: asSessionId('sLate'),
+          ownerUserId: firstAdminMemberId(),
+          agentKind: 'claude-code',
+          cwd: '/r',
+          title: 'late agent',
+          name: null,
+          archived: false,
+          workState: null,
+          originKind: 'spawn',
+          conversationId: null,
+          resumeKind: null,
+          resumeValue: null,
+          status: 'live',
+          exitCode: null,
+          durableLabel: 'podium-sLate',
+          createdAt: '2026-06-30T01:00:00.000Z',
+          lastActiveAt: '2026-06-30T01:00:00.000Z',
+          lastOutputAt: null,
+          lastInputAt: null,
+          lastResumedAt: null,
+          spawnedBy: null,
+          machineId: asMachineId('m1'),
+          headless: false,
+          issueId: a.id,
+        }),
+    )
     expect(
       (await svc.commentsMail.mailPending(a.id, { sessionId: asSessionId('sLate') })).unread,
     ).toBe(1)

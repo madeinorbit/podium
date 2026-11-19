@@ -1,5 +1,5 @@
 import { join, normalize } from 'node:path'
-import type { AgentKind, HarnessAgent } from '@podium/model'
+import type { AcceptedCredential, AgentKind, HarnessAgent } from '@podium/model'
 import {
   type BuiltinHarnessKind,
   isBuiltinHarnessKind,
@@ -32,6 +32,7 @@ import {
   type HarnessLogin,
   type HarnessTranscript,
   type HarnessUsage,
+  type HideFromCommands,
   type PortableCredential,
   type ServerRuntimeSpec,
 } from './manifest.js'
@@ -192,6 +193,20 @@ const PROPAGATABLE_HARNESSES: Partial<Record<AgentKind, true>> = {
 }
 
 /** Native logins whose guarded credential files may be propagated between machines. */
+/**
+ * The credential types this harness accepts and how each is delivered
+ * (credential management spec §5). Empty for a harness this build has never
+ * heard of: an unknown harness accepts nothing rather than borrowing a row.
+ */
+export function harnessAccepts(kind: AgentKind | string): readonly AcceptedCredential[] {
+  return manifestFor(kind)?.inventory.accepts ?? []
+}
+
+/** What a launch adds to keep credentials out of the agent's commands, if the harness has a switch. */
+export function harnessHideFromCommands(kind: AgentKind | string): HideFromCommands | undefined {
+  return manifestFor(kind)?.inventory.hideFromCommands
+}
+
 export function harnessSupportsCredentialPropagation(
   kind: AgentKind | string,
 ): kind is 'claude-code' | 'codex' {
@@ -632,6 +647,20 @@ export function harnessInstanceHomeEnv(
   if (!kind || !homeDir) return {}
   const selector = manifestFor(kind)?.environment.instanceHome
   return selector ? { [selector.variable]: join(homeDir, selector.relativeDir) } : {}
+}
+
+/**
+ * The variable that moves `kind`'s whole configuration directory, its login
+ * file included (credential management §10): `CLAUDE_CONFIG_DIR` for Claude
+ * Code, `CODEX_HOME` for Codex. A Podium home is that directory. Read from the
+ * harness's own declaration of its propagatable login file, so the home and
+ * the login file can never name different variables. Undefined for a harness
+ * whose login cannot be held in a directory of Podium's choosing.
+ */
+export function harnessHomeVariable(kind: AgentKind | string): string | undefined {
+  const manifest = manifestFor(kind)
+  const credentials = manifest ? declaredValue(manifest.credentials) : undefined
+  return credentials?.files.find((file) => file.propagatable && file.homeEnvVar)?.homeEnvVar
 }
 
 /**

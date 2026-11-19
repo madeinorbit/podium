@@ -36,18 +36,18 @@
  */
 
 import { randomUUID } from 'node:crypto'
+import { createLogger } from '@podium/logger'
 import type { IssueId, MachineId, ResumeRef, SessionId, SessionMeta, UserId } from '@podium/model'
 import { type AgentKind, asSessionId } from '@podium/model'
-import { soleMemberFor } from '../../sole-member'
 import type { SessionBindingAdoptLaunchInstruction } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import type { AutoContinueController } from '../../auto-continue'
 import { type ResolvedLaunchSelection, resolveLaunchSelection } from '../../model-validation'
+import { soleMemberFor } from '../../sole-member'
 import type { SessionStore } from '../../store'
 import type { DurableIssueAccessIndex } from '../issues/access-index'
 import type { DaemonRpcService } from '../machines/rpc'
 import type { MachinesService, MachineUseResolver } from '../machines/service'
-import { SpawnAccountRefusal } from './account-env'
 import type { SessionFacts } from './facts'
 import { HandoffCoordinator } from './handoff/coordinator'
 import type { AssertMachineUse, HandoffCaller, HandoffPorts } from './handoff/ports'
@@ -60,8 +60,11 @@ import type { Session } from './session'
 import type { SessionWriter } from './session-lifecycle-types'
 import type { SessionStart } from './session-start'
 import type { SessionStateService } from './session-state/service'
+import { homeIdOfDelivery, type Placement, placeConversation } from './switch-credential'
 import type { SessionTerminalProof } from './terminal-proof'
 import type { SessionWorkspace } from './workspace'
+
+const log = createLogger('server:session-revival')
 
 /** The explicit choices a wake may carry (`--model`, `--effort`, `--force-unknown-model`). */
 export interface ExplicitWake {
@@ -553,18 +556,60 @@ export class SessionRevival {
     // produced it may have been AWAITED, so hoisting it is what keeps the draft
     // from having to span that suspension (spec rule 26).
     const cwd = ensured.cwd || session.cwd
-    // Resolve the owner's account before marking the session starting: a
-    // missing connection or unapproved machine refuses the wake in place.
-    let accountEnv: { env?: Record<string, string> }
-    try {
-      accountEnv = await this.ports.launchConfig.accountEnv(
-        session.agentKind,
-        session.accountId,
-        { ownerUserId: session.ownerUserId, machineId: session.machineId },
+    // The credential STORED ON THE SESSION, never today's default: a session
+    // revives on what it ran on (credential management §9). Resolved before
+    // the session is marked starting, so a refusal leaves it where it was and
+    // sends nothing; it never falls back to another login.
+    const stored = await this.ports.launchConfig.storedCredential({
+      harness: session.agentKind,
+      credentialId: session.credentialId,
+      accountId: session.accountId,
+      ownerUserId: session.ownerUserId,
+      machineId: session.machineId,
+      sessionId,
+    })
+    if (!stored.ok) return { ok: false, reason: stored.message }
+    const access = await this.ports.launchConfig.access({
+      harness: session.agentKind,
+      ...(session.lifecycleDriverRequest() ? { driverId: session.lifecycleDriverRequest() } : {}),
+      credentialId: stored.credentialId,
+      owner: session.ownerUserId,
+      machineId: session.machineId,
+      sessionId,
+    })
+    if (!access.ok) return { ok: false, reason: access.message }
+    // THE CONVERSATION WHERE THIS RESUME LOOKS (credential management §9): a
+    // session switched while it was stopped wakes in its new credential's
+    // home, so the daemon first places the newest copy there. Before the row
+    // is marked starting; a failure is logged and the wake goes on, and the
+    // harness then says what it cannot find.
+    if (session.resume) {
+      const placed = await placeConversation(
+        {
+          daemonSupports: (machineId, cap) => this.ports.machines.daemonSupports(machineId, cap),
+          conversationPrepare: async (request, machineId) =>
+            await this.ports.rpc.conversationPrepare(request, machineId),
+        },
+        {
+          sessionId,
+          agentKind: session.agentKind,
+          machineId: session.machineId,
+          cwd,
+          resume: session.resume,
+        },
+        { credentialId: access.credentialId, homeId: homeIdOfDelivery(access.access?.delivery) },
+      ).catch(
+        (err: unknown): Placement => ({
+          kind: 'failed',
+          error: err instanceof Error ? err.message : String(err),
+        }),
       )
-    } catch (error) {
-      if (error instanceof SpawnAccountRefusal) return { ok: false, reason: error.message }
-      throw error
+      if (placed.kind === 'failed') {
+        log.warn('the conversation was not placed before a wake', {
+          sessionId,
+          error: placed.error,
+        })
+      }
     }
     // Name the allowed companions so model defaults can never leak into a
     // restart frame, even if the launch-config API later grows new fields.
@@ -640,7 +685,10 @@ export class SessionRevival {
       // selection supplied on this wake may set model or effort.
       ...(selection && selection.model !== 'auto' ? { model: selection.model } : {}),
       ...(selection && selection.effort !== 'auto' ? { effort: selection.effort } : {}),
-      ...accountEnv,
+      // THE CREDENTIAL, in its own field and nowhere else (credential
+      // management §8): read from the vault above, before the row was
+      // written, and held in memory until this frame goes out.
+      ...(access.access ? { access: access.access } : {}),
       ...(this.ports.state.draftSyncEnabled() ? { draftSync: true } : {}),
     })
     await preparedInstructions.commit()

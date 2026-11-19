@@ -297,6 +297,24 @@ export type AccountId = z.infer<typeof AccountId>
 export const AccountIdField = idField<'AccountId'>()
 export const asAccountId = (s: string): AccountId => s as AccountId
 
+/**
+ * A CREDENTIAL (credential management spec §4): one piece of provider access a
+ * person gave Podium. Minted by the server as `cred_` followed by a UUID; the id
+ * means nothing by itself (no provider, harness or identity in it), which is
+ * exactly what the `AccountId` spellings it replaces got wrong.
+ */
+export const CREDENTIAL_ID_PREFIX = 'cred_'
+export const CredentialId = z
+  .string()
+  .max(CREDENTIAL_ID_PREFIX.length + 36)
+  .regex(/^cred_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, {
+    message: 'a credential id is cred_ followed by a UUID',
+  })
+  .brand<'CredentialId'>()
+export type CredentialId = z.infer<typeof CredentialId>
+export const CredentialIdField = idField<'CredentialId'>()
+export const asCredentialId = (s: string): CredentialId => s as CredentialId
+
 // Shipping aggregate family. These are independently addressable durable rows,
 // not issue ids wearing a prefix; each gets the validating/field schema pair
 // every Podium-minted entity identity uses.

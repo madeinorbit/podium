@@ -3,6 +3,7 @@ import { TopicWatchMessage } from '../planes/topics'
 import { ApprovalExecRequestMessage } from './approvals'
 import { SessionOpenUrlCallbackMessage, SessionOpenUrlDismissMessage } from './browser-open'
 import { CodexCompleteRequestMessage } from './codex'
+import { ConversationPrepareRequestMessage } from './conversation'
 import { CredentialExportRequestMessage, CredentialInstallRequestMessage } from './credentials'
 import {
   BrowseDirsRequestMessage,
@@ -35,28 +36,34 @@ import {
   HeadlessTurnRequestMessage,
 } from './headless'
 import {
+  CredentialRemoveRequestMessage,
+  HomeEnsureRequestMessage,
+  HomeRemoveRequestMessage,
+} from './homes'
+import {
   AgentQuotaRequestMessage,
-  QuotaHistoryRequestMessage,
   MemoryBreakdownRequestMessage,
+  QuotaHistoryRequestMessage,
   ReclaimAttachmentsMessage,
   ReclaimDiskEstimateRequestMessage,
   UsageRequestMessage,
 } from './host'
 import { InventoryRequestMessage, ModelProbeRequestMessage } from './inventory'
 import { AgentRelayResultMessage } from './issues'
+import { OauthLoopbackCancelMessage, OauthLoopbackRequestMessage } from './oauth-loopback'
 import {
   RuntimeAnswerRequestMessage,
   RuntimeConfigureRequestMessage,
   RuntimeDraftRequestMessage,
+  RuntimeDurableSendRequestMessage,
+  RuntimeEventAckMessage,
+  RuntimeHistoryRequestMessage,
   RuntimeInterruptRequestMessage,
   RuntimeLifecycleRequestMessage,
   RuntimeQueueDrainAbandonedAckMessage,
-  RuntimeEventAckMessage,
-  RuntimeSnapshotRequestMessage,
-  RuntimeHistoryRequestMessage,
-  RuntimeStageAttachmentRequestMessage,
   RuntimeSendRequestMessage,
-  RuntimeDurableSendRequestMessage,
+  RuntimeSnapshotRequestMessage,
+  RuntimeStageAttachmentRequestMessage,
   RuntimeWatchMessage,
 } from './runtime'
 import { AgentObservationAckMessage, AgentObservationRebindAckMessage } from './runtime-state'
@@ -72,25 +79,26 @@ import {
   ServerTransferPromoteRequestMessage,
   ServerTransferValidateRequestMessage,
 } from './server-transfer'
+import { SessionAccessRefreshMessage } from './session-access'
 import {
   ShippingEvidenceRequestMessage,
   ShippingJobRequestMessage,
   ShippingRepairApplyRequestMessage,
 } from './shipping'
 import {
+  CloseClientTerminalMessage,
   DraftTargetMessage,
   InputMessage,
   KillMessage,
-  StealWriterMessage,
   ReattachMessage,
   RedrawMessage,
   ResizeMessage,
-  CloseClientTerminalMessage,
   SessionBindingRetireMessage,
   SessionPriorityMessage,
   SessionResumeRefAckMessage,
   SessionResumeRefConflictMessage,
   SpawnMessage,
+  StealWriterMessage,
 } from './terminal'
 import { TranscriptMirrorReadMessage, TranscriptReadRequestMessage } from './transcript'
 import { DevArtifactProbeRequestMessage, UpdateGrantMessage } from './update'
@@ -105,6 +113,8 @@ export const ControlMessage = z.discriminatedUnion('type', [
   ApprovalExecRequestMessage,
   CredentialExportRequestMessage,
   CredentialInstallRequestMessage,
+  OauthLoopbackRequestMessage,
+  OauthLoopbackCancelMessage,
   GitHubCliRequestMessage,
   RepoOpRequestMessage,
   AgentRelayResultMessage,
@@ -205,5 +215,58 @@ export const ControlMessage = z.discriminatedUnion('type', [
   /** Topic demand, a desired state (ADR 7 Amendment 2 D21). Appended at the
    *  END for index stability; sent only to a daemon that accepted topics.v1. */
   TopicWatchMessage,
+  /** A live session's access, sent again after a reconnect (credential
+   *  management §8). Appended at the END for index stability; sent only to a
+   *  daemon that accepted `CAP_SESSION_ACCESS`. */
+  SessionAccessRefreshMessage,
+  /** Harness homes (credential management §10, epic Task 8). Appended at the
+   *  END for index stability; sent only to a daemon that accepted
+   *  `CAP_HARNESS_HOMES`. */
+  HomeEnsureRequestMessage,
+  HomeRemoveRequestMessage,
+  CredentialRemoveRequestMessage,
+  /** Placing a conversation for another credential (credential management
+   *  §9, epic Task 11). Appended at the END for index stability; sent only to
+   *  a daemon that accepted `CAP_CONVERSATION_PREPARE`. */
+  ConversationPrepareRequestMessage,
 ])
 export type ControlMessage = z.infer<typeof ControlMessage>
+
+/**
+ * THE FRAMES THAT CAN CARRY A SECRET (credential management §8, "Never
+ * logged"): every control type whose shape has an `access` field. A logger, a
+ * trace or a dropped-frame warning names only the type of such a frame, never
+ * its fields or a parse error built from them. Pinned against the union's
+ * shapes by `session-access.test.ts`, so a new carrier cannot be left out.
+ */
+export const ACCESS_CARRYING_CONTROL_TYPES: ReadonlySet<ControlMessage['type']> = new Set([
+  'spawn',
+  'runtimeSendRequest',
+  'runtimeDurableSendRequest',
+  'sessionAccessRefresh',
+] as const satisfies readonly ControlMessage['type'][])
+
+/** Can a control frame of this type carry a session's access? */
+export function carriesAccess(type: string): boolean {
+  return (ACCESS_CARRYING_CONTROL_TYPES as ReadonlySet<string>).has(type)
+}
+
+/**
+ * EVERY FRAME THAT CAN CARRY A SECRET, `access` or not (credential management
+ * §7 and §8): the access carriers, the server-transfer promote frame, whose
+ * `vaultDataKey` is the vault's data key, and the login-file install, whose
+ * `bundles` hold a harness's login file. Such a frame is named by its type only
+ * in a log, a trace or a dropped-frame warning. Pinned against the union's
+ * shapes by `session-access.test.ts`. The daemon's half is
+ * `SECRET_CARRYING_DAEMON_TYPES` in `./daemon`.
+ */
+export const SECRET_CARRYING_CONTROL_TYPES: ReadonlySet<ControlMessage['type']> = new Set([
+  ...ACCESS_CARRYING_CONTROL_TYPES,
+  'serverTransferPromoteRequest',
+  'credentialInstallRequest',
+] as const satisfies readonly ControlMessage['type'][])
+
+/** Can a control frame of this type carry a secret? Log it by type only. */
+export function carriesSecret(type: string): boolean {
+  return (SECRET_CARRYING_CONTROL_TYPES as ReadonlySet<string>).has(type)
+}

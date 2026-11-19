@@ -2,11 +2,13 @@ import { EngineBindUnrecoverable } from '@podium/harness/driver/host'
 import { asSessionId, type SessionId } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'
+import { testSessions } from '../session/testing.js'
+import { memoryMarkers, SessionAccessStore } from './access'
 import type { DaemonContext } from './context'
 import { launchServerDriverSession, sessionHandlers } from './session'
-import { testSessions } from '../session/testing.js'
 
 vi.mock('../runtime/server-reap', () => ({ beginServerDriverReap: vi.fn(async () => false) }))
+
 import { beginServerDriverReap } from '../runtime/server-reap'
 
 const LAUNCH_SESSION = asSessionId('bind-failure-launch')
@@ -33,6 +35,7 @@ function launchWorld(
       adoptJournalled,
       create,
     },
+    access: new SessionAccessStore({ markers: memoryMarkers() }),
   } as unknown as DaemonContext
   return { ctx, sent, sessions }
 }
@@ -146,6 +149,7 @@ function reattachWorld(adoptJournalled: () => Promise<unknown>) {
       handleFor: vi.fn(() => undefined),
       adoptJournalled,
     },
+    access: new SessionAccessStore({ markers: memoryMarkers() }),
   } as unknown as DaemonContext
   return { ctx, sent, sessions }
 }

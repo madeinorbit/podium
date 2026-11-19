@@ -9,9 +9,14 @@ import { memberFacts } from '../../store/fixtures/test-support'
  * the daemon was sent.
  */
 
+import { draftLaunchEffect } from '@podium/client-core/spawn-agent'
 import {
+  ACCESS_REFUSAL_MESSAGES,
+  asIssueId,
   asUserId,
   BUILTIN_HARNESS_KINDS,
+  type CredentialId,
+  type EffectRecordWire,
   firstAdminMemberId,
   mintDeviceId,
   type SessionId,
@@ -232,6 +237,71 @@ describe('a session.launch effect', () => {
       ),
     )
     expect(reply.outcome).toBe('rejected')
+  })
+
+  it('refused for its credential, the record names the refusal by its code, with its sentence', async () => {
+    const o = await makeOracle()
+    const effectId = mintDeviceId('eff_')
+    const sessionId = newSessionId()
+    appliedReply(
+      await submit(
+        o,
+        launchEnvelope(
+          effectId,
+          sessionId,
+          {
+            agentKind: 'claude-code',
+            cwd: '/p',
+            credentialId: 'cred_00000000-0000-4000-8000-00000000dead',
+          },
+          'l-1',
+        ),
+      ),
+    )
+    const row = await settled(o, effectId)
+    expect(row?.status).toBe('failed')
+    // The client reads the code (credential management §9), never the sentence.
+    expect(row?.error).toEqual({
+      code: 'credential:not-found',
+      message: ACCESS_REFUSAL_MESSAGES['not-found'],
+    })
+    expect(spawns(o, sessionId)).toHaveLength(0)
+    expect(await o.reg.modules.sessions.sessionRowExists(sessionId)).toBe(false)
+  })
+
+  /**
+   * POD-7069. A start refused for its credential never gets a session row, so
+   * every device paints the session from this record alone. The record the feed
+   * carries must name the credential chosen, or the header chip shows nothing.
+   */
+  it('refused for its credential, the record the feed carries still names the credential', async () => {
+    const o = await makeOracle()
+    await o.store.repos.addRepo('/p', o.store.hostMachineId)
+    const sessionId = newSessionId()
+    const credentialId = 'cred_00000000-0000-4000-8000-00000000dead' as CredentialId
+    // The composer's own start: the effect the web queues on Start.
+    const create = draftLaunchEffect({
+      effectId: mintDeviceId('eff_'),
+      sessionId,
+      issueId: asIssueId(mintDeviceId('iss_')),
+      target: { path: '/p', repoPath: '/p', machineId: o.store.hostMachineId },
+      agentKind: 'claude-code',
+      credentialId,
+    })
+    appliedReply(await submit(o, envelope('effects.create', create, 'l-1')))
+    const row = await settled(o, create.id)
+    expect(row?.status).toBe('failed')
+    expect(row?.error).toMatchObject({ code: 'credential:not-found' })
+    expect(await o.reg.modules.sessions.sessionRowExists(sessionId)).toBe(false)
+
+    // What a device reads: the newest feed change of the record.
+    const fed = (await changeRows(o)).filter(
+      (r) => r.entity === 'effect' && r.entityId === create.id,
+    )
+    const last = fed.at(-1)?.payload
+    const record = (typeof last === 'string' ? JSON.parse(last) : last) as EffectRecordWire
+    expect(record.effect.status).toBe('failed')
+    expect(record.input).toMatchObject({ credentialId })
   })
 })
 

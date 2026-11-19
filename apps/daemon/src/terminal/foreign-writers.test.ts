@@ -12,6 +12,7 @@
 import { asSessionId } from '@podium/model'
 import type { DurableAttachment } from '@podium/process/durable'
 import { describe, expect, it } from 'vitest'
+import { memoryMarkers, SessionAccessStore } from '../control/access'
 import type { DaemonContext } from '../control/context'
 import { dispatchNativeInputBytes } from '../control/native-terminal-input.js'
 import { sessionHandlers } from '../control/session'
@@ -41,6 +42,7 @@ function world() {
     observers: { recordInputOrigin: () => {} },
     composerEngine: { onInputByte: () => {} },
     outputScheduler: { flushNow: () => {}, enqueue: () => {} },
+    access: new SessionAccessStore({ markers: memoryMarkers() }),
   } as unknown as DaemonContext
   const count = () => sessions.foreignWrites(SESSION)
   return { ctx, sessions, written, count }

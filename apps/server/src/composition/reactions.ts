@@ -86,6 +86,24 @@ export const REACTIONS = [
     scopeInvariant: 'Read-only derived cache; it performs no attributed write.',
   },
   {
+    id: 'machines.daemon-link-kind',
+    description:
+      'Republish the condition of each connected machine whose link kind moved after the trusted networks changed.',
+    trigger: 'settings.changed',
+    durability: 'in-memory',
+    replay: {
+      mode: 'none',
+      reason: 'Link kinds are worked out on read from live connections and the current settings.',
+    },
+    idempotency: { key: 'machineId + link kind', duplicatePolicy: 'coalesce' },
+    ordering: 'After the process settings snapshot listener, in EventBus listener order.',
+    retry: 'No retry; a subscriber re-reads the condition snapshot on its next subscribe.',
+    failureOwner: 'gateway daemon links',
+    observability: { registry: true, events: ['settings.changed'], metrics: [] },
+    principal: system(),
+    scopeInvariant: 'Publishes connection state only; it performs no attributed write.',
+  },
+  {
     id: 'sessions.feed-cursor',
     description: 'Advance the live session publication cursor after the ordered feed publishes.',
     trigger: 'feed.published',

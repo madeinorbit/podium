@@ -97,13 +97,14 @@ export type ModelSchemaName =
   | 'InstancePreferences'
   | 'ReadPositionWire'
   | 'SuperagentThreadWire'
+  | 'NoticeWire'
   | 'AgentProfileWire'
   | 'WorkflowWire'
   | 'WorkflowRevisionWire'
   | 'WorkflowBindingWire'
   | 'WorkflowRunRecord'
   | 'SubscriptionWire'
-  | 'AccountView'
+  | 'CredentialView'
   | 'MemberView'
   | 'DeviceSignInView'
   | 'RequestRecordKey'
@@ -120,7 +121,7 @@ export type ModelSchemaName =
 export type RowArrival =
   | `replica:${RecordReplicaKind}`
   | 'request:messages.ledger'
-  | 'request:accounts.list'
+  | 'request:credentials.list'
   | 'request:members.list'
   | 'request:auth.mobileSessions'
 
@@ -177,7 +178,7 @@ export interface FieldSpec {
 // Relations
 // ---------------------------------------------------------------------------
 
-export type EntityName = 'issueBrief' | 'issueDescription' | 'issuePanelTodo' | 'issuePanelArtifact' | 'issuePanelDeferred' | 'issuePanelState' | 'account' | 'member' | 'device' | 'repository' | 'issue' | 'session' | 'worktree' | 'repo' | 'machine' | 'automation' | 'automationRun' | 'messageRecord' | 'pendingInteraction' | 'effect' | 'pin' | 'userLayout' | 'tabOrder' | 'userPreferences' | 'userReadPosition' | 'superagentThread' | 'agentProfile' | 'workflow' | 'workflowRevision' | 'workflowBinding' | 'workflowRun' | 'subscription' | 'instancePreferences'
+export type EntityName = 'issueBrief' | 'issueDescription' | 'issuePanelTodo' | 'issuePanelArtifact' | 'issuePanelDeferred' | 'issuePanelState' | 'credential' | 'member' | 'device' | 'repository' | 'issue' | 'session' | 'worktree' | 'repo' | 'machine' | 'automation' | 'automationRun' | 'messageRecord' | 'pendingInteraction' | 'effect' | 'pin' | 'userLayout' | 'tabOrder' | 'userPreferences' | 'userReadPosition' | 'superagentThread' | 'inboxNotice' | 'agentProfile' | 'workflow' | 'workflowRevision' | 'workflowBinding' | 'workflowRun' | 'subscription' | 'instancePreferences'
 
 /**
  * Four kinds, and no more.
@@ -502,7 +503,7 @@ export { isExcluded as issueExcluded } from './predicates'
 // ---------------------------------------------------------------------------
 
 const DECLARED = defineSchema({
-  account: syncedIdentity('AccountView', 'request:accounts.list'),
+  credential: syncedIdentity('CredentialView', 'request:credentials.list'),
   member: syncedIdentity('MemberView', 'request:members.list'),
   device: { ...syncedIdentity('DeviceSignInView', 'request:auth.mobileSessions'), key: 'id',
     fields: { id: { type: 'id', source: { schema: 'DeviceSignInView', arrivesOn: 'request:auth.mobileSessions' } } } },
@@ -1137,6 +1138,10 @@ const DECLARED = defineSchema({
       sidebar: { type: 'object', note: 'Repo sort, manual repo order, grouping.' },
       autoContinue: { type: 'object', note: 'Retry-on-error, and whether its prompt was answered.' },
       notifications: { type: 'object', note: 'Where my notifications go (web, ntfy topic, Telegram chat).' },
+      credentialDefaults: {
+        type: 'object',
+        note: 'Per harness, the credential a launch uses when it names none (credential management §9).',
+      },
     },
   ),
   userReadPosition: perUser('ReadPositionWire', 'replica:userReadPositions', 'How far I have read one event stream.', {
@@ -1167,6 +1172,37 @@ const DECLARED = defineSchema({
     createdAt: { type: 'isoDate', note: 'When it was made.' },
     updatedAt: { type: 'isoDate', note: 'Its last conversation write; threads list newest first.' },
   }),
+  /**
+   * MY OPEN NOTICES (POD-6881, spec §13): synced per-user records, the
+   * recipient's alone. A resolved notice leaves the feed, so every row here
+   * still needs me.
+   */
+  inboxNotice: perUser(
+    'NoticeWire',
+    'replica:inboxNotices',
+    'One open notice for me: a mention, a credential that needs attention, a credential shared with me.',
+    {
+      noticeId: { type: 'id', note: 'The notice id `notices.markRead` takes.' },
+      recipientUserId: { type: 'id', note: 'Its recipient: always the principal.' },
+      kind: {
+        type: 'string',
+        note: '`mention`, `credential-attention` or `credential-shared`; open, so a newer kind still shows.',
+      },
+      subjectKind: {
+        type: 'string',
+        note: 'What it is about: `issue`, `credential`, `session`, …',
+      },
+      subjectId: { type: 'id', note: 'The id of what it is about.' },
+      subjectAnchor: {
+        type: 'string',
+        note: 'A place inside the subject: the comment of a mention.',
+      },
+      title: { type: 'string', note: 'One line, worded for me.' },
+      body: { type: 'string', note: 'A line of text under the title; never a secret.' },
+      createdAt: { type: 'isoDate', note: 'When it was raised; the inbox lists newest first.' },
+      readAt: { type: 'isoDate', note: 'When I read it; absent while unread.' },
+    },
+  ),
   /**
    * THE INSTANCE SETTINGS (POD-6677): one synced record, every member's, keyed
    * `INSTANCE_PREFERENCES_ROW_ID`. The row source resolves its flat leaf fields

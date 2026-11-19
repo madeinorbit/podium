@@ -2,6 +2,7 @@ import { handleCredentialExport, handleCredentialInstall } from '@podium/harness
 import { createLogger } from '@podium/logger'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { resolveManagementCredentialHome } from '../harness-management.js'
+import { conversationHandlers } from '../homes/conversation'
 import { runtimeHandlers } from '../runtime/handlers'
 import { serverTransferHandlers } from '../server-transfer'
 import { approvalHandlers } from './approvals'
@@ -11,8 +12,10 @@ import { discoveryHandlers } from './discovery'
 import { execHandlers } from './exec'
 import { fileHandlers } from './files'
 import { handoffHandlers } from './handoff'
+import { homeHandlers } from './homes'
 import { inventoryHandlers, reportInventory } from './inventory'
 import { logHandlers } from './logs'
+import { cancelOauthLoopback, startOauthLoopback } from './oauth-loopback'
 import { serverEndpointHandlers } from './server-endpoint'
 import { sessionHandlers } from './session'
 import { shippingHandlers } from './shipping'
@@ -141,6 +144,8 @@ export const CONTROL_HANDLERS: ControlHandlers = {
   ...workspaceHandlers,
   ...approvalHandlers,
   ...credentialHandlers,
+  ...homeHandlers,
+  ...conversationHandlers,
   ...inventoryHandlers,
   ...logHandlers,
   ...topicHandlers,
@@ -149,6 +154,15 @@ export const CONTROL_HANDLERS: ControlHandlers = {
   ...serverEndpointHandlers,
   ...shippingHandlers,
   agentRelayResult: (ctx, msg) => ctx.agentRelayHub.onResult(msg),
+  // A live session's credential again after a reconnect (credential
+  // management §8): memory only. A start that waited for it goes on now.
+  sessionAccessRefresh: (ctx, msg) => ctx.access.remember(msg.sessionId, msg.access),
+  // Sign in with ChatGPT (credential management §11): listen on this
+  // computer's loopback address and relay the callback's fields, never a token.
+  oauthLoopbackRequest: (ctx, msg) => {
+    void startOauthLoopback(msg, (frame) => ctx.send(frame))
+  },
+  oauthLoopbackCancel: (_ctx, msg) => cancelOauthLoopback(msg.requestId),
   updateGrant: (ctx, msg) => {
     void ctx.applyUpdateGrant(msg)
   },

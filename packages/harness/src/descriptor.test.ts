@@ -139,6 +139,30 @@ describe('schema versioning', () => {
     expect(resolved?.available).toBeUndefined()
   })
 
+  it('a frame without accepts parses as an empty list', () => {
+    const [parsed] = parseServedDescriptors([futureCliDescriptor()])
+    expect(parsed?.accepts).toEqual([])
+  })
+
+  it('keeps well-formed accepts lines and drops malformed ones', () => {
+    const accepts = [
+      { type: 'anthropic.api-key', deliver: { kind: 'env', variable: 'ANTHROPIC_API_KEY' } },
+      {
+        type: 'openai.chatgpt-plan',
+        deliver: { kind: 'env', variable: 'ACCESS_TOKEN' },
+        drivers: ['codex-app-server'],
+      },
+      { type: 'future.api-key', deliver: { kind: 'endpoint' } },
+    ]
+    const [parsed] = parseServedDescriptors([
+      {
+        ...futureCliDescriptor(),
+        accepts: [...accepts, null, { type: 7 }, { type: 'x' }, { type: 'y', deliver: {} }],
+      },
+    ])
+    expect(parsed?.accepts).toEqual(accepts)
+  })
+
   it('parses the headed panel intent; missing or newer spellings render as today (POD-4541)', () => {
     // OpenCode states `defaults.panelMode: native`; every other harness omits
     // it. A missing value is no override, and a newer spelling parses (plain

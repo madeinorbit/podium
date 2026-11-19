@@ -39,7 +39,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { SpawnOptions } from '@podium/process/screen'
 import { afterAll, beforeEach, expect, it, vi } from 'vitest'
+import { HomeRegistry } from '../homes/registry'
 import { stubDurable, testSessions, testTerminalRuntime } from '../session/testing.js'
+import { memoryMarkers, SessionAccessStore } from './access'
 import type { DaemonContext } from './context'
 
 /** Claude's hook settings file is written here at spawn; nothing reads it back. */
@@ -64,8 +66,9 @@ const fakeSpawn = (opts: SpawnOptions) => {
 
 const { launchTerminalProcess, sessionHandlers } = await import('./session')
 
-function contextForSpawn(): DaemonContext {
+function contextForSpawn(extra: Partial<DaemonContext> = {}): DaemonContext {
   const ctx = {
+    ...extra,
     send: () => {},
     instanceId: 'default',
     backend: 'none',
@@ -86,6 +89,7 @@ function contextForSpawn(): DaemonContext {
     sessionCwdTracker: { setLaunchCwd: async () => {}, clear: () => {} },
     hookEndpointFor: (id: string) => `http://127.0.0.1:1/hook/${id}`,
     agentRelayEndpointFor: (id: string) => `http://127.0.0.1:1/relay/${id}`,
+    access: new SessionAccessStore({ markers: memoryMarkers() }),
   } as unknown as DaemonContext
   // Admits an agent spawn (every profiled kind needs a runtime to create it):
   // the runtime's terminal create runs the daemon's launch with no
@@ -97,9 +101,12 @@ function contextForSpawn(): DaemonContext {
   return ctx
 }
 
-async function spawnOptionsFor(frame: Record<string, unknown>): Promise<SpawnOptions> {
+async function spawnOptionsFor(
+  frame: Record<string, unknown>,
+  extra: Partial<DaemonContext> = {},
+): Promise<SpawnOptions> {
   captured = undefined
-  await sessionHandlers.spawn(contextForSpawn(), {
+  await sessionHandlers.spawn(contextForSpawn(extra), {
     type: 'spawn',
     cwd: '/repo',
     geometry: { cols: 80, rows: 24 },
@@ -145,7 +152,7 @@ it('deletes what would outrank a claude session’s own login, and what would ma
 })
 
 it('deletes them for a NATIVE LOGIN pane, which is filed as a shell', async () => {
-  // THE ONE THAT WOULD HAVE BEEN MISSED. `accounts/native-login.ts` creates the
+  // THE ONE THAT WOULD HAVE BEEN MISSED. `credentials/native-login.ts` creates the
   // session with agentKind 'shell' and loginHarness set — so reading agentKind
   // alone would exempt the exact pane whose purpose is to establish an account,
   // and `claude login` would run under the inherited key it is meant to replace.
@@ -168,6 +175,31 @@ it('runs a NATIVE LOGIN pane on the login harness context’s executable', async
   })
   expect(opts.cmd).toBe('launch-seam:claude-code')
   expect(opts.args).toEqual(['auth', 'login'])
+})
+
+it('runs a sign-in pane whose access names a home inside that home (credential management §6 way 2)', async () => {
+  // Task 9: adding a subscription opens the vendor's own sign-in with the
+  // harness's directory variable pointed at the home made for that login, so
+  // the login lands there and never in the person's own directory.
+  const root = mkdtempSync(join(tmpdir(), 'podium-signin-home-'))
+  try {
+    const homes = new HomeRegistry({ root })
+    const credentialId = 'cred_00000000-0000-4000-8000-0000000000a9'
+    const { home } = await homes.ensure(credentialId, 'claude-code')
+    const opts = await spawnOptionsFor(
+      {
+        sessionId: 'signin-home',
+        agentKind: 'shell',
+        loginHarness: 'claude-code',
+        access: { credentialId, delivery: { kind: 'home', homeId: home.homeId } },
+      },
+      { homes } as Partial<DaemonContext>,
+    )
+    expect(opts.args).toEqual(['auth', 'login'])
+    expect(opts.env?.CLAUDE_CONFIG_DIR).toBe(home.dir)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
 })
 
 it('leaves a plain operator shell alone', async () => {

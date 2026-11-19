@@ -41,6 +41,8 @@ export * from './authz/issue-authz'
 export * from './authz/issue-execution'
 // The one clock representation and its edge adapters (POD-299); the totality guard.
 export * from './clock'
+// Credential types and what each consumer accepts (credential management spec §5).
+export * from './credentials'
 // Pure derivations over entity shapes.
 export * from './dead-letter'
 // Entity aggregates, their vocabularies, and their read projections (POD-300 —
@@ -65,6 +67,7 @@ export * from './entities/conversation'
 // In the model because the server produces them and both clients read them, and
 // because the states are the contract the UI slices are written against.
 export * from './entities/cost'
+export * from './entities/credential'
 export * from './entities/draft-doc'
 // The message delivery lifecycle, declared as a forward-only machine (POD-4765).
 export * from './entities/effect'
@@ -93,6 +96,8 @@ export * from './entities/message-delivery'
 export { MessageLedgerWire } from './entities/message-ledger'
 export * from './entities/message-record'
 export * from './entities/message-record-row'
+// The per-person notice inbox (credential management spec §13, POD-6881).
+export * from './entities/notice'
 export * from './entities/pending-interaction-row'
 export * from './entities/repo'
 export * from './entities/session'
@@ -148,6 +153,7 @@ export * from './identity/worktree'
 // package as their destination. THE single definition site for a brand.
 export * from './ids'
 export * from './machine-path'
+export * from './net/cidr'
 export * from './predicates/issue-landing'
 export * from './predicates/agent-computing'
 export * from './predicates/idle-verdict'

@@ -1,6 +1,6 @@
 import '@podium/client-graph/requested-models'
 import { DeviceSignInView } from '@podium/protocol'
-import { AccountView, MemberView, RequestRecordKey } from '@podium/model'
+import { CredentialView, MemberView, RequestRecordKey } from '@podium/model'
 import '@podium/client-graph/message-models'
 import { PendingInteractionWire } from '@podium/protocol'
 import '@podium/client-graph/synced-models'
@@ -47,6 +47,7 @@ import {
   LayoutWire,
   ReadPositionWire,
   SuperagentThreadWire,
+  NoticeWire,
   TabOrderWire,
   GitRepositoryWire,
   Geometry,
@@ -61,7 +62,6 @@ import {
   IssuePanelArtifactWire,
   IssuePanelDeferredWire,
   IssuePanelStateWire,
-
   IssueGitStateProjection,
   IssueProjection,
   SlimIssueProjection,
@@ -88,8 +88,13 @@ export interface ShapeCarrier {
  * typecheck, so the citation vocabulary cannot drift from the model.
  */
 export const MODEL_SCHEMAS: Readonly<Record<ModelSchemaName, ShapeCarrier>> = {
-  AccountView, MemberView, DeviceSignInView, RequestRecordKey,
-  PendingInteractionWire: { shape: Object.assign({}, ...PendingInteractionWire.options.map(arm => arm.shape)) },
+  CredentialView,
+  MemberView,
+  DeviceSignInView,
+  RequestRecordKey,
+  PendingInteractionWire: {
+    shape: Object.assign({}, ...PendingInteractionWire.options.map((arm) => arm.shape)),
+  },
   MessageRecordWire,
   MessageLedgerWire,
   MachineProjection,
@@ -107,6 +112,7 @@ export const MODEL_SCHEMAS: Readonly<Record<ModelSchemaName, ShapeCarrier>> = {
   InstancePreferences,
   ReadPositionWire,
   SuperagentThreadWire,
+  NoticeWire,
   AgentProfileWire,
   WorkflowWire,
   WorkflowRevisionWire,

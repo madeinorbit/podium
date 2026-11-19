@@ -1874,6 +1874,141 @@ button.sync-item:focus-visible,
   text-underline-offset: 2px;
   cursor: pointer;
 }
+/* THE NOTICE TRAY (POD-6881): a bell in the header with my unread count, and
+   my open notices behind it. Built like the sync panel; the count is accent,
+   not alarm, because a notice is news, not a failure. */
+.notice-count {
+  position: absolute;
+  top: -3px;
+  right: -4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  font-size: 9.5px;
+  font-weight: 600;
+  line-height: 1;
+  pointer-events: none;
+}
+.notice-panel {
+  width: min(380px, calc(100vw - 16px));
+  max-height: min(520px, calc(100vh - 80px));
+  overflow: auto;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--popover);
+  box-shadow: var(--shadow-popover);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+.notice-panel-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 16px 9px;
+  border-bottom: 1px solid var(--hairline-soft);
+}
+.notice-panel-head h2 {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: 13px;
+  font-weight: 600;
+}
+.notice-mark-all {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-dim);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.notice-mark-all:hover:not(:disabled) {
+  color: var(--foreground);
+}
+.notice-mark-all:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.notice-empty {
+  margin: 0;
+  padding: 18px 16px 20px;
+  color: var(--text-dim);
+}
+.notice-list {
+  margin: 0;
+  padding: 4px 0;
+  list-style: none;
+}
+.notice-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 16px 8px 14px;
+  border: 0;
+  background: none;
+  color: var(--text-dim);
+  text-align: left;
+  cursor: pointer;
+}
+.notice-row:hover {
+  background: var(--secondary);
+}
+.notice-row[data-unread] {
+  color: var(--foreground);
+}
+.notice-row-icon {
+  margin-top: 2px;
+  color: var(--text-dim);
+}
+.notice-row-text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.notice-row-title {
+  overflow-wrap: anywhere;
+}
+.notice-row[data-unread] .notice-row-title {
+  font-weight: 600;
+}
+.notice-row-body {
+  overflow: hidden;
+  color: var(--text-dim);
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.notice-row-age {
+  color: var(--text-faint);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.notice-row-dot {
+  position: absolute;
+  top: 14px;
+  left: 5px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--primary);
+}
+/* A comment a notice opened, held out for a moment. */
+[data-comment-id][data-revealed] {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+  transition: outline-color 600ms;
+}
 .sync-panel {
   width: min(360px, calc(100vw - 16px));
   max-height: min(520px, calc(100vh - 80px));
@@ -8812,6 +8947,17 @@ a.ref-link--session::before {
   .settings-entity-trailing {
     max-width: min(34vw, 10rem);
     flex-wrap: wrap;
+  }
+  .settings-entity-row:has(.credential-login-actions) {
+    grid-template-columns: 28px minmax(0, 1fr);
+  }
+  .settings-entity-row:has(.credential-login-actions) > .settings-entity-trailing {
+    grid-column: 2;
+    max-width: 100%;
+  }
+  .credential-login-actions {
+    flex: 1;
+    min-width: 0;
   }
   .settings-entity-trailing > [data-slot="badge"] {
     flex-shrink: 1;

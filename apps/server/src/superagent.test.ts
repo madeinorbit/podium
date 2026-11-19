@@ -23,6 +23,7 @@ import { RepoRegistry } from './repo-registry'
 import { memberFacts } from './store/fixtures/test-support'
 import { attachDaemonWithInventory, fixtureInventory } from './test-support/daemon-inventory'
 import { assignHostMachine, attachHostDaemon } from './test-support/host-daemon'
+import { seedLegacyKeyCredential } from './test-support/legacy-key-credential'
 import { clientSessionViews } from './test-support/session-views'
 
 const item = (o: Partial<TranscriptItem>): TranscriptItem => ({
@@ -241,22 +242,13 @@ describe('start_agent tool wiring (issue #60)', () => {
       'fixture-only-password-hash',
     )
     const accountId = asAccountId('managed:anthropic')
-    await store.accounts.upsert({
-      id: accountId,
-      ownerUserId: colleague,
-      provider: 'anthropic',
-      kind: 'api-key',
-      credential: 'sk-ant-colleague',
-      identity: 'colleague@example.com',
-      scope: 'role',
-      createdAt: 1,
+    await seedLegacyKeyCredential(store, {
+      owner: colleague,
+      accountKey: accountId,
+      type: 'anthropic.api-key',
+      secret: 'sk-ant-colleague',
+      sentTo: [store.hostMachineId],
     })
-    await store.accounts.markSent(
-      colleague,
-      accountId,
-      store.hostMachineId,
-      '2026-11-04T00:00:00.000Z',
-    )
     const settings = await store.settings.getSettingsFor(colleague)
     await store.settings.setSettingsFor(
       colleague,

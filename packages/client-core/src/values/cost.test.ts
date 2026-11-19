@@ -301,6 +301,7 @@ describe('how a figure is worded', () => {
         icon: { id: 'grok', viewBox: '0 0 1 1', d: 'M0 0h1v1H0z' },
         capabilities: { argvPrompt: true, effort: true, systemPrompt: true },
         catalog: { models: [], efforts: [], liveMerge: 'live-wins-when-non-empty' },
+        accepts: [],
       },
     ]
     expect(costHarnessLabel(['grok'], served)).toBe('all Tomorrow')

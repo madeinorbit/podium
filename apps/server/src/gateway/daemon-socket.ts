@@ -44,11 +44,13 @@ import {
 } from '@podium/protocol'
 import {
   type ControlMessage,
+  daemonFrameCarriesSecret,
   encodeDaemonMessage,
   parseDaemonMessage,
 } from '@podium/protocol/daemon'
 import { DEPLOYMENT, perf } from '../modules/perf/registry'
 import type { SessionRegistry } from '../relay'
+import type { DaemonLink } from './daemon-link-kind'
 import type { DaemonControlTransport } from './daemon-ports'
 import {
   createDaemonAcceptor,
@@ -58,7 +60,13 @@ import {
   recordHelloBuild,
 } from './peer-handshake'
 import { DAEMON_PLANE_LIVENESS } from './plane-liveness'
-import { type GatewaySocket, safeSendEncoded, warnDroppedFrame } from './ws-send'
+import {
+  frameEnvelopeType,
+  type GatewaySocket,
+  safeSendEncoded,
+  warnDroppedFrame,
+  warnDroppedSecretFrame,
+} from './ws-send'
 
 const log = createLogger('server:gateway:daemon')
 
@@ -153,7 +161,11 @@ function recoveryTransportOnly(registry: SessionRegistry): boolean {
  * Extracted from the connection handler so the auth logic is unit-testable
  * against a fake socket (see `wsServer.daemon.test.ts`).
  */
-export function wireDaemonSocket(ws: GatewaySocket, registry: SessionRegistry): void {
+export function wireDaemonSocket(
+  ws: GatewaySocket,
+  registry: SessionRegistry,
+  link?: DaemonLink,
+): void {
   // The AUTHENTICATED principal for this socket. Typed as the principal object,
   // not a machine id, so nothing on this path can substitute a payload value.
   const credentialCurrent = registry.modules.machines.credentialFence()
@@ -286,6 +298,9 @@ export function wireDaemonSocket(ws: GatewaySocket, registry: SessionRegistry): 
       )
       principal = outcome.principal
       acceptedCaps = new Set(outcome.acceptedCaps)
+      // Before the attach, so the machine's first condition already names its
+      // link. Keyed to THIS socket: a stale socket's close cannot erase it.
+      if (link !== undefined) registry.daemonLinks.connected(principal.machine, link, ws)
       perf.record(
         'phase',
         acceptedCaps.has(CAP_TERMINAL_OUTPUT_BINARY_V1)
@@ -450,7 +465,11 @@ export function wireDaemonSocket(ws: GatewaySocket, registry: SessionRegistry): 
     } catch (err) {
       // Drop the malformed frame (don't let it tear down the connection) — but
       // never silently: a silent drop here hides protocol drift / poison frames.
-      warnDroppedFrame('daemon', err)
+      // A frame that can carry a login file is named by its type only (§8).
+      const type = frameEnvelopeType(raw)
+      if (type !== undefined && daemonFrameCarriesSecret(type))
+        warnDroppedSecretFrame('daemon', type)
+      else warnDroppedFrame('daemon', err)
     }
   }
   ws.on('message', (raw) => {
@@ -481,6 +500,7 @@ export function wireDaemonSocket(ws: GatewaySocket, registry: SessionRegistry): 
   ws.on('close', () => {
     unregisterCredential?.()
     acceptedCaps.clear()
+    if (principal && link !== undefined) registry.daemonLinks.disconnected(principal.machine, ws)
     // Pass THIS socket's send fn: if the daemon already reconnected, the registry
     // holds the new socket and this close must not evict it.
     if (principal && send) {

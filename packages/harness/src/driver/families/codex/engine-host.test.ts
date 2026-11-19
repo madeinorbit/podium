@@ -9,7 +9,15 @@
  */
 
 import { createHash } from 'node:crypto'
-import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -41,6 +49,7 @@ import {
   codexAppServerConfigArgs,
   codexScopeLabel,
   createCodexEngineHost,
+  ensureCodexHome,
   evaluateCodexVersionProbe,
 } from './engine-host.js'
 import type { CodexJournalEntry } from './runtime.js'
@@ -111,6 +120,30 @@ describe('env hygiene — the subscription-auth mechanism', () => {
     // break PATH resolution and every managed credential the spawn frame set.
     expect(merged.PATH).toBe('/usr/bin')
     expect(merged.PODIUM_SESSION).toBe('keep-me')
+  })
+})
+
+describe('the codex home (epic Task 15)', () => {
+  it('a machine that never ran Codex gets its CODEX_HOME made, owner-only', () => {
+    const root = mkdtempSync(join(tmpdir(), 'codex-home-'))
+    try {
+      const dir = join(root, 'home', '.codex')
+      expect(existsSync(dir)).toBe(false)
+      ensureCodexHome({ CODEX_HOME: dir })
+      expect(statSync(dir).isDirectory()).toBe(true)
+      expect(statSync(dir).mode & 0o777).toBe(0o700)
+      // An existing one is left as it is.
+      ensureCodexHome({ CODEX_HOME: dir })
+      expect(statSync(dir).isDirectory()).toBe(true)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('no CODEX_HOME in the environment: nothing is made', () => {
+    const made: string[] = []
+    ensureCodexHome({}, (path) => made.push(path))
+    expect(made).toEqual([])
   })
 })
 

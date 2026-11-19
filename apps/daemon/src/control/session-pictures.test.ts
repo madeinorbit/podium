@@ -18,6 +18,7 @@ import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'
 import { testSessions } from '../session/testing.js'
 import { sessionScreenFor } from '../session-screens'
+import { memoryMarkers, SessionAccessStore } from './access'
 import type { DaemonContext } from './context'
 import { sendBind, sessionHandlers, wireBridge } from './session'
 
@@ -107,6 +108,7 @@ function world(opts: { accepted: boolean }) {
       detach: () => {},
     },
     sessionCwdTracker: { clear: () => {} },
+    access: new SessionAccessStore({ markers: memoryMarkers() }),
   } as unknown as DaemonContext
   return { ctx, sent, order, scheduled, observed, composed }
 }

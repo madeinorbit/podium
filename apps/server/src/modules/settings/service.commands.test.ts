@@ -28,7 +28,7 @@ import {
   type SecretPresenceWire,
   type ServerSecretKey,
 } from '@podium/model'
-import { normalizeSettings, type PodiumSettings } from '@podium/runtime'
+import type { PodiumSettings } from '@podium/runtime'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import { createBunStoreExecutor } from '../../store/executor'
@@ -80,8 +80,6 @@ function makeSecrets() {
       rows.delete(key)
     },
     fingerprintKey: async () => FINGERPRINT_KEY,
-    apiKeyFor: async (provider: string): Promise<string | undefined> =>
-      rows.get(`apiKeys.${provider}`)?.value,
     presence: async (): Promise<SecretPresenceWire[]> =>
       SERVER_SECRET_KEYS.map((key) => ({
         key,
@@ -247,17 +245,17 @@ describe('the blob write may not carry a secret', () => {
     await expect(
       service.setSettingsFor(USER, {
         ...current,
-        apiKeys: { ...current.apiKeys, openai: 'sk-smuggled-through-the-blob' },
+        integrations: { ...current.integrations, linearApiKey: 'sk-smuggled-through-the-blob' },
       }),
-    ).rejects.toThrow(/may not write server-owned secrets \(apiKeys\.openai\)/)
+    ).rejects.toThrow(/may not write server-owned secrets \(integrations\.linearApiKey\)/)
     // The material is not in the message, and it is not in the store.
     await expect(
       service.setSettingsFor(USER, {
         ...current,
-        apiKeys: { ...current.apiKeys, openai: 'sk-smuggled-through-the-blob' },
+        integrations: { ...current.integrations, linearApiKey: 'sk-smuggled-through-the-blob' },
       }),
     ).rejects.not.toThrow(/sk-smuggled/)
-    expect(await secrets.get('apiKeys.openai')).toBeUndefined()
+    expect(await secrets.get('integrations.linearApiKey')).toBeUndefined()
   })
 
   it('a BLANK secret member does not clear the stored one — the blob cannot express a clear', async () => {
@@ -271,12 +269,15 @@ describe('the blob write may not carry a secret', () => {
     // So the property is stronger than a refusal: the blob CANNOT express a
     // clear at all. Clearing is `settings.clearSecret` — online-only,
     // admin-grade, never queued.
-    await secrets.set('apiKeys.anthropic', 'sk-configured', '2026-01-01T00:00:00Z')
+    await secrets.set('integrations.linearApiKey', 'sk-configured', '2026-01-01T00:00:00Z')
     const current = await service.getSettingsFor(USER)
     await expect(
-      service.setSettingsFor(USER, { ...current, apiKeys: { ...current.apiKeys, anthropic: '' } }),
+      service.setSettingsFor(USER, {
+        ...current,
+        integrations: { ...current.integrations, linearApiKey: '' },
+      }),
     ).resolves.toBeDefined()
-    expect(await secrets.get('apiKeys.anthropic')).toBe('sk-configured')
+    expect(await secrets.get('integrations.linearApiKey')).toBe('sk-configured')
   })
 
   it('ACCEPTS a stale client posting back the material it was served', async () => {
@@ -284,25 +285,22 @@ describe('the blob write may not carry a secret', () => {
     // is a ROUND-TRIP, not a rotation — refusing it would break every preference
     // save from that tab, which is the failure POD-420's positive control exists
     // to prevent, now expressed against the keyed store.
-    await secrets.set('apiKeys.openai', 'sk-served-earlier', '2026-01-01T00:00:00Z')
+    await secrets.set('notifications.telegramBotToken', 'sk-served-earlier', '2026-01-01T00:00:00Z')
     const current = await service.getSettingsFor(USER)
     await expect(
       service.setSettingsFor(USER, {
         ...current,
-        apiKeys: { ...current.apiKeys, openai: 'sk-served-earlier' },
+        notifications: { ...current.notifications, telegramBotToken: 'sk-served-earlier' },
         sidebar: { ...current.sidebar, repoSort: 'alphabetical' },
       }),
     ).resolves.toBeDefined()
     expect((await service.getSettingsFor(USER)).sidebar.repoSort).toBe('alphabetical')
-    expect(await secrets.get('apiKeys.openai')).toBe('sk-served-earlier')
+    expect(await secrets.get('notifications.telegramBotToken')).toBe('sk-served-earlier')
   })
 
   it('refuses EVERY secret key, not just the one someone remembered', async () => {
     const base = await service.getSettingsFor(USER)
     const mutated: PodiumSettings[] = [
-      { ...base, apiKeys: { ...base.apiKeys, openrouter: 'x' } },
-      { ...base, apiKeys: { ...base.apiKeys, anthropic: 'x' } },
-      { ...base, apiKeys: { ...base.apiKeys, openai: 'x' } },
       { ...base, integrations: { ...base.integrations, linearApiKey: 'x' } },
       { ...base, notifications: { ...base.notifications, telegramBotToken: 'x' } },
     ]
@@ -329,20 +327,6 @@ describe('the blob write may not carry a secret', () => {
 })
 
 describe('setSecret / clearSecret own integration tokens', () => {
-  it.each([
-    'apiKeys.openai',
-    'apiKeys.anthropic',
-    'apiKeys.openrouter',
-  ] as const)('refuses retired %s writes without changing the secret or publishing settings', async (key) => {
-    await secrets.set(key, 'old-upgrade-key', '2026-07-30T00:00:00.000Z')
-    const changed = vi.fn()
-    bus.on('settings.changed', changed)
-    await expect(service.setSecret(key, 'new-refused-key')).rejects.toThrow('AI accounts')
-    expect(await secrets.get(key)).toBe('old-upgrade-key')
-    expect(changed).not.toHaveBeenCalled()
-    expect(JSON.stringify(await service.getSettingsFor(USER))).not.toContain('new-refused-key')
-  })
-
   it('writes the material and returns a projection WITHOUT it', async () => {
     const wire = await service.setSecret('integrations.linearApiKey', 'lin-live-value')
     // POD-419: the material lands in the server-only keyed store, and NOT in the
@@ -422,7 +406,7 @@ describe('the preference patch applies by path and validates by model', () => {
     // Belt and braces: the command's input schema already refuses a secret path,
     // so this asks whether the HANDLER would too if something reached it.
     await expect(
-      service.updatePreferences(USER, { 'apiKeys.openai': 'sk-via-patch' }),
+      service.updatePreferences(USER, { 'integrations.linearApiKey': 'sk-via-patch' }),
     ).rejects.toThrow(/server-owned secrets/)
     // The refusal is by CLASSIFICATION, so it holds for every member of the
     // vocabulary rather than for the one someone remembered.
@@ -431,10 +415,10 @@ describe('the preference patch applies by path and validates by model', () => {
         /server-owned secrets/,
       )
     }
-    expect((await service.getSettingsFor(USER)).apiKeys.openai).toBe('')
+    expect((await service.getSettingsFor(USER)).integrations.linearApiKey).toBe('')
     // …and it did not reach the keyed store either, which is where a write that
     // slipped past the blob guard would now actually land.
-    expect(await secrets.get('apiKeys.openai')).toBeUndefined()
+    expect(await secrets.get('notifications.telegramBotToken')).toBeUndefined()
   })
 })
 

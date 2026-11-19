@@ -9,14 +9,8 @@
  * The later per-user migration preserves legacy sharing explicitly as ["*"].
  */
 
-import { asAccountId, asMachineId, asUserId } from '@podium/model'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it } from 'vitest'
-import { resolveAccountEnv } from '../modules/sessions/account-env'
-import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
-import { AccountsRepository } from '../store/accounts'
-import { workspaceQueries } from '../store/executor/sync-drizzle'
-import { stageASeam } from '../test-support/stage-a-seam'
 import { DRIZZLE_MIGRATIONS } from './drizzle-manifest.generated'
 import { runDrizzleMigrations } from './index'
 
@@ -84,35 +78,11 @@ describe(`migration ${MIGRATION}`, () => {
         { id: 'managed:anthropic', ref: 'managed:anthropic', owner: member, sharedWith: '["*"]' },
         { id: 'managed:openai', ref: 'managed:openai', owner: member, sharedWith: '["*"]' },
       ])
-      // Exactly as before: the member's spawn on their machine carries the key.
-      const accounts = new AccountsRepository(
-        workspaceQueries(stageASeam(db), SELF_HOSTED_WORKSPACE_ID),
-      )
-      const env = await resolveAccountEnv(
-        {
-          accounts,
-          machines: { custodian: async () => asUserId(member), getMachine: async () => undefined },
-        },
-        asAccountId('managed:anthropic'),
-        { ownerUserId: asUserId(member), machineId: asMachineId('host') },
-      )
-      expect(env).toEqual({ env: { ANTHROPIC_API_KEY: 'sk-ant-before' } })
-      // A reconnect replaces the migrated row rather than adding a second one.
-      await accounts.upsert({
-        id: asAccountId('managed:anthropic'),
-        ownerUserId: asUserId(member),
-        provider: 'anthropic',
-        kind: 'api-key',
-        credential: 'sk-ant-after',
-        identity: 'mask',
-        scope: 'role',
-        createdAt: 2,
-      })
-      expect(
-        (await accounts.listFor(asUserId(member))).map((row) => [row.id, row.credential]).sort(),
-      ).toEqual([
-        ['managed:anthropic', 'sk-ant-after'],
-        ['managed:openai', 'sk-openai-before'],
+      // The keys themselves are untouched; the one-time move into the vault
+      // (credentials/legacy-import.ts) reads them from here.
+      expect(db.prepare('SELECT id, credential FROM accounts ORDER BY id').all()).toEqual([
+        { id: 'managed:anthropic', credential: 'sk-ant-before' },
+        { id: 'managed:openai', credential: 'sk-openai-before' },
       ])
       expect((db.prepare('SELECT COUNT(*) AS n FROM accounts').get() as { n: number }).n).toBe(2)
     } finally {

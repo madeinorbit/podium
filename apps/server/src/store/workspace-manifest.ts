@@ -117,6 +117,22 @@ export const TABLE_MANIFEST = {
     'harness-native ids on a workspace machine',
   ),
   conversation_segments: workspace('derived', 'harness-native ids on a workspace machine'),
+  credential_machines: workspace(
+    'natural',
+    "machines a credential's owner allowed beyond their own; follows credentials",
+  ),
+  credential_placements: workspace(
+    'natural',
+    'what Podium created on a machine for a credential, so it can be removed; follows credentials',
+  ),
+  credential_secrets: workspace(
+    'natural',
+    "a credential's sealed secret, one row per version; sealed under the workspace's vault data key; follows credentials",
+  ),
+  credentials: workspace(
+    'random',
+    "a member's provider credentials (credential management design §4); the secret is in credential_secrets or a harness home",
+  ),
   conversations: workspace(
     'derived',
     'transcripts of workspace sessions; the FTS content table keys on its rowid',
@@ -170,6 +186,10 @@ export const TABLE_MANIFEST = {
   messages: workspace('random', 'workspace mail'),
   messaging_issue_topics: workspace('natural', 'chat topics bound to workspace issues'),
   messaging_session_attachments: workspace('natural', 'chat threads bound to workspace sessions'),
+  notices: workspace(
+    'random',
+    "one notice in one member's inbox (POD-6881); open ones stream to the recipient",
+  ),
   meta: {
     class: 'install',
     origin: 'schema',
@@ -277,6 +297,10 @@ export const TABLE_MANIFEST = {
   users: workspace(
     'random',
     "the workspace's member rows; email unique per workspace, one member per account per workspace",
+  ),
+  vault_key: workspace(
+    'singleton',
+    "the workspace's vault data key, wrapped by the installation's outside key file: each workspace seals under its own data key",
   ),
   workflow_bindings: workspace('natural', 'workflow bound to a workspace target'),
   workflow_events: workspace('autoinc', 'workflow event log'),
@@ -574,6 +598,11 @@ export const INSTALL_META_KEYS: readonly KeyPattern[] = [
   { key: 'update_signing_key_imported_v1' },
   { key: 'enrollment_ledger_imported' },
   { key: 'legacy_worktree_machine_ids_v1' },
+  // LEGACY(remove-after: 2027-05): moves keys stored before the vault into it; removing it ends direct upgrades from versions before 2026-11 and drops the accounts table
+  // The destruction of the old plaintext keys: its state and the snapshots it scrubbed
+  // (store/legacy-plaintext.ts), about the database file, not a workspace's rows.
+  { key: 'legacy-plaintext' },
+  { key: 'legacy-plaintext:snapshots' },
 ]
 
 /**

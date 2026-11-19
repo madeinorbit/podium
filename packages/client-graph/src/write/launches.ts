@@ -66,6 +66,7 @@ import {
   asIssueId,
   asMutationId,
   asSessionId,
+  type CredentialId,
   type EffectRecordWire,
   type IssueBoardStage,
   type IssueId,
@@ -76,7 +77,13 @@ import {
   type SessionMeta,
   type UserId,
 } from '@podium/model'
-import { draftIssueRow, type LaunchIssueRow, startedIssueRow, starterUserState, startingSessionRow } from './launch-rows'
+import {
+  draftIssueRow,
+  type LaunchIssueRow,
+  startedIssueRow,
+  starterUserState,
+  startingSessionRow,
+} from './launch-rows'
 
 export interface PoolLaunchPorts {
   readonly userId: UserId
@@ -188,6 +195,8 @@ interface LaunchInput {
   readonly draftIssue?: { readonly repoPath: string; readonly issueId: IssueId }
   /** A plain start's existing task (POD-6523): joined, never painted. */
   readonly issueId?: IssueId
+  /** The credential a `session.launch` chose; null is its harness's own login. */
+  readonly credentialId?: CredentialId | null
   // `issue.start`: the create's fields (the description only while queued here).
   readonly sessionId?: SessionId
   readonly repoPath?: string
@@ -319,6 +328,7 @@ export class PoolLaunches {
       ...(args.requestedDriverId !== undefined
         ? { requestedDriverId: args.requestedDriverId }
         : {}),
+      ...(args.credentialId !== undefined ? { credentialId: args.credentialId } : {}),
     })
     this.local.set(sessionId, {
       target: args.target,
@@ -343,6 +353,7 @@ export class PoolLaunches {
       ...(args.requestedDriverId !== undefined
         ? { requestedDriverId: args.requestedDriverId }
         : {}),
+      ...(args.credentialId !== undefined ? { credentialId: args.credentialId } : {}),
     })
     this.local.set(sessionId, { target: args.target })
     const settled = new Promise<boolean>((resolve) => this.settlers.set(sessionId, resolve))
@@ -762,6 +773,7 @@ export class PoolLaunches {
         agentKind,
         cwd,
         ...(machineId !== undefined ? { machineId } : {}),
+        ...(input.credentialId ? { credentialId: input.credentialId } : {}),
         nowIso: launch.createdAt,
       } as Parameters<typeof startingSessionRow>[0]),
       ...(ended

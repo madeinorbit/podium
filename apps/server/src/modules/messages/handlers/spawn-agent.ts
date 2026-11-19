@@ -17,6 +17,7 @@ import { type ContractInput, type spawnAgentContract, UNADDRESSABLE } from '@pod
 import {
   asIssueId,
   asMutationId,
+  type CredentialId,
   isPersonCapability,
   type MachineId,
   type SessionId,
@@ -26,6 +27,7 @@ import {
 import { attributionOf, onBehalfOfUser } from '../../../command-principal'
 import { checkIssueAccess } from '../../../issue-authz'
 import type { IssueRow } from '../../../store'
+import { CredentialRefError } from '../../credentials/credential-ref'
 import { SPAWN_BUDGET_PER_DAY } from '../brakes'
 import { MailRefusal } from '../refusal'
 import { type MailHandlerContext, mailWriter } from './context'
@@ -87,6 +89,8 @@ interface SpawnPlan {
   readonly machineId: MachineId | undefined
   readonly agentProfileId: string | undefined
   readonly sessionOwner: UserId
+  /** The credential `--credential` named (`null`: none); absent: the default. */
+  readonly credentialId: CredentialId | null | undefined
 }
 
 /** The direct spawn: a fixture's gate, or one with no record port. */
@@ -124,13 +128,14 @@ async function spawnOnce(
     ...(input.workflowRunId ? { workflowRunId: input.workflowRunId } : {}),
     ...(input.workflowStepId ? { workflowStepId: input.workflowStepId } : {}),
     ...(agentProfileId ? { agentProfileId } : {}),
+    ...(plan.credentialId !== undefined ? { credentialId: plan.credentialId } : {}),
   })
   const sessionId = spawned.sessionId
   const actualHarness = spawned.harness ?? harness
   const actualModel = spawned.model === undefined ? model : (spawned.model ?? undefined)
   const actualEffort = spawned.effort === undefined ? effort : (spawned.effort ?? undefined)
   const actualMachineId = spawned.machineId ?? machineId
-  const actualAccountId = spawned.accountId ?? undefined
+  const actualCredentialId = spawned.credentialId ?? undefined
   try {
     await deps.appendEvent?.(
       spawnedEvent(ctx, plan, input, sessionId, {
@@ -138,7 +143,7 @@ async function spawnOnce(
         model: actualModel,
         effort: actualEffort,
         machineId: actualMachineId,
-        accountId: actualAccountId,
+        credentialId: actualCredentialId,
       }),
     )
   } catch {}
@@ -208,6 +213,7 @@ async function spawnThroughRecord(
         ...(input.workflowRunId ? { workflowRunId: input.workflowRunId } : {}),
         ...(input.workflowStepId ? { workflowStepId: input.workflowStepId } : {}),
         ...(agentProfileId ? { agentProfileId } : {}),
+        ...(plan.credentialId !== undefined ? { credentialId: plan.credentialId } : {}),
       },
     },
   })
@@ -245,7 +251,7 @@ function spawnedEvent(
     model: string | undefined
     effort: string | undefined
     machineId: MachineId | undefined
-    accountId?: string | undefined
+    credentialId?: string | undefined
   },
 ) {
   return {
@@ -263,7 +269,7 @@ function spawnedEvent(
       ...(actual.model ? { model: actual.model } : {}),
       ...(actual.effort ? { effort: actual.effort } : {}),
       ...(actual.machineId ? { machineId: actual.machineId } : {}),
-      ...(actual.accountId ? { accountId: actual.accountId } : {}),
+      ...(actual.credentialId ? { credentialId: actual.credentialId } : {}),
       ...(input.workflowRunId ? { workflowRunId: input.workflowRunId } : {}),
       ...(input.workflowStepId ? { workflowStepId: input.workflowStepId } : {}),
       ...(plan.agentProfileId ? { agentProfileId: plan.agentProfileId } : {}),
@@ -473,6 +479,19 @@ async function planSpawn(
   }
   // A child acts for its spawning human, regardless of the task's assignee.
   const sessionOwner = callerOwner
+  // THE NAMED CREDENTIAL (credential management §9, epic Task 10): matched
+  // among the credentials the spawning human can use, before anything starts.
+  // An agent names what its person may use, by label; nothing else.
+  let credentialId: CredentialId | null | undefined
+  if (input.credential !== undefined) {
+    if (!deps.launchCredential) throw new Error('credential choice is not wired on this server')
+    try {
+      credentialId = await deps.launchCredential(input.credential, sessionOwner)
+    } catch (error) {
+      if (error instanceof CredentialRefError) throw new MailRefusal('invalid', error.message)
+      throw error
+    }
+  }
   return {
     issueId,
     issue,
@@ -486,5 +505,6 @@ async function planSpawn(
     machineId: machineId ?? undefined,
     agentProfileId,
     sessionOwner,
+    credentialId,
   }
 }

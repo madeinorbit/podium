@@ -202,6 +202,12 @@ export const piManifest: AgentManifest = {
       'MISTRAL_API_KEY',
       'DEEPSEEK_API_KEY',
     ],
+    // Provider keys it reads from the environment today (see the list above).
+    accepts: [
+      { type: 'anthropic.api-key', deliver: { kind: 'env', variable: 'ANTHROPIC_API_KEY' } },
+      { type: 'openai.api-key', deliver: { kind: 'env', variable: 'OPENAI_API_KEY' } },
+      { type: 'openrouter.api-key', deliver: { kind: 'env', variable: 'OPENROUTER_API_KEY' } },
+    ],
     detectLogin(homeDir, env: HarnessEnvironment) {
       const auth = readPiAuth(homeDir, env)
       // No file, or nothing in it: Pi may still authenticate from provider env

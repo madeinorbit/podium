@@ -349,6 +349,10 @@ export type LoginProbeExec = (
   env: Readonly<Record<string, string>>,
 ) => Promise<LoginCommandResult>
 
+/** Run a harness status command, keeping its output on a non-zero exit. */
+export const runHarnessStatusCommand: LoginProbeExec = (argv, timeoutMs, env) =>
+  defaultLoginExec(argv, timeoutMs, env)
+
 const defaultLoginExec: LoginProbeExec = (argv, timeoutMs, env) =>
   new Promise((resolve) => {
     const [cmd, ...args] = argv

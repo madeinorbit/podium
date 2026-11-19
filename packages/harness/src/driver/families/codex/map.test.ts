@@ -16,6 +16,7 @@ import {
   askIdOf,
   commandApprovalAsk,
   describeTurnError,
+  PLAN_TOKEN_EXPIRED_TEXT,
   statusToStateEvent,
   threadItemToItems,
   turnStatusToVerdict,
@@ -200,6 +201,48 @@ describe('turn errors → the failure vocabulary', () => {
       reason: 'auth-expired',
       // ROUTED TO A HUMAN, which is what materializes it as a `login`
       // interaction rather than leaving the session silently stopped.
+      disposition: 'needs-human',
+    })
+  })
+
+  // The texts Codex 0.169 fails a turn with on a ChatGPT plan provider
+  // (POD-6894 report §7): the revoked one as measured, the expired one in the
+  // same shape with OpenAI's expired-token code.
+  const REVOKED =
+    'unexpected status 401 Unauthorized: Encountered invalidated oauth token for user, failing request, url: https://api.openai.com/v1/responses, auth error: 401, auth error code: token_revoked'
+  const EXPIRED =
+    'unexpected status 401 Unauthorized: Provided authentication token is expired., url: https://api.openai.com/v1/responses, auth error: 401, auth error code: token_expired'
+
+  it('a revoked grant on a ChatGPT plan is final: auth-expired, for a person (Task 15)', () => {
+    expect(describeTurnError({ message: REVOKED }, { planProvider: true })).toEqual({
+      reason: 'auth-expired',
+      disposition: 'needs-human',
+      text: REVOKED,
+    })
+  })
+
+  it('a plan token that ran out under a long turn is readable and retryable, not a sign-in (Task 15, acceptance 4)', () => {
+    const described = describeTurnError({ message: EXPIRED }, { planProvider: true })
+    expect(described).toMatchObject({ reason: 'provider-error', disposition: 'retryable' })
+    expect(described.text).toContain(PLAN_TOKEN_EXPIRED_TEXT)
+    expect(described.text).toContain('token_expired')
+  })
+
+  it('a port or id that contains 429 is no rate limit', () => {
+    const onPort = EXPIRED.replace('https://api.openai.com/v1', 'http://127.0.0.1:42913/v1')
+    expect(describeTurnError({ message: onPort }, { planProvider: true })).toMatchObject({
+      reason: 'provider-error',
+    })
+    expect(describeTurnError({ message: 'unexpected status 429 Too Many Requests' })).toMatchObject(
+      {
+        reason: 'rate-limit',
+      },
+    )
+  })
+
+  it('the same 401 off a plan stays a sign-in ask', () => {
+    expect(describeTurnError({ message: EXPIRED })).toMatchObject({
+      reason: 'auth-expired',
       disposition: 'needs-human',
     })
   })

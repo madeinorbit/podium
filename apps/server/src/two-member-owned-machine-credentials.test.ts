@@ -19,7 +19,12 @@
  */
 
 import { CREDENTIAL_PROPAGATION_HARNESSES } from '@podium/harness/metadata'
-import { asMachineId, type MachineId, SHARED_MACHINE_ACCOUNT_WARNING } from '@podium/model'
+import {
+  asMachineId,
+  type CredentialView,
+  type MachineId,
+  SHARED_MACHINE_ACCOUNT_WARNING,
+} from '@podium/model'
 import { CAP_CREDENTIAL_IDENTITY_GUARD, createHandshakeDialer } from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import { mintSigningKeyPair, publicKeyWire } from '@podium/runtime/signing'
@@ -180,21 +185,16 @@ const until = async (pred: () => boolean | Promise<boolean>, ms = 10_000): Promi
   }
 }
 
-type View = {
-  id: string
-  harness?: string
-  identityFingerprint?: string
-  useOnMyMachines?: boolean
-  keptOn?: Array<{ id: string; name: string }>
+const list = async (who: MemberName): Promise<CredentialView[]> =>
+  await (await trpc(who)).credentials.list.query()
+const codexRow = async (who: MemberName, fingerprint: string) => {
+  const views = await list(who)
+  return views.find(
+    (view) => view.nativeLogin?.harness === 'codex' && view.identity.fingerprint === fingerprint,
+  )?.nativeLogin
 }
-const list = async (who: MemberName): Promise<View[]> =>
-  (await (await trpc(who)).accounts.list.query()) as View[]
-const codexRow = async (who: MemberName, fingerprint: string) =>
-  (await list(who)).find(
-    (row) => row.harness === 'codex' && row.identityFingerprint === fingerprint,
-  )
 const choose = async (who: MemberName, fingerprint: string, enabled: boolean) =>
-  await (await trpc(who)).accounts.useOnMyMachines.mutate({
+  await (await trpc(who)).credentials.useOnMyMachines.mutate({
     harness: 'codex',
     fingerprint,
     enabled,
@@ -401,7 +401,7 @@ it('refuses an in-flight transfer if the target starts keeping its own logins du
   await addMachine(donor, 'alice', fingerprint)
   await addMachine(target, 'alice', undefined)
   const { modules, sessionStore } = f.handle.registry
-  await sessionStore.accounts.setOptIn(
+  await sessionStore.nativeLogins.setOptIn(
     MEMBERS.alice.id,
     'codex',
     fingerprint,
@@ -454,7 +454,7 @@ it.each([
   await addMachine(donor, 'alice', fingerprint)
   await addMachine(target, 'alice', undefined)
   const { modules, sessionStore, gateway } = f.handle.registry
-  await sessionStore.accounts.setOptIn(
+  await sessionStore.nativeLogins.setOptIn(
     MEMBERS.alice.id,
     'codex',
     fingerprint,

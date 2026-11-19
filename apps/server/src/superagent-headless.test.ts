@@ -14,6 +14,7 @@ import {
   asThreadId,
   asUserId,
   BUILTIN_HARNESS_KINDS,
+  type CredentialId,
   firstAdminMemberId,
 } from '@podium/model'
 import { DEFAULT_SESSION_POSTURE, type ServerMessage } from '@podium/protocol'
@@ -22,6 +23,8 @@ import { type HarnessAgent, nativeAccountId } from '@podium/runtime'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { harnessResumeKind } from './harness-manifest'
 import type { EventMap } from './modules/bus'
+import { ACCESS_REFUSAL_MESSAGES } from './modules/credentials/access'
+import { CREDENTIAL_RESOURCE_KIND } from './modules/credentials/may-use'
 import {
   buildHandoffSeed,
   explicitlyRequestsExpandedResponse,
@@ -36,6 +39,7 @@ import {
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { attachHostDaemon } from './test-support/host-daemon'
+import { seedLegacyKeyCredential } from './test-support/legacy-key-credential'
 
 const registries: SessionRegistry[] = []
 afterEach(async () => {
@@ -133,7 +137,10 @@ async function harness() {
         ...(m.allowedTools ? { allowedTools: [...m.allowedTools] } : {}),
         ...(m.toolPolicy ? { toolPolicy: m.toolPolicy } : {}),
         ...(m.timeoutMs ? { timeoutMs: m.timeoutMs } : {}),
-        ...(m.env ? { env: { ...m.env } } : {}),
+        // The credential the turn delivers, as `{ variable: secret }` (it rides `access`).
+        ...(m.access?.delivery.kind === 'env'
+          ? { env: { [m.access.delivery.variable]: m.access.delivery.secret } }
+          : {}),
         ...(info ? { agent: info.agent, cwd: info.cwd } : {}),
         frame: { ...m } as Record<string, unknown>,
       })
@@ -331,11 +338,21 @@ async function harness() {
     })()
   }
   const settle = () => new Promise((r) => setTimeout(r))
+  // The `index`th turn request, once its frame is out. A turn asks the
+  // credential resolver (store reads) before it sends, so the frame can trail
+  // the `sendTurn` that started it.
+  const turnReq = (index: number): Promise<TurnReq> =>
+    vi.waitFor(() => {
+      const req = turnReqs[index]
+      if (!req) throw new Error(`turn request ${index} was not sent`)
+      return req
+    })
   return {
     registry,
     repos,
     sa,
     turnReqs,
+    turnReq,
     bindReqs,
     turnAcks,
     spawns,
@@ -388,11 +405,14 @@ describe('superagent response contract', () => {
 })
 
 /**
- * A MANAGED ACCOUNT SERVES A HEADLESS (SUPERAGENT) TURN (POD-6733), under the
- * coding spawn's rule (POD-469, POD-6300): the acting member's own key, then
- * one shared with them explicitly, never another member's unshared key — and
- * a managed selection with no usable key is refused, never run on the
- * machine's native login (`managed:claude-oauth` included).
+ * A MANAGED ACCOUNT SERVES A HEADLESS (SUPERAGENT) TURN (POD-6733), through
+ * the credential resolver (credential management §9): an old `managed:*` id
+ * names the session owner's own credential, and with none, a key another
+ * member shared with them (as it did before credentials, POD-6937); a
+ * credential id names that credential, which another member may use once its
+ * owner shares it. A choice
+ * with no usable credential is refused with the resolver's sentence, never run
+ * on the machine's native login (`managed:claude-oauth` included).
  *
  * Alice is the first admin and looks after the host machine; Bob is a second
  * member running there.
@@ -404,22 +424,20 @@ describe('managed credential on headless turns (two members)', () => {
   const ALICE_TOKEN = 'sk-ant-oat-alice-6733-000000'
   const BOB_KEY = 'sk-ant-bob-6733-00000000000'
 
+  /** A key stored under an old account id, as the one-time move left it. */
   const connect = async (
     h: Awaited<ReturnType<typeof harness>>,
     owner: typeof ALICE,
     accountKey: string,
     credential: string,
-  ) =>
-    await h.registry.sessionStore.accounts.connect({
-      ownerUserId: owner,
-      accountKey: asAccountId(accountKey),
-      provider: 'anthropic',
-      kind: accountKey === 'managed:claude-oauth' ? 'oauth' : 'api-key',
-      credential,
-      identity: `${credential.slice(0, 4)}…`,
-      scope: 'role',
-      createdAt: Date.now(),
+  ): Promise<CredentialId> => {
+    return await seedLegacyKeyCredential(h.registry.sessionStore, {
+      owner,
+      accountKey,
+      type: accountKey === 'managed:claude-oauth' ? 'anthropic.claude-token' : 'anthropic.api-key',
+      secret: credential,
     })
+  }
 
   const turnFor = async (
     h: Awaited<ReturnType<typeof harness>>,
@@ -447,52 +465,95 @@ describe('managed credential on headless turns (two members)', () => {
       cwd: '/r',
       prompt: 'hi',
     })
-    await h.settle()
-    const request = h.turnReqs.length > before ? h.turnReqs.at(-1) : undefined
+    // The frame goes out after the resolver's reads; a refusal ends the turn
+    // without one.
+    let ended = false
+    void turn.then(() => {
+      ended = true
+    })
+    const request = await vi.waitFor(() => {
+      if (h.turnReqs.length > before) return h.turnReqs.at(-1)
+      if (ended) return undefined
+      throw new Error(`turn ${turnId} was neither sent nor refused`)
+    })
     if (request) h.resolveTurn(request, { output: 'ok' })
     return { result: await turn, request }
   }
 
   it('runs on the member’s own key, never another member’s unshared one, then on an explicit share', async () => {
     const h = await harness()
-    await connect(h, ALICE, 'managed:anthropic', ALICE_KEY)
+    const aliceKey = await connect(h, ALICE, 'managed:anthropic', ALICE_KEY)
 
     // Alice's own key reaches her turn.
     const alice = await turnFor(h, ALICE, 'managed:anthropic', 'alice-own')
     expect(alice.result).toMatchObject({ ok: true })
     expect(alice.request?.env).toEqual({ ANTHROPIC_API_KEY: ALICE_KEY })
 
-    // Bob has no key and Alice shares none: refused before any dispatch, and
-    // Alice's key never leaves the server for Bob.
-    const bob = await turnFor(h, BOB, 'managed:anthropic', 'bob-unshared')
+    // Bob's `managed:anthropic` names his own key, and he has none, and nobody
+    // shares one with him: refused before any dispatch, never served by
+    // Alice's unshared key instead.
+    const bob = await turnFor(h, BOB, 'managed:anthropic', 'bob-own')
     expect(bob.request).toBeUndefined()
-    expect(bob.result).toMatchObject({ ok: false })
-    expect(bob.result.error).toMatch(/No Anthropic API key is available to you/)
-    expect(JSON.stringify(h.turnReqs.filter((r) => r.turnId === 'bob-unshared'))).not.toContain(
+    expect(bob.result).toMatchObject({ ok: false, error: ACCESS_REFUSAL_MESSAGES['not-found'] })
+
+    // Naming Alice's key before she shares it is refused too, and her key
+    // never leaves the server for Bob.
+    const unshared = await turnFor(h, BOB, aliceKey, 'bob-unshared')
+    expect(unshared.request).toBeUndefined()
+    expect(unshared.result).toMatchObject({
+      ok: false,
+      error: ACCESS_REFUSAL_MESSAGES['not-yours'],
+    })
+    expect(JSON.stringify(h.turnReqs.filter((r) => r.turnId.startsWith('bob-')))).not.toContain(
       ALICE_KEY,
     )
 
     // Once Alice shares it with Bob explicitly, Bob's turn runs on it.
-    expect(
-      await h.registry.sessionStore.accounts.share(ALICE, asAccountId('managed:anthropic'), [BOB]),
-    ).toBe(true)
-    const shared = await turnFor(h, BOB, 'managed:anthropic', 'bob-shared')
+    await h.registry.sessionStore.grants.upsert({
+      resourceKind: CREDENTIAL_RESOURCE_KIND,
+      resourceId: aliceKey,
+      grantee: BOB,
+      verb: 'use',
+      owner: ALICE,
+      visibility: 'secret',
+      createdAt: new Date().toISOString(),
+      actorKind: 'user',
+      actorId: ALICE,
+      onBehalfOf: ALICE,
+    })
+    const shared = await turnFor(h, BOB, aliceKey, 'bob-shared')
     expect(shared.result).toMatchObject({ ok: true })
     expect(shared.request?.env).toEqual({ ANTHROPIC_API_KEY: ALICE_KEY })
+
+    // And Bob's old `managed:anthropic`, with no key of his own, reaches the
+    // key Alice shares with him, as it did before credentials (POD-6937).
+    const legacy = await turnFor(h, BOB, 'managed:anthropic', 'bob-legacy-shared')
+    expect(legacy.result).toMatchObject({ ok: true })
+    expect(legacy.request?.env).toEqual({ ANTHROPIC_API_KEY: ALICE_KEY })
+
+    // Alice stops sharing: the old id names nothing again, and her key is not sent.
+    await h.registry.sessionStore.grants.remove(CREDENTIAL_RESOURCE_KIND, aliceKey, BOB, 'use')
+    const unsharedAgain = await turnFor(h, BOB, 'managed:anthropic', 'bob-legacy-unshared')
+    expect(unsharedAgain.request).toBeUndefined()
+    expect(unsharedAgain.result).toMatchObject({
+      ok: false,
+      error: ACCESS_REFUSAL_MESSAGES['not-found'],
+    })
   })
 
   it('a managed:claude-oauth selection with no token is refused, never run on the native login', async () => {
     const h = await harness()
     const missing = await turnFor(h, BOB, 'managed:claude-oauth', 'bob-oauth-missing')
     expect(missing.request).toBeUndefined()
-    expect(missing.result.error).toMatch(/No Claude setup token is available to you/)
+    expect(missing.result.error).toBe(ACCESS_REFUSAL_MESSAGES['not-found'])
 
     await connect(h, ALICE, 'managed:claude-oauth', ALICE_TOKEN)
     const own = await turnFor(h, ALICE, 'managed:claude-oauth', 'alice-oauth')
     expect(own.request?.env).toEqual({ CLAUDE_CODE_OAUTH_TOKEN: ALICE_TOKEN })
-    // Alice's token is hers: Bob still gets nothing without a share.
+    // Alice's token is hers: Bob's own id still names nothing of his.
     const bob = await turnFor(h, BOB, 'managed:claude-oauth', 'bob-oauth-unshared')
     expect(bob.request).toBeUndefined()
+    expect(bob.result.error).toBe(ACCESS_REFUSAL_MESSAGES['not-found'])
   })
 
   it('a native account carries no credential env, as before', async () => {
@@ -505,7 +566,7 @@ describe('managed credential on headless turns (two members)', () => {
 
   it('the superagent role’s managed account serves the superagent turn', async () => {
     const h = await harness()
-    await connect(h, ALICE, 'managed:anthropic', ALICE_KEY)
+    const aliceKey = await connect(h, ALICE, 'managed:anthropic', ALICE_KEY)
     // The member's own preference row (it wins over the instance blob).
     const current = await h.registry.sessionStore.settings.getSettingsFor(ALICE)
     await h.registry.sessionStore.settings.setSettingsFor(
@@ -528,10 +589,10 @@ describe('managed credential on headless turns (two members)', () => {
       threadId: asThreadId('global'),
       text: 'hi',
     })
-    await h.settle()
-    expect(h.turnReqs[0]).toMatchObject({
+    // The turn names the credential the role's old id became.
+    expect(await h.turnReq(0)).toMatchObject({
       agent: 'claude-code',
-      accountId: 'managed:anthropic',
+      accountId: aliceKey,
       env: { ANTHROPIC_API_KEY: ALICE_KEY },
     })
   })
@@ -545,8 +606,12 @@ describe('managed credential on headless turns (two members)', () => {
         threadId: asThreadId('global'),
         text,
       })
-      await h.settle()
-      const request = h.turnReqs.slice(before).at(-1)!
+      // The frame goes out after the resolver's reads.
+      const request = await vi.waitFor(() => {
+        const sent = h.turnReqs.slice(before).at(-1)
+        if (!sent) throw new Error(`no turn sent for ${owner}`)
+        return sent
+      })
       h.resolveTurn(request, { harnessSessionId: `harness-${owner}`, output: 'ok' })
       await h.settle()
       return request
@@ -573,22 +638,23 @@ describe('managed credential on headless turns (two members)', () => {
       )
     }
     await useAccount(ALICE, 'native:claude-code')
-    await connect(h, BOB, 'managed:anthropic', BOB_KEY)
-    await h.registry.sessionStore.accounts.markSent(
-      BOB,
-      'managed:anthropic',
+    const bobKey = await connect(h, BOB, 'managed:anthropic', BOB_KEY)
+    // The machine Bob sent his key to, as the one-time move allowed it.
+    await h.registry.sessionStore.credentials.allowMachine(
+      bobKey,
       h.registry.sessionStore.hostMachineId,
-      new Date().toISOString(),
+      BOB,
     )
     await useAccount(BOB, 'managed:anthropic')
     const aliceFirst = await send(ALICE, 'hi')
     const bobFirst = await send(BOB, 'hi')
     expect(aliceFirst.accountId).toMatch(/^native:claude-code/)
-    expect(bobFirst.accountId).toBe('managed:anthropic')
+    // The turn names the credential Bob's `managed:anthropic` became.
+    expect(bobFirst.accountId).toBe(bobKey)
     expect(aliceFirst.sessionId).not.toBe(bobFirst.sessionId)
 
     // Alice switches the superagent to her managed key.
-    await connect(h, ALICE, 'managed:anthropic', ALICE_KEY)
+    const aliceKey = await connect(h, ALICE, 'managed:anthropic', ALICE_KEY)
     await useAccount(ALICE, 'managed:anthropic')
 
     // Her next turn on the SAME thread runs on a new row with the new account,
@@ -596,7 +662,7 @@ describe('managed credential on headless turns (two members)', () => {
     const aliceSwitched = await send(ALICE, 'again')
     expect(aliceSwitched.sessionId).not.toBe(aliceFirst.sessionId)
     expect(aliceSwitched).toMatchObject({
-      accountId: 'managed:anthropic',
+      accountId: aliceKey,
       env: { ANTHROPIC_API_KEY: ALICE_KEY },
       resumeValue: `harness-${ALICE}`,
     })
@@ -637,7 +703,7 @@ describe('managed credential on headless turns (two members)', () => {
 
 /**
  * A SUPERAGENT NEVER RUNS ON SOMEONE ELSE'S LOGIN (POD-6740, decision POD-6739
- * (a)). The coding spawn's custodian rule (`resolveAccountEnv`) holds for the
+ * (a)). The coding spawn's custodian rule (the credential resolver) holds for the
  * superagent's headless turns too: a native account on a machine another
  * member looks after is refused before anything runs, and the refusal names
  * the fix. Alice is the first admin and looks after the host machine.
@@ -670,14 +736,21 @@ describe('native superagent on a machine someone else looks after (two members)'
     )
   }
 
-  const send = async (h: Awaited<ReturnType<typeof harness>>, owner: typeof ALICE) => {
+  // `dispatched`: wait for the frame, which trails the resolver's reads; a
+  // refusal ends the turn before dispatch, so there is nothing to wait for.
+  const send = async (
+    h: Awaited<ReturnType<typeof harness>>,
+    owner: typeof ALICE,
+    dispatched = true,
+  ) => {
+    const before = h.turnReqs.length
     await h.sa.sendTurn(h.registry.modules.superagentBridgeWriter, {
       ownerUserId: owner,
       threadId: asThreadId('global'),
       text: 'hi',
     })
     await h.settle()
-    const request = h.turnReqs.at(-1)
+    const request = dispatched ? await h.turnReq(before) : h.turnReqs[before]
     if (request) h.resolveTurn(request, { output: 'ok' })
     await h.settle()
     return request
@@ -690,13 +763,13 @@ describe('native superagent on a machine someone else looks after (two members)'
 
     // Bob, native, on Alice's machine: refused with the fix, and no harness runs.
     await selectSuperagentAccount(h, BOB, nativeAccountId('claude-code'))
-    expect(await send(h, BOB)).toBeUndefined()
+    expect(await send(h, BOB, false)).toBeUndefined()
     const notice = (await h.sa.history(BOB, asThreadId('global'))).find((m) =>
       m.content.startsWith(TURN_FAILED_MARKER),
     )
     expect(notice?.content).toMatch(/someone else's machine/)
     expect(notice?.content).toMatch(
-      /connect your own account in Settings → AI accounts and select it for the superagent role/i,
+      /connect your own account in Settings → Credentials and select it for the superagent role/i,
     )
     expect(h.turnReqs).toHaveLength(0)
 
@@ -710,25 +783,18 @@ describe('native superagent on a machine someone else looks after (two members)'
   it('runs Bob’s superagent on Alice’s machine with his own managed key sent there', async () => {
     const h = await harness()
     const host = h.registry.sessionStore.hostMachineId
-    await h.registry.sessionStore.accounts.connect({
-      ownerUserId: BOB,
-      accountKey: asAccountId('managed:anthropic'),
-      provider: 'anthropic',
-      kind: 'api-key',
-      credential: BOB_KEY,
-      identity: 'sk-a…',
-      scope: 'role',
-      createdAt: Date.now(),
+    // Bob's key as the one-time move left it: his credential, sent to the host.
+    const bobKey = await seedLegacyKeyCredential(h.registry.sessionStore, {
+      owner: BOB,
+      accountKey: 'managed:anthropic',
+      type: 'anthropic.api-key',
+      secret: BOB_KEY,
+      sentTo: [host],
     })
-    await h.registry.sessionStore.accounts.markSent(
-      BOB,
-      'managed:anthropic',
-      host,
-      new Date().toISOString(),
-    )
     await selectSuperagentAccount(h, BOB, 'managed:anthropic')
+    // The turn names the credential Bob's `managed:anthropic` became.
     expect(await send(h, BOB)).toMatchObject({
-      accountId: 'managed:anthropic',
+      accountId: bobKey,
       env: { ANTHROPIC_API_KEY: BOB_KEY },
     })
   })
@@ -1116,7 +1182,7 @@ describe('headless turn refusal surfacing (POD-4409)', () => {
       threadId: asThreadId('global'),
       text: 'may already have reached the conversation',
     })
-    const req = h.turnReqs[0]!
+    const req = await h.turnReq(0)
     vi.useFakeTimers()
     try {
       await h.registry.gateway.routeDaemonFrame(h.registry.sessionStore.hostMachineId, {
@@ -1176,7 +1242,7 @@ describe('headless turn refusal surfacing (POD-4409)', () => {
       threadId: asThreadId('global'),
       text: 'refuse before writing',
     })
-    refuseTurn(h, h.turnReqs[0]!, {
+    refuseTurn(h, await h.turnReq(0), {
       reason: 'unsupported',
       detail: 'the harness cannot enforce the requested tool policy',
     })
@@ -1325,7 +1391,7 @@ describe('global thread priming, clear, and per-turn user focus (#225)', () => {
       threadId: asThreadId('global'),
       text: 'one',
     })
-    h.resolveTurn(h.turnReqs[0]!, { harnessSessionId: 'h1' })
+    h.resolveTurn(await h.turnReq(0), { harnessSessionId: 'h1' })
     await h.settle()
     const first = await h.registry.sessionStore.superagent.getSuperagentThread('global')
     expect(first?.harnessSessionId).toBe('h1')
@@ -1351,7 +1417,7 @@ describe('global thread priming, clear, and per-turn user focus (#225)', () => {
       text: 'two',
     })
     expect(ack.podiumSessionId).not.toBe(oldSessionId)
-    const req = h.turnReqs[1]!
+    const req = await h.turnReq(1)
     expect(req.resumeValue).toBeUndefined()
     expect(req.prompt).toBe('two')
     expect(req.contextPrompt).toContain('[SUPERAGENT CONTEXT]')
@@ -1366,7 +1432,7 @@ describe('global thread priming, clear, and per-turn user focus (#225)', () => {
     })
     // The harness minted a session, then the turn died (interrupt / tool crash /
     // error_during_execution). The conversation exists on disk.
-    h.resolveTurn(h.turnReqs[0]!, {
+    h.resolveTurn(await h.turnReq(0), {
       ok: false,
       error: 'claude turn failed: error_during_execution',
       harnessSessionId: 'h1',
@@ -1389,8 +1455,8 @@ describe('global thread priming, clear, and per-turn user focus (#225)', () => {
       threadId: asThreadId('global'),
       text: 'again',
     })
-    expect(h.turnReqs[1]?.resumeValue).toBe('h1')
-    h.resolveTurn(h.turnReqs[1]!)
+    expect((await h.turnReq(1)).resumeValue).toBe('h1')
+    h.resolveTurn(await h.turnReq(1))
     await h.settle()
     // "Open in terminal" is available again (it gates on harnessSessionId).
     await expect(
@@ -1431,7 +1497,7 @@ describe('global thread priming, clear, and per-turn user focus (#225)', () => {
       threadId: asThreadId('global'),
       text: 'hi',
     })
-    h.resolveTurn(h.turnReqs[0]!, { harnessSessionId: 'h1' })
+    h.resolveTurn(await h.turnReq(0), { harnessSessionId: 'h1' })
     await h.settle()
     const { sessionId } = await h.sa.openInTerminal({
       ownerUserId: firstAdminMemberId(),
@@ -1462,8 +1528,8 @@ describe('global thread priming, clear, and per-turn user focus (#225)', () => {
       text: 'back to chat',
     })
     expect(ack.podiumSessionId).toBeTruthy()
-    expect(h.turnReqs.at(-1)?.prompt).toBe('back to chat')
-    expect(h.turnReqs.at(-1)?.contextPrompt).toContain('[SUPERAGENT CONTEXT]')
+    expect((await h.turnReq(1)).prompt).toBe('back to chat')
+    expect((await h.turnReq(1)).contextPrompt).toContain('[SUPERAGENT CONTEXT]')
   })
 
   it('prepends what the user is looking at to EVERY turn, resolving ids server-side', async () => {
@@ -1494,8 +1560,8 @@ describe('global thread priming, clear, and per-turn user focus (#225)', () => {
         visibleSessionIds: [sessionId],
       },
     })
-    expect(h.turnReqs[0]?.prompt).toBe('why is this stuck?')
-    const first = h.turnReqs[0]?.contextPrompt ?? ''
+    expect((await h.turnReq(0)).prompt).toBe('why is this stuck?')
+    const first = (await h.turnReq(0)).contextPrompt ?? ''
     expect(first).toContain('[USER VIEW @')
     expect(first).toContain(`#${issue.seq} "Fix the thing"`)
     expect(first).toContain('Worktree in view: /r')
@@ -1504,7 +1570,7 @@ describe('global thread priming, clear, and per-turn user focus (#225)', () => {
     expect(first.indexOf('[USER VIEW @')).toBeGreaterThan(first.indexOf('[SUPERAGENT CONTEXT]'))
 
     // And on LATER turns too — not just the primed first one.
-    h.resolveTurn(h.turnReqs[0]!, { harnessSessionId: 'h1' })
+    h.resolveTurn(await h.turnReq(0), { harnessSessionId: 'h1' })
     await h.settle()
     await h.sa.sendTurn(h.registry.modules.superagentBridgeWriter, {
       ownerUserId: firstAdminMemberId(),
@@ -1512,8 +1578,8 @@ describe('global thread priming, clear, and per-turn user focus (#225)', () => {
       text: 'and now?',
       focus: { view: 'issues' },
     })
-    expect(h.turnReqs[1]?.prompt).toBe('and now?')
-    const second = h.turnReqs[1]?.contextPrompt ?? ''
+    expect((await h.turnReq(1)).prompt).toBe('and now?')
+    const second = (await h.turnReq(1)).contextPrompt ?? ''
     expect(second).toContain('[USER VIEW @')
     expect(second).toContain('Screen: issues')
     expect(second).not.toContain('[SUPERAGENT CONTEXT]') // seed is first-turn only
@@ -1526,8 +1592,8 @@ describe('global thread priming, clear, and per-turn user focus (#225)', () => {
       threadId: asThreadId('global'),
       text: 'hi',
     })
-    expect(h.turnReqs[0]?.prompt).toBe('hi')
-    expect(h.turnReqs[0]?.contextPrompt).not.toContain('[USER VIEW')
+    expect((await h.turnReq(0)).prompt).toBe('hi')
+    expect((await h.turnReq(0)).contextPrompt).not.toContain('[USER VIEW')
   })
 })
 
@@ -1539,7 +1605,7 @@ describe('sendTurn (headless harness turns)', () => {
       threadId: asThreadId('global'),
       text: 'ordinary turn',
     })
-    const request = h.turnReqs[0]!
+    const request = await h.turnReq(0)
     // The turn carries the session's resolved harness account (POD-4827): an
     // empty account mints a digest the real daemon refuses as invalid_value,
     // so the fake daemon's acceptance here only means something with an
@@ -1573,8 +1639,8 @@ describe('sendTurn (headless harness turns)', () => {
     expect(ack.threadId).toBe('global')
     expect(ack.podiumSessionId).toBeTruthy()
     // The turn was DISPATCHED but not completed — ack came first.
+    const req = await h.turnReq(0)
     expect(h.turnReqs).toHaveLength(1)
-    const req = h.turnReqs[0]!
     // Global thread: machine context stays separate from the human message.
     expect(req.prompt).toBe('hello')
     expect(req.contextPrompt).toContain('[SUPERAGENT CONTEXT]')
@@ -1637,7 +1703,7 @@ describe('sendTurn (headless harness turns)', () => {
       threadId: asThreadId('global'),
       text: 'hi',
     })
-    const req = h.turnReqs[0]!
+    const req = await h.turnReq(0)
     await h.registry.modules.sessions.runtimeGateway.record(h.registry.sessionStore.hostMachineId, {
       sessionId: podiumSessionId as never,
       event: {
@@ -1674,7 +1740,7 @@ describe('sendTurn (headless harness turns)', () => {
       threadId: asThreadId('global'),
       text: 'hi',
     })
-    h.resolveTurn(h.turnReqs[0]!, { harnessSessionId: 'harness-1' })
+    h.resolveTurn(await h.turnReq(0), { harnessSessionId: 'harness-1' })
     await h.settle()
     // Thread row carries the harness session id…
     expect(
@@ -1697,7 +1763,7 @@ describe('sendTurn (headless harness turns)', () => {
       threadId: asThreadId('global'),
       text: 'again',
     })
-    const second = h.turnReqs[1]!
+    const second = await h.turnReq(1)
     expect(second.sessionId).toBe(podiumSessionId)
     expect(second.resumeValue).toBe('harness-1')
     expect(second.sessionUuid).toBeUndefined()
@@ -1710,7 +1776,7 @@ describe('sendTurn (headless harness turns)', () => {
       threadId: asThreadId('global'),
       text: 'Give me a detailed walkthrough.',
     })
-    const first = h.turnReqs[0]!
+    const first = await h.turnReq(0)
     expect(first.systemPrompt).toContain('EXPANDED:')
     h.resolveTurn(first, { harnessSessionId: 'claude-thread-1' })
     await h.settle()
@@ -1720,7 +1786,7 @@ describe('sendTurn (headless harness turns)', () => {
       threadId: asThreadId('global'),
       text: 'Why?',
     })
-    const resumed = h.turnReqs[1]!
+    const resumed = await h.turnReq(1)
     expect(resumed.resumeValue).toBe('claude-thread-1')
     expect(resumed.systemPrompt).toContain(
       'NORMAL: HARD LIMIT ' + NORMAL_RESPONSE_WORD_LIMIT + ' words',
@@ -1762,18 +1828,21 @@ describe('sendTurn (headless harness turns)', () => {
       }),
     ).resolves.toMatchObject({ queued: true })
     // Still exactly ONE turn in flight — the queue is not a second writer.
+    const first = await h.turnReq(0)
     expect(h.turnReqs).toHaveLength(1)
 
-    h.resolveTurn(h.turnReqs[0]!, { harnessSessionId: 'h1' })
+    h.resolveTurn(first, { harnessSessionId: 'h1' })
     await h.settle()
     // The drain took the OLDEST waiting message, not the newest.
+    const second = await h.turnReq(1)
     expect(h.turnReqs).toHaveLength(2)
-    expect(h.turnReqs[1]?.prompt).toBe('two')
+    expect(second.prompt).toBe('two')
 
-    h.resolveTurn(h.turnReqs[1]!, { harnessSessionId: 'h1' })
+    h.resolveTurn(second, { harnessSessionId: 'h1' })
     await h.settle()
+    const third = await h.turnReq(2)
     expect(h.turnReqs).toHaveLength(3)
-    expect(h.turnReqs[2]?.prompt).toBe('three')
+    expect(third.prompt).toBe('three')
   })
 
   it('a failed turn records a persisted notice, broadcasts the error, and unlocks', async () => {
@@ -1783,7 +1852,7 @@ describe('sendTurn (headless harness turns)', () => {
       threadId: asThreadId('global'),
       text: 'hi',
     })
-    h.resolveTurn(h.turnReqs[0]!, { ok: false, error: 'claude: command not found' })
+    h.resolveTurn(await h.turnReq(0), { ok: false, error: 'claude: command not found' })
     await h.settle()
     // Honest, persisted failure — no silent fallback to the buffered path. The
     // raw harness stderr is interpreted into a user-facing message (POD-1021):
@@ -1827,7 +1896,7 @@ describe('sendTurn (headless harness turns)', () => {
       threadId: asThreadId('global'),
       text: 'new turn',
     })
-    h.resolveTurn(h.turnReqs[0]!, { harnessSessionId: 'h1', output: 'new answer' })
+    h.resolveTurn(await h.turnReq(0), { harnessSessionId: 'h1', output: 'new answer' })
     await h.settle()
     // The transcript is the truth for new turns — superagent_messages is frozen.
     expect(
@@ -1857,7 +1926,8 @@ describe('sendTurn (headless harness turns)', () => {
       threadId: asThreadId('global'),
       text: 'hi',
     })
-    const { posture, ...old } = h.turnReqs[0]!.frame as Record<string, unknown> & {
+    // The turn is sent once its credential resolves (credential management §9).
+    const { posture, ...old } = (await h.turnReq(0)).frame as Record<string, unknown> & {
       text: string
       turnId: string
       sessionId: string
@@ -1904,7 +1974,7 @@ describe('sendTurn (headless harness turns)', () => {
       threadId: asThreadId('global'),
       text: 'hi',
     })
-    const req = h.turnReqs[0]!
+    const req = await h.turnReq(0)
     expect(req.allowedTools).toContain('mcp__podium__issue_list')
     const cfg = JSON.parse(req.mcpConfig ?? '{}') as {
       mcpServers: Record<string, { url: string; headers: Record<string, string> }>
@@ -1931,7 +2001,7 @@ describe('conciergeTurn / startBtwTurn (thread creation on the headless path)', 
       text: 'status?',
     })
     expect(a.isNew).toBe(true)
-    const first = h.turnReqs[0]!
+    const first = await h.turnReq(0)
     expect(first.prompt).toBe('status?')
     expect(first.contextPrompt).toContain('[CONCIERGE CONTEXT]')
     expect(first.contextPrompt).toContain('Fix login')
@@ -1952,7 +2022,7 @@ describe('conciergeTurn / startBtwTurn (thread creation on the headless path)', 
     })
     expect(b.isNew).toBe(false)
     expect(b.threadId).toBe(a.threadId)
-    const second = h.turnReqs[1]!
+    const second = await h.turnReq(1)
     expect(second.resumeValue).toBe('hc1')
     expect(second.prompt).toBe('what changed?')
     expect(second.contextPrompt).toContain('[CONCIERGE UPDATE')
@@ -1966,8 +2036,8 @@ describe('conciergeTurn / startBtwTurn (thread creation on the headless path)', 
       repoPath: '/r',
       text: 'and now?',
     })
-    expect(h.turnReqs[2]?.prompt).toBe('and now?')
-    expect(h.turnReqs[2]?.contextPrompt).toBeUndefined()
+    expect((await h.turnReq(2)).prompt).toBe('and now?')
+    expect((await h.turnReq(2)).contextPrompt).toBeUndefined()
   })
 
   it('rejects an unregistered repo without minting a thread', async () => {
@@ -2003,7 +2073,7 @@ describe('conciergeTurn / startBtwTurn (thread creation on the headless path)', 
       threadId: res.threadId,
       text: 'what is this session doing?',
     })
-    const req = h.turnReqs[0]!
+    const req = await h.turnReq(0)
     expect(req.prompt).toBe('what is this session doing?')
     expect(req.contextPrompt).toContain('[BTW CONTEXT]')
     expect(req.contextPrompt).toContain(sessionId)
@@ -2030,7 +2100,7 @@ describe('conciergeTurn / startBtwTurn (thread creation on the headless path)', 
       attachSessionId: sessionId,
     })
 
-    const req = h.turnReqs[0]!
+    const req = await h.turnReq(0)
     expect(req.prompt).toBe('what is this session doing?')
     expect(req.contextPrompt).toContain('[BTW CONTEXT]')
     expect(req.contextPrompt).toContain(sessionId)
@@ -2086,7 +2156,7 @@ describe('openInTerminal + one-writer lock', () => {
       threadId: asThreadId('global'),
       text: 'hi',
     })
-    h.resolveTurn(h.turnReqs[0]!, { harnessSessionId: 'h1' })
+    h.resolveTurn(await h.turnReq(0), { harnessSessionId: 'h1' })
     await h.settle()
     return h
   }
@@ -2306,7 +2376,7 @@ describe('boot reconciliation for headless sessions', () => {
       threadId: asThreadId('global'),
       text: 'survive restart',
     })
-    const original = h.turnReqs[0]!
+    const original = await h.turnReq(0)
     expect(await h.registry.sessionStore.superagent.listPendingTurns()).toHaveLength(1)
     // The running turn is synced status on the thread's record (POD-6675).
     const running = async () =>
@@ -2491,7 +2561,7 @@ describe('boot reconciliation for headless sessions', () => {
       threadId: asThreadId('global'),
       text: 'hi',
     })
-    h.resolveTurn(h.turnReqs[0]!, { harnessSessionId: 'h1' })
+    h.resolveTurn(await h.turnReq(0), { harnessSessionId: 'h1' })
     await h.settle()
     const sessionId = (await h.registry.sessionStore.superagent.getSuperagentThread('global'))
       ?.podiumSessionId
@@ -2556,9 +2626,9 @@ describe('harness switch + effort (#199)', () => {
       text: 'hi',
       agentKind: 'claude-code',
     })
-    h.resolveTurn(h.turnReqs[0]!, { harnessSessionId: 'claude-1' })
+    h.resolveTurn(await h.turnReq(0), { harnessSessionId: 'claude-1' })
     await h.settle()
-    expect(h.turnReqs[0]?.agent).toBeTruthy()
+    expect((await h.turnReq(0)).agent).toBeTruthy()
 
     // User picks a different harness in settings.
     await setSuperagentHarness(h, { harness: 'codex' })
@@ -2568,7 +2638,7 @@ describe('harness switch + effort (#199)', () => {
       text: 'still there?',
     })
 
-    const req = h.turnReqs[1]!
+    const req = await h.turnReq(1)
     expect(req.agent).toBe('codex') // switched
     expect(req.resumeValue).toBeUndefined() // fresh session, not resuming claude-1
     expect(second.podiumSessionId).not.toBe(first.podiumSessionId) // new headless row
@@ -2589,15 +2659,15 @@ describe('harness switch + effort (#199)', () => {
       threadId: asThreadId('global'),
       text: 'hi',
     })
-    h.resolveTurn(h.turnReqs[0]!, { harnessSessionId: 'claude-1' })
+    h.resolveTurn(await h.turnReq(0), { harnessSessionId: 'claude-1' })
     await h.settle()
     await h.sa.sendTurn(h.registry.modules.superagentBridgeWriter, {
       ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
       text: 'again',
     })
-    expect(h.turnReqs[1]?.agent).toBe(h.turnReqs[0]?.agent)
-    expect(h.turnReqs[1]?.resumeValue).toBe('claude-1') // same session
+    expect((await h.turnReq(1)).agent).toBe((await h.turnReq(0)).agent)
+    expect((await h.turnReq(1)).resumeValue).toBe('claude-1') // same session
   })
 
   it('restartThread resets the harness session so the next turn is fresh', async () => {
@@ -2608,7 +2678,7 @@ describe('harness switch + effort (#199)', () => {
       text: 'hi',
       agentKind: 'claude-code',
     })
-    h.resolveTurn(h.turnReqs[0]!, { harnessSessionId: 'claude-1' })
+    h.resolveTurn(await h.turnReq(0), { harnessSessionId: 'claude-1' })
     await h.settle()
     await h.sa.restartThread({ ownerUserId: firstAdminMemberId(), threadId: asThreadId('global') })
     const row = await h.registry.sessionStore.superagent.getSuperagentThread('global')
@@ -2621,7 +2691,7 @@ describe('harness switch + effort (#199)', () => {
       text: 'again',
     })
     expect(second.podiumSessionId).not.toBe(first.podiumSessionId) // fresh session
-    expect(h.turnReqs[1]?.resumeValue).toBeUndefined()
+    expect((await h.turnReq(1)).resumeValue).toBeUndefined()
   })
 
   it('plumbs harnessEffort into the turn request; auto sends none', async () => {
@@ -2632,7 +2702,7 @@ describe('harness switch + effort (#199)', () => {
       text: 'hi',
       effort: 'high',
     })
-    expect(h.turnReqs[0]?.effort).toBe('high')
+    expect((await h.turnReq(0)).effort).toBe('high')
 
     const h2 = await harness()
     // A fresh install's superagent role is seeded to a picked harness
@@ -2654,7 +2724,7 @@ describe('harness switch + effort (#199)', () => {
       text: 'hi',
       effort: 'auto',
     })
-    expect(h2.turnReqs[0]?.effort).toBeUndefined()
+    expect((await h2.turnReq(0)).effort).toBeUndefined()
   })
 
   it('switches harness from a prompt-box agentKind without a settings change', async () => {
@@ -2665,9 +2735,9 @@ describe('harness switch + effort (#199)', () => {
       threadId: asThreadId('global'),
       text: 'hi',
     })
-    h.resolveTurn(h.turnReqs[0]!, { harnessSessionId: 'claude-1' })
+    h.resolveTurn(await h.turnReq(0), { harnessSessionId: 'claude-1' })
     await h.settle()
-    expect(h.turnReqs[0]?.agent).toBeTruthy()
+    expect((await h.turnReq(0)).agent).toBeTruthy()
 
     await h.sa.sendTurn(h.registry.modules.superagentBridgeWriter, {
       ownerUserId: firstAdminMemberId(),
@@ -2676,7 +2746,7 @@ describe('harness switch + effort (#199)', () => {
       agentKind: 'grok',
       model: 'grok-4.5',
     })
-    const req = h.turnReqs[1]!
+    const req = await h.turnReq(1)
     expect(req.agent).toBe('grok')
     expect(req.model).toBe('grok-4.5')
     expect(req.resumeValue).toBeUndefined()
@@ -2695,7 +2765,7 @@ describe('harness switch + effort (#199)', () => {
       agentKind: 'grok',
       model: 'grok-4.5',
     })
-    h.resolveTurn(h.turnReqs[0]!, { harnessSessionId: 'grok-1' })
+    h.resolveTurn(await h.turnReq(0), { harnessSessionId: 'grok-1' })
     await h.settle()
     await h.sa.sendTurn(h.registry.modules.superagentBridgeWriter, {
       ownerUserId: firstAdminMemberId(),
@@ -2704,9 +2774,9 @@ describe('harness switch + effort (#199)', () => {
       model: 'auto',
     })
     // Back to the settings harness (a fresh session, not resuming grok-1).
-    expect(h.turnReqs[1]?.agent).toBeTruthy()
-    expect(h.turnReqs[1]?.agent).not.toBe('grok')
-    expect(h.turnReqs[1]?.resumeValue).toBeUndefined()
+    expect((await h.turnReq(1)).agent).toBeTruthy()
+    expect((await h.turnReq(1)).agent).not.toBe('grok')
+    expect((await h.turnReq(1)).resumeValue).toBeUndefined()
   })
 
   it('drains a queued connector pick onto a fresh harness session', async () => {
@@ -2730,11 +2800,11 @@ describe('harness switch + effort (#199)', () => {
       (await h.registry.sessionStore.superagent.listQueuedInputs(asThreadId('global')))[0]
         ?.agentKind,
     ).toBe('grok')
-    h.resolveTurn(h.turnReqs[0]!, { harnessSessionId: 'claude-1' })
+    h.resolveTurn(await h.turnReq(0), { harnessSessionId: 'claude-1' })
     await h.settle()
-    expect(h.turnReqs[1]?.agent).toBe('grok')
-    expect(h.turnReqs[1]?.model).toBe('grok-4.5')
-    expect(h.turnReqs[1]?.resumeValue).toBeUndefined()
+    expect((await h.turnReq(1)).agent).toBe('grok')
+    expect((await h.turnReq(1)).model).toBe('grok-4.5')
+    expect((await h.turnReq(1)).resumeValue).toBeUndefined()
   })
 
   it('keeps a model override on its frozen harness when settings later change', async () => {
@@ -2746,7 +2816,7 @@ describe('harness switch + effort (#199)', () => {
       text: 'hi',
       model: 'opus',
     })
-    h.resolveTurn(h.turnReqs[0]!, { harnessSessionId: 'claude-1' })
+    h.resolveTurn(await h.turnReq(0), { harnessSessionId: 'claude-1' })
     await h.settle()
     // The thread's own choice is the owner's edit of its record (POD-6675):
     // records.superagentThread.edit writes the model through this store call.
@@ -2760,9 +2830,9 @@ describe('harness switch + effort (#199)', () => {
       text: 'again',
     })
     // Frozen on the first harness despite the settings change.
-    expect(h.turnReqs[1]?.agent).toBe(h.turnReqs[0]?.agent)
-    expect(h.turnReqs[1]?.resumeValue).toBe('claude-1')
-    expect(h.turnReqs[1]?.model).toBe('opus')
+    expect((await h.turnReq(1)).agent).toBe((await h.turnReq(0)).agent)
+    expect((await h.turnReq(1)).resumeValue).toBe('claude-1')
+    expect((await h.turnReq(1)).model).toBe('opus')
   })
 
   it('a send’s model and effort run its own turn and are never written to the thread (POD-6675)', async () => {
@@ -2775,12 +2845,12 @@ describe('harness switch + effort (#199)', () => {
       model: 'opus',
       effort: 'high',
     })
-    expect(h.turnReqs[0]).toMatchObject({ model: 'opus', effort: 'high' })
+    expect(await h.turnReq(0)).toMatchObject({ model: 'opus', effort: 'high' })
     // One writer for the thread's spec fields: the owner's generic edit.
     const thread = await h.registry.sessionStore.superagent.getSuperagentThread('global')
     expect(thread?.model).toBeUndefined()
     expect(thread?.effort).toBeUndefined()
-    h.resolveTurn(h.turnReqs[0]!, { harnessSessionId: 'claude-1' })
+    h.resolveTurn(await h.turnReq(0), { harnessSessionId: 'claude-1' })
     await h.settle()
 
     // The thread's own choice (the edit) runs the next turn that carries none,
@@ -2793,8 +2863,8 @@ describe('harness switch + effort (#199)', () => {
       threadId: asThreadId('global'),
       text: 'again',
     })
-    expect(h.turnReqs[1]?.model).toBe('sonnet')
-    h.resolveTurn(h.turnReqs[1]!, { harnessSessionId: 'claude-1' })
+    expect((await h.turnReq(1)).model).toBe('sonnet')
+    h.resolveTurn(await h.turnReq(1), { harnessSessionId: 'claude-1' })
     await h.settle()
     await h.sa.sendTurn(h.registry.modules.superagentBridgeWriter, {
       ownerUserId: firstAdminMemberId(),
@@ -2802,7 +2872,7 @@ describe('harness switch + effort (#199)', () => {
       text: 'role please',
       model: 'auto',
     })
-    expect(h.turnReqs[2]?.model).not.toBe('sonnet')
+    expect((await h.turnReq(2)).model).not.toBe('sonnet')
     expect((await h.registry.sessionStore.superagent.getSuperagentThread('global'))?.model).toBe(
       'sonnet',
     )
@@ -2837,9 +2907,9 @@ describe('harness switch + effort (#199)', () => {
     })
 
     // Uses a native Codex model (gpt-*, not claude) even when coding uses another harness.
-    expect(h.turnReqs[0]?.agent).toBe('codex')
-    expect(h.turnReqs[0]?.model).toMatch(/^gpt-/)
-    expect(h.turnReqs[0]?.effort).toBeTruthy()
+    expect((await h.turnReq(0)).agent).toBe('codex')
+    expect((await h.turnReq(0)).model).toMatch(/^gpt-/)
+    expect((await h.turnReq(0)).effort).toBeTruthy()
   })
 })
 

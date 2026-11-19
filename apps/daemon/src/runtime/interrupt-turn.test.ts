@@ -9,6 +9,7 @@
 import type { AgentRuntimeState, SessionId } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'
+import { memoryMarkers, SessionAccessStore } from '../control/access'
 import type { DaemonContext } from '../control/context'
 import { runtimeHandlers } from './handlers'
 
@@ -28,6 +29,7 @@ function makeContext(turnState: AgentRuntimeState | undefined) {
     },
     agentRuntime: { handleFor: () => handle },
     sessions: new Map([[SESSION, { turnState }]]),
+    access: new SessionAccessStore({ markers: memoryMarkers() }),
   } as unknown as DaemonContext
   return { ctx, sent, interrupt }
 }

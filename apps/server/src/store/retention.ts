@@ -131,6 +131,22 @@ export const TABLE_RETENTION: Readonly<Record<string, TableRetention>> = {
   native_login_transfers: bounded(
     'One row per person, harness, credential and machine it was moved to.',
   ),
+  credentials: bounded(
+    'Credentials people add by hand; a removed one stays as a revoked row with its secret deleted.',
+  ),
+  credential_secrets: bounded(
+    "A credential's current sealed secret: a renewal deletes older versions, and the rows go with the credential.",
+  ),
+  credential_machines: bounded(
+    'The machines a person allowed a credential on, by hand; deleted with the credential.',
+  ),
+  credential_placements: bounded(
+    'One row per credential, machine and kind; a removed placement keeps its row, marked removed, and a new placement reuses it. Deleted with the credential.',
+  ),
+  vault_key: bounded('One row: the wrapped vault data key.'),
+  notices: unbounded(
+    "One row per notice a person gets (credential events, mentions); resolved notices are kept as the person's inbox history and nothing removes them.",
+  ),
   telegram_chat_bindings: bounded('One row per person who bound a chat.'),
   machines: bounded('The fleet: one row per enrolled machine.'),
   repos: bounded('One row per repository checkout per machine.'),

@@ -61,6 +61,7 @@ export const DAEMON_FRAME_PORTS = {
   agentColor: ['sessions'],
   agentModel: ['sessions'],
   agentMode: ['sessions'],
+  sessionAuth: ['sessions'],
   agentContext: ['sessions'],
   agentObservation: ['sessions'],
   agentObservationRebind: ['sessions'],
@@ -140,6 +141,14 @@ export const DAEMON_FRAME_PORTS = {
   workspaceCleanResult: ['rpc'],
   credentialExportResult: ['rpc'],
   credentialInstallResult: ['rpc'],
+  // Sign in with ChatGPT (credential management §11): the listener's answer, and
+  // the callback it relays, which goes to the listener the rpc module opened.
+  oauthLoopbackResult: ['rpc'],
+  oauthLoopbackCallback: ['rpc'],
+  homeEnsureResult: ['rpc'],
+  conversationPrepareResult: ['rpc'],
+  homeRemoveResult: ['rpc'],
+  credentialRemoveResult: ['rpc'],
   serverTransferResult: ['rpc'],
   serverEndpointResult: ['rpc'],
   shippingJobResult: ['rpc'],

@@ -112,6 +112,12 @@ export interface FakeAppServerOptions {
    * truthful answer rather than the convenient one.
    */
   threads?: Set<string>
+  /**
+   * The model provider `thread/start` and `thread/resume` report, as Codex
+   * 0.169 does at the top of the answer and on the thread. Omitted: `openai`,
+   * what the recording shows.
+   */
+  modelProvider?: string
 }
 
 export interface FakeAppServer {
@@ -123,6 +129,10 @@ export interface FakeAppServer {
   closeThread(): void
   /** The params of every resume, including failed calls. */
   resumeParams: Record<string, unknown>[]
+  /** The params of every `initialize` received. */
+  initializeParams: Record<string, unknown>[]
+  /** Push an `error` notification, as Codex does while it retries a request. */
+  notifyError(params: Record<string, unknown>): void
   scriptNextResume(answer: { result: unknown } | { error: { code: number; message: string } }): void
   closedClients: number
   /** Is the child still running? Flipped by `crash()` and by a kill. */
@@ -202,8 +212,9 @@ export interface FakeAppServer {
   askElicitation(message?: string): string
   /** Answers received for server→client requests, by request id. */
   answers: Map<number, unknown>
-  /** Drive the open turn to completion with a verdict Codex would report. */
-  completeTurn(status?: 'completed' | 'interrupted' | 'failed'): void
+  /** Drive the open turn to completion with a verdict Codex would report. A
+   *  failed turn carries `errorMessage` (default `provider exploded`). */
+  completeTurn(status?: 'completed' | 'interrupted' | 'failed', errorMessage?: string): void
   /**
    * Announce a thread rename the way the real server does: a `thread/started`
    * carrying the thread's `name`. What the driver's `session.title` — and
@@ -311,6 +322,7 @@ export function startFakeAppServer(options: FakeAppServerOptions = {}): FakeAppS
   let failNext = false
   const scriptedReads: ({ result: unknown } | { error: { code: number; message: string } })[] = []
   let stallNext = false
+  const modelProvider = options.modelProvider ?? 'openai'
   let deferStarted = false
   let raceForeignTurn = false
   let pendingStart: (() => void) | undefined
@@ -349,6 +361,8 @@ export function startFakeAppServer(options: FakeAppServerOptions = {}): FakeAppS
       for (const connection of connections.values()) connection.subscribed = false
     },
     resumeParams: [],
+    initializeParams: [],
+    notifyError: (params) => notify('error', params),
     scriptNextResume: (answer) => {
       nextResumeAnswer = answer
     },
@@ -439,7 +453,7 @@ export function startFakeAppServer(options: FakeAppServerOptions = {}): FakeAppS
       })
       return String(id)
     },
-    completeTurn(status = 'completed') {
+    completeTurn(status = 'completed', errorMessage = 'provider exploded') {
       const turnId = openTurn ?? pendingTurn
       if (!turnId) {
         if (lastCompletedTurn) {
@@ -451,7 +465,7 @@ export function startFakeAppServer(options: FakeAppServerOptions = {}): FakeAppS
         id: turnId,
         items: [],
         status,
-        error: status === 'failed' ? { message: 'provider exploded' } : null,
+        error: status === 'failed' ? { message: errorMessage } : null,
         startedAt: 1_786_700_009,
         completedAt: 1_786_700_071,
         durationMs: 62_603,
@@ -623,6 +637,7 @@ export function startFakeAppServer(options: FakeAppServerOptions = {}): FakeAppS
       preview: '',
       status: { type: 'idle' },
       path: `/home/agent/.codex/sessions/rollout-${id}.jsonl`,
+      modelProvider,
       cwd: '/tmp/conformance-codex',
       createdAt: 1_786_700_008,
       updatedAt: 1_786_700_008,
@@ -689,6 +704,7 @@ export function startFakeAppServer(options: FakeAppServerOptions = {}): FakeAppS
         const muted = capabilities.optOutNotificationMethods ?? []
         server.mutedNotificationMethods = [...muted]
         server.optedOutOfDeltas = muted.includes('item/agentMessage/delta')
+        server.initializeParams.push(params)
         connection.ready = true
         respond(id, {
           userAgent: 'podium/0.147.0 (fake)',
@@ -707,7 +723,7 @@ export function startFakeAppServer(options: FakeAppServerOptions = {}): FakeAppS
         threads.add(threadId)
         loaded = true
         connection.subscribed = true
-        respond(id, { thread: threadPayload(threadId) })
+        respond(id, { thread: threadPayload(threadId), modelProvider })
         notify('thread/started', { thread: threadPayload(threadId) })
         return
       }
@@ -738,7 +754,7 @@ export function startFakeAppServer(options: FakeAppServerOptions = {}): FakeAppS
             id,
             scripted && 'result' in scripted
               ? scripted.result
-              : { thread: threadPayload(threadId) },
+              : { thread: threadPayload(threadId), modelProvider },
           )
           notify('thread/started', { thread: threadPayload(threadId) })
         }

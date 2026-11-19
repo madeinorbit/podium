@@ -195,7 +195,12 @@ describe('settings frame', () => {
 
 describe('settings search catalog', () => {
   it.each([
-    ['sign in to an agent', 'Sign in to an agent', 'settings-section-accounts'],
+    [
+      'sign in claude',
+      'Subscription logins on your machines',
+      'settings-section-credentials',
+    ],
+    ['add an api key', 'Your credentials', 'settings-section-credentials'],
     ['let someone run agents', 'Let someone run agents on a machine', 'settings-section-machines'],
     ['adopt an unowned machine', 'Adopt an unowned machine', 'settings-section-machines'],
     ['pending invites', 'Pending invites', 'settings-section-pending-invites'],

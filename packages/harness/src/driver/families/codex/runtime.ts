@@ -1,4 +1,5 @@
 import { withDeliveryQueue } from '../../delivery-queue.js'
+
 /**
  * THE codex app-server DRIVER (POD-1761 W6; spec §2, §3, §5, §6).
  *
@@ -55,8 +56,6 @@ import { withDeliveryQueue } from '../../delivery-queue.js'
  * would be fabricating exactly the state the house rules forbid.
  */
 
-import { type AgentStateEvent } from '../../../agent-state/types.js'
-import { reduceAgentState } from '../../../observer.js'
 import type {
   AgentRuntimeState,
   HarnessRef,
@@ -65,7 +64,7 @@ import type {
   TranscriptItem,
   TranscriptItemRef,
 } from '@podium/model'
-import { mergeHarnessRefs, transcriptItemRefOf } from '@podium/model'
+import { CHATGPT_APP_NAME, mergeHarnessRefs, transcriptItemRefOf } from '@podium/model'
 import {
   DEFAULT_SESSION_POSTURE,
   type ObservationProvenance,
@@ -77,7 +76,10 @@ import type {
   RuntimeHistoryPage,
   RuntimeHistoryRange,
 } from '@podium/protocol/daemon'
+import { CODEX_PLAN_PROVIDER_ID } from '../../../adapters/codex/plan-provider.js'
+import type { AgentStateEvent } from '../../../agent-state/types.js'
 import type { HarnessContext } from '../../../harness-context-types.js'
+import { reduceAgentState } from '../../../observer.js'
 import type { PodiumGrants } from '../../../posture-types.js'
 import type { AttachEndpoint, AttachRequest, SessionLease } from '../../attach.js'
 import type {
@@ -123,13 +125,13 @@ import {
   type Refusal,
   type SendOptions,
   splitAttachments,
-  textWithAttachmentPaths,
   type TurnInput,
   type TurnReceipt,
+  textWithAttachmentPaths,
 } from '../../turns.js'
-import { driverLocalCursor, stampRuntimeEvent } from '../terminal/envelope.js'
-import type { SessionDriverSlots } from '../session-slots.js'
 import type { EngineBindingRecords } from '../engine-supervision.js'
+import type { SessionDriverSlots } from '../session-slots.js'
+import { driverLocalCursor, stampRuntimeEvent } from '../terminal/envelope.js'
 import { codexAppServerCapabilities } from './capabilities.js'
 import { type CodexClient, type CodexClientConfig, createCodexClient } from './client.js'
 import {
@@ -432,6 +434,14 @@ export interface CodexJournalEntry {
    * written before this field existed simply have no title.
    */
   title?: string
+  /**
+   * The model provider Codex reported for the thread at `thread/start` or
+   * `thread/resume`. A session on a ChatGPT plan signed in to Podium reports
+   * {@link CODEX_PLAN_PROVIDER_ID}; its auth failures are read differently
+   * (see `describeTurnError`). Journalled so an adopted survivor, which gets
+   * no resume answer, still knows. Optional: older entries have none.
+   */
+  modelProvider?: string
   process: ProcessIdentity
   /** The event-stream high-water mark, so a rebind resumes rather than replays
    *  and so `seq` stays monotonic across it. */
@@ -519,6 +529,20 @@ function entryPairing(entry: AwaitedEntry, seen: SeenUserItem): EntryPairing | u
 }
 
 export const CODEX_APP_SERVER_DRIVER_ID = 'codex-app-server'
+
+/** What `thread/start` and `thread/resume` answer, as far as this driver reads it. */
+type ThreadAnswer = {
+  thread?: { id?: string; path?: string | null; modelProvider?: string | null }
+  modelProvider?: string | null
+}
+
+const modelProviderOf = (answer: ThreadAnswer): string | undefined =>
+  answer.modelProvider ?? answer.thread?.modelProvider ?? undefined
+
+/** Is this session running on a ChatGPT plan signed in to Podium? */
+const planOf = (session: { modelProvider: string | undefined }): { planProvider: boolean } => ({
+  planProvider: session.modelProvider === CODEX_PLAN_PROVIDER_ID,
+})
 
 // ---------------------------------------------------------------------------
 // Per-session state
@@ -615,6 +639,8 @@ interface DriverSession {
   checkingEntry: Set<AwaitedEntry>
   usage: UsageSnapshot | undefined
   title: string | undefined
+  /** See {@link CodexJournalEntry.modelProvider}. */
+  modelProvider: string | undefined
 }
 
 export interface CodexRuntime {
@@ -710,6 +736,7 @@ export function createCodexRuntime(
       ...(session.rolloutPath ? { rolloutPath: session.rolloutPath } : {}),
       model: session.spec.model,
       ...(session.title ? { title: session.title } : {}),
+      ...(session.modelProvider ? { modelProvider: session.modelProvider } : {}),
       process: session.binding.process,
       seq: session.seq,
       turnEpoch: session.turnEpoch,
@@ -931,8 +958,11 @@ export function createCodexRuntime(
         break
       }
       case 'error': {
+        // Codex is retrying (on a 401 it tries five times, POD-6894 §7): the
+        // turn has not failed yet. Only the last word ends it.
+        if (note.params.willRetry === true) break
         const at = iso()
-        const detail = describeTurnError(note.params)
+        const detail = describeTurnError(note.params, planOf(session))
         emit(
           session,
           {
@@ -1392,7 +1422,7 @@ export function createCodexRuntime(
      */
     let change: AgentStateEvent
     if (turn.status === 'failed') {
-      const detail = describeTurnError(turn.error)
+      const detail = describeTurnError(turn.error, planOf(session))
       publishInterruptMark(session, { kind: 'failed', reason: detail.reason }, at)
       emit(
         session,
@@ -1985,8 +2015,12 @@ export function createCodexRuntime(
 
       // ---- turns ----
       async send(input: TurnInput, options: SendOptions): Promise<TurnReceipt> {
-        if (options.signal?.aborted) return { outcome: 'refused', refusal: { reason: 'not_running' } }
-        if (options.deliveryAttempt && (busy(session) || session.lease?.kind === 'human-controller')) {
+        if (options.signal?.aborted)
+          return { outcome: 'refused', refusal: { reason: 'not_running' } }
+        if (
+          options.deliveryAttempt &&
+          (busy(session) || session.lease?.kind === 'human-controller')
+        ) {
           return { outcome: 'refused', refusal: { reason: busy(session) ? 'busy' : 'lease_held' } }
         }
         if (session.disposed) return refuse('not_running')
@@ -2528,8 +2562,13 @@ export function createCodexRuntime(
       },
     }
 
-    return withDeliveryQueue(handle, (event) => emit(session, event, iso()), undefined, () => !session.disposed,
-      slots.deliveryJournal?.(session.sessionId))
+    return withDeliveryQueue(
+      handle,
+      (event) => emit(session, event, iso()),
+      undefined,
+      () => !session.disposed,
+      slots.deliveryJournal?.(session.sessionId),
+    )
   }
 
   /** Ask Codex to stop the open turn. Idempotent-ish: a precondition failure
@@ -2621,7 +2660,9 @@ export function createCodexRuntime(
     })
     try {
       await client.handshake({
-        clientInfo: { name: 'podium', title: 'Podium', version: '1' },
+        // OpenAI attributes a ChatGPT plan's use to the app named at
+        // registration, so the name is that one (credential management §11).
+        clientInfo: { name: CHATGPT_APP_NAME, title: 'Podium', version: '1' },
         capabilities: {
           // Codex gates newer methods behind this; the driver reads only shapes it
           // pinned, so opting in costs nothing and keeps the surface uniform.
@@ -2692,6 +2733,8 @@ export function createCodexRuntime(
     connection: CodexConnection
     threadId: CodexThreadId
     rolloutPath: string | undefined
+    /** What `thread/start` or `thread/resume` reported; absent on adopt. */
+    modelProvider?: string | undefined
     bindingVersion: number
     observerGeneration: number
   }): Promise<AgentSessionHandle> {
@@ -2743,6 +2786,7 @@ export function createCodexRuntime(
       checkingEntry: new Set(),
       usage: undefined,
       title: journalled?.title,
+      modelProvider: input.modelProvider ?? journalled?.modelProvider,
     }
     registerSession(input.sessionId, session)
     wire(session, input.connection)
@@ -2808,9 +2852,7 @@ export function createCodexRuntime(
      * to refuse. It also returns the rollout `path`, which is what makes
      * `export()` byte-faithful.
      */
-    const started = await connection.client.call<{
-      thread?: { id?: string; path?: string | null }
-    }>(CODEX_METHODS.threadStart, {
+    const started = await connection.client.call<ThreadAnswer>(CODEX_METHODS.threadStart, {
       cwd: spec.workdir,
       ...(modelOf(spec) ? { model: modelOf(spec) } : {}),
     })
@@ -2827,6 +2869,7 @@ export function createCodexRuntime(
       connection,
       threadId,
       rolloutPath: started.thread?.path ?? undefined,
+      modelProvider: modelProviderOf(started),
       bindingVersion: 1,
       observerGeneration: 1,
     })
@@ -2870,10 +2913,12 @@ export function createCodexRuntime(
     let connection: CodexConnection | undefined
     try {
       connection = await connect(endpoint, input.sessionId)
-      const resumed = await connection.client.call<{
-        thread?: { id?: string; path?: string | null }
-      }>(CODEX_METHODS.threadResume, {
+      const resumed = await connection.client.call<ThreadAnswer>(CODEX_METHODS.threadResume, {
         threadId: input.threadId,
+        // Only the thread is needed here: the transcript is read from the
+        // rollout. Codex 0.169 deprecates full-history hydration on resume
+        // (POD-6894 report §6).
+        excludeTurns: true,
         // For a running thread Codex checks this against its active rollout.
         // For an unloaded one path takes precedence, so check the returned id.
         ...(input.rolloutPath ? { path: input.rolloutPath } : {}),
@@ -2895,6 +2940,7 @@ export function createCodexRuntime(
         connection,
         threadId: resumed.thread.id,
         rolloutPath: resumed.thread.path ?? input.rolloutPath,
+        modelProvider: modelProviderOf(resumed),
         bindingVersion: input.bindingVersion,
         observerGeneration: input.observerGeneration,
       })

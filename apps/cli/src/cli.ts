@@ -143,6 +143,7 @@ const HELP_DELEGATED = new Set([
   'instance',
   'logs',
   'perf',
+  'vault',
 ])
 
 /** First token the launch path does not understand (skipping value-flag arguments). */
@@ -235,6 +236,8 @@ export type LaunchPlan =
   | { kind: 'machine'; args: string[] }
   /** `podium instance rekey`: mint a new owner UUID for a copied state root. */
   | { kind: 'instance'; args: string[] }
+  /** `podium vault status|reset --confirm`: the credential vault's key (POD-6889). */
+  | { kind: 'vault'; args: string[] }
   | { kind: 'join-config'; token: string }
   | { kind: 'set-server'; target: string }
   | { kind: 'server-transfer-promote'; transferId: string }
@@ -765,6 +768,7 @@ export function resolvePlan(
   if (argv[0] === 'machine' || argv[0] === 'machines')
     return { kind: 'machine', args: argv.slice(1) }
   if (argv[0] === 'instance') return { kind: 'instance', args: argv.slice(1) }
+  if (argv[0] === 'vault') return { kind: 'vault', args: argv.slice(1) }
   // `podium join-config <TOKEN>`: non-interactive daemon configuration from a join token
   // (used by `install.sh --join`). Writes config; the daemon is started separately.
   if (argv[0] === 'join-config') {
@@ -1056,6 +1060,8 @@ export function helpText(enabledFeatures: ReadonlySet<FeatureId> = new Set()): s
     'Work tools (each has its own help, e.g. `podium issue --help`):',
     '  issue <command>       Drive the native issue tracker',
     '  instance rekey         Mint a fresh owner UUID for a copied state root',
+    '  vault status           Where the credential vault key file is, and whether it opens',
+    '  vault reset --confirm  Delete every stored secret after the key file was lost',
     ...(enabledFeatures.has('specs')
       ? ['  spec <command>        Read/maintain the living project spec (<repo>/pspec/)']
       : []),
@@ -1779,6 +1785,11 @@ export async function main(
         console.error(`invalid join token: ${(e as Error).message}`)
         process.exit(2)
       }
+      return
+    }
+    case 'vault': {
+      const { vaultCliMain } = await import('./vault-cli')
+      await vaultCliMain(plan.args)
       return
     }
     case 'instance': {

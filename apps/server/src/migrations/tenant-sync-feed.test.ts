@@ -32,13 +32,30 @@ describe('tenant feed migration', () => {
           string,
           unknown
         >[]
+        // The tenant migration itself keeps every generation. A later migration
+        // that rewrites a synced table bumps its kinds' generations, as the
+        // sync-generation audit requires, so this is read right after it.
+        runDrizzleMigrations(db, DRIZZLE_MIGRATIONS.slice(0, cut + 1))
+        expect(db.prepare('SELECT * FROM sync_kind ORDER BY kind').all()).toEqual(
+          generations.map((r) => ({ ...r, tenant_id: 'local' })),
+        )
         runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
         expect(db.prepare('SELECT * FROM changes ORDER BY seq').all()).toEqual(
           before.map((r) => ({ ...r, workspace_id: 'local' })),
         )
-        expect(db.prepare('SELECT * FROM sync_kind ORDER BY kind').all()).toEqual(
-          generations.map((r) => ({ ...r, workspace_id: 'local' })),
-        )
+        // The credential migration (POD-6857) invalidates the session records and the
+        // notices: one generation up each, or 1 for a kind with no row yet.
+        const bumped = ['session', 'sessionUserState', 'message', 'inboxNotice']
+        const expected: Record<string, unknown>[] = generations.map((r) => ({
+          ...r,
+          workspace_id: 'local',
+          generation: bumped.includes(String(r.kind)) ? Number(r.generation) + 1 : r.generation,
+        }))
+        for (const kind of bumped)
+          if (!expected.some((r) => r.kind === kind))
+            expected.push({ kind, generation: 1, workspace_id: 'local' })
+        expected.sort((x, y) => (String(x.kind) < String(y.kind) ? -1 : 1))
+        expect(db.prepare('SELECT * FROM sync_kind ORDER BY kind').all()).toEqual(expected)
         const sync = new SyncRepository(
           workspaceQueries(syncQueriesOver(db), SELF_HOSTED_WORKSPACE_ID),
           syncServerTables,

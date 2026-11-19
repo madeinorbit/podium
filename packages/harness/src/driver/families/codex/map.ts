@@ -274,10 +274,28 @@ export function idleToStateEvent(
   return { kind: 'turn_completed', verdict: { kind: verdict }, at }
 }
 
+/** The sentence a turn that outlived its ChatGPT plan token fails with. */
+export const PLAN_TOKEN_EXPIRED_TEXT =
+  "The ChatGPT plan's access token expired during this turn. Podium restarts the session with a fresh token before the next turn."
+
+/** OpenAI's word for a grant the person disconnected (POD-6894 report §7). */
+const TOKEN_REVOKED = 'token_revoked'
+
 /** A failed turn's error → the contract's failure vocabulary. Unknown shapes are
  *  `provider-error`/`retryable`: a failure we cannot classify is still a failure,
- *  and guessing `fatal` would end a session a retry might save. */
-export function describeTurnError(error: unknown): {
+ *  and guessing `fatal` would end a session a retry might save.
+ *
+ *  ON A CHATGPT PLAN SIGNED IN TO PODIUM (`planProvider`) the token is
+ *  Podium's to renew, and an engine cannot take a new one while it runs. So an
+ *  auth failure there is the token running out under a long turn: readable and
+ *  retryable, never a sign-in ask, because Podium restarts the engine with a
+ *  fresh token at this very boundary. Only a failure that names
+ *  `token_revoked` (the person disconnected Podium in ChatGPT) is final; Codex
+ *  reports it only in the text, after five retries. */
+export function describeTurnError(
+  error: unknown,
+  context: { planProvider?: boolean } = {},
+): {
   reason:
     | 'rate-limit'
     | 'auth-expired'
@@ -291,10 +309,26 @@ export function describeTurnError(error: unknown): {
   const message = isRecord(error) ? (str(error.message) ?? '') : ''
   const lower = message.toLowerCase()
   const text = message ? truncate(message, 500) : undefined
-  if (lower.includes('rate limit') || lower.includes('429')) {
+  // Status codes as whole numbers: Codex's text carries the URL (with its
+  // port) and request ids, where "429" or "401" can appear inside another
+  // number.
+  if (lower.includes('rate limit') || /\b429\b/.test(lower)) {
     return { reason: 'rate-limit', disposition: 'retryable', ...(text ? { text } : {}) }
   }
-  if (lower.includes('unauthor') || lower.includes('auth') || lower.includes('401')) {
+  if (lower.includes(TOKEN_REVOKED)) {
+    return { reason: 'auth-expired', disposition: 'needs-human', ...(text ? { text } : {}) }
+  }
+  if (lower.includes('unauthor') || lower.includes('auth') || /\b401\b/.test(lower)) {
+    if (context.planProvider) {
+      return {
+        reason: 'provider-error',
+        disposition: 'retryable',
+        text: truncate(
+          text ? `${PLAN_TOKEN_EXPIRED_TEXT} (${text})` : PLAN_TOKEN_EXPIRED_TEXT,
+          500,
+        ),
+      }
+    }
     return { reason: 'auth-expired', disposition: 'needs-human', ...(text ? { text } : {}) }
   }
   if (lower.includes('context') && lower.includes('window')) {

@@ -38,6 +38,7 @@ import {
   machineAccessRowId,
 } from '../entities/machine-projection'
 import { MessageRecordWire } from '../entities/message-record'
+import { NoticeWire, noticeRowId } from '../entities/notice'
 import { PendingInteractionWire } from '../entities/pending-interaction'
 import { RepoProjection } from '../entities/repo'
 import { SessionMeta } from '../entities/session'
@@ -871,6 +872,17 @@ const issuePanelState = defineRecord({
   why: "An issue's panel state line and its notes time.",
 })
 
+const inboxNotice = defineRecord({
+  builderShape: 'row',
+  kind: 'inboxNotice',
+  replicaKind: 'inboxNotices',
+  schema: NoticeWire,
+  rowKey: (row) => noticeRowId(row.recipientUserId, row.noticeId),
+  group: 'always',
+  collections: { all: ALL },
+  why: "One open notice in one person's inbox (POD-6881, credential management spec §13); a resolved notice is a remove.",
+})
+
 /** Every record type, in wire order. */
 export const RECORDS = [
   session,
@@ -911,4 +923,5 @@ export const RECORDS = [
   issuePanelArtifact,
   issuePanelDeferred,
   issuePanelState,
+  inboxNotice,
 ] as const

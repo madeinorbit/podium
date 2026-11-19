@@ -1,3 +1,4 @@
+import { createLogger } from '@podium/logger'
 import type {
   AgentKind,
   AgentQuotaWire,
@@ -20,12 +21,16 @@ import type {
 } from '@podium/model'
 import { asMachineId, resolveMachinePath } from '@podium/model'
 import type {
+  AccessField,
   BrowseDirsResultMessage,
   CodexCompleteResultMessage,
   CodexLlmMessageWire,
   CodexLlmToolWire,
+  ConversationPrepareRequestMessage,
+  ConversationPrepareResultMessage,
   CredentialExportResultMessage,
   CredentialInstallResultMessage,
+  CredentialRemoveResultMessage,
   DevArtifactProbeResultMessage,
   DirListResultMessage,
   DirOp,
@@ -40,8 +45,13 @@ import type {
   HandoffExportResultMessage,
   HandoffImportChunkResultMessage,
   HandoffImportResultMessage,
+  HomeEnsureResultMessage,
+  HomeHarness,
+  HomeRemoveResultMessage,
   InteractionAnswerOutcome,
   ModelChoiceWire,
+  OauthLoopbackCallbackMessage,
+  OauthLoopbackResultMessage,
   ObservationInputOrigin,
   PortableCredentialBundle,
   PortableCredentialKind,
@@ -284,6 +294,19 @@ const WORKSPACE_IMPORT = daemonRequestKind<Payload<WorkspaceImportResultMessage>
 const WORKSPACE_CLEAN = daemonRequestKind<Payload<WorkspaceCleanResultMessage>>('wc')
 const CREDENTIAL_EXPORT = daemonRequestKind<Payload<CredentialExportResultMessage>>('ce')
 const CREDENTIAL_INSTALL = daemonRequestKind<Payload<CredentialInstallResultMessage>>('ci')
+/** Sign in with ChatGPT's loopback listener (credential management §11). */
+const OAUTH_LOOPBACK = daemonRequestKind<Payload<OauthLoopbackResultMessage>>('ol')
+const OAUTH_LOOPBACK_ACK_TIMEOUT_MS = 15_000
+/** A callback is accepted this long past the listener's own time. */
+const OAUTH_LOOPBACK_GRACE_MS = 30_000
+// Harness homes (credential management §10) and the removal of a login file
+// propagation copied (§8 cleanup), on a daemon that offered harness.homes.v1.
+const HOME_ENSURE = daemonRequestKind<Payload<HomeEnsureResultMessage>>('hn')
+const HOME_REMOVE = daemonRequestKind<Payload<HomeRemoveResultMessage>>('hd')
+const CREDENTIAL_REMOVE = daemonRequestKind<Payload<CredentialRemoveResultMessage>>('cx')
+// A conversation placed for another credential's home (§9), on a daemon that
+// offered conversation.prepare.v1.
+const CONVERSATION_PREPARE = daemonRequestKind<Payload<ConversationPrepareResultMessage>>('cp')
 const SERVER_TRANSFER = daemonRequestKind<Payload<ServerTransferResultMessage>>('st')
 const SERVER_ENDPOINT = daemonRequestKind<Payload<ServerEndpointResultMessage>>('sm')
 const SHIPPING_JOB = daemonRequestKind<ShippingJobResult>('sj')
@@ -298,6 +321,8 @@ const RUNTIME_STAGE_ATTACHMENT =
 const RUNTIME_SEND = daemonRequestKind<TurnReceipt>('rs')
 const RUNTIME_LIFECYCLE = daemonRequestKind<Payload<RuntimeLifecycleResultMessage>>('rl')
 const RUNTIME_ANSWER = daemonRequestKind<InteractionAnswerOutcome>('ra')
+const log = createLogger('server:daemon-rpc')
+
 /** The observation bootstrap (POD-2023). Its result is the union the frame
  *  carries — a snapshot, or the typed refusal for a session that is not behind
  *  the contract. The server no longer SENDS runtimeHistoryRequest (POD-4783:
@@ -311,7 +336,7 @@ const RUNTIME_CONFIGURE = daemonRequestKind<Payload<RuntimeConfigureResultMessag
 
 /** How ONE reply frame settles: pick the family, project the payload, hand both
  *  to the correlator along with the machine that answered. */
-type ReplySettler<K extends RpcDaemonFrameType> = (
+type ReplySettler<K extends SettledFrameType> = (
   broker: DaemonRequestPort,
   machineId: MachineId,
   msg: Extract<DaemonMessage, { type: K }>,
@@ -332,7 +357,10 @@ const payloadOf = <M extends { type: string; requestId: string }>(msg: M): Paylo
  * minus the twenty-three methods. Every row is a projection and nothing else:
  * no map, no timer, no delete. Settling belongs to the broker.
  */
-const RPC_REPLY_SETTLERS: { [K in RpcDaemonFrameType]: ReplySettler<K> } = {
+/** The loopback callback is not a reply: `settleDaemonReply` hands it to its listener. */
+type SettledFrameType = Exclude<RpcDaemonFrameType, 'oauthLoopbackCallback'>
+
+const RPC_REPLY_SETTLERS: { [K in SettledFrameType]: ReplySettler<K> } = {
   scanResult: (broker, machineId, msg) =>
     void broker.settle(SCAN, msg.requestId, machineId, {
       conversations: msg.conversations,
@@ -429,6 +457,16 @@ const RPC_REPLY_SETTLERS: { [K in RpcDaemonFrameType]: ReplySettler<K> } = {
     void broker.settle(SHIPPING_REPAIR_APPLY, msg.requestId, machineId, payloadOf(msg)),
   credentialInstallResult: (broker, machineId, msg) =>
     void broker.settle(CREDENTIAL_INSTALL, msg.requestId, machineId, payloadOf(msg)),
+  oauthLoopbackResult: (broker, machineId, msg) =>
+    void broker.settle(OAUTH_LOOPBACK, msg.requestId, machineId, payloadOf(msg)),
+  homeEnsureResult: (broker, machineId, msg) =>
+    void broker.settle(HOME_ENSURE, msg.requestId, machineId, payloadOf(msg)),
+  homeRemoveResult: (broker, machineId, msg) =>
+    void broker.settle(HOME_REMOVE, msg.requestId, machineId, payloadOf(msg)),
+  credentialRemoveResult: (broker, machineId, msg) =>
+    void broker.settle(CREDENTIAL_REMOVE, msg.requestId, machineId, payloadOf(msg)),
+  conversationPrepareResult: (broker, machineId, msg) =>
+    void broker.settle(CONVERSATION_PREPARE, msg.requestId, machineId, payloadOf(msg)),
   runtimeStageAttachmentResult: (broker, machineId, msg) =>
     void broker.settle(RUNTIME_STAGE_ATTACHMENT, msg.requestId, machineId, payloadOf(msg)),
   runtimeSendResult: (broker, machineId, msg) =>
@@ -464,6 +502,11 @@ const RPC_REPLY_SETTLERS: { [K in RpcDaemonFrameType]: ReplySettler<K> } = {
 export class DaemonRpcService {
   private readonly broker: DaemonRequestPort
   private readonly serverTransferDigests = new Map<string, string>()
+  /** Open loopback listeners: who listens, and where its callback goes. Ten minutes at most. */
+  private readonly loopbacks = new Map<
+    string,
+    { machineId: MachineId; onCallback: (callback: Payload<OauthLoopbackCallbackMessage>) => void }
+  >()
 
   constructor(private readonly deps: DaemonRpcDeps) {
     this.broker =
@@ -934,8 +977,8 @@ export class DaemonRpcService {
       timeoutMs?: number
       model?: string
       effort?: string
-      /** A headless turn's managed credential (POD-6733); never logged. */
-      env?: Record<string, string>
+      /** A headless turn's credential (POD-6733, credential management §8); never logged. */
+      access?: AccessField
     },
     machineId: MachineId,
   ): Promise<TurnReceipt> {
@@ -982,7 +1025,7 @@ export class DaemonRpcService {
         ...(input.rowId && input.deliveryRecovery && input.held === 'durable'
           ? { held: 'durable' as const }
           : {}),
-        ...(input.env && Object.keys(input.env).length > 0 ? { env: { ...input.env } } : {}),
+        ...(input.access ? { access: input.access } : {}),
         // Appended at the END, as the frame declares it (POD-6858).
         ...(input.posture ? { posture: input.posture } : {}),
       }),
@@ -1179,6 +1222,67 @@ export class DaemonRpcService {
     )
   }
 
+  /**
+   * Ask one daemon to listen on `127.0.0.1:<port>` for a ChatGPT sign-in's
+   * callback (credential management §11). Answers whether it listens; the
+   * callback, if the browser returns there, goes to `onCallback` once, and only
+   * when the machine that listens sends it.
+   */
+  async oauthLoopbackListen(
+    machineId: MachineId,
+    i: { port: number; state: string; ttlMs: number },
+    onCallback: (callback: Payload<OauthLoopbackCallbackMessage>) => void,
+  ): Promise<{ listening: boolean; error?: string; listenerId?: string }> {
+    let requestId: string | undefined
+    const answer = await this.request(
+      OAUTH_LOOPBACK,
+      OAUTH_LOOPBACK_ACK_TIMEOUT_MS,
+      () => ({
+        listening: false,
+        error: 'This machine did not answer. Its Podium may be too old to listen for a sign-in.',
+      }),
+      (id) => {
+        requestId = id
+        this.loopbacks.set(id, { machineId, onCallback })
+        setTimeout(() => this.loopbacks.delete(id), i.ttlMs + OAUTH_LOOPBACK_GRACE_MS).unref?.()
+        return {
+          type: 'oauthLoopbackRequest',
+          requestId: id,
+          port: i.port,
+          path: '/auth/callback',
+          state: i.state,
+          ttlMs: i.ttlMs,
+        }
+      },
+      machineId,
+    )
+    if (!answer.listening && requestId) this.loopbacks.delete(requestId)
+    return answer.listening && requestId ? { ...answer, listenerId: requestId } : answer
+  }
+
+  /** Close a listener the server no longer needs; a no-op once it has closed. */
+  oauthLoopbackCancel(machineId: MachineId, listenerId: string): void {
+    if (!this.loopbacks.delete(listenerId)) return
+    try {
+      this.deps.toMachine(machineId, { type: 'oauthLoopbackCancel', requestId: listenerId })
+    } catch (err) {
+      log.warn('could not cancel a sign-in listener', { err, machineId })
+    }
+  }
+
+  private onLoopbackCallback(machineId: MachineId, msg: OauthLoopbackCallbackMessage): void {
+    const listener = this.loopbacks.get(msg.requestId)
+    if (!listener || listener.machineId !== machineId) {
+      log.warn('dropped a sign-in callback no listener of this machine expects', {
+        requestId: msg.requestId,
+        machineId,
+      })
+      return
+    }
+    this.loopbacks.delete(msg.requestId)
+    listener.onCallback(payloadOf(msg))
+  }
+
   /** Atomically install allowlisted auth files on one authenticated daemon. */
   async credentialInstall(
     bundles: PortableCredentialBundle[],
@@ -1198,6 +1302,77 @@ export class DaemonRpcService {
           ? { expectedFingerprint: options.expectedFingerprint }
           : {}),
       }),
+      machineId,
+    )
+  }
+
+  /** Make sure the home for a credential and harness exists on one daemon. */
+  async homeEnsure(
+    credentialId: string,
+    harness: HomeHarness,
+    machineId: MachineId,
+  ): Promise<Payload<HomeEnsureResultMessage>> {
+    return await this.request(
+      HOME_ENSURE,
+      15_000,
+      () => ({ ok: false, error: 'The machine did not answer in time.' }),
+      (requestId) => ({ type: 'homeEnsureRequest', requestId, credentialId, harness }),
+      machineId,
+    )
+  }
+
+  /**
+   * Remove a home on one daemon. Generous: the daemon first stops the
+   * sessions in it and Codex's own daemon there, and the directory can hold
+   * Codex's 400 MB installed copy.
+   */
+  async homeRemove(
+    homeId: string,
+    machineId: MachineId,
+    options: { signOut?: boolean } = {},
+  ): Promise<Payload<HomeRemoveResultMessage>> {
+    return await this.request(
+      HOME_REMOVE,
+      120_000,
+      () => ({ ok: false, error: 'The machine did not answer in time.' }),
+      (requestId) => ({
+        type: 'homeRemoveRequest',
+        requestId,
+        homeId,
+        ...(options.signOut ? { signOut: true } : {}),
+      }),
+      machineId,
+    )
+  }
+
+  /** Remove the login file propagation copied, while its fingerprint matches. */
+  async credentialRemove(
+    harness: HomeHarness,
+    fingerprint: string,
+    machineId: MachineId,
+  ): Promise<Payload<CredentialRemoveResultMessage>> {
+    return await this.request(
+      CREDENTIAL_REMOVE,
+      15_000,
+      () => ({ outcome: 'failed', error: 'The machine did not answer in time.' }),
+      (requestId) => ({ type: 'credentialRemoveRequest', requestId, harness, fingerprint }),
+      machineId,
+    )
+  }
+
+  /**
+   * Put a session's conversation where a resume in `toHomeId` finds it
+   * (credential management §9). Generous: a Codex rollout can be large.
+   */
+  async conversationPrepare(
+    input: Omit<ConversationPrepareRequestMessage, 'type' | 'requestId'>,
+    machineId: MachineId,
+  ): Promise<Payload<ConversationPrepareResultMessage>> {
+    return await this.request(
+      CONVERSATION_PREPARE,
+      60_000,
+      () => ({ ok: false, error: 'The machine did not answer in time.' }),
+      (requestId) => ({ type: 'conversationPrepareRequest', requestId, ...input }),
       machineId,
     )
   }
@@ -1982,6 +2157,8 @@ export class DaemonRpcService {
     bindHost: ServerBindHost,
     machineId: MachineId,
     port: number,
+    // SECRET when it holds a key: the request is built here and sent, never logged or kept.
+    vault: { vaultDataKey?: string | null; vaultCheck?: string } = {},
   ): Promise<Payload<ServerTransferResultMessage>> {
     this.serverTransferDigests.set(machineId + ':' + transferId, manifestDigest)
     return await this.request(
@@ -2005,6 +2182,7 @@ export class DaemonRpcService {
         port,
         targetMode: 'server',
         idempotencyKey: transferId,
+        ...vault,
       }),
       machineId,
     )
@@ -2116,7 +2294,11 @@ export class DaemonRpcService {
    * writing it twenty-three times, which is how it came to be missing.
    */
   settleDaemonReply(machineId: MachineId, msg: RpcDaemonFrame): void {
-    const settle = RPC_REPLY_SETTLERS[msg.type] as ReplySettler<RpcDaemonFrameType>
+    if (msg.type === 'oauthLoopbackCallback') {
+      this.onLoopbackCallback(machineId, msg)
+      return
+    }
+    const settle = RPC_REPLY_SETTLERS[msg.type] as ReplySettler<SettledFrameType>
     settle(this.broker, machineId, msg)
   }
 }

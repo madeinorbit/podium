@@ -307,7 +307,7 @@ describe('settings page commands', () => {
       .getAllByRole('option')
       .filter((entry) => entry.textContent?.includes('Settings ·'))
     expect(entries).toHaveLength(13)
-    expect(entries.map((entry) => entry.textContent).join(' ')).toContain('AI accounts')
+    expect(entries.map((entry) => entry.textContent).join(' ')).toContain('Credentials')
     expect(entries.map((entry) => entry.textContent).join(' ')).toContain('Audit log')
     fireEvent.click(entries.find((entry) => entry.textContent?.includes('Agents'))!)
     expect(fixture.store.setSettingsTab).toHaveBeenCalledWith('agents')
