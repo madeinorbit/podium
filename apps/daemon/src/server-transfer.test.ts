@@ -112,15 +112,16 @@ async function candidateFiles(
     )
     db.prepare('INSERT INTO __drizzle_migrations (name) VALUES (?)').run('schema-1')
     if (vault) {
+      // One row per workspace since the workspace store (POD-6959); a self-hosted file holds one.
       db.exec(`CREATE TABLE vault_key (
-        id integer PRIMARY KEY, key_id text NOT NULL, wrapped_data_key text NOT NULL,
-        created_at text NOT NULL, CONSTRAINT "vault_key_one_row" CHECK(id = 1))`)
+        id integer NOT NULL, key_id text NOT NULL, wrapped_data_key text NOT NULL,
+        created_at text NOT NULL, workspace_id text NOT NULL,
+        CONSTRAINT vault_key_pk PRIMARY KEY (workspace_id, id),
+        CONSTRAINT "vault_key_one_row" CHECK(id = 1))`)
       if (vault !== 'empty')
-        db.prepare('INSERT INTO vault_key VALUES (1, ?, ?, ?)').run(
-          vault.keyId,
-          vault.wrapped,
-          'then',
-        )
+        db.prepare(
+          "INSERT INTO vault_key (id, key_id, wrapped_data_key, created_at, workspace_id) VALUES (1, ?, ?, ?, 'ws_self')",
+        ).run(vault.keyId, vault.wrapped, 'then')
     }
   } finally {
     db.close()

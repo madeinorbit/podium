@@ -131,12 +131,17 @@ describe('fileKeyProvider', () => {
 })
 
 describe('the wrapped data key row', () => {
+  // One row per workspace (POD-6959); the database's one workspace is its feed's.
   const VAULT_KEY_DDL = `CREATE TABLE vault_key (
-    id INTEGER PRIMARY KEY NOT NULL CHECK (id = 1),
+    workspace_id TEXT NOT NULL,
+    id INTEGER NOT NULL CHECK (id = 1),
     key_id TEXT NOT NULL,
     wrapped_data_key TEXT NOT NULL,
-    created_at TEXT NOT NULL
-  )`
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (workspace_id, id)
+  );
+  CREATE TABLE sync_feed (workspace_id TEXT PRIMARY KEY);
+  INSERT INTO sync_feed VALUES ('ws_self')`
 
   it('round-trips through writeWrappedDataKey and readWrappedDataKey', async () => {
     const db = openDatabase(':memory:')

@@ -134,6 +134,10 @@ const SMALL_TABLES: ReadonlyMap<string, string> = new Map([
     'Machines an owner sent a key to by hand, a few per key. Read whole only by the one-time move into the vault.',
   ],
   [
+    'credential_placements',
+    'What Podium placed on a machine for a credential: a home or a copied login file per machine a person uses it on, a few per credential.',
+  ],
+  [
     'credential_secrets',
     'One sealed secret per credential (older versions are deleted on write); people add credentials by hand. Only a vault reset reads it whole.',
   ],

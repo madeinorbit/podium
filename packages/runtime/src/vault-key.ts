@@ -173,31 +173,59 @@ export async function fileKeyProvider(path: string): Promise<KeyProvider> {
 }
 
 interface WrappedRow {
+  workspace_id: string
   key_id: string
   wrapped_data_key: string
 }
 
+/**
+ * The rows of a self-hosted database's vault: one per workspace, and a self-hosted
+ * database holds one workspace (POD-6959). A file holding more is not one this
+ * whole-file tooling (the server transfer) may treat as one vault.
+ */
+function vaultRows(db: SqlDatabase): WrappedRow[] {
+  const rows = db
+    .prepare('SELECT workspace_id, key_id, wrapped_data_key FROM vault_key WHERE id = 1')
+    .all() as WrappedRow[]
+  if (rows.length > 1) throw new Error("the database holds more than one workspace's vault")
+  return rows
+}
+
 /** The wrapped data key as stored in `vault_key`, or null when the vault has none. */
 export function readWrappedDataKey(db: SqlDatabase): { keyId: string; wrapped: Buffer } | null {
-  const row = db.prepare('SELECT key_id, wrapped_data_key FROM vault_key WHERE id = 1').get() as
-    | WrappedRow
-    | undefined
+  const [row] = vaultRows(db)
   if (!row) return null
   return { keyId: row.key_id, wrapped: Buffer.from(row.wrapped_data_key, 'base64') }
 }
 
-/** Wrap `dataKey` under `provider` and store it as the vault's one data key row. */
+/**
+ * Wrap `dataKey` under `provider` and store it as the vault's one data key row: the
+ * row of the database's one workspace, the one its vault already names or, with
+ * none yet, the one its change feed names.
+ */
 export async function writeWrappedDataKey(
   db: SqlDatabase,
   provider: KeyProvider,
   dataKey: Buffer,
 ): Promise<void> {
+  const [existing] = vaultRows(db)
+  const workspaceId =
+    existing?.workspace_id ??
+    (
+      db.prepare('SELECT workspace_id FROM sync_feed ORDER BY workspace_id LIMIT 2').all() as {
+        workspace_id: string
+      }[]
+    ).reduce<string | undefined>((only, row, i) => {
+      if (i > 0) throw new Error("the database holds more than one workspace's feed")
+      return row.workspace_id ?? only
+    }, undefined)
+  if (workspaceId === undefined) throw new Error('the database has no workspace to hold a vault')
   const wrapped = await provider.wrap(dataKey)
   db.prepare(
-    `INSERT INTO vault_key (id, key_id, wrapped_data_key, created_at) VALUES (1, ?, ?, ?)
-     ON CONFLICT (id) DO UPDATE SET key_id = excluded.key_id,
+    `INSERT INTO vault_key (workspace_id, id, key_id, wrapped_data_key, created_at) VALUES (?, 1, ?, ?, ?)
+     ON CONFLICT (workspace_id, id) DO UPDATE SET key_id = excluded.key_id,
        wrapped_data_key = excluded.wrapped_data_key, created_at = excluded.created_at`,
-  ).run(provider.keyId, wrapped.toString('base64'), new Date().toISOString())
+  ).run(workspaceId, provider.keyId, wrapped.toString('base64'), new Date().toISOString())
 }
 
 /**

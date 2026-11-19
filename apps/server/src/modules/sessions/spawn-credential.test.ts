@@ -30,6 +30,7 @@ import { openDatabase } from '@podium/runtime/sqlite'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { type DaemonLink, daemonLinkFactsOf } from '../../gateway/daemon-link-kind'
 import { SessionRegistry } from '../../relay'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import { resolveTrustedProxyHops } from '../../server'
 import type { SessionStore } from '../../store'
 import { memberFacts } from '../../store/fixtures/test-support'
@@ -615,9 +616,9 @@ describe('an old account id and a key another member shared', () => {
     const raw = openDatabase(file)
     raw
       .prepare(
-        `INSERT INTO accounts (id, provider, kind, credential, identity, scope, created_at,
+        `INSERT INTO accounts (workspace_id, id, provider, kind, credential, identity, scope, created_at,
            owner_user_id, account_key, ref, shared_with)
-         VALUES (?, 'anthropic', 'api-key', ?, 'masked', 'role', 1, ?, 'managed:anthropic', NULL, ?)`,
+         VALUES ('${SELF_HOSTED_WORKSPACE_ID}', ?, 'anthropic', 'api-key', ?, 'masked', 'role', 1, ?, 'managed:anthropic', NULL, ?)`,
       )
       .run(`managed:anthropic@${alice}`, FAKE_A, alice, JSON.stringify([BOB]))
     raw.close()
