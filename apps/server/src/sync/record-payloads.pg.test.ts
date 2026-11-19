@@ -53,6 +53,7 @@ import { InteractionsRepository } from '../store/interactions'
 import { IssuesRepository } from '../store/issues'
 import { MachinesRepository } from '../store/machines'
 import { MessagesRepository } from '../store/messages'
+import { NoticesRepository } from '../store/notices'
 import { ObservationCheckpointsRepository } from '../store/observation-checkpoints'
 import { ReposRepository } from '../store/repos'
 import { SessionsRepository } from '../store/sessions'
@@ -111,6 +112,17 @@ async function sqliteCorpus(): Promise<SessionStore> {
         assignment: { server: false, agentExecution: true },
       })
     }
+    await store.notices.open({
+      id: 'notice-byte-parity',
+      recipientUserId: owner,
+      kind: 'mention',
+      subjectKind: 'session',
+      subjectId: 'parity-subject',
+      title: 'A notice with "quotes" and ünïcode',
+      body: 'body\nsecond line',
+      dedupeKey: 'parity:notice',
+      createdAt: new Date(NOW).toISOString(),
+    })
     const writer = reg.issues.reports.store.serverWriter
     const parent = await reg.issues.crud.create(writer, {
       repoPath: '/repo',
@@ -262,6 +274,7 @@ function pgRecordReads(executor: RootStoreExecutor<QueryClient>): RecordReads {
     grants,
     conversations: new ConversationsRepository(queries),
     observationCheckpoints,
+    notices: new NoticesRepository(queries),
     repos,
     sync: new SyncRepository(queries, syncServerTables, SELF_HOSTED_WORKSPACE_ID),
   }
@@ -326,6 +339,7 @@ describe.runIf(ENGINE === 'pg')('record payloads on both engines (Postgres leg)'
       now: () => NOW,
     })
     const pg = await payloads(pgRecordReads(executor))
+    expect(sqlite.get('inboxNotice')?.size).toBe(1)
     const differences: string[] = []
     const counts: string[] = []
     let compared = 0
