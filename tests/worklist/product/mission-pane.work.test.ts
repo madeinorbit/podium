@@ -53,7 +53,7 @@ function click(pane: ReturnType<typeof missionPaneReader>, selectedIssueId: stri
   return pane.read({ selectedIssueId, paneA: null, paneB: null, split: false, mode: 'full' })
 }
 
-it('records first click and revisit once at 1x and 4x', () => {
+it('records first click and revisit once at 1x and 4x', async () => {
   for (const scale of [1, 4]) {
     const { pool } = fixture(scale)
     const pane = missionPaneReader(pool, VISIBLE)
@@ -62,6 +62,10 @@ it('records first click and revisit once at 1x and 4x', () => {
     let value: ReturnType<typeof click> = LOADING
     let stop = autorun(() => {
       value = click(pane, 'root')
+    })
+    await vi.waitFor(() => {
+      pool.hydrate()
+      expect(value).not.toBe(LOADING)
     })
     const firstMs = performance.now() - start
     const summaries = (kind: string) =>
@@ -72,6 +76,10 @@ it('records first click and revisit once at 1x and 4x', () => {
     const revisit = performance.now()
     stop = autorun(() => {
       value = click(pane, 'child-0001')
+    })
+    await vi.waitFor(() => {
+      pool.hydrate()
+      expect(value).not.toBe(LOADING)
     })
     const revisitMs = performance.now() - revisit
     try {
@@ -96,32 +104,50 @@ it('records first click and revisit once at 1x and 4x', () => {
   }
 })
 
-it('bounds click summary reads by the visible rows at 1x and 4x', () => {
+it('prepares display fields only for visible rows at 1x and 4x', async () => {
   for (const scale of [1, 4]) {
     const { pool } = fixture(scale)
     const pane = missionPaneReader(pool, VISIBLE)
-    const read = vi.spyOn(pool, 'row')
-    const stop = autorun(() => click(pane, 'root'))
+    const reader = missionView(pool)
+    const title = vi.spyOn(reader, 'title')
+    const presentation = vi.spyOn(reader, 'presentation')
+    let value: ReturnType<typeof click> = LOADING
+    const stop = autorun(() => {
+      value = click(pane, 'root')
+    })
     try {
-      for (const kind of ['issue', 'session'])
-        expect(
-          read.mock.calls.filter(([entity, , absent]) => entity === kind && absent === undefined)
-            .length,
-          `${kind} summaries at ${scale}x`,
-        ).toBeLessThanOrEqual(VISIBLE * 4)
+      await vi.waitFor(() => {
+        pool.hydrate()
+        expect(value).not.toBe(LOADING)
+      })
+      // Header counts need the tree's facts. Rich strip fields belong only to
+      // the header and mounted bands, including while async warming retries.
+      for (const read of [title, presentation]) {
+        const ids = new Set(read.mock.calls.map(([issue]) => issue.id))
+        expect(ids.size, `display fields at ${scale}x`).toBeGreaterThan(0)
+        expect(ids.size, `display fields at ${scale}x`).toBeLessThanOrEqual(VISIBLE + 1)
+      }
     } finally {
       stop()
-      read.mockRestore()
+      title.mockRestore()
+      presentation.mockRestore()
       pane.dispose()
       pool.dispose()
     }
   }
 })
 
-it('a heartbeat leaves mission shape and unchanged counts observed without rederiving the pane', () => {
+it('a heartbeat leaves mission shape and unchanged counts observed without rederiving the pane', async () => {
   const { pool, sessions } = fixture(4)
   const pane = missionPaneReader(pool, VISIBLE)
-  const stop = autorun(() => click(pane, 'root'))
+  let value: ReturnType<typeof click> = LOADING
+  const stop = autorun(() => {
+    value = click(pane, 'root')
+  })
+  await vi.waitFor(() => {
+    pool.hydrate()
+    expect(value).not.toBe(LOADING)
+  })
   const screen = pane.screen('root')!
   const before = { rows: screen.rows, visible: screen.visibleRows, crew: screen.crewIds }
   try {
