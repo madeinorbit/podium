@@ -37,6 +37,7 @@
     "apps/server/src/migrations/issue-types-and-labels.test.ts": "Tests the SQLite migration chain (its steps, guards, ledger or pre-migration backup). Postgres has its own chain from a baseline (POD-6981), tested by its own runner tests.",
     "apps/server/src/migrations/lake-parts-conversion.test.ts": "Tests a one-time conversion of a self-hosted install's legacy lake files into parts; a Postgres install has no legacy lake files (POD-6963 design 2.3.1).",
     "apps/server/src/migrations/ledger-import-mapping.test.ts": "Tests the SQLite migration chain (its steps, guards, ledger or pre-migration backup). Postgres has its own chain from a baseline (POD-6981), tested by its own runner tests.",
+    "apps/server/src/migrations/legacy-snapshot-scrub.test.ts": "A one-time legacy step of a self-hosted SQLite install (the vault's import of the old plaintext keys and its cleanup of the database file and its snapshots); a Postgres install has no legacy keys or files (credential management design §7).",
     "apps/server/src/migrations/machine-assignment-availability.test.ts": "Tests the SQLite migration chain (its steps, guards, ledger or pre-migration backup). Postgres has its own chain from a baseline (POD-6981), tested by its own runner tests.",
     "apps/server/src/migrations/machine-custody-grant-edges.test.ts": "Tests the SQLite migration chain (its steps, guards, ledger or pre-migration backup). Postgres has its own chain from a baseline (POD-6981), tested by its own runner tests.",
     "apps/server/src/migrations/member-login-email.test.ts": "Tests the SQLite migration chain (its steps, guards, ledger or pre-migration backup). Postgres has its own chain from a baseline (POD-6981), tested by its own runner tests.",
@@ -82,13 +83,18 @@
     "apps/server/src/store.lifecycle.test.ts": "Tests the server-transfer fence and the background proof of SQLite backup snapshots around the store file; hosted Postgres has no transfer and no file snapshots (design 2.9).",
     "apps/server/src/store.search-index.test.ts": "Tests the SQLite FTS5 search index behind the search flag: its DDL, its triggers on conversations and their removal; Postgres search has its own form (store/conversations/search-contract.test.ts).",
     "apps/server/src/store/event-cap.test.ts": "Pins the SQLite plan of the event-log row cap's seek (EXPLAIN QUERY PLAN, POD-7035) against the OFFSET walk; the Postgres plan is query-plan-audit.pg.test.ts's, and the cut's exactness across missing ids is janitor-reads.test.ts's, on both engines (POD-7118).",
+    "apps/server/src/store/legacy-plaintext.test.ts": "A one-time legacy step of a self-hosted SQLite install (the vault's import of the old plaintext keys and its cleanup of the database file and its snapshots); a Postgres install has no legacy keys or files (credential management design §7).",
+    "apps/server/src/store/native-login-transfer-at-rest.test.ts": "A one-time legacy step of a self-hosted SQLite install (the vault's import of the old plaintext keys and its cleanup of the database file and its snapshots); a Postgres install has no legacy keys or files (credential management design §7).",
     "apps/server/src/store/planner-statistics.test.ts": "Tests the SQLite planner statistics refresh (ANALYZE, PRAGMA optimize); on Postgres autoanalyze owns this and the refresh is a no-op (design 2.8).",
     "apps/server/src/store/retention-prune-plans.test.ts": "Pins the SQLite plans of the retention deletes (EXPLAIN QUERY PLAN, POD-7035); their Postgres plans are query-plan-audit.pg.test.ts's planner choices (POD-7118).",
     "apps/server/src/store/retention.test.ts": "Reads the tables the SQLite migration chain creates (sqlite_master) and the FTS shadow tables only SQLite has; the Postgres twin declares the same tables, table for table (migrations/pg/schema-parity.test.ts) (POD-7118).",
     "apps/server/src/store/session-asks-user.test.ts": "Tests the SQLite triggers and view that keep sessions.asks_user (migration 20261117220206_session-asks-user, POD-7104); the Postgres chain has no triggers and nothing writes the column there until POD-7123, so the collection fetch reads the asking clauses on Postgres (collections.workspace.test.ts, collection-sql.test.ts on both engines).",
     "apps/server/src/sync/first-download.history.test.ts": "Measures the first download's SQLite plans and statement counts at history x1 and x10 on a file store, under SQLite's ANALYZE (POD-7085); the Postgres plans of the same shapes are query-plan-audit.pg.test.ts's (POD-7118)."
   },
-  "pending": [],
+  "pending": [
+    "apps/server/src/store/notices.test.ts",
+    "apps/server/src/store/server-secrets-vault.test.ts"
+  ],
   "beyondStoreShard": {
     "apps/server/src/router.setup.test.ts": "A lean-gate boot-wiring file: the server router's construction and required wiring over a store, held on both engines (POD-6994). The gate's other three boot-wiring files open no store.",
     "apps/server/src/sync/record-sources.test.ts": "The record source declarations both engines' change capture is generated from (POD-6982); its four cases that probe SQLite's capture triggers run on SQLite only, the rest on both (POD-6994).",
