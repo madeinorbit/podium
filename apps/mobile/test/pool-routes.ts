@@ -1,4 +1,3 @@
-import { referenceView } from '@podium/client-graph/issue-reference'
 /** Fully resident synthetic address fixtures; route and chip outputs come from the production pool. */
 import { createMobileInboxViews } from '@podium/client-graph/mobile-inbox-views'
 import { MobxPool } from '@podium/client-graph/pool'
@@ -188,11 +187,6 @@ export function poolRouteFixture(input: {
         route = views.route(target)
       })
       try {
-        if (route === LOADING && target.kind === 'issue') {
-          // This fixture declares that every visible row is resident. A missing
-          // identity query therefore has an authoritative empty answer.
-          referenceView(pool).resolved(target.issue, null)
-        }
         if (route === LOADING) throw new Error('Resident address fixture unexpectedly cold')
         return route ?? null
       } finally {
