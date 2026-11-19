@@ -48,6 +48,50 @@ const ticks = async (count = 5): Promise<void> => {
 }
 
 describe('a disk load (POD-7159)', () => {
+  it.each([
+    'before',
+    'after',
+  ] as const)('keeps a new issue companion delivered %s its holder in one feed batch', async (order) => {
+    const server = new CollectionServer()
+    server.policy = WORLD_POLICY
+    const storage = await inMemoryInstantiation.open()
+    const { cache } = storage.viewFor('u-ada')
+    // A collection fetch may be offline or refused. A complete feed change
+    // must still be kept when a held record comes with that row.
+    const replica = new Replica({
+      store: cache,
+      now: () => WORLD_NOW,
+      authority: {
+        bootstrap: server.bootstrap.bind(server),
+        changesRange: server.changesRange.bind(server),
+      },
+    })
+    try {
+      replica.connect()
+      await replica.settled()
+      const from = replica.cursor!.seq
+      const companion = () =>
+        server.put('issueUserState', 'u-ada:issue:new', {
+          userId: 'u-ada',
+          entityId: 'new',
+          readAt: '2026-01-01T00:00:00.000Z',
+        })
+      if (order === 'before') companion()
+      server.put('issueProjection', 'new', issue('new'))
+      if (order === 'after') companion()
+      await replica.receive(server.frameSince(from))
+      await replica.settled()
+      expect(cache.read('issueProjection', 'new')?.value).toMatchObject({ title: 'Issue new' })
+      expect(cache.read('issueUserState', 'u-ada:issue:new')?.value).toMatchObject({
+        entityId: 'new',
+        readAt: '2026-01-01T00:00:00.000Z',
+      })
+      expect(replica.cursor?.seq).toBe(server.head)
+    } finally {
+      replica.disconnect()
+    }
+  })
+
   it('reads an operator tree and its comes-with closure once, publishing them together', async () => {
     const server = new CollectionServer()
     server.policy = WORLD_POLICY

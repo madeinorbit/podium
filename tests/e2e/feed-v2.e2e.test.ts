@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { FeedSink } from '@podium/client-core/replica/feed'
 import { HttpBootstrapSource, HttpDeltaSource } from '@podium/client-core/sync-stream'
-import type { UserId } from '@podium/model'
+import { issueUserStateRowId, type UserId } from '@podium/model'
 import {
   CAP_SYNC_HTTP_V1,
   CLIENT_WIRE_VERSION,
@@ -235,11 +235,16 @@ describe('POD-376 · wire v2 feed into the kernel replica (live server)', () => 
     await client.replica.settled()
     const before = client.keys().length
 
-    await trpc.issues.create.mutate({ repoPath: '/repo', title: 'live write', startNow: false })
+    const created = await trpc.issues.create.mutate({
+      repoPath: '/repo',
+      title: 'live write',
+      startNow: false,
+    })
     await until(() => client.keys().length > before, 8000)
     await client.replica.settled()
 
     expect(client.framesSeen).toContain('feedDelta')
+    expect(client.feedChanges).toContain(`issueUserState:${issueUserStateRowId(owner, created.id)}`)
     const slice = await authoritySlice()
     await until(() => (client.replica.cursor?.seq ?? -1) >= slice.seq)
     await client.replica.settled()
