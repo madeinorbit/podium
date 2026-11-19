@@ -4,7 +4,7 @@
  * its rows, kills at chunk boundaries, reopening from disk offline) are in the
  * collection conformance suite, which runs on every adapter.
  */
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   CollectionServer,
   issue,
@@ -47,6 +47,71 @@ const ticks = async (count = 5): Promise<void> => {
 }
 
 describe('a disk load (POD-7159)', () => {
+  it('reads an operator tree and its comes-with closure once, publishing them together', async () => {
+    const server = new CollectionServer()
+    server.policy = WORLD_POLICY
+    server.answerComesWith = true
+    server.chunkRows = 4096
+    server.put(ISSUE, 'R', issue('R', { stage: 'done', closedReason: 'completed' }))
+    for (let n = 1; n < 970; n += 1) {
+      server.put(
+        ISSUE,
+        `M${n}`,
+        issue(`M${n}`, { stage: 'done', closedReason: 'completed', parentId: 'R' }),
+      )
+      for (let s = 0; s < 2; s += 1)
+        server.put(
+          'session',
+          `S${n}-${s}`,
+          session(`S${n}-${s}`, { issueId: `M${n}`, status: 'ended' }),
+        )
+    }
+    const storage = await inMemoryInstantiation.open()
+    const { cache } = storage.viewFor('u-ada')
+    const publications: number[] = []
+    let installed = 0
+    const replica = new Replica({
+      store: cache,
+      authority: server,
+      now: () => WORLD_NOW,
+      onEvent: (event) => {
+        if (event.type === 'upserted') installed += 1
+      },
+      batchEvents: (emitAll) => {
+        installed = 0
+        emitAll()
+        if (installed > 0) publications.push(installed)
+      },
+    })
+    try {
+      replica.connect()
+      await replica.settled()
+      await ticks()
+      await replica.settled()
+      await replica.load([tree('R')])
+      await replica.settled()
+      const before = cache.readEntities().length
+      await replica.unload(instanceKey(tree('R')))
+      const unloaded = before - cache.readEntities().length
+      expect(unloaded).toBeGreaterThan(2500)
+      const reads = vi.spyOn(cache, 'readDiskRows')
+      const fetches = server.fetches.length
+      publications.length = 0
+      await replica.load([tree('R')])
+      await replica.settled()
+      expect(replica.isComplete(tree('R'))).toBeDefined()
+      expect(cache.readEntities().length).toBe(before)
+      expect(server.fetches.length, 'no record request').toBe(fetches)
+      // POD-7191: discovering companions after publishing their issues made
+      // a 970-issue disk deck run the readers after every 250-row fragment.
+      // Count the boundary, rather than deriving the expectation from its chunk constant.
+      expect(reads, 'one read of the indexed dependency closure').toHaveBeenCalledTimes(1)
+      expect(publications, 'one coherent install below the server batch bound').toEqual([unloaded])
+    } finally {
+      replica.disconnect()
+    }
+  })
+
   it('puts N rows in memory in at most ceil(N / chunk) bursts, each told to the readers once', async () => {
     const members = 2 * DISK_INSTALL_ROWS + 500
     const server = new CollectionServer()
