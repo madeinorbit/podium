@@ -10,7 +10,12 @@
  */
 
 import { createLogger } from '@podium/logger'
-import { OUTBOX_LS_KEY, type OutboxEntry, type OutboxStorage } from '../../outbox'
+import {
+  OUTBOX_LS_KEY,
+  type OutboxEntry,
+  type OutboxStorage,
+  parseOutboxEntries,
+} from '../../outbox'
 import type { StorageApi } from '../../replica/contract'
 
 const log = createLogger('client-core:side-cache')
@@ -34,16 +39,12 @@ export interface OutboxStorageHomes {
   outboxDeadLetterStorage(): OutboxStorage
 }
 
-/** Never throws: a poisoned or foreign blob reads as empty, like the legacy
- *  replica's loader (spec invariant 2). */
-function readJson<T>(storage: StorageApi, key: string, fallback: T): T {
+/** Validate each row while preserving valid neighbours in a damaged blob. */
+function readEntries(storage: StorageApi, key: string): OutboxEntry[] {
   try {
-    const raw = storage.getItem(key)
-    if (raw === null) return fallback
-    const parsed: unknown = JSON.parse(raw)
-    return parsed === null || typeof parsed !== 'object' ? fallback : (parsed as T)
+    return parseOutboxEntries(storage.getItem(key))
   } catch {
-    return fallback
+    return []
   }
 }
 
@@ -240,7 +241,7 @@ export function createOutboxStorage(init: OutboxStorageInit): OutboxStorageHomes
       }
     }
     if (found.length > 0) {
-      const existing = readJson<OutboxEntry[]>(storage, outboxKey, [])
+      const existing = readEntries(storage, outboxKey)
       const merged = [...existing]
       for (const entry of found) {
         if (!merged.some((e) => e.mutationId === entry.mutationId)) merged.push(entry)
@@ -259,7 +260,7 @@ export function createOutboxStorage(init: OutboxStorageInit): OutboxStorageHomes
   }
 
   const outboxAt = (key: string): OutboxStorage => ({
-    load: () => readJson<OutboxEntry[]>(storage, key, []) as OutboxEntry[],
+    load: () => readEntries(storage, key),
     save: (entries: OutboxEntry[]) =>
       writeQueued(storage, key, entries, (error) => init.onDegraded?.(error)),
   })

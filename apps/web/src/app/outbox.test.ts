@@ -191,6 +191,17 @@ describe('outbox', () => {
     expect(make({ isOnline: () => false }).size()).toBe(0)
     sharedStorage.setItem(`${sharedPrefix}.outbox.v1`, JSON.stringify([{ mutationId: 1 }, null]))
     expect(make({ isOnline: () => false }).size()).toBe(0)
+    const valid = {
+      mutationId: 'retained',
+      kind: 'rename',
+      input: { sessionId: 's1', name: 'kept' },
+      queuedAt: Date.now(),
+    }
+    sharedStorage.setItem(
+      `${sharedPrefix}.outbox.v1`,
+      JSON.stringify([null, valid, { mutationId: 1 }]),
+    )
+    expect(make({ isOnline: () => false }).pending()).toEqual([valid])
   })
 
   // P6b Part 2: the exact same Outbox logic, running against the replica-backed
