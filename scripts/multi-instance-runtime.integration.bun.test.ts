@@ -28,7 +28,7 @@ import {
 import { hostname, tmpdir, userInfo } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { asMachineId, asSessionId } from '@podium/model'
+import { asMachineId, asSessionId, asUserId } from '@podium/model'
 import {
   abducoSocketPath,
   createDurableProcess,
@@ -166,8 +166,8 @@ async function seedNamedState(spec: InstanceSpec): Promise<void> {
     )
     const owner = (await store.users.list()).find((member) => member.role === 'admin')
     if (!owner) throw new Error('configured instance has no owner')
-    await identity.credentials.setEmail(owner.id, 'owner@example.test')
-    await identity.credentials.setPassword(owner.id, 'instance-owner-password')
+    await identity.credentials.setEmail(asUserId(owner.id), 'owner@example.test')
+    await identity.credentials.setPassword(asUserId(owner.id), 'instance-owner-password')
     const ownerSignIn = await identity.signIn({
       email: 'owner@example.test',
       password: 'instance-owner-password',
