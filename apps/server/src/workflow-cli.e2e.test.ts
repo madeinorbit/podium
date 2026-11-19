@@ -29,6 +29,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { runWorkflowCli, type WorkflowCliDeps } from '../../cli/src/workflow-cli'
 import { noJanitorWorkerForTests } from './janitor-host'
 import { startServer } from './server'
+import { attachHostDaemon } from './test-support/host-daemon'
 
 const priorStateDir = process.env.PODIUM_STATE_DIR!
 
@@ -49,10 +50,14 @@ describe('podium workflow CLI ↔ live server over the derived surface (e2e)', (
     process.env.PODIUM_STATE_DIR = stateDir
     server = await startServer({ janitorWorkerForTests: noJanitorWorkerForTests, port: 0 })
     const registry = server.registry
-    await registry.modules.settings.setSettingsFor(firstAdminMemberId(), {
-      ...await registry.modules.settings.getSettings(),
-      experimental: { workflows: true },
-    })
+    await attachHostDaemon(registry)
+    await registry.modules.settings.setSettingsFor(
+      await firstAdminMemberId(registry.sessionStore),
+      {
+        ...(await registry.modules.settings.getSettings()),
+        experimental: { workflows: true },
+      },
+    )
     // Open (no-password) server ⇒ the CLI acts as the operator, exactly as it
     // does for a local `podium workflow` invocation.
     deps = {
@@ -112,6 +117,7 @@ describe('podium workflow CLI ↔ live server over the derived surface (e2e)', (
    */
   it('checkpoint advances a real run through the derived mutation, and status reads it back', async () => {
     const registry = server.registry
+    await attachHostDaemon(registry)
     const operator = { actor: { kind: 'operator' as const, id: null }, protectedWrite: true }
     const created = await registry.modules.workflows.execute(operator, 'create', {
       // Unique per attempt: the integration lane retries, and workflow names are
@@ -126,7 +132,7 @@ describe('podium workflow CLI ↔ live server over the derived surface (e2e)', (
       ],
     })
     const { sessionId } = await registry.modules.sessions.createSession({
-      agentKind: 'claude-code',
+      agentKind: 'shell',
       cwd: '/repo/wt',
       initialPrompt: 'do the work',
     })

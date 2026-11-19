@@ -92,9 +92,14 @@ describe('the wire window, over real sockets', () => {
       await firstAdminMemberId(store),
       CLIENT_PASSWORD,
     )
+    await memberCredentials(store.users, () => handle.identity.core.accounts).setEmail(
+      await firstAdminMemberId(store),
+      'wire@example.test',
+    )
     cookieHeader = (
       await loginTestClient({
         origin: `http://127.0.0.1:${handle.port}`,
+        email: 'wire@example.test',
         password: CLIENT_PASSWORD,
       })
     ).cookieHeader

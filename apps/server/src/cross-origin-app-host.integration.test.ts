@@ -22,10 +22,12 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { firstAdminMemberId } from '@podium/model'
 import { CLIENT_WIRE_VERSION } from '@podium/protocol'
 import { createTRPCClient, httpBatchLink } from '@trpc/client'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { WebSocket } from 'ws'
+import { memberCredentials } from './identity/member-credentials'
 import type { AppRouter } from './router'
 import { startServer } from './server'
 
@@ -86,6 +88,11 @@ describe('a same-site app host talking to an API on another host', () => {
     handle = await startServer({ port: 0 })
     const trpc = createTRPCClient<AppRouter>({ links: [httpBatchLink({ url: url('/trpc') })] })
     await trpc.setup.complete.mutate({ publicUrl: 'https://api.localtest.me', password: PASSWORD })
+    const store = handle.registry.sessionStore
+    await memberCredentials(store.users, () => handle.identity.core.accounts).setEmail(
+      await firstAdminMemberId(store),
+      'cors@example.test',
+    )
   })
 
   afterAll(async () => {
@@ -110,7 +117,7 @@ describe('a same-site app host talking to an API on another host', () => {
     const res = await fetch(url('/auth/login'), {
       method: 'POST',
       headers: { 'content-type': 'application/json', origin: APP_ORIGIN },
-      body: JSON.stringify({ password: PASSWORD }),
+      body: JSON.stringify({ email: 'cors@example.test', password: PASSWORD }),
     })
     expect(res.status).toBe(200)
     expect(res.headers.get('access-control-allow-origin')).toBe(APP_ORIGIN)

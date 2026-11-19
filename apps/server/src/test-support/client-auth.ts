@@ -1,4 +1,3 @@
-
 export interface TestClientLogin {
   cookieHeader: string
   cookieName: string
@@ -12,13 +11,14 @@ export interface TestClientLogin {
  */
 export async function loginTestClient(input: {
   origin: string
+  email?: string
   password: string
   fetchImpl?: typeof fetch
 }): Promise<TestClientLogin> {
   const response = await (input.fetchImpl ?? fetch)(new URL('/auth/login', input.origin), {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ password: input.password }),
+    body: JSON.stringify({ email: input.email, password: input.password }),
   })
   if (!response.ok) {
     throw new Error(`client login failed (${response.status}): ${await response.text()}`)
