@@ -5,7 +5,7 @@ import { referenceState } from '../../../../tests/worklist/diagnostics/reference
 
 import { missionRootFor } from '@podium/client-core/values'
 import { createWorklistPool } from '@podium/client-graph/create'
-import { missionView } from '@podium/client-graph/mission-view'
+import { missionView, requireLoaded } from '@podium/client-graph/mission-view'
 import { attachMobileScreens } from '@podium/client-graph/mobile-screens'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -145,6 +145,16 @@ async function compare(pool: MobxPool, store: Store, label: string, all: boolean
                     .map((row) => ({
                       id: row.id,
                       matched: row.matches(mode),
+                      filteredMatched: missionView(pool)
+                        .deck(selectedId, mode)
+                        .model(row.id)
+                        .matches(mode),
+                      member: requireLoaded(missionView(pool).deck(selectedId, mode).members).has(
+                        row.id,
+                      ),
+                      fullPath: row.key,
+                      parent: row.facts.parentId,
+                      path: missionView(pool).deck(selectedId, mode).ancestorPath(row.id),
                       visible: row.facts.visible,
                       coordinated: row.coordinated,
                       stage: row.rulesIssue?.stage,
