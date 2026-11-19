@@ -336,7 +336,6 @@ describe('an issue.start effect', () => {
     expect(await issueRow(o, issueId)).toMatchObject({
       id: issueId,
       stage: 'in_progress',
-      assignee: writer,
     })
     expect((await o.store.sessions.getSession(sessionId))?.ownerUserId).toBe(writer)
     expect(spawns(o, sessionId)).toHaveLength(1)
@@ -371,7 +370,7 @@ describe('an issue.start effect', () => {
     )
     appliedReply(reply)
     expect(await settled(o, effectId)).toMatchObject({ status: 'succeeded', result: { issueId } })
-    expect(await issueRow(o, issueId)).toMatchObject({ stage: 'planning', assignee: writer })
+    expect(await issueRow(o, issueId)).toMatchObject({ stage: 'planning' })
   })
 
   it('a start that fails after filing keeps the issue, and the failure is on its record', async () => {

@@ -1037,7 +1037,7 @@ const defs = {
         } catch {
           parent = null
         }
-        if (!parent) {
+        if (!parent || parent.deletedAt) {
           throw new TRPCError({
             code: 'BAD_REQUEST',
             message: `unknown parent issue ${input.parentId} — nothing was created`,

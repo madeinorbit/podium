@@ -74,6 +74,11 @@ describe('session residency (POD-6160 D2f)', () => {
     ]
     const reg = await boot(store)
     const sessions = reg.modules.sessions
+    // Boot intentionally serves while this historical projection drains.
+    // Join the owned pass before testing a quiescent residency boundary.
+    await sessions.runtimeGateway.replayBoardProjection()
+    await sessions.flushActivity()
+    sessions.residency.sweep()
     if (sessions.sessions.size !== running.length) {
       const retained = [...sessions.sessions.values()].filter((s) => !running.includes(s.sessionId))
       console.info(
