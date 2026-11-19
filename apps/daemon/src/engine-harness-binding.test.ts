@@ -43,7 +43,13 @@ import {
   opencode2Flavor,
   opencodeFlavor,
 } from '@podium/harness/driver/host'
-import { createTestEngineOwner, testHarnessContext } from '@podium/harness/driver/testing'
+import {
+  createTestEngineOwner,
+  testEngineTerms,
+  testHarnessContext,
+  testLaunchPosture,
+  testSessionTerms,
+} from '@podium/harness/driver/testing'
 import { asSessionId, type SessionId } from '@podium/model'
 import type { BuiltinHarnessKind } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
@@ -362,6 +368,7 @@ const families: {
       const host = createCodexEngineHost({
         facts,
         engines: owner,
+        ...testEngineTerms(),
         stageAttachment,
         resources,
         buildEnv: engineEnvBuilder(() => ({})),
@@ -377,6 +384,7 @@ const families: {
           sessionId: asSessionId('engine-codex'),
           workdir: root,
           harnessContext: context,
+          ...testSessionTerms(),
         } as never)
         .catch(() => {})
       return started[0]!
@@ -390,6 +398,7 @@ const families: {
       const host = createGrokEngineHost({
         facts: grokEngineFacts(manifestFor('grok')!),
         engines: owner,
+        ...testEngineTerms(),
         resources,
         buildEnv: engineEnvBuilder(() => ({})),
         gracefulExitMs: 50,
@@ -401,6 +410,7 @@ const families: {
           sessionId: asSessionId('engine-grok'),
           workdir: root,
           harnessContext: context,
+          ...testSessionTerms(),
         } as never)
         .catch(() => {})
       return started[0]!
@@ -415,6 +425,7 @@ const families: {
       const host = createClaudeEngineHost({
         facts: claudeEngineFacts({ kind: manifest.kind, inventory: manifest.inventory }),
         engines: owner,
+        ...testEngineTerms(),
         buildEnv: engineEnvBuilder(() => ({})),
         gracefulExitMs: 50,
         harnessContextFor: async () => context,
@@ -424,6 +435,7 @@ const families: {
         spec: {
           harness: 'claude-code',
           harnessContext: context,
+          ...testSessionTerms(),
           workdir: root,
           model: {},
           instructions: { supported: false, reason: 'fixture' },
@@ -449,6 +461,7 @@ const families: {
       const host = createOpencodeEngineHost({
         flavor,
         engines: owner,
+        ...testEngineTerms(),
         stageAttachment,
         resources,
         buildEnv: engineEnvBuilder(() => ({})),
@@ -463,6 +476,7 @@ const families: {
           secret: 'secret',
           username: 'podium',
           harnessContext: context,
+          ...testSessionTerms(),
         } as never)
         .catch(() => {})
       return started[0]!
@@ -477,6 +491,7 @@ const families: {
       const host = createOpencodeEngineHost({
         flavor,
         engines: owner,
+        ...testEngineTerms(),
         stageAttachment,
         resources,
         buildEnv: engineEnvBuilder(() => ({})),
@@ -491,6 +506,7 @@ const families: {
           secret: 'secret',
           username: 'opencode',
           harnessContext: context,
+          ...testSessionTerms(),
         } as never)
         .catch(() => {})
       return started[0]!
@@ -565,6 +581,7 @@ describe('native attach spawns the session context', () => {
       clients,
       frames: () => {},
       harnessContext: async () => context,
+      launchPosture: async () => testLaunchPosture(context),
     } as never)
     await terminals.attach({ sessionId, target: target as never }).catch(() => {})
 

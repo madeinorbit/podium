@@ -42,6 +42,7 @@ type Sink =
   | 'headless engine stdin (no pty)'
 
 const INVENTORY: Record<string, Sink> = {
+  'session-posture-store.ts: store().write({ sessionId, posture })': 'journal',
   'terminal/terminal.ts: this.attachment.writeBytes(data)': 'the-counted-call',
   'terminal/terminal.ts: this.attachment.write(dataBase64)': 'the-counted-call',
   "terminal/headed-input.ts: terminal.writeBase64(Buffer.from(bytes, 'utf8').toString('base64'))":

@@ -10,19 +10,19 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { manifestFor } from '@podium/harness'
+import {
+  codexEngineFacts,
+  codexScopeLabel,
+  opencodeFlavor,
+  opencodeScopeLabel,
+} from '@podium/harness/driver/host'
 import { asSessionId, type SessionId } from '@podium/model'
 import { unixSocketPathBytes, unixSocketPathFits } from '@podium/runtime/unix-socket'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import {
-  codexScopeLabel,
-  codexEngineFacts,
-  opencodeScopeLabel,
-  opencodeFlavor,
-} from '@podium/harness/driver/host'
-import { runtimeDriverIdFor, sessionIsBehindContract } from './handlers'
-import { manifestFor } from '@podium/harness'
-import { createEngineJournal, engineSocketRoot } from './host'
 import { engineSocketPath } from '../session/engines.js'
+import { runtimeDriverIdFor, sessionIsBehindContract } from './handlers'
+import { createEngineJournal, engineSocketRoot } from './host'
 
 const SESSION = asSessionId('11111111-1111-4111-8111-111111111111')
 const OC_FLAVOR = opencodeFlavor(manifestFor('opencode')!)
@@ -166,9 +166,7 @@ describe('the binding journal', () => {
   })
 
   it('answers undefined for a session it never saw, rather than throwing', () => {
-    expect(
-      freshJournal().read(asSessionId('22222222-2222-4222-8222-222222222222')),
-    ).toBeUndefined()
+    expect(freshJournal().read(asSessionId('22222222-2222-4222-8222-222222222222'))).toBeUndefined()
   })
 })
 
@@ -297,6 +295,12 @@ describe('the driver bind fact', () => {
       const lines = source.split('\n')
       for (const [index, line] of lines.entries()) {
         if (!line.includes('bindFrame(')) continue
+        if (line.includes('bindFrame(sessionSize(ctx, facts.sessionId)')) {
+          // sendBind forwards the already-typed BindFacts, preserving its driver.
+          expect(line).toContain('pictures ? { ...facts, pictures: true } : facts')
+          portForwarders += 1
+          continue
+        }
         // THE PORT LAMBDAS ARE PLUMBING, NOT SITES: `bindFrame(…, input)`
         // forwards the family's already-stated bind to the wire. The driver
         // IS stated — by the `ports.emitBind({ … driverId: … })` call on the
@@ -390,18 +394,18 @@ describe('the driver bind fact', () => {
   })
 })
 
-  const journalled = {
-    sessionId: SESSION,
-    opencodeSessionId: 'ses_survivor',
-    baseUrl: 'http://127.0.0.1:41999',
-    username: 'podium',
-    secret: 'kept-so-adopt-can-authenticate',
-    workdir: '/tmp/work',
-    process: { key: opencodeScopeLabel(OC_FLAVOR, SESSION), pid: 5150, scopeUnit: 'x.scope' },
-    seq: 12,
-    turnEpoch: 4,
-    bindingVersion: 2,
-  }
+const journalled = {
+  sessionId: SESSION,
+  opencodeSessionId: 'ses_survivor',
+  baseUrl: 'http://127.0.0.1:41999',
+  username: 'podium',
+  secret: 'kept-so-adopt-can-authenticate',
+  workdir: '/tmp/work',
+  process: { key: opencodeScopeLabel(OC_FLAVOR, SESSION), pid: 5150, scopeUnit: 'x.scope' },
+  seq: 12,
+  turnEpoch: 4,
+  bindingVersion: 2,
+}
 
 describe('the reattach journal read', () => {
   let adoptDir: string
