@@ -103,7 +103,7 @@ describe('registerWebStatic', () => {
     })
     expect(res.status).toBe(200)
     expect(res.headers.get('content-type')).toContain('text/html')
-    expect(res.headers.get('cache-control')).toBe('no-cache')
+    expect(res.headers.get('cache-control')).toBe('no-store')
     expect(await res.text()).toContain('Podium')
   })
   it('does not shadow API routes', async () => {
@@ -230,9 +230,9 @@ describe('registerWebStatic', () => {
     const asset = await app.request('/assets/index-RR9HhGf3.js')
     expect(asset.headers.get('cache-control')).toBe('public, max-age=31536000, immutable')
     const shell = await app.request('/')
-    expect(shell.headers.get('cache-control')).toBe('no-cache')
+    expect(shell.headers.get('cache-control')).toBe('no-store')
     const unhashed = await app.request('/assets/app.js')
-    expect(unhashed.headers.get('cache-control')).toBe('no-cache')
+    expect(unhashed.headers.get('cache-control')).toBe('no-store')
   })
   it('serves both classic Apple touch-icon names at the root [POD-421]', async () => {
     // iOS asks for exactly these when a page's declared icon cannot be used;
@@ -308,7 +308,7 @@ describe('registerWebStatic', () => {
       expect(worker.status).toBe(200)
       expect(worker.headers.get('content-type')).toContain('javascript')
       expect(worker.headers.get('Service-Worker-Allowed')).toBe('/mobile')
-      expect(worker.headers.get('Cache-Control')).toBe('no-cache')
+      expect(worker.headers.get('Cache-Control')).toBe('no-store')
       expect(worker.headers.get('Cross-Origin-Embedder-Policy')).toBe('credentialless')
       for (const path of ['/mobile', '/mobile/app.js']) {
         expect((await app.request(path)).headers.get('Service-Worker-Allowed'), path).toBeNull()

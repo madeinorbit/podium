@@ -214,6 +214,33 @@ describe('GET /auth/status', () => {
 })
 
 describe('POST /auth/login', () => {
+  test('accepts an obsolete autofilled username only for the sole password account', async () => {
+    await identity.credentials.setPassword(admin, PASSWORD)
+    const app = makeApp()
+    const response = await post(app, '/auth/login', { email: 'user:sole', password: PASSWORD })
+    expect(response.status).toBe(200)
+    const cookie = cookieOf(response)
+    expect(await (await get(app, '/auth/status', { cookie: cookie! })).json()).toMatchObject({
+      authed: true,
+      memberId: admin,
+    })
+    expect(
+      (await post(app, '/auth/login', { email: 'wrong@example.com', password: PASSWORD })).status,
+    ).toBe(401)
+    expect((await post(app, '/auth/login', { email: 'user:sole', password: 'wrong' })).status).toBe(
+      401,
+    )
+  })
+
+  test('legacy usernames share the password-only failure budget', async () => {
+    await identity.credentials.setPassword(admin, PASSWORD)
+    const app = makeApp()
+    for (let i = 0; i < 8; i++)
+      expect(
+        (await post(app, '/auth/login', { email: `old-user-${i}`, password: 'wrong' })).status,
+      ).toBe(401)
+    expect((await post(app, '/auth/login', { password: PASSWORD })).status).toBe(429)
+  })
   test('an operator can sign in and be recognised while activation is pending [POD-2766]', async () => {
     // The boundary has to SERVE `/auth/login` while the data plane is blocked,
     // and the status route has to REPORT the resulting sign-in, or the login

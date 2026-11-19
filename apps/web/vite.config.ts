@@ -223,24 +223,14 @@ export default defineConfig(({ command, mode }) => {
         },
         workbox: {
           /**
-           * CLAIM ON ACTIVATION, BUT STILL WAIT TO ACTIVATE (POD-2253).
-           *
-           * These two switches are usually spoken of as a pair and they are not
-           * the same decision. `skipWaiting` stays FALSE, which is what
-           * `registerType: 'prompt'` is for: a new worker installs and waits, so
-           * a running tab keeps the precache its already-loaded bundle will ask
-           * for lazy chunks from. Activating under it would purge that precache
-           * and 404 the next chunk the user navigates to.
-           *
-           * `clientsClaim` decides something else — what happens ONCE the swap
-           * has been authorised. Without it the freshly activated worker
-           * controls nothing until the next navigation, so `controllerchange`
-           * never fires and the panel's Reload falls through to its 2 s timeout;
-           * the takeover needs a second navigation to actually take. With it the
-           * swap completes in one, which is the difference between an update
-           * that lands and an update that half-lands.
+           * An old cached login page cannot request a worker takeover. The
+           * browser's own update check must activate this worker, including
+           * when the old page predates our boot repair. The activation helper
+           * reloads old windows after checking their build and saving edits.
            */
+          skipWaiting: true,
           clientsClaim: true,
+          importScripts: ['sw-interface-repair.js'],
           // NO SOURCEMAP FOR THE GENERATED WORKER. workbox builds sw.js in a
           // randomly-named temp directory and writes that path into sw.js.map's
           // `sources`, so the map differed between two builds of one commit — the

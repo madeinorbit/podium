@@ -260,7 +260,7 @@ const ENCODING_SUFFIX: Record<Encoding, string> = { br: '.br', gzip: '.gz' }
  * Vite and Expo both emit content-hashed filenames (`index-RR9HhGf3.js`). Those
  * are immutable by construction: a new build is a new URL, so the browser never
  * needs to revalidate. Everything else (index.html, the service worker, manifest)
- * keeps its URL across builds and must revalidate every load.
+ * keeps its URL across builds and must never be retained by the HTTP cache.
  */
 function isImmutableAsset(filePath: string): boolean {
   const name = basename(filePath)
@@ -269,7 +269,7 @@ function isImmutableAsset(filePath: string): boolean {
 }
 
 function cacheControl(filePath: string): string {
-  return isImmutableAsset(filePath) ? 'public, max-age=31536000, immutable' : 'no-cache'
+  return isImmutableAsset(filePath) ? 'public, max-age=31536000, immutable' : 'no-store'
 }
 
 /**
