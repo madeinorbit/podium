@@ -249,7 +249,7 @@ function sessionsMatchingThrough(
 ) {
   return db
     .select(bareColumns(t.sessions))
-    .from(sql`${t.sessions} INDEXED BY ${sql.raw(index)}`)
+    .from(sql`${t.sessions} INDEXED BY ${sql.identifier(index)}`)
     .where(inWorkspace(t.sessions, where))
     .prepare()
 }

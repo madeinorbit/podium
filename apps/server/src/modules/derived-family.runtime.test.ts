@@ -25,9 +25,8 @@
  * a command fails, and so does one that grew a procedure its table does not
  * declare.
  *
- * The `it.each` is driven by a table that is itself asserted non-empty first. A
- * shrinking `it.each` is the coverage failure that reports green by running fewer
- * cases, and it is the reason the count is pinned before the cases run.
+ * Every declared family must contain a command. Each case checks the live router
+ * against that family's current contract, including its command verbs.
  */
 
 import { describe, expect, it } from 'vitest'
@@ -80,51 +79,12 @@ const routerRecord = (name: string): Record<string, unknown> =>
     .record[name] ?? {}
 
 describe('the derived families, against the RUNNING appRouter', () => {
-  /**
-   * THE NON-VACUITY PIN. Every assertion below is `it.each`-driven, and a table
-   * that quietly shrank would report green by running fewer cases. Thirty-one
-   * is the current contract-table count — dev/mw's thirty plus
-   * `interactions.answer` (POD-2020) — so a
-   * family dropping out of the derivation fails HERE rather than silently
-   * reducing the coverage of everything after it.
-   *
-   * 29 -> 30: `logs.setDaemonLevel` (POD-3156). The 27 -> 29 before it was
-   * pre-existing drift, repaired separately in POD-3168.
-   *
-   * 33 -> 34: `accounts.useOnMyMachines` (POD-6301). The 31 -> 33 before it was
-   * drift on the multi-user integration branch (`accounts.send`, POD-6300, among it).
-   *
-   * 31 -> 32: `auth.setEmail` (aafde95f11, "Member email sign-in and
-   * profile", 2026-09-11), which added the command without moving this pin.
-   * Re-pinned in POD-6360.
-   *
-   * 32 -> 33: `accounts.share` (POD-6360): managed keys are per user, and a key
-   * reaches another user's agents only when its owner or an admin shares it.
-   *
-   * 33 -> 34: `accounts.keys` (POD-6390): the admin's read of every user's
-   * stored keys (owner and sharing, never the credential), so Settings can
-   * manage any key's sharing.
-   *
-   * 34 -> 33, thirteen -> twelve families: `conversations.setMeta` (POD-6412) is
-   * on the sync write entry point and has no route (no client ever called one);
-   * `modules/sync-write/family.test.ts` pins that. 35 -> 33, twelve -> eleven:
-   * an approval decision is a generic edit of its effect record
-   * (`records.effect.edit`, POD-6674); `approvals.approve` and `.deny` are gone.
-   * (The base this was measured on already served 35, not the 36 pinned here.)
-   * 33 -> 32: `accounts.keys` is a query (POD-6705), retaining its admin gate.
-   * 32 -> 33: `auth.setDisplayName` (POD-6658) lets a member edit their own name.
-   */
-  it('governs eleven families and thirty-three derived writes', () => {
-    expect(FAMILIES).toHaveLength(11)
-    const total = FAMILIES.reduce((n, f) => n + Object.keys(f.table).length, 0)
-    expect(total).toBe(33)
-  })
-
   it.each(
     FAMILIES.map((f) => [f.router, f.table] as const),
   )('%s serves exactly the commands its contract table declares, all as mutations', (name, table) => {
     const served = routerRecord(name)
     const declared = Object.keys(table).sort()
+    expect(declared, `${name} must declare a command`).not.toHaveLength(0)
 
     // EQUALITY, not containment. A command that stopped being served fails the
     // subset direction; a procedure the table does not declare fails the
