@@ -223,6 +223,8 @@ export function comesWithHolders(
   rows: { readRow(entity: string, entityId: string): EntityRecord | undefined },
   now: number,
   index: DiskIndexReader,
+  /** Whole records admitted by the current feed batch, before its index commits. */
+  recordHeld?: (key: string) => boolean,
 ): string[] {
   const record = (value ?? {}) as Readonly<Record<string, unknown>>
   const out: string[] = []
@@ -237,7 +239,15 @@ export function comesWithHolders(
         via,
       }
       const holder = comesWithHolderOf(spec)
-      if (holder === undefined || index.record(holder)?.cw.includes(via) !== true) continue
+      if (holder === undefined) continue
+      // A record's own companions follow it as soon as it is held. The complete
+      // bit certifies a fetched collection; it is not a prerequisite for keeping
+      // an individual whole feed row. Collection-specific vias still need it.
+      if (
+        index.record(holder)?.cw.includes(via) !== true &&
+        !(recordOf(via) !== undefined && recordHeld?.(holder) === true)
+      )
+        continue
       const instance = resolveInstance(spec, args)
       if (instance !== undefined && holds(instance, kind, value, rows, now))
         out.push(comesWithHolderKey(holder))

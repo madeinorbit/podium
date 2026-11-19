@@ -69,7 +69,9 @@ describe('a disk load (POD-7159)', () => {
     try {
       replica.connect()
       await replica.settled()
-      const from = replica.cursor!.seq
+      const cursor = replica.cursor
+      if (!cursor) throw new Error('bootstrap must establish a cursor')
+      const from = cursor.seq
       const companion = () =>
         server.put('issueUserState', 'u-ada:issue:new', {
           userId: 'u-ada',
@@ -79,6 +81,15 @@ describe('a disk load (POD-7159)', () => {
       if (order === 'before') companion()
       server.put('issueProjection', 'new', issue('new'))
       if (order === 'after') companion()
+      server.put(
+        'issueProjection',
+        'cold',
+        issue('cold', { stage: 'done', closedReason: 'completed' }),
+      )
+      server.put('issueUserState', 'u-ada:issue:cold', { userId: 'u-ada', entityId: 'cold' })
+      server.put('issueProjection', 'gone', issue('gone'))
+      server.put('issueUserState', 'u-ada:issue:gone', { userId: 'u-ada', entityId: 'gone' })
+      server.drop('issueProjection', 'gone')
       await replica.receive(server.frameSince(from))
       await replica.settled()
       expect(cache.read('issueProjection', 'new')?.value).toMatchObject({ title: 'Issue new' })
@@ -86,6 +97,11 @@ describe('a disk load (POD-7159)', () => {
         entityId: 'new',
         readAt: '2026-01-01T00:00:00.000Z',
       })
+      // A stub-only issue and a holder removed by this batch keep no companions.
+      expect(cache.readRow('issueProjection', 'cold')?.part).toBe('stub')
+      expect(cache.read('issueUserState', 'u-ada:issue:cold')).toBeUndefined()
+      expect(cache.readRow('issueProjection', 'gone')).toBeUndefined()
+      expect(cache.read('issueUserState', 'u-ada:issue:gone')).toBeUndefined()
       expect(replica.cursor?.seq).toBe(server.head)
     } finally {
       replica.disconnect()

@@ -2023,13 +2023,28 @@ export class Replica implements DeviceCollectionReads {
     const index = everything ? undefined : this.heldIndex()
     const disk = this.store.readDiskIndex()
     const markers = this.store.readInstances()
-    // What a rule reads: the rows as this batch leaves them, then the stub
-    // columns of a record only on disk (a parent's id for a tree).
+    // Rules and companion admission see the batch's final rows. Operations
+    // below retain feed order, including remove/upsert pairs for the same key.
+    const ahead = new Map(staged)
+    const currentRow = (entity: string, entityId: string): EntityRecord | undefined => {
+      const key = entityKey(entity, entityId)
+      return ahead.has(key)
+        ? (ahead.get(key) ?? undefined)
+        : (this.store.readRow(entity, entityId) ?? heldRowOf(key, disk.record(key)))
+    }
+    for (const change of changes) {
+      const op: CacheOperation =
+        change.op === 'upsert'
+          ? upsertOf(change, change.payload, change.seq)
+          : { kind: change.op, entity: change.entity, entityId: change.entityId, asOf: change.seq }
+      const next = rowAfter(currentRow(change.entity, change.entityId), op)
+      if (next !== undefined) ahead.set(entityKey(change.entity, change.entityId), next)
+    }
     const ruleRows: HeldRows = {
       readRow: (entity, entityId) => {
         const key = entityKey(entity, entityId)
-        return staged.has(key)
-          ? (staged.get(key) ?? undefined)
+        return ahead.has(key)
+          ? (ahead.get(key) ?? undefined)
           : this.ruleRows.readRow(entity, entityId)
       },
     }
@@ -2047,6 +2062,27 @@ export class Replica implements DeviceCollectionReads {
     // While a fetch or a disk load is under way, a change stays in memory
     // too: the answer or the load may name the record, and must find it there.
     const busy = this.fetchCount > 0 || this.diskLoads.size > 0
+    const membership = new Map<string, ReturnType<HeldIndex['matching']>>()
+    const matches = (key: string) => {
+      let found = membership.get(key)
+      if (found === undefined) {
+        const { entity, entityId } = splitRowKey(key)
+        const row = ruleRows.readRow(entity, entityId)
+        found = row === undefined ? [] : (index?.matching(entity, row.value, ruleRows, now) ?? [])
+        membership.set(key, found)
+      }
+      return found
+    }
+    const heldMain = (key: string): boolean => {
+      const { entity, entityId } = splitRowKey(key)
+      const row = ruleRows.readRow(entity, entityId)
+      if (row === undefined) return false
+      return (
+        disk.record(key)?.level === 'main' ||
+        this.store.read(entity, entityId) !== undefined ||
+        matches(key).length > 0
+      )
+    }
     /** Whether a record is whole in memory, as this batch leaves it. */
     const wholeInMemory = (key: string): boolean => {
       if (onDiskOnly.has(key)) return false
@@ -2055,7 +2091,18 @@ export class Replica implements DeviceCollectionReads {
         return row != null && row.part !== 'stub'
       }
       const { entity, entityId } = splitRowKey(key)
-      return this.store.read(entity, entityId) !== undefined
+      if (this.store.read(entity, entityId) !== undefined) return true
+      return (
+        ahead.get(key) != null &&
+        heldMain(key) &&
+        (busy ||
+          matches(key).some(
+            (instance) =>
+              instance.spec.via !== undefined ||
+              disk.inMemory(instance.key) ||
+              !markers.has(instance.key),
+          ))
+      )
     }
     for (const change of changes) {
       const key = entityKey(change.entity, change.entityId)
@@ -2088,6 +2135,7 @@ export class Replica implements DeviceCollectionReads {
           ruleRows,
           now,
           disk,
+          heldMain,
         )
         // Its holders, for the disk index: the instances it belongs to now,
         // and the records it comes with (POD-7160: a record it no longer
