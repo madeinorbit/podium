@@ -138,12 +138,41 @@ export function createDeviceIndex(schema: ModelSchema): DeviceIndex {
   const issueIdentities = createIssueIdentities((id) => relations.members('repo', id, 'worktrees'))
   let identityRepoChanges: ReadonlySet<string> = new Set()
   let identityEvent: RowSourceEvent | undefined
-  const sessionQuestions = createSessionQuestions(
+  const filedSessions = createSessionQuestions(
     (id) => relations.collapsed('session', id),
     (id) => relations.orderKey('session', id),
     undefined,
     (id) => positions.get(id) ?? 0,
   )
+  /**
+   * POD-7181 — the session questions are filed when something asks them, not
+   * per publication. The pool's reader queries keep their own fork current
+   * and read these only to fork them (a replacement) or for a session the
+   * pool does not hold, so filing every session here as well filed each one
+   * twice. Each pending change is filed once, against the relations as they
+   * stand when it is filed: the same answers as filing it at once.
+   */
+  let pendingReplace = false
+  const pendingRows = new Map<string, Row | undefined>()
+  const pendingFlips = new Set<string>()
+  const pendingOrders = new Set<string>()
+  function sessions(): SessionQuestions {
+    if (!pendingReplace && pendingRows.size === 0 && pendingFlips.size === 0 && pendingOrders.size === 0)
+      return filedSessions
+    const replace = pendingReplace
+    const rows = [...pendingRows]
+    const flips = new Set(pendingFlips)
+    const orders = [...pendingOrders]
+    pendingReplace = false
+    pendingRows.clear()
+    pendingFlips.clear()
+    pendingOrders.clear()
+    if (replace) filedSessions.replace(rows)
+    else for (const [id, row] of rows) filedSessions.set(id, row)
+    for (const id of flips) filedSessions.visibilityChanged(id)
+    for (const id of orders) if (!flips.has(id)) filedSessions.orderChanged(id)
+    return filedSessions
+  }
   let collapseVersion = 0
   let sessionTopologyVersion = 0
   let topologyMoved = false
@@ -213,20 +242,20 @@ export function createDeviceIndex(schema: ModelSchema): DeviceIndex {
   }
 
   return {
-    readerActivity: (question) => sessionQuestions.activity(question),
-    readerActivityRevision: (question) => sessionQuestions.activityRevision(question),
+    readerActivity: (question) => sessions().activity(question),
+    readerActivityRevision: (question) => sessions().activityRevision(question),
     get readerActivityVisits() {
-      return sessionQuestions.activityVisits
+      return sessions().activityVisits
     },
-    triageSession: (id, now) => sessionQuestions.triageFact(id, now),
-    forkSessionQuestions: (collapsed, order) => sessionQuestions.fork(collapsed, order),
-    sessionQuestionFact: (id) => sessionQuestions.fact(id),
-    nextTriageSession: (after, now, excluded) => sessionQuestions.next(after, now, excluded),
-    machineSession: (id) => sessionQuestions.machineFact(id),
-    latestMachineSession: (ids, excluded) => sessionQuestions.latest(ids, excluded),
-    machineSessionRevision: (ids) => sessionQuestions.machineRevision(ids),
+    triageSession: (id, now) => sessions().triageFact(id, now),
+    forkSessionQuestions: (collapsed, order) => sessions().fork(collapsed, order),
+    sessionQuestionFact: (id) => sessions().fact(id),
+    nextTriageSession: (after, now, excluded) => sessions().next(after, now, excluded),
+    machineSession: (id) => sessions().machineFact(id),
+    latestMachineSession: (ids, excluded) => sessions().latest(ids, excluded),
+    machineSessionRevision: (ids) => sessions().machineRevision(ids),
     get sessionQuestionVisits() {
-      return sessionQuestions.visits
+      return sessions().visits
     },
     get readerVersion() {
       return readers.version + collapseVersion
@@ -314,25 +343,23 @@ export function createDeviceIndex(schema: ModelSchema): DeviceIndex {
         if (record.kind === 'issue') issueQuestions.set(record.id, record.value as Row | undefined)
       if (event.type === 'replace') {
         // Relations are final before seeding; collapse and order need no replay.
-        sessionQuestions.replace(
-          (function* () {
-            for (const record of event.rows)
-              if (record.kind === 'session')
-                yield [record.id, record.value as Row | undefined] as const
-          })(),
-        )
+        pendingReplace = true
+        pendingRows.clear()
+        pendingFlips.clear()
+        pendingOrders.clear()
+        for (const record of event.rows)
+          if (record.kind === 'session') pendingRows.set(record.id, record.value as Row | undefined)
       } else {
         for (const record of event.rows)
-          if (record.kind === 'session')
-            sessionQuestions.set(record.id, record.value as Row | undefined)
-        const flipped = new Set<string>()
-        for (const [entity, id] of delta.flips)
-          if (entity === 'session') {
-            flipped.add(id)
-            sessionQuestions.visibilityChanged(id)
+          if (record.kind === 'session') {
+            // A later row replaces an earlier one; a removal stays a removal to file.
+            pendingRows.delete(record.id)
+            pendingRows.set(record.id, record.value as Row | undefined)
           }
-        for (const [entity, id] of delta.orders)
-          if (entity === 'session' && !flipped.has(id)) sessionQuestions.orderChanged(id)
+        if (!pendingReplace) {
+          for (const [entity, id] of delta.flips) if (entity === 'session') pendingFlips.add(id)
+          for (const [entity, id] of delta.orders) if (entity === 'session') pendingOrders.add(id)
+        }
       }
     },
   }
