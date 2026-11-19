@@ -1,16 +1,18 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { saveConfig } from '@podium/runtime/config'
 import { createTRPCClient, httpBatchLink } from '@trpc/client'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { noJanitorWorkerForTests } from './janitor-host'
 import type { AppRouter } from './router'
 import { startServer } from './server'
+import { attachHostDaemon } from './test-support/host-daemon'
 
 // Outbox write path e2e (docs/spec/outbox-write-path.md §4): idempotent replays
 // over the REAL wiring — a booted server and actual HTTP tRPC, the seams the
-// registry-level tests can't cover. No daemon attaches in this harness, so a
-// created session stays 'starting' forever and a queued message remains durably
+// registry-level tests can't cover. The fixture daemon disappears before binding,
+// so the accepted session stays 'starting' and a queued message remains durably
 // parked — exactly the unreachable-agent shape the spec closes.
 const priorStateDir = process.env.PODIUM_STATE_DIR!
 
@@ -24,7 +26,9 @@ describe('outbox write path e2e (live server)', () => {
     stateDir = mkdtempSync(join(tmpdir(), 'podium-outbox-e2e-'))
     tmpDirs.push(stateDir)
     process.env.PODIUM_STATE_DIR = stateDir
+    saveConfig({ mode: 'all-in-one' })
     server = await startServer({ janitorWorkerForTests: noJanitorWorkerForTests, port: 0 })
+    await attachHostDaemon(server.registry, () => {}, { repos: ['/repo'] })
     trpc = createTRPCClient<AppRouter>({
       links: [httpBatchLink({ url: `http://127.0.0.1:${server.port}/trpc` })],
     })
@@ -39,6 +43,10 @@ describe('outbox write path e2e (live server)', () => {
     const cwd = mkdtempSync(join(tmpdir(), 'podium-outbox-e2e-cwd-'))
     tmpDirs.push(cwd)
     const { sessionId } = await trpc.sessions.create.mutate({ agentKind: 'shell', cwd })
+
+    // The machine accepted the spawn but disappeared before binding it.
+    // Creation itself requires an available execution machine.
+    await server.registry.gateway.detachDaemon(server.registry.sessionStore.hostMachineId)
 
     // No daemon → the session never binds; the send goes to the durable queue.
     const first = await trpc.sessions.resumeAndSend.mutate({

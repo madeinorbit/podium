@@ -127,13 +127,30 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
       // would model a replacement machine and invalidate every durable binding.
       const hostMachineId = asMachineId(randomUUID())
       let store = await openTestStore(dbPath, hostMachineId)
-      let registry = await SessionRegistry.create(store, { ntfy, telegram }, { instanceId: 'default' })
+      let registry = await SessionRegistry.create(
+        store,
+        { ntfy, telegram },
+        { instanceId: 'default' },
+      )
       registry.bus.on('notification.telegramRequested', telegramRequest)
       const controls: ControlMessage[] = []
-      const attach = () =>
-        attachHostDaemon(registry, (msg) =>
-          controls.push(msg),
-        )
+      const bindKnownSessions = async () => {
+        for (const session of await store.sessions.loadSessions())
+          await registry.gateway.routeDaemonFrame(store.hostMachineId, {
+            type: 'bind',
+            sessionId: asSessionId(session.id),
+            cmd: 'fixture',
+            cwd: session.cwd,
+            agentKind: session.agentKind,
+            geometry: { cols: 80, rows: 24 },
+          })
+      }
+      const attach = async () => {
+        await attachHostDaemon(registry, (msg) => {
+          controls.push(msg)
+        })
+        await bindKnownSessions()
+      }
       await attach()
       await registry.modules.settings.setSettingsFor(
         firstAdminMemberId(),
@@ -176,6 +193,7 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
         cwd: join(root, 'child'),
         spawnedBy: `session:${parentId}`,
       })
+      await bindKnownSessions()
       await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
         type: 'sessionResumeRef',
         sessionId: childId,
@@ -277,7 +295,11 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
           await registry.dispose()
           await store.close()
           store = await openTestStore(dbPath, hostMachineId)
-          registry = await SessionRegistry.create(store, { ntfy, telegram }, { instanceId: 'default' })
+          registry = await SessionRegistry.create(
+            store,
+            { ntfy, telegram },
+            { instanceId: 'default' },
+          )
           registry.bus.on('notification.telegramRequested', telegramRequest)
           attachTestClient(registry.clientGateway, (message) => web.push(message))
           await attach()

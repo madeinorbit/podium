@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { CLIENT_WIRE_VERSION, type ServerMessage } from '@podium/protocol'
+import { saveConfig } from '@podium/runtime/config'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import WebSocket from 'ws'
 import { noJanitorWorkerForTests } from './janitor-host'
@@ -19,6 +20,7 @@ describe('metadata oplog e2e (live server)', () => {
   beforeAll(async () => {
     stateDir = mkdtempSync(join(tmpdir(), 'podium-sync-e2e-'))
     process.env.PODIUM_STATE_DIR = stateDir
+    saveConfig({ mode: 'all-in-one' })
     server = await startServer({ janitorWorkerForTests: noJanitorWorkerForTests, port: 0 })
   })
   afterAll(async () => {

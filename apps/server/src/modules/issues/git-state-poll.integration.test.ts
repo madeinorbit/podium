@@ -6,17 +6,17 @@ import { promisify } from 'node:util'
 import { asSessionId } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import { Ledger } from '@podium/sync'
-import { fixtureWriteScope, testLedgerWriter } from '@podium/sync/testing'
+import { testLedgerWriter } from '@podium/sync/testing'
 import { expect, it, vi } from 'vitest'
 import { repoOpCommand } from '../../../../daemon/src/repo-op'
 import type { SessionStore } from '../../store'
 import { applyAfterCommit, spanOpen } from '../../store/executor/executor'
 import { openTestStore } from '../../test-support/open-test-store'
+import { logStoreRecords } from '../../test-support/record-writer'
 import { sessionReadPorts } from '../../test-support/session-facts'
 import { countStatements } from '../../test-support/statement-count'
 import { type IssueDeps, IssueService } from './service'
 import { issueTestPlumbing } from './service/test-plumbing'
-import { logStoreRecords } from '../../test-support/record-writer'
 
 const execFile = promisify(execFileCallback)
 
@@ -91,8 +91,7 @@ it('polls a real worktree without journaling checks, then journals each git chan
     })
     const row = await db.issues.getIssue(id)
     if (!row) throw new Error('missing fixture issue')
-    await db.issues.upsertIssue(fixtureWriteScope(), {
-      ...row,
+    await svc.crud.update(svc.reports.store.serverWriter, id, {
       branch: 'issue/git-state',
       worktreePath: worktree,
     })

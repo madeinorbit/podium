@@ -67,7 +67,13 @@ function maintenance(store: SessionStore, now: () => number = () => NOW): Mainte
         return write()
       },
     },
-    { now, leaseTtlMs: 90_000 },
+    {
+      now,
+      leaseTtlMs: 90_000,
+      messages: {
+        expireObserved: (input) => store.messages.expireObserved(fixtureWriteScope(), input),
+      },
+    },
   )
 }
 

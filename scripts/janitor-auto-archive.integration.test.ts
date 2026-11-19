@@ -28,6 +28,7 @@ import { fixtureWriteScope } from '@podium/sync/testing'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { openJanitorDatabase } from '../apps/server/src/janitor-database'
 import type { IssueRow, SessionRow, SessionStore } from '../apps/server/src/store'
+import { assignHostMachine } from '../apps/server/src/test-support/host-daemon'
 import { openTestStore } from '../apps/server/src/test-support/open-test-store'
 import {
   IssueAutoArchiveReader,
@@ -150,6 +151,8 @@ describe('janitor auto-archive candidates over per-user read state [POD-1210]', 
     priorStateDir = process.env.PODIUM_STATE_DIR
     process.env.PODIUM_STATE_DIR = dir
     store = await openTestStore(dbPath)
+    await assignHostMachine(store)
+    await store.repos.addRepo('/repo', store.hostMachineId)
     db = janitorSource(dbPath)
   })
 
