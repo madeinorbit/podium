@@ -24,17 +24,15 @@ import { z } from 'zod'
 import type { EffectExecutorRegistry } from '../effects/registry'
 import type { EffectsRunner } from '../effects/runner'
 import { operationEffectExecutor } from '../operations/effects'
-import { UPDATE_EFFECT_KIND } from '../operations/instance-effect-kinds'
 import type { OperationEngine } from '../operations/engine'
+import { UPDATE_EFFECT_KIND } from '../operations/instance-effect-kinds'
 import { NO_TARGET } from '../sync-write/registry'
+import { logWaveDecision, type UpdateStartPorts, updateStartPlan } from './handlers'
 import { UPDATE_OPERATION_KIND, type UpdateOperationContext, type UpdateSurface } from './operation'
-import { logWaveDecision, type UpdateStartPorts, updateStartPlan } from './trpc'
 
 export { UPDATE_EFFECT_KIND } from '../operations/instance-effect-kinds'
 
-/** An update's record targets the server's own machine. */
-export const updateEffectTarget = (hostMachineId: MachineId) =>
-  ({ kind: 'machine', id: hostMachineId }) as const
+export { updateEffectTarget } from './effect-target'
 
 export const UpdateEffectInput = z
   .object({

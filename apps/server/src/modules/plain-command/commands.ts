@@ -9,11 +9,9 @@
  * One instance, because a plain command holds no per-server state: its handler
  * selects its service from the context the transport hands it.
  *
- * COMPOSED ON FIRST USE, not at module load. A family's registrations can live
- * in its route module (`updates/trpc.ts`), which imports the route generator,
- * which reads this registry: composing at load would read a family's table
- * before its module had finished loading. The first route built, at router
- * construction, composes it; every module is loaded by then.
+ * Composed on first use from declaration/handler leaves. A family's transport
+ * adapters read the registry; the registry never imports those adapters, so
+ * module initialization does not rely on a cyclic route module finishing first.
  */
 
 import { CLOUD_PLAIN_FAMILY } from '../cloud/plain-family'
@@ -31,9 +29,9 @@ import { MODEL_PLAIN_FAMILY } from '../models/plain-family'
 import { OPERATION_PLAIN_REGISTRATIONS } from '../operations/plain-family'
 import { PERF_PLAIN_FAMILY } from '../perf/plain-family'
 import { SESSION_PLAIN_REGISTRATIONS } from '../sessions/plain-family'
-import { SETTINGS_PLAIN_REGISTRATIONS } from '../settings/trpc'
+import { SETTINGS_PLAIN_REGISTRATIONS } from '../settings/plain-family'
 import { SPEC_PLAIN_FAMILY } from '../specs/plain-family'
-import { UPDATE_PLAIN_REGISTRATIONS } from '../updates/trpc'
+import { UPDATE_PLAIN_REGISTRATIONS } from '../updates/plain-family'
 import { VAULT_PLAIN_FAMILY } from '../vault/plain-family'
 import { plainFamilyRegistrations } from './declare'
 import { PlainCommandRegistry, type PlainRegistration } from './registry'
