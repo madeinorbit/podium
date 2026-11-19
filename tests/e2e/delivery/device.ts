@@ -38,6 +38,9 @@ import {
 } from '@podium/client-core/conversation'
 import { type EngineOutbox, openKernelEngineOutbox } from '@podium/client-core/runtime-root'
 import { HttpDeltaSource } from '@podium/client-core/sync-stream'
+import { here } from '@podium/client-graph/lookup'
+import { ingestMessageRecords } from '@podium/client-graph/message-models'
+import { MobxPool } from '@podium/client-graph/pool'
 import {
   asMutationId,
   type MessageRecordWire,
@@ -101,7 +104,15 @@ interface FeedRow {
  * from this fixture's pushed-feed owner.
  */
 export class RecordsView {
-  private byRowId = new Map<string, MessageRecordWire>()
+  private byRowId = new Map<string, string>()
+  private readonly pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.now() })
+  readonly messageRecords = {
+    read: (id: string) => here(this.pool.model('messageRecord', id)),
+    ingest: (rows: readonly MessageRecordWire[]) => ingestMessageRecords(this.pool, rows),
+  }
+  dispose(): void {
+    this.pool.dispose()
+  }
   private snapshot: { messageRecords: readonly MessageRecordWire[] } = { messageRecords: [] }
   private readonly listeners = new Set<() => void>()
   cursor = 0
@@ -133,14 +144,27 @@ export class RecordsView {
       if (change.entity !== 'message' || rowId === undefined) continue
       touched = true
       if (change.op === 'upsert' && change.value) {
-        this.byRowId.set(rowId, change.value as MessageRecordWire)
+        const record = change.value as MessageRecordWire
+        this.byRowId.set(rowId, record.id)
+        ingestMessageRecords(this.pool, [record])
       } else {
+        const id = this.byRowId.get(rowId)
         this.byRowId.delete(rowId)
+        if (id && ![...this.byRowId.values()].includes(id))
+          this.pool.apply({
+            type: 'update',
+            rows: [{ kind: 'messageRecord', id, value: undefined }],
+          })
       }
     }
     this.cursor = Math.max(this.cursor, through)
     if (!touched) return
-    this.snapshot = { messageRecords: [...this.byRowId.values()] }
+    this.snapshot = {
+      messageRecords: [...new Set(this.byRowId.values())].flatMap((id) => {
+        const record = this.messageRecords.read(id)
+        return record ? [record as MessageRecordWire] : []
+      }),
+    }
     for (const listener of this.listeners) listener()
   }
 
@@ -314,6 +338,7 @@ export class Device {
               ),
             ),
           records: this.records.forSession(sessionId),
+          messageRecords: this.records.messageRecords,
           lookupRecords: (ids) =>
             this.api.messages.records.query({ ids: [...ids] }).then((answer) => answer.records),
           retract: (id) =>
@@ -575,6 +600,7 @@ export class Device {
     this.drafts = undefined
     this.conversations.clear()
     this.transcripts.clear()
+    this.records.dispose()
     this.records = new RecordsView()
     this.outbox?.dispose()
     this.outbox = undefined
