@@ -72,6 +72,21 @@ const delegated = (): ReactionPrincipal => ({
  */
 export const REACTIONS = [
   {
+    id: 'machines.processes-topic',
+    description: 'Publish a demanded process sample to its authenticated topic holders.',
+    trigger: 'machine.processesChanged',
+    durability: 'in-memory',
+    replay: { mode: 'none', reason: 'A subscription starts a new process sample.' },
+    idempotency: { key: 'machine id + live sample', duplicatePolicy: 'safe-repeat' },
+    ordering: 'EventBus order after the process producer records its newest sample.',
+    retry: 'No replay; reconnect or focus requests a fresh sample.',
+    failureOwner: 'machine process topic routing',
+    observability: { registry: true, events: ['machine.processesChanged'], metrics: [] },
+    principal: system(),
+    scopeInvariant:
+      'Publishes only this workspace machine sample through existing subscriber authorization; no durable write.',
+  },
+  {
     id: 'machines.condition-topic',
     description: 'Publish a changed live machine condition to its authenticated topic holders.',
     trigger: 'machine.conditionChanged',

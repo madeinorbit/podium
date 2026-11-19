@@ -19,6 +19,7 @@ import type {
   MachineConditionPayload,
   MetadataChange,
   SessionOpenUrlMessage,
+  TopicPayload,
 } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { runAtRoot } from '../store/executor/context'
@@ -144,6 +145,8 @@ export interface EventMap {
   'machine.connected': { machineId: MachineId }
   /** A live condition changed; the topic router publishes to its current holders. */
   'machine.conditionChanged': { machineId: MachineId; value: MachineConditionPayload }
+  /** A demanded process sample changed; published through authenticated topic routing. */
+  'machine.processesChanged': { id: string; value: TopicPayload<'machine.processes'> | undefined }
   /** A machine's daemon socket detached. */
   'machine.disconnected': { machineId: MachineId }
   /** Durable machine metadata changed; session machine-name projections recapture.

@@ -27,14 +27,16 @@ it('enriches demanded process samples with reclaim state, and fences reads after
   let roots!: (paths: string[]) => void
   const source = new MachineProcessesTopic({
     supports: () => true,
+    send,
+    publish,
+  })
+  source.installReaders({
     roots: () =>
       new Promise((done) => {
         roots = done
       }),
     reclaim: vi.fn(async () => inventory),
     fallback: vi.fn(async () => memory),
-    send,
-    publish,
   })
   source.start('machine')
   source.stop('machine')
@@ -64,11 +66,13 @@ it('old daemons get one request on open and explicit focus, with no periodic req
   const fallback = vi.fn(async () => memory)
   const source = new MachineProcessesTopic({
     supports: () => false,
+    send: vi.fn(),
+    publish: vi.fn(),
+  })
+  source.installReaders({
     roots: vi.fn(),
     reclaim: async () => inventory,
     fallback,
-    send: vi.fn(),
-    publish: vi.fn(),
   })
   source.start('machine')
   await settle()
@@ -77,4 +81,20 @@ it('old daemons get one request on open and explicit focus, with no periodic req
   await settle()
   expect(fallback).toHaveBeenCalledTimes(2)
   source.stop('machine')
+})
+
+it('refuses demand before readers are installed and refuses a second installation', async () => {
+  const publish = vi.fn()
+  const fallback = vi.fn(async () => memory)
+  const source = new MachineProcessesTopic({ supports: () => false, send: vi.fn(), publish })
+  expect(() => source.start('machine')).toThrow('readers not installed')
+  expect(() => source.refresh('machine')).toThrow('readers not installed')
+  expect(source.snapshot('machine')).toBeUndefined()
+  const readers = { roots: async () => [], reclaim: async () => inventory, fallback }
+  source.installReaders(readers)
+  expect(() => source.installReaders(readers)).toThrow('readers already installed')
+  source.start('machine')
+  await settle()
+  expect(fallback).toHaveBeenCalledTimes(1)
+  expect(publish).toHaveBeenCalledWith('machine', { breakdown: memory, reclaim: inventory })
 })

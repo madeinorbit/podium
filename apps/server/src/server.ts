@@ -1,6 +1,5 @@
 import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
-import { hostname } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { trpcServer } from '@hono/trpc-server'
@@ -61,7 +60,7 @@ import {
   type LoopProfileCapture,
   takeProfileRequest,
 } from '@podium/runtime/loop-profile-capture'
-import { loadSupervisorState, targetTransferRecovery } from '@podium/runtime/machine-supervisor'
+import { loadSupervisorState } from '@podium/runtime/machine-supervisor'
 import {
   clearParentOutcome,
   readParentOutcome,
@@ -762,26 +761,6 @@ export async function startServer(
   // The installation identity follows server authority across transfers.
   const installation = await store.secrets.installationIdentity()
   const installationPublicKey = installationPublicKeyWire(installation)
-  // Keeps Connect's record of where this server is reachable current. Started
-  // once the listener is up (below); reads PODIUM_CONNECT and the public URL
-  // per tick, so both land without a restart. The base URL is a boot fact.
-  // The address this server claims: what the Connect publisher sends and what
-  // the locate proof signs over (POD-5921) — one reader, so the two never differ.
-  const claimedPublicUrl = (): string | undefined =>
-    serverMoveDataPlaneDeferred ? undefined : resolvePublicUrl(loadConfig(), process.env)
-  const tunnelHealth = new TunnelHealthStore()
-  const readTunnelHealth = () => tunnelHealth.read(claimedPublicUrl())
-  const connectPublisher = new ConnectPublisher({
-    client: connectClient({
-      baseUrl: resolveConnectBaseUrl(config, process.env),
-      identity: () => installation,
-    }),
-    identity: () => installation,
-    publicUrl: claimedPublicUrl,
-    enabled: () => store.settings.resolve('connectEnabled').value,
-    log: createLogger('server:connect'),
-    baseUrl: resolveConnectBaseUrl(config, process.env),
-  })
   // In the store's server_secrets, read through its lifecycle port (POD-6994).
   const updateSigningKey = await database.updateSigningKey({
     allowCreate: !recoveryOnly && (await store.machines.listMachines()).length === 0,
@@ -1467,6 +1446,26 @@ export async function startServer(
       ? bootTargetPromotion
       : undefined
   let serverMoveDataPlaneDeferred = deferredPromotion !== undefined
+  // Keeps Connect's record of where this server is reachable current. Started
+  // once the listener is up (below); reads PODIUM_CONNECT and the public URL
+  // per tick, so both land without a restart. The base URL is a boot fact.
+  // The address this server claims: what the Connect publisher sends and what
+  // the locate proof signs over (POD-5921) — one reader, so the two never differ.
+  const claimedPublicUrl = (): string | undefined =>
+    serverMoveDataPlaneDeferred ? undefined : resolvePublicUrl(loadConfig(), process.env)
+  const tunnelHealth = new TunnelHealthStore()
+  const readTunnelHealth = () => tunnelHealth.read(claimedPublicUrl())
+  const connectPublisher = new ConnectPublisher({
+    client: connectClient({
+      baseUrl: resolveConnectBaseUrl(config, process.env),
+      identity: () => installation,
+    }),
+    identity: () => installation,
+    publicUrl: claimedPublicUrl,
+    enabled: () => store.settings.resolve('connectEnabled').value,
+    log: createLogger('server:connect'),
+    baseUrl: resolveConnectBaseUrl(config, process.env),
+  })
   let stopDeferredPromotionPoll = (): void => {}
   if (deferredPromotion) {
     let settling = false
@@ -2141,7 +2140,10 @@ export async function startServer(
   }
 
   const requestedPort = opts.port ?? 0
-  return new Promise<ServerHandle>(async (resolve, reject) => {
+  const listen = async (
+    resolve: (handle: ServerHandle) => void,
+    reject: (error: unknown) => void,
+  ): Promise<void> => {
     let settled = false
 
     let loopMinuteSink: LoopMinuteFileSink | undefined
@@ -2916,5 +2918,8 @@ export async function startServer(
           }),
       })
     })
+  }
+  return new Promise<ServerHandle>((resolve, reject) => {
+    void listen(resolve, reject).catch(reject)
   })
 }

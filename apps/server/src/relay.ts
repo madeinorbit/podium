@@ -161,7 +161,7 @@ import { registerMachineUpdateEffect } from './modules/fleet/update-effect'
 import { WriteFunnel } from './modules/funnel'
 import { HIBERNATION_HOLDER, HibernationMetricsDemand } from './modules/hosts/metrics-demand'
 import { MachineProcessesTopic } from './modules/hosts/processes-topic'
-import { HOST_COMMANDS_TRPC, memoryBreakdownRoots } from './modules/hosts/registry'
+import { HOST_COMMANDS_TRPC, type HostState, memoryBreakdownRoots } from './modules/hosts/registry'
 import { HostsService, type MemoryBreakdown } from './modules/hosts/service'
 import { complete, type OnMachineTransport } from './modules/inference/complete'
 import { registerSessionAnswerEffect } from './modules/interactions/answer-effect'
@@ -1500,16 +1500,10 @@ export class SessionRegistry {
         this.bus.emit('machine.conditionChanged', { machineId, value }),
     })
     machineConditionChanged = (machineId) => machineConditions.changed(machineId)
-    const processReadState = () => ({ ...this.modules, repos: fleetRepos })
     const processTopic = new MachineProcessesTopic({
       supports: (id) => machines.daemonSupports(id, CAP_MACHINE_PROCESSES_V1),
-      roots: (id) => memoryBreakdownRoots(processReadState(), id),
-      reclaim: (id) =>
-        HOST_COMMANDS_TRPC.reclaimInventory.handler(processReadState(), { machineId: id }),
-      fallback: (id) =>
-        HOST_COMMANDS_TRPC.memoryBreakdown.handler(processReadState(), { machineId: id }),
       send: (id, frame) => machines.toMachine(id, frame),
-      publish: (id, value) => topics.publish('machine.processes', id, value),
+      publish: (id, value) => this.bus.emit('machine.processesChanged', { id, value }),
       onError: (err) => log.warn('process topic failed', { err }),
     })
     const topicProducers: TopicProducers = {
@@ -1577,6 +1571,9 @@ export class SessionRegistry {
     })
     this.bus.on('machine.conditionChanged', ({ machineId, value }) =>
       topics.publish('machine.condition', machineId, value),
+    )
+    this.bus.on('machine.processesChanged', ({ id, value }) =>
+      topics.publish('machine.processes', id, value),
     )
     this.topics = topics
     // Every account notice a connection holds the topic for goes on it (D26).
@@ -1931,10 +1928,6 @@ export class SessionRegistry {
     // Sessions are private (POD-6283): the owner, and no grant.
     const liveSessionOwner = async (sessionId: SessionId) =>
       (await sessionsSvc.records.ownershipOf(sessionId, 'mailSessionRef'))?.ownerUserId
-    const liveSessionOwnership = async (sessionId: SessionId) => {
-      const owner = await liveSessionOwner(sessionId)
-      return owner ? { owner, grants: [] } : undefined
-    }
     // What a mail principal may address. Its own function so a check that
     // needs only this (the apply-time re-authorization of each queued row)
     // does not read the fleet's machine ownership as well (POD-6229).
@@ -2225,7 +2218,7 @@ export class SessionRegistry {
       instructionsForStart: (input) => sessionInstructions.prepare(input),
       agentLaunch: async (input) => await agentProfiles.launch(input),
       // The issue service is composed after sessions; these run only on a start.
-      draftForStart: async (writer, { cwd, agentKind, ownerUserId, machineId }) =>
+      draftForStart: async (_writer, { cwd, agentKind, ownerUserId, machineId }) =>
         (await this.store.repos.machineHasRootContaining(cwd, machineId))
           ? (
               await this.issues.attention.createDraftFor(
@@ -5163,6 +5156,14 @@ export class SessionRegistry {
     registerOutboxCommands(syncWrite.registry, syncFamilyDeps)
     // The rest of the synced writes, family by family (POD-6359).
     const fleetRepos = new RepoRegistry(this, this.store)
+    const processReadState: HostState = { hosts, rpc, issues, repos: fleetRepos }
+    processTopic.installReaders({
+      roots: (id) => memoryBreakdownRoots(processReadState, id),
+      reclaim: (id) =>
+        HOST_COMMANDS_TRPC.reclaimInventory.handler(processReadState, { machineId: id }),
+      fallback: (id) =>
+        HOST_COMMANDS_TRPC.memoryBreakdown.handler(processReadState, { machineId: id }),
+    })
     registerFamilyCommands(syncWrite.registry, {
       ...syncFamilyDeps,
       fleet: {
