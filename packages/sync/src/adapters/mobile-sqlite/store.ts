@@ -966,6 +966,46 @@ export class SqliteSyncStore {
   }
 
   /** An empty store's index is built: the flag says so. */
+  /** POD-7170: the file keeps stub-level records in their index entries only (its rows hold none). */
+  private stubsInIndex = false
+
+  /** Stage, once per store, the flag that says so, with the first stub-level record written. */
+  noteStubInIndex(draft: SpanDraft): void {
+    if (this.stubsInIndex) return
+    this.stubsInIndex = true
+    draft.ops.push(metaOp(STORE_PRINCIPAL, { kind: 'put', key: STUBS_IN_INDEX_KEY, value: true }))
+  }
+
+  /**
+   * POD-7170 — an unreadable index of a file whose stubs live in it: every
+   * cached row, marker and index row goes, and the cache starts cold (a first
+   * download). The outbox stays: the user's unsent writes are not cache.
+   */
+  private clearCacheRegion(): void {
+    this.db.exec('BEGIN IMMEDIATE')
+    try {
+      this.db.exec(`DELETE FROM ${ENTITY_TABLE}`)
+      this.db.exec(`DELETE FROM ${META_TABLE}`)
+      this.db.exec(`DELETE FROM ${INDEX_TABLE}`)
+      this.writeIndexFlag()
+      this.db.exec('COMMIT')
+    } catch (error) {
+      try {
+        this.db.exec('ROLLBACK')
+      } catch {
+        // A dead connection needs no rollback: the journal undoes it on next open.
+      }
+      throw error
+    }
+    this.entities.clear()
+    this.metas.clear()
+    this.indexes.clear()
+    this.outboxRows.clear()
+    this.nextOrdinal = 0
+    this.stubsInIndex = false
+    this.adoptOutboxRows(this.selectOutboxRows())
+  }
+
   private writeIndexFlag(): void {
     this.db
       .prepare(
@@ -1019,10 +1059,17 @@ export class SqliteSyncStore {
       if (entries === undefined) readable = false
       else buckets.push({ principal: row.principal, entries })
     }
+    const stubsInIndex = meta.some(
+      (row) => row.principal === STORE_PRINCIPAL && row.key === STUBS_IN_INDEX_KEY,
+    )
     if (!readable) {
-      await this.rebuildIndex()
+      // POD-7170: a file this build wrote keeps stub-level records in the
+      // index only, so its rows cannot rebuild it: start the cache cold.
+      if (stubsInIndex) this.clearCacheRegion()
+      else await this.rebuildIndex()
       return
     }
+    this.stubsInIndex = stubsInIndex
     this.entities.clear()
     this.metas.clear()
     this.indexes.clear()
@@ -1403,6 +1450,7 @@ export class SqliteSyncStore {
     this.indexes.clear()
     this.outboxRows.clear()
     this.nextOrdinal = 0
+    this.stubsInIndex = false
   }
 
   // ── mirror accessors used by the views ───────────────────────────────────
@@ -1609,7 +1657,9 @@ class SqliteCacheStore implements ReplicaCacheStore {
         next.set(key, row)
         const op = upsertEntityOp(this.principal, row)
         index.row(key, row, undefined, sizeOf(op))
-        draft.ops.push(op)
+        // POD-7170: a stub lives in its index entry only.
+        if (row.part !== 'stub') draft.ops.push(op)
+        else this.store.noteStubInIndex(draft)
       }
       // The markers and policy described the rows this replaces.
       this.resetMeta(draft)
@@ -1709,8 +1759,19 @@ class SqliteCacheStore implements ReplicaCacheStore {
       if (row !== null) {
         slice.set(key, row)
         const statement = upsertEntityOp(this.principal, row)
+        const before = index.record(key)?.level
         index.row(key, row, op.kind === 'upsert' ? op.holders : undefined, sizeOf(statement))
-        draft.ops.push(statement)
+        if (row.part !== 'stub') draft.ops.push(statement)
+        else {
+          // POD-7170: a stub-level record has no entity row (its index entry
+          // stores the stub); one taken back to its stub drops its whole row.
+          this.store.noteStubInIndex(draft)
+          if (before === 'main')
+            draft.ops.push({
+              sql: `DELETE FROM ${ENTITY_TABLE} WHERE principal = ? AND entity = ? AND entity_id = ?`,
+              params: [this.principal, op.entity, op.entityId],
+            })
+        }
         continue
       }
       index.row(key, null)
@@ -1964,3 +2025,6 @@ function unavailableDatabase(): SqlDatabaseLike {
 
 /** Named for the tables one transaction must span; re-exported for the suites. */
 export { ALL_TABLES }
+
+/** POD-7170: the store-wide meta row that says stub-level records live in the index only. */
+const STUBS_IN_INDEX_KEY = 'stubs-in-index'

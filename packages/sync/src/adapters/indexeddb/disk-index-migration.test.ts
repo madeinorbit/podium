@@ -106,6 +106,20 @@ async function versionOneStore(): Promise<{
   })
   const tx = db.transaction([ENTITY_STORE, META_STORE], 'readwrite')
   for (const row of durable[ENTITY_STORE] ?? []) tx.objectStore(ENTITY_STORE).put(row)
+  // The build before the index wrote a stub-level record as an entity row too
+  // (this build keeps it in its index entry only, POD-7170).
+  for (const row of rows)
+    if (row.part === 'stub')
+      tx.objectStore(ENTITY_STORE).put({
+        principal: PRINCIPAL,
+        entity: row.entity,
+        entityId: row.entityId,
+        value: row.value,
+        revision: row.revision,
+        provenance: row.provenance,
+        part: 'stub',
+        ...(row.asOf === undefined ? {} : { asOf: row.asOf }),
+      })
   const meta = (durable[META_STORE] ?? []) as { principal: string; key: string; value: unknown }[]
   for (const row of meta) if (row.principal !== '') tx.objectStore(META_STORE).put(row)
   const cursor = meta.find((row) => row.principal === PRINCIPAL && row.key === 'cursor')?.value

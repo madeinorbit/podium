@@ -285,6 +285,65 @@ function lanesOf(draft: SpanDraft): readonly CommitLane[] {
   return lanes.length === 0 ? COMMIT_LANES : lanes
 }
 
+/** POD-7170 — eager cache drafts written as one transaction (`joinCacheGroup`). */
+interface CacheGroup {
+  readonly drafts: SpanDraft[]
+  run: Promise<void>
+}
+
+/** A draft that may join a group: an eager write of the cache region alone, with no precondition. */
+function groupable(draft: SpanDraft, lanes: readonly CommitLane[]): boolean {
+  return (
+    lanes.length === 1 &&
+    lanes[0] === 'cache' &&
+    draft.ops.length > 0 &&
+    draft.expectations.length === 0
+  )
+}
+
+/**
+ * The store and key one operation writes, or `undefined` for a range delete
+ * (never left out, never lets an earlier operation be left out).
+ */
+function opIdentity(op: IdbOp): string | undefined {
+  if (op.kind === 'delete')
+    return Array.isArray(op.key) ? JSON.stringify([op.store, ...op.key]) : undefined
+  const value = op.value as Record<string, unknown>
+  if (op.store === ENTITY_STORE)
+    return JSON.stringify([op.store, value['principal'], value['entity'], value['entityId']])
+  if (op.store === OUTBOX_STORE)
+    return JSON.stringify([op.store, value['principal'], value['mutationId']])
+  return JSON.stringify([op.store, value['principal'], value['key']])
+}
+
+/**
+ * The drafts' operations in order, without those a later operation on the same
+ * store and key replaces: what they leave is what the drafts one after another
+ * leave (a range delete stays where it is, and the operations around it keep
+ * their order).
+ */
+function mergeDrafts(drafts: readonly SpanDraft[]): SpanDraft {
+  if (drafts.length === 1) return drafts[0] as SpanDraft
+  const merged = newDraft()
+  const later = new Set<string>()
+  const kept: IdbOp[] = []
+  for (let d = drafts.length - 1; d >= 0; d -= 1) {
+    const draft = drafts[d] as SpanDraft
+    merged.touchedCache ||= draft.touchedCache
+    for (let i = draft.ops.length - 1; i >= 0; i -= 1) {
+      const op = draft.ops[i] as IdbOp
+      const identity = opIdentity(op)
+      if (identity !== undefined) {
+        if (later.has(identity)) continue
+        later.add(identity)
+      }
+      kept.push(op)
+    }
+  }
+  for (let i = kept.length - 1; i >= 0; i -= 1) merged.ops.push(kept[i] as IdbOp)
+  return merged
+}
+
 const newDraft = (): SpanDraft => ({
   entities: new Map(),
   metas: new Map(),
@@ -395,6 +454,8 @@ export class IndexedDbSyncStore {
     cache: Promise.resolve(),
     outbox: Promise.resolve(),
   }
+  /** POD-7170: the group of eager cache drafts waiting for the cache region's queue. */
+  private cacheGroup: CacheGroup | null = null
   /** Spans opened by `unitOfWork.transact`, so `cacheWrites` can exclude them. */
   private readonly transactSpans = new WeakSet<IdbSpan>()
   /** Spans whose mirror publishes before durability — see `autocommitEager`. */
@@ -829,7 +890,10 @@ export class IndexedDbSyncStore {
         return Promise.reject(error)
       }
       span.publishAll()
+      if (groupable(draftNow, lanes)) return this.joinCacheGroup(draftNow)
     }
+    // A commit of the cache region queued after the open group comes after it.
+    if (lanes.includes('cache')) this.cacheGroup = null
     const run = Promise.all(lanes.map((lane) => this.laneTails[lane])).then(async () => {
       const draft = eager ? draftNow : (this.drafts.get(span) ?? newDraft())
       if (!eager) {
@@ -890,6 +954,57 @@ export class IndexedDbSyncStore {
     )
     for (const lane of lanes) this.laneTails[lane] = tail
     return run
+  }
+
+  /**
+   * POD-7170 — GROUP COMMIT of the cache port's eager writes. A draft that
+   * arrives while the cache region's queue is busy joins the group waiting for
+   * it, and the whole group is written as ONE native transaction when its turn
+   * comes. A first download installs a chunk at a time faster than IndexedDB
+   * commits them, and each commit rewrote the disk index buckets its records
+   * fall in (all of them, for a large chunk): 11 commits wrote 17 MB of index
+   * rows for 8 MB of records (operator size, measured). Grouped, each row and
+   * each index bucket is written once per group, in its last state.
+   *
+   * Only eager drafts group: their mirror has published already, in queue
+   * order, and nothing waits on one commit rather than another. The group's
+   * operations keep their order; an operation a later one in the group
+   * replaces (the same store and key) is left out, so the transaction leaves
+   * exactly what the drafts one after another would have left. A group closes
+   * when it starts, or when any other commit of the cache region is queued, so
+   * the region's order holds. A failure degrades every draft of the group, as
+   * it degrades one eager draft today.
+   */
+  private joinCacheGroup(draft: SpanDraft): Promise<void> {
+    const open = this.cacheGroup
+    if (open !== null) {
+      open.drafts.push(draft)
+      return open.run
+    }
+    const group: CacheGroup = { drafts: [draft], run: Promise.resolve() }
+    this.cacheGroup = group
+    group.run = this.laneTails.cache.then(async () => {
+      if (this.cacheGroup === group) this.cacheGroup = null
+      const merged = mergeDrafts(group.drafts)
+      if (merged.ops.length === 0 || this.durability() !== 'durable') return
+      try {
+        await this.commitDraft(merged)
+      } catch (error) {
+        if (isQuotaError(error)) this.degrade('degraded-memory', 'quota', error)
+        this.degrade(
+          'degraded-memory',
+          error instanceof IndexedDbReconnectError ? 'unavailable' : 'corrupt',
+          error,
+        )
+        throw error
+      }
+      for (const one of group.drafts) if (one.touchedCache) this.cacheCommits += 1
+    })
+    this.laneTails.cache = group.run.then(
+      () => undefined,
+      () => undefined,
+    )
+    return group.run
   }
 
   /**
@@ -1135,10 +1250,15 @@ export class IndexedDbSyncStore {
       if (entries === undefined) readable = false
       else buckets.push({ principal: row.principal, entries })
     }
+    const stubsInIndex = meta.some(isStubsInIndexFlag)
     if (!readable) {
-      await this.rebuildIndex()
+      // POD-7170: a store this build wrote keeps stub-level records in the
+      // index only, so its rows cannot rebuild it: start the cache cold.
+      if (stubsInIndex) await this.clearCacheRegion(outbox)
+      else await this.rebuildIndex()
       return
     }
+    this.stubsInIndex = stubsInIndex
     this.entities.clear()
     this.metas.clear()
     this.indexes.clear()
@@ -1171,6 +1291,49 @@ export class IndexedDbSyncStore {
     }
     for (const principal of new Set([...this.metas.keys(), ...this.indexes.keys()]))
       await this.loadResident(principal, (keys) => this.readStoredRows(principal, keys))
+    this.adoptOutboxRows(outbox)
+  }
+
+  /** POD-7170: the store keeps stub-level records in their index entries only (its rows hold none). */
+  private stubsInIndex = false
+
+  /** Stage, once per store, the flag that says so, with the first stub-level record written. */
+  noteStubInIndex(draft: SpanDraft): void {
+    if (this.stubsInIndex) return
+    this.stubsInIndex = true
+    draft.ops.push({
+      kind: 'put',
+      store: META_STORE,
+      value: {
+        principal: STORE_PRINCIPAL,
+        key: STUBS_IN_INDEX_KEY,
+        value: true,
+      } satisfies StoredMeta,
+    })
+  }
+
+  /**
+   * POD-7170 — an unreadable index of a store whose stubs live in it: every
+   * cached row, marker and index row goes, and the cache starts cold (a first
+   * download). The outbox stays: the user's unsent writes are not cache.
+   */
+  private async clearCacheRegion(outbox: readonly StoredOutboxRecord[]): Promise<void> {
+    const stores = [ENTITY_STORE, META_STORE, INDEX_STORE]
+    const tx = await this.transaction(stores, 'readwrite')
+    const completion = transactionCompletion(tx)
+    for (const name of stores) tx.objectStore(name).clear()
+    tx.objectStore(INDEX_STORE).put({
+      principal: STORE_PRINCIPAL,
+      key: INDEX_BUILT_META_KEY,
+      v: INDEX_FORMAT,
+    } satisfies StoredIndexRow)
+    await completion
+    this.entities.clear()
+    this.metas.clear()
+    this.indexes.clear()
+    this.outboxRows.clear()
+    this.nextOrdinal = 0
+    this.stubsInIndex = false
     this.adoptOutboxRows(outbox)
   }
 
@@ -1602,6 +1765,7 @@ export class IndexedDbSyncStore {
     this.metas.clear()
     this.indexes.clear()
     this.outboxRows.clear()
+    this.stubsInIndex = false
   }
 
   // ── mirror accessors used by the views ───────────────────────────────────
@@ -1845,7 +2009,14 @@ class IndexedDbCacheStore implements ReplicaCacheStore {
         const key = rowKey(row.entity, row.entityId)
         next.set(key, row)
         index.row(key, row)
-        draft.ops.push({ kind: 'put', store: ENTITY_STORE, value: entityRow(this.principal, row) })
+        // POD-7170: a stub lives in its index entry only.
+        if (row.part !== 'stub')
+          draft.ops.push({
+            kind: 'put',
+            store: ENTITY_STORE,
+            value: entityRow(this.principal, row),
+          })
+        else this.store.noteStubInIndex(draft)
       }
       // The markers and policy described the rows this replaces.
       this.store.stageMetaReset(draft, this.principal)
@@ -1930,8 +2101,25 @@ class IndexedDbCacheStore implements ReplicaCacheStore {
       if (row === undefined) continue
       if (row !== null) {
         slice.set(key, row)
+        const before = index.record(key)?.level
         index.row(key, row, op.kind === 'upsert' ? op.holders : undefined)
-        draft.ops.push({ kind: 'put', store: ENTITY_STORE, value: entityRow(this.principal, row) })
+        if (row.part !== 'stub')
+          draft.ops.push({
+            kind: 'put',
+            store: ENTITY_STORE,
+            value: entityRow(this.principal, row),
+          })
+        else {
+          // POD-7170: a stub-level record has no entity row (its index entry
+          // stores the stub); one taken back to its stub drops its whole row.
+          this.store.noteStubInIndex(draft)
+          if (before === 'main')
+            draft.ops.push({
+              kind: 'delete',
+              store: ENTITY_STORE,
+              key: [this.principal, op.entity, op.entityId],
+            })
+        }
         continue
       }
       index.row(key, null)
@@ -2193,3 +2381,9 @@ function unavailableDatabase(): IdbDatabaseLike {
     onversionchange: null,
   }
 }
+
+/** POD-7170: the store-wide meta row that says stub-level records live in the index only. */
+const STUBS_IN_INDEX_KEY = 'stubs-in-index'
+
+const isStubsInIndexFlag = (row: StoredMeta): boolean =>
+  row.principal === STORE_PRINCIPAL && row.key === STUBS_IN_INDEX_KEY

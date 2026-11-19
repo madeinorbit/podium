@@ -10,7 +10,7 @@ import { CollectionServer, issue, session, WORLD_NOW } from '../../conformance/c
 import { instanceKey } from '../../replica/cache-state'
 import { Replica } from '../../replica/replica'
 import type { EntityRecord, InstanceSpec } from '../../replica/types'
-import { INDEX_TABLE, META_TABLE, SCHEMA_VERSION_TABLE } from './schema'
+import { ENTITY_TABLE, INDEX_TABLE, META_TABLE, SCHEMA_VERSION_TABLE } from './schema'
 import type { SqlDatabaseLike } from './sql'
 import { SqliteSyncStore } from './store'
 import { FaultySqlDatabase, freshDatabaseFile, sqliteEngine } from './test-support'
@@ -102,6 +102,25 @@ async function versionTwoFile(): Promise<{
     raw.exec(`DROP TABLE ${INDEX_TABLE}`)
     raw.prepare(`DELETE FROM ${META_TABLE} WHERE principal = ?`).run('')
     raw.prepare(`UPDATE ${SCHEMA_VERSION_TABLE} SET version = 2 WHERE singleton = 1`).run()
+    // The build before the index wrote a stub-level record as an entity row too
+    // (this build keeps it in its index entry only, POD-7170).
+    for (const row of rows)
+      if (row.part === 'stub')
+        raw
+          .prepare(
+            `INSERT INTO ${ENTITY_TABLE} (principal, entity, entity_id, value, revision, provenance, part, as_of)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .run(
+            PRINCIPAL,
+            row.entity,
+            row.entityId,
+            JSON.stringify(row.value),
+            row.revision ?? null,
+            JSON.stringify(row.provenance),
+            'stub',
+            row.asOf ?? null,
+          )
     const cursor = (
       raw
         .prepare(`SELECT value FROM ${META_TABLE} WHERE principal = ? AND key = ?`)
