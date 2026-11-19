@@ -122,7 +122,6 @@ async function dumpEnvOfSpawnedProcess(
   env: Record<string, string> | undefined,
   agentKind: 'shell' | HarnessAgent = 'shell',
 ): Promise<string> {
-  let buffer = ''
   const landing = join(home, `${sessionId}.env`)
   const sessions = new SessionRegistry()
   const sent: DaemonMessage[] = []
@@ -161,7 +160,7 @@ async function dumpEnvOfSpawnedProcess(
     },
     outputScheduler: {
       enqueue: (_id: string, data: string) => {
-        buffer += Buffer.from(data, 'base64').toString('utf8')
+        // PTY output is irrelevant: the child reports its environment to a file.
       },
       remove: () => {},
     },
@@ -219,7 +218,8 @@ async function dumpEnvOfSpawnedProcess(
   if (!terminal) throw new Error('daemon never attached the terminal (spawn failed)')
   const pid = terminal.attachment.pid
   try {
-    await waitFor(() => buffer.length > 0)
+    // A prompt is presentation, not process readiness. Write through the real
+    // attached terminal and wait for the child's own environment artifact.
     terminal.writeBase64(
       Buffer.from(`env > ${JSON.stringify(landing)}\n`, 'utf8').toString('base64'),
     )
