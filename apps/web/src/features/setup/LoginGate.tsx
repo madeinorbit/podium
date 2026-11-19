@@ -93,6 +93,7 @@ function AccountSignInButton({
   return (
     <div>
       <button
+        data-pressable
         type="button"
         disabled={busy}
         style={{

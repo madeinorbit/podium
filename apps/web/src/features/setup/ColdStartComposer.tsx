@@ -1297,6 +1297,7 @@ export function ColdStartComposer({
             <p className="cold-start-tip" style={tipShowing ? { visibility: 'hidden' } : undefined}>
               Something big?{' '}
               <button
+                data-pressable
                 type="button"
                 data-testid="cold-start-coordinator"
                 onClick={insertCoordinatorPrompt}

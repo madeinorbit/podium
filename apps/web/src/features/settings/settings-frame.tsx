@@ -297,6 +297,7 @@ export function SettingsFrame({
   const sheetTitle = (
     <span className="settings-sheet-title">
       <button
+        data-pressable
         type="button"
         className="settings-mobile-back"
         aria-label="Back to settings"
@@ -512,6 +513,7 @@ export function SettingsFrame({
             const Icon = result.page.icon
             return (
               <button
+                data-pressable
                 type="button"
                 key={`${result.page.key}-${result.label}`}
                 className={cn(

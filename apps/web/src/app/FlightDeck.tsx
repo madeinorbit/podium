@@ -943,6 +943,7 @@ const FullDeckBrief = observer(function FullDeckBrief({
         {hasDetails && (
           <div className="flight-full-description-actions">
             <button
+              data-pressable
               type="button"
               aria-expanded={open}
               aria-controls={contentId}
@@ -953,7 +954,7 @@ const FullDeckBrief = observer(function FullDeckBrief({
               {!open ? <ChevronDown size={11} aria-hidden="true" /> : null}
             </button>
             {open && (
-              <button type="button" onClick={onOpenDetails}>
+              <button data-pressable type="button" onClick={onOpenDetails}>
                 <ArrowUpRight size={12} aria-hidden="true" />
                 Open task details
               </button>

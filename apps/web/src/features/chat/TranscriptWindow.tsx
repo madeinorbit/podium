@@ -15,7 +15,8 @@ const measuredHeight = (node: HTMLElement) => {
   let unit = layoutUnits.get(node.ownerDocument)
   if (!unit) {
     const probe = node.ownerDocument.createElement('div')
-    probe.style.cssText = 'position:fixed;top:0;left:0;height:0.02px;width:0;padding:0;border:0;visibility:hidden'
+    probe.style.cssText =
+      'position:fixed;top:0;left:0;height:0.02px;width:0;padding:0;border:0;visibility:hidden'
     node.ownerDocument.body.append(probe)
     const measured = probe.getBoundingClientRect().height
     probe.remove()
@@ -37,8 +38,14 @@ interface Entry {
   revealing: boolean
   operator: boolean
 }
-function boundary(keys: readonly string[], entries: Map<string, Entry>, edge: number, bottom: boolean) {
-  let low = 0, high = keys.length
+function boundary(
+  keys: readonly string[],
+  entries: Map<string, Entry>,
+  edge: number,
+  bottom: boolean,
+) {
+  let low = 0,
+    high = keys.length
   while (low < high) {
     const mid = (low + high) >>> 1
     const box = entries.get(keys[mid]!)?.node.getBoundingClientRect()
@@ -102,10 +109,13 @@ export function useTranscriptWindow(
     const last = boundary(list, entries.current, viewport.bottom + buffer, false)
     const next = new Set(list.slice(first, last))
     const selection = scroll.ownerDocument.getSelection()
-    const range = selection && !selection.isCollapsed && selection.rangeCount ? selection.getRangeAt(0) : null
+    const range =
+      selection && !selection.isCollapsed && selection.rangeCount ? selection.getRangeAt(0) : null
     // Some native Find paths scroll before beforematch. Capture a committed
     // range in the inert text before replacing that exact browser-owned node.
-    const proxy = selection?.anchorNode?.parentElement?.closest<HTMLElement>('[data-transcript-find-proxy]')
+    const proxy = selection?.anchorNode?.parentElement?.closest<HTMLElement>(
+      '[data-transcript-find-proxy]',
+    )
     const foundKey = proxy?.parentElement?.dataset.transcriptRow
     const found = foundKey ? entries.current.get(foundKey) : undefined
     if (range && found && !found.mounted) {
@@ -118,7 +128,8 @@ export function useTranscriptWindow(
     if (selectingAll.current || nativeFinding.current) for (const key of list) next.add(key)
     // The shelf needs the preceding prompt even across a scrollbar jump into
     // a long turn. Prompt shells are ordered and measured like every other row.
-    let low = 0, high = operators.current.length
+    let low = 0,
+      high = operators.current.length
     while (low < high) {
       const mid = (low + high) >>> 1
       const node = entries.current.get(operators.current[mid]!)?.node
@@ -133,16 +144,25 @@ export function useTranscriptWindow(
       const node = entry.node
       // Preserve both selection endpoints and the entire selected interval,
       // focused controls, and user-opened tool/detail state across scrolling.
-      if (range?.intersectsNode(node) || node.contains(scroll.ownerDocument.activeElement) ||
-          node.querySelector('[data-transcript-retain], [aria-expanded="true"]:not([data-transcript-run-toggle]), [data-open="true"]:not([data-transcript-run-view]), dialog[open], details[open]') ||
-          [...node.querySelectorAll('img')].some(image => !image.complete)) next.add(key)
+      if (
+        range?.intersectsNode(node) ||
+        node.contains(scroll.ownerDocument.activeElement) ||
+        node.querySelector(
+          '[data-transcript-retain], [aria-expanded="true"]:not([data-transcript-run-toggle]), [data-open="true"]:not([data-transcript-run-view]), dialog[open], details[open]',
+        ) ||
+        [...node.querySelectorAll('img')].some((image) => !image.complete)
+      )
+        next.add(key)
     }
     // A selection may span shells, including a Select All from the browser's
     // menu. Materialise the complete selected interval before native Copy.
     if (range?.intersectsNode(scroll)) {
-      const endpoint = (node: Node) => (node instanceof Element ? node : node.parentElement)
-        ?.closest<HTMLElement>('[data-transcript-row]')?.dataset.transcriptRow
-      const a = endpoint(range.startContainer), b = endpoint(range.endContainer)
+      const endpoint = (node: Node) =>
+        (node instanceof Element ? node : node.parentElement)?.closest<HTMLElement>(
+          '[data-transcript-row]',
+        )?.dataset.transcriptRow
+      const a = endpoint(range.startContainer),
+        b = endpoint(range.endContainer)
       const start = a ? list.indexOf(a) : 0
       const end = b ? list.indexOf(b) : list.length - 1
       for (let i = Math.max(0, start); i <= end; i++) if (list[i]) next.add(list[i]!)
@@ -150,7 +170,12 @@ export function useTranscriptWindow(
     for (const key of new Set([...mounted.current, ...next])) {
       const entry = entries.current.get(key)
       if (!entry) continue
-      if (entry.mounted && entry.height <= 0 && !entry.node.hasAttribute('data-transcript-placeholder')) entry.height = measuredHeight(entry.node)
+      if (
+        entry.mounted &&
+        entry.height <= 0 &&
+        !entry.node.hasAttribute('data-transcript-placeholder')
+      )
+        entry.height = measuredHeight(entry.node)
       if (next.has(key)) entry.revealing = false
       const show = next.has(key) || entry.revealing || entry.height <= 0
       if (show === entry.mounted) continue
@@ -171,18 +196,21 @@ export function useTranscriptWindow(
       flushSync(refresh)
     })
   }, [refresh])
-  const remeasure = useCallback((key: string) => {
-    const entry = entries.current.get(key)
-    if (!entry) return
-    entry.height = 0
-    entry.mounted = true
-    mounted.current.add(key)
-    entry.publish(true)
-    schedule()
-  }, [schedule])
+  const remeasure = useCallback(
+    (key: string) => {
+      const entry = entries.current.get(key)
+      if (!entry) return
+      entry.height = 0
+      entry.mounted = true
+      mounted.current.add(key)
+      entry.publish(true)
+      schedule()
+    },
+    [schedule],
+  )
   useLayoutEffect(() => {
     ordered.current = keys
-    operators.current = keys.filter(key => entries.current.get(key)?.operator)
+    operators.current = keys.filter((key) => entries.current.get(key)?.operator)
     if (previousLayoutKey.current !== layoutKey) {
       previousLayoutKey.current = layoutKey
       for (const [key, entry] of entries.current) {
@@ -198,7 +226,8 @@ export function useTranscriptWindow(
     // to the viewport buffer. Existing shell/row identities survive prepends.
     for (const key of mounted.current) {
       const entry = entries.current.get(key)
-      if (entry && !entry.node.hasAttribute('data-transcript-placeholder')) entry.height = measuredHeight(entry.node)
+      if (entry && !entry.node.hasAttribute('data-transcript-placeholder'))
+        entry.height = measuredHeight(entry.node)
     }
     // The shared controller restores the reading anchor before we choose the
     // new buffer. Otherwise a large prepend folds the retained viewport away
@@ -211,8 +240,12 @@ export function useTranscriptWindow(
     if (!scroll) return
     const update = schedule
     const selectAll = (event: KeyboardEvent) => {
-      if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 'a' ||
-          (event.target as Element | null)?.closest?.('input, textarea, [contenteditable="true"]')) return
+      if (
+        !(event.ctrlKey || event.metaKey) ||
+        event.key.toLowerCase() !== 'a' ||
+        (event.target as Element | null)?.closest?.('input, textarea, [contenteditable="true"]')
+      )
+        return
       if (scroll.clientHeight <= 0) return
       selectingAll.current = true
       armingSelectAll.current = true
@@ -277,7 +310,13 @@ export function useTranscriptWindow(
     const copy = () => flushSync(refresh)
     let findTimer: ReturnType<typeof setTimeout> | undefined
     const beginNativeFind = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || !(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 'f' || scroll.clientHeight <= 0) return
+      if (
+        event.defaultPrevented ||
+        !(event.ctrlKey || event.metaKey) ||
+        event.key.toLowerCase() !== 'f' ||
+        scroll.clientHeight <= 0
+      )
+        return
       if (findTimer !== undefined || nativeFinding.current) return
       // Let every app shortcut handler run and let the browser open its bar
       // before doing the full-row commit.
@@ -339,13 +378,26 @@ export function useTranscriptWindow(
       frame.current = null
     }
   }, [refresh, schedule, scrollRef, beginFind])
-  return useMemo(() => ({ register, refresh, schedule, remeasure, beginFind }), [register, refresh, schedule, remeasure, beginFind])
+  return useMemo(
+    () => ({ register, refresh, schedule, remeasure, beginFind }),
+    [register, refresh, schedule, remeasure, beginFind],
+  )
 }
 
 /** A stable shell also lets the existing minimap and scroll controller address
  * off-window rows. Rich content is mounted only while needed by the reader. */
-export function TranscriptWindowRow({ window: windowing, rowKey, index, geometryKey, children }: {
-  window: TranscriptWindow; rowKey: string; index: number; geometryKey?: string; children: ReactNode | ((remounted: boolean) => ReactNode)
+export function TranscriptWindowRow({
+  window: windowing,
+  rowKey,
+  index,
+  geometryKey,
+  children,
+}: {
+  window: TranscriptWindow
+  rowKey: string
+  index: number
+  geometryKey?: string
+  children: ReactNode | ((remounted: boolean) => ReactNode)
 }): JSX.Element {
   const ref = useRef<HTMLDivElement | null>(null)
   const proxy = useRef<HTMLDivElement | null>(null)
@@ -361,7 +413,17 @@ export function TranscriptWindowRow({ window: windowing, rowKey, index, geometry
     if (found !== undefined) setFinding(found)
   }, [])
   useLayoutEffect(() => {
-    const value: Entry = { node: ref.current!, mounted: true, height: 0, text: '', publish, finding: false, nativeProxy: false, revealing: false, operator: Boolean(ref.current!.querySelector('[data-operator-prompt="true"]')) }
+    const value: Entry = {
+      node: ref.current!,
+      mounted: true,
+      height: 0,
+      text: '',
+      publish,
+      finding: false,
+      nativeProxy: false,
+      revealing: false,
+      operator: Boolean(ref.current!.querySelector('[data-operator-prompt="true"]')),
+    }
     entry.current = value
     return windowing.register(rowKey, value)
   }, [rowKey, windowing, publish])
@@ -373,7 +435,10 @@ export function TranscriptWindowRow({ window: windowing, rowKey, index, geometry
     windowing.remeasure(rowKey)
   }, [geometryKey, rowKey, windowing])
   useLayoutEffect(() => {
-    if (!mounted || !entry.current) { wasMounted.current = mounted; return }
+    if (!mounted || !entry.current) {
+      wasMounted.current = mounted
+      return
+    }
     entry.current.height = measuredHeight(ref.current!)
     if (!wasMounted.current) windowing.schedule()
     wasMounted.current = mounted
@@ -412,7 +477,12 @@ export function TranscriptWindowRow({ window: windowing, rowKey, index, geometry
     const transfer = () => {
       const selection = document.getSelection()
       if (!ref.current || !proxy.current) return
-      if (!selection?.anchorNode || !proxy.current?.contains(selection.anchorNode) || selection.isCollapsed) return
+      if (
+        !selection?.anchorNode ||
+        !proxy.current?.contains(selection.anchorNode) ||
+        selection.isCollapsed
+      )
+        return
       const text = selection.toString()
       const body = ref.current!
       const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT)
@@ -461,20 +531,68 @@ export function TranscriptWindowRow({ window: windowing, rowKey, index, geometry
       document.removeEventListener('keydown', finish, true)
     }
   }, [finding, mounted, windowing])
-  return <div ref={ref} data-transcript-row={rowKey}
-    data-transcript-placeholder={!mounted ? '' : undefined}
-    data-block={!mounted ? index : undefined} data-row-key={!mounted ? rowKey : undefined}
-    style={{ flexShrink: 0, display: 'flow-root', position: 'relative', height: mounted ? undefined : entry.current?.height, minWidth: 0 }}>
-    {mounted && (typeof children === 'function' ? children(remounted.current) : children)}
-    {(!mounted || finding) && <div key="find-proxy" ref={proxy} data-transcript-find-proxy="" aria-hidden="true"
-      style={{ position: 'absolute', inset: 0, opacity: finding ? 0 : undefined, contentVisibility: finding && entry.current?.nativeProxy ? 'hidden' : undefined, pointerEvents: 'none', whiteSpace: 'pre-wrap' }}>{entry.current?.text}</div>}
-    {!mounted && <button type="button" className="sr-only" aria-label={entry.current?.text}
-      onFocus={(event) => {
-        const reverse = event.relatedTarget instanceof Node && Boolean(ref.current!.compareDocumentPosition(event.relatedTarget) & Node.DOCUMENT_POSITION_FOLLOWING)
-        ref.current!.dispatchEvent(new Event('podium-transcript-reveal', { bubbles: true }))
-        const controls = [...ref.current!.querySelectorAll<HTMLElement>('button, input, textarea, a[href], [tabindex]')]
-          .filter(control => control.tabIndex >= 0 && !control.matches(':disabled') && control.getClientRects().length > 0)
-        ;(reverse ? controls.at(-1) : controls[0])?.focus({ preventScroll: true })
-      }} />}
-  </div>
+  return (
+    <div
+      ref={ref}
+      data-transcript-row={rowKey}
+      data-transcript-placeholder={!mounted ? '' : undefined}
+      data-block={!mounted ? index : undefined}
+      data-row-key={!mounted ? rowKey : undefined}
+      style={{
+        flexShrink: 0,
+        display: 'flow-root',
+        position: 'relative',
+        height: mounted ? undefined : entry.current?.height,
+        minWidth: 0,
+      }}
+    >
+      {mounted && (typeof children === 'function' ? children(remounted.current) : children)}
+      {(!mounted || finding) && (
+        <div
+          key="find-proxy"
+          ref={proxy}
+          data-transcript-find-proxy=""
+          aria-hidden="true"
+          style={{
+            position: 'absolute',
+            inset: 0,
+            opacity: finding ? 0 : undefined,
+            contentVisibility: finding && entry.current?.nativeProxy ? 'hidden' : undefined,
+            pointerEvents: 'none',
+            whiteSpace: 'pre-wrap',
+          }}
+        >
+          {entry.current?.text}
+        </div>
+      )}
+      {!mounted && (
+        <button
+          data-pressable
+          type="button"
+          className="sr-only"
+          aria-label={entry.current?.text}
+          onFocus={(event) => {
+            const reverse =
+              event.relatedTarget instanceof Node &&
+              Boolean(
+                ref.current!.compareDocumentPosition(event.relatedTarget) &
+                  Node.DOCUMENT_POSITION_FOLLOWING,
+              )
+            ref.current!.dispatchEvent(new Event('podium-transcript-reveal', { bubbles: true }))
+            const controls = [
+              ...ref.current!.querySelectorAll<HTMLElement>(
+                'button, input, textarea, a[href], [tabindex]',
+              ),
+            ].filter(
+              (control) =>
+                control.tabIndex >= 0 &&
+                !control.matches(':disabled') &&
+                control.getClientRects().length > 0,
+            )
+            ;(reverse ? controls.at(-1) : controls[0])?.focus({ preventScroll: true })
+          }}
+        />
+      )}
+    </div>
+  )
 }

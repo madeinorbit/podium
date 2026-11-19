@@ -88,6 +88,7 @@ function ImpactDetails({ view }: { view: UpdatePanelView }): JSX.Element | null 
           </span>
         ))}
         <button
+          data-pressable
           type="button"
           aria-expanded={open}
           aria-controls={id}
@@ -173,6 +174,7 @@ function DevOfferContent({
       >
         {(['commits', 'notes'] as const).map((name) => (
           <button
+            data-pressable
             type="button"
             role="tab"
             aria-label={
@@ -404,6 +406,7 @@ export function UpdatePanel({
       {hasNotes && !notesUpFront && (
         <>
           <button
+            data-pressable
             type="button"
             className="update-card-peek"
             aria-expanded={notesOpen}

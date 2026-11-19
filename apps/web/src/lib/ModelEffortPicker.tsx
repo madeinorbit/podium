@@ -71,6 +71,7 @@ const PickerTrigger = forwardRef<
     // Bare words inside a caller's chip (the new-task box, POD-2079): no rim,
     // no chevron, the caller's ink. The menu is still one press away.
     <button
+      data-pressable
       ref={ref}
       type="button"
       className={cn('inline-flex min-w-0 items-center disabled:cursor-default', className)}

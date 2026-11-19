@@ -102,6 +102,7 @@ export const BrowserOpenOverlay = observer(function BrowserOpenOverlay(): JSX.El
         action: (
           <span className="flex shrink-0 items-center gap-1 self-center">
             <button
+              data-pressable
               data-button
               data-cancel
               type="button"
@@ -112,7 +113,7 @@ export const BrowserOpenOverlay = observer(function BrowserOpenOverlay(): JSX.El
             >
               <Copy size={13} aria-hidden="true" />
             </button>
-            <button data-button type="button" onClick={() => open(request)}>
+            <button data-pressable data-button type="button" onClick={() => open(request)}>
               Open
             </button>
           </span>

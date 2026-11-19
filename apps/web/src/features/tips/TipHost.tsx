@@ -258,6 +258,7 @@ const AnchoredTip = observer(function AnchoredTip({
                   <Send size={13} aria-hidden="true" />
                   <span>First flights</span>
                   <button
+                    data-pressable
                     type="button"
                     className="tip-close"
                     aria-label="Dismiss tip"
@@ -281,6 +282,7 @@ const AnchoredTip = observer(function AnchoredTip({
                     </span>
                   )}
                   <button
+                    data-pressable
                     type="button"
                     className="tip-skip"
                     onClick={(event) => {
@@ -291,6 +293,7 @@ const AnchoredTip = observer(function AnchoredTip({
                     Skip tips
                   </button>
                   <button
+                    data-pressable
                     type="button"
                     className="tip-next"
                     onClick={(event) => {

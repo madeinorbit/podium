@@ -374,6 +374,7 @@ function CompactionNote({
       <div className="transcript-body compaction-note">
         {hasSummary ? (
           <button
+            data-pressable
             type="button"
             className="compaction-note-head"
             aria-expanded={open}

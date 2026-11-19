@@ -35,7 +35,11 @@ export function CurrentInterface({ children }: { children: ReactNode }): ReactNo
     return (
       <div role="alert">
         <p>{error}</p>
-        <button type="button" onClick={() => void forceReload('boot-interface-retry')}>
+        <button
+          data-pressable
+          type="button"
+          onClick={() => void forceReload('boot-interface-retry')}
+        >
           Retry
         </button>
       </div>

@@ -1,6 +1,5 @@
-import type { Trpc } from '@/app/trpc'
-import { useCommands } from '@podium/client-core/react'
 import { effortLabel, issueAgentKind, modelLabel } from '@podium/client-core/agent-models'
+import { useCommands } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { EffectModel } from '@podium/client-graph/models'
 import { awaitEffect } from '@podium/client-graph/write/await-effect'
@@ -9,6 +8,7 @@ import type { JSX } from 'react'
 import { useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { useWorklistPool } from '@/app/store-worklist-pool'
+import type { Trpc } from '@/app/trpc'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import type { IssueAgentKind } from '@/lib/issue-agents'
 import { EffortPicker, ModelPicker } from '@/lib/ModelEffortPicker'
@@ -229,6 +229,7 @@ const ReadoutChip = observer(function ReadoutChip({
           render={
             // A button so the reason can be reached by keyboard; it has no press.
             <button
+              data-pressable
               type="button"
               className={cn(
                 CHIP,

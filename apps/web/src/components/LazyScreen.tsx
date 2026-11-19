@@ -75,7 +75,7 @@ class ScreenBoundary<Module, Props extends object> extends Component<
           <div className="flex flex-col items-center gap-2 px-6 py-10 text-center text-muted-foreground">
             <p className="text-sm">This screen is not available offline.</p>
             <p className="text-sm">It will open when your connection returns.</p>
-            <button type="button" className="text-sm underline" onClick={this.retry}>
+            <button data-pressable type="button" className="text-sm underline" onClick={this.retry}>
               Try again
             </button>
           </div>

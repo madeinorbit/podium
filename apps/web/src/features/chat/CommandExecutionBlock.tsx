@@ -67,6 +67,7 @@ export function ExecutionCopyButton({ text, label }: { text: string; label: stri
   return (
     <span className="execution-copy">
       <button
+        data-pressable
         type="button"
         className="execution-action"
         aria-label={label}
@@ -312,6 +313,7 @@ export function CommandExecutionBlock({
               {output.text && (
                 <span className="execution-actions">
                   <button
+                    data-pressable
                     type="button"
                     className="execution-action"
                     aria-pressed={wrap}
@@ -335,6 +337,7 @@ export function CommandExecutionBlock({
             )}
             {longOutput && (
               <button
+                data-pressable
                 type="button"
                 className="execution-more"
                 aria-controls={`${id}-output`}

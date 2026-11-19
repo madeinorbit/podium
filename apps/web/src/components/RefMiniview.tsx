@@ -1,6 +1,4 @@
-import type { Trpc } from '@/app/trpc'
-import { useRequestClient, useCommands } from '@podium/client-core/react'
-import { useUiValue } from '@podium/client-core/react'
+import { useCommands, useRequestClient, useUiValue } from '@podium/client-core/react'
 import type { MobxPool } from '@podium/client-graph'
 import { omitGone } from '@podium/client-graph/lookup'
 import { issueWrites } from '@podium/commands/issues-synced'
@@ -33,8 +31,9 @@ import {
 } from 'react'
 import { createPortal } from 'react-dom'
 import { OPEN_RIGHT_PANEL_EVENT } from '@/app/shell-state'
-import { type IssueViewModel } from '@/app/store'
+import type { IssueViewModel } from '@/app/store'
 import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist-pool'
+import type { Trpc } from '@/app/trpc'
 import { DropdownMenuOwner } from '@/components/ui/dropdown-menu'
 import { IssueChipLiveness } from '@/features/chat/IssueChipLiveness'
 import { useChatReferenceMachines } from '@/features/chat/use-chat-context'
@@ -760,6 +759,7 @@ function ExpandableText({
       />
       {(overflows || open) && (
         <button
+          data-pressable
           type="button"
           className="ref-miniview-text-toggle"
           aria-expanded={open}

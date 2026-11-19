@@ -89,6 +89,7 @@ export const FirstFlightsBadge = observer(function FirstFlightsBadge() {
                         <span className="flights-guide-name">{GUIDE[id].title}</span>
                         {seen ? (
                           <button
+                            data-pressable
                             className="flights-replay"
                             type="button"
                             disabled={!available}

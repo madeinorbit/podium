@@ -5,7 +5,12 @@ export function AdminViewerError({ viewer }: { viewer: AdminViewer }) {
   return (
     <div role="status" className="settings-prose px-2.5 py-2 text-muted-foreground">
       <p>Couldn’t check administrator access.</p>
-      <button type="button" className="mt-1 underline underline-offset-2" onClick={viewer.retry}>
+      <button
+        data-pressable
+        type="button"
+        className="mt-1 underline underline-offset-2"
+        onClick={viewer.retry}
+      >
         Retry
       </button>
     </div>

@@ -164,6 +164,7 @@ function Findings({ text }: { text: string }): JSX.Element {
           {text}
         </p>
         <button
+          data-pressable
           type="button"
           className="mt-1.5 text-[12.5px] text-text-dim underline decoration-border underline-offset-3 hover:text-text-strong"
           aria-expanded={open}

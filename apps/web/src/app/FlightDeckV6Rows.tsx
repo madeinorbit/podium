@@ -580,6 +580,7 @@ export const FlightDeckV6Session = observer(function FlightDeckV6Session({
         )}
         {natives.length > 0 && !nativesInline && (
           <button
+            data-pressable
             type="button"
             className="flight-v6-native-chip"
             aria-label={`${nativeOpen ? 'Collapse' : 'Expand'} ${natives.length} native subagents of ${name}`}

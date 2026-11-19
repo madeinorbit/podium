@@ -510,6 +510,7 @@ export function TaskCostLine({ view }: { view: TaskCostView | null }): JSX.Eleme
               <TooltipTrigger
                 render={
                   <button
+                    data-pressable
                     type="button"
                     className="flex flex-none text-text-faint hover:text-foreground"
                     aria-label={`About this figure: estimated ${COST_HEDGE}`}

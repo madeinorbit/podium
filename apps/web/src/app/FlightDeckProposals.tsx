@@ -263,7 +263,7 @@ const FullProposal = observer(function FullProposal({
         {!receipt && <span className="flight-proposal-ring" aria-hidden="true" />}
         <Tooltip>
           <TooltipTrigger
-            render={<button type="button" className="flight-proposal-details" />}
+            render={<button data-pressable type="button" className="flight-proposal-details" />}
             aria-description={description}
             aria-label={`Open ${ref}: ${drawable ? task.row.title : 'proposal details'}`}
             aria-haspopup="dialog"
@@ -288,6 +288,7 @@ const FullProposal = observer(function FullProposal({
         ) : !receipt ? (
           <div className="flight-proposal-actions">
             <button
+              data-pressable
               type="button"
               className="flight-proposal-backlog"
               disabled={pending}
@@ -296,6 +297,7 @@ const FullProposal = observer(function FullProposal({
               Backlog
             </button>
             <button
+              data-pressable
               type="button"
               className="flight-proposal-start"
               disabled={pending}
@@ -304,6 +306,7 @@ const FullProposal = observer(function FullProposal({
               Start
             </button>
             <button
+              data-pressable
               type="button"
               className="flight-proposal-dismiss"
               disabled={pending}
@@ -324,7 +327,7 @@ const FullProposal = observer(function FullProposal({
       {status?.phase === 'error' && (
         <div className="flight-proposal-message flight-proposal-error" role="alert">
           <span>{status.error}</span>
-          <button type="button" onClick={() => onSubmit(status.action)}>
+          <button data-pressable type="button" onClick={() => onSubmit(status.action)}>
             Retry{' '}
             {status.action === 'dismiss'
               ? 'Dismiss'

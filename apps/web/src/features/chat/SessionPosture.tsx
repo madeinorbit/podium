@@ -30,6 +30,7 @@ export const SessionModeChip = observer(function SessionModeChip({
           render={
             // A button so the explanation can be reached by keyboard; it has no press.
             <button
+              data-pressable
               type="button"
               className="model-token inline-flex h-7 min-w-0 max-w-full cursor-default items-center gap-1 rounded-[7px] px-2 text-[12px] leading-none text-text-faint focus-visible:outline-2 focus-visible:outline-ring"
               data-testid="session-mode"
