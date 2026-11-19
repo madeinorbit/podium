@@ -5,6 +5,7 @@ import { referenceState } from '../../../../tests/worklist/diagnostics/reference
 
 import { missionRootFor } from '@podium/client-core/values'
 import { createWorklistPool } from '@podium/client-graph/create'
+import { missionView } from '@podium/client-graph/mission-view'
 import { attachMobileScreens } from '@podium/client-graph/mobile-screens'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -127,7 +128,40 @@ async function compare(pool: MobxPool, store: Store, label: string, all: boolean
             `${label} ${selectedId} ${mode}: phone output is still loading ${JSON.stringify(tracked(() => mobileScreenLoadingState(pool, input)))}`,
           )
         expect(output.pending).toBe(0)
-        expectMobileScreens(output, store, input, `${label} ${selectedId} ${mode}`)
+        try {
+          expectMobileScreens(output, store, input, `${label} ${selectedId} ${mode}`)
+        } catch (error) {
+          // Fixed field names and opaque ids only. A filtered branch mismatch
+          // needs its live predicate inputs, not a diff of two id lists alone.
+          if (selectedId)
+            console.info(
+              '[phone filter inputs]',
+              JSON.stringify(
+                tracked(() =>
+                  missionView(pool)
+                    .deck(selectedId, 'full')
+                    .rows()
+                    .filter((row) => row.stage === 'review')
+                    .map((row) => ({
+                      id: row.id,
+                      matched: row.matches(mode),
+                      visible: row.facts.visible,
+                      coordinated: row.coordinated,
+                      stage: row.rulesIssue?.stage,
+                      closedReason: row.rulesIssue?.closedReason,
+                      dependents: row.rulesIssue?.dependents,
+                      crew: row.sessions.map((session) => ({
+                        id: session.sessionId,
+                        home: session.issueId,
+                        status: session.status,
+                        archived: session.archived,
+                      })),
+                    })),
+                ),
+              ),
+            )
+          throw error
+        }
         positions += output.sections.reduce((count, section) => count + section.rows.length, 0)
       } finally {
         stop()
