@@ -548,3 +548,24 @@ it('preserves a nested coordinator boundary when a cyclic graft requires unique 
   expect(tracked(() => deck.model('root').actionableCount)).toBe(0)
   expect(tracked(() => deck.model('lead').actionableCount)).toBe(0)
 })
+
+it('keeps a matching graft under this root even when its natural parent is outside the root', () => {
+  const { reader } = open(
+    [
+      issue('root', { seq: 1 }),
+      issue('inside', { seq: 2, parentId: 'root', stage: 'done' }),
+      issue('outside', { seq: 3, stage: 'done' }),
+      issue('graft', {
+        seq: 4,
+        parentId: 'outside',
+        startedBySession: 'starter',
+        stage: 'done',
+      }),
+      issue('review', { seq: 5, parentId: 'graft', stage: 'review', needsHuman: true }),
+    ],
+    [session('starter', 'inside')],
+  )
+  const expected = ['root', 'inside', 'graft', 'review']
+  expect(tracked(() => reader.deck('root').rowIds())).toEqual(expected)
+  expect(tracked(() => reader.deck('root', 'needs-you').rowIds())).toEqual(expected)
+})

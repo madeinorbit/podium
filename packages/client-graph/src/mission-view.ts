@@ -1113,13 +1113,15 @@ export class MissionDeckModel {
     const included = new Set<string>([this.id])
     for (const id of members) {
       if (!this.view.facts(id).visible || !this.model(id).matches(this.mode)) continue
-      let current: string | undefined = id
-      const seen = new Set<string>()
-      while (current && !seen.has(current)) {
-        seen.add(current)
+      // A graft can reach the same task along several paths. Its preferred
+      // parent may even lead outside this root. Keep every path to a match;
+      // selecting one parent can hide a matching branch of the visible tree.
+      const ancestors = [id]
+      while (ancestors.length) {
+        const current = ancestors.pop()!
+        if (included.has(current)) continue
         included.add(current)
-        if (current === this.id) break
-        current = shape.parent.get(current)
+        ancestors.push(...(shape.parents.get(current) ?? []))
       }
     }
     const paths: string[][] = []
