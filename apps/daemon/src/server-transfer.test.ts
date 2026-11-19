@@ -64,16 +64,22 @@ const fileEntry = (path: string, content: Buffer | string): ServerTransferManife
   sha256: createHash('sha256').update(content).digest('hex'),
 })
 
-async function candidateFiles(machineId = targetMachineId, identity?: InstallationIdentity, revoked = false): Promise<Record<string, Buffer>> {
+async function candidateFiles(
+  machineId = targetMachineId,
+  identity?: InstallationIdentity,
+  revoked = false,
+  placement: 'same' | 'other' | 'wrong-epoch' | 'ambiguous' = 'same',
+): Promise<Record<string, Buffer>> {
   const path = join(stateRoot, `candidate-${randomUUID()}.db`)
   const db = openDatabase(path)
   try {
     db.exec(`
       CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
       CREATE TABLE server_secrets (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL);
-      CREATE TABLE machines (id TEXT PRIMARY KEY, revoked_at TEXT);
-      CREATE TABLE feed_identity (
-        singleton INTEGER PRIMARY KEY,
+      CREATE TABLE machines (workspace_id TEXT NOT NULL, id TEXT NOT NULL, revoked_at TEXT,
+        PRIMARY KEY (workspace_id, id));
+      CREATE TABLE sync_feed (
+        workspace_id TEXT PRIMARY KEY,
         feed_id TEXT NOT NULL,
         epoch TEXT NOT NULL
       );
@@ -81,14 +87,32 @@ async function candidateFiles(machineId = targetMachineId, identity?: Installati
     `)
     if (identity) {
       const { privateKey, ...metadata } = identity
-      db.prepare('INSERT INTO meta VALUES (?, ?)').run(INSTALLATION_META_KEY, JSON.stringify(metadata))
-      db.prepare('INSERT INTO server_secrets VALUES (?, ?, ?)').run(INSTALLATION_PRIVATE_KEY, privateKey, identity.createdAt)
+      db.prepare('INSERT INTO meta VALUES (?, ?)').run(
+        INSTALLATION_META_KEY,
+        JSON.stringify(metadata),
+      )
+      db.prepare('INSERT INTO server_secrets VALUES (?, ?, ?)').run(
+        INSTALLATION_PRIVATE_KEY,
+        privateKey,
+        identity.createdAt,
+      )
     }
-    db.prepare('INSERT INTO machines (id, revoked_at) VALUES (?, ?)').run(machineId, revoked ? 'now' : null)
-    db.prepare('INSERT INTO feed_identity (singleton, feed_id, epoch) VALUES (1, ?, ?)').run(
-      'feed-1',
-      'epoch-1',
+    db.prepare('INSERT INTO machines (workspace_id, id, revoked_at) VALUES (?, ?, ?)').run(
+      placement === 'other' ? 'other' : 'source',
+      machineId,
+      revoked ? 'now' : null,
     )
+    db.prepare('INSERT INTO sync_feed (workspace_id, feed_id, epoch) VALUES (?, ?, ?)').run(
+      'source',
+      'feed-1',
+      placement === 'wrong-epoch' ? 'another-epoch' : 'epoch-1',
+    )
+    if (placement === 'other')
+      db.prepare('INSERT INTO sync_feed VALUES (?, ?, ?)').run('other', 'another-feed', 'epoch-1')
+    if (placement === 'ambiguous') {
+      db.prepare('INSERT INTO machines VALUES (?, ?, NULL)').run('duplicate', machineId)
+      db.prepare('INSERT INTO sync_feed VALUES (?, ?, ?)').run('duplicate', 'feed-1', 'epoch-1')
+    }
     db.prepare('INSERT INTO __drizzle_migrations (name) VALUES (?)').run('schema-1')
   } finally {
     db.close()
@@ -101,13 +125,18 @@ async function candidateFiles(machineId = targetMachineId, identity?: Installati
 function readDatabaseIdentity(path: string): InstallationIdentity | undefined {
   const db = openDatabase(path)
   try {
-    const row = db.prepare('SELECT value FROM meta WHERE key = ?').get(INSTALLATION_META_KEY) as { value: string } | undefined
+    const row = db.prepare('SELECT value FROM meta WHERE key = ?').get(INSTALLATION_META_KEY) as
+      | { value: string }
+      | undefined
     if (!row) return undefined
-    const secret = db.prepare('SELECT value FROM server_secrets WHERE key = ?').get(INSTALLATION_PRIVATE_KEY) as { value: string }
+    const secret = db
+      .prepare('SELECT value FROM server_secrets WHERE key = ?')
+      .get(INSTALLATION_PRIVATE_KEY) as { value: string }
     return { ...JSON.parse(row.value), privateKey: secret.value }
-  } finally { db.close() }
+  } finally {
+    db.close()
+  }
 }
-
 
 async function invoke(
   type:
@@ -246,7 +275,12 @@ describe('server transfer target daemon', () => {
     await rm(stateRoot, { recursive: true, force: true })
   })
 
-  it.each(['../config.json', 'C:/state/config.json', String.raw`C:\state\config.json`, String.raw`transcripts\session.jsonl`])('machine paths: rejects nonportable transfer entry %s before creating a stage', async path => {
+  it.each([
+    '../config.json',
+    'C:/state/config.json',
+    String.raw`C:\state\config.json`,
+    String.raw`transcripts\session.jsonl`,
+  ])('machine paths: rejects nonportable transfer entry %s before creating a stage', async (path) => {
     const transferId = randomUUID()
     const manifest = [{ path, size: 1, mode: 0o644, sha256: '0'.repeat(64) }]
     const response = await invoke('serverTransferPrepareRequest', {
@@ -449,7 +483,9 @@ describe('server transfer target daemon', () => {
     expect(await readFile(join(stateRoot, 'transcripts', 'session.txt.part'), 'utf8')).toBe(
       'legitimate-part-file',
     )
-    expect(JSON.parse(await readFile(join(stateRoot, 'machine.json'), 'utf8')).machineId).toBe(targetMachineId)
+    expect(JSON.parse(await readFile(join(stateRoot, 'machine.json'), 'utf8')).machineId).toBe(
+      targetMachineId,
+    )
     expect(await readFile(join(stateRoot, 'daemon.secret'), 'utf8')).toBe('target-daemon-secret')
     expect(JSON.parse(await readFile(join(stateRoot, 'config.json'), 'utf8'))).toMatchObject({
       mode: 'server',
@@ -699,10 +735,13 @@ describe('server transfer target daemon', () => {
   })
 
   it.each([
-    ['revoked', true, false],
-    ['active', false, true],
-  ] as const)('requires an active target enrollment in a %s candidate', async (_, revoked, ok) => {
-    const files = await candidateFiles(targetMachineId, undefined, revoked)
+    ['revoked', true, 'same', false],
+    ['active', false, 'same', true],
+    ['another workspace', false, 'other', false],
+    ['wrong feed epoch', false, 'wrong-epoch', false],
+    ['ambiguous workspace identity', false, 'ambiguous', false],
+  ] as const)('requires an active target enrollment in the source workspace: %s', async (_, revoked, placement, ok) => {
+    const files = await candidateFiles(targetMachineId, undefined, revoked, placement)
     const manifest = Object.entries(files)
       .map(([path, content]) => fileEntry(path, content))
       .sort((a, b) => a.path.localeCompare(b.path))
@@ -875,7 +914,9 @@ describe('server transfer target daemon', () => {
         ok: true,
         idempotent: true,
       })
-      expect(readDatabaseIdentity(join(stateRoot, 'podium.db'))?.generation).toBe(incoming.generation + 1)
+      expect(readDatabaseIdentity(join(stateRoot, 'podium.db'))?.generation).toBe(
+        incoming.generation + 1,
+      )
       expect(await readFile(backupDb, 'utf8')).toBe('original-target-db')
       expect(JSON.parse(await readFile(backupConfig, 'utf8'))).toMatchObject({
         mode: 'daemon',

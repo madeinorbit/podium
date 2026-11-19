@@ -208,7 +208,8 @@ function assertPortablePath(path: string): void {
   const allowed =
     PORTABLE_ROOT_FILES.includes(path as (typeof PORTABLE_ROOT_FILES)[number]) ||
     PORTABLE_ROOTS.some((prefix) => path.startsWith(`${prefix}/`))
-  if (!allowed || posix.normalize(path) !== path) fail('unsafe-path', `path is not portable: ${path}`)
+  if (!allowed || posix.normalize(path) !== path)
+    fail('unsafe-path', `path is not portable: ${path}`)
 }
 
 function stagePath(transferId: string, path: string): string {
@@ -403,22 +404,26 @@ async function candidateProof(meta: StageMeta): Promise<ServerTransferProof> {
       | undefined
     if (integrity?.integrity_check !== 'ok')
       fail('candidate-invalid', 'candidate database failed integrity_check')
-    const target = db
-      .prepare('SELECT id FROM machines WHERE id = ? AND revoked_at IS NULL')
-      .get(meta.targetMachineId)
-    if (!target)
-      fail('identity-mismatch', 'target machine has no active enrollment in the candidate database')
-    const feed = db.prepare('SELECT feed_id, epoch FROM feed_identity WHERE singleton = 1').get() as
-      | { feed_id?: string; epoch?: string }
-      | undefined
-    if (!feed?.feed_id || !feed.epoch)
-      fail('candidate-invalid', 'candidate database has no feed identity')
+    // A target enrollment and the source feed must belong to the same workspace.
+    // Neither an enrollment elsewhere nor an ambiguous identity proves this move.
+    const matches = db
+      .prepare(`SELECT f.feed_id, f.epoch
+      FROM sync_feed AS f JOIN machines AS m ON m.workspace_id = f.workspace_id
+      WHERE m.id = ? AND m.revoked_at IS NULL AND f.feed_id = ? AND f.epoch = ?`)
+      .all(meta.targetMachineId, meta.manifest.sourceFeedId, meta.manifest.sourceFeedEpoch) as {
+      feed_id: string
+      epoch: string
+    }[]
+    const feed = matches[0]
+    if (matches.length !== 1 || !feed)
+      fail(
+        'identity-mismatch',
+        'candidate must have exactly one active target enrollment in the source feed workspace',
+      )
     const schema = db
       .prepare('SELECT name FROM __drizzle_migrations ORDER BY name DESC LIMIT 1')
       .get() as { name?: string } | undefined
     if (!schema?.name) fail('candidate-invalid', 'candidate database has no schema ledger')
-    if (feed.feed_id !== meta.manifest.sourceFeedId || feed.epoch !== meta.manifest.sourceFeedEpoch)
-      fail('identity-mismatch', 'candidate feed identity does not match transfer manifest')
     if (schema.name !== meta.manifest.schemaVersion)
       fail('candidate-invalid', 'candidate schema does not match transfer manifest')
     return {
