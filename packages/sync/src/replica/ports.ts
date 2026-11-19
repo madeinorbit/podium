@@ -86,6 +86,13 @@ export type CacheOperation =
        * holders it had; a stub has none.
        */
       readonly holders?: readonly string[]
+      /**
+       * POD-7160 — the record is held only by instances on disk, none in
+       * memory: it is written to disk, and to memory only when memory holds
+       * the record when the write publishes (a disk load put it there
+       * meanwhile). Its stub columns are kept current either way.
+       */
+      readonly diskOnly?: true
     }
   /** Tombstone (`op: 'remove'`) — the entity is gone, globally. */
   | {
@@ -127,6 +134,12 @@ export type InstanceOperation =
   | { readonly kind: 'dropAll' }
   /** Note when a view released the instance; the trim drops the oldest release first. */
   | { readonly kind: 'release'; readonly key: string; readonly at: number }
+  /**
+   * POD-7160 — the instance's marker is behind the feed (a gap it could not
+   * bridge): its rows stay, it reads from disk as usual, and a read reloads
+   * it. A new `mark` clears it.
+   */
+  | { readonly kind: 'stale'; readonly key: string }
 
 /**
  * Why the Replica's frame commit is multi-region at all, and why retirement

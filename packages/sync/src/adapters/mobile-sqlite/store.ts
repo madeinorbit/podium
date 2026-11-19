@@ -100,20 +100,21 @@ import {
   isMainRow,
   type MetaWrite,
   nextCacheMeta,
-  rowAfter,
   type ScopedCacheCursor,
 } from '../../replica/cache-state'
 import {
-  bucketKeysAfter,
+  bucketCountFor,
   bucketOf,
   buildIndex,
   type DecodedEntry,
   DiskIndex,
   DiskIndexDraft,
   type DiskIndexReader,
+  DiskOnlyWrites,
   decodeBucket,
   decodeMarkerStates,
   encodeBucket,
+  encodeBucketAfter,
   heldByNothing,
   INDEX_BUILT_META_KEY,
   indexBucketKey,
@@ -126,6 +127,8 @@ import {
   splitRowKey,
   stageIndexComesWith,
   stageIndexInstances,
+  stageRow,
+  storedBucketCount,
   unloadResident,
 } from '../../replica/disk-index'
 import type {
@@ -257,6 +260,8 @@ interface SpanDraft {
   readonly metas: Map<string, CacheMeta>
   /** Principal → the disk index changes this draft makes (POD-7159). */
   readonly indexes: Map<string, DiskIndexDraft>
+  /** Principal → the rows this draft writes to disk and not to memory (POD-7160). */
+  readonly diskOnly: Map<string, DiskOnlyWrites>
   indexWritten: boolean
   readonly outbox: Map<string, StoredOutboxRecord[]>
   readonly ops: SqlOp[]
@@ -270,6 +275,7 @@ const newDraft = (): SpanDraft => ({
   entities: new Map(),
   metas: new Map(),
   indexes: new Map(),
+  diskOnly: new Map(),
   indexWritten: false,
   outbox: new Map(),
   ops: [],
@@ -490,6 +496,7 @@ export class SqliteSyncStore {
           params: [principal],
         },
       )
+      draft.diskOnly.delete(principal)
       draft.entities.set(principal, new ChangedKeyDraft<EntityRecord, RowMirror>(new RowMirror()))
       draft.metas.set(principal, EMPTY_CACHE_META)
       draft.outbox.set(principal, [])
@@ -845,6 +852,7 @@ export class SqliteSyncStore {
   private applyDraftToMirror(draft: SpanDraft): void {
     for (const [principal, rows] of draft.entities)
       this.entities.set(principal, rows.publish(this.entitiesOf(principal)))
+    for (const [principal, rows] of draft.diskOnly) rows.publish(this.entitiesOf(principal))
     for (const [principal, meta] of draft.metas) this.metas.set(principal, meta)
     for (const [principal, index] of draft.indexes) this.indexOf(principal).publish(index)
     for (const [principal, rows] of draft.outbox) this.outboxRows.set(principal, rows)
@@ -855,25 +863,24 @@ export class SqliteSyncStore {
     if (draft.indexWritten) return
     draft.indexWritten = true
     for (const [principal, index] of draft.indexes) {
-      const live = this.indexOf(principal)
       const changes = indexChanges(index)
-      if (changes.clearAll)
+      // POD-7160: a re-bucket writes every bucket again, after the old rows go.
+      if (changes.clearAll || changes.rebucket)
         draft.ops.push({
           sql: `DELETE FROM ${INDEX_TABLE} WHERE principal = ?`,
           params: [principal],
         })
-      // A bucket a record of it changed in is rewritten whole, in its final state.
+      // A bucket a record of it changed in is written in its final state:
+      // patched when this session wrote it before (POD-7160).
       for (const bucket of changes.buckets) {
-        const keys = bucketKeysAfter(index, live, bucket)
-        if (keys.length === 0) {
+        const stored = encodeBucketAfter(index, changes, bucket, (key, entry) =>
+          this.rowForIndex(draft, principal, key, entry),
+        )
+        if (stored === undefined) {
           draft.ops.push(deleteIndexOp(principal, indexBucketKey(bucket)))
           continue
         }
-        const entries = keys.map((key) => {
-          const entry = index.record(key) as RecordEntry
-          return [key, entry, this.rowForIndex(draft, principal, key, entry)] as const
-        })
-        draft.ops.push(putIndexOp(principal, indexBucketKey(bucket), encodeBucket(entries)))
+        draft.ops.push(putIndexOp(principal, indexBucketKey(bucket), stored))
       }
       // An instance's state rides in its marker row.
       if (changes.instances.size > 0) {
@@ -901,6 +908,8 @@ export class SqliteSyncStore {
     entry: RecordEntry,
   ): EntityRecord | undefined {
     const mirror = this.entitiesOf(principal)
+    const written = draft.diskOnly.get(principal)?.get(key)
+    if (written !== undefined) return written
     const staged = draft.entities.get(principal)
     const row = staged === undefined ? mirror.get(key) : staged.get(key, mirror)
     if (row !== undefined) return row
@@ -1046,6 +1055,7 @@ export class SqliteSyncStore {
         row.value === JSON.stringify(INDEX_FORMAT),
     )
     const buckets: { principal: string; entries: DecodedEntry[] }[] = []
+    const counts = new Map<string, number>()
     let readable = built
     for (const row of stored) {
       if (row.principal === STORE_PRINCIPAL) continue
@@ -1058,6 +1068,7 @@ export class SqliteSyncStore {
       const entries = decodeBucket(value)
       if (entries === undefined) readable = false
       else buckets.push({ principal: row.principal, entries })
+      counts.set(row.principal, Math.max(counts.get(row.principal) ?? 0, storedBucketCount(value)))
     }
     const stubsInIndex = meta.some(
       (row) => row.principal === STORE_PRINCIPAL && row.key === STUBS_IN_INDEX_KEY,
@@ -1076,6 +1087,8 @@ export class SqliteSyncStore {
     this.outboxRows.clear()
     this.nextOrdinal = 0
     this.decodeMetas(meta)
+    // POD-7160: the count of buckets the disk keeps, before its records.
+    for (const [principal, count] of counts) this.indexOf(principal).setBucketCount(count)
     const excluded: { principal: string; key: string }[] = []
     for (const { principal, entries } of buckets)
       for (const { key, entry, stub, stubRow } of entries) {
@@ -1250,10 +1263,13 @@ export class SqliteSyncStore {
       })
       const mirror = this.mirrorOf(principal)
       const buckets = new Map<number, (readonly [string, RecordEntry, EntityRecord])[]>()
+      // POD-7160: buckets of a bounded size, as many as the records need.
+      const count = bucketCountFor(built.entries.size)
+      index.setBucketCount(count)
       for (const [key, entry] of built.entries) {
         const row = records.get(key) as EntityRecord
         index.putRecord(key, entry)
-        const bucket = bucketOf(key)
+        const bucket = bucketOf(key, count)
         const list = buckets.get(bucket)
         if (list === undefined) buckets.set(bucket, [[key, entry, row]])
         else list.push([key, entry, row])
@@ -1261,7 +1277,7 @@ export class SqliteSyncStore {
         else mirror.putStubOf(row.entity, row.entityId, row.value)
       }
       for (const [bucket, entries] of buckets)
-        puts.push(putIndexOp(principal, indexBucketKey(bucket), encodeBucket(entries)))
+        puts.push(putIndexOp(principal, indexBucketKey(bucket), encodeBucket(entries, count)))
       for (const [key, state] of built.states) {
         index.putInstance(key, state)
         const marker = cacheMeta.instances.get(key)
@@ -1650,6 +1666,7 @@ class SqliteCacheStore implements ReplicaCacheStore {
       const index = this.store.indexDraft(draft, this.principal)
       index.clearAll()
       const next = new ChangedKeyDraft<EntityRecord, RowMirror>(new RowMirror())
+      draft.diskOnly.delete(this.principal)
       draft.entities.set(this.principal, next)
       draft.touchedCache = true
       for (const row of rows) {
@@ -1688,6 +1705,7 @@ class SqliteCacheStore implements ReplicaCacheStore {
     // Reaches entities and the cache's metadata. The `outbox` table is not named
     // here, and there is no method on this port through which it could be.
     this.store.autocommit((draft) => {
+      draft.diskOnly.delete(this.principal)
       draft.entities.set(
         this.principal,
         new ChangedKeyDraft<EntityRecord, RowMirror>(new RowMirror()),
@@ -1752,13 +1770,20 @@ class SqliteCacheStore implements ReplicaCacheStore {
     draft.touchedCache = true
     const published = this.store.entitiesOf(this.principal)
     const index = this.store.indexDraft(draft, this.principal)
+    let diskOnly = draft.diskOnly.get(this.principal)
+    if (diskOnly === undefined) {
+      diskOnly = new DiskOnlyWrites()
+      draft.diskOnly.set(this.principal, diskOnly)
+    }
     for (const op of mutation.operations) {
       if (!this.store.retainsEntity(op.entity)) continue
       const key = rowKey(op.entity, op.entityId)
-      const row = rowAfter(op.asOf === undefined ? undefined : slice.get(key, published), op)
-      if (row === undefined) continue
+      // POD-7160: newest wins against the row in memory or, only on disk, its index entry.
+      const staged = stageRow(key, op, slice.get(key, published), diskOnly, index)
+      if (staged === undefined) continue
+      const row = staged.row
       if (row !== null) {
-        slice.set(key, row)
+        if (staged.memory) slice.set(key, row)
         const statement = upsertEntityOp(this.principal, row)
         const before = index.record(key)?.level
         index.row(key, row, op.kind === 'upsert' ? op.holders : undefined, sizeOf(statement))

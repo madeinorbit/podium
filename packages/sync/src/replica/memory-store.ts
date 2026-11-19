@@ -29,15 +29,16 @@ import {
   EMPTY_CACHE_META,
   isMainRow,
   nextCacheMeta,
-  rowAfter,
 } from './cache-state'
 import {
   DiskIndex,
   DiskIndexDraft,
   type DiskIndexReader,
+  DiskOnlyWrites,
   installResidentRows,
   stageIndexComesWith,
   stageIndexInstances,
+  stageRow,
   unloadResident,
 } from './disk-index'
 import type { RetirementIntent } from './overlay'
@@ -138,6 +139,8 @@ interface CacheDraft {
   rows: ChangedKeyDraft<EntityRecord, RowMirror>
   disk: ChangedKeyDraft<EntityRecord>
   index: DiskIndexDraft
+  /** POD-7160 — rows written to disk and not to memory. */
+  diskOnly: DiskOnlyWrites
   meta: CacheMeta
 }
 
@@ -278,12 +281,14 @@ class InMemoryCache implements ReplicaCacheStore {
       rows: new ChangedKeyDraft<EntityRecord, RowMirror>(),
       disk: new ChangedKeyDraft<EntityRecord>(),
       index: new DiskIndexDraft(this.index),
+      diskOnly: new DiskOnlyWrites(),
       meta: this.meta,
     }
   }
 
   private publishDraft(draft: CacheDraft, meta: CacheMeta): void {
     this.rows = draft.rows.publish(this.rows)
+    draft.diskOnly.publish(this.rows)
     this.disk = draft.disk.publish(this.disk)
     this.index.publish(draft.index)
     this.meta = meta
@@ -315,6 +320,7 @@ class InMemoryCache implements ReplicaCacheStore {
       rows: new ChangedKeyDraft<EntityRecord, RowMirror>(replacement),
       disk: new ChangedKeyDraft<EntityRecord>(diskRows),
       index,
+      diskOnly: new DiskOnlyWrites(),
       meta: EMPTY_CACHE_META,
     }
     let meta = nextCacheMeta(EMPTY_CACHE_META, {
@@ -328,6 +334,7 @@ class InMemoryCache implements ReplicaCacheStore {
     }
     if (draft === undefined) {
       this.rows = replacement
+      next.diskOnly.publish(replacement)
       this.disk = diskRows
       this.index.publish(index)
       this.meta = meta
@@ -339,6 +346,7 @@ class InMemoryCache implements ReplicaCacheStore {
     draft.rows = next.rows
     draft.disk = next.disk
     draft.index = index
+    draft.diskOnly = next.diskOnly
     draft.meta = meta
   }
 
@@ -400,8 +408,10 @@ function applyInto(
   // correctness property). POD-374/POD-375 inherit this obligation.
   for (const op of mutation.operations) {
     const at = key(op.entity, op.entityId)
-    const next = rowAfter(draft.rows.get(at, base), op)
-    if (next === undefined) continue
+    // POD-7160: newest wins against the row in memory or, only on disk, its index entry.
+    const staged = stageRow(at, op, draft.rows.get(at, base), draft.diskOnly, draft.index)
+    if (staged === undefined) continue
+    const next = staged.row
     // A tombstone and an eviction both drop the row from the CACHE. They stay
     // separate op kinds so the layer above can still tell them apart
     // (Amendment 1 D14.5) — merging them here would make the distinction
@@ -411,7 +421,7 @@ function applyInto(
       if (draft.disk.get(at, disk) !== undefined) draft.disk.delete(at)
       draft.index.row(at, null)
     } else {
-      draft.rows.set(at, next)
+      if (staged.memory) draft.rows.set(at, next)
       draft.disk.set(at, next)
       draft.index.row(at, next, op.kind === 'upsert' ? op.holders : undefined)
     }

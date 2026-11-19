@@ -14,7 +14,19 @@ import {
 } from '../conformance/collection-server'
 import { inMemoryInstantiation } from '../conformance/in-memory'
 import { instanceKey } from './cache-state'
-import { bucketKeysAfter, bucketOf, DiskIndex, DiskIndexDraft, indexChanges } from './disk-index'
+import {
+  BUCKET_RECORDS,
+  bucketKeysAfter,
+  bucketOf,
+  DiskIndex,
+  DiskIndexDraft,
+  encodeBucket,
+  encodeBucketAfter,
+  INDEX_BUCKETS,
+  indexChanges,
+  retainedComesWith,
+  type StoredBucket,
+} from './disk-index'
 import { DISK_INSTALL_ROWS, Replica } from './replica'
 import type { EntityRecord, InstanceRecord, InstanceSpec, ReplicaEvent } from './types'
 
@@ -210,12 +222,130 @@ describe('the disk index draft', () => {
     index.publish(draft)
     expect([...index.membersOf('^issueProjection\u0000X')]).toEqual(['session\u0000S'])
     expect(index.record('issueProjection\u0000X')?.cw).toEqual(['issueProjection'])
-    // A change of the row keeps what it came with; a stub has none of it.
+    // A change that names no holders keeps what it came with; a stub has none of it.
     const next = new DiskIndexDraft(index)
-    next.row('session\u0000S', { ...row('S', 2), entity: 'session' }, [])
+    next.row('session\u0000S', { ...row('S', 2), entity: 'session' })
     next.row('issueProjection\u0000X', row('X', 2, 'stub'))
     index.publish(next)
     expect(index.record('session\u0000S')?.holders).toEqual(['^issueProjection\u0000X'])
     expect(index.record('issueProjection\u0000X')?.cw).toEqual([])
+    // POD-7160: the feed names every holder a change keeps; one it leaves out lets go.
+    const last = new DiskIndexDraft(index)
+    last.row('session\u0000S', { ...row('S', 3), entity: 'session' }, [])
+    index.publish(last)
+    expect(index.record('session\u0000S')?.holders).toEqual([])
+    expect([...index.membersOf('^issueProjection\u0000X')]).toEqual([])
+  })
+
+  it('lets go of a record a changed row no longer comes with (POD-7160)', () => {
+    const index = new DiskIndex()
+    const draft = new DiskIndexDraft(index)
+    draft.row('issueProjection\u0000X', row('X', 1))
+    index.publish(draft)
+    const holder = '^issueProjection\u0000X'
+    // Still X's session while X's comes-with is not complete: it stays.
+    expect(retainedComesWith('session', { issueId: 'X' }, [holder], [], index)).toEqual([holder])
+    // Moved to another issue: X lets go.
+    expect(retainedComesWith('session', { issueId: 'Y' }, [holder], [], index)).toEqual([])
+    // X's comes-with complete through every via: the rule decides (`brought`).
+    const done = new DiskIndexDraft(index)
+    done.setComesWith('issueProjection\u0000X', ['issueProjection.sidebar', 'issueProjection.tree'])
+    index.publish(done)
+    expect(retainedComesWith('session', { issueId: 'X' }, [holder], [], index)).toEqual([])
+    expect(retainedComesWith('session', { issueId: 'X' }, [holder], [holder], index)).toEqual([
+      holder,
+    ])
+  })
+})
+
+describe('the index buckets (POD-7160)', () => {
+  const row = (id: string, seq: number, part?: 'stub'): EntityRecord => ({
+    entity: ISSUE,
+    entityId: id,
+    value: issue(id),
+    provenance: { seq },
+    ...(part === undefined ? {} : { part }),
+  })
+  /** A bucket's records as comparable tuples, in key order. */
+  const cells = (stored: StoredBucket | undefined) =>
+    stored === undefined
+      ? []
+      : stored.k
+          .map((key, at) => [
+            key,
+            stored.s[at],
+            stored.l[at],
+            stored.h[at],
+            stored.st[at],
+            stored.r[at],
+          ])
+          .sort((a, b) => ((a[0] as string) < (b[0] as string) ? -1 : 1))
+  const stubOf = (id: string, seq: number): EntityRecord => ({
+    ...row(id, seq, 'stub'),
+    value: { id, stage: seq % 2 === 0 ? 'done' : 'review', parentId: null },
+  })
+
+  it('patches a bucket it wrote before to exactly what encoding it whole gives', () => {
+    const index = new DiskIndex()
+    const rows = new Map<string, EntityRecord>()
+    const write = (change: (draft: DiskIndexDraft) => void): void => {
+      const draft = new DiskIndexDraft(index)
+      change(draft)
+      const changes = indexChanges(draft)
+      for (const bucket of changes.buckets) {
+        const patched = encodeBucketAfter(draft, changes, bucket, (key) => rows.get(key))
+        const whole = encodeBucket(
+          [...draft.recordKeys()]
+            .filter((key) => bucketOf(key, changes.bucketCount) === bucket)
+            .map((key) => [key, draft.record(key) as never, rows.get(key)] as const),
+          changes.bucketCount,
+        )
+        expect(cells(patched), `bucket ${bucket}`).toEqual(
+          cells(whole.k.length === 0 ? undefined : whole),
+        )
+      }
+      index.publish(draft)
+    }
+    let seq = 1
+    const put = (draft: DiskIndexDraft, id: string, whole: boolean): void => {
+      const value = whole ? row(id, seq) : stubOf(id, seq)
+      rows.set(`issueProjection\u0000${id}`, value)
+      draft.row(`issueProjection\u0000${id}`, value)
+    }
+    write((draft) => {
+      for (let n = 0; n < 2000; n += 1) put(draft, `I${n}`, n % 3 === 0)
+    })
+    // Changes, additions and removals, over buckets written before.
+    for (let round = 0; round < 5; round += 1) {
+      seq += 1
+      write((draft) => {
+        for (let n = round; n < 2000; n += 97) put(draft, `I${n}`, n % 2 === 0)
+        for (let n = 0; n < 20; n += 1) put(draft, `N${round}-${n}`, false)
+        draft.row(`issueProjection\u0000I${round * 11 + 1}`, null)
+        rows.delete(`issueProjection\u0000I${round * 11 + 1}`)
+      })
+    }
+    expect(index.bucketCount).toBe(INDEX_BUCKETS)
+  })
+
+  it('doubles the count of buckets past BUCKET_RECORDS each, writing every bucket once', () => {
+    const index = new DiskIndex()
+    const draft = new DiskIndexDraft(index)
+    const many = INDEX_BUCKETS * BUCKET_RECORDS + 1
+    for (let n = 0; n < many; n += 1) draft.row(`issueProjection\u0000I${n}`, row(`I${n}`, 1))
+    const changes = indexChanges(draft)
+    expect(changes.rebucket).toBe(true)
+    expect(changes.bucketCount).toBe(2 * INDEX_BUCKETS)
+    expect(changes.buckets.size).toBe(2 * INDEX_BUCKETS)
+    index.publish(draft)
+    expect(index.bucketCount).toBe(2 * INDEX_BUCKETS)
+    let keys = 0
+    for (let bucket = 0; bucket < index.bucketCount; bucket += 1)
+      keys += index.bucketKeys(bucket).size
+    expect(keys).toBe(many)
+    // One more record does not double it again.
+    const next = new DiskIndexDraft(index)
+    next.row('issueProjection\u0000extra', row('extra', 2))
+    expect(indexChanges(next).rebucket).toBe(false)
   })
 })

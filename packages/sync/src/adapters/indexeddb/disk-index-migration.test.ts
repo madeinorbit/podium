@@ -8,6 +8,7 @@ import { IDBKeyRange } from 'fake-indexeddb'
 import { describe, expect, it } from 'vitest'
 import { CollectionServer, issue, session, WORLD_NOW } from '../../conformance/collection-server'
 import { instanceKey } from '../../replica/cache-state'
+import { BUCKET_RECORDS, INDEX_BUCKETS } from '../../replica/disk-index'
 import { Replica } from '../../replica/replica'
 import type { EntityRecord, InstanceSpec } from '../../replica/types'
 import type { IdbDatabaseLike, IdbFactoryLike } from './idb'
@@ -60,6 +61,23 @@ const OLD_COMES_WITH = [
     via: 'issueProjection',
   },
 ] as const
+
+/**
+ * POD-7160 — the index's buckets stay about `BUCKET_RECORDS` records each:
+ * past 256 of them the count doubles, every bucket written again once; a
+ * later change patches its own bucket, and the reopened store reads it all.
+ */
+const MANY = INDEX_BUCKETS * BUCKET_RECORDS + 100
+const historyStub = (n: number, seq: number) => ({
+  kind: 'upsert' as const,
+  entity: ISSUE,
+  entityId: `H${n}`,
+  value: issue(`H${n}`, { stage: 'done', closedReason: 'completed' }),
+  provenance: { seq },
+  asOf: seq,
+  part: 'stub' as const,
+})
+const at = (seq: number) => ({ feedId: 'feed', epoch: 'epoch', seq })
 
 const open = (factory: IdbFactoryLike) =>
   IndexedDbSyncStore.open({ factory, keyRange: IDBKeyRange, onDegraded: () => {} })
@@ -214,4 +232,45 @@ describe('IndexedDB schema 1 to 2: the disk index (POD-7159)', () => {
       await expectReadable(store, rows, markers)
       store.close()
     })
+
+  it('grows its buckets with the disk, patches a bucket per change, and reads them back after a reopen (POD-7160)', async () => {
+    const factory = freshFactory()
+    const store = await open(factory)
+    const { cache } = store.viewFor(PRINCIPAL)
+    cache.applyAtomic({
+      operations: Array.from({ length: MANY }, (_, n) => historyStub(n, 1)),
+      cursor: at(1),
+    })
+    await store.settled()
+    expect(cache.readDiskIndex().bucketCount).toBe(2 * INDEX_BUCKETS)
+    cache.applyAtomic({ operations: [historyStub(7, 2)], cursor: at(2) })
+    cache.applyAtomic({
+      operations: [{ kind: 'remove', entity: ISSUE, entityId: 'H8' }],
+      cursor: at(3),
+    })
+    await store.settled()
+    store.close()
+    const durable = (await readDurable(factory))['disk-index'] as {
+      readonly key: string
+      readonly v: { readonly k: readonly string[]; readonly n?: number }
+    }[]
+    const buckets = durable.filter((row) => row.key.startsWith('b'))
+    expect(buckets.length).toBeLessThanOrEqual(2 * INDEX_BUCKETS)
+    for (const row of buckets) {
+      expect(row.v.n, row.key).toBe(2 * INDEX_BUCKETS)
+      expect(row.v.k.length, row.key).toBeLessThan(3 * BUCKET_RECORDS)
+    }
+    expect(buckets.reduce((sum, row) => sum + row.v.k.length, 0)).toBe(MANY - 1)
+    const again = await open(factory)
+    const reopened = again.viewFor(PRINCIPAL).cache
+    const index = reopened.readDiskIndex()
+    expect(index.bucketCount).toBe(2 * INDEX_BUCKETS)
+    expect(index.recordCount).toBe(MANY - 1)
+    expect(index.record(`${ISSUE}\u0000H7`)).toMatchObject({ seq: 2, level: 'stub' })
+    expect(index.record(`${ISSUE}\u0000H8`)).toBeUndefined()
+    expect(reopened.readRow(ISSUE, 'H7')).toMatchObject({ part: 'stub', asOf: 2 })
+    expect(reopened.readRow(ISSUE, 'H8')).toBeUndefined()
+    expect(reopened.readRow(ISSUE, `H${MANY - 1}`)?.part).toBe('stub')
+    again.close()
+  })
 })

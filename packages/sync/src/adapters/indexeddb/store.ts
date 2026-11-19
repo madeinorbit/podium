@@ -79,21 +79,22 @@ import {
   isMainRow,
   type MetaWrite,
   nextCacheMeta,
-  rowAfter,
   type ScopedCacheCursor,
 } from '../../replica/cache-state'
 import {
   approxBytes,
-  bucketKeysAfter,
+  bucketCountFor,
   bucketOf,
   buildIndex,
   type DecodedEntry,
   DiskIndex,
   DiskIndexDraft,
   type DiskIndexReader,
+  DiskOnlyWrites,
   decodeBucket,
   decodeMarkerStates,
   encodeBucket,
+  encodeBucketAfter,
   heldByNothing,
   INDEX_BUCKETS,
   INDEX_BUILT_META_KEY,
@@ -107,6 +108,8 @@ import {
   splitRowKey,
   stageIndexComesWith,
   stageIndexInstances,
+  stageRow,
+  storedBucketCount,
   unloadResident,
 } from '../../replica/disk-index'
 import type {
@@ -247,6 +250,8 @@ interface SpanDraft {
   readonly metas: Map<string, CacheMeta>
   /** Principal → the disk index changes this draft makes (POD-7159). */
   readonly indexes: Map<string, DiskIndexDraft>
+  /** Principal → the rows this draft writes to disk and not to memory (POD-7160). */
+  readonly diskOnly: Map<string, DiskOnlyWrites>
   /** The index's durable rows were added to `ops` (once, at commit). */
   indexWritten: boolean
   readonly outbox: Map<string, StoredOutboxRecord[]>
@@ -348,6 +353,7 @@ const newDraft = (): SpanDraft => ({
   entities: new Map(),
   metas: new Map(),
   indexes: new Map(),
+  diskOnly: new Map(),
   indexWritten: false,
   outbox: new Map(),
   ops: [],
@@ -1070,6 +1076,7 @@ export class IndexedDbSyncStore {
   private applyDraftToMirror(draft: SpanDraft): void {
     for (const [principal, rows] of draft.entities)
       this.entities.set(principal, rows.publish(this.entitiesOf(principal)))
+    for (const [principal, rows] of draft.diskOnly) rows.publish(this.entitiesOf(principal))
     for (const [principal, meta] of draft.metas) this.metas.set(principal, meta)
     for (const [principal, index] of draft.indexes) this.indexOf(principal).publish(index)
     for (const [principal, rows] of draft.outbox) this.outboxRows.set(principal, rows)
@@ -1085,21 +1092,25 @@ export class IndexedDbSyncStore {
     for (const [principal, index] of draft.indexes) {
       const live = this.indexOf(principal)
       const changes = indexChanges(index)
-      if (changes.clearAll) {
+      // POD-7160: a re-bucket writes every bucket again, after the old rows go.
+      if (changes.clearAll || changes.rebucket) {
         const range = this.options.keyRange?.bound([principal, ''], [principal, KEY_END])
         if (range !== undefined) draft.ops.push({ kind: 'delete', store: INDEX_STORE, key: range })
         else
-          for (let bucket = 0; bucket < INDEX_BUCKETS; bucket += 1)
+          for (let bucket = 0; bucket < Math.max(live.bucketCount, INDEX_BUCKETS); bucket += 1)
             draft.ops.push({
               kind: 'delete',
               store: INDEX_STORE,
               key: [principal, indexBucketKey(bucket)],
             })
       }
-      // A bucket a record of it changed in is rewritten whole, in its final state.
+      // A bucket a record of it changed in is written in its final state:
+      // patched when this session wrote it before (POD-7160).
       for (const bucket of changes.buckets) {
-        const keys = bucketKeysAfter(index, live, bucket)
-        if (keys.length === 0) {
+        const stored = encodeBucketAfter(index, changes, bucket, (key, entry) =>
+          this.rowForIndex(draft, principal, key, entry),
+        )
+        if (stored === undefined) {
           draft.ops.push({
             kind: 'delete',
             store: INDEX_STORE,
@@ -1107,18 +1118,10 @@ export class IndexedDbSyncStore {
           })
           continue
         }
-        const entries = keys.map((key) => {
-          const entry = index.record(key) as RecordEntry
-          return [key, entry, this.rowForIndex(draft, principal, key, entry)] as const
-        })
         draft.ops.push({
           kind: 'put',
           store: INDEX_STORE,
-          value: {
-            principal,
-            key: indexBucketKey(bucket),
-            v: encodeBucket(entries),
-          } satisfies StoredIndexRow,
+          value: { principal, key: indexBucketKey(bucket), v: stored } satisfies StoredIndexRow,
         })
       }
       // An instance's state rides in its marker row.
@@ -1149,6 +1152,8 @@ export class IndexedDbSyncStore {
     entry: RecordEntry,
   ): EntityRecord | undefined {
     const mirror = this.entitiesOf(principal)
+    const written = draft.diskOnly.get(principal)?.get(key)
+    if (written !== undefined) return written
     const staged = draft.entities.get(principal)
     const row = staged === undefined ? mirror.get(key) : staged.get(key, mirror)
     if (row !== undefined) return row
@@ -1166,6 +1171,7 @@ export class IndexedDbSyncStore {
 
   /** Stage the deletion of every row a principal has on disk (a discard, a snapshot, a sign-out). */
   stageDeleteEveryRow(draft: SpanDraft, principal: string): void {
+    draft.diskOnly.delete(principal)
     const index = this.indexDraft(draft, principal)
     const keys = new Set(index.recordKeys())
     const staged = draft.entities.get(principal)
@@ -1243,12 +1249,14 @@ export class IndexedDbSyncStore {
         row.v === INDEX_FORMAT,
     )
     const buckets: { principal: string; entries: DecodedEntry[] }[] = []
+    const counts = new Map<string, number>()
     let readable = built
     for (const row of stored) {
       if (row.principal === STORE_PRINCIPAL) continue
       const entries = decodeBucket(row.v)
       if (entries === undefined) readable = false
       else buckets.push({ principal: row.principal, entries })
+      counts.set(row.principal, Math.max(counts.get(row.principal) ?? 0, storedBucketCount(row.v)))
     }
     const stubsInIndex = meta.some(isStubsInIndexFlag)
     if (!readable) {
@@ -1265,6 +1273,8 @@ export class IndexedDbSyncStore {
     this.outboxRows.clear()
     this.nextOrdinal = 0
     this.decodeMetas(meta)
+    // POD-7160: the count of buckets the disk keeps, before its records.
+    for (const [principal, count] of counts) this.indexOf(principal).setBucketCount(count)
     const excluded: { principal: string; key: string }[] = []
     for (const { principal, entries } of buckets)
       for (const { key, entry, stub, stubRow } of entries) {
@@ -1473,10 +1483,13 @@ export class IndexedDbSyncStore {
       })
       const mirror = this.mirrorOf(principal)
       const buckets = new Map<number, (readonly [string, RecordEntry, EntityRecord])[]>()
+      // POD-7160: buckets of a bounded size, as many as the records need.
+      const count = bucketCountFor(built.entries.size)
+      index.setBucketCount(count)
       for (const [key, entry] of built.entries) {
         const row = rows.get(key) as EntityRecord
         index.putRecord(key, entry)
-        const bucket = bucketOf(key)
+        const bucket = bucketOf(key, count)
         const list = buckets.get(bucket)
         if (list === undefined) buckets.set(bucket, [[key, entry, row]])
         else list.push([key, entry, row])
@@ -1484,7 +1497,7 @@ export class IndexedDbSyncStore {
         else mirror.putStubOf(row.entity, row.entityId, row.value)
       }
       for (const [bucket, entries] of buckets)
-        indexRows.push({ principal, key: indexBucketKey(bucket), v: encodeBucket(entries) })
+        indexRows.push({ principal, key: indexBucketKey(bucket), v: encodeBucket(entries, count) })
       for (const [key, state] of built.states) {
         index.putInstance(key, state)
         const marker = meta.instances.get(key)
@@ -2095,13 +2108,20 @@ class IndexedDbCacheStore implements ReplicaCacheStore {
     draft.touchedCache = true
     const published = this.store.entitiesOf(this.principal)
     const index = this.store.indexDraft(draft, this.principal)
+    let diskOnly = draft.diskOnly.get(this.principal)
+    if (diskOnly === undefined) {
+      diskOnly = new DiskOnlyWrites()
+      draft.diskOnly.set(this.principal, diskOnly)
+    }
     for (const op of mutation.operations) {
       if (!this.store.retainsEntity(op.entity)) continue
       const key = rowKey(op.entity, op.entityId)
-      const row = rowAfter(op.asOf === undefined ? undefined : slice.get(key, published), op)
-      if (row === undefined) continue
+      // POD-7160: newest wins against the row in memory or, only on disk, its index entry.
+      const staged = stageRow(key, op, slice.get(key, published), diskOnly, index)
+      if (staged === undefined) continue
+      const row = staged.row
       if (row !== null) {
-        slice.set(key, row)
+        if (staged.memory) slice.set(key, row)
         const before = index.record(key)?.level
         index.row(key, row, op.kind === 'upsert' ? op.holders : undefined)
         if (row.part !== 'stub')

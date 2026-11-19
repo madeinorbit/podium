@@ -32,9 +32,13 @@
  * is one record, found by key. So the markers are bounded by views and the
  * policy, not by records.
  *
- * ON DISK the index is about 256 BUCKET rows, each the entries of the records
- * whose key hashes to it, so reading it at start is a few large reads; an
- * instance's state rides in its marker row, which the open reads anyway.
+ * ON DISK the index is BUCKET rows, each the entries of the records whose key
+ * hashes to it, read at start with one getAll; an instance's state rides in
+ * its marker row, which the open reads anyway. A bucket holds about
+ * `BUCKET_RECORDS` records (POD-7160): the count of buckets starts at 256 and
+ * doubles as the disk grows, every bucket rewritten once when it does, so a
+ * feed change rewrites a bucket of bounded size whatever the disk holds. A
+ * bucket's rows are encoded once and patched by the records that change.
  *
  * A dropped instance's key is left in its members' holders rather than
  * rewriting every one of them: an instance's members are a superset of what
@@ -43,7 +47,7 @@
  */
 
 import { COLLECTIONS, instanceParams, recordOf } from '@podium/model'
-import { INSTANCE_META_PREFIX, instanceKey } from './cache-state'
+import { INSTANCE_META_PREFIX, instanceKey, rowAfter } from './cache-state'
 import {
   comesWithEntry,
   comesWithOf,
@@ -55,7 +59,7 @@ import {
   stubOfValue,
 } from './holdings'
 import { cachedKeyField, keyedShapesOfKind } from './instance-shapes'
-import type { CacheMutation } from './ports'
+import type { CacheMutation, CacheOperation } from './ports'
 import type { CachePolicy, EntityRecord, InstanceRecord, InstanceSpec } from './types'
 import { rowAsOf } from './types'
 
@@ -97,8 +101,17 @@ export const COMES_WITH_HOLDER = '^'
 export const comesWithHolderKey = (rowKey: string): string => `${COMES_WITH_HOLDER}${rowKey}`
 export const isComesWithHolder = (holder: string): boolean => holder.startsWith(COMES_WITH_HOLDER)
 
-/** Index buckets on disk (design "The index on disk is bucketed"). */
+/** The fewest index buckets on disk (design "The index on disk is bucketed"). */
 export const INDEX_BUCKETS = 256
+/** POD-7160 — about this many records per bucket: past it, the count of buckets doubles. */
+export const BUCKET_RECORDS = 64
+
+/** The count of buckets an index of `records` records keeps, never fewer than `from`. */
+export function bucketCountFor(records: number, from = INDEX_BUCKETS): number {
+  let count = Math.max(INDEX_BUCKETS, from)
+  while (records > count * BUCKET_RECORDS) count *= 2
+  return count
+}
 /** The key of a bucket row in an adapter's index table. */
 export const indexBucketKey = (bucket: number): string => `b${bucket.toString().padStart(3, '0')}`
 /**
@@ -193,14 +206,14 @@ export function heldByNothing(
   )
 }
 
-/** The bucket a record key lands in (FNV-1a). */
-export function bucketOf(key: string): number {
+/** The bucket a record key lands in among `count` buckets (FNV-1a). */
+export function bucketOf(key: string, count = INDEX_BUCKETS): number {
   let hash = 0x811c9dc5
   for (let at = 0; at < key.length; at += 1) {
     hash ^= key.charCodeAt(at)
     hash = Math.imul(hash, 0x01000193)
   }
-  return (hash >>> 0) % INDEX_BUCKETS
+  return (hash >>> 0) % count
 }
 
 /** One instance on the device's disk, beside its marker. */
@@ -221,6 +234,8 @@ export interface DiskIndexReader {
   readonly recordCount: number
   /** Approximate bytes of every record on disk. */
   readonly bytes: number
+  /** POD-7160 — how many buckets the disk keeps its index in. */
+  readonly bucketCount: number
   record(key: string): RecordEntry | undefined
   records(): IterableIterator<[string, RecordEntry]>
   /** The member row keys of a main-part instance (empty for an unknown one). */
@@ -275,8 +290,17 @@ export function approxBytes(row: Pick<EntityRecord, 'value'>): number {
 export class DiskIndex implements DiskIndexReader {
   private readonly entries = new Map<string, RecordEntry>()
   private readonly members = new Map<string, Set<string>>()
+  /** POD-7160 — how many buckets the disk keeps (`bucketCountFor`). */
+  private count = INDEX_BUCKETS
   /** The record keys of each disk bucket (a commit rewrites the buckets it touched). */
-  private readonly buckets: Set<string>[] = Array.from({ length: INDEX_BUCKETS }, () => new Set())
+  private buckets: Set<string>[] = Array.from({ length: INDEX_BUCKETS }, () => new Set())
+  /**
+   * POD-7160 — buckets as last written this session, so the next write patches
+   * the records that changed instead of encoding the whole bucket again. Only
+   * buckets written since the open (the start heap does not hold them all),
+   * the oldest dropped past `ENCODED_BUCKETS`.
+   */
+  private readonly encoded = new Map<number, StoredBucket>()
   private readonly states = new Map<string, InstanceState>()
   private readonly memory = new Set<string>()
   private readonly lists = new HolderLists()
@@ -293,6 +317,30 @@ export class DiskIndex implements DiskIndexReader {
 
   get bytes(): number {
     return this.totalBytes
+  }
+
+  /** How many buckets the disk keeps. */
+  get bucketCount(): number {
+    return this.count
+  }
+
+  /** The bucket a record key lands in on this disk. */
+  bucketOf(key: string): number {
+    return bucketOf(key, this.count)
+  }
+
+  /** A bucket as this session last wrote it; `undefined` when it has not, or was re-bucketed. */
+  encodedBucket(bucket: number): StoredBucket | undefined {
+    return this.encoded.get(bucket)
+  }
+
+  /** The count of buckets on disk (at open, from its rows; after a re-bucket). */
+  setBucketCount(count: number): void {
+    if (count === this.count) return
+    this.count = count
+    this.buckets = Array.from({ length: count }, () => new Set<string>())
+    for (const key of this.entries.keys()) this.buckets[bucketOf(key, count)]?.add(key)
+    this.encoded.clear()
   }
 
   record(key: string): RecordEntry | undefined {
@@ -369,6 +417,8 @@ export class DiskIndex implements DiskIndexReader {
     this.entries.clear()
     this.members.clear()
     for (const bucket of this.buckets) bucket.clear()
+    this.setBucketCount(INDEX_BUCKETS)
+    this.encoded.clear()
     this.states.clear()
     this.memory.clear()
     this.lists.clear()
@@ -406,6 +456,17 @@ export class DiskIndex implements DiskIndexReader {
       } else this.states.set(key, state)
     }
     for (const key of draft.markedInMemory) if (this.states.has(key)) this.memory.add(key)
+    // POD-7160: the count of buckets the draft wrote, and the buckets it encoded.
+    if (draft.cleared) this.encoded.clear()
+    this.setBucketCount(draft.bucketCountAfter())
+    for (const [bucket, stored] of draft.encoded) {
+      this.encoded.delete(bucket)
+      this.encoded.set(bucket, stored)
+    }
+    while (this.encoded.size > ENCODED_BUCKETS) {
+      const oldest = this.encoded.keys().next().value as number
+      this.encoded.delete(oldest)
+    }
     this.changes += 1
   }
 
@@ -418,10 +479,10 @@ export class DiskIndex implements DiskIndexReader {
     }
     if (entry === null) {
       this.entries.delete(key)
-      this.buckets[bucketOf(key)]?.delete(key)
+      this.buckets[bucketOf(key, this.count)]?.delete(key)
       return
     }
-    if (before === undefined) this.buckets[bucketOf(key)]?.add(key)
+    if (before === undefined) this.buckets[bucketOf(key, this.count)]?.add(key)
     this.entries.set(key, entry)
     this.totalBytes += entry.bytes
     for (const holder of entry.holders) {
@@ -458,8 +519,33 @@ export class DiskIndexDraft {
   instancesCleared = false
   /** The durable writes, in order. */
   readonly writes: IndexWrite[] = []
+  /** POD-7160 — the buckets an adapter encoded for this draft, kept by the index at publish. */
+  readonly encoded = new Map<number, StoredBucket>()
+  private countAfter: number | undefined
 
   constructor(private readonly base: DiskIndex) {}
+
+  /** The index this draft changes. */
+  get index(): DiskIndex {
+    return this.base
+  }
+
+  /**
+   * POD-7160 — how many buckets the disk keeps after this draft: as before,
+   * doubled while the records it leaves are more than `BUCKET_RECORDS` each.
+   * Decided once, when an adapter first asks (its writes are staged by then).
+   */
+  bucketCountAfter(): number {
+    if (this.countAfter !== undefined) return this.countAfter
+    let records = this.cleared ? 0 : this.base.recordCount
+    for (const [key, entry] of this.recordChanges) {
+      const had = !this.cleared && this.base.record(key) !== undefined
+      if (entry === null && had) records -= 1
+      else if (entry !== null && !had) records += 1
+    }
+    this.countAfter = bucketCountFor(records, this.cleared ? INDEX_BUCKETS : this.base.bucketCount)
+    return this.countAfter
+  }
 
   record(key: string): RecordEntry | undefined {
     if (this.recordChanges.has(key)) return this.recordChanges.get(key) ?? undefined
@@ -482,7 +568,11 @@ export class DiskIndexDraft {
       if (entry !== null && (this.cleared || this.base.record(key) === undefined)) yield key
   }
 
-  /** A row was written (`row`) or deleted (`null`). `holders` replaces its holders when given. */
+  /**
+   * A row was written (`row`) or deleted (`null`). `holders` replaces every
+   * holder it had when given, the records it comes with among them (POD-7160:
+   * the feed decides them, `retainedComesWith`).
+   */
   row(key: string, row: EntityRecord | null, holders?: readonly string[], bytes?: number): void {
     if (row === null) {
       if (this.record(key) === undefined && !this.recordChanges.has(key)) return
@@ -491,16 +581,12 @@ export class DiskIndexDraft {
     }
     const before = this.record(key)
     const level = row.part === 'stub' ? 'stub' : 'main'
-    // The records it comes with stay its holders through a change of its own.
-    const brought = before?.holders.filter(isComesWithHolder) ?? NO_HOLDERS
     const kept =
       level === 'stub'
         ? NO_HOLDERS
         : holders === undefined
           ? (before?.holders ?? NO_HOLDERS)
-          : brought.length === 0
-            ? holders
-            : [...holders, ...brought]
+          : holders
     this.putRecord(key, {
       seq: rowAsOf(row),
       level,
@@ -554,6 +640,15 @@ export class DiskIndexDraft {
     this.markedInMemory.add(key)
   }
 
+  /** POD-7160 — the instance is behind the feed (a gap): it keeps its rows and members. */
+  stale(key: string): void {
+    const before = this.instance(key)
+    if (before === undefined || before.stale) return
+    const state = { ...before, stale: true }
+    this.instanceChanges.set(key, state)
+    this.writes.push({ kind: 'instance', key, state })
+  }
+
   drop(key: string): void {
     if (this.instance(key) === undefined && !this.instanceChanges.has(key)) return
     this.instanceChanges.delete(key)
@@ -598,8 +693,17 @@ export class DiskIndexDraft {
 export interface IndexChanges {
   /** Every index row of the principal goes first (a discard, a snapshot). */
   readonly clearAll: boolean
-  /** The disk buckets whose records changed: each is rewritten whole. */
+  /**
+   * POD-7160 — the count of buckets grew: every bucket row of the principal
+   * goes first, and every bucket is written again (`buckets` names them all).
+   */
+  readonly rebucket: boolean
+  /** How many buckets the disk keeps after the draft. */
+  readonly bucketCount: number
+  /** The disk buckets whose records changed: each is written in its final state. */
   readonly buckets: ReadonlySet<number>
+  /** The records that changed in each bucket (after a re-bucket: every record of it). */
+  readonly changed: ReadonlyMap<number, readonly string[]>
   /** Instances whose state changed (`null`: dropped). Every instance first when `clearInstances`. */
   readonly instances: ReadonlyMap<string, InstanceState | null>
   readonly clearInstances: boolean
@@ -614,19 +718,38 @@ export function indexChanges(draft: DiskIndexDraft): IndexChanges {
       break
     }
   const clearAll = draft.writes[at]?.kind === 'clearAll'
-  const buckets = new Set<number>()
+  const bucketCount = draft.bucketCountAfter()
+  const rebucket = bucketCount !== (draft.cleared ? INDEX_BUCKETS : draft.index.bucketCount)
+  const changed = new Map<number, string[]>()
+  const add = (key: string): void => {
+    const bucket = bucketOf(key, bucketCount)
+    const list = changed.get(bucket)
+    if (list === undefined) changed.set(bucket, [key])
+    else if (!list.includes(key)) list.push(key)
+  }
   const instances = new Map<string, InstanceState | null>()
   let clearInstances = false
   for (let i = at; i < draft.writes.length; i += 1) {
     const write = draft.writes[i] as IndexWrite
-    if (write.kind === 'record') buckets.add(bucketOf(write.key))
-    else if (write.kind === 'instance') instances.set(write.key, write.state)
+    if (write.kind === 'record') {
+      if (!rebucket) add(write.key)
+    } else if (write.kind === 'instance') instances.set(write.key, write.state)
     else if (write.kind === 'clearInstances') {
       clearInstances = true
       instances.clear()
     }
   }
-  return { clearAll, buckets, instances, clearInstances }
+  // A re-bucket writes every bucket, from every record the draft leaves.
+  if (rebucket) for (const key of draft.recordKeys()) add(key)
+  return {
+    clearAll,
+    rebucket,
+    bucketCount,
+    buckets: new Set(changed.keys()),
+    changed,
+    instances,
+    clearInstances,
+  }
 }
 
 /** The record keys a bucket holds after a draft, in no particular order. */
@@ -637,11 +760,71 @@ export function bucketKeysAfter(draft: DiskIndexDraft, base: DiskIndex, bucket: 
   for (const [key, entry] of draft.recordChanges)
     if (
       entry !== null &&
-      bucketOf(key) === bucket &&
+      base.bucketOf(key) === bucket &&
       (draft.cleared || base.record(key) === undefined)
     )
       out.push(key)
   return out
+}
+
+/** POD-7160 — at most this many encoded buckets kept between writes. */
+const ENCODED_BUCKETS = 1024
+
+/**
+ * POD-7160 — one bucket's row after a draft, or `undefined` when the bucket
+ * is empty (its row goes). A bucket this session wrote before is patched: only
+ * the records that changed are encoded (`row` gives each one's row, for its
+ * stub). Any other is encoded whole. The result is kept on the draft, and by
+ * the index once the draft publishes.
+ */
+export function encodeBucketAfter(
+  draft: DiskIndexDraft,
+  changes: IndexChanges,
+  bucket: number,
+  row: (key: string, entry: RecordEntry) => EntityRecord | undefined,
+): StoredBucket | undefined {
+  const base = draft.index
+  const count = changes.bucketCount
+  const changed = changes.changed.get(bucket) ?? []
+  const cached =
+    changes.clearAll || changes.rebucket || draft.cleared ? undefined : base.encodedBucket(bucket)
+  let stored: StoredBucket
+  if (cached !== undefined) {
+    const at = new Map<string, number>()
+    for (let position = 0; position < cached.k.length; position += 1)
+      at.set(cached.k[position] as string, position)
+    const out = copyColumns(cached)
+    const gone = new Set<number>()
+    for (const key of changed) {
+      const entry = draft.record(key)
+      const position = at.get(key)
+      if (entry === undefined) {
+        if (position !== undefined) gone.add(position)
+        continue
+      }
+      const columns = entryColumns(key, entry, row(key, entry))
+      if (position === undefined) pushColumns(out, columns)
+      else setColumns(out, position, columns)
+    }
+    stored = { ...(gone.size === 0 ? out : withoutPositions(out, gone)), n: count }
+  } else {
+    const keys = changes.rebucket
+      ? changed.filter((key) => draft.record(key) !== undefined)
+      : bucketKeysAfter(draft, base, bucket)
+    stored = encodeBucket(
+      keys.map((key) => {
+        const entry = draft.record(key) as RecordEntry
+        return [key, entry, row(key, entry)] as const
+      }),
+      count,
+    )
+  }
+  if (stored.k.length === 0) {
+    draft.encoded.delete(bucket)
+    return undefined
+  }
+  draft.encoded.set(bucket, stored)
+  return stored
 }
 
 // ---------------------------------------------------------------------------
@@ -669,35 +852,79 @@ export interface StoredBucket {
   readonly c: readonly (readonly string[] | 0)[]
   readonly st: readonly unknown[]
   readonly r: readonly (readonly [number | null, EntityRecord['provenance'], number | null] | 0)[]
+  /** POD-7160 — how many buckets the disk kept when this one was written (absent: 256). */
+  readonly n?: number
 }
 
-/** Encode a bucket from its records' entries and rows (the rows give a stub its stub). */
+/** The count of buckets a stored bucket row was written among. */
+export function storedBucketCount(value: unknown): number {
+  const n = (value as { readonly n?: unknown } | null)?.n
+  return typeof n === 'number' && Number.isInteger(n) && n >= INDEX_BUCKETS ? n : INDEX_BUCKETS
+}
+
+type Columns = { -readonly [K in Exclude<keyof StoredBucket, 'n'>]: StoredBucket[K][number][] }
+type EntryColumns = { readonly [K in keyof Columns]: Columns[K][number] }
+const COLUMNS = ['k', 's', 'l', 'b', 'h', 'c', 'st', 'r'] as const
+
+/** One record's cells in a bucket row's columns. */
+function entryColumns(
+  key: string,
+  entry: RecordEntry,
+  row: EntityRecord | undefined,
+): EntryColumns {
+  const stubbed = row !== undefined && stubFieldsOf(row.entity).length > 0
+  return {
+    k: key,
+    s: entry.seq,
+    l: entry.level === 'main' ? 1 : 0,
+    b: entry.bytes,
+    h: entry.holders.length > 0 ? [...entry.holders] : 0,
+    c: entry.cw.length > 0 ? [...entry.cw] : 0,
+    st: !stubbed ? 0 : entry.level === 'stub' ? row.value : stubOfValue(row.entity, row.value),
+    r:
+      stubbed && entry.level === 'stub'
+        ? [row.revision ?? null, row.provenance, row.asOf ?? null]
+        : 0,
+  }
+}
+
+const emptyColumns = (): Columns => ({ k: [], s: [], l: [], b: [], h: [], c: [], st: [], r: [] })
+
+const columnsOf = (out: Columns): Record<(typeof COLUMNS)[number], unknown[]> =>
+  out as unknown as Record<(typeof COLUMNS)[number], unknown[]>
+
+function copyColumns(from: StoredBucket): Columns {
+  const out = emptyColumns()
+  for (const name of COLUMNS) columnsOf(out)[name] = [...from[name]]
+  return out
+}
+
+function pushColumns(out: Columns, cells: EntryColumns): void {
+  for (const name of COLUMNS) columnsOf(out)[name].push(cells[name])
+}
+
+function setColumns(out: Columns, at: number, cells: EntryColumns): void {
+  for (const name of COLUMNS) columnsOf(out)[name][at] = cells[name]
+}
+
+function withoutPositions(from: Columns, gone: ReadonlySet<number>): Columns {
+  const out = emptyColumns()
+  for (const name of COLUMNS)
+    columnsOf(out)[name] = columnsOf(from)[name].filter((_, at) => !gone.has(at))
+  return out
+}
+
+/**
+ * Encode a bucket from its records' entries and rows (the rows give a stub
+ * its stub), written among `count` buckets.
+ */
 export function encodeBucket(
   entries: readonly (readonly [string, RecordEntry, EntityRecord | undefined])[],
+  count = INDEX_BUCKETS,
 ): StoredBucket {
-  const out = { k: [], s: [], l: [], b: [], h: [], c: [], st: [], r: [] } as {
-    [K in keyof StoredBucket]: StoredBucket[K][number][]
-  }
-  for (const [key, entry, row] of entries) {
-    out.k.push(key)
-    out.s.push(entry.seq)
-    out.l.push(entry.level === 'main' ? 1 : 0)
-    out.b.push(entry.bytes)
-    out.h.push(entry.holders.length > 0 ? [...entry.holders] : 0)
-    out.c.push(entry.cw.length > 0 ? [...entry.cw] : 0)
-    const stubbed = row !== undefined && stubFieldsOf(row.entity).length > 0
-    if (!stubbed) {
-      out.st.push(0)
-      out.r.push(0)
-    } else if (entry.level === 'stub') {
-      out.st.push(row.value)
-      out.r.push([row.revision ?? null, row.provenance, row.asOf ?? null])
-    } else {
-      out.st.push(stubOfValue(row.entity, row.value))
-      out.r.push(0)
-    }
-  }
-  return out
+  const out = emptyColumns()
+  for (const [key, entry, row] of entries) pushColumns(out, entryColumns(key, entry, row))
+  return { ...out, n: count }
 }
 
 /** One record as a bucket row gives it back: its entry, its stub, and a stub-level row. */
@@ -1013,6 +1240,9 @@ export function stageIndexInstances(
       case 'release':
         index.release(op.key, op.at)
         break
+      case 'stale':
+        index.stale(op.key)
+        break
     }
   }
 }
@@ -1082,6 +1312,138 @@ export function unloadResident(
   for (const key of leaving) for (const member of index.membersOf(key)) consider(member)
   for (let at = 0; at < queue.length; at += 1)
     for (const member of index.membersOf(comesWithHolderKey(queue[at] as string))) consider(member)
+  return out
+}
+
+// ---------------------------------------------------------------------------
+// The feed to records only on disk (POD-7160)
+// ---------------------------------------------------------------------------
+
+/**
+ * The row a record whole on disk and not in memory is, for "newest wins":
+ * its feed number from the index, no value. `undefined` for a record the
+ * index holds no whole row of (a stub is always in memory).
+ */
+export function heldRowOf(key: string, entry: RecordEntry | undefined): EntityRecord | undefined {
+  if (entry === undefined || entry.level !== 'main') return undefined
+  const { entity, entityId } = splitRowKey(key)
+  return { entity, entityId, value: undefined, provenance: { seq: entry.seq }, asOf: entry.seq }
+}
+
+/** What memory is told of the rows a draft writes to disk only. */
+export interface DiskOnlyMirror {
+  hasMain(key: string): boolean
+  set(key: string, row: EntityRecord): unknown
+  putStubOf(entity: string, entityId: string, value: unknown): void
+}
+
+/**
+ * POD-7160 — the rows one draft writes to disk and not to memory (a feed
+ * change to a record only instances on disk hold). At publish a row memory
+ * holds by then (a disk load put it there meanwhile) is replaced in memory
+ * too; the others leave their stub columns current, so counts and trees
+ * read the new stub.
+ */
+export class DiskOnlyWrites {
+  private readonly rows = new Map<string, EntityRecord>()
+
+  get size(): number {
+    return this.rows.size
+  }
+
+  get(key: string): EntityRecord | undefined {
+    return this.rows.get(key)
+  }
+
+  set(key: string, row: EntityRecord): void {
+    this.rows.delete(key)
+    this.rows.set(key, row)
+  }
+
+  delete(key: string): void {
+    this.rows.delete(key)
+  }
+
+  publish(mirror: DiskOnlyMirror): void {
+    for (const [key, row] of this.rows) {
+      if (mirror.hasMain(key)) mirror.set(key, row)
+      else mirror.putStubOf(row.entity, row.entityId, row.value)
+    }
+  }
+}
+
+/**
+ * One operation of a mutation against a row, as every adapter applies it:
+ * "newest wins" against the row as the draft leaves it, in memory or only on
+ * disk (the index's feed number: no disk read). Returns the row to write and
+ * whether memory takes it (`memory: false` — written to disk only, kept in
+ * `diskOnly`), `null` to delete it, or `undefined` when it is skipped.
+ */
+export function stageRow(
+  key: string,
+  op: CacheOperation,
+  resident: EntityRecord | undefined,
+  diskOnly: DiskOnlyWrites,
+  index: DiskIndexDraft,
+): { readonly row: EntityRecord | null; readonly memory: boolean } | undefined {
+  const written = diskOnly.get(key)
+  const held =
+    op.asOf === undefined ? undefined : (written ?? resident ?? heldRowOf(key, index.record(key)))
+  const row = rowAfter(held, op)
+  if (row === undefined) return undefined
+  if (row === null) {
+    diskOnly.delete(key)
+    return { row: null, memory: true }
+  }
+  const toDisk =
+    op.kind === 'upsert' &&
+    op.diskOnly === true &&
+    row.part !== 'stub' &&
+    (resident === undefined || resident.part === 'stub')
+  if (toDisk) diskOnly.set(key, row)
+  else diskOnly.delete(key)
+  return { row, memory: !toDisk }
+}
+
+/**
+ * The records a changed row stays brought by (POD-7160, "leaving an
+ * instance"): of the holders it had (`^` + row key), those its new value
+ * still names by a keyed comes-with field. A holder whose comes-with through
+ * that via is complete keeps it only when its rule still selects the row
+ * (`brought`, `comesWithHolders`); one not complete yet keeps it while the
+ * field names it.
+ */
+export function retainedComesWith(
+  kind: string,
+  value: unknown,
+  before: readonly string[],
+  brought: readonly string[],
+  index: DiskIndexReader,
+): string[] {
+  const out = [...brought]
+  if (before.length === 0) return out
+  const record = (value ?? {}) as Readonly<Record<string, unknown>>
+  for (const holder of before) {
+    if (!isComesWithHolder(holder) || out.includes(holder)) continue
+    const holderKey = holder.slice(COMES_WITH_HOLDER.length)
+    let named = false
+    for (const shape of keyedShapesOfKind(kind)) {
+      const id = record[shape.field]
+      if (typeof id !== 'string' || id === '') continue
+      for (const via of shape.declaredVias) {
+        const spec: InstanceSpec = {
+          collection: shape.collection.id,
+          args: { [shape.param]: id },
+          part: 'main',
+          via,
+        }
+        if (comesWithHolderOf(spec) !== holderKey) continue
+        // Complete through this via: the rule decided it (`brought`).
+        if (index.record(holderKey)?.cw.includes(via) !== true) named = true
+      }
+    }
+    if (named) out.push(holder)
+  }
   return out
 }
 
