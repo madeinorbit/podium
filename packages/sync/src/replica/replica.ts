@@ -229,9 +229,11 @@ const INSTALL_BATCH_ROWS = 4096
 /**
  * POD-7159 — the most rows a disk load puts in memory in one burst: one
  * store step, one burst of events and so one reader notification per chunk
- * (the install-cost rule, POD-7165), each in a task of its own.
+ * (the install-cost rule, POD-7165), each in a task of its own. Match the
+ * server install bound: small disk fragments re-ran the readers on the same
+ * incomplete graph (POD-7191).
  */
-export const DISK_INSTALL_ROWS = 250
+export const DISK_INSTALL_ROWS = INSTALL_BATCH_ROWS
 
 /** What `arrivedBy` answers for a step that has not arrived by the next task. */
 const NOT_YET: unique symbol = Symbol('not yet')
@@ -2621,10 +2623,6 @@ export class Replica implements DeviceCollectionReads {
       instances.map((request) => instanceKey(request)),
       {
         install: (rows) => this.installFromDisk(rows),
-        row: (key) => {
-          const { entity, entityId } = splitRowKey(key)
-          return this.store.read(entity, entityId)
-        },
       },
     )
     // A member the read did not bring (it changed on disk meanwhile) is read

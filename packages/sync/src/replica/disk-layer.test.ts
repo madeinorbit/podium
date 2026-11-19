@@ -27,6 +27,7 @@ import {
   INDEX_HASHES,
   indexChanges,
   JOURNAL_FOLD_ROWS,
+  loadInstancesFromDisk,
   planIndexWrite,
   pointerKeysOf,
   retainedComesWith,
@@ -237,6 +238,58 @@ describe('the disk index draft', () => {
     args: { root: 'A' },
     part: 'main',
     completeAt: { feedId: 'f', epoch: 'e', seq: 1 },
+  })
+
+  it('plans through resident rows, deep pointers and cycles, following only complete vias', async () => {
+    const index = new DiskIndex()
+    const draft = new DiskIndexDraft(index)
+    const records = new Map<string, EntityRecord>()
+    for (let n = 0; n < 24; n += 1) {
+      const key = `issueProjection\u0000A${n}`
+      const record = { ...row(`A${n}`, 1), value: issue(`A${n}`, { parentId: `A${(n + 1) % 24}` }) }
+      records.set(key, record)
+      draft.row(key, record)
+      draft.setComesWith(key, [ISSUE])
+    }
+    const companion = { ...row('git', 1), entity: 'issueGitState' }
+    records.set('issueGitState\u0000git', companion)
+    draft.row('issueGitState\u0000git', companion)
+    draft.addHolder('issueGitState\u0000git', '^issueProjection\u0000A0')
+    for (const id of ['B', 'ignored']) {
+      const record = { ...row(id, 1), value: issue(id, { parentId: 'ignored' }) }
+      records.set(`issueProjection\u0000${id}`, record)
+      draft.row(`issueProjection\u0000${id}`, record)
+    }
+    // B's collection companions are complete, but its own pointer is not.
+    draft.setComesWith('issueProjection\u0000B', ['issueProjection.tree'])
+    const marked = marker('T')
+    draft.mark(marked, ['issueProjection\u0000A0', 'issueProjection\u0000B'], WORLD_NOW)
+    index.publish(draft)
+    const read = vi.fn(async (keys: readonly string[]) =>
+      keys.map((key) => records.get(key) as EntityRecord),
+    )
+    const install = vi.fn()
+    await loadInstancesFromDisk(
+      {
+        index,
+        markers: new Map([['T', marked]]),
+        policy: null,
+        now: WORLD_NOW,
+        resident: (key) => key === 'issueProjection\u0000A0',
+        read,
+        install,
+      },
+      ['T'],
+    )
+    expect(read).toHaveBeenCalledTimes(1)
+    const keys = read.mock.calls[0]?.[0] ?? []
+    expect(keys).toHaveLength(25)
+    expect(new Set(keys).size).toBe(keys.length)
+    expect(keys).toContain('issueGitState\u0000git')
+    expect(keys).toContain('issueProjection\u0000A23')
+    expect(keys).not.toContain('issueProjection\u0000A0')
+    expect(keys).not.toContain('issueProjection\u0000ignored')
+    expect(install).toHaveBeenCalledTimes(1)
   })
 
   it('changes nothing until it is published, and then the members follow the holders', () => {

@@ -1495,68 +1495,51 @@ export function policyInstanceKeys(policy: CachePolicy | null): string[] {
 }
 
 /**
- * Load instances' rows from disk into memory, with what those rows come with
- * when that is on disk too (a record's comes-with rows, its pointers), in
- * rounds of one batched read each. Returns the instances loaded and the rows
- * installed. Instances without members (`indexed: false`) are left out: only
- * the server can answer them.
+ * Load instances and their complete comes-with closure from the disk index,
+ * then read the missing rows together. Membership and pointer edges already
+ * live in the index: discovering them after each install published incomplete
+ * graphs and re-ran readers for every fragment (POD-7191).
+ * Instances without indexed members are left to the server.
  */
 export async function loadInstancesFromDisk(
   port: ResidentLoadPort,
   seeds: readonly string[],
   options: {
-    /** Install a round's rows; defaults to `port.install`. */
+    /** Install the answer's rows; defaults to `port.install`. */
     readonly install?: (rows: readonly EntityRecord[]) => Promise<void> | void
-    /** Read a resident row (to follow what it comes with). */
-    readonly row?: (key: string) => EntityRecord | undefined
-    readonly maxRounds?: number
   } = {},
-): Promise<{ readonly loaded: string[]; readonly rows: EntityRecord[] }> {
-  const install = options.install ?? ((rows) => port.install(rows))
+): Promise<{ readonly loaded: string[]; readonly rows: readonly EntityRecord[] }> {
   const index = port.index
   const loaded = [...new Set(seeds)].filter(
     (key) => port.markers.has(key) && index.instance(key)?.indexed === true,
   )
-  const installed: EntityRecord[] = []
-  const asked = new Set<string>()
-  let next = new Set<string>()
+  const seen = new Set<string>()
+  const pending: string[] = []
+  const keys: string[] = []
   const want = (key: string): void => {
-    if (asked.has(key)) return
-    asked.add(key)
-    if (index.record(key)?.level === 'main' && !port.resident(key)) next.add(key)
+    if (seen.has(key)) return
+    seen.add(key)
+    if (index.record(key)?.level !== 'main') return
+    pending.push(key)
+    if (!port.resident(key)) keys.push(key)
   }
-  /** What a whole row brings, when its comes-with is complete on the device. */
-  const follow = (row: EntityRecord): void => {
-    const key = rowKeyOf(row.entity, row.entityId)
+  for (const key of loaded) for (const member of index.membersOf(key)) want(member)
+  // Traverse resident records too: their companions may have left memory.
+  // The visited set handles shared dependencies and pointer cycles once.
+  for (let at = 0; at < pending.length; at += 1) {
+    const key = pending[at] as string
     const entry = index.record(key)
-    if (entry === undefined || entry.cw.length === 0) return
+    if (entry === undefined || entry.cw.length === 0) continue
     for (const member of index.membersOf(comesWithHolderKey(key))) want(member)
-    for (const spec of comesWithOf(row.entity, row.value, [], port.now)) {
-      if (spec.via === undefined || !entry.cw.includes(spec.via)) continue
-      const target = pointerTargetOf(spec)
-      if (target !== undefined) want(target)
-    }
+    // Pointer edges describe the kind's own comes-with, which must be complete.
+    if (entry.cw.includes(splitRowKey(key).entity)) for (const target of entry.pt) want(target)
   }
-  for (const key of loaded)
-    for (const member of index.membersOf(key)) {
-      if (asked.has(member)) continue
-      asked.add(member)
-      if (index.record(member)?.level !== 'main') continue
-      if (!port.resident(member)) next.add(member)
-      else {
-        const row = options.row?.(member)
-        if (row !== undefined) follow(row)
-      }
-    }
-  for (let at = 0; at < (options.maxRounds ?? 16) && next.size > 0; at += 1) {
-    const keys = [...next]
-    next = new Set()
-    const rows = await port.read(keys)
-    if (rows.length > 0) await install(rows)
-    installed.push(...rows)
-    for (const row of rows) if (row.part !== 'stub') follow(row)
+  const rows = keys.length === 0 ? [] : await port.read(keys)
+  if (rows.length > 0) {
+    if (options.install === undefined) port.install(rows)
+    else await options.install(rows)
   }
-  return { loaded, rows: installed }
+  return { loaded, rows }
 }
 
 // ---------------------------------------------------------------------------
