@@ -177,7 +177,7 @@ async function openDraftMenuWithSessions() {
     {
       sessions: threeSessions(),
       issues: [vessel()],
-      api: { issues: { delete: { mutate: async () => {} } } },
+      api: { issues: { delete: { mutate: () => new Promise(() => {}) } } },
     },
   )
   fireEvent.click(await screen.findByLabelText('Session actions'))
@@ -450,7 +450,9 @@ describe('session menu snooze from the acting user home', () => {
   ])('shows null snooze and hides it when cleared, stripped=%s', async (stripped) => {
     const raw = session({ snoozedUntil: '2099-01-01T00:00:00.000Z' })
     if (stripped) Reflect.deleteProperty(raw, 'snoozedUntil')
-    const clear = vi.fn(async () => {})
+    // Keep the authority answer pending so the menu observes the queued edit,
+    // before its eventual feed confirmation retires the optimistic paint.
+    const clear = vi.fn(() => new Promise(() => {}))
     const { replica } = await renderWithMobileStore(<SessionScreen />, {
       sessions: [raw],
       issues: [active],

@@ -381,7 +381,8 @@ describe('sync worker: pinned statement counts at 5 and 200', () => {
     async (w) => await records(w, job(w)),
     (result, _w, size) => {
       const out = result as { type: string; changes?: { entity: string }[] }[]
-      const rows = rowsOf(out, 'feedBootstrap') as { entity: string }[]
+      const rows = rowsOf(out, 'feedBootstrap') as { entity: string; entityId: string }[]
+      expect(new Set(rows.map((row) => `${row.entity}:${row.entityId}`)).size).toBe(rows.length)
       expect(rows.filter((row) => row.entity === 'issueProjection')).toHaveLength(size)
       expect(rows.filter((row) => row.entity === 'session')).toHaveLength(size)
     },
@@ -403,19 +404,23 @@ describe('sync worker: pinned statement counts at 5 and 200', () => {
   // the first download no longer reads offers and checkpoints for it: 80. The first
   // download (POD-7085) reads by collection, not kind by kind, so POD-7061's three
   // checkout reads are inside those 80 (measured at the merge, POD-7118).
+  // POD-7153 skips records already sent by a preceding collection, instead of
+  // building and discarding them. The issue-access reader is also thin. SQLite
+  // and Postgres now both execute 78 statements (79 trips including close),
+  // with complete, unique issue/session output at both sizes.
   it('a bootstrap for the owner', async () => {
-    await expectConstantStatements(bootstrap, 80)
+    await expectConstantStatements(bootstrap, 78)
   })
 
   it('a bootstrap pin is armed', async () => {
-    await expectArmed(bootstrap, 80, plantPerSessionRead)
+    await expectArmed(bootstrap, 78, plantPerSessionRead)
   })
 
   // ROUND TRIPS ON HOSTED POSTGRES [POD-6992, POD-6958 design 2.11]: the worker's read
   // session's driver calls that wait for the server, by the Postgres driver's pipelining.
   // About 2.6 ms each on hosted Postgres; docs/measurements/pod-6958-hosted-round-trips.md.
   it('a bootstrap for the owner: round trips', async () => {
-    await expectConstantRoundTrips(bootstrap, 81, (_w, go) => countWorkerTrips(go))
+    await expectConstantRoundTrips(bootstrap, 79, (_w, go) => countWorkerTrips(go))
   }, 60_000)
 
   const delta = pin(

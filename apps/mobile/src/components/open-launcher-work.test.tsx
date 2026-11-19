@@ -297,9 +297,10 @@ it.each([
     JSON.stringify(
       samples.map((sample) => ({
         ...sample,
-        cells: sample.cells.map(({ action, rows, derivations, elements, elementsBy }) => ({
+        cells: sample.cells.map(({ action, rows, rowsBy, derivations, elements, elementsBy }) => ({
           action,
           rows,
+          rowsBy,
           derivations,
           elements,
           elementsBy,

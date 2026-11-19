@@ -281,7 +281,7 @@ export class LaunchWorkPicker {
     // Choices already hold the shared project models. Resolving every path
     // through pool.model again subscribed this roster to each full scan row,
     // so a branch change rebuilt the entire launcher catalogue.
-    const byPath = new Map<string, RepoNavView>()
+    const byPath = new Map<string, (typeof choices)[number]>()
     for (const repo of choices) if (!byPath.has(repo.path)) byPath.set(repo.path, repo)
     return storedOrder(
       this.projectOrder,
