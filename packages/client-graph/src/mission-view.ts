@@ -350,9 +350,24 @@ const deriveSum = Object.fromEntries(
           else total += value
         }
         if (overlap) {
-          add(settled(() => own[name](row)))
-          for (const id of row.descendantIds)
-            add(settled(() => own[childCount(row, name)](row.deck.model(id))))
+          // A graft or cycle requires unique rows, while delegation still
+          // follows every coordinated ancestor along the walk. Flattening the
+          // descendants and applying only this row's role loses coordinators
+          // inside the subtree and leaks their ordinary requests to the human.
+          const counts = new Map<string, Count>([[row.id, name]])
+          const todo: Array<[MissionDeckIssueModel, Count]> = [[row, name]]
+          while (todo.length) {
+            const [parent, count] = todo.pop()!
+            const inherited = childCount(parent, count)
+            for (const id of requireLoaded(parent.deckChildren)) {
+              if (id === row.id) continue
+              const previous = counts.get(id)
+              if (previous === inherited || previous?.endsWith('Delegated')) continue
+              counts.set(id, inherited)
+              todo.push([row.deck.model(id), inherited])
+            }
+          }
+          for (const [id, count] of counts) add(settled(() => own[count](row.deck.model(id))))
         } else {
           add(settled(() => own[name](row)))
           for (const id of requireLoaded(row.deckChildren))
@@ -1213,8 +1228,7 @@ class MissionIssueReader {
     const facts = this.view.facts(this.id)
     return (
       facts.visible &&
-      (facts.live ||
-        (this.view.tipIds(this.id, true).length === 0 && !this.spinOffDependent))
+      (facts.live || (this.view.tipIds(this.id, true).length === 0 && !this.spinOffDependent))
     )
   }
   /** A spin-off (`discovered-from`) waits on this issue: the rules row's
