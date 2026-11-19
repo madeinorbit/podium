@@ -6,7 +6,7 @@
  * header).
  */
 
-import { asSessionId, type QuotaSample, type SessionId } from '@podium/model'
+import { asSessionId, asUserId, type QuotaSample, type SessionId } from '@podium/model'
 import type { PersistedOperation } from '../../modules/operations/store'
 import type { ReaderRef } from '../../modules/sessions/read-toolkit'
 import type { SessionStore } from '../../store'
@@ -25,7 +25,7 @@ export const MARKED_AT = '2026-11-17T09:00:00.000Z'
 export const REMARKED_AT = '2026-11-17T09:30:00.000Z'
 
 /** The workspace tables these repositories read and write. */
-export const TABLES = ['recap_watermarks', 'quota_windows', 'operations'] as const
+export const TABLES = ['recap_watermarks', 'quota_windows', 'operations', 'notices'] as const
 
 /** One workspace's rows of every table, each in primary-key order, on either engine. */
 export async function rowsOf(store: SessionStore, tag: Tag): Promise<Record<string, unknown[]>> {
@@ -97,7 +97,33 @@ export function approval(
 }
 
 /** One workspace's rows, written through its own repositories. */
+/** The same notice ids and dedupe keys in both workspaces, for the same recipient. */
+export const RECIPIENT = asUserId('user:alice')
+export const noticeId = (n: number): string => `ntc_${n}`
+export const NOTICE_KEY = 'credential-attention:cred_1'
+
 export async function seed(store: SessionStore, tag: Tag): Promise<void> {
+  // An open notice and a read mention, the same ids in both workspaces (POD-6881).
+  await store.notices.open({
+    id: noticeId(1),
+    recipientUserId: RECIPIENT,
+    kind: 'credential-attention',
+    subjectKind: 'credential',
+    subjectId: 'cred_1',
+    title: `${tag}: a credential needs attention`,
+    dedupeKey: NOTICE_KEY,
+    createdAt: MARKED_AT,
+  })
+  await store.notices.open({
+    id: noticeId(2),
+    recipientUserId: RECIPIENT,
+    kind: 'mention',
+    subjectKind: 'issue',
+    subjectId: 'iss-1',
+    title: `${tag}: you were mentioned`,
+    dedupeKey: 'mention:iss-1:c1',
+    createdAt: REMARKED_AT,
+  })
   await store.readWatermarks.setRecapWatermark(READER, TARGET, `${tag}-mark-1`, MARKED_AT)
 
   // Two series: `main` with one window, `spare` with an older and a newer window.

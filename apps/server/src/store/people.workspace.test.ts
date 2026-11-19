@@ -29,7 +29,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { asMachineId, asUserId } from '@podium/model'
+import { asCredentialId, asMachineId, asUserId } from '@podium/model'
 import {
   createMachineCredential,
   machinePublicKeyWire,
@@ -43,10 +43,10 @@ import {
   type WorkspacePeopleSlice,
 } from '../test-support/people-store-slice'
 import {
-  ANTHROPIC,
   AT,
   AT_OF,
   bobVerbs,
+  CREDENTIAL,
   checkout,
   grant,
   idsFor,
@@ -334,39 +334,39 @@ describe('reads answer only their own workspace', () => {
     }
   })
 
-  it('managed accounts and native logins', async () => {
+  it('credentials, their legacy rows and native logins', async () => {
     const [a, b] = await twoSeeded()
     for (const [store, tag] of pairs(a, b)) {
-      const accounts = store.accounts
       const alice = user()
-      const bob = user('bob')
-      expect((await accounts.list()).map((row) => [row.ownerUserId, row.credential])).toEqual([
-        [alice, `${tag}-secret`],
+      const credentials = store.credentials
+      expect((await credentials.get(CREDENTIAL))?.label).toBe(`${tag} key`)
+      expect((await credentials.listVisibleTo(alice)).map((row) => row.label)).toEqual([
+        `${tag} key`,
       ])
-      expect((await accounts.summaries()).map((row) => row.identity)).toEqual([`${tag}-identity`])
-      expect((await accounts.listFor(alice)).map((row) => row.credential)).toEqual([
-        `${tag}-secret`,
+      expect((await credentials.getMany([CREDENTIAL])).map((row) => row.label)).toEqual([
+        `${tag} key`,
       ])
-      expect((await accounts.ownedBy(alice)).map((row) => row.credential)).toEqual([
-        `${tag}-secret`,
+      const secret = await credentials.latestSecret(CREDENTIAL)
+      expect(secret?.sealed.ciphertext.toString()).toBe(`${tag}-sealed`)
+      expect((await credentials.listPlacements(CREDENTIAL)).map((row) => row.machineId)).toEqual([
+        machine(),
       ])
-      expect((await accounts.getFor(alice, ANTHROPIC))?.credential).toBe(`${tag}-secret`)
-      expect((await accounts.own(alice, ANTHROPIC))?.credential).toBe(`${tag}-secret`)
-      const shared = await accounts.sharedWith(bob, ANTHROPIC)
-      expect(shared.map((row) => row.credential)).toEqual([`${tag}-secret`])
-      const sharedWithBob = await accounts.sharedWithUser(bob)
-      expect(sharedWithBob.map((row) => row.credential)).toEqual([`${tag}-secret`])
-      expect(await accounts.sentTo(alice, ANTHROPIC)).toEqual([machine()])
-      const sends = await accounts.sendsOf(alice)
-      expect([...sends.keys()]).toEqual([ANTHROPIC])
-      onlyOwn([...sends.values()], tag)
-      const optIns = await accounts.optInsFor(alice)
+      expect([...(await credentials.allowedMachinesOf([CREDENTIAL])).values()]).toEqual([
+        [machine()],
+      ])
+      expect((await credentials.readVaultKey())?.wrapped.toString()).toBe(`${tag}-wrapped`)
+      const legacy = await credentials.legacyAccountRows()
+      expect(legacy.map((row) => row.credential)).toEqual([`${tag}-secret`])
+      expect((await credentials.legacyAccountSends()).map((row) => row.machineId)).toEqual([
+        machine(),
+      ])
+      const optIns = await store.nativeLogins.optInsFor(alice)
       expect(optIns.map((row) => row.fingerprint)).toEqual([SHARED.fingerprint])
       onlyOwn(optIns, tag)
-      const optIn = await accounts.optInFor(alice, 'claude-code', SHARED.fingerprint)
+      const optIn = await store.nativeLogins.optInFor(alice, 'claude-code', SHARED.fingerprint)
       expect(optIn).toBeDefined()
       onlyOwn(optIn, tag)
-      const transfers = await accounts.transfersFor(alice)
+      const transfers = await store.nativeLogins.transfersFor(alice)
       expect(transfers.map((row) => row.machineId)).toEqual([machine()])
       onlyOwn(transfers, tag)
     }
@@ -537,12 +537,15 @@ describe('writes in one workspace leave the other unchanged', () => {
       AT,
     )
 
-    // Managed accounts.
-    expect(await a.accounts.share(O.user(), ANTHROPIC, [])).toBe(false)
-    expect(await a.accounts.unmarkSent(O.user(), ANTHROPIC, m)).toBe(false)
-    await a.accounts.markSent(O.user(), ANTHROPIC, machine(), AT)
-    expect(await a.accounts.disconnect(O.user(), ANTHROPIC)).toBe(false)
-    await a.accounts.removeFor(O.user(), ANTHROPIC)
+    // Credentials: B's credential is no row of A's, so none of these reach it.
+    const theirs = asCredentialId(O.credential)
+    await a.credentials.rename(theirs, 'taken over')
+    await a.credentials.setPlacementState(
+      { credentialId: theirs, machineId: m, kind: 'home' },
+      'removal-pending',
+    )
+    await a.credentials.disallowMachine(theirs, m)
+    await a.credentials.remove(theirs)
 
     // Members.
     await expect(a.users.writeProfile(O.user(), 'taken over', null)).rejects.toThrow(
@@ -623,8 +626,10 @@ describe('writes in one workspace leave the other unchanged', () => {
       AT,
     )
 
-    expect(await a.accounts.disconnect(user(), ANTHROPIC)).toBe(true)
-    await a.accounts.setOptIn(user(), 'claude-code', SHARED.fingerprint, false, AT)
+    await a.credentials.rename(CREDENTIAL, 'renamed in A')
+    await a.credentials.disallowMachine(CREDENTIAL, machine())
+    await a.credentials.remove(CREDENTIAL)
+    await a.nativeLogins.setOptIn(user(), 'claude-code', SHARED.fingerprint, false, AT)
 
     await a.signInCarryOver.endByLabel('login')
     await a.signInCarryOver.deleteEverything()
@@ -646,14 +651,18 @@ describe('writes in one workspace leave the other unchanged', () => {
     const after = await rowsOf(a, 'a')
     expect(after.carried_sign_ins).toEqual([])
     expect(after.agent_profiles).toEqual([])
-    expect(after.accounts).toEqual([])
+    expect(after.credential_secrets).toEqual([])
+    expect(after.credential_machines).toEqual([])
     // B reads its own rows of the same ids as they were.
     expect((await b.users.get(user()))?.displayName).toBe('b alice')
     expect((await b.machines.getMachine(machine()))?.name).toBe('b workstation')
     expect((await b.machines.getMachine(machine()))?.revokedAt).toBeNull()
     expect(await b.repos.prefixForRepoId(repoIdOf())).toBe('AAA')
     expect(await b.repos.defaultParentBranchForRepoId(repoIdOf())).toBe('b-main')
-    expect((await b.accounts.getFor(user(), ANTHROPIC))?.credential).toBe('b-secret')
+    expect((await b.credentials.get(CREDENTIAL))?.label).toBe('b key')
+    expect((await b.credentials.latestSecret(CREDENTIAL))?.sealed.ciphertext.toString()).toBe(
+      'b-sealed',
+    )
     expect((await b.agentProfiles.get(SHARED.profile))?.description).toBe('b description')
     expect(await b.signInCarryOver.sealedOf(SHARED.carried, AT)).toBe('b-sealed')
   })

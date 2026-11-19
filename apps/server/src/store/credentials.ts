@@ -282,7 +282,7 @@ const credentialByLegacyKey = prepared((db, t) =>
 // LEGACY(remove-after: 2027-02): reads account ids written before t.credentials existed; removing it stops old spellings from resolving
 /**
  * Other members' t.credentials imported from one old account id or its earlier
- * workspace alias, in the order the old shared read took them: the `t.accounts`
+ * workspace alias, in the order the old shared read took them: the `accounts`
  * row's creation, then its id, oldest first; the `apiKeys.*` secrets, which had
  * no row, after them. Destroying the old plaintext copies each row's creation
  * time onto its credential before the row goes (`store/legacy-plaintext.ts`),
