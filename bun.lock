@@ -731,6 +731,7 @@
     "@xterm/addon-web-links@0.11.0": "patches/@xterm%2Faddon-web-links@0.11.0.patch",
     "@expo/metro-config@57.0.13": "patches/@expo%2Fmetro-config@57.0.13.patch",
     "vitest@5.0.0-beta.6": "patches/vitest@5.0.0-beta.6.patch",
+    "expo-router@57.0.26": "patches/expo-router@57.0.26.patch",
     "expo-sqlite@57.0.4": "patches/expo-sqlite@57.0.4.patch",
   },
   "packages": {
