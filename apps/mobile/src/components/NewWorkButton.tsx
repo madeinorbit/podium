@@ -64,7 +64,6 @@ import { useMobilePoolProjection } from '../client/mobile-pool'
 import type { MobileTrpc } from '../client/trpc'
 import { useLaunchWorkPicker } from '../client/use-launch-inputs'
 import { usePersistedUiState } from '../hooks/usePersistedUiState'
-import { reposOnMachine } from '../lib/new-work'
 import { sessionHref } from '../lib/session-route'
 import { alpha } from '../theme/mix'
 import { color, font, mono, monoLabel, radius, sans, space } from '../theme/theme'
@@ -279,7 +278,7 @@ const NewWorkLauncher = observer(function NewWorkLauncher({
   // models and effort support render from the report, bundled copy offline.
   const { served } = useHarnessDescriptors<MobileTrpc>(machineId ?? undefined)
 
-  const visibleRepos = (() => reposOnMachine(repos, machineId, machineViews.length))()
+  const visibleRepos = picker?.reposOnMachine(machineViews.length > 1 ? machineId : null) ?? repos
 
   /**
    * The project this sheet will start in, decided BEFORE it is shown.

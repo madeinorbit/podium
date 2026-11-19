@@ -288,6 +288,19 @@ export class LaunchWorkPicker {
       choices.map((repo) => repo.path),
     ).flatMap((path) => byPath.get(path) ?? [])
   }
+  /** Machine membership is a scalar question. Keep its scan-field reads out
+   * of a launcher's render when an unrelated branch changes. */
+  readonly reposOnMachine = keyedComputed(
+    'launch.reposOnMachine',
+    (machineId: string | null) =>
+      machineId === null
+        ? this.repos
+        : this.repos.filter((repo) => {
+            const hosts = repo.machines
+            return hosts.length === 0 || hosts.some((host) => host.machineId === machineId)
+          }),
+    { equals: compareShallow },
+  )
   @lazy get machines() {
     return launchOptionViews(this.pool).machines()
   }
