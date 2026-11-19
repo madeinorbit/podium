@@ -1,7 +1,7 @@
 /**
- * THE PHONE'S INBOX LISTS MY NOTICES (POD-6881, acceptance 7): a "For you"
- * section of my open notices above the sessions, and tapping one marks it read
- * and opens what it is about.
+ * THE PHONE'S INBOX LISTS MY NOTICES (POD-6881, acceptance 7): my open notices,
+ * newest first, with the unread count, and tapping one marks it read and opens
+ * what it is about.
  */
 import { asUserId, type NoticeWire } from '@podium/model'
 import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
@@ -79,12 +79,12 @@ const applied = () =>
   }))
 
 describe('the phone inbox lists my notices', () => {
-  it('shows a For you section with my notices', async () => {
+  it('lists my notices with the unread count', async () => {
     await renderWithMobileStore(<InboxScreen />, {
       principal: ME,
       inboxNotices: [notice('a'), notice('b', { readAt: '2026-11-13T00:01:00.000Z' })],
     })
-    expect(await screen.findByText('FOR YOU')).toBeTruthy()
+    expect(await screen.findByText('1 unread')).toBeTruthy()
     expect(screen.getByText('Bob mentioned you on POD-1: Task a')).toBeTruthy()
     expect(screen.getByText('Bob mentioned you on POD-1: Task b')).toBeTruthy()
     expect(screen.getByLabelText('Unread: Bob mentioned you on POD-1: Task a')).toBeTruthy()
