@@ -16,10 +16,10 @@
  *
  * Two things make it a mechanism check rather than a spelling check:
  *
- *  - A "store call" is resolved through the type checker, and the declaration it
- *    is classified by is the FUNCTION'S, never the import's — see the next
- *    section. Renaming a repository method or aliasing the store cannot hide a
- *    site from it.
+ *  - A call is resolved through the type checker to the callable's body, never
+ *    classified merely by its import or module home. Bodies that reach a query
+ *    surface count; pure helpers and listener setters do not. Renaming a
+ *    repository method or aliasing the store cannot hide its query.
  *  - The walk is TRANSITIVE through helpers called on `this` and through
  *    same-module functions, because `get rows() { this.hydrate() }` is a hidden
  *    read even though the getter names no repository. It is NOT transitive
@@ -115,8 +115,8 @@ const CLASSIFICATION: Classification = {
   /**
    * Repository members that issue NO statement — they install a listener on the
    * repository object and return. Named one by one, with the reason, rather than
-   * inferred: a repository method that grows a query must fall back into the
-   * report, and it will, because this list is spellings and not a heuristic.
+   * inferred: the body scan takes precedence over this label, so a repository
+   * method that grows a query falls back into the shipping report.
    * Checked against the body at 2026-09-04: `EventsRepository.onAppend` is
    * `this.appendListener = listener`.
    */
@@ -172,6 +172,8 @@ type Body =
   | ts.GetAccessorDeclaration
   | ts.MethodDeclaration
   | ts.FunctionDeclaration
+  | ts.ArrowFunction
+  | ts.FunctionExpression
 
 /**
  * Scan a program's constructors and getters for store calls that run eagerly.
@@ -223,6 +225,69 @@ export function analyze(
   const holderName = (node: ts.Node) =>
     ts.isClassLike(node.parent) ? (node.parent.name?.text ?? '<anonymous class>') : '<unknown>'
 
+  // Persistence is a module home, not evidence that a call queries anything.
+  // Follow callable bodies to the query surface; a listener setter and a pure
+  // dialect choice remain pure, even when declared beside repository methods.
+  const queryDefinitions = new Set([
+    'prepared',
+    'preparedFamily',
+    'preparedGlobal',
+    'preparedAcross',
+    'dialectPrepared',
+    'inWorkspace',
+  ])
+  const queryMethods = new Set(['all', 'get', 'run', 'execute', 'query', 'batch', 'prepare'])
+  const bodyOf = (decl: ts.Declaration): ts.Node | undefined => {
+    if (ts.isFunctionLike(decl) && 'body' in decl) return decl.body
+    if (ts.isVariableDeclaration(decl) || ts.isPropertyDeclaration(decl)) {
+      const value = decl.initializer
+      return value && (ts.isArrowFunction(value) || ts.isFunctionExpression(value))
+        ? value.body
+        : value
+    }
+    return undefined
+  }
+  const declarationName = (decl: ts.Declaration): string =>
+    'name' in decl && decl.name && ts.isIdentifier(decl.name as ts.Node)
+      ? (decl.name as ts.Identifier).text
+      : ''
+  const querySurface = (decl: ts.Declaration): boolean => {
+    const file = toPosix(decl.getSourceFile().fileName)
+    const name = declarationName(decl)
+    if (queryDefinitions.has(name))
+      return /\/(?:store\/executor|sync\/src\/adapters|identity\/src)\//.test(file)
+    return (
+      queryMethods.has(name) &&
+      (file.includes('/node_modules/drizzle-orm/') ||
+        /\/packages\/runtime\/src\/sqlite\//.test(file) ||
+        /\/apps\/server\/src\/store\/executor\/(?:driver|sync-drizzle)\.ts$/.test(file) ||
+        /\/packages\/sync\/src\/adapters\/(?:sqlite|pg)\//.test(file))
+    )
+  }
+  const reading = new Map<ts.Declaration, boolean>()
+  const readsStore = (decl: ts.Declaration, seen = new Set<ts.Declaration>()): boolean => {
+    if (querySurface(decl)) return true
+    const cached = reading.get(decl)
+    if (cached !== undefined) return cached
+    if (seen.has(decl)) return false
+    const file = rel(decl.getSourceFile().fileName)
+    if (!file.startsWith('apps/server/src/') && !file.startsWith('packages/')) return false
+    const body = bodyOf(decl)
+    if (!body) return false
+    const next = new Set(seen).add(decl)
+    let found = false
+    const inspect = (node: ts.Node) => {
+      if (found || !ts.isCallExpression(node)) return
+      found = calleeDeclarations(node).some((callee) => readsStore(callee, next))
+    }
+    inspect(body)
+    walkEager(body, inspect)
+    // A positive answer is safe to reuse even through a cycle. A negative
+    // answer from a recursive path must not hide another path to a query.
+    if (found || seen.size === 0) reading.set(decl, found)
+    return found
+  }
+
   const findings: Finding[] = []
 
   const scanBody = (
@@ -238,16 +303,22 @@ export function analyze(
     walkEager(body.body, (node) => {
       if (!ts.isCallExpression(node)) return
       const decls = calleeDeclarations(node)
-      const storeDecl = decls.find((d) => isStoreDeclaration(d.getSourceFile().fileName))
+      const storeDecl = decls.find(
+        (d) =>
+          isStoreDeclaration(d.getSourceFile().fileName) ||
+          (readsStore(d) && !localHelperBody(node, sourceFile)),
+      )
       if (storeDecl) {
         const file = node.getSourceFile()
         const { line } = file.getLineAndCharacterOfPosition(node.getStart(file))
         const member = ts.isPropertyAccessExpression(node.expression)
           ? node.expression.name.text
           : node.expression.getText(file)
-        const registration = config.registrations.get(
-          `${rel(storeDecl.getSourceFile().fileName)}#${member}`,
-        )
+        const queries = readsStore(storeDecl)
+        const registration =
+          !queries &&
+          config.registrations.get(`${rel(storeDecl.getSourceFile().fileName)}#${member}`)
+        if (!queries && !registration) return
         findings.push({
           file: rel(file.fileName),
           line: line + 1,
@@ -324,12 +395,20 @@ const FIXTURE: ReadonlyMap<string, string> = new Map([
        return e.legacy
      }`,
   ],
+  [
+    'apps/server/src/store/executor/driver.ts',
+    `export declare const db: { get(sql: string): number }`,
+  ],
   // A re-export, because that is how the repositories reach it: two alias hops.
   ['apps/server/src/store/executor/index.ts', `export { legacyHandle } from './executor'`],
   [
     'apps/server/src/store/probe-repo.ts',
     `import { legacyHandle } from './executor'
-     export function probeRead(): number { return 1 }
+     import { db } from './executor/driver'
+     export function probeRead(): number { return db.get('SELECT 1') }
+     export function pureChoice(): number { return 1 }
+     export function nowReading(): number { return db.get('SELECT 2') }
+     export function registeredRead(): number { return db.get('SELECT 3') }
      export function onProbeAppend(): number { return 2 }
      /** The shape of all 32: a NON-store function imported INTO a store file. */
      export class CleanRepo {
@@ -337,6 +416,15 @@ const FIXTURE: ReadonlyMap<string, string> = new Map([
        constructor(e: { readonly legacy: number | undefined }) { this.db = legacyHandle(e) }
      }
      /** A member the registrations map names: no statement, own section. */
+     export class PureUser {
+       constructor() { pureChoice() }
+     }
+     export class ChangedPureUser {
+       constructor() { nowReading() }
+     }
+     export class ChangedRegistrarUser {
+       constructor() { registeredRead() }
+     }
      export class RegistrarUser {
        readonly n: number
        constructor() { this.n = onProbeAppend() }
@@ -364,6 +452,7 @@ const PROBE_CONFIG: Classification = {
   notStorePaths: ['apps/server/src/store/executor/'],
   registrations: new Map([
     ['apps/server/src/store/probe-repo.ts#onProbeAppend', 'planted registration'],
+    ['apps/server/src/store/probe-repo.ts#registeredRead', 'registration that gained a query'],
   ]),
   outOfScope: [],
   roots: ['apps/server/src/'],
@@ -440,6 +529,11 @@ export function probe(): string[] {
   if (!found.registrations.some((f) => f.holder === 'RegistrarUser')) {
     broken.push('lost a named registration instead of counting it')
   }
+  if (at(found.shipping, 'apps/server/src/store/probe-repo.ts', 'PureUser'))
+    broken.push('reported a pure function as a store read')
+  for (const holder of ['ChangedPureUser', 'ChangedRegistrarUser'])
+    if (!at(found.shipping, 'apps/server/src/store/probe-repo.ts', holder))
+      broken.push(`lost the query added to ${holder}`)
   return broken
 }
 
