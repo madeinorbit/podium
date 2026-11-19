@@ -672,7 +672,7 @@ exec ${shell(process.execPath)} --conditions=@podium/source ${shell(currentCli)}
     // release cannot acknowledge. Its refusal must preserve the old service
     // and credential, rather than quarantine or silently enroll another row.
     await waitFor(
-      () => daemon.log().includes('protocol mismatch') || undefined,
+      async () => daemon.log().includes('protocol mismatch') || undefined,
       () => daemon.log(),
     )
     expect(await server.reachable()).toBe(true)
