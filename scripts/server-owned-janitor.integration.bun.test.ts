@@ -60,6 +60,7 @@ async function waitFor<T>(
 }
 
 function dueMessage(): MessageRow {
+  const now = Date.now()
   return {
     id: 'msg_due',
     threadId: asThreadId('thread_due'),
@@ -74,8 +75,10 @@ function dueMessage(): MessageRow {
     urgency: 'fyi',
     lifecycle: 'wait',
     body: 'due',
-    expiresAt: '2026-07-01T00:00:00.000Z',
-    createdAt: '2026-06-30T00:00:00.000Z',
+    // Due now, but still inside retention: a fixed historical timestamp lets
+    // retention delete the row before this test can observe its expiry.
+    expiresAt: new Date(now - 1_000).toISOString(),
+    createdAt: new Date(now - 60_000).toISOString(),
     deliveryStatus: 'stored',
     deliveredAt: null,
     deliveredTo: null,
