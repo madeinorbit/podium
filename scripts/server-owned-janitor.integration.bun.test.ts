@@ -143,7 +143,20 @@ describe('a bare server hosts its own janitor [PDM-27]', () => {
             ? 'expired'
             : undefined,
         'the due message to expire',
-      )
+      ).catch(async (cause) => {
+        const evidence = readOnly(dbPath, (db) => ({
+          message: db
+            .prepare(
+              "SELECT workspace_id, delivery_status, lifecycle, expires_at, created_at FROM messages WHERE id = 'msg_due'",
+            )
+            .get(),
+          commands: db.prepare('SELECT * FROM maintenance_commands LIMIT 5').all(),
+        }))
+        throw new Error(
+          `Message expiry did not settle: ${JSON.stringify({ ...evidence, janitor: await janitorComponent(port) })}`,
+          { cause },
+        )
+      })
       expect(status).toBe('expired')
 
       // One janitor, fenced: the lease is what makes a second one harmless.

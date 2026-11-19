@@ -30,10 +30,13 @@ import { asSessionId, type HarnessAgent } from '@podium/model'
 import { directPtyDurableForTests } from '@podium/process/durable'
 import { hasBunTerminal } from '@podium/process/pty'
 import { SpawnMessage } from '@podium/protocol'
+import type { DaemonMessage } from '@podium/protocol/daemon'
 import { credentialEnv } from '@podium/runtime'
 import type { DaemonContext } from '../src/control/context'
-import { launchTerminalSpawn } from '../src/control/session'
+import { launchSpawn, launchTerminalProcess, sessionSpecForSpawn } from '../src/control/session'
+import { terminalProfileFor } from '../src/runtime/registry'
 import { SessionRegistry } from '../src/session/registry'
+import { buildSessionHarnessContext } from '../src/session-harness-context'
 
 const CREDENTIAL = 'sk-test-xyz'
 /** A key on the DAEMON, standing in for one an operator exported before starting it. */
@@ -122,8 +125,9 @@ async function dumpEnvOfSpawnedProcess(
   let buffer = ''
   const landing = join(home, `${sessionId}.env`)
   const sessions = new SessionRegistry()
+  const sent: DaemonMessage[] = []
   const ctx = {
-    send: () => {},
+    send: (message: DaemonMessage) => sent.push(message),
     instanceId: 'default',
     homeDir: home,
     backend: 'none', // bare PTY child: no podium-host master can outlive this test
@@ -172,7 +176,6 @@ async function dumpEnvOfSpawnedProcess(
     type: 'spawn',
     sessionId,
     agentKind,
-    requestedDriverId: 'generic-pty',
     cwd: process.cwd(),
     geometry: { cols: 120, rows: 30 },
     binding: {
@@ -184,7 +187,29 @@ async function dumpEnvOfSpawnedProcess(
   })
   // The environment contract lives at the terminal launch boundary. Server
   // admission is orthogonal and has its own process-level coverage.
-  await launchTerminalSpawn(ctx, msg)
+  if (agentKind === 'shell') await launchSpawn(ctx, msg)
+  else {
+    const profile = terminalProfileFor(agentKind)
+    if (!profile) throw new Error(`No terminal profile for ${agentKind}`)
+    sessions.ensure(msg.sessionId).order = { frame: msg }
+    const spec = sessionSpecForSpawn(
+      msg,
+      { driverId: profile.driverId, auth: 'unknown', role: 'interactive' },
+      await buildSessionHarnessContext(ctx, agentKind),
+    )
+    // Driver selection and hook installation have their own suites. This test
+    // exercises the shared OS launch with the canonical spec of each harness.
+    const launched = await launchTerminalProcess(ctx, {
+      sessionId: msg.sessionId,
+      spec,
+      instrumentation: { args: [] },
+    })
+    launched.announce()
+  }
+  expect(
+    sent.find((message) => message.type === 'spawnError'),
+    JSON.stringify(sent),
+  ).toBeUndefined()
   // The registry publishes the terminal once the real PTY is attached.
   const id = asSessionId(sessionId)
   await waitFor(() => Boolean(sessions.get(id)?.terminal)).catch(() => {

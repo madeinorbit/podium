@@ -2,7 +2,7 @@
 //
 // RUNNER: bun test only. Compiles a tiny daemon harness into a standalone binary and
 // verifies the installed/runtime websocket path processes control frames sent right
-// after helloOk.
+// after the peer acknowledgement.
 import { describe, expect, it } from 'bun:test'
 import { execFileSync, spawnSync } from 'node:child_process'
 import { mkdtempSync, rmSync } from 'node:fs'
@@ -14,7 +14,7 @@ import { hermeticChildEnv } from '../../../test-hermetic-env'
 const repoRoot = fileURLToPath(new URL('../../../', import.meta.url))
 
 describe('compiled daemon control websocket', () => {
-  it('processes control frames sent immediately after helloOk', () => {
+  it('processes control frames sent immediately after peerHelloOk', () => {
     const dir = mkdtempSync(join(tmpdir(), 'podium-control-compile-'))
     const bin = join(dir, 'control-smoke')
     try {
