@@ -78,6 +78,9 @@ class FakeIndex implements DiskIndexReader {
   instance(): InstanceState | undefined {
     return undefined
   }
+  instanceKeys(): IterableIterator<string> {
+    return new Set<string>().values()
+  }
   inMemory(key: string) {
     return this.memory.has(key)
   }

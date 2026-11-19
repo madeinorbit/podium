@@ -40,6 +40,14 @@ import type { MutationId } from '@podium/model'
 import { actorUser, asUserId } from '@podium/model'
 import { IDBKeyRange } from 'fake-indexeddb'
 import { beforeEach, describe, expect, it } from 'vitest'
+import {
+  commitPruneSlice,
+  expectCutSlice,
+  expectPruneWorldAgrees,
+  planPruneSlice,
+  pruneWorldState,
+  seedPruneWorld,
+} from '../../conformance/prune-crash'
 import type { OutboxRecord } from '../../outbox/records'
 import { instanceKey, instanceMetaKey } from '../../replica/cache-state'
 import { bucketOf } from '../../replica/disk-index'
@@ -506,4 +514,76 @@ describe('IndexedDB adapter — the index journal fold, killed at every write (P
         expect(await journalRows()).toBe(3)
         await expectIndex()
       })
+})
+
+// ─── A prune slice (POD-7162) ─────────────────────────────────────────────────
+
+describe('IndexedDB adapter — a prune slice killed at every write (POD-7162)', () => {
+  let factory: FaultyIdbFactory
+  const open = async (): Promise<IndexedDbSyncStore> =>
+    await IndexedDbSyncStore.open({
+      factory: factory as IdbFactoryLike,
+      keyRange: IDBKeyRange,
+      databaseName: REPLICA_DB_NAME,
+      onDegraded: () => {},
+    })
+  /** A fresh device with the world on it, closed; then opened again with the slice planned. */
+  const seededAndPlanned = async () => {
+    factory = new FaultyIdbFactory(freshFactory())
+    const seeding = await open()
+    seedPruneWorld(seeding.viewFor(PRINCIPAL).cache)
+    await seeding.settled()
+    seeding.close()
+    const store = await open()
+    const { cache } = store.viewFor(PRINCIPAL)
+    const before = pruneWorldState(cache)
+    const plan = planPruneSlice(cache)
+    expectCutSlice(plan)
+    return { store, cache, before, plan }
+  }
+  const reopened = async (label: string) => {
+    const store = await open()
+    const { cache } = store.viewFor(PRINCIPAL)
+    await expectPruneWorldAgrees(cache, label)
+    const state = pruneWorldState(cache)
+    store.close()
+    return state
+  }
+
+  it('POSITIVE CONTROL — the slice commits whole, in one transaction, and the reopened store agrees', async () => {
+    const { store, cache, before, plan } = await seededAndPlanned()
+    commitPruneSlice(cache, plan)
+    await store.settled()
+    const after = pruneWorldState(cache)
+    store.close()
+    expect(after).not.toEqual(before)
+    expect(after.trees.A).toMatch(/^pruning:/)
+    expect(await reopened('after the slice')).toEqual(after)
+  })
+
+  it('killed at any of its writes, the reopened store is as before the slice, and agrees', async () => {
+    const control = await seededAndPlanned()
+    const start = factory.writesIssued
+    commitPruneSlice(control.cache, control.plan)
+    await control.store.settled()
+    const writes = factory.writesIssued - start
+    control.store.close()
+    expect(writes).toBeGreaterThan(2)
+    for (const at of [0, 1, Math.floor(writes / 2), writes - 1])
+      for (const mode of at === writes - 1 ? (['deny', 'after'] as const) : (['deny'] as const)) {
+        const { store, cache, before, plan } = await seededAndPlanned()
+        factory.denyWriteAt({ at, mode, error: new Error('power loss') })
+        try {
+          commitPruneSlice(cache, plan)
+        } catch {
+          // The refusal may surface at once or with the durable wait.
+        }
+        await store.settled().catch(() => undefined)
+        expect(factory.denials, `killed at ${at} (${mode})`).toBe(1)
+        store.close()
+        expect(await reopened(`killed at ${at} (${mode})`), `killed at ${at} (${mode})`).toEqual(
+          before,
+        )
+      }
+  })
 })

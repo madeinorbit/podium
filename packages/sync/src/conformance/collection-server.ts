@@ -140,6 +140,11 @@ export class CollectionServer implements AuthorityReadPort {
   private readonly byEntity = new Map<string, Map<string, WorldRow>>()
   private readonly log: ChangeEnvelope[] = []
 
+  /** The ids of every record of a type the server holds (POD-7162: what a disk could hold). */
+  idsOf(entity: string): string[] {
+    return [...(this.byEntity.get(entity)?.keys() ?? [])]
+  }
+
   /** Write a record; returns its feed change. */
   put(entity: string, id: string, value: Readonly<Record<string, unknown>>): ChangeEnvelope {
     this.head += 1

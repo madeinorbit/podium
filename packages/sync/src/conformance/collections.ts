@@ -13,7 +13,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { instanceKey } from '../replica/cache-state'
-import { comesWithHolderOf, pointerTargetOf } from '../replica/disk-index'
+import { approxBytes, comesWithHolderOf, pointerTargetOf, splitRowKey } from '../replica/disk-index'
 import { CollectionLoader } from '../replica/loader'
 import { manualMemorySignals, WARM_GRACE_MS } from '../replica/memory'
 import type { CacheMutation, ReplicaCacheStore } from '../replica/ports'
@@ -98,6 +98,9 @@ function kernelOver(
     readonly onEvent?: (event: ReplicaEvent) => void
     /** The warm set's budget in instances (POD-7161's test hook); default the policy's MB. */
     readonly warmInstances?: number
+    /** POD-7162's test hooks: the disk budget in bytes, and records per prune slice. */
+    readonly diskBytes?: () => number
+    readonly pruneSliceRows?: number
   } = {},
 ): Booted {
   const { cache } = storage.viewFor(PRINCIPAL)
@@ -110,6 +113,8 @@ function kernelOver(
     memory: {
       signals: memory,
       ...(options.warmInstances === undefined ? {} : { warmInstances: options.warmInstances }),
+      ...(options.diskBytes === undefined ? {} : { diskBytes: options.diskBytes }),
+      ...(options.pruneSliceRows === undefined ? {} : { pruneSliceRows: options.pruneSliceRows }),
     },
     onEvent: (event) => {
       events.push(event)
@@ -1149,6 +1154,221 @@ export function describeCollectionStore(instantiation: SyncInstantiation): void 
         expect(server.bootstraps).toBe(bootstraps)
         expect(booted.replica.isComplete(tree('T1'))).toBeDefined()
         for (const id of ['T1', 'T2']) expect(partOf(booted.cache, ISSUE, id), id).toBe('main')
+      })
+    })
+
+    // ─── Disk pruning (POD-7162) ──────────────────────────────────────────────
+
+    describe('disk pruning: within the size budget, only while idle (POD-7162)', () => {
+      const ROOTS = ['P10', 'P20', 'P30', 'P40']
+      const withTrees = (server: CollectionServer) => {
+        seedWorld(server)
+        for (const root of ROOTS) {
+          server.put(ISSUE, root, issue(root, { stage: 'done', closedReason: 'completed' }))
+          for (const n of [1, 2]) {
+            const id = root.replace('0', String(n))
+            server.put(
+              ISSUE,
+              id,
+              issue(id, { stage: 'done', closedReason: 'completed', parentId: root }),
+            )
+          }
+        }
+      }
+      const idsOf = (root: string) => [root, ...[1, 2].map((n) => root.replace('0', String(n)))]
+      /** Open a tree, leave it at `at`, and let memory unload it: it stays on the device. */
+      const visit = async (booted: Booted, root: string, at: number) => {
+        booted.clock.now = at
+        const release = booted.replica.hold(tree(root))
+        await booted.replica.load([tree(root)])
+        await booted.replica.settled()
+        release()
+        await booted.replica.settled()
+        await booted.replica.unload(instanceKey(tree(root)))
+      }
+      const whole = (booted: Booted, id: string) =>
+        booted.cache.readDiskIndex().record(keyOf(ISSUE, id))?.level === 'main'
+      /** What a tree frees on the device when its issues fall back to their stubs. */
+      const frees = (booted: Booted, root: string) =>
+        idsOf(root).reduce((sum, id) => {
+          const bytes = booted.cache.readDiskIndex().record(keyOf(ISSUE, id))?.bytes ?? 0
+          return sum + bytes - approxBytes({ value: booted.replica.stubOf(ISSUE, id) })
+        }, 0)
+      const idle = async (booted: Booted) => {
+        if (booted.memory.idle() === 0) await booted.replica.pruneDisk()
+        await booted.replica.settled()
+        await ticks()
+        await booted.replica.settled()
+      }
+      /**
+       * The index agrees with the rows the store holds on DISK: every entry
+       * has its row at its feed number and level, and every row the server
+       * could have sent that is on disk has its entry.
+       */
+      const expectDiskAgrees = async (
+        cache: ReplicaCacheStore,
+        server: CollectionServer,
+        label: string,
+      ) => {
+        const index = cache.readDiskIndex()
+        const keys = new Set([...index.records()].map(([key]) => key))
+        for (const entity of [ISSUE, SESSION])
+          for (const id of server.idsOf(entity)) keys.add(keyOf(entity, id))
+        const rows = await cache.readDiskRows([...keys])
+        const byKey = new Map(rows.map((row) => [keyOf(row.entity, row.entityId), row]))
+        for (const row of rows)
+          expect(
+            index.record(keyOf(row.entity, row.entityId)),
+            `${label}: ${row.entityId} has an entry`,
+          ).toBeDefined()
+        for (const [key, entry] of index.records()) {
+          const row = byKey.get(key)
+          const { entity, entityId } = splitRowKey(key)
+          if (entry.level === 'main') {
+            expect(
+              row?.part ?? (row === undefined ? 'absent' : 'main'),
+              `${label}: ${entityId} whole on disk`,
+            ).toBe('main')
+            expect(
+              row === undefined ? undefined : rowAsOf(row),
+              `${label}: ${entityId} feed number`,
+            ).toBe(entry.seq)
+            continue
+          }
+          // POD-7170: a durable store keeps a stub-level record in its index entry, not as a row.
+          expect(
+            row === undefined || row.part === 'stub',
+            `${label}: ${entityId} no whole row`,
+          ).toBe(true)
+          if (row !== undefined)
+            expect(rowAsOf(row), `${label}: ${entityId} feed number`).toBe(entry.seq)
+          expect(
+            cache.readStubTable(entity)?.stubOf(entityId),
+            `${label}: ${entityId} stub`,
+          ).toBeDefined()
+        }
+        // A marker's members are records on the device.
+        for (const key of cache.readInstances().keys())
+          for (const member of index.membersOf(key))
+            expect(index.record(member), `${label}: ${key} member ${member}`).toBeDefined()
+      }
+      /** Four trees read in order, left; a budget that only the oldest two must leave for. */
+      const fourTrees = async (
+        storage?: ConformanceStorage,
+        options: { readonly pruneSliceRows?: number } = {},
+      ) => {
+        const server = new CollectionServer()
+        withTrees(server)
+        const budget = { bytes: Number.MAX_SAFE_INTEGER }
+        const booted = kernelOver(storage ?? (await instantiation.open()), server, undefined, {
+          warmInstances: 0,
+          diskBytes: () => budget.bytes,
+          ...options,
+        })
+        booted.replica.connect()
+        await booted.replica.settled()
+        await ticks()
+        await booted.replica.settled()
+        for (const [n, root] of ROOTS.entries()) await visit(booted, root, WORLD_NOW + n * 1_000)
+        const index = booted.cache.readDiskIndex()
+        budget.bytes =
+          index.bytes -
+          frees(booted, 'P10') -
+          frees(booted, 'P20') +
+          Math.floor(frees(booted, 'P30') / 2)
+        return { server, booted, budget }
+      }
+      const expectOldestTwoGone = (booted: Booted, server: CollectionServer) => {
+        for (const root of ['P10', 'P20']) {
+          expect(marked(booted.cache, tree(root)), root).toBe(false)
+          for (const id of idsOf(root)) {
+            expect(whole(booted, id), id).toBe(false)
+            expect(booted.replica.stubOf(ISSUE, id), `${id} keeps its stub`).toBeDefined()
+            expect(booted.replica.exitKind(ISSUE, id), `${id} is not REMOVED`).toBeUndefined()
+          }
+        }
+        for (const root of ['P30', 'P40']) {
+          expect(marked(booted.cache, tree(root)), root).toBe(true)
+          for (const id of idsOf(root)) expect(whole(booted, id), id).toBe(true)
+        }
+        for (const spec of [LIVE, SIDEBAR, STUBS]) expect(marked(booted.cache, spec)).toBe(true)
+        expectMarkersTrue(booted.cache, server)
+      }
+
+      it('over budget, idle slices remove the least recently read trees until within it; the index agrees after every slice', async () => {
+        const { server, booted, budget } = await fourTrees(undefined, { pruneSliceRows: 1 })
+        expect(booted.cache.readDiskIndex().bytes).toBeGreaterThan(budget.bytes)
+        // Leaving and unloading pruned nothing: only an idle moment does.
+        expect(booted.replica.stats().prunes).toBe(0)
+        let slices = 0
+        for (let i = 0; i < 40; i += 1) {
+          const before = booted.replica.stats().prunes
+          await idle(booted)
+          if (booted.replica.stats().prunes === before) break
+          slices += 1
+          await expectDiskAgrees(booted.cache, server, `after slice ${slices}`)
+        }
+        expect(slices, 'several slices').toBeGreaterThan(1)
+        expect(booted.cache.readDiskIndex().bytes).toBeLessThanOrEqual(budget.bytes)
+        expectOldestTwoGone(booted, server)
+        expect(booted.events.some((e) => e.type === 'released' && e.entityId === 'P11')).toBe(true)
+        expect(booted.events.some((e) => e.type === 'removed' || e.type === 'evicted')).toBe(false)
+      })
+
+      it('a prune killed between two slices: after the restart the store and the index agree, and idle moments finish it', async () => {
+        const storage = await instantiation.open()
+        const { server, booted, budget } = await fourTrees(storage, { pruneSliceRows: 1 })
+        await idle(booted)
+        expect(booted.replica.stats().prunes).toBe(1)
+        await expectDiskAgrees(booted.cache, server, 'after the first slice')
+        // The power goes in the second slice: its transaction never lands.
+        const index = booted.cache.readDiskIndex()
+        const before = { bytes: index.bytes, records: index.recordCount, version: index.version }
+        storage.setWritesDenied(true, new Error('power loss'))
+        await expect(booted.replica.pruneDisk()).rejects.toThrow()
+        expect(booted.cache.readDiskIndex().bytes).toBe(before.bytes)
+        expect(booted.cache.readDiskIndex().recordCount).toBe(before.records)
+        await expectDiskAgrees(booted.cache, server, 'after the kill')
+        storage.setWritesDenied(false)
+        // The restart: new kernels over the same physical store.
+        const restarted = kernelOver(storage, server, booted.clock, {
+          warmInstances: 0,
+          diskBytes: () => budget.bytes,
+          pruneSliceRows: 1,
+        })
+        restarted.replica.connect()
+        await restarted.replica.settled()
+        await ticks()
+        await restarted.replica.settled()
+        await expectDiskAgrees(restarted.cache, server, 'after the restart')
+        for (let i = 0; i < 40; i += 1) {
+          const prunes = restarted.replica.stats().prunes
+          await idle(restarted)
+          if (restarted.replica.stats().prunes === prunes) break
+          await expectDiskAgrees(restarted.cache, server, `after restarted slice ${i + 1}`)
+        }
+        expect(restarted.cache.readDiskIndex().bytes).toBeLessThanOrEqual(budget.bytes)
+        expectOldestTwoGone(restarted, server)
+      })
+
+      it('a pruned tree read again is fetched from the server as a new instance, and marked again', async () => {
+        const { server, booted } = await fourTrees()
+        await idle(booted)
+        expect(marked(booted.cache, tree('P10'))).toBe(false)
+        const fetched = server.fetches.length
+        booted.replica.hold(tree('P10'))
+        await booted.replica.load([tree('P10')])
+        await booted.replica.settled()
+        // Asked of the server (with what its records come with next), never read from disk.
+        expect(
+          server.fetches
+            .slice(fetched)[0]
+            ?.some((request) => instanceKey(request) === instanceKey(tree('P10'))),
+        ).toBe(true)
+        expect(marked(booted.cache, tree('P10'))).toBe(true)
+        expect(booted.replica.isComplete(tree('P10'))).toBeDefined()
+        for (const id of idsOf('P10')) expect(whole(booted, id), id).toBe(true)
+        expectMarkersTrue(booted.cache, server)
       })
     })
 
