@@ -36,7 +36,7 @@ import {
   ownershipSnapshotFromMachines,
 } from '../../machine-access'
 import type { RegistryModules } from '../../relay'
-import { answerThroughEffect, settledResult } from '../interactions/answer-effect'
+import { answerThroughEffect, settledResult } from '../interactions/answer-submit'
 import {
   type LifecycleEditsPort,
   SessionCommandCtx,
