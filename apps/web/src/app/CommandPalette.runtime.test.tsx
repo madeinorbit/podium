@@ -74,15 +74,26 @@ it.each([
     expect(before).toHaveLength(6)
     await act(async () =>
       fixture.patch('issueProjection', before[2]!.slice('task-issue:'.length), {
-        title: 'Updated visible result',
+        // Keep the query's prefix score: the identity rule is about a label
+        // update, not freezing results after their search relevance changes.
+        title: 'Synthetic updated visible result',
       }),
     )
     expect(taskIds()).toEqual(before)
     expect(
       screen
         .getAllByRole('option')
-        .some((option) => option.textContent?.includes('Updated visible result')),
+        .some((option) => option.textContent?.includes('Synthetic updated visible result')),
     ).toBe(true)
+    await act(async () =>
+      fixture.patch('issueProjection', before[2]!.slice('task-issue:'.length), {
+        title: 'Updated visible result',
+      }),
+    )
+    // A live title that loses the prefix match is ranked behind the six
+    // stronger matches. Stored opening order breaks ties; it does not pin
+    // stale search scores.
+    expect(taskIds()).not.toContain(before[2])
   } finally {
     mounted.unmount()
   }
