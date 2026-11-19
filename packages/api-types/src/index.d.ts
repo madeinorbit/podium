@@ -395,24 +395,24 @@ declare const PodiumSettings: z.ZodObject<{
             credentialShared?: boolean | undefined;
         }>>;
     }, "strip", z.ZodTypeAny, {
-        web: boolean;
-        ntfyTopic: string;
-        telegramChatId: string;
         notices: {
             mention: boolean;
             credentialAttention: boolean;
             credentialShared: boolean;
         };
+        web: boolean;
+        ntfyTopic: string;
+        telegramChatId: string;
         telegramBotToken: string;
     }, {
-        web?: boolean | undefined;
-        ntfyTopic?: string | undefined;
-        telegramChatId?: string | undefined;
         notices?: {
             mention?: boolean | undefined;
             credentialAttention?: boolean | undefined;
             credentialShared?: boolean | undefined;
         } | undefined;
+        web?: boolean | undefined;
+        ntfyTopic?: string | undefined;
+        telegramChatId?: string | undefined;
         telegramBotToken?: string | undefined;
     }>>;
     sidebar: z.ZodDefault<z.ZodObject<{
@@ -578,14 +578,14 @@ declare const PodiumSettings: z.ZodObject<{
         promptDismissed: boolean;
     };
     notifications: {
-        web: boolean;
-        ntfyTopic: string;
-        telegramChatId: string;
         notices: {
             mention: boolean;
             credentialAttention: boolean;
             credentialShared: boolean;
         };
+        web: boolean;
+        ntfyTopic: string;
+        telegramChatId: string;
         telegramBotToken: string;
     };
     credentialDefaults: Partial<Record<"claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi", string & z.BRAND<"CredentialId">>>;
@@ -674,14 +674,14 @@ declare const PodiumSettings: z.ZodObject<{
         promptDismissed?: boolean | undefined;
     } | undefined;
     notifications?: {
-        web?: boolean | undefined;
-        ntfyTopic?: string | undefined;
-        telegramChatId?: string | undefined;
         notices?: {
             mention?: boolean | undefined;
             credentialAttention?: boolean | undefined;
             credentialShared?: boolean | undefined;
         } | undefined;
+        web?: boolean | undefined;
+        ntfyTopic?: string | undefined;
+        telegramChatId?: string | undefined;
         telegramBotToken?: string | undefined;
     } | undefined;
     credentialDefaults?: Partial<Record<"claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi", string>> | undefined;
@@ -2491,7 +2491,7 @@ type Output_agentProfiles_list = Array<{
     description: string;
     id: string;
     instructions: string;
-    machineId: null | string;
+    machineId: (string & z.BRAND<"MachineId">) | null;
     name: string;
     updatedAt: string;
 } & {
@@ -2507,7 +2507,7 @@ type Output_agentProfiles_show = {
     description: string;
     id: string;
     instructions: string;
-    machineId: null | string;
+    machineId: (string & z.BRAND<"MachineId">) | null;
     name: string;
     updatedAt: string;
 } & {
