@@ -20,10 +20,9 @@ import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it } from 'vitest'
 import { userCommandPrincipal } from '../../command-principal'
 import { confirmingRetirement } from '../../test-support/host-daemon'
-import { seedLegacyKeyCredential } from '../../test-support/legacy-key-credential'
 import { disposeOracles, makeOracle, type Oracle, waitFor } from '../sessions/oracle-support'
 import { appliedReply, changeRows, envelope, submit } from '../sync-write/outbox-test-support'
-import { ISSUE_START_DEADLINE_MS, ISSUE_START_KIND, ISSUE_START_PROPOSED } from './start-effect'
+import { ISSUE_START_DEADLINE_MS, ISSUE_START_KIND } from './start-effect'
 
 afterEach(() => disposeOracles())
 
@@ -256,7 +255,7 @@ describe('an issue.start effect', () => {
     expect(spawns(o, sessionId)).toHaveLength(0)
   })
 
-  it('the create is checked at act time: a parent archived before the run files nothing', async () => {
+  it('the create is checked at act time: a parent deleted before the run files nothing', async () => {
     const o = await oracle()
     const writer = asUserId('mem_start_writer')
     await memberFacts(o.store).create(
@@ -270,37 +269,37 @@ describe('an issue.start effect', () => {
       'test-only',
     )
     const parentId = newIssueId()
-    const credential = await seedLegacyKeyCredential(o.store, {
-      owner: writer,
-      accountKey: 'writer-key',
-      type: 'anthropic.api-key',
-      secret: 'synthetic-key',
-      sentTo: [o.store.hostMachineId],
-    })
+    // Each person starts on their own machine's native login.
+    await o.reg.modules.machines.transferMachineOwnership(
+      o.store.hostMachineId,
+      writer,
+      firstAdminMemberId(),
+    )
+    await reportInventory(o)
     await o.call.issues.create({ id: parentId, repoPath: '/p', title: 'parent', startNow: false })
     o.reg.gateway.detachDaemon(o.reg.sessionStore.hostMachineId)
     const effectId = mintDeviceId('eff_')
     const issueId = newIssueId()
     const sessionId = newSessionId()
     const { reply } = await o.reg.modules.syncWrite.submitDetailed(
-      startEnvelope(effectId, issueId, task(sessionId, { parentId, credential }), 's-1'),
+      startEnvelope(effectId, issueId, task(sessionId, { parentId }), 's-1'),
       userCommandPrincipal(writer, 'member'),
       'trpc',
     )
     appliedReply(reply)
 
-    await o.call.issues.archive({ id: parentId })
+    await o.call.issues.delete({ id: parentId })
     await reattach(o)
 
     expect(await settled(o, effectId)).toMatchObject({
       status: 'failed',
-      error: { code: 'refused', message: expect.stringContaining('archived') },
+      error: { code: 'refused', message: expect.stringContaining('unknown parent') },
     })
     expect(await issueRow(o, issueId)).toBeNull()
     expect(spawns(o, sessionId)).toHaveLength(0)
   })
 
-  it("a member's top-level start is filed as a proposal and starts nothing", async () => {
+  it('a human member files a shared task and starts their own session', async () => {
     const o = await oracle()
     const writer = asUserId('mem_start_member')
     await memberFacts(o.store).create(
@@ -316,29 +315,34 @@ describe('an issue.start effect', () => {
     const effectId = mintDeviceId('eff_')
     const issueId = newIssueId()
     const sessionId = newSessionId()
-    const credential = await seedLegacyKeyCredential(o.store, {
-      owner: writer,
-      accountKey: 'member-key',
-      type: 'anthropic.api-key',
-      secret: 'synthetic-key',
-      sentTo: [o.store.hostMachineId],
-    })
+    // Each person starts on their own machine's native login.
+    await o.reg.modules.machines.transferMachineOwnership(
+      o.store.hostMachineId,
+      writer,
+      firstAdminMemberId(),
+    )
+    await reportInventory(o)
     const { reply } = await o.reg.modules.syncWrite.submitDetailed(
-      startEnvelope(effectId, issueId, task(sessionId, { credential }), 's-1'),
+      startEnvelope(effectId, issueId, task(sessionId), 's-1'),
       userCommandPrincipal(writer, 'member'),
       'trpc',
     )
     appliedReply(reply)
 
     expect(await settled(o, effectId)).toMatchObject({
-      status: 'failed',
-      error: { code: ISSUE_START_PROPOSED, message: 'Filed as a proposal; an admin starts it.' },
+      status: 'succeeded',
+      result: { issueId, sessionId },
     })
-    expect(await issueRow(o, issueId)).toMatchObject({ id: issueId, stage: 'proposed' })
-    expect(spawns(o, sessionId)).toHaveLength(0)
+    expect(await issueRow(o, issueId)).toMatchObject({
+      id: issueId,
+      stage: 'in_progress',
+      assignee: writer,
+    })
+    expect((await o.store.sessions.getSession(sessionId))?.ownerUserId).toBe(writer)
+    expect(spawns(o, sessionId)).toHaveLength(1)
   })
 
-  it('a proposal keeps its stage: a chosen one is never applied to it', async () => {
+  it("a human member's chosen stage applies to the task they start", async () => {
     const o = await oracle()
     const writer = asUserId('mem_start_staged')
     await memberFacts(o.store).create(
@@ -353,26 +357,21 @@ describe('an issue.start effect', () => {
     )
     const effectId = mintDeviceId('eff_')
     const issueId = newIssueId()
-    const credential = await seedLegacyKeyCredential(o.store, {
-      owner: writer,
-      accountKey: 'member-key',
-      type: 'anthropic.api-key',
-      secret: 'synthetic-key',
-      sentTo: [o.store.hostMachineId],
-    })
+    // Each person starts on their own machine's native login.
+    await o.reg.modules.machines.transferMachineOwnership(
+      o.store.hostMachineId,
+      writer,
+      firstAdminMemberId(),
+    )
+    await reportInventory(o)
     const { reply } = await o.reg.modules.syncWrite.submitDetailed(
-      startEnvelope(
-        effectId,
-        issueId,
-        task(newSessionId(), { stage: 'planning', credential }),
-        's-1',
-      ),
+      startEnvelope(effectId, issueId, task(newSessionId(), { stage: 'planning' }), 's-1'),
       userCommandPrincipal(writer, 'member'),
       'trpc',
     )
     appliedReply(reply)
-    expect((await settled(o, effectId))?.error?.code).toBe(ISSUE_START_PROPOSED)
-    expect(await issueRow(o, issueId)).toMatchObject({ stage: 'proposed' })
+    expect(await settled(o, effectId)).toMatchObject({ status: 'succeeded', result: { issueId } })
+    expect(await issueRow(o, issueId)).toMatchObject({ stage: 'planning', assignee: writer })
   })
 
   it('a start that fails after filing keeps the issue, and the failure is on its record', async () => {

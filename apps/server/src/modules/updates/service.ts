@@ -340,7 +340,10 @@ function withoutArtifactCredentials(target: UpdateTarget): UpdateTarget {
  */
 export class UpdatesService {
   private readonly targets = new Map<UpdateChannel, UpdateTarget>()
-  private readonly withdrawnTargets = new Map<UpdateChannel, { target: UpdateTarget; reason: string; withdrawnAt: number }>()
+  private readonly withdrawnTargets = new Map<
+    UpdateChannel,
+    { target: UpdateTarget; reason: string; withdrawnAt: number }
+  >()
   private readonly unavailableReasons = new Map<UpdateChannel, string>()
   private readonly rollouts = new Map<UpdateChannel, ChannelRolloutState>()
   private readonly machineStates = new Map<string, MachineConvergenceState>()
@@ -389,26 +392,44 @@ export class UpdatesService {
   async coordinatorUpdateApproved(channel: UpdateChannel, target: UpdateTarget): Promise<boolean> {
     this.assertPersistence()
     const approved = await this.approvedTarget(channel)
-    return !this.deps.recoveryOnly && approved !== undefined &&
+    return (
+      !this.deps.recoveryOnly &&
+      approved !== undefined &&
       updateFingerprint(approved) === updateFingerprint(target)
+    )
   }
 
   /** The server step may run before its host presence arrives. It uses the
    * same durable issuer as the wave, after that step has drained the fleet. */
-  async grantCoordinatorUpdate(machineId: string, channel: UpdateChannel, target: UpdateTarget, cause: GrantCause): Promise<boolean> {
-    const machine = (await this.deps.machines()).find((candidate) => candidate.id === machineId) ?? {
-      id: machineId, version: '', state: 'current' as const, online: false, busy: false,
-      coordinator: true, presenceSource: 'supervisor' as const,
+  async grantCoordinatorUpdate(
+    machineId: string,
+    channel: UpdateChannel,
+    target: UpdateTarget,
+    cause: GrantCause,
+  ): Promise<boolean> {
+    const machine = (await this.deps.machines()).find(
+      (candidate) => candidate.id === machineId,
+    ) ?? {
+      id: machineId,
+      version: '',
+      state: 'current' as const,
+      online: false,
+      busy: false,
+      coordinator: true,
+      presenceSource: 'supervisor' as const,
     }
     return (await this.issueGrants(channel, target, [machine], [machineId], cause)).length > 0
   }
 
   async coordinatorGrantActive(machineId: string, grant: UpdateGrantMessage): Promise<boolean> {
     const pending = this.pendingGrants.get(machineId)
-    if (pending === undefined ||
+    if (
+      pending === undefined ||
       !(await this.coordinatorUpdateApproved(pending.channel, grant.target)) ||
       pending.grantId !== grant.grantId ||
-      pending.targetFingerprint !== updateFingerprint(grant.target)) return false
+      pending.targetFingerprint !== updateFingerprint(grant.target)
+    )
+      return false
     const target = this.target(pending.channel)
     return target !== undefined && updateFingerprint(target) === pending.targetFingerprint
   }
@@ -467,7 +488,9 @@ export class UpdatesService {
     if (!message.detail && previous) return previous
     return {
       ...(message.reasonCode ? { code: message.reasonCode } : {}),
-      message: message.detail || `The machine reported ${message.state} without a reason; last phase: ${message.phaseDetail ?? 'unknown'}.`,
+      message:
+        message.detail ||
+        `The machine reported ${message.state} without a reason; last phase: ${message.phaseDetail ?? 'unknown'}.`,
       source: message.detail ? 'machine' : 'coordinator',
       at: message.reportedAt ?? this.deps.now(),
     }
@@ -627,7 +650,11 @@ export class UpdatesService {
   }
 
   /** Failed versions stay withdrawn until replaced or explicitly reapproved. */
-  async withdrawFailedTarget(channel: UpdateChannel, target: UpdateTarget, reason: string): Promise<void> {
+  async withdrawFailedTarget(
+    channel: UpdateChannel,
+    target: UpdateTarget,
+    reason: string,
+  ): Promise<void> {
     const detail = `${TARGET_WITHDRAWN_TOKEN}: Target ${target.version} withdrawn. ${reason}`
     this.withdrawnTargets.set(channel, { target, reason: detail, withdrawnAt: this.deps.now() })
     await this.setTargetUnavailable(channel, detail)
@@ -973,9 +1000,17 @@ export class UpdatesService {
         ? await this.deps.resolveTarget(channel, previous)
         : await this.deps.resolveTarget(channel)
       // An unchanged advertisement has no publication or recovery work to do.
-      if (previous && previous.version === resolved.version && updateFingerprint(previous) === updateFingerprint(resolved)) {
+      if (
+        previous &&
+        previous.version === resolved.version &&
+        updateFingerprint(previous) === updateFingerprint(resolved)
+      ) {
         this.unavailableReasons.delete(channel)
         this.recordCheck(channel, { status: 'ok' })
+        // Adoption can restore this descriptor before a participant comes
+        // online. Observers still need the resolved fleet fact even when the
+        // descriptor itself requires no publication or recovery write.
+        this.notifyTargetChangedDeferred(channel)
         return true
       }
       // setTarget clears any recorded unavailable reason, which is what stops a
@@ -1043,11 +1078,13 @@ export class UpdatesService {
     return CHANNEL_ORDER.map((channel): ChannelCheckRecord | undefined => {
       const withdrawal = this.withdrawnTargets.get(channel)
       return withdrawal
-        ? { channel, checkedAt: withdrawal.withdrawnAt, outcome: { status: 'unavailable', reason: withdrawal.reason } }
+        ? {
+            channel,
+            checkedAt: withdrawal.withdrawnAt,
+            outcome: { status: 'unavailable', reason: withdrawal.reason },
+          }
         : this.checks.get(channel)
-    }).filter(
-      (record): record is ChannelCheckRecord => record !== undefined,
-    )
+    }).filter((record): record is ChannelCheckRecord => record !== undefined)
   }
 
   /**
@@ -1213,7 +1250,8 @@ export class UpdatesService {
       (message.targetVersion === target.version ||
         (previousReport?.channel === channel &&
           previousReport.grantId === message.grantId &&
-          previousReport.targetVersion === target.version && !pendingGrant))
+          previousReport.targetVersion === target.version &&
+          !pendingGrant))
     /**
      * A REPORT THIS SERVER CANNOT PLACE IS THE THING TO SAY OUT LOUD (POD-3170).
      *
@@ -1765,7 +1803,10 @@ export class UpdatesService {
     )
   }
 
-  private async executionMatchesTarget(machineId: string, channel: UpdateChannel): Promise<boolean> {
+  private async executionMatchesTarget(
+    machineId: string,
+    channel: UpdateChannel,
+  ): Promise<boolean> {
     const grant = this.pendingGrants.get(machineId) ?? this.retiredGrants.get(machineId)
     if (!grant || this.machineStates.get(machineId)?.grantId !== grant.grantId) return false
     return this.pendingGrants.has(machineId)
@@ -2111,7 +2152,8 @@ export class UpdatesService {
       const coordinatorHandler = this.coordinatorUpdates.get(machineId)
       // Intrinsic guard: boot/reconnect can dispatch before an operation has
       // assembled its context. A supervisor coordinator never receives /grant.
-      const coordinatorOwned = this.coordinatorUpdates.has(machineId) ||
+      const coordinatorOwned =
+        this.coordinatorUpdates.has(machineId) ||
         (machine?.coordinator === true && machine.presenceSource === 'supervisor')
       if (coordinatorOwned && !(await coordinatorHandler?.active())) continue
       if (coordinatorOwned) {
@@ -2119,23 +2161,27 @@ export class UpdatesService {
           throw new Error('Coordinator update requires approval of the exact target.')
       }
       const pending = this.pendingGrants.get(machineId)
-      if (coordinatorHandler && pending?.coordinatorGrant &&
-          pending.channel === channel && pending.targetFingerprint === updateFingerprint(target) &&
-          (pending.coordinatorGrant.repair === true) === repair) {
+      if (
+        coordinatorHandler &&
+        pending?.coordinatorGrant &&
+        pending.channel === channel &&
+        pending.targetFingerprint === updateFingerprint(target) &&
+        (pending.coordinatorGrant.repair === true) === repair
+      ) {
         coordinatorHandler.dispatch(pending.coordinatorGrant)
         issued.push(machineId)
         continue
       }
+      const grantId = this.deps.nextGrantId()
+      this.lastGrantAuthority = Math.max(this.deps.now(), this.lastGrantAuthority + 1)
       const grant: UpdateGrantMessage = {
         type: 'updateGrant',
-        grantId: this.deps.nextGrantId(),
-        issuedAt: (this.lastGrantAuthority = Math.max(
-          this.deps.now(),
-          this.lastGrantAuthority + 1,
-        )),
+        grantId,
+        issuedAt: this.lastGrantAuthority,
         ...(repair ? { repair: true } : {}),
         ...(['operator-apply', 'operator-repair'].includes(cause.initiator.kind)
-          ? { retryRollback: true } : {}),
+          ? { retryRollback: true }
+          : {}),
         target,
         ...(this.deps.updatePubkey ? { updatePubkey: this.deps.updatePubkey() } : {}),
       }
@@ -2292,9 +2338,12 @@ export class UpdatesService {
    * the standing reconciliation. What is fixed here is only *which* authority.
    */
   async operationChannel(serverPlacement: ServerPlacement): Promise<UpdateChannel> {
-    const host = serverPlacement.kind === 'fleet'
-      ? (await this.deps.machines()).find((candidate) => candidate.id === serverPlacement.machineId)
-      : undefined
+    const host =
+      serverPlacement.kind === 'fleet'
+        ? (await this.deps.machines()).find(
+            (candidate) => candidate.id === serverPlacement.machineId,
+          )
+        : undefined
     return host ? this.channelOf(host) : this.fleetDefaultChannel()
   }
 

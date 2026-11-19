@@ -101,7 +101,9 @@ describe('session residency (POD-6160 D2f)', () => {
         return fullView(session!)
       })
       expect({ id, view }).toEqual({ id, view: fullView(records.get(id)!) })
-      expect(sessions.sessions.has(id)).toBe(false)
+      expect(sessions.sessions.has(id), `${id}: ${sessions.residency.residentBecause(id)}`).toBe(
+        false,
+      )
     }
     console.log(
       'session residency over the corpus',
