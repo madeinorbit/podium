@@ -23,6 +23,7 @@ import { asSessionId, asUserId, firstAdminMemberId, type SessionId } from '@podi
 import { afterEach, describe, expect, it } from 'vitest'
 import { userCommandPrincipal } from '../../../command-principal'
 import { SessionRegistry } from '../../../relay'
+import { memberFacts } from '../../../store/fixtures/test-support'
 import { OPERATOR } from '../../../test-support/capabilities'
 import { attachHostDaemon } from '../../../test-support/host-daemon'
 import { openTestStore } from '../../../test-support/open-test-store'
@@ -38,6 +39,16 @@ const BOB = asUserId('user:bob')
 
 async function fixture() {
   const store = await openTestStore(':memory:')
+  // Session owners are active workspace members, as they are at the transport.
+  for (const id of [ALICE, BOB]) {
+    await memberFacts(store).create({
+      id,
+      displayName: id,
+      role: 'member',
+      createdAt: new Date().toISOString(),
+      disabledAt: null,
+    })
+  }
   const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   registries.push(reg)
   await attachHostDaemon(reg, () => {})
@@ -95,14 +106,27 @@ describe('per-user state is isolated between principals', () => {
     const other = new Date(Date.now() + 120_000).toISOString()
 
     expect(
-      (await sessionState.execute('snoozes.set', { sessionId: mine, until }, asVisibleUser(ALICE))).outcome,
+      (await sessionState.execute('snoozes.set', { sessionId: mine, until }, asVisibleUser(ALICE)))
+        .outcome,
     ).toBe('applied')
     expect(
-      (await sessionState.execute('snoozes.set', { sessionId: theirs, until: other }, asVisibleUser(BOB))).outcome,
+      (
+        await sessionState.execute(
+          'snoozes.set',
+          { sessionId: theirs, until: other },
+          asVisibleUser(BOB),
+        )
+      ).outcome,
     ).toBe('applied')
     // Sessions are private (POD-6283): nobody snoozes another person's session.
     expect(
-      (await sessionState.execute('snoozes.set', { sessionId: mine, until: other }, asVisibleUser(BOB))).outcome,
+      (
+        await sessionState.execute(
+          'snoozes.set',
+          { sessionId: mine, until: other },
+          asVisibleUser(BOB),
+        )
+      ).outcome,
     ).toBe('denied')
 
     expect(await store.sessions.listSnoozes(ALICE)).toEqual({ [mine]: until })
@@ -115,8 +139,16 @@ describe('per-user state is isolated between principals', () => {
     const { store, sessionState, asVisibleUser, session } = await fixture()
     const mine = (await session(ALICE)).sessionId
     const theirs = (await session(BOB)).sessionId
-    await sessionState.execute('snoozes.set', { sessionId: mine, until: null }, asVisibleUser(ALICE))
-    await sessionState.execute('snoozes.set', { sessionId: theirs, until: null }, asVisibleUser(BOB))
+    await sessionState.execute(
+      'snoozes.set',
+      { sessionId: mine, until: null },
+      asVisibleUser(ALICE),
+    )
+    await sessionState.execute(
+      'snoozes.set',
+      { sessionId: theirs, until: null },
+      asVisibleUser(BOB),
+    )
 
     await sessionState.execute('snoozes.clear', { sessionId: mine }, asVisibleUser(ALICE))
     // Clearing another person's session is refused and changes nothing.
@@ -125,7 +157,6 @@ describe('per-user state is isolated between principals', () => {
     expect(await store.sessions.listSnoozes(ALICE)).toEqual({})
     expect(await store.sessions.listSnoozes(BOB)).toEqual({ [theirs]: null })
   })
-
 })
 
 // ---------------------------------------------------------------------------
@@ -175,9 +206,9 @@ describe('per-user writes are SELF-SCOPED', () => {
       ...mismatched,
       capability: userCommandPrincipal(ALICE, 'admin').capability,
     }
-    expect((await sessionState.execute('snoozes.set', { sessionId, until: null }, coherent)).outcome).toBe(
-      'applied',
-    )
+    expect(
+      (await sessionState.execute('snoozes.set', { sessionId, until: null }, coherent)).outcome,
+    ).toBe('applied')
     expect(await store.sessions.listSnoozes(ALICE)).toEqual({ [sessionId]: null })
   })
 
