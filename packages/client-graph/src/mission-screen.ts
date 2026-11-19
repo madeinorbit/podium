@@ -203,6 +203,13 @@ export class MissionScreen {
       void row.tasks
       void row.done
       void row.actionableCount
+      // The header's crew counts fold every row's own (POD-7178): derived
+      // here, a slice at a time, not all at once when the header first reads.
+      void row.liveAgentCount
+      void row.workingAgentCount
+      void row.waitingAgentCount
+      // And the deck's progress, which folds each leaf's unit answer.
+      void this.reader.node(id).progressUnit
     },
   )
   /** The deck has settled: its shape, numbers, archive count, header and rows. */

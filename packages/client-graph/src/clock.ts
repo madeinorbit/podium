@@ -3,6 +3,8 @@ export { DeadlineClock, deadlineClock, nextUp } from '@podium/mobx-helpers'
 /** Every production untracked()/peek call site has a unique untracked-read tag.
  * A peek avoids loading; it still tracks the addressed row/residency when read in a derivation. */
 export const UNTRACKED_READS: Readonly<Record<string, string>> = {
+  'warmup-list-plan': 'Plan a warm-up list change into slices; only the list is tracked, each slice reaction observes its own rows.',
+  'warmup-slice-next': 'Schedule the next warm-up slice from a slice\'s first run; the slice tracks only its rows.',
   'reader-identity-seed': 'Seed identity membership after watch registers invalidation; avoid tracking every history table entry.',
   'reader-resident-maintenance': 'Copy addressed resident facts during publication; maintained question atoms report changes.',
   'reader-repo-identity': 'Refresh a changed repository identity during publication; identity question atoms notify readers.',

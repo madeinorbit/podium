@@ -58,8 +58,6 @@ export type FullDeckSeat = 'coordinator' | 'phase-lead' | 'worker' | 'helper'
 
 export type FullDeckCounts = Readonly<Record<FullDeckFilter | 'done', number>>
 
-const NO_IDS: readonly string[] = Object.freeze([])
-
 /**
  * One issue of the mission as the Full view draws it. A companion of the
  * shared issue model, so every screen drawing this opening shares it. Its
@@ -112,16 +110,18 @@ export class FullDeckTask {
   /** Its parent in the drawn tree: the formal parent, or a graft's placement. */
   @lazy get parentId(): string | null {
     if (this.isRoot) return null
-    return requireLoaded(this.deck.source.topology).parent.get(this.id) ?? null
+    return this.deck.source.parentIn(this.id) ?? null
   }
   /** Direct sub-issues in the accepted tree: proposals and their subtrees
    * leave, sort_key order holds, and tasks come before phases (spec 06). */
   @lazy({ equals: compareShallow }) get childIds(): readonly string[] {
-    const shape = requireLoaded(this.deck.source.topology)
+    // POD-7178: this row's own children and each child's parent, never the
+    // whole shape, so a burst re-derives only the rows whose place it moved.
+    const source = this.deck.source
     const tasks: string[] = [],
       phases: string[] = []
-    for (const id of shape.children.get(this.id) ?? NO_IDS) {
-      if (shape.parent.get(id) !== this.id || id === this.deck.rootId) continue
+    for (const id of requireLoaded(source.childrenIn(this.id))) {
+      if (source.parentIn(id) !== this.id || id === this.deck.rootId) continue
       const child = this.deck.task(id)
       if (child.proposed) continue
       ;(child.kind === 'phase' ? phases : tasks).push(id)
@@ -130,10 +130,10 @@ export class FullDeckTask {
   }
   /** Proposed direct sub-issues: they leave the tree for the PROPOSED tail. */
   @lazy({ equals: compareShallow }) get proposalIds(): readonly string[] {
-    const shape = requireLoaded(this.deck.source.topology)
-    return (shape.children.get(this.id) ?? NO_IDS).filter(
+    const source = this.deck.source
+    return requireLoaded(source.childrenIn(this.id)).filter(
       (id) =>
-        shape.parent.get(id) === this.id && id !== this.deck.rootId && this.deck.task(id).proposed,
+        source.parentIn(id) === this.id && id !== this.deck.rootId && this.deck.task(id).proposed,
     )
   }
   /** Levels below the mission root, phases included (0 = a root child). */

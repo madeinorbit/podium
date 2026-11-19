@@ -94,4 +94,36 @@ describe('a sliced warm-up (POD-7168)', () => {
     expect(derived).toBeLessThan(400)
     warmup.dispose()
   })
+
+  it('re-reads only the slice of a row that moved, not every row derived so far (POD-7178)', async () => {
+    const versions = new Map(
+      Array.from({ length: 400 }, (_, at) => [`r${at}` as string, observable.box(0)] as const),
+    )
+    const reads = new Map<string, number>()
+    const warmup = new SlicedWarmup(
+      () => [...versions.keys()],
+      (id) => {
+        reads.set(id, (reads.get(id) ?? 0) + 1)
+        void versions.get(id)!.get()
+        spin(0.2)
+      },
+      { budgetMs: 10, minimum: 50 },
+    )
+    let done = false
+    const stop = autorun(() => {
+      done = warmup.done
+    })
+    for (let round = 0; round < 200 && !done; round += 1) await tasks(1)
+    expect(done).toBe(true)
+    // Each row was derived once: no slice re-read the rows before it.
+    expect([...reads.values()].every((count) => count === 1)).toBe(true)
+    reads.clear()
+    runInAction(() => versions.get('r399')!.set(1))
+    // The moved row's slice reads again: its own rows, under one budget.
+    expect(reads.get('r399')).toBe(1)
+    expect(reads.size).toBeGreaterThan(0)
+    expect(reads.size).toBeLessThan(100)
+    stop()
+    warmup.dispose()
+  })
 })

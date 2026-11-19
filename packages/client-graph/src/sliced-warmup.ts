@@ -16,7 +16,7 @@
  * once, as before: they derive in their own read.
  */
 
-import { action, autorun, createAtom, observable } from 'mobx'
+import { autorun, createAtom, observable, runInAction, untracked } from 'mobx'
 import { LOADING } from './loading'
 
 /** Run `run` in the next task: a message, not a timer, so a browser does not clamp it. */
@@ -46,12 +46,22 @@ export interface SlicedWarmupOptions {
 }
 
 export class SlicedWarmup {
-  /** How far the warm-up has gone through the list. */
-  @observable private accessor through = 0
   /** It has gone through the list once. */
   @observable private accessor complete = false
-  private stop: (() => void) | null = null
+  private watch: (() => void) | null = null
   private cancel: (() => void) | null = null
+  /*
+   * POD-7178 — EACH SLICE KEEPS ITS OWN ROWS OBSERVED. One reaction over
+   * every row derived so far re-read the whole list on each slice and on
+   * each later burst that moved any row: 970 rows times their fields, a cost
+   * of the tree, not of the change. Each slice is its own reaction now, so a
+   * row that moves re-reads only its slice, and a new slice reads only its
+   * own rows.
+   */
+  private readonly slices = new Set<Slice>()
+  private readonly sliceOf = new Map<string, Slice>()
+  /** List rows no slice holds yet, in list order. */
+  private pending: string[] = []
   private readonly budgetMs: number
   private readonly minimum: number
   private readonly demand = createAtom(
@@ -85,32 +95,91 @@ export class SlicedWarmup {
   }
 
   private start(): void {
-    if (this.stop !== null) return
-    this.stop = autorun(() => {
+    if (this.watch !== null) return
+    // Only the list is tracked here; the rows are each slice's own reads.
+    this.watch = autorun(() => {
       const list = this.items()
-      if (list === LOADING) return
-      if (list.length < this.minimum) return
-      const began = performance.now()
-      const through = Math.min(this.through, list.length)
-      // What earlier slices derived: cached, and kept observed by this read.
-      for (let at = 0; at < through; at += 1) this.read(list[at]!)
-      let next = through
-      while (
-        next < list.length &&
-        (next === through || performance.now() - began < this.budgetMs)
-      ) {
-        this.read(list[next]!)
-        next += 1
-      }
-      this.settle(next, next >= list.length)
+      if (list === LOADING || list.length < this.minimum) return
+      // untracked-read: warmup-list-plan
+      untracked(() => this.plan(list))
     })
   }
 
+  /** The list moved: rows that left it leave their slices, new rows queue. */
+  private plan(list: readonly string[]): void {
+    const listed = new Set(list)
+    for (const slice of [...this.slices]) {
+      if (slice.ids.every((id) => listed.has(id))) continue
+      // A row left: its slice stops, and its other rows queue again.
+      this.drop(slice)
+    }
+    this.pending = list.filter((id) => !this.sliceOf.has(id))
+    if (this.pending.length > 0 && this.cancel === null) this.step()
+    else this.next()
+  }
+
+  /** Derive one slice under the budget, as its own reaction, then move on in the next task. */
+  private step(): void {
+    this.cancel = null
+    if (this.watch === null) return
+    if (this.pending.length === 0) {
+      this.next()
+      return
+    }
+    const ids: string[] = []
+    const slice: Slice = { ids, stop: () => {} }
+    let first = true
+    this.slices.add(slice)
+    slice.stop = autorun(() => {
+      if (!first) {
+        // A row of this slice moved: re-read this slice's rows, no others.
+        for (const id of ids) this.read(id)
+        return
+      }
+      // The first run takes rows from the queue up to the budget.
+      first = false
+      const began = performance.now()
+      while (
+        this.pending.length > 0 &&
+        (ids.length === 0 || performance.now() - began < this.budgetMs)
+      ) {
+        const id = this.pending.shift()!
+        ids.push(id)
+        this.sliceOf.set(id, slice)
+        this.read(id)
+      }
+      // untracked-read: warmup-slice-next
+      untracked(() => this.next())
+    })
+  }
+
+  /** Move on in the next task: the page draws and takes input in between. */
+  private next(): void {
+    if (this.cancel !== null) return
+    if (this.pending.length === 0 && this.complete) return
+    this.cancel = nextTask(() => {
+      this.cancel = null
+      if (this.pending.length > 0) this.step()
+      else if (!this.complete)
+        runInAction(() => {
+          this.complete = true
+        })
+    })
+  }
+
+  private drop(slice: Slice): void {
+    slice.stop()
+    this.slices.delete(slice)
+    for (const id of slice.ids) if (this.sliceOf.get(id) === slice) this.sliceOf.delete(id)
+  }
+
   private halt(): void {
-    this.stop?.()
-    this.stop = null
+    this.watch?.()
+    this.watch = null
     this.cancel?.()
     this.cancel = null
+    for (const slice of [...this.slices]) this.drop(slice)
+    this.pending = []
   }
 
   private read(id: string): void {
@@ -121,18 +190,9 @@ export class SlicedWarmup {
       if (error !== LOADING) throw error
     }
   }
+}
 
-  /** Move on in the next task: the page draws and takes input in between. */
-  private settle(through: number, finished: boolean): void {
-    this.cancel?.()
-    this.cancel = null
-    if (through === this.through && (!finished || this.complete)) return
-    this.cancel = nextTask(
-      action(() => {
-        this.cancel = null
-        this.through = through
-        if (finished) this.complete = true
-      }),
-    )
-  }
+interface Slice {
+  readonly ids: string[]
+  stop: () => void
 }

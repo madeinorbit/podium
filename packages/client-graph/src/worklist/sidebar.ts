@@ -235,9 +235,21 @@ export class SidebarIndex {
   private projectActivity(key: string): number {
     return this.activityViews(key, () => {
       let latest = 0
+      if (this.loading) return latest
+      // POD-7178: each member's activity alone, never its whole sidebar row:
+      // a project's hidden closed issues derive one number each, not every
+      // roll-up a drawn row needs. A member still loading adds nothing.
       for (const id of worklistGroups(this.pool).members.lane(key)) {
-        const row = this.row(id)
-        if (row !== undefined && row !== LOADING) latest = Math.max(latest, row.visibleActivityAt)
+        const model = here(this.pool.issue(id))
+        if (model === undefined) continue
+        let at: number | undefined
+        try {
+          at = companionOf(model, this.pool).sortActivityAt
+        } catch (error) {
+          if (error !== LOADING) throw error
+          continue
+        }
+        if (at !== undefined) latest = Math.max(latest, at)
       }
       return latest
     })

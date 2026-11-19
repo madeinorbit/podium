@@ -1085,6 +1085,20 @@ export class WorklistIssue implements HeldIssue, RowView {
     return seat !== null && seat > own ? seat : own
   }
 
+  /**
+   * POD-7178 — the row's latest activity for the project sort, or undefined
+   * when the row is excluded or not held. It reads the activity alone, not
+   * the row's readiness (attention, child ids, unit counts): the "last used"
+   * sort walks every member of a project, and the 969 closed children of a
+   * large flat tree each derived their whole sidebar row for one number.
+   */
+  @lazy get sortActivityAt(): number | undefined {
+    if (this.issue.excluded) return undefined
+    const loaded = this.loadedIssue
+    if (loaded === undefined || loaded === LOADING || this.loadedOrigin === LOADING) return undefined
+    return this.visibleActivityAt
+  }
+
   @lazy get loadedIssue() {
     const row = this.host.rollupInputs.loadedIssue(this.id)
     return row === undefined || row === LOADING ? row : this.issue
