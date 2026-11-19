@@ -2,10 +2,12 @@
 import {
   buildFlightDeckRows,
   confirmedWorkingAgentCountsByIssue,
+  type FlightDeckRow,
   filterBoardIssues,
   filterBoardScope,
   type IssueNavigationModel,
   isSessionWorking,
+  issueNeedsHuman,
   isVacatedOrigin,
   missionDepartures,
   missionRootFor,
@@ -13,6 +15,7 @@ import {
   missionTaskBucket,
   orderIssues,
   reposToViews,
+  sessionAsksOnIssue,
   sessionNeedsHuman,
   sessionsForIssueNav,
   tallyMissionBuckets,
@@ -20,7 +23,12 @@ import {
   taskStateWord,
 } from '@podium/client-core/values'
 import { asIssueId, dedupeSessionsByResume, isFinished } from '@podium/model'
-import { leafTasks, sessionWorkingFact } from '@podium/model/browser'
+import {
+  coordinatedSeat,
+  coordinatorLive,
+  leafTasks,
+  sessionWorkingFact,
+} from '@podium/model/browser'
 import { expect } from 'vitest'
 import type { MobileScreenInput } from './mobile-screens-snapshot'
 import { allIssueViewModels } from './reference/issue-view-models'
@@ -58,6 +66,7 @@ type Issue = IssueNavigationModel
 // derivation across the same corpus roots and modes, then discard it with that
 // publication; rebuilding it for every opening adds no independent evidence.
 const publications = new WeakMap<ReferenceState, Issue[]>()
+const decks = new WeakMap<ReferenceState, Map<string, FlightDeckRow[]>>()
 function referenceIssues(source: ReferenceState): Issue[] {
   let issues = publications.get(source)
   if (!issues) {
@@ -99,6 +108,99 @@ function referenceProgress(issues: Issue[], sessions: ReferenceState['sessions']
         sessions.some((session) => session.refIssueId === id),
       [...own, ...members].some((session) => !session.archived && sessionWorkingFact(session)),
     )
+  })
+}
+
+/** Delegate requests stay with their live coordinator; only delegate exceptions
+ * reach a coordinated ancestor. Derive that role policy from source records. */
+function referenceDeck(
+  source: ReferenceState,
+  issues: Issue[],
+  sessions: ReferenceState['sessions'],
+  rootId: string,
+  mode: MobileScreenInput['mode'],
+  paths: string[],
+) {
+  let roots = decks.get(source)
+  if (!roots) {
+    roots = new Map()
+    decks.set(source, roots)
+  }
+  let full = roots.get(rootId)
+  if (!full) {
+    const rows = buildFlightDeckRows(issues, sessions, rootId, 'full', paths)
+    const byId = new Map(issues.map((issue) => [issue.id as string, issue]))
+    const bySession = new Map(
+      source.sessions.map((session) => [session.sessionId as string, session]),
+    )
+    const byRow = new Map(rows.map((row) => [row.issue.id as string, row]))
+    const coordinated = new Set(
+      rows
+        .filter((row) => coordinatorLive(bySession.get(row.issue.coordinatorSessionId ?? '')))
+        .map((row) => row.issue.id as string),
+    )
+    const interactions = new Map<string, number>()
+    for (const row of source.pendingInteractions ?? [])
+      if (row.status === 'asked')
+        interactions.set(row.sessionId, (interactions.get(row.sessionId) ?? 0) + 1)
+    full = rows.map((row) => {
+      const ids = new Set<string>([row.issue.id, ...row.descendantIds])
+      const leads = [...coordinated].filter((id) => ids.has(id))
+      let actionableCount = 0,
+        waitingAgentCount = 0,
+        workingAgentCount = 0
+      for (const id of ids) {
+        const child = byRow.get(id)
+        if (!child) continue
+        const delegated = leads.some(
+          (lead) => lead !== id && byRow.get(lead)?.descendantIds.includes(id),
+        )
+        const roleOf = (session: ReferenceState['sessions'][number]) =>
+          delegated
+            ? ('delegate' as const)
+            : coordinated.has(id)
+              ? session.sessionId === child.issue.coordinatorSessionId
+                ? ('coordinator' as const)
+                : ('delegate' as const)
+              : null
+        const verdict = (session: ReferenceState['sessions'][number]) =>
+          coordinatedSeat(
+            session,
+            roleOf(session) ?? 'coordinator',
+            { count: interactions.get(session.sessionId) ?? 0 },
+            !isFinished(byId.get(session.issueId ?? '') ?? {}),
+          )
+        const asks = (session: ReferenceState['sessions'][number]) =>
+          roleOf(session) === null
+            ? sessionAsksOnIssue(child.issue, session)
+            : verdict(session).asks
+        const waiting = child.sessions.filter(asks).length
+        actionableCount += Number(
+          delegated ? waiting > 0 : issueNeedsHuman(child.issue, child.sessions, byId, asks),
+        )
+        waitingAgentCount += waiting
+        workingAgentCount += child.sessions.filter((session) =>
+          roleOf(session) === null
+            ? isSessionWorking(session)
+            : !session.archived && session.status !== 'exited' && verdict(session).working,
+        ).length
+      }
+      return { ...row, actionableCount, waitingAgentCount, workingAgentCount }
+    })
+    roots.set(rootId, full)
+  }
+  if (mode === 'full') return full
+  const counts = new Map(full.map((row) => [row.issue.id as string, row]))
+  return buildFlightDeckRows(issues, sessions, rootId, mode, paths).map((row) => {
+    const expected = counts.get(row.issue.id)
+    return expected
+      ? {
+          ...row,
+          actionableCount: expected.actionableCount,
+          waitingAgentCount: expected.waitingAgentCount,
+          workingAgentCount: expected.workingAgentCount,
+        }
+      : row
   })
 }
 
@@ -264,7 +366,7 @@ export function expectMobileScreens(
     live: crew.filter((session) => !session.archived && session.status !== 'exited').length,
     working: crew.filter(isSessionWorking).length,
   })
-  const rows = root ? buildFlightDeckRows(issues, sessions, root.id, input.mode, paths) : []
+  const rows = root ? referenceDeck(source, issues, sessions, root.id, input.mode, paths) : []
   const details = section('details')
   expect(
     details.rows.map((row) => row.id),
