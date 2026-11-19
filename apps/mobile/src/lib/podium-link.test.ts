@@ -121,6 +121,8 @@ describe('poolRoute', () => {
     const fixture = poolRouteFixture({ issues, sessions })
     try {
       const route = fixture.views.resolveRoute({ kind: 'issue', issue: 'POD-9999' })
+      if (!(route instanceof Promise))
+        throw new Error('unknown references must resolve asynchronously')
       let resolved = false
       void route.then(() => {
         resolved = true
