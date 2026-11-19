@@ -513,7 +513,7 @@ export const GLOBAL_REPOSITORY_FILES: ReadonlyMap<
     },
   ],
   [
-    'apps/server/src/modules/updates/recovery-store.ts',
+    'apps/server/src/store/update-recovery.ts',
     {
       reason:
         "a workspace's update recovery store; the fleet execution checkpoint it reads and writes is an install key of meta (updates.execution.v1)",
