@@ -278,13 +278,15 @@ export class LaunchWorkPicker {
   }
   @lazy({ equals: compareShallow }) get repos() {
     const choices = this.choices
+    // Choices already hold the shared project models. Resolving every path
+    // through pool.model again subscribed this roster to each full scan row,
+    // so a branch change rebuilt the entire launcher catalogue.
+    const byPath = new Map<string, RepoNavView>()
+    for (const repo of choices) if (!byPath.has(repo.path)) byPath.set(repo.path, repo)
     return storedOrder(
       this.projectOrder,
       choices.map((repo) => repo.path),
-    ).flatMap((path) => {
-      const repository = launchRecords(this.pool).at(path)
-      return repository ? (launchRecords(this.pool).byId(repository.id, true) ?? []) : []
-    })
+    ).flatMap((path) => byPath.get(path) ?? [])
   }
   @lazy get machines() {
     return launchOptionViews(this.pool).machines()
