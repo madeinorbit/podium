@@ -247,6 +247,61 @@ CREATE TABLE "conversations" (
 	CONSTRAINT "conversations_pk" PRIMARY KEY("workspace_id","id")
 );
 --> statement-breakpoint
+CREATE TABLE "credential_machines" (
+	"credential_id" text COLLATE "C",
+	"machine_id" text COLLATE "C",
+	"allowed_by" text COLLATE "C" NOT NULL,
+	"created_at" timestamp(3) with time zone NOT NULL,
+	"workspace_id" text COLLATE "C",
+	CONSTRAINT "credential_machines_pk" PRIMARY KEY("workspace_id","credential_id","machine_id")
+);
+--> statement-breakpoint
+CREATE TABLE "credential_placements" (
+	"credential_id" text COLLATE "C",
+	"machine_id" text COLLATE "C",
+	"kind" text COLLATE "C",
+	"home_id" text COLLATE "C",
+	"state" text COLLATE "C" DEFAULT 'present' NOT NULL,
+	"created_at" timestamp(3) with time zone NOT NULL,
+	"removed_at" timestamp(3) with time zone,
+	"workspace_id" text COLLATE "C",
+	CONSTRAINT "credential_placements_pk" PRIMARY KEY("workspace_id","credential_id","machine_id","kind"),
+	CONSTRAINT "credential_placements_kind" CHECK (kind IN ('home', 'propagated-file')),
+	CONSTRAINT "credential_placements_state" CHECK (state IN ('present', 'removal-pending', 'removed'))
+);
+--> statement-breakpoint
+CREATE TABLE "credential_secrets" (
+	"credential_id" text COLLATE "C",
+	"version" bigint,
+	"ciphertext" text COLLATE "C" NOT NULL,
+	"nonce" text COLLATE "C" NOT NULL,
+	"key_id" text COLLATE "C" NOT NULL,
+	"created_at" timestamp(3) with time zone NOT NULL,
+	"workspace_id" text COLLATE "C",
+	CONSTRAINT "credential_secrets_pk" PRIMARY KEY("workspace_id","credential_id","version")
+);
+--> statement-breakpoint
+CREATE TABLE "credentials" (
+	"id" text COLLATE "C",
+	"owner_user_id" text COLLATE "C" NOT NULL,
+	"label" text COLLATE "C" NOT NULL,
+	"type" text COLLATE "C" NOT NULL,
+	"identity" json DEFAULT '{}' NOT NULL,
+	"identity_fingerprint" text COLLATE "C",
+	"status" text COLLATE "C" DEFAULT 'ok' NOT NULL,
+	"status_reason" text COLLATE "C",
+	"expires_at" timestamp(3) with time zone,
+	"verified_at" timestamp(3) with time zone,
+	"limit_reached_until" timestamp(3) with time zone,
+	"legacy_id" text COLLATE "C",
+	"legacy_key" text COLLATE "C",
+	"created_at" timestamp(3) with time zone NOT NULL,
+	"updated_at" timestamp(3) with time zone NOT NULL,
+	"workspace_id" text COLLATE "C",
+	CONSTRAINT "credentials_pk" PRIMARY KEY("workspace_id","id"),
+	CONSTRAINT "credentials_status" CHECK (status IN ('ok', 'attention', 'revoked'))
+);
+--> statement-breakpoint
 CREATE TABLE "delivery_receipts" (
 	"id" text COLLATE "C",
 	"order_id" text COLLATE "C" NOT NULL,
@@ -451,6 +506,7 @@ CREATE TABLE "issue_comments" (
 	"edited_at" timestamp(3) with time zone,
 	"edited_by" text COLLATE "C",
 	"edited_on_behalf_of" text COLLATE "C",
+	"mentions" json,
 	"workspace_id" text COLLATE "C",
 	CONSTRAINT "issue_comments_pk" PRIMARY KEY("workspace_id","id")
 );
@@ -859,6 +915,23 @@ CREATE TABLE "native_login_transfers" (
 	CONSTRAINT "native_login_transfers_outcome" CHECK (outcome IN ('installed', 'preserved'))
 );
 --> statement-breakpoint
+CREATE TABLE "notices" (
+	"id" text COLLATE "C",
+	"recipient_user_id" text COLLATE "C" NOT NULL,
+	"kind" text COLLATE "C" NOT NULL,
+	"subject_kind" text COLLATE "C" NOT NULL,
+	"subject_id" text COLLATE "C" NOT NULL,
+	"subject_anchor" text COLLATE "C",
+	"title" text COLLATE "C" NOT NULL,
+	"body" text COLLATE "C",
+	"dedupe_key" text COLLATE "C" NOT NULL,
+	"created_at" timestamp(3) with time zone NOT NULL,
+	"read_at" timestamp(3) with time zone,
+	"resolved_at" timestamp(3) with time zone,
+	"workspace_id" text COLLATE "C",
+	CONSTRAINT "notices_pk" PRIMARY KEY("workspace_id","id")
+);
+--> statement-breakpoint
 CREATE TABLE "notification_facts" (
 	"fact_key" text COLLATE "C",
 	"target" text COLLATE "C",
@@ -1138,6 +1211,9 @@ CREATE TABLE "sessions" (
 	"requested_model" text COLLATE "C",
 	"requested_effort" text COLLATE "C",
 	"account_id" text COLLATE "C",
+	"credential_id" text COLLATE "C",
+	"effective_auth" json,
+	"credential_mismatch" json,
 	"login_harness" text COLLATE "C",
 	"cwd" text COLLATE "C" NOT NULL,
 	"title" text COLLATE "C" NOT NULL,
@@ -1742,6 +1818,16 @@ CREATE TABLE "users" (
 	CONSTRAINT "users_pk" PRIMARY KEY("workspace_id","id")
 );
 --> statement-breakpoint
+CREATE TABLE "vault_key" (
+	"id" bigint,
+	"key_id" text COLLATE "C" NOT NULL,
+	"wrapped_data_key" text COLLATE "C" NOT NULL,
+	"created_at" timestamp(3) with time zone NOT NULL,
+	"workspace_id" text COLLATE "C",
+	CONSTRAINT "vault_key_pk" PRIMARY KEY("workspace_id","id"),
+	CONSTRAINT "vault_key_one_row" CHECK (id = 1)
+);
+--> statement-breakpoint
 CREATE TABLE "workflow_bindings" (
 	"target_kind" text COLLATE "C",
 	"target_id" text COLLATE "C",
@@ -1892,6 +1978,12 @@ CREATE INDEX "idx_conversations_updated_at" ON "conversations" ("workspace_id","
 CREATE INDEX "idx_conversations_created_at" ON "conversations" ("workspace_id",coalesce("created_at", '-infinity'::timestamptz),"id");--> statement-breakpoint
 CREATE INDEX "idx_conversations_top_level_updated" ON "conversations" ("workspace_id","updated_at","id") WHERE "parent_conversation_id" IS NULL;--> statement-breakpoint
 CREATE INDEX "idx_conversations_search" ON "conversations" USING gin (to_tsvector('simple', translate(coalesce("title", '') || ' ' || coalesce("name", '') || ' ' || coalesce("summary", '') || ' ' || coalesce("project_path", ''), '!"#$%&''()*+,-./:;<=>?@[\]^_`{|}~ÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕÖØÙÚÛÜÝÞàáâãäåçèéêëìíîïñòóôõöùúûüýÿĀāĂăĄąĆćĈĉĊċČčĎďĐĒēĔĕĖėĘęĚěĜĝĞğĠġĢģĤĥĦĨĩĪīĬĭĮįİĲĴĵĶķĹĺĻļĽľĿŁŃńŅņŇňŊŌōŎŏŐőŒŔŕŖŗŘřŚśŜŝŞşŠšŢţŤťŦŨũŪūŬŭŮůŰűŲųŴŵŶŷŸŹźŻżŽžſƁƂƄƆƇƉƊƋƎƏƐƑƓƔƖƗƘƜƝƟƠơƢƤƦƧƩƬƮƯưƱƲƳƵƷƸƼǄǅǇǈǊǋǍǎǏǐǑǒǓǔǕǗǙǛǞǠǢǤǦǧǨǩǪǫǬǮǰǱǲǴǵǶǷǸǹǺǼǾȀȁȂȃȄȅȆȇȈȉȊȋȌȍȎȏȐȑȒȓȔȕȖȗȘșȚțȜȞȟȠȢȤȦȧȨȩȪȬȮȯȰȲȳȺȻȽȾɁɃɄɅɆɈɊɌɎ', '                                aaaaaaæceeeeiiiiðnoooooøuuuuyþaaaaaaceeeeiiiinooooouuuuyyaaaaaaccccccccddđeeeeeeeeeegggggggghhħiiiiiiiiiĳjjkkllllllŀłnnnnnnŋooooooœrrrrrrssssssssttttŧuuuuuuuuuuuuwwyyyzzzzzzsɓƃƅɔƈɖɗƌǝəɛƒɠɣɩɨƙɯɲɵooƣƥʀƨʃƭʈuuʊʋƴƶʒƹƽǆǆǉǉǌǌaaiioouuǖǘǚǜǟǡǣǥggkkooǭǯjǳǳggƕƿnnǻǽǿaaaaeeeeiiiioooorrrruuuussttȝhhƞȣȥaaeeȫȭooȱyyⱥȼƚⱦɂƀʉʌɇɉɋɍɏ')));--> statement-breakpoint
+CREATE INDEX "idx_credential_placements_pending" ON "credential_placements" ("workspace_id","machine_id","credential_id","kind") WHERE "state" = 'removal-pending';--> statement-breakpoint
+CREATE INDEX "idx_credentials_owner" ON "credentials" ("workspace_id","owner_user_id","created_at","id");--> statement-breakpoint
+CREATE INDEX "idx_credentials_identity" ON "credentials" ("workspace_id","owner_user_id","type","identity_fingerprint");--> statement-breakpoint
+CREATE UNIQUE INDEX "credentials_legacy_id" ON "credentials" ("workspace_id","legacy_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "credentials_owner_legacy_key" ON "credentials" ("workspace_id","owner_user_id","legacy_key");--> statement-breakpoint
+CREATE INDEX "idx_credentials_expiry" ON "credentials" ("workspace_id","expires_at") WHERE "expires_at" IS NOT NULL;--> statement-breakpoint
 CREATE UNIQUE INDEX "idx_delivery_receipts_order" ON "delivery_receipts" ("workspace_id","order_id");--> statement-breakpoint
 CREATE INDEX "idx_effects_status_deadline" ON "effects" ("workspace_id","status","deadline_at" NULLS FIRST);--> statement-breakpoint
 CREATE INDEX "idx_effects_status_finished" ON "effects" ("workspace_id","status","finished_at");--> statement-breakpoint
@@ -1959,6 +2051,10 @@ CREATE INDEX "idx_messages_delivery_expiry_implicit" ON "messages" ("workspace_i
 CREATE INDEX "idx_messages_recipient_no_id" ON "messages" ("workspace_id","to_kind","created_at","id") WHERE "to_id" IS NULL;--> statement-breakpoint
 CREATE INDEX "idx_messaging_issue_topics_ref" ON "messaging_issue_topics" ("workspace_id","chat_id","thread_ref");--> statement-breakpoint
 CREATE INDEX "idx_messaging_session_attachments_session" ON "messaging_session_attachments" ("workspace_id","session_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "notices_open_dedupe" ON "notices" ("workspace_id","recipient_user_id","dedupe_key") WHERE "resolved_at" IS NULL;--> statement-breakpoint
+CREATE INDEX "idx_notices_dedupe_key" ON "notices" ("workspace_id","dedupe_key");--> statement-breakpoint
+CREATE INDEX "idx_notices_open" ON "notices" ("workspace_id","resolved_at","id");--> statement-breakpoint
+CREATE INDEX "idx_notices_recipient_open" ON "notices" ("workspace_id","recipient_user_id","resolved_at","created_at","id");--> statement-breakpoint
 CREATE INDEX "idx_notification_facts_issue" ON "notification_facts" ("workspace_id","issue_id");--> statement-breakpoint
 CREATE INDEX "idx_notification_facts_expires" ON "notification_facts" ("workspace_id","expires_at");--> statement-breakpoint
 CREATE INDEX "idx_operations_group_state" ON "operations" ("workspace_id","exclusion_group","state");--> statement-breakpoint
@@ -1998,6 +2094,7 @@ CREATE INDEX "idx_sessions_published_active" ON "sessions" ("workspace_id","publ
 CREATE INDEX "idx_sessions_issue_archived" ON "sessions" ("workspace_id","issue_id","archived");--> statement-breakpoint
 CREATE INDEX "idx_sessions_headless" ON "sessions" ("workspace_id","headless") WHERE "headless" = true;--> statement-breakpoint
 CREATE INDEX "idx_sessions_asking" ON "sessions" ("workspace_id","asks_user") WHERE "asks_user" = true;--> statement-breakpoint
+CREATE INDEX "idx_sessions_credential" ON "sessions" ("workspace_id","credential_id") WHERE "credential_id" IS NOT NULL AND "deleted_at" IS NULL;--> statement-breakpoint
 CREATE INDEX "settings_audit_events_command" ON "settings_audit_events" ("workspace_id","command","id");--> statement-breakpoint
 CREATE INDEX "settings_audit_events_person" ON "settings_audit_events" ("workspace_id","on_behalf_of","id");--> statement-breakpoint
 CREATE INDEX "settings_audit_events_result" ON "settings_audit_events" ("workspace_id","outcome","id");--> statement-breakpoint
@@ -2057,6 +2154,9 @@ CREATE INDEX "workflow_runs_started" ON "workflow_runs" ("workspace_id","started
 CREATE UNIQUE INDEX "workflows_scope_name_active" ON "workflows" ("workspace_id","scope",COALESCE("scope_ref", ''),"name") WHERE "archived_at" IS NULL;--> statement-breakpoint
 ALTER TABLE "account_machine_sends" ADD CONSTRAINT "fk_account_machine_sends_account_id_accounts_id_fk" FOREIGN KEY ("workspace_id","account_id") REFERENCES "accounts"("workspace_id","id") ON DELETE CASCADE;--> statement-breakpoint
 ALTER TABLE "automation_runs" ADD CONSTRAINT "fk_automation_runs_automation_id_automations_id_fk" FOREIGN KEY ("workspace_id","automation_id") REFERENCES "automations"("workspace_id","id") ON DELETE CASCADE;--> statement-breakpoint
+ALTER TABLE "credential_machines" ADD CONSTRAINT "fk_credential_machines_credential_id_credentials_id_fk" FOREIGN KEY ("workspace_id","credential_id") REFERENCES "credentials"("workspace_id","id") ON DELETE CASCADE;--> statement-breakpoint
+ALTER TABLE "credential_placements" ADD CONSTRAINT "fk_credential_placements_credential_id_credentials_id_fk" FOREIGN KEY ("workspace_id","credential_id") REFERENCES "credentials"("workspace_id","id") ON DELETE CASCADE;--> statement-breakpoint
+ALTER TABLE "credential_secrets" ADD CONSTRAINT "fk_credential_secrets_credential_id_credentials_id_fk" FOREIGN KEY ("workspace_id","credential_id") REFERENCES "credentials"("workspace_id","id") ON DELETE CASCADE;--> statement-breakpoint
 ALTER TABLE "delivery_receipts" ADD CONSTRAINT "fk_delivery_receipts_order_id_ship_orders_id_fk" FOREIGN KEY ("workspace_id","order_id") REFERENCES "ship_orders"("workspace_id","id") ON DELETE RESTRICT;--> statement-breakpoint
 ALTER TABLE "account" ADD CONSTRAINT "account_user_id_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "user"("id") ON DELETE CASCADE;--> statement-breakpoint
 ALTER TABLE "identity_membership" ADD CONSTRAINT "identity_membership_account_id_user_id_fkey" FOREIGN KEY ("account_id") REFERENCES "user"("id") ON DELETE SET NULL;--> statement-breakpoint

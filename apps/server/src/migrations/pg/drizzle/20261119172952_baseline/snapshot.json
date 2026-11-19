@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "f23f43c3-7f56-482b-8cb8-7e6ef7165412",
+  "id": "4adefcc7-2f6c-4cf2-8e7f-70d84d51a2df",
   "prevIds": [
     "00000000-0000-0000-0000-000000000000"
   ],
@@ -111,6 +111,30 @@
     {
       "isRlsEnabled": false,
       "name": "conversations",
+      "entityType": "tables",
+      "schema": "public"
+    },
+    {
+      "isRlsEnabled": false,
+      "name": "credential_machines",
+      "entityType": "tables",
+      "schema": "public"
+    },
+    {
+      "isRlsEnabled": false,
+      "name": "credential_placements",
+      "entityType": "tables",
+      "schema": "public"
+    },
+    {
+      "isRlsEnabled": false,
+      "name": "credential_secrets",
+      "entityType": "tables",
+      "schema": "public"
+    },
+    {
+      "isRlsEnabled": false,
+      "name": "credentials",
       "entityType": "tables",
       "schema": "public"
     },
@@ -363,6 +387,12 @@
     {
       "isRlsEnabled": false,
       "name": "native_login_transfers",
+      "entityType": "tables",
+      "schema": "public"
+    },
+    {
+      "isRlsEnabled": false,
+      "name": "notices",
       "entityType": "tables",
       "schema": "public"
     },
@@ -723,6 +753,12 @@
     {
       "isRlsEnabled": false,
       "name": "users",
+      "entityType": "tables",
+      "schema": "public"
+    },
+    {
+      "isRlsEnabled": false,
+      "name": "vault_key",
       "entityType": "tables",
       "schema": "public"
     },
@@ -3031,6 +3067,474 @@
       "default": null,
       "generated": null,
       "identity": null,
+      "name": "credential_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "credential_machines"
+    },
+    {
+      "type": "text COLLATE \"C\"",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "machine_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "credential_machines"
+    },
+    {
+      "type": "text COLLATE \"C\"",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "allowed_by",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "credential_machines"
+    },
+    {
+      "type": "timestamp(3) with time zone",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "credential_machines"
+    },
+    {
+      "type": "text COLLATE \"C\"",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "workspace_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "credential_machines"
+    },
+    {
+      "type": "text COLLATE \"C\"",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "credential_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "credential_placements"
+    },
+    {
+      "type": "text COLLATE \"C\"",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "machine_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "credential_placements"
+    },
+    {
+      "type": "text COLLATE \"C\"",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "kind",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "credential_placements"
+    },
+    {
+      "type": "text COLLATE \"C\"",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "home_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "credential_placements"
+    },
+    {
+      "type": "text COLLATE \"C\"",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "'present'",
+      "generated": null,
+      "identity": null,
+      "name": "state",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "credential_placements"
+    },
+    {
+      "type": "timestamp(3) with time zone",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "credential_placements"
+    },
+    {
+      "type": "timestamp(3) with time zone",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "removed_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "credential_placements"
+    },
+    {
+      "type": "text COLLATE \"C\"",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "workspace_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "credential_placements"
+    },
+    {
+      "type": "text COLLATE \"C\"",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "credential_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "credential_secrets"
+    },
+    {
+      "type": "bigint",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "version",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "credential_secrets"
+    },
+    {
+      "type": "text COLLATE \"C\"",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "ciphertext",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "credential_secrets"
+    },
+    {
+      "type": "text COLLATE \"C\"",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "nonce",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "credential_secrets"
+    },
+    {
+      "type": "text COLLATE \"C\"",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "key_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "credential_secrets"
+    },
+    {
+      "type": "timestamp(3) with time zone",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "credential_secrets"
+    },
+    {
+      "type": "text COLLATE \"C\"",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "workspace_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "credential_secrets"
+    },
+    {
+      "type": "text COLLATE \"C\"",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "credentials"
+    },
+    {
+      "type": "text COLLATE \"C\"",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "owner_user_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "credentials"
+    },
+    {
+      "type": "text COLLATE \"C\"",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "label",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "credentials"
+    },
+    {
+      "type": "text COLLATE \"C\"",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "type",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "credentials"
+    },
+    {
+      "type": "json",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "'{}'",
+      "generated": null,
+      "identity": null,
+      "name": "identity",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "credentials"
+    },
+    {
+      "type": "text COLLATE \"C\"",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "identity_fingerprint",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "credentials"
+    },
+    {
+      "type": "text COLLATE \"C\"",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "'ok'",
+      "generated": null,
+      "identity": null,
+      "name": "status",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "credentials"
+    },
+    {
+      "type": "text COLLATE \"C\"",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "status_reason",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "credentials"
+    },
+    {
+      "type": "timestamp(3) with time zone",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "expires_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "credentials"
+    },
+    {
+      "type": "timestamp(3) with time zone",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "verified_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "credentials"
+    },
+    {
+      "type": "timestamp(3) with time zone",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "limit_reached_until",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "credentials"
+    },
+    {
+      "type": "text COLLATE \"C\"",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "legacy_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "credentials"
+    },
+    {
+      "type": "text COLLATE \"C\"",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "legacy_key",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "credentials"
+    },
+    {
+      "type": "timestamp(3) with time zone",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "credentials"
+    },
+    {
+      "type": "timestamp(3) with time zone",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "updated_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "credentials"
+    },
+    {
+      "type": "text COLLATE \"C\"",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "workspace_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "credentials"
+    },
+    {
+      "type": "text COLLATE \"C\"",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
       "name": "id",
       "entityType": "columns",
       "schema": "public",
@@ -5021,6 +5525,19 @@
       "generated": null,
       "identity": null,
       "name": "edited_on_behalf_of",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "issue_comments"
+    },
+    {
+      "type": "json",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "mentions",
       "entityType": "columns",
       "schema": "public",
       "table": "issue_comments"
@@ -8687,6 +9204,175 @@
       "default": null,
       "generated": null,
       "identity": null,
+      "name": "id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "notices"
+    },
+    {
+      "type": "text COLLATE \"C\"",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "recipient_user_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "notices"
+    },
+    {
+      "type": "text COLLATE \"C\"",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "kind",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "notices"
+    },
+    {
+      "type": "text COLLATE \"C\"",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "subject_kind",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "notices"
+    },
+    {
+      "type": "text COLLATE \"C\"",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "subject_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "notices"
+    },
+    {
+      "type": "text COLLATE \"C\"",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "subject_anchor",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "notices"
+    },
+    {
+      "type": "text COLLATE \"C\"",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "title",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "notices"
+    },
+    {
+      "type": "text COLLATE \"C\"",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "body",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "notices"
+    },
+    {
+      "type": "text COLLATE \"C\"",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "dedupe_key",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "notices"
+    },
+    {
+      "type": "timestamp(3) with time zone",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "notices"
+    },
+    {
+      "type": "timestamp(3) with time zone",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "read_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "notices"
+    },
+    {
+      "type": "timestamp(3) with time zone",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "resolved_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "notices"
+    },
+    {
+      "type": "text COLLATE \"C\"",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "workspace_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "notices"
+    },
+    {
+      "type": "text COLLATE \"C\"",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
       "name": "fact_key",
       "entityType": "columns",
       "schema": "public",
@@ -11076,6 +11762,45 @@
       "generated": null,
       "identity": null,
       "name": "account_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "sessions"
+    },
+    {
+      "type": "text COLLATE \"C\"",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "credential_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "sessions"
+    },
+    {
+      "type": "json",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "effective_auth",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "sessions"
+    },
+    {
+      "type": "json",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "credential_mismatch",
       "entityType": "columns",
       "schema": "public",
       "table": "sessions"
@@ -16446,6 +17171,71 @@
       "table": "users"
     },
     {
+      "type": "bigint",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "vault_key"
+    },
+    {
+      "type": "text COLLATE \"C\"",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "key_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "vault_key"
+    },
+    {
+      "type": "text COLLATE \"C\"",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "wrapped_data_key",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "vault_key"
+    },
+    {
+      "type": "timestamp(3) with time zone",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "vault_key"
+    },
+    {
+      "type": "text COLLATE \"C\"",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "workspace_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "vault_key"
+    },
+    {
       "type": "text COLLATE \"C\"",
       "typeSchema": null,
       "notNull": true,
@@ -18294,6 +19084,223 @@
       "entityType": "indexes",
       "schema": "public",
       "table": "conversations"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "machine_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "credential_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "kind",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": "\"state\" = 'removal-pending'",
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "idx_credential_placements_pending",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "credential_placements"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "owner_user_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "created_at",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "idx_credentials_owner",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "credentials"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "owner_user_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "type",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "identity_fingerprint",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "idx_credentials_identity",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "credentials"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "legacy_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": true,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "credentials_legacy_id",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "credentials"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "owner_user_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "legacy_key",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": true,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "credentials_owner_legacy_key",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "credentials"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "expires_at",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": "\"expires_at\" IS NOT NULL",
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "idx_credentials_expiry",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "credentials"
     },
     {
       "nameExplicit": true,
@@ -20539,6 +21546,153 @@
           "opclass": null
         },
         {
+          "value": "recipient_user_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "dedupe_key",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": true,
+      "where": "\"resolved_at\" IS NULL",
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "notices_open_dedupe",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "notices"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "dedupe_key",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "idx_notices_dedupe_key",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "notices"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "resolved_at",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "idx_notices_open",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "notices"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "recipient_user_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "resolved_at",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "created_at",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "idx_notices_recipient_open",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "notices"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "issue_id",
           "isExpression": false,
           "asc": true,
@@ -21763,6 +22917,34 @@
       "method": "btree",
       "concurrently": false,
       "name": "idx_sessions_asking",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "sessions"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "credential_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": "\"credential_id\" IS NOT NULL AND \"deleted_at\" IS NULL",
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "idx_sessions_credential",
       "entityType": "indexes",
       "schema": "public",
       "table": "sessions"
@@ -23762,6 +24944,63 @@
       "nameExplicit": true,
       "columns": [
         "workspace_id",
+        "credential_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "credentials",
+      "columnsTo": [
+        "workspace_id",
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "fk_credential_machines_credential_id_credentials_id_fk",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "credential_machines"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        "workspace_id",
+        "credential_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "credentials",
+      "columnsTo": [
+        "workspace_id",
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "fk_credential_placements_credential_id_credentials_id_fk",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "credential_placements"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        "workspace_id",
+        "credential_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "credentials",
+      "columnsTo": [
+        "workspace_id",
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "fk_credential_secrets_credential_id_credentials_id_fk",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "credential_secrets"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        "workspace_id",
         "order_id"
       ],
       "schemaTo": "public",
@@ -24975,6 +26214,54 @@
     {
       "columns": [
         "workspace_id",
+        "credential_id",
+        "machine_id"
+      ],
+      "nameExplicit": true,
+      "name": "credential_machines_pk",
+      "entityType": "pks",
+      "schema": "public",
+      "table": "credential_machines"
+    },
+    {
+      "columns": [
+        "workspace_id",
+        "credential_id",
+        "machine_id",
+        "kind"
+      ],
+      "nameExplicit": true,
+      "name": "credential_placements_pk",
+      "entityType": "pks",
+      "schema": "public",
+      "table": "credential_placements"
+    },
+    {
+      "columns": [
+        "workspace_id",
+        "credential_id",
+        "version"
+      ],
+      "nameExplicit": true,
+      "name": "credential_secrets_pk",
+      "entityType": "pks",
+      "schema": "public",
+      "table": "credential_secrets"
+    },
+    {
+      "columns": [
+        "workspace_id",
+        "id"
+      ],
+      "nameExplicit": true,
+      "name": "credentials_pk",
+      "entityType": "pks",
+      "schema": "public",
+      "table": "credentials"
+    },
+    {
+      "columns": [
+        "workspace_id",
         "id"
       ],
       "nameExplicit": true,
@@ -25310,6 +26597,17 @@
       "entityType": "pks",
       "schema": "public",
       "table": "native_login_transfers"
+    },
+    {
+      "columns": [
+        "workspace_id",
+        "id"
+      ],
+      "nameExplicit": true,
+      "name": "notices_pk",
+      "entityType": "pks",
+      "schema": "public",
+      "table": "notices"
     },
     {
       "columns": [
@@ -25913,6 +27211,17 @@
       "entityType": "pks",
       "schema": "public",
       "table": "users"
+    },
+    {
+      "columns": [
+        "workspace_id",
+        "id"
+      ],
+      "nameExplicit": true,
+      "name": "vault_key_pk",
+      "entityType": "pks",
+      "schema": "public",
+      "table": "vault_key"
     },
     {
       "columns": [
@@ -26529,6 +27838,27 @@
       "table": "automations"
     },
     {
+      "value": "kind IN ('home', 'propagated-file')",
+      "name": "credential_placements_kind",
+      "entityType": "checks",
+      "schema": "public",
+      "table": "credential_placements"
+    },
+    {
+      "value": "state IN ('present', 'removal-pending', 'removed')",
+      "name": "credential_placements_state",
+      "entityType": "checks",
+      "schema": "public",
+      "table": "credential_placements"
+    },
+    {
+      "value": "status IN ('ok', 'attention', 'revoked')",
+      "name": "credentials_status",
+      "entityType": "checks",
+      "schema": "public",
+      "table": "credentials"
+    },
+    {
       "value": "validation_result = 'passed'",
       "name": "delivery_receipts_validation_result_check",
       "entityType": "checks",
@@ -26947,6 +28277,13 @@
       "entityType": "checks",
       "schema": "public",
       "table": "ship_train_members"
+    },
+    {
+      "value": "id = 1",
+      "name": "vault_key_one_row",
+      "entityType": "checks",
+      "schema": "public",
+      "table": "vault_key"
     },
     {
       "value": "target_kind IN ('global', 'repository', 'issue', 'session')",
