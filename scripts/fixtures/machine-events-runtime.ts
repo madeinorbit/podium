@@ -9,9 +9,9 @@ import {
   type UpdateGrantMessage,
   type UpdateTarget,
 } from '@podium/protocol'
-import { SessionRegistry } from '../../apps/server/src/relay'
 import { attachWebSockets, serveNative } from '../../apps/server/src/gateway/ws-server'
 import type { UpdateOperationContext } from '../../apps/server/src/modules/updates/operation'
+import { SessionRegistry } from '../../apps/server/src/relay'
 
 console.error('[machine-events] constructing registry')
 const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'blue' })
@@ -154,30 +154,16 @@ try {
   assert.equal((await registry.sessionStore.operations.get(offlineOperation))?.state, 'done')
   assert.deepEqual(await registry.sessionStore.operations.approvedTarget('dev'), target)
 
-  // No fixture call to onMachineConnected/onOperationSettled/onFleetChanged:
-  // only /machine dispatch and the production registry subscriptions can grant.
+  // Reconnecting reports drift; a settled operation leaves no standing grant
+  // authority. Only a new operation may update the machine that returned.
   const reconnected = await connect()
-  await until(() => reconnected.grants().length === 1, 'settled approval catch-up grant')
-  assert.deepEqual(reconnected.grants()[0]?.target, target)
+  assert.equal(reconnected.grants().length, 0)
   assert.equal(await operations.engine.active('lifecycle'), undefined)
-  reconnected.socket.send(
-    JSON.stringify({
-      type: 'updateStatus',
-      grantId: reconnected.grants()[0]!.grantId,
-      version: '1.0.0',
-      targetVersion: target.version,
-      state: 'rejected',
-      detail: 'Invalid signature',
-    }),
-  )
-  await until(
-    async () => (await updates.fleet()).find((m) => m.id === machineId)?.state === 'rejected',
-    'catch-up refusal',
-  )
 
   const activeOperation = await start()
-  await until(() => reconnected.grants().length === 2, 'operation grant')
-  const grant = reconnected.grants()[1]!
+  await until(() => reconnected.grants().length === 1, 'operation grant')
+  const grant = reconnected.grants()[0]!
+  assert.deepEqual(grant.target, target)
   const read = async () => (await registry.sessionStore.operations.get(activeOperation))?.operation
   for (const percent of [10, 65]) {
     reconnected.socket.send(
@@ -235,7 +221,7 @@ try {
       disconnects,
       checks: [
         'real gateway handshake',
-        'zero-role settled catch-up',
+        'reconnect does not revive settled authority',
         'exact approved target',
         'persisted preparation progress',
         'prompt rejected operation',
@@ -271,7 +257,7 @@ try {
     const probe = createServer()
     probe.once('error', reject)
     probe.listen(server.port, '127.0.0.1', () => {
-      probe.close((error) => error ? reject(error) : resolve())
+      probe.close((error) => (error ? reject(error) : resolve()))
     })
   })
   clearTimeout(closeDeadline)
