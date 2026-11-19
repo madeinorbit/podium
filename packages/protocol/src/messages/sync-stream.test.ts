@@ -8,6 +8,7 @@ import { SYNC_WIRE_FIXTURES } from './sync-stream.fixtures'
 import golden from './wire-golden.json'
 import { WelcomeMessage } from './terminal'
 import { SyncPolicy } from './collections'
+import { FEED_ENTITY_KINDS } from './feed'
 
 const { URLSearchParams } = globalThis as unknown as {
   URLSearchParams: new (query: string) => { getAll(name: string): string[]; set(name: string, value: string): void }
@@ -45,7 +46,15 @@ describe('HTTP sync records', () => {
     const next = { ...delta, changes: [{ seq: 8, entity: 'futureEntity', entityId: 'x', op: 'upsert', value: { text: 'a\nb' } }] }
     expect(SyncRecord.safeParse(next).success).toBe(false)
     expect(parseSyncRecord(JSON.stringify(next)).kind).toBe('record')
-    expect(parseSyncRecord(JSON.stringify({ ...next, changes: [{ ...next.changes[0], entity: 'issue' }] })).kind).toBe('refused')
+    // Use the current feed vocabulary: `issue` has no producer arm. Every
+    // known kind must reject a malformed value rather than use the catch-all.
+    for (const entity of FEED_ENTITY_KINDS) {
+      const malformed = { ...next, changes: [{ ...next.changes[0], entity, value: null }] }
+      expect(SyncRecord.safeParse(malformed).success, entity).toBe(false)
+      expect(parseSyncRecord(JSON.stringify(malformed)), entity).toEqual({
+        kind: 'refused', reason: 'invalid-record',
+      })
+    }
   })
   it('refuses malformed JSON, malformed known records, and oversized UTF-8 lines', () => {
     expect(parseSyncRecord('{')).toEqual({ kind: 'refused', reason: 'invalid-json' })
