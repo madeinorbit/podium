@@ -7989,7 +7989,6 @@ describe('event-driven mail delivery wiring [POD-842] [spec:SP-c29e]', () => {
    * under this test's control, and `…Async` because the delivery path awaits.
    */
   it('delivers once when bind/live metadata makes queued issue mail eligible', async () => {
-    vi.useFakeTimers()
     const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       const daemon: ControlMessage[] = []
@@ -8004,6 +8003,7 @@ describe('event-driven mail delivery wiring [POD-842] [spec:SP-c29e]', () => {
         cwd: '/repo',
         issueId: issue.id,
       })
+      vi.useFakeTimers()
       const sent = await registry.modules.messages.send(
         registry.modules.sessions.serverWriter,
         {
@@ -8124,7 +8124,6 @@ describe('event-driven mail delivery wiring [POD-842] [spec:SP-c29e]', () => {
    * contract request (PTY input before 358ad0ffb, POD-4427).
    */
   it("delivers a child worker's queued reply to the coordinator on the parent issue", async () => {
-    vi.useFakeTimers()
     const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       const daemon: ControlMessage[] = []
@@ -8166,6 +8165,7 @@ describe('event-driven mail delivery wiring [POD-842] [spec:SP-c29e]', () => {
         bind(coordinator),
       )
 
+      vi.useFakeTimers()
       await registry.modules.sessions.queueText({
         writer: registry.modules.sessions.serverWriter,
         sessionId: coordinator,

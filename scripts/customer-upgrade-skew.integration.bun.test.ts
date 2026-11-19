@@ -20,23 +20,37 @@
  * refuses the wire-3 daemon (versionSupport(3, wire 2)=too-new → 426).
  */
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test'
-import { createHash, createPrivateKey, sign, randomUUID } from 'node:crypto'
 import { type ChildProcess, execFileSync, spawn } from 'node:child_process'
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { createHash, createPrivateKey, randomUUID, sign } from 'node:crypto'
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { createTRPCClient, httpBatchLink } from '@trpc/client'
 import { asMachineId } from '@podium/model'
+import type { UpdateStatusMessage } from '@podium/protocol'
 import { openDatabase } from '@podium/runtime/sqlite'
-import { identityShapes, writeIdentityShape, type IdentityShape, serverReleaseMigrations, serverRows } from '../packages/runtime/src/fixtures/customer-upgrade'
-import { mintUpdateSigningKey } from '../packages/runtime/src/update-signing-key'
-import { DRIZZLE_MIGRATIONS } from '../apps/server/src/migrations/drizzle-manifest.generated'
+import { createTRPCClient, httpBatchLink } from '@trpc/client'
 import { runDrizzleMigrations } from '../apps/server/src/migrations'
+import { DRIZZLE_MIGRATIONS } from '../apps/server/src/migrations/drizzle-manifest.generated'
+import type { AppRouter } from '../apps/server/src/router'
+import {
+  type IdentityShape,
+  identityShapes,
+  serverReleaseMigrations,
+  serverRows,
+  writeIdentityShape,
+} from '../packages/runtime/src/fixtures/customer-upgrade'
 import { developmentSourceVersion } from '../packages/runtime/src/source-version'
 import { readPendingGrant } from '../packages/runtime/src/update-pending'
-import type { UpdateStatusMessage } from '@podium/protocol'
-import type { AppRouter } from '../apps/server/src/router'
+import { mintUpdateSigningKey } from '../packages/runtime/src/update-signing-key'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 const SKEW_DIR = process.env.PODIUM_SKEW_DIR ?? join(dirname(ROOT), 'podium-skew-checkouts')
@@ -52,25 +66,38 @@ function requireCheckout(dir: string, tag: string): string {
       `skew lane requires the real ${tag} tree at ${dir} (run \`bun scripts/prepare-skew-checkouts.ts\`); refusing to skip a wire-skew acceptance row`,
     )
   }
-  const expected = tag === 'v0.1.0' ? '241dd542e1494c68080d5fd2ef441d7c2e195b12' : 'd09e5d47a4c3200c2ded231269d91ff0d1d90cd1'
-  expect(execFileSync('git', ['rev-parse', 'HEAD'], { cwd: dir, encoding: 'utf8' }).trim()).toBe(expected)
+  const expected =
+    tag === 'v0.1.0'
+      ? '241dd542e1494c68080d5fd2ef441d7c2e195b12'
+      : 'd09e5d47a4c3200c2ded231269d91ff0d1d90cd1'
+  expect(execFileSync('git', ['rev-parse', 'HEAD'], { cwd: dir, encoding: 'utf8' }).trim()).toBe(
+    expected,
+  )
   return cli
 }
 
 const children: ChildProcess[] = []
 async function stopChildren(): Promise<void> {
-  await Promise.all(children.splice(0).map(async (child) => {
-    if (child.exitCode !== null || child.signalCode !== null) return
-    const closed = new Promise<void>((resolve) => child.once('close', () => resolve()))
-    // Each runtime owns a process group, including any server/daemon children.
-    if (child.pid) {
-      try { process.kill(-child.pid, 'SIGKILL') } catch {}
-    }
-    if (child.exitCode === null && child.signalCode === null) await closed
-  }))
+  await Promise.all(
+    children.splice(0).map(async (child) => {
+      if (child.exitCode !== null || child.signalCode !== null) return
+      const closed = new Promise<void>((resolve) => child.once('close', () => resolve()))
+      // Each runtime owns a process group, including any server/daemon children.
+      if (child.pid) {
+        try {
+          process.kill(-child.pid, 'SIGKILL')
+        } catch {}
+      }
+      if (child.exitCode === null && child.signalCode === null) await closed
+    }),
+  )
 }
-const interrupt = () => { void stopChildren().finally(() => process.exit(130)) }
-const terminate = () => { void stopChildren().finally(() => process.exit(143)) }
+const interrupt = () => {
+  void stopChildren().finally(() => process.exit(130))
+}
+const terminate = () => {
+  void stopChildren().finally(() => process.exit(143))
+}
 process.once('SIGINT', interrupt)
 process.once('SIGTERM', terminate)
 afterEach(stopChildren)
@@ -84,13 +111,27 @@ afterAll(async () => {
 function cleanEnv(extra: Record<string, string>): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env }
   for (const key of [
-    'PODIUM_AGENT_RELAY', 'PODIUM_ISSUE_RELAY', 'PODIUM_SESSION_ID', 'PODIUM_SESSION_INSTANCE',
-    'PODIUM_HOME', 'PODIUM_INSTANCE', 'PODIUM_INSTANCE_UUID', 'PODIUM_UNDER_PARENT',
-    'PODIUM_SESSION_RELAY', 'NOTIFY_SOCKET', 'ABDUCO_SOCKET_DIR', 'PODIUM_DEV_SOURCE_ROOT',
-    'PODIUM_SUPERVISOR_MACHINE_ID', 'PODIUM_SUPERVISOR_MACHINE_TOKEN',
-    'PODIUM_SUPERVISOR_UPDATE_PUBKEY', 'PODIUM_SUPERVISOR_SERVICE_ASSIGNMENT',
-    'PODIUM_PARENT_GENERATION', 'PODIUM_REHEARSAL',
-    'PODIUM_APP_VERSION', 'PODIUM_MACHINE_UPDATE_OWNER', 'PODIUM_SKEW_CONTROL_PORT',
+    'PODIUM_AGENT_RELAY',
+    'PODIUM_ISSUE_RELAY',
+    'PODIUM_SESSION_ID',
+    'PODIUM_SESSION_INSTANCE',
+    'PODIUM_HOME',
+    'PODIUM_INSTANCE',
+    'PODIUM_INSTANCE_UUID',
+    'PODIUM_UNDER_PARENT',
+    'PODIUM_SESSION_RELAY',
+    'NOTIFY_SOCKET',
+    'ABDUCO_SOCKET_DIR',
+    'PODIUM_DEV_SOURCE_ROOT',
+    'PODIUM_SUPERVISOR_MACHINE_ID',
+    'PODIUM_SUPERVISOR_MACHINE_TOKEN',
+    'PODIUM_SUPERVISOR_UPDATE_PUBKEY',
+    'PODIUM_SUPERVISOR_SERVICE_ASSIGNMENT',
+    'PODIUM_PARENT_GENERATION',
+    'PODIUM_REHEARSAL',
+    'PODIUM_APP_VERSION',
+    'PODIUM_MACHINE_UPDATE_OWNER',
+    'PODIUM_SKEW_CONTROL_PORT',
   ]) {
     delete env[key]
   }
@@ -121,7 +162,11 @@ const baseEnv = (stateDir: string): Record<string, string> => ({
   PODIUM_ABDUCO: join(TEST_ROOT, 'no-abduco'),
 })
 
-async function waitFor<T>(fn: () => Promise<T | undefined>, label: string | (() => string), timeoutMs = 45_000): Promise<T> {
+async function waitFor<T>(
+  fn: () => Promise<T | undefined>,
+  label: string | (() => string),
+  timeoutMs = 45_000,
+): Promise<T> {
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
     const value = await fn().catch(() => undefined)
@@ -139,15 +184,40 @@ interface Server {
 }
 
 /** Boot an all-in-one server from a given tree (current or an old checkout). */
-async function bootServer(cli: string, cwd: string, tag: string, stateDir = join(TEST_ROOT, `srv-${tag}`), sourceOnly = false): Promise<Server> {
+async function bootServer(
+  cli: string,
+  cwd: string,
+  tag: string,
+  stateDir = join(TEST_ROOT, `srv-${tag}`),
+  sourceOnly = false,
+): Promise<Server> {
   mkdirSync(stateDir, { recursive: true })
   writeFileSync(join(stateDir, 'config.json'), JSON.stringify({ mode: 'all-in-one' }))
   const port = freePort()
   const controlPort = freePort()
   const child = spawn(
     process.execPath,
-    sourceOnly ? ['--conditions=@podium/source', join(ROOT, 'scripts/fixtures/customer-upgrade-server.ts')] : ['--conditions=@podium/source', cli, '--instance', `skew-${tag}`, cwd === OLD_DAEMON ? 'server' : 'parent', '--takeover'],
-    { cwd, detached: true, env: cleanEnv({ ...baseEnv(stateDir), PODIUM_INSTANCE: `skew-${tag}`, PODIUM_PORT: String(port), ...(sourceOnly ? { PODIUM_SKEW_CONTROL_PORT: String(controlPort) } : {}) }), stdio: ['ignore', 'pipe', 'pipe'] },
+    sourceOnly
+      ? ['--conditions=@podium/source', join(ROOT, 'scripts/fixtures/customer-upgrade-server.ts')]
+      : [
+          '--conditions=@podium/source',
+          cli,
+          '--instance',
+          `skew-${tag}`,
+          cwd === OLD_DAEMON ? 'server' : 'parent',
+          '--takeover',
+        ],
+    {
+      cwd,
+      detached: true,
+      env: cleanEnv({
+        ...baseEnv(stateDir),
+        PODIUM_INSTANCE: `skew-${tag}`,
+        PODIUM_PORT: String(port),
+        ...(sourceOnly ? { PODIUM_SKEW_CONTROL_PORT: String(controlPort) } : {}),
+      }),
+      stdio: ['ignore', 'pipe', 'pipe'],
+    },
   )
   let log = ''
   child.stdout?.on('data', (c) => (log += c))
@@ -160,21 +230,42 @@ async function bootServer(cli: string, cwd: string, tag: string, stateDir = join
       return false
     }
   }
-  await waitFor(async () => (await reachable()) || undefined, () => `${tag} server boot\n${log.slice(-1500)}`)
-  const api = createTRPCClient<AppRouter>({ links: [httpBatchLink({ url: `http://127.0.0.1:${port}/trpc` })] })
+  await waitFor(
+    async () => (await reachable()) || undefined,
+    () => `${tag} server boot\n${log.slice(-1500)}`,
+  )
+  const api = createTRPCClient<AppRouter>({
+    links: [httpBatchLink({ url: `http://127.0.0.1:${port}/trpc` })],
+  })
   return { port, api, reachable, controlPort }
 }
 
 /** Run the tree's real daemon in the foreground, never its host persistence launcher. */
-async function launchDaemon(cli: string, cwd: string, tag: string, serverPort: number, pairCode?: string, identity?: { machineId: string; token?: string }, shape?: IdentityShape, installDir?: string) {
+async function launchDaemon(
+  cli: string,
+  cwd: string,
+  tag: string,
+  serverPort: number,
+  pairCode?: string,
+  identity?: { machineId: string; token?: string },
+  shape?: IdentityShape,
+  installDir?: string,
+) {
   const stateDir = join(TEST_ROOT, `daemon-${tag}`)
   mkdirSync(stateDir, { recursive: true })
   const machineId = identity?.machineId ?? randomUUID()
   // Both release generations persist the daemon HELLO identity here. Seed it
   // independently of the server so an unrelated online host cannot satisfy us.
-  writeFileSync(join(stateDir, 'daemon.json'), JSON.stringify({ ...identity, machineId }), { mode: 0o600 })
+  // A fresh current join has no imported legacy daemon identity. Seeding one
+  // would correctly trigger missing-key recovery instead of fresh enrollment.
+  if (!(cwd === ROOT && pairCode))
+    writeFileSync(join(stateDir, 'daemon.json'), JSON.stringify({ ...identity, machineId }), {
+      mode: 0o600,
+    })
   if (shape) writeIdentityShape(stateDir, shape)
-  const env = cleanEnv({ ...baseEnv(stateDir), PODIUM_INSTANCE: `skew-${tag}`,
+  const env = cleanEnv({
+    ...baseEnv(stateDir),
+    PODIUM_INSTANCE: `skew-${tag}`,
     // Release builds bake this label; source builds normally report dev+SHA. The
     // checkout SHA is independently pinned above; this is the real release tree.
     ...(cwd === OLD_DAEMON ? { PODIUM_APP_VERSION: '0.1.0' } : {}),
@@ -186,17 +277,34 @@ async function launchDaemon(cli: string, cwd: string, tag: string, serverPort: n
   // join-config chooses systemd persistence. A bare CLI then delegates launch to
   // the host service manager; an explicit daemon subcommand stays in this group.
   const installedCandidate = cwd === ROOT && installDir
-  const child = spawn(installedCandidate ? join(installDir, 'podium') : process.execPath, [
-    ...(installedCandidate ? [] : ['--conditions=@podium/source', shape ? join(ROOT, 'scripts/fixtures/customer-upgrade-daemon.ts') : cli]), 'daemon', ...(cwd === ROOT ? ['--takeover'] : []),
-    '--server', `ws://127.0.0.1:${serverPort}`, ...(pairCode ? ['--pair', pairCode] : []),
-  ], { cwd, env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] })
+  const child = spawn(
+    installedCandidate ? join(installDir, 'podium') : process.execPath,
+    [
+      ...(installedCandidate
+        ? []
+        : [
+            '--conditions=@podium/source',
+            shape ? join(ROOT, 'scripts/fixtures/customer-upgrade-daemon.ts') : cli,
+          ]),
+      'daemon',
+      ...(cwd === ROOT ? ['--takeover'] : []),
+      '--server',
+      `ws://127.0.0.1:${serverPort}`,
+      ...(pairCode ? ['--pair', pairCode] : []),
+    ],
+    { cwd, env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] },
+  )
   let log = ''
   child.stdout?.on('data', (c) => (log += c))
   child.stderr?.on('data', (c) => (log += c))
   child.on('error', (error) => (log += `\nspawn failed: ${error.message}`))
   children.push(child)
   return {
-    machineId,
+    get machineId() {
+      if (cwd === ROOT && pairCode && existsSync(join(stateDir, 'machine.json')))
+        return JSON.parse(readFileSync(join(stateDir, 'machine.json'), 'utf8')).machineId as string
+      return machineId
+    },
     stateDir,
     exitCode: () => child.exitCode,
     stop: async () => {
@@ -205,7 +313,11 @@ async function launchDaemon(cli: string, cwd: string, tag: string, serverPort: n
       if (child.pid) process.kill(-child.pid, 'SIGKILL')
       await closed
     },
-    log: () => `machine ${machineId}; exit=${child.exitCode}; signal=${child.signalCode}\n${log}` + (existsSync(join(stateDir, 'logs', 'daemon.log')) ? `\n${readFileSync(join(stateDir, 'logs', 'daemon.log'), 'utf8').slice(-1500)}` : ''),
+    log: () =>
+      `machine ${machineId}; exit=${child.exitCode}; signal=${child.signalCode}\n${log}` +
+      (existsSync(join(stateDir, 'logs', 'daemon.log'))
+        ? `\n${readFileSync(join(stateDir, 'logs', 'daemon.log'), 'utf8').slice(-1500)}`
+        : ''),
   }
 }
 
@@ -224,12 +336,29 @@ describe('customer upgrade skew lane', () => {
     const old = await bootServer(oldDaemonCli, OLD_DAEMON, 'enroll-v010')
     const pairing = await old.api.machines.pairingCode.mutate()
     const captured = serverRows.machines.find((m) => m.id === 'machine-peer')!
-    const enrolled = await launchDaemon(oldDaemonCli, OLD_DAEMON, 'enrolled', old.port, pairing.code, { machineId: captured.id })
-    await waitFor(async () => (await old.api.machines.list.query()).find((m) => m.id === enrolled.machineId && m.online), () => enrolled.log())
-    const identity = await waitFor(async () => {
-      const saved = JSON.parse(readFileSync(join(enrolled.stateDir, 'daemon.json'), 'utf8')) as { machineId: string; token?: string }
-      return saved.token ? saved : undefined
-    }, () => `v0.1.0 persisted token\n${enrolled.log()}`)
+    const enrolled = await launchDaemon(
+      oldDaemonCli,
+      OLD_DAEMON,
+      'enrolled',
+      old.port,
+      pairing.code,
+      { machineId: captured.id },
+    )
+    await waitFor(
+      async () =>
+        (await old.api.machines.list.query()).find((m) => m.id === enrolled.machineId && m.online),
+      () => enrolled.log(),
+    )
+    const identity = await waitFor(
+      async () => {
+        const saved = JSON.parse(readFileSync(join(enrolled.stateDir, 'daemon.json'), 'utf8')) as {
+          machineId: string
+          token?: string
+        }
+        return saved.token ? saved : undefined
+      },
+      () => `v0.1.0 persisted token\n${enrolled.log()}`,
+    )
     await enrolled.stop()
     expect(identity.machineId).toBe(captured.id)
     const tokenHash = createHash('sha256').update(identity.token!).digest('hex')
@@ -240,7 +369,10 @@ describe('customer upgrade skew lane', () => {
     const stateDir = join(TEST_ROOT, 'srv-upgraded')
     mkdirSync(stateDir, { recursive: true })
     // The server upgrades in place: its existing publisher key survives too.
-    copyFileSync(join(TEST_ROOT, 'srv-enroll-v010', 'update-signing-key.json'), join(stateDir, 'update-signing-key.json'))
+    copyFileSync(
+      join(TEST_ROOT, 'srv-enroll-v010', 'update-signing-key.json'),
+      join(stateDir, 'update-signing-key.json'),
+    )
     const db = openDatabase(join(stateDir, 'podium.db'))
     try {
       const shipped = new Set(serverReleaseMigrations.migrations)
@@ -249,39 +381,72 @@ describe('customer upgrade skew lane', () => {
       db.exec('PRAGMA foreign_keys = OFF')
       runDrizzleMigrations(db, release)
       for (const row of serverRows.machines) {
-        const machine = row.id === captured.id ? { ...row, token_hash: tokenHash, app_version: '0.1.0' } : row
+        const machine =
+          row.id === captured.id ? { ...row, token_hash: tokenHash, app_version: '0.1.0' } : row
         const keys = Object.keys(machine)
-        db.prepare(`INSERT INTO machines (${keys.join(',')}) VALUES (${keys.map(() => '?').join(',')})`).run(...Object.values(machine))
+        db.prepare(
+          `INSERT INTO machines (${keys.join(',')}) VALUES (${keys.map(() => '?').join(',')})`,
+        ).run(...Object.values(machine))
       }
       for (const row of serverRows.sessions) {
         const keys = Object.keys(row)
-        db.prepare(`INSERT INTO sessions (${keys.join(',')}) VALUES (${keys.map(() => '?').join(',')})`).run(...Object.values(row))
+        db.prepare(
+          `INSERT INTO sessions (${keys.join(',')}) VALUES (${keys.map(() => '?').join(',')})`,
+        ).run(...Object.values(row))
       }
-      expect(db.prepare('SELECT count(*) AS n FROM machines').get()).toEqual({ n: serverRows.machines.length })
-      expect(db.prepare('SELECT token_hash, owner_user_id FROM machines WHERE id = ?').get(identity.machineId))
-        .toEqual({ token_hash: tokenHash, owner_user_id: 'user:sole' })
-    } finally { db.close() }
+      expect(db.prepare('SELECT count(*) AS n FROM machines').get()).toEqual({
+        n: serverRows.machines.length,
+      })
+      expect(
+        db
+          .prepare('SELECT token_hash, owner_user_id FROM machines WHERE id = ?')
+          .get(identity.machineId),
+      ).toEqual({ token_hash: tokenHash, owner_user_id: 'user:sole' })
+    } finally {
+      db.close()
+    }
 
     const server = await bootServer(currentCli, ROOT, 'upgraded', stateDir, true)
     const installDir = join(TEST_ROOT, 'legacy-install')
     mkdirSync(installDir)
     writeFileSync(join(installDir, 'VERSION'), '0.1.0\n')
-    const daemon = await launchDaemon(oldDaemonCli, OLD_DAEMON, 'enrolled', server.port, undefined, identity, undefined, installDir)
-    const online = await waitFor(async () => (await server.api.machines.list.query())
-      .find((m) => m.id === identity.machineId && m.online),
-      () => `enrolled v0.1.0 ready after upgrade\n${daemon.log()}`)
+    const daemon = await launchDaemon(
+      oldDaemonCli,
+      OLD_DAEMON,
+      'enrolled',
+      server.port,
+      undefined,
+      identity,
+      undefined,
+      installDir,
+    )
+    const online = await waitFor(
+      async () =>
+        (await server.api.machines.list.query()).find(
+          (m) => m.id === identity.machineId && m.online,
+        ),
+      () => `enrolled v0.1.0 ready after upgrade\n${daemon.log()}`,
+    )
     expect(online.id).toBe(asMachineId(identity.machineId))
     // v0.1.0 predates daemonReadiness telemetry. Readiness here is an actual
     // request/reply through this exact daemon, not a fabricated newer report.
     mkdirSync(join(daemon.stateDir, 'ready-proof'), { recursive: true })
-    const listing = await server.api.repos.browse.query({ machineId: asMachineId(identity.machineId), path: daemon.stateDir })
+    const listing = await server.api.repos.browse.query({
+      machineId: asMachineId(identity.machineId),
+      path: daemon.stateDir,
+    })
     expect(listing.entries.some((entry) => entry.name === 'ready-proof')).toBe(true)
     expect(daemon.exitCode(), daemon.log()).toBeNull()
     const upgraded = openDatabase(join(stateDir, 'podium.db'))
     try {
-      expect(upgraded.prepare('SELECT credential_kind, token_hash, public_key FROM machines WHERE id = ?').get(identity.machineId))
-        .toEqual({ credential_kind: 'bearer-hash', token_hash: tokenHash, public_key: null })
-    } finally { upgraded.close() }
+      expect(
+        upgraded
+          .prepare('SELECT credential_kind, token_hash, public_key FROM machines WHERE id = ?')
+          .get(identity.machineId),
+      ).toEqual({ credential_kind: 'bearer-hash', token_hash: tokenHash, public_key: null })
+    } finally {
+      upgraded.close()
+    }
     expect(existsSync(join(stateDir, 'enrollment.ledger'))).toBe(false)
 
     // Deliver through the real v0.1.0 verifier, swapper and pending-marker writer.
@@ -302,25 +467,59 @@ fi
 if [ "$1" = --conditions=@podium/source ]; then exec ${shell(process.execPath)} "$@"; fi
 exec ${shell(process.execPath)} --conditions=@podium/source ${shell(currentCli)} "$@"
 `
-    for (const name of ['podium', 'podium-cli']) writeFileSync(join(staged, 'headless', name), launcher, { mode: 0o755 })
+    for (const name of ['podium', 'podium-cli'])
+      writeFileSync(join(staged, 'headless', name), launcher, { mode: 0o755 })
     writeFileSync(join(staged, 'headless', 'VERSION'), targetVersion + '\n')
     const archivePath = join(TEST_ROOT, 'takeover.tar.gz')
     execFileSync('tar', ['-czf', archivePath, '-C', staged, 'headless'])
     const archive = readFileSync(archivePath)
     // Candidate startup consolidates its copy into SQLite and retires the JSON.
-    const key = JSON.parse(readFileSync(join(TEST_ROOT, 'srv-enroll-v010', 'update-signing-key.json'), 'utf8')) as { privateKey: string }
-    const artifact = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: () => new Response(archive) })
+    const key = JSON.parse(
+      readFileSync(join(TEST_ROOT, 'srv-enroll-v010', 'update-signing-key.json'), 'utf8'),
+    ) as { privateKey: string }
+    const artifact = Bun.serve({
+      hostname: '127.0.0.1',
+      port: 0,
+      fetch: () => new Response(archive),
+    })
     try {
-      const outcome = await (await fetch(`http://127.0.0.1:${server.controlPort}`, { method: 'POST',
-        body: JSON.stringify({ machineId: identity.machineId, target: { version: targetVersion, critical: false,
-          artifacts: { headless: { delivery: 'bundle', platforms: { 'linux-x86_64': {
-            url: `http://127.0.0.1:${artifact.port}/bundle`,
-            digest: 'sha256-' + createHash('sha256').update(archive).digest('base64'),
-            signature: sign(null, archive, createPrivateKey({ key: Buffer.from(key.privateKey, 'base64'), format: 'der', type: 'pkcs8' })).toString('base64'),
-          } } } },
-        } }) })).json()
+      const outcome = await (
+        await fetch(`http://127.0.0.1:${server.controlPort}`, {
+          method: 'POST',
+          body: JSON.stringify({
+            machineId: identity.machineId,
+            target: {
+              version: targetVersion,
+              critical: false,
+              artifacts: {
+                headless: {
+                  delivery: 'bundle',
+                  platforms: {
+                    'linux-x86_64': {
+                      url: `http://127.0.0.1:${artifact.port}/bundle`,
+                      digest: 'sha256-' + createHash('sha256').update(archive).digest('base64'),
+                      signature: sign(
+                        null,
+                        archive,
+                        createPrivateKey({
+                          key: Buffer.from(key.privateKey, 'base64'),
+                          format: 'der',
+                          type: 'pkcs8',
+                        }),
+                      ).toString('base64'),
+                    },
+                  },
+                },
+              },
+            },
+          }),
+        })
+      ).json()
       expect(outcome).toMatchObject({ result: 'granted' })
-      await waitFor(async () => daemon.exitCode() !== null || undefined, () => `old daemon applies first grant\n${daemon.log()}`)
+      await waitFor(
+        async () => daemon.exitCode() !== null || undefined,
+        () => `old daemon applies first grant\n${daemon.log()}`,
+      )
       expect(daemon.exitCode(), daemon.log()).toBe(0)
       // This is the marker location produced by the actual old bootstrap, not
       // one seeded by the test. Default installs use ~/.podium/runtime too.
@@ -329,46 +528,101 @@ exec ${shell(process.execPath)} --conditions=@podium/source ${shell(currentCli)}
       expect(pending).toMatchObject({ targetVersion, previousVersion: '0.1.0' })
       expect(existsSync(join(runtimeDir, 'machine-update.json'))).toBe(false)
       const restartedAt = Date.now()
-      const candidate = await launchDaemon(currentCli, ROOT, 'enrolled', server.port, undefined, identity, undefined, installDir)
-      const evidence = await waitFor(async () => {
-        const result = await (await fetch(`http://127.0.0.1:${server.controlPort}`)).json() as {
-          grants: { grantId: string }[]; statuses: { machineId: string; message: UpdateStatusMessage }[];
-          fleet: { id: string; state: string; presenceSource?: string }[];
-        }
-        return result.fleet.some((m) => m.id === identity.machineId && m.state === 'current') &&
-          result.statuses.some(({ machineId, message }) => machineId === identity.machineId &&
-            message.grantId === pending!.grantId && message.state === 'current' && message.phaseDetail === 'current') ? result : undefined
-      }, () => `FIRST grant confirmation after supervisor takeover\n${candidate.log()}`, 45_000)
+      const candidate = await launchDaemon(
+        currentCli,
+        ROOT,
+        'enrolled',
+        server.port,
+        undefined,
+        identity,
+        undefined,
+        installDir,
+      )
+      const evidence = await waitFor(
+        async () => {
+          const result = (await (await fetch(`http://127.0.0.1:${server.controlPort}`)).json()) as {
+            grants: { grantId: string }[]
+            statuses: { machineId: string; message: UpdateStatusMessage }[]
+            fleet: { id: string; state: string; presenceSource?: string }[]
+          }
+          return result.fleet.some((m) => m.id === identity.machineId && m.state === 'current') &&
+            result.statuses.some(
+              ({ machineId, message }) =>
+                machineId === identity.machineId &&
+                message.grantId === pending!.grantId &&
+                message.state === 'current' &&
+                message.phaseDetail === 'current',
+            )
+            ? result
+            : undefined
+        },
+        () => `FIRST grant confirmation after supervisor takeover\n${candidate.log()}`,
+        45_000,
+      )
       expect(Date.now() - restartedAt).toBeLessThan(45_000)
-      expect(evidence.fleet.find((m) => m.id === identity.machineId)?.presenceSource).toBe('supervisor')
+      expect(evidence.fleet.find((m) => m.id === identity.machineId)?.presenceSource).toBe(
+        'supervisor',
+      )
       expect(evidence.grants.map((g) => g.grantId)).toEqual([pending!.grantId])
       expect(readPendingGrant(runtimeDir)).toBeNull()
       expect(existsSync(join(runtimeDir, 'machine-update.json'))).toBe(false)
-      expect(readFileSync(join(daemon.stateDir, 'candidate-boots'), 'utf8').trim().split('\n')).toHaveLength(1)
-      expect(readFileSync(join(daemon.stateDir, 'candidate-daemon-boots'), 'utf8').trim().split('\n')).toHaveLength(1)
+      expect(
+        readFileSync(join(daemon.stateDir, 'candidate-boots'), 'utf8').trim().split('\n'),
+      ).toHaveLength(1)
+      expect(
+        readFileSync(join(daemon.stateDir, 'candidate-daemon-boots'), 'utf8').trim().split('\n'),
+      ).toHaveLength(1)
       expect(candidate.exitCode(), candidate.log()).toBeNull()
-      console.log(JSON.stringify({ firstGrantConfirmed: pending!.grantId, confirmationMs: Date.now() - restartedAt, grants: evidence.grants.length, supervisorBoots: 1, daemonBoots: 1 }))
-    } finally { artifact.stop(true) }
+      console.log(
+        JSON.stringify({
+          firstGrantConfirmed: pending!.grantId,
+          confirmationMs: Date.now() - restartedAt,
+          grants: evidence.grants.length,
+          supervisorBoots: 1,
+          daemonBoots: 1,
+        }),
+      )
+    } finally {
+      artifact.stop(true)
+    }
     expect(await server.reachable()).toBe(true)
   }, 120_000)
 
   it('fresh v0.1.0 pairing refuses actionably and preserves the code for a current daemon', async () => {
     const server = await bootServer(currentCli, ROOT, 'new')
     const pairing = await server.api.machines.pairingCode.mutate()
-    const daemon = await launchDaemon(oldDaemonCli, OLD_DAEMON, 'old-daemon', server.port, pairing.code)
-    await waitFor(async () => daemon.exitCode() ?? undefined, () => `legacy pairing refusal\n${daemon.log()}`)
+    const daemon = await launchDaemon(
+      oldDaemonCli,
+      OLD_DAEMON,
+      'old-daemon',
+      server.port,
+      pairing.code,
+    )
+    await waitFor(
+      async () => daemon.exitCode() ?? undefined,
+      () => `legacy pairing refusal\n${daemon.log()}`,
+    )
     expect(daemon.exitCode()).toBe(78)
-    expect(daemon.log()).toContain('Daemon 0.1.0 cannot pair with this server: keypair enrollment is required; install the current daemon and pair again.')
-    expect((await server.api.machines.list.query()).find((m) => m.id === daemon.machineId)).toBeUndefined()
+    expect(daemon.log()).toContain(
+      'Daemon 0.1.0 cannot pair with this server: keypair enrollment is required; install the current daemon and pair again.',
+    )
+    expect(
+      (await server.api.machines.list.query()).find((m) => m.id === daemon.machineId),
+    ).toBeUndefined()
     const current = await launchDaemon(currentCli, ROOT, 'retry-current', server.port, pairing.code)
-    const online = await waitFor(async () => (await server.api.machines.list.query())
-      .find((m) => m.id === current.machineId && m.online), () => `current daemon reuses unconsumed code\n${current.log()}`)
+    const online = await waitFor(
+      async () =>
+        (await server.api.machines.list.query()).find(
+          (m) => m.id === current.machineId && m.online,
+        ),
+      () => `current daemon reuses unconsumed code\n${current.log()}`,
+    )
     expect(online.id).toBe(asMachineId(current.machineId))
     expect(online.online).toBe(true)
     expect(await server.reachable()).toBe(true)
   }, 120_000)
 
-  it('new daemon + old server: the daemon connects and recovery is skipped, service preserved', async () => {
+  it('new daemon + old server: a refused protocol preserves service and the release credential', async () => {
     // The old server (wire 2) does not gate the daemon HELLO on version, so a
     // current daemon that dials `/daemon` with no `?v=` is admitted. The design's
     // first branch: it connects, the old server returns no binding
@@ -377,27 +631,75 @@ exec ${shell(process.execPath)} --conditions=@podium/source ${shell(currentCli)}
     const pairing = (await server.api.machines.pairingCode.mutate()) as { code: string }
     // Upgrade a genuinely enrolled release credential. Fresh current enrollment
     // belongs to the supervisor/keypair protocol the old server did not implement.
-    const prior = await launchDaemon(oldDaemonCli, OLD_DAEMON, 'new-daemon', server.port, pairing.code)
-    await waitFor(async () => (await server.api.machines.list.query()).find((m) => m.id === prior.machineId && m.online), () => prior.log())
-    const identity = await waitFor(async () => {
-      const saved = JSON.parse(readFileSync(join(prior.stateDir, 'daemon.json'), 'utf8')) as { machineId: string; token?: string }
-      return saved.token ? saved : undefined
-    }, () => prior.log())
-    await prior.stop()
-    await waitFor(async () => (await server.api.machines.list.query()).find((m) => m.id === prior.machineId && !m.online), 'old daemon disconnect before candidate reconnect')
-    const daemon = await launchDaemon(currentCli, ROOT, 'new-daemon', server.port, undefined, identity)
-
-    const online = await waitFor(
-      async () => {
-        const machines = (await server.api.machines.list.query()) as { id: string; online: boolean }[]
-        return machines.find((m) => m.id === daemon.machineId && m.online)
-      },
-      () => `new daemon to connect to the old server\n${daemon.log()}`,
+    const prior = await launchDaemon(
+      oldDaemonCli,
+      OLD_DAEMON,
+      'new-daemon',
+      server.port,
+      pairing.code,
     )
-    expect(online.id).toBe(daemon.machineId)
-    expect(online.online).toBe(true)
-    mkdirSync(join(daemon.stateDir, 'candidate-ready'), { recursive: true })
-    const listing = await server.api.repos.browse.query({ machineId: asMachineId(daemon.machineId), path: daemon.stateDir })
+    await waitFor(
+      async () =>
+        (await server.api.machines.list.query()).find((m) => m.id === prior.machineId && m.online),
+      () => prior.log(),
+    )
+    const identity = await waitFor(
+      async () => {
+        const saved = JSON.parse(readFileSync(join(prior.stateDir, 'daemon.json'), 'utf8')) as {
+          machineId: string
+          token?: string
+        }
+        return saved.token ? saved : undefined
+      },
+      () => prior.log(),
+    )
+    await prior.stop()
+    await waitFor(
+      async () =>
+        (await server.api.machines.list.query()).find((m) => m.id === prior.machineId && !m.online),
+      'old daemon disconnect before candidate reconnect',
+    )
+    const daemon = await launchDaemon(
+      currentCli,
+      ROOT,
+      'new-daemon',
+      server.port,
+      undefined,
+      identity,
+    )
+
+    // The current daemon's HELLO now carries a protocol window the old
+    // release cannot acknowledge. Its refusal must preserve the old service
+    // and credential, rather than quarantine or silently enroll another row.
+    await waitFor(
+      () => daemon.log().includes('protocol mismatch') || undefined,
+      () => daemon.log(),
+    )
+    expect(await server.reachable()).toBe(true)
+    expect(
+      (await server.api.machines.list.query()).find((m) => m.id === daemon.machineId)?.online,
+    ).toBe(false)
+    await daemon.stop()
+    const restored = await launchDaemon(
+      oldDaemonCli,
+      OLD_DAEMON,
+      'new-daemon',
+      server.port,
+      undefined,
+      identity,
+    )
+    await waitFor(
+      async () =>
+        (await server.api.machines.list.query()).find(
+          (m) => m.id === restored.machineId && m.online,
+        ),
+      () => restored.log(),
+    )
+    mkdirSync(join(restored.stateDir, 'candidate-ready'), { recursive: true })
+    const listing = await server.api.repos.browse.query({
+      machineId: asMachineId(restored.machineId),
+      path: restored.stateDir,
+    })
     expect(listing.entries.some((entry) => entry.name === 'candidate-ready')).toBe(true)
     expect(await server.reachable()).toBe(true)
   }, 120_000)
@@ -427,7 +729,6 @@ exec ${shell(process.execPath)} --conditions=@podium/source ${shell(currentCli)}
   }, 120_000)
 })
 
-
 // These rows require only the candidate tree. Missing old executables still fail
 // the separate skew describe above, never silently skip its cross-version rows.
 describe('customer upgrade real-install identities', () => {
@@ -436,29 +737,59 @@ describe('customer upgrade real-install identities', () => {
       const stateDir = join(TEST_ROOT, `shape-${shape.name}`)
       mkdirSync(stateDir)
       writeIdentityShape(stateDir, shape)
-      writeFileSync(join(stateDir, 'update-signing-key.json'), JSON.stringify(mintUpdateSigningKey()))
+      writeFileSync(
+        join(stateDir, 'update-signing-key.json'),
+        JSON.stringify(mintUpdateSigningKey()),
+      )
       const hash = createHash('sha256').update(shape.token).digest('hex')
       const db = openDatabase(join(stateDir, 'podium.db'))
       try {
         const shipped = new Set(serverReleaseMigrations.migrations)
-        runDrizzleMigrations(db, DRIZZLE_MIGRATIONS.filter((m) => shipped.has(m.name)))
+        runDrizzleMigrations(
+          db,
+          DRIZZLE_MIGRATIONS.filter((m) => shipped.has(m.name)),
+        )
         for (const row of serverRows.machines) {
           const machine = row.id === shape.authenticatedId ? { ...row, token_hash: hash } : row
           const keys = Object.keys(machine)
-          db.prepare(`INSERT INTO machines (${keys.join(',')}) VALUES (${keys.map(() => '?').join(',')})`).run(...Object.values(machine))
+          db.prepare(
+            `INSERT INTO machines (${keys.join(',')}) VALUES (${keys.map(() => '?').join(',')})`,
+          ).run(...Object.values(machine))
         }
-        expect(db.prepare('SELECT count(*) AS n FROM machines').get()).toEqual({ n: serverRows.machines.length })
-        for (const id of shape.absentIds) expect(db.prepare('SELECT id FROM machines WHERE id = ?').get(id)).toBeUndefined()
-        for (const id of shape.historicalIds) expect(db.prepare('SELECT hostname FROM machines WHERE id = ?').get(id)).toEqual({ hostname: 'laptop' })
-      } finally { db.close() }
+        expect(db.prepare('SELECT count(*) AS n FROM machines').get()).toEqual({
+          n: serverRows.machines.length,
+        })
+        for (const id of shape.absentIds)
+          expect(db.prepare('SELECT id FROM machines WHERE id = ?').get(id)).toBeUndefined()
+        for (const id of shape.historicalIds)
+          expect(db.prepare('SELECT hostname FROM machines WHERE id = ?').get(id)).toEqual({
+            hostname: 'laptop',
+          })
+      } finally {
+        db.close()
+      }
       const server = await bootServer(currentCli, ROOT, shape.name, stateDir, true)
-      const daemon = await launchDaemon(currentCli, ROOT, shape.name, server.port, undefined,
-        { machineId: shape.authenticatedId }, shape)
-      await waitFor(async () => (await server.api.machines.list.query()).find((m) => m.id === shape.authenticatedId && m.online),
-        () => `first ${shape.name} attach\n${daemon.log()}`)
+      const daemon = await launchDaemon(
+        currentCli,
+        ROOT,
+        shape.name,
+        server.port,
+        undefined,
+        { machineId: shape.authenticatedId },
+        shape,
+      )
+      await waitFor(
+        async () =>
+          (await server.api.machines.list.query()).find(
+            (m) => m.id === shape.authenticatedId && m.online,
+          ),
+        () => `first ${shape.name} attach\n${daemon.log()}`,
+      )
       expect(daemon.exitCode(), daemon.log()).toBeNull()
       const machines = await server.api.machines.list.query()
-      expect(machines.map((m) => m.id).sort()).toEqual(serverRows.machines.map((m) => asMachineId(m.id)).sort())
+      expect(machines.map((m) => m.id).sort()).toEqual(
+        serverRows.machines.map((m) => asMachineId(m.id)).sort(),
+      )
       for (const root of [stateDir, daemon.stateDir]) {
         const saved = JSON.parse(readFileSync(join(root, 'machine.json'), 'utf8'))
         expect(saved.machineId).toBe(shape.authenticatedId)
@@ -469,10 +800,19 @@ describe('customer upgrade real-install identities', () => {
       }
       const upgraded = openDatabase(join(stateDir, 'podium.db'))
       try {
-        expect(upgraded.prepare('SELECT token_hash FROM machines WHERE id = ?').get(shape.authenticatedId)).toEqual({ token_hash: hash })
+        expect(
+          upgraded
+            .prepare('SELECT token_hash FROM machines WHERE id = ?')
+            .get(shape.authenticatedId),
+        ).toEqual({ token_hash: hash })
         // The live daemon refreshes its own hostname; historical rows stay untouched.
-        for (const id of shape.historicalIds.filter((id) => id !== shape.authenticatedId)) expect(upgraded.prepare('SELECT hostname FROM machines WHERE id = ?').get(id)).toEqual({ hostname: 'laptop' })
-      } finally { upgraded.close() }
+        for (const id of shape.historicalIds.filter((id) => id !== shape.authenticatedId))
+          expect(upgraded.prepare('SELECT hostname FROM machines WHERE id = ?').get(id)).toEqual({
+            hostname: 'laptop',
+          })
+      } finally {
+        upgraded.close()
+      }
       await daemon.stop()
     }, 90_000)
   }

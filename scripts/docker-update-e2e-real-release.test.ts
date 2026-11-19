@@ -45,7 +45,10 @@ afterAll(() => {
  */
 
 function fromTag(path: string): string {
-  return execFileSync('git', ['show', `v0.1.0:${path}`], { cwd: root, encoding: 'utf8' })
+  return execFileSync('git', ['show', `241dd542e1494c68080d5fd2ef441d7c2e195b12:${path}`], {
+    cwd: root,
+    encoding: 'utf8',
+  })
 }
 
 describe('real-release row expectations still match the code they describe', () => {

@@ -42,6 +42,7 @@ describe('outbox write path e2e (live server)', () => {
   it('replayed resumeAndSend returns the recorded result and leaves exactly ONE queued message', async () => {
     const cwd = mkdtempSync(join(tmpdir(), 'podium-outbox-e2e-cwd-'))
     tmpDirs.push(cwd)
+    await attachHostDaemon(server.registry, () => {}, { repos: [cwd, '/repo'] })
     const { sessionId } = await trpc.sessions.create.mutate({ agentKind: 'shell', cwd })
 
     // The machine accepted the spawn but disappeared before binding it.
@@ -71,7 +72,10 @@ describe('outbox write path e2e (live server)', () => {
     const sessions = await trpc.sessions.list.query()
     const meta = sessions.find((s) => s.sessionId === sessionId)
     expect(meta?.status).toBe('starting')
-    expect(meta?.queuedMessageCount).toBe(1)
+    // Queue state moved off session metadata into the durable delivery ledger.
+    const queued = await server.registry.sessionStore.sync.listQueuedMessages(sessionId)
+    expect(queued).toEqual([expect.objectContaining({ text: 'queued while offline' })])
+    expect(new Set(queued.map((message) => message.id)).size).toBe(1)
   })
 
   it('replayed issues.create returns the original issue; issues.list shows ONE issue', async () => {
