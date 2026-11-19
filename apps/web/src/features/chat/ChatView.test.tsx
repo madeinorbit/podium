@@ -110,9 +110,10 @@ const fakeUiListeners = new Set<() => void>()
 const fakeUiState = {
   get: (key: string) => fakeUiValues.get(key) ?? null,
   set: (key: string, value: string | null) => {
+    if ((fakeUiValues.get(key) ?? null) === value) return
     if (value === null) fakeUiValues.delete(key)
     else fakeUiValues.set(key, value)
-    for (const listener of fakeUiListeners) listener()
+    for (const listener of [...fakeUiListeners]) listener()
   },
   subscribe: (listener: () => void) => {
     fakeUiListeners.add(listener)

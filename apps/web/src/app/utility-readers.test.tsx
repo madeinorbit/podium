@@ -8,6 +8,7 @@ import type { SessionView } from '@podium/client-core/session-values'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import { createSubscriptionStore } from '@podium/client-core/test-support/local-store'
 import type { IssueNavigationModel } from '@podium/client-core/values'
+import { MobxPool } from '@podium/client-graph/pool'
 import { asIssueId, asSessionId, asUserId, type TaskCostWire } from '@podium/model/browser'
 import { act, cleanup, render, renderHook } from '@testing-library/react'
 import type { ReactNode } from 'react'
@@ -27,16 +28,18 @@ import type { Trpc } from './trpc'
 
 // Keep the real provider, hooks, subscription store and counters. Only runtime
 // construction is replaced; a planted legacy selector therefore really subscribes.
-const fixture = vi.hoisted(() => ({ handle: null as unknown }))
+const fixture = vi.hoisted(() => ({ handle: null as unknown, pool: null as MobxPool | null }))
 vi.mock('../../../../packages/client-core/src/runtime-root/root', () => ({
   createClientRuntime: () => fixture.handle,
 }))
 vi.mock('@/app/store-worklist-pool', () => ({
-  useWorklistPool: () => ({}),
+  useWorklistPool: () => fixture.pool,
 }))
 
 afterEach(() => {
   cleanup()
+  fixture.pool?.dispose()
+  fixture.pool = null
   resetUsageCache()
   resetPolledQueryCache()
   storeStats.enable(false)
@@ -66,6 +69,7 @@ const issue = {
 } as unknown as IssueNavigationModel
 
 function setup() {
+  fixture.pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
   const reads = {
     usage: vi.fn(async () => ({ hostname: 'synthetic', buckets: [] })),
     quota: vi.fn(async () => []),

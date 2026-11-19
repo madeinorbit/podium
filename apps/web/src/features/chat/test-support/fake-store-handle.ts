@@ -85,7 +85,7 @@ export function setFakeStore(patch: Partial<FakeSnapshot>): void {
     chatSendsFor: snapshot.chatSendsFor,
     ...patch,
   }
-  for (const listener of listeners) listener()
+  for (const listener of [...listeners]) listener()
 }
 
 /** Back to empty, between tests. */
