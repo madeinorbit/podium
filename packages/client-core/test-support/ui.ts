@@ -159,6 +159,9 @@ export function addFixtureUi(
         )) {
           if (
             !actions.has(key) &&
+            // These operate on this adapter's own lifetime and state. Forwarding
+            // a snapshot's bound method would patch or dispose a different owner.
+            !['patch', 'dispose', 'setNavigation'].includes(key) &&
             typeof descriptor.value === 'function' &&
             typeof Reflect.get(ui, key) === 'function'
           ) {

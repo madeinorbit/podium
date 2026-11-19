@@ -343,7 +343,8 @@ describe('no chat payload carries attribution', () => {
     // authority still stamps who answered (doc §3.1.3 A3). It is optional on the
     // wire and undefined for a transcript-only question with no pending row.
     expect(answerAsk.mock.calls[0]?.[0]).toBe(asSessionId('s1'))
-    expect(payload).toMatchObject({ via: 'menu', choices: [{ optionIndices: [0] }] })
+    // Menu option indices on the command wire are one-based.
+    expect(payload).toMatchObject({ via: 'menu', choices: [{ optionIndices: [1] }] })
     expect(
       Object.keys(payload).filter((key) => !['via', 'choices', 'interactionId'].includes(key)),
     ).toEqual([])

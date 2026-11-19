@@ -431,8 +431,9 @@ describe('pool navigation uses the existing gesture semantics', () => {
     )
     const calls: string[] = []
     const changed = observable.box(0)
+    const publications: { changed: number; calls: string[] }[] = []
     const stop = autorun(() => {
-      if (changed.get() > 0) calls.push('published')
+      if (changed.get() > 0) publications.push({ changed: changed.get(), calls: [...calls] })
     })
     const store = {
       ...referenceState(runtime),
@@ -468,15 +469,8 @@ describe('pool navigation uses the existing gesture semantics', () => {
     )
     work.selectPanelForIssue('synthetic-3', asSessionId('synthetic-session-3'))
     stop()
-    expect(calls).toEqual([
-      'trace',
-      'navigate',
-      'issue-read',
-      'defer',
-      'session-read',
-      'published',
-      'focus',
-    ])
+    expect(calls).toEqual(['trace', 'navigate', 'issue-read', 'defer', 'session-read', 'focus'])
+    expect(publications).toEqual([{ changed: 4, calls: [...calls] }])
     expect(store.navigateWorkspace).toHaveBeenCalledExactlyOnceWith({
       selectedIssueId: 'synthetic-1',
       selectedWorktree: ROOT,
