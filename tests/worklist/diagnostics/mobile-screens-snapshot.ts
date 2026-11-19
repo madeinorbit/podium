@@ -173,9 +173,15 @@ const openings = new WeakMap<MobxPool, Map<string, MissionScreen>>()
 function opening(pool: MobxPool, rootId: string): MissionScreen {
   attachMissionTestPreferences(pool)
   let byRoot = openings.get(pool)
-  if (!byRoot) openings.set(pool, (byRoot = new Map()))
+  if (!byRoot) {
+    byRoot = new Map()
+    openings.set(pool, byRoot)
+  }
   let screen = byRoot.get(rootId)
-  if (!screen) byRoot.set(rootId, (screen = new MissionScreen(pool, rootId)))
+  if (!screen) {
+    screen = new MissionScreen(pool, rootId)
+    byRoot.set(rootId, screen)
+  }
   return screen
 }
 function phoneMission(

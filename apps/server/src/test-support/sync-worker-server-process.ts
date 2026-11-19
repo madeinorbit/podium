@@ -1,4 +1,5 @@
 /** Standalone Bun fixture: real worker_threads never run inside Vitest's fork. */
+import { setTimeout } from 'node:timers/promises'
 import { firstAdminMemberId } from '@podium/model'
 import { saveConfig } from '@podium/runtime/config'
 import { memberCredentials } from '../identity/member-credentials'
@@ -30,7 +31,7 @@ const cookie = cookieOf(
     { scheme: 'http', sameMachine: true, clientAddress: '127.0.0.1' },
   ),
 )
-while (!server.syncWorker()) await Bun.sleep(10)
+while (!server.syncWorker()) await setTimeout(10)
 let closing = false
 const close = async () => {
   if (closing) return

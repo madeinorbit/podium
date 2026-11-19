@@ -141,7 +141,7 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
             sessionId: asSessionId(session.id),
             cmd: 'fixture',
             cwd: session.cwd,
-            agentKind: session.agentKind,
+            agentKind: session.agentKind as import('@podium/model').AgentKind,
             geometry: { cols: 80, rows: 24 },
           })
       }

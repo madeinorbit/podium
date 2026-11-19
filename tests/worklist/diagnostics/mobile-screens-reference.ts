@@ -16,7 +16,7 @@ import {
   taskProgressMap,
   taskStateWord,
 } from '@podium/client-core/values'
-import { dedupeSessionsByResume, isFinished } from '@podium/model'
+import { asIssueId, dedupeSessionsByResume, isFinished } from '@podium/model'
 import { expect } from 'vitest'
 import type { MobileScreenInput } from './mobile-screens-snapshot'
 import { allIssueViewModels } from './reference/issue-view-models'
@@ -182,7 +182,7 @@ export function expectMobileScreens(
     return value
   }
   expect(actual.pending, label).toBe(0)
-  const root = input.selectedId ? missionRootFor(issues, input.selectedId) : undefined
+  const root = input.selectedId ? missionRootFor(issues, asIssueId(input.selectedId)) : undefined
   const rawOrder = dedupeSessionsByResume(
     [...source.replica.rows('sessions')].sort((a, b) => a.sessionId.localeCompare(b.sessionId)),
   )
