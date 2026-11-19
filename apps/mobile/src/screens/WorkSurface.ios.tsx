@@ -55,6 +55,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { StyleSheet, useWindowDimensions, View } from 'react-native'
 import type { SearchBarCommands } from 'react-native-screens'
 import { NewWorkButton } from '../components/NewWorkButton'
+import { ScreenRefreshMark } from '../components/ScreenRefreshMark'
 import { MIN_REFRESH_CONFIRMATION_MS } from '../hooks/useRefreshableTab'
 import { useAgeNow } from '../lib/clock-hooks'
 import { workMenuActionIds } from '../lib/work-menu'
@@ -126,6 +127,9 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
         }}
       />
       <Stack.Toolbar placement="left">
+        <Stack.Toolbar.View>
+          <ScreenRefreshMark refreshing={phone.refreshing} />
+        </Stack.Toolbar.View>
         <Stack.Toolbar.Menu accessibilityLabel={`Work list: ${WORK_LANE_LABELS[phone.lane]}`}>
           <Stack.Toolbar.Label>{WORK_LANE_LABELS[phone.lane]}</Stack.Toolbar.Label>
           {WORK_LANES.map((lane) => (

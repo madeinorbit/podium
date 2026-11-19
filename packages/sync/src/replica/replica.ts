@@ -49,9 +49,11 @@ import {
   loadInstancesFromDisk,
   pointerTargetOf,
   type ResidentLoadPort,
+  recordStale,
   retainedComesWith,
   rowKeyOf,
   splitRowKey,
+  staleRecordHolders,
 } from './disk-index'
 import {
   DAY_MS,
@@ -2416,6 +2418,16 @@ export class Replica implements DeviceCollectionReads {
       this.store.readInstances().has(key) &&
       this.store.readDiskIndex().instance(key)?.stale === true
     )
+  }
+
+  /** Freshness of one record through all of its disk-index holders. */
+  recordStale(entity: string, id: string): boolean {
+    return recordStale(this.store.readDiskIndex(), this.store.readInstances(), entity, id)
+  }
+
+  /** Source instances to reload when a stale record is read. */
+  staleRecordHolders(entity: string, id: string): readonly InstanceRecord[] {
+    return staleRecordHolders(this.store.readDiskIndex(), this.store.readInstances(), entity, id)
   }
 
   /**

@@ -181,6 +181,7 @@ export const MissionScreen = observer(function MissionScreen() {
 
   return (
     <Screen
+      refreshing={screen?.refreshing ?? false}
       title={headerIssue ? headerIssue.title : 'Mission'}
       onBack={() => (router.canGoBack() ? router.back() : router.replace('/work'))}
       bareBack

@@ -286,9 +286,13 @@
       "inputs": [
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/apps/mobile/vite.conversation-stream.config.ts",
+        "$TURBO_ROOT$/apps/mobile/vite.harness.config.ts",
         "$TURBO_ROOT$/apps/mobile/vite.inbox.config.ts",
         "$TURBO_ROOT$/apps/mobile/resolve-package.ts",
+        "$TURBO_ROOT$/apps/mobile/src/screens/IssuesScreen.tsx",
+        "$TURBO_ROOT$/apps/mobile/src/screens/MissionDetailsScreen.tsx",
         "$TURBO_ROOT$/apps/mobile/src/screens/settings-machine-readers.ts",
+        "$TURBO_ROOT$/apps/mobile/test/inbox-svg.tsx",
         "$TURBO_ROOT$/docs/measurements/click-speed-baseline.json",
         "$TURBO_ROOT$/apps/server/src/features.ts",
         "$TURBO_ROOT$/apps/server/src/modules/issues/projection.ts",

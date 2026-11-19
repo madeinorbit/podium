@@ -9,6 +9,7 @@ import { projectIndex } from './projects'
 
 import { compareShallow, compareStructural } from 'mobx'
 import { keyedViews } from '../cached'
+import { ISSUE_STUBS } from '../collections'
 import { hostOf, type IssueModel, type UserPreferencesModel } from '../models'
 import type { MobxPool } from '../pool'
 import { WorklistIssue } from './issue'
@@ -151,6 +152,19 @@ export class SidebarIndex {
   get loading(): boolean {
     const collections = this.pool.collections
     return collections.firstDownload && !collections.complete(SIDEBAR_COLLECTION)
+  }
+
+  /** Freshness of the policy instances this view uses, independent of other open trees. */
+  get refreshing(): boolean {
+    return (
+      this.pool.collections.reading(undefined, [
+        SIDEBAR_COLLECTION,
+        ISSUE_STUBS,
+        ...['issueProjection.recent', 'session.live', 'session.asking', 'session.recent'].map(
+          (collection) => ({ collection, part: 'main' as const }),
+        ),
+      ]) === 'refreshing'
+    )
   }
 
   row(id: string): WorklistIssue | typeof LOADING | undefined {

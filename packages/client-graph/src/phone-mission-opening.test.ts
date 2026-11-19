@@ -23,13 +23,16 @@ import {
 } from '../../sync/src/conformance/collection-server'
 import { inMemoryInstantiation } from '../../sync/src/conformance/in-memory'
 import { policyBudgets, TEST_BUDGETS } from '../../sync/src/conformance/test-budgets'
+import { instanceKey } from '../../sync/src/replica/cache-state'
 import { CollectionLoader, type LoaderSchedule } from '../../sync/src/replica/loader'
 import { Replica } from '../../sync/src/replica/replica'
 import type { CachePolicy, ReplicaEvent } from '../../sync/src/replica/types'
 import type { SyncUnitOfWork } from '../../sync/src/span'
+import { treeOf } from './collections'
 import { createWorklistPool } from './create'
 import { MissionScreen, missionOpeningResolved, missionRootId } from './mission-screen'
 import { attachMissionTestPreferences } from './mission-screen.test.fixture'
+import { settled } from './mission-view'
 import { fixedLocals } from './shared/locals-source'
 import { createRowSource } from './shared/row-source'
 import { LOADING } from './worklist/rollup'
@@ -202,3 +205,143 @@ describe('the phone opens a mission while the first download is saving (POD-7169
     }
   })
 })
+
+it('a fresh offline kernel opens the cached phone mission from disk, refreshing, then replaces it in place', async () => {
+  const server = new CollectionServer()
+  server.policy = POLICY
+  server.put(ISSUE, 'R', value('R', { title: 'Cached mission' }))
+  for (let n = 0; n < 970; n++)
+    server.put(
+      ISSUE,
+      `T${n}`,
+      value(`T${n}`, { parentId: 'R', stage: 'done', closedReason: 'done' }),
+    )
+  server.put('session', 'S', session('S', { issueId: 'T0', status: 'ended', cwd: '/synthetic' }))
+  const storage = await inMemoryInstantiation.open()
+  const { cache } = storage.viewFor('u-ada')
+  function runtime() {
+    const timer = manualSchedule()
+    let loader: CollectionLoader | undefined
+    let kernel: Replica | undefined
+    const facade = createKernelReplica({
+      cache,
+      side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }),
+      exits: (entity, id) => kernel?.exitKind(entity, id),
+      collections: () => kernel,
+      loader: () => loader,
+    })
+    kernel = new Replica({
+      store: cache,
+      authority: server,
+      memory: { warmInstances: TEST_BUDGETS.warmInstances },
+      now: () => WORLD_NOW,
+      view: () => loader?.takeView() ?? [],
+      request: (specs) => loader?.request(specs),
+      onEvent: (event) => {
+        facade.onKernelEvent(event)
+        loader?.onEvent(event)
+      },
+      batchEvents: (emit) => (loader ? loader.batch(() => facade.batch(emit)) : facade.batch(emit)),
+    })
+    loader = new CollectionLoader({ replica: kernel, schedule: timer.schedule })
+    const rows = createRowSource({ principal: { userId: 'u-ada' } }, facade, {
+      pending: { byRow: () => new Map() },
+    })
+    const locals = fixedLocals({ selectedIssueId: 'R', coarseNow: WORLD_NOW })
+    const handle = createWorklistPool(rows.source, locals.source, { schedule: () => () => {} })
+    attachMissionTestPreferences(handle.pool)
+    const settle = async () => {
+      await kernel!.settled()
+      await ticks(2)
+      timer.due()
+      await loader!.flush()
+      await kernel!.settled()
+      await ticks(2)
+      rows.flush()
+      handle.pool.hydrate()
+    }
+    return {
+      kernel,
+      loader,
+      pool: handle.pool,
+      settle,
+      dispose() {
+        kernel!.disconnect()
+        loader!.dispose()
+        rows.dispose()
+        locals.dispose()
+        handle.dispose()
+      },
+    }
+  }
+  let current = runtime()
+  let opened: MissionScreen | undefined
+  let stop = () => {}
+  try {
+    current.kernel.connect()
+    for (let n = 0; n < 15 && current.kernel.posture !== 'live'; n++) await current.settle()
+    opened = new MissionScreen(current.pool, 'R', { fullOnly: true })
+    stop = autorun(() => {
+      void opened!.ready
+      settled(() => opened!.crew)
+    })
+    for (let n = 0; n < 30 && !opened.ready; n++) await current.settle()
+    expect(opened.ready).toBe(true)
+    stop()
+    opened.close()
+    const policy = new Set(
+      POLICY.steps.flatMap((step) =>
+        step.collections.map((collection) =>
+          instanceKey({
+            collection,
+            part: collection === 'issueProjection.stubs' ? 'stub' : 'main',
+          }),
+        ),
+      ),
+    )
+    const keys = [...cache.readInstances().keys()].filter((key) => !policy.has(key))
+    await current.kernel.unload(keys)
+    cache.applyAtomic({ operations: [], instances: keys.map((key) => ({ kind: 'stale', key })) })
+    current.dispose()
+    const fetches = server.fetches.length
+    current = runtime()
+    let rootId: ReturnType<typeof missionRootId> = LOADING
+    stop = autorun(() => {
+      rootId = missionRootId(current.pool, 'R', true)
+    })
+    for (let n = 0; n < 12 && rootId === LOADING; n++) await current.settle()
+    expect(rootId).toBe('R')
+    stop()
+    opened = new MissionScreen(current.pool, 'R', { fullOnly: true })
+    const readings: string[] = []
+    stop = autorun(() => {
+      if (!missionOpeningResolved(opened!, rootId, false)) return
+      const reading = current.pool.collections.reading(opened!.root.title, [treeOf('R')])
+      if (readings.at(-1) !== reading) readings.push(reading)
+    })
+    for (let n = 0; n < 35 && !missionOpeningResolved(opened, rootId, false); n++)
+      await current.settle()
+    expect(
+      missionOpeningResolved(opened, rootId, false),
+      JSON.stringify({
+        rootId,
+        ready: opened.ready,
+        tree: current.pool.collections.status(treeOf('R')),
+        crew: settled(() => opened!.crew),
+        readings,
+      }),
+    ).toBe(true)
+    expect(readings).toEqual(['refreshing'])
+    expect(opened.rows).toHaveLength(971)
+    expect(server.fetches).toHaveLength(fetches)
+    server.put(ISSUE, 'R', value('R', { title: 'Updated mission' }))
+    current.kernel.connect()
+    for (let n = 0; n < 20 && readings.at(-1) !== 'here'; n++) await current.settle()
+    expect(readings).toEqual(['refreshing', 'here'])
+    expect(opened.root.title).toBe('Updated mission')
+  } finally {
+    stop()
+    opened?.close()
+    current.dispose()
+  }
+}, 120_000)

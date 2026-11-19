@@ -27503,20 +27503,20 @@
       "file": "packages/client-graph/src/issue-board-layout.ts",
       "holder": "createBoardLayout/columnIds/keyedComputed:callback/ids/callback/untracked:callback",
       "rule": "materialize:Set",
-      "tokens": "4ff59a3b2e4a72b7edc6337a3b92bfbb2cd8d23285064b664ff09a6e0a8df584",
+      "tokens": "9d7bcaca3a2374d74f42eff9e6e26803a00c115552c8fed142ab7f92db6cf626",
       "gate": [
-        "then:69ae33e974b3d4654a40fdca8d82a78ec6db7ec61f3e6778c7540e05fab35048"
+        "then:947479c4a9a4005023a62da2ce04efc70ffbd92a0720b9b66c2e7abd0fd4512c"
       ],
       "origin": [
-        "60e8b7ee28d48c6fb1978847f2a38b0e10959678c4c99e9b2a627b5591377f06"
+        "128c54ddddb1b9c71711c4268925f34d0ca6d84902d2306b2cd27eb7de86d66f"
       ],
-      "fingerprint": "aaf1c191f6b5987d159d0c8d40501433125faf2d87517b9cc9c8068fd7432edf",
+      "fingerprint": "dc886e916f0760e15038c1d7f80734fa92f2918298733b2443505ff2174e9858",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5555",
       "trigger": "Invocation of createBoardLayout/columnIds/keyedComputed:callback/ids/callback/untracked:callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "materialize:Set carries collection taint; bounded stage-change counters do not establish a bound for every demand or downstream collection path. POD-7174: the column's table observer skips a feed publication in progress (its records come together in the feed's onChange), which changes this fingerprint; the collection bound and classification are unchanged.",
+      "reason": "materialize:Set carries collection taint; bounded stage-change counters do not establish a bound for every demand or downstream collection path. POD-7174: the column's table observer skips a feed publication in progress (its records come together in the feed's onChange), which changes this fingerprint; the collection bound and classification are unchanged. POD-7166: tracked marker freshness adds a board summary read; formatting changes parenthesized board expressions and propagated origins. The existing collection bound and classification are unchanged. Predecessor: aaf1c191f6b5987d159d0c8d40501433125faf2d87517b9cc9c8068fd7432edf.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -27525,18 +27525,18 @@
       "rule": "dynamic-question",
       "tokens": "c40b7d5131ec953a353fad46ea852de4652a5e401e314a0323157e1cebc35b72",
       "gate": [
-        "then:69ae33e974b3d4654a40fdca8d82a78ec6db7ec61f3e6778c7540e05fab35048"
+        "then:947479c4a9a4005023a62da2ce04efc70ffbd92a0720b9b66c2e7abd0fd4512c"
       ],
       "origin": [
-        "60e8b7ee28d48c6fb1978847f2a38b0e10959678c4c99e9b2a627b5591377f06"
+        "128c54ddddb1b9c71711c4268925f34d0ca6d84902d2306b2cd27eb7de86d66f"
       ],
-      "fingerprint": "23c5b231c4c9435a16ec5981fec0878255f4521518524fc66df139f543d0ccb3",
+      "fingerprint": "e8ad8069626e736787beceea34f7b6307117d67be42c4ea3354ab43965b7918b",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5555",
       "trigger": "Invocation of createBoardLayout/columnIds/keyedComputed:callback/ids/callback/untracked:callback/flatMap:callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "dynamic-question carries collection taint; bounded stage-change counters do not establish a bound for every demand or downstream collection path. POD-7174: the column's table observer skips a feed publication in progress (its records come together in the feed's onChange), which changes this fingerprint; the collection bound and classification are unchanged.",
+      "reason": "dynamic-question carries collection taint; bounded stage-change counters do not establish a bound for every demand or downstream collection path. POD-7174: the column's table observer skips a feed publication in progress (its records come together in the feed's onChange), which changes this fingerprint; the collection bound and classification are unchanged. POD-7166: tracked marker freshness adds a board summary read; formatting changes parenthesized board expressions and propagated origins. The existing collection bound and classification are unchanged. Predecessor: 23c5b231c4c9435a16ec5981fec0878255f4521518524fc66df139f543d0ccb3.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -27579,38 +27579,38 @@
       "file": "packages/client-graph/src/issue-board-layout.ts",
       "holder": "createBoardLayout/columnCount",
       "rule": "reader-summary",
-      "tokens": "637d6bbc3ef20eba415e1b014a0ab43076e32017b4a65db272f574e8167e8d58",
+      "tokens": "3315f6fc1b2e5ffe57e56ca7e2d331a1fb5e3e1bcd80829d29b389a39a146b58",
       "gate": [],
       "origin": [
         "0f4c22afb8213bed43337f0e829fcab4b21d465596eaeed43e50361f98285881",
         "3384e5005fa3242c66cf11df7175a23b01deed0cc2ace87dd75d0bf21e1d4024"
       ],
-      "fingerprint": "0531f93a6b6d318d68f5090e55a745d55b8e9936dc8a4ef17ff07260ecb4be89",
+      "fingerprint": "92724479ca70e42b56c2d5dcc3d63da03e864ddce3db377227968fc40da6a952",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-7088",
       "trigger": "Reading a board column's count, or the proposal deck's total, while the stubs answer it.",
       "bound": "One pass over the device's stub table per stub-table version and test key, memoized (`PoolCollections.countStubs`); the stub table is the design's one structure that grows with history (POD-7059 \"Parts\"), and no record is loaded.",
-      "reason": "POD-7088: counts over all history read the stubs (design \"Counts\"), never the records in memory. POD-7175: a text filter whose search answer is complete counts the column's own cards (its candidates are the search hits).",
+      "reason": "POD-7088: counts over all history read the stubs (design \"Counts\"), never the records in memory. POD-7175: a text filter whose search answer is complete counts the column's own cards (its candidates are the search hits). POD-7166: tracked marker freshness adds a board summary read; formatting changes parenthesized board expressions and propagated origins. The existing collection bound and classification are unchanged. Predecessor: 0531f93a6b6d318d68f5090e55a745d55b8e9936dc8a4ef17ff07260ecb4be89.",
       "guard": "moved-readers.test.ts compares these counts with the old answers on one fixture and fails on a planted wrong stub."
     },
     {
       "file": "packages/client-graph/src/issue-board-layout.ts",
       "holder": "createBoardLayout/dispose",
       "rule": "loop:for-of",
-      "tokens": "7cabe9ad44332e67cf1dbb932f15a2b9ac185725027534f11f60eb9f4a8f4571",
+      "tokens": "39df8b0516bded93901808b3e466c38261faa359a1ca1107c6bedca7e3d54852",
       "gate": [],
       "origin": [
         "0f4c22afb8213bed43337f0e829fcab4b21d465596eaeed43e50361f98285881",
         "3384e5005fa3242c66cf11df7175a23b01deed0cc2ace87dd75d0bf21e1d4024"
       ],
-      "fingerprint": "ddffa2ece1364f4521f07ab6762c30aa51fd16a7ec7390f3184aaaa86848705a",
+      "fingerprint": "a1efb964c7615324374ede02bff6ae234c6574a04b13391f1ab8045ee76ac77e",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-7088",
       "trigger": "Invocation of createBoardLayout/dispose",
       "bound": "Constant: the layout's fixed list of keyed caches, two more since POD-7088 (column held and column count).",
-      "reason": "The loop walks the cache objects, not records.",
+      "reason": "The loop walks the cache objects, not records. POD-7166: tracked marker freshness adds a board summary read; formatting changes parenthesized board expressions and propagated origins. The existing collection bound and classification are unchanged. Predecessor: ddffa2ece1364f4521f07ab6762c30aa51fd16a7ec7390f3184aaaa86848705a.",
       "guard": "issue-board-layout.test.ts disposes and counts the layout's caches."
     },
     {
@@ -27635,27 +27635,27 @@
       "file": "packages/client-graph/src/issue-board-layout.ts",
       "holder": "createBoardLayout/stats/callback/cached",
       "rule": "consume:reduce",
-      "tokens": "3ee5d88732d0f302c25057ac6831e5ec933a9213a4aeb25e1995d2006376a2ee",
+      "tokens": "1c8c96b003e9cbe68351a4ea484fabd2fbfda1a68bbf44bb79992b990dad0692",
       "gate": [],
       "origin": [
         "0f4c22afb8213bed43337f0e829fcab4b21d465596eaeed43e50361f98285881",
         "3384e5005fa3242c66cf11df7175a23b01deed0cc2ace87dd75d0bf21e1d4024",
-        "bcffd6f149add9de16894615bf0e412ffbc4b618dcfb3562df7dac8bae7abf3d"
+        "3d8df1a2747ea9f89f0940cbfe0db12fc08346a3b651934939631a9819b6c121"
       ],
-      "fingerprint": "ad10078fbad0401b4f5042f3533975b7e0f8dde87c9f8943845da615528ad439",
+      "fingerprint": "3526ed4076a40d309423c4a701a746bfc84b3d1acc1dfb932c73819333d197da",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-7088",
       "trigger": "Invocation of createBoardLayout/stats/callback/cached",
       "bound": "Constant: the layout's fixed list of keyed caches, two more since POD-7088 (column held and column count).",
-      "reason": "The loop walks the cache objects, not records.",
+      "reason": "The loop walks the cache objects, not records. POD-7166: tracked marker freshness adds a board summary read; formatting changes parenthesized board expressions and propagated origins. The existing collection bound and classification are unchanged. Predecessor: ad10078fbad0401b4f5042f3533975b7e0f8dde87c9f8943845da615528ad439.",
       "guard": "issue-board-layout.test.ts disposes and counts the layout's caches."
     },
     {
       "file": "packages/client-graph/src/issue-board-layout.ts",
       "holder": "createBoardLayout/columnCount/keyedComputed:callback",
       "rule": "reader-summary",
-      "tokens": "3d6c38cd6aa26ede6108356a1ce437eaad2b5c93728dcc3f17084009caf1a42d",
+      "tokens": "30c53d80e0c8c729f80e4d7cdcc7d91cf67b2244633080e320e8d78f77bce0f2",
       "gate": [
         "exit:then:a6bb87e28ed667592089fb1c756c430a40e6eba717678da2499eb35dc369e8d4",
         "exit:then:56eb2495d35052474b9db7089d356821b835a99b60d5682460f7548cae41b2c0",
@@ -27664,33 +27664,33 @@
       "origin": [
         "3384e5005fa3242c66cf11df7175a23b01deed0cc2ace87dd75d0bf21e1d4024"
       ],
-      "fingerprint": "28fee11ac71dd7512ac467171b68d56ea97b065dc58e6498ff5a4b0fa072c675",
+      "fingerprint": "39a438a3989b0df66ae55db354b8d049225bc78268cfbe0a4e5e3ec0e0818942",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-7088",
       "trigger": "Reading a board column's count, or the proposal deck's total, while the stubs answer it.",
       "bound": "One pass over the device's stub table per stub-table version and test key, memoized (`PoolCollections.countStubs`); the stub table is the design's one structure that grows with history (POD-7059 \"Parts\"), and no record is loaded.",
-      "reason": "POD-7088: counts over all history read the stubs (design \"Counts\"), never the records in memory.",
+      "reason": "POD-7088: counts over all history read the stubs (design \"Counts\"), never the records in memory. POD-7166: tracked marker freshness adds a board summary read; formatting changes parenthesized board expressions and propagated origins. The existing collection bound and classification are unchanged. Predecessor: 28fee11ac71dd7512ac467171b68d56ea97b065dc58e6498ff5a4b0fa072c675.",
       "guard": "moved-readers.test.ts compares these counts with the old answers on one fixture and fails on a planted wrong stub."
     },
     {
       "file": "packages/client-graph/src/issue-board-layout.ts",
       "holder": "createBoardLayout/columnCount/keyedComputed:callback",
       "rule": "reader-summary",
-      "tokens": "3d6c38cd6aa26ede6108356a1ce437eaad2b5c93728dcc3f17084009caf1a42d",
+      "tokens": "30c53d80e0c8c729f80e4d7cdcc7d91cf67b2244633080e320e8d78f77bce0f2",
       "gate": [
         "then:56eb2495d35052474b9db7089d356821b835a99b60d5682460f7548cae41b2c0"
       ],
       "origin": [
         "3384e5005fa3242c66cf11df7175a23b01deed0cc2ace87dd75d0bf21e1d4024"
       ],
-      "fingerprint": "e789453d540c9bfb20707d5bd92b1d936aa470dc63fb616d33330bd0818d6e1a",
+      "fingerprint": "4b9ffd9d3493d59e529a14b9600460402e6702ba4371a3be68fae32e7ccf09b1",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-7088",
       "trigger": "Reading a board column's count, or the proposal deck's total, while the stubs answer it.",
       "bound": "One pass over the device's stub table per stub-table version and test key, memoized (`PoolCollections.countStubs`); the stub table is the design's one structure that grows with history (POD-7059 \"Parts\"), and no record is loaded.",
-      "reason": "POD-7088: counts over all history read the stubs (design \"Counts\"), never the records in memory.",
+      "reason": "POD-7088: counts over all history read the stubs (design \"Counts\"), never the records in memory. POD-7166: tracked marker freshness adds a board summary read; formatting changes parenthesized board expressions and propagated origins. The existing collection bound and classification are unchanged. Predecessor: e789453d540c9bfb20707d5bd92b1d936aa470dc63fb616d33330bd0818d6e1a.",
       "guard": "moved-readers.test.ts compares these counts with the old answers on one fixture and fails on a planted wrong stub."
     },
     {
@@ -32333,6 +32333,7 @@
       "origin": [
         "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
         "108db4795cb373320091b36ae4710f20597f2ab09644298c9447d14e7ed5d427",
+        "128c54ddddb1b9c71711c4268925f34d0ca6d84902d2306b2cd27eb7de86d66f",
         "1fc626feccb53ee2b2b821f5e6e8279424c0631fe987ccda5bf4a1814b63214e",
         "25dbf408a8d1f423c5d36d156eee8147255f8061fa080c5d02772c3886ceb24b",
         "2f21c1a16a33aa1af68ac41438be3dcdaae05214738bf40f0cd9fa54f7571f0c",
@@ -32340,7 +32341,6 @@
         "3d88b8744feb26fcef65cae3c1dc4e12be50ef79b42663df6cda8a7eb046d1f8",
         "522222df4b110bbc58c138b5035fd6d69b2bbdd11547e6c02142faf1cb77e36f",
         "5641f8f84581485a31d010b99e085652ec205d16df8e17343cb00db585a2e662",
-        "60e8b7ee28d48c6fb1978847f2a38b0e10959678c4c99e9b2a627b5591377f06",
         "62abb4dee19f33d18d7a2cb2006b4568298ee197e8610db8d3b96ee653348065",
         "72c76485c2f9755dd9192b0c0e6f23056bec99624903664dbd9562dcb3201a25",
         "73fc6ac8474972e8390049381280f6016c6e783a4c53017f0e6b141d47066ace",
@@ -32358,13 +32358,13 @@
         "edccbaf426dca942750619e6960d69f0c560ebdaf7c2beb6a07ceb8fdc008aaf",
         "f35fbf75a9191b6b6b2796aba1314c0b716360ad6ffbe40bb2a13c777d8a0061"
       ],
-      "fingerprint": "2dfddd2aae79c85a669bde32e52254d4a75b909cc1bbcb49c80a237522ec51e6",
+      "fingerprint": "f842adc35eed91dbde520643849ef8542a69b9747115ae9a09d2b254257c83fa",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation or observation of mock:callback/useWorklistPoolProjection/pool",
       "bound": "Test fixture collection; no production import caller. Exact taint remains monitored.",
-      "reason": "POD-5822 updates this existing reader to canonical direct fields. Its collection and caller bounds are unchanged; the existing REQUIRED REPAIR classification remains. Predecessor: 3567d73357a9192d6f08d7b563f9ccbab2f60168606daccda93a6aaf4bdc14a4. POD-5866 pilot reconciliation preserves the classification while moving opening ownership or adopting the landed model reader; predecessor: 8df29ca50a83bb38241f643f9d6f0263a5826f95c43e332db32155dcd7ff9b1a. POD-5872: The test adapter now publishes session rows into canonical models and borrows the existing draft owner; its fixture catalogue demand is unchanged. Predecessor: 339be345c8e21996547dfd544e83c4fd554a3beee76e3af67ca1f8604f857cf7. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged. POD-7174: the pool's queries gain `inPublication` (a feed publication is being installed), which changes this fingerprint; the collection bound and classification are unchanged.",
+      "reason": "POD-5822 updates this existing reader to canonical direct fields. Its collection and caller bounds are unchanged; the existing REQUIRED REPAIR classification remains. Predecessor: 3567d73357a9192d6f08d7b563f9ccbab2f60168606daccda93a6aaf4bdc14a4. POD-5866 pilot reconciliation preserves the classification while moving opening ownership or adopting the landed model reader; predecessor: 8df29ca50a83bb38241f643f9d6f0263a5826f95c43e332db32155dcd7ff9b1a. POD-5872: The test adapter now publishes session rows into canonical models and borrows the existing draft owner; its fixture catalogue demand is unchanged. Predecessor: 339be345c8e21996547dfd544e83c4fd554a3beee76e3af67ca1f8604f857cf7. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged. POD-7174: the pool's queries gain `inPublication` (a feed publication is being installed), which changes this fingerprint; the collection bound and classification are unchanged. POD-7166: tracked marker freshness adds a board summary read; formatting changes parenthesized board expressions and propagated origins. The existing collection bound and classification are unchanged. Predecessor: 2dfddd2aae79c85a669bde32e52254d4a75b909cc1bbcb49c80a237522ec51e6.",
       "guard": "apps/web/src/features/worklist/SidebarUnified.search.test.tsx; exact fingerprint remains monitored."
     },
     {
@@ -32415,12 +32415,12 @@
       "gate": [],
       "origin": [
         "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
+        "128c54ddddb1b9c71711c4268925f34d0ca6d84902d2306b2cd27eb7de86d66f",
         "1fc626feccb53ee2b2b821f5e6e8279424c0631fe987ccda5bf4a1814b63214e",
         "25dbf408a8d1f423c5d36d156eee8147255f8061fa080c5d02772c3886ceb24b",
         "38ee8e4568daab4926b21807b42ed2fa803a25ca97778f587de71b0d1d05834e",
         "3d88b8744feb26fcef65cae3c1dc4e12be50ef79b42663df6cda8a7eb046d1f8",
         "5641f8f84581485a31d010b99e085652ec205d16df8e17343cb00db585a2e662",
-        "60e8b7ee28d48c6fb1978847f2a38b0e10959678c4c99e9b2a627b5591377f06",
         "a835815122562d1d0dd22a71ddbd055fbfba7f823cba8712a4b31941ff575f25",
         "b62af815f9048d102aca17f2695d460f40e618bcc845d7a0d3bc1c8b90140c10",
         "b8acefbfd479a9d30488941c28b0bfbee2b5c12262c758d33711f20f844df269",
@@ -32428,13 +32428,13 @@
         "edccbaf426dca942750619e6960d69f0c560ebdaf7c2beb6a07ceb8fdc008aaf",
         "f35fbf75a9191b6b6b2796aba1314c0b716360ad6ffbe40bb2a13c777d8a0061"
       ],
-      "fingerprint": "bf1538da79ac7502d4a8fe0aa2d49429c81bc26c2b4aad5539f9b30ae1b9dcd2",
+      "fingerprint": "16f679c92bed4d2f9b181b131584ca772b1d2277dd798531c03e026fbc5ade64",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of fixturePoolHooks/useWorklistPoolProjection/current",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged. POD-7174: the pool's queries gain `inPublication` (a feed publication is being installed), which changes this fingerprint; the collection bound and classification are unchanged.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged. POD-7174: the pool's queries gain `inPublication` (a feed publication is being installed), which changes this fingerprint; the collection bound and classification are unchanged. POD-7166: tracked marker freshness adds a board summary read; formatting changes parenthesized board expressions and propagated origins. The existing collection bound and classification are unchanged. Predecessor: bf1538da79ac7502d4a8fe0aa2d49429c81bc26c2b4aad5539f9b30ae1b9dcd2.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -32445,12 +32445,12 @@
       "gate": [],
       "origin": [
         "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
+        "128c54ddddb1b9c71711c4268925f34d0ca6d84902d2306b2cd27eb7de86d66f",
         "1fc626feccb53ee2b2b821f5e6e8279424c0631fe987ccda5bf4a1814b63214e",
         "25dbf408a8d1f423c5d36d156eee8147255f8061fa080c5d02772c3886ceb24b",
         "38ee8e4568daab4926b21807b42ed2fa803a25ca97778f587de71b0d1d05834e",
         "3d88b8744feb26fcef65cae3c1dc4e12be50ef79b42663df6cda8a7eb046d1f8",
         "5641f8f84581485a31d010b99e085652ec205d16df8e17343cb00db585a2e662",
-        "60e8b7ee28d48c6fb1978847f2a38b0e10959678c4c99e9b2a627b5591377f06",
         "a835815122562d1d0dd22a71ddbd055fbfba7f823cba8712a4b31941ff575f25",
         "b62af815f9048d102aca17f2695d460f40e618bcc845d7a0d3bc1c8b90140c10",
         "b8acefbfd479a9d30488941c28b0bfbee2b5c12262c758d33711f20f844df269",
@@ -32458,13 +32458,13 @@
         "edccbaf426dca942750619e6960d69f0c560ebdaf7c2beb6a07ceb8fdc008aaf",
         "f35fbf75a9191b6b6b2796aba1314c0b716360ad6ffbe40bb2a13c777d8a0061"
       ],
-      "fingerprint": "223286d33341c78863a8b8d283fc6f2787541a9b0e5ee1c561233b0545f0866f",
+      "fingerprint": "6aecd0d078a84d322d5aa603293569b4eebdd86a9c47994c7e4a6b1881fdd104",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of fixturePoolHooks/useWorklistPoolProjection/projection/useMemo:callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged. POD-7174: the pool's queries gain `inPublication` (a feed publication is being installed), which changes this fingerprint; the collection bound and classification are unchanged.",
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged. POD-7174: the pool's queries gain `inPublication` (a feed publication is being installed), which changes this fingerprint; the collection bound and classification are unchanged. POD-7166: tracked marker freshness adds a board summary read; formatting changes parenthesized board expressions and propagated origins. The existing collection bound and classification are unchanged. Predecessor: 223286d33341c78863a8b8d283fc6f2787541a9b0e5ee1c561233b0545f0866f.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -39731,6 +39731,60 @@
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/features/issues/board-pool-data.ts",
+      "holder": "useBoardRefreshing/read/useCallback:callback",
+      "rule": "reader-summary",
+      "tokens": "6818a7939933ea5c4fb73752ef04da957911609f75edb1fb6f89405ccbd6afa0",
+      "gate": [],
+      "origin": [
+        "06eefdc67dfb0693416e0e383db43fe70611b301f1c7e37698c0b35c4168acc8"
+      ],
+      "fingerprint": "b3ac34fe82a9fadb6a6bc42a6aeed2f4443331f1dd7ab4bc5c8ed28d9fc5d161",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-7166",
+      "trigger": "Reading the board screen freshness while that screen is open.",
+      "bound": "At most six declared stage markers and one stub marker. With text search, only the existing title/ref index matches and requested server-hit pages are read; no history table or unrelated tree is visited.",
+      "reason": "The screen derives one refreshing bit from its own column/count sources and its current search hits. Record freshness is an addressed disk-index holder read, independent of unrelated stale instances.",
+      "guard": "refreshing.test.ts and both platform ScreenRefreshMark.test.tsx files cover complete cached answers, in-place replacement, and unrelated stale-tree isolation; record-freshness.test.ts covers shared holder freshness."
+    },
+    {
+      "file": "apps/web/src/features/issues/IssuesView.tsx",
+      "holder": "IssuesView/refreshing",
+      "rule": "reader-summary",
+      "tokens": "cff02bdcd44770a9f583cb3b152d0b54a83f4bc4d7d7e43870e293465e691a9f",
+      "gate": [],
+      "origin": [
+        "06eefdc67dfb0693416e0e383db43fe70611b301f1c7e37698c0b35c4168acc8"
+      ],
+      "fingerprint": "2a08b9380329aebe0c3b1b17c9b42a309dd65c9f7849723aa9df0dca6ded6484",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-7166",
+      "trigger": "Reading the board screen freshness while that screen is open.",
+      "bound": "At most six declared stage markers and one stub marker. With text search, only the existing title/ref index matches and requested server-hit pages are read; no history table or unrelated tree is visited.",
+      "reason": "The screen derives one refreshing bit from its own column/count sources and its current search hits. Record freshness is an addressed disk-index holder read, independent of unrelated stale instances.",
+      "guard": "refreshing.test.ts and both platform ScreenRefreshMark.test.tsx files cover complete cached answers, in-place replacement, and unrelated stale-tree isolation; record-freshness.test.ts covers shared holder freshness."
+    },
+    {
+      "file": "packages/client-graph/src/mobile-tasks.ts",
+      "holder": "MobileTasksBoard/refreshing",
+      "rule": "reader-summary",
+      "tokens": "e56e170c0b68024f11ab74dc3c446c46f223b3f3997fcdb19f10992509223548",
+      "gate": [],
+      "origin": [
+        "06eefdc67dfb0693416e0e383db43fe70611b301f1c7e37698c0b35c4168acc8"
+      ],
+      "fingerprint": "ddf55f5ab7624a5adbde6d7e8203b74cb795c06fdb98f8ae7cec402681b85d77",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-7166",
+      "trigger": "Reading the board screen freshness while that screen is open.",
+      "bound": "At most six declared stage markers and one stub marker. With text search, only the existing title/ref index matches and requested server-hit pages are read; no history table or unrelated tree is visited.",
+      "reason": "The screen derives one refreshing bit from its own column/count sources and its current search hits. Record freshness is an addressed disk-index holder read, independent of unrelated stale instances.",
+      "guard": "refreshing.test.ts and both platform ScreenRefreshMark.test.tsx files cover complete cached answers, in-place replacement, and unrelated stale-tree isolation; record-freshness.test.ts covers shared holder freshness."
     }
   ]
 }

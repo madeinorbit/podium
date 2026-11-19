@@ -49,6 +49,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { openAddProject } from '@/app/desktop-menu'
 import { IssueReference } from '@/components/IssueReference'
+import { ScreenRefreshMark } from '@/components/ScreenRefreshMark'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { STAGE_LABELS } from '@/features/issues/issue-card'
 import {
@@ -302,8 +303,8 @@ const PaletteDialogBody = observer(function PaletteDialogBody({
   const agentSetting = useMyCodingHarness()
 
   const pool = useWorklistPool()
-  const search = pool ? issueSearch(pool).read(query, []) : undefined
-  const searching = search?.pending ?? false
+  const search = pool ? issueSearch(pool).read(query, pool.queries.localTextIds(query)) : undefined
+  const searching = (search?.pending ?? false) && !search?.refreshing
   const serverIssueHits =
     search?.serverIds.flatMap((id) => {
       const issue = pool && here(pool.model('issue', id))
@@ -858,6 +859,7 @@ const PaletteDialogBody = observer(function PaletteDialogBody({
             wearing the bar's own material is what says so. */}
           <div className="cmdk-field">
             <Search size={15} className="cmdk-field-glyph" aria-hidden="true" />
+            <ScreenRefreshMark refreshing={search?.refreshing ?? false} />
             <input
               autoFocus
               type="text"

@@ -4,6 +4,7 @@ import { type LayoutChangeEvent, StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { color, font, mono, sans, space } from '../theme/theme'
 import { PressableScale } from './PressableScale'
+import { ScreenRefreshMark } from './ScreenRefreshMark'
 
 export function Screen({
   title,
@@ -18,6 +19,7 @@ export function Screen({
   noHeader,
   safeBottom,
   monoSubtitle,
+  refreshing,
 }: {
   title?: string
   subtitle?: ReactNode
@@ -32,6 +34,7 @@ export function Screen({
   safeBottom?: boolean
   bareBack?: boolean
   monoSubtitle?: boolean
+  refreshing?: boolean
 }) {
   const insets = useSafeAreaInsets()
   const hasContext = !noHeader && (leading != null || subtitle != null)
@@ -52,7 +55,18 @@ export function Screen({
           headerLargeTitleShadowVisible: false,
           headerShadowVisible: false,
           headerBackButtonDisplayMode: 'minimal',
-          ...(right ? { headerRight: () => <View style={styles.actions}>{right}</View> } : {}),
+          ...(right || refreshing !== undefined
+            ? {
+                headerRight: () => (
+                  <View style={styles.actions}>
+                    {refreshing !== undefined ? (
+                      <ScreenRefreshMark refreshing={refreshing} />
+                    ) : null}
+                    {right}
+                  </View>
+                ),
+              }
+            : {}),
           ...(onBack && backAs === 'text'
             ? {
                 headerLeft: () => (

@@ -18,6 +18,7 @@ import { issueDisplayRef } from '@podium/protocol'
 import { ArrowLeft, ChevronDown, ChevronUp, MoreHorizontal } from 'lucide-react'
 import { Fragment, type JSX, useState } from 'react'
 import type { IssueViewModel } from '@/app/store'
+import { ScreenRefreshMark } from '@/components/ScreenRefreshMark'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -85,6 +86,7 @@ export const IssueDetailHeader = observer(function IssueDetailHeader({
   const needsYou = issue.needsHuman || phases.includes('waiting')
   return (
     <header className="flex h-10 flex-none items-center gap-2 border-hairline-bar border-b bg-bar px-3">
+      <ScreenRefreshMark refreshing={page?.views.row(issue.id).refreshing ?? false} />
       <Button type="button" variant="ghost" size="icon-sm" title="Back" onClick={onBack}>
         <ArrowLeft size={15} aria-hidden="true" />
       </Button>

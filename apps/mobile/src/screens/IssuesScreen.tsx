@@ -152,6 +152,7 @@ export const IssuesScreen = observer(function IssuesScreen() {
     <Screen
       large
       title="Tasks"
+      refreshing={board?.refreshing ?? false}
       right={
         <>
           {usesNativeHeader ? null : (

@@ -35,6 +35,7 @@ import {
 import { toast } from 'sonner'
 import { usePanelVisible } from '@/app/panel-visible'
 import { useWorklistPool } from '@/app/store-worklist-pool'
+import { ScreenRefreshMark } from '@/components/ScreenRefreshMark'
 import { MobilePromoCard } from '@/features/mobile-handoff/MobilePromoCard'
 import { PHONE_APP_IN_STORES } from '@/features/mobile-handoff/mobile-handoff'
 import { FirstFlightsBadge } from '@/features/tips/FirstFlightsBadge'
@@ -214,7 +215,10 @@ export const PoolSidebarUnified = observer(function PoolSidebarUnified(): JSX.El
   return (
     <WorklistProvider model={model}>
       <NewTaskRow />
-      <WorkSearchField filter={{ ...input, total: count.total, hits: count.hits }} />
+      <WorkSearchField
+        filter={{ ...input, total: count.total, hits: count.hits }}
+        trailing={<ScreenRefreshMark refreshing={pool ? sidebarView(pool).refreshing : false} />}
+      />
       <WorkLaneSwitch lane={lane} counts={count.counts} onChange={setLane} />
       <div
         ref={scrollRef}

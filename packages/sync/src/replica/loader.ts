@@ -69,6 +69,9 @@ export interface LoaderReplica {
   loadRecords?(entity: string, entityIds: readonly string[]): Promise<void>
   /** POD-7160 — whether the device holds the instance behind the feed (after a gap): it reloads when read. */
   instanceStale?(spec: InstanceSpec): boolean
+  /** Freshness of one record through all instances that hold it on the device. */
+  recordStale?(entity: string, id: string): boolean
+  staleRecordHolders?(entity: string, id: string): readonly InstanceRecord[]
 }
 
 /** How a view reads one instance: held complete, on its way, or not loadable without a connection. */
@@ -124,6 +127,8 @@ interface Queued {
 }
 
 export class CollectionLoader {
+  /** Marker identity changes on replacement: one request per holder per stale period, with no retained history. */
+  private readonly staleRecordRequests = new WeakSet<InstanceRecord>()
   readonly windowMs: number
   readonly stats: LoaderStats = { requests: 0, instances: 0, viewInstances: 0, notifications: 0 }
   private readonly replica: LoaderReplica
@@ -227,6 +232,21 @@ export class CollectionLoader {
    */
   isStale(spec: InstanceSpec): boolean {
     return this.replica.instanceStale?.(spec) === true
+  }
+
+  /** A fresh holder makes a shared record current, even when another holder is stale. */
+  recordStale(entity: string, id: string): boolean {
+    const holders = this.replica.staleRecordHolders?.(entity, id)
+    if (holders === undefined) return this.replica.recordStale?.(entity, id) === true
+    const requests: InstanceSpec[] = []
+    for (const holder of holders) {
+      if (this.staleRecordRequests.has(holder)) continue
+      this.staleRecordRequests.add(holder)
+      const { collection, args, part, via } = holder
+      requests.push({ collection, args, part, ...(via === undefined ? {} : { via }) })
+    }
+    if (requests.length > 0) this.request(requests, 'background')
+    return holders.length > 0
   }
 
   /**
@@ -447,6 +467,9 @@ export class CollectionLoader {
 
   private async send(requests: readonly InstanceRequest[]): Promise<void> {
     if (requests.length === 0) return
+    const fromDevice = new Set(
+      requests.filter((request) => this.replica.onDevice?.(request) === true).map(instanceKey),
+    )
     for (const request of requests) this.inFlight.set(instanceKey(request), request)
     this.stats.requests += 1
     this.stats.instances += requests.length
@@ -462,8 +485,18 @@ export class CollectionLoader {
     }
     if (this.disposed) return
     for (const request of requests) {
-      if (this.replica.isComplete(request) !== undefined) continue
       const key = instanceKey(request)
+      if (this.replica.isComplete(request) !== undefined) {
+        // A stale disk load requests its replacement before this send has
+        // left inFlight. Keep that handoff: it was deduplicated while the
+        // disk answer landed, and reconnect must still reload it. Only a
+        // disk answer queues here; a failed server reload never spins.
+        if (fromDevice.has(key) && this.replica.instanceStale?.(request) === true) {
+          if (!this.queue.has(key)) this.queue.set(key, { request, priority: 'background' })
+          if (this.connected) this.arm()
+        }
+        continue
+      }
       // Queued again without arming: it goes with the next burst, cursor or
       // connection, never in a loop of its own against a failing route.
       if (failed) {

@@ -31,6 +31,7 @@ import {
   summarize,
 } from './no-wrong-number'
 import {
+  afterGapPool,
   collectGarbage,
   FIRST_DOWNLOAD_STEPS,
   firstDownloadPool,
@@ -201,6 +202,25 @@ describe('the check itself', () => {
 })
 
 describe(`startup states against the full bootstrap (${cell})`, () => {
+  it('after a gap, before the reload: refreshing numbers equal the control at the device cursor', () => {
+    const pool = afterGapPool(feed)
+    try {
+      expect(pool.collections.status({ collection: 'issueProjection.stubs', part: 'stub' })).toBe(
+        'refreshing',
+      )
+      const answers = ask(pool, questions)
+      const report = checkNoWrongNumber(control, answers)
+      assertNoWrongNumber(report, 'after a gap, before the reload')
+      expect(report.wrong).toEqual([])
+      expect(report.loading.filter((name) => /^(counts:|closed-children:)/.test(name))).toEqual([])
+      console.info(
+        `[no-wrong-number] after a gap, before the reload: ${JSON.stringify(summarize(report))}`,
+      )
+    } finally {
+      pool.dispose()
+    }
+  }, 600_000)
+
   it('a second full bootstrap answers every question the same', () => {
     const pool = fullPool(feed)
     const report = checkNoWrongNumber(control, ask(pool, questions))

@@ -53,10 +53,7 @@ mkdirSync(out, { recursive: true })
  * Rows measured and reported, but not yet held to the rule: each names what is
  * missing and who reported it. Remove an entry when its fix lands.
  */
-const KNOWN_GAPS = {
-  'phone-reload offline-reload phoneMission':
-    'after an offline reload the phone mission page stays on its loading skeleton, with no request; the Work list opens (reported by POD-7179 to POD-5910)',
-}
+const KNOWN_GAPS = {}
 
 /** The declared hop maxima (design POD-7157, "Testing rules"). */
 const DECLARED_HOPS = { sidebar: 0, deck: 2, board: 1, issuePage: 2, search: 1, phoneMission: 2 }

@@ -12,7 +12,9 @@
  * pools: a CONTROL that holds the full bootstrap, and a CANDIDATE in any
  * intermediate startup state (active rows only, history arriving in batches,
  * markers or none). Every candidate answer must equal the control's or be
- * `LOADING`. Anything else is a wrong number (`checkNoWrongNumber`).
+ * `LOADING`. Anything else is a wrong number (`checkNoWrongNumber`). After
+ * a gap, before the reload, a refreshing candidate is compared with the
+ * control at the device's cursor: its complete numbers remain valid there.
  *
  * The pools are plain `MobxPool`s, so POD-5595 (markers), POD-5597 (paint
  * after active rows) and POD-5599 (screens wait honestly) can feed it their
@@ -21,24 +23,24 @@
  */
 
 import { isDeepStrictEqual } from 'node:util'
-import { issueSearch } from '@podium/client-graph/issue-search'
-import { issueTargets } from '@podium/client-graph/issue-targets'
-import { readIssueSearchChoiceIds } from '@podium/client-graph/issue-search-choices'
-import { PhoneWorklist } from '@podium/client-graph/worklist/phone'
-import { worklistView } from '@podium/client-graph/worklist/view-model'
 import { chatMentionMatches } from '@podium/client-graph/chat-context'
+import { headerView } from '@podium/client-graph/header-views'
 import { createIssueBoardSource } from '@podium/client-graph/issue-board-source'
+import { issueSearch } from '@podium/client-graph/issue-search'
+import { readIssueSearchChoiceIds } from '@podium/client-graph/issue-search-choices'
+import { issueTargets } from '@podium/client-graph/issue-targets'
 import { omitGone } from '@podium/client-graph/lookup'
 import { missionView } from '@podium/client-graph/mission-view'
+import { screeningTotal } from '@podium/client-graph/mobile-triage'
 import type { MobxPool } from '@podium/client-graph/pool'
+import { settingsHasFirstTask } from '@podium/client-graph/settings-views'
 import type { RowRecord } from '@podium/client-graph/shared/source'
+import { PhoneWorklist } from '@podium/client-graph/worklist/phone'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { sidebarView } from '@podium/client-graph/worklist/sidebar'
-import { autorun } from 'mobx'
-import { headerView } from '@podium/client-graph/header-views'
-import { screeningTotal } from '@podium/client-graph/mobile-triage'
-import { settingsHasFirstTask } from '@podium/client-graph/settings-views'
+import { worklistView } from '@podium/client-graph/worklist/view-model'
 import { ISSUE_BOARD_STAGES } from '@podium/model/browser'
+import { autorun } from 'mobx'
 import {
   hasStaleActivation,
   isActivationEligible,
@@ -54,7 +56,11 @@ export const MOVED_READERS = /^(first-screen:|counts:|board-archive:|closed-chil
 
 /** The question groups the brief names, plus the first screen itself. */
 export type StartupGroup =
-  | 'first-screen' | 'counts' | 'search' | 'board-archive' | 'closed-children'
+  | 'first-screen'
+  | 'counts'
+  | 'search'
+  | 'board-archive'
+  | 'closed-children'
 
 export interface StartupQuestion {
   readonly name: string
@@ -73,7 +79,14 @@ export interface StartupTargets {
   readonly needles: readonly string[]
 }
 
-type IssueRow = { id: string; title?: string; parentId?: string | null; closedAt?: string | null; archived?: boolean; deletedAt?: string | null }
+type IssueRow = {
+  id: string
+  title?: string
+  parentId?: string | null
+  closedAt?: string | null
+  archived?: boolean
+  deletedAt?: string | null
+}
 
 const byId = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
 
@@ -82,8 +95,11 @@ export function startupTargets(
   rows: readonly RowRecord[],
   sizes: { roots?: number; parents?: number; needles?: number } = {},
 ): StartupTargets {
-  const issues = rows.filter((row) => row.kind === 'issue' && row.value !== undefined).map((row) => row.value as IssueRow)
-  const closed = (issue: IssueRow) => issue.closedAt != null || issue.archived === true || issue.deletedAt != null
+  const issues = rows
+    .filter((row) => row.kind === 'issue' && row.value !== undefined)
+    .map((row) => row.value as IssueRow)
+  const closed = (issue: IssueRow) =>
+    issue.closedAt != null || issue.archived === true || issue.deletedAt != null
   const roots = issues
     .filter((issue) => issue.parentId == null && !closed(issue))
     .map((issue) => issue.id)
@@ -95,11 +111,20 @@ export function startupTargets(
       closedChildren.set(issue.parentId, (closedChildren.get(issue.parentId) ?? 0) + 1)
   // The parents with the most closed children (history-heavy progress), then
   // the first ones by id (ordinary progress), so both kinds are asked.
-  const ranked = [...closedChildren].sort((a, b) => b[1] - a[1] || byId(a[0], b[0])).map(([id]) => id)
+  const ranked = [...closedChildren]
+    .sort((a, b) => b[1] - a[1] || byId(a[0], b[0]))
+    .map(([id]) => id)
   const half = Math.ceil((sizes.parents ?? 24) / 2)
-  const parents = [...new Set([...ranked.slice(0, half), ...[...closedChildren.keys()].sort(byId).slice(0, half)])]
+  const parents = [
+    ...new Set([...ranked.slice(0, half), ...[...closedChildren.keys()].sort(byId).slice(0, half)]),
+  ]
   const words = (issue: IssueRow) =>
-    new Set((issue.title ?? '').toLowerCase().split(/[^a-z]+/).filter((word) => word.length >= 5))
+    new Set(
+      (issue.title ?? '')
+        .toLowerCase()
+        .split(/[^a-z]+/)
+        .filter((word) => word.length >= 5),
+    )
   const frequency = new Map<string, number>(),
     openWords = new Set<string>()
   for (const issue of issues)
@@ -107,7 +132,9 @@ export function startupTargets(
       frequency.set(word, (frequency.get(word) ?? 0) + 1)
       if (!closed(issue)) openWords.add(word)
     }
-  const common = [...frequency].sort((a, b) => b[1] - a[1] || byId(a[0], b[0])).map(([word]) => word)
+  const common = [...frequency]
+    .sort((a, b) => b[1] - a[1] || byId(a[0], b[0]))
+    .map(([word]) => word)
   const count = sizes.needles ?? 8
   const needles = [
     ...common.slice(0, Math.ceil(count / 2)),
@@ -120,12 +147,16 @@ export function startupTargets(
 function plain(value: unknown, ancestors = new Set<object>()): unknown {
   if (value === LOADING) return LOADING
   if (value !== null && typeof value === 'object') {
-    if (ancestors.has(value)) throw new Error('[no-wrong-number] cyclic answer; read displayed fields instead of model ownership')
+    if (ancestors.has(value))
+      throw new Error(
+        '[no-wrong-number] cyclic answer; read displayed fields instead of model ownership',
+      )
     ancestors.add(value)
     try {
-      if (value instanceof Set) return [...value].map(item => plain(item, ancestors)).sort()
-      if (value instanceof Map) return [...value].map(([key, item]) => [key, plain(item, ancestors)]).sort()
-      if (Array.isArray(value)) return value.map(item => plain(item, ancestors))
+      if (value instanceof Set) return [...value].map((item) => plain(item, ancestors)).sort()
+      if (value instanceof Map)
+        return [...value].map(([key, item]) => [key, plain(item, ancestors)]).sort()
+      if (Array.isArray(value)) return value.map((item) => plain(item, ancestors))
       const out: Record<string, unknown> = {}
       for (const key of Object.keys(value).sort()) {
         const item = (value as Record<string, unknown>)[key]
@@ -140,7 +171,8 @@ function plain(value: unknown, ancestors = new Set<object>()): unknown {
 }
 
 /** A list answer that admits it is incomplete is on its way. */
-const pendingOr = <T>(pending: number, value: T): T | typeof LOADING => (pending > 0 ? LOADING : value)
+const pendingOr = <T>(pending: number, value: T): T | typeof LOADING =>
+  pending > 0 ? LOADING : value
 
 /** The declared first-screen and history questions, over `targets`. */
 export function startupQuestions(
@@ -181,23 +213,35 @@ export function startupQuestions(
     })
   }
 
-  for (const id of targets.roots) add('first-screen', `sidebar-row:${id}`, (pool) => {
-    const row = sidebarView(pool).row(id)
-    if (row === LOADING || row === undefined) return row
-    // A companion owns references to its model and view, not a serializable
-    // answer. Ask the facts UnifiedIssueRow displays, without walking its pool.
-    const progress = row.progress
-    if (progress === LOADING) return LOADING
-    return {
-      id: row.id, title: row.title, seq: row.issue.seq,
-      stage: row.issue.stage, timing: row.timing, working: row.visibleWorking,
-      asking: row.visibleAsking, origin: row.origin, decision: row.decision,
-      mergeCommits: row.mergeCommits, progress, showsChildProgress: row.showsChildProgress,
-      unread: row.visibleUnread, errorClass: row.errorClass, fleet: row.visibleFleet,
-      sessionOnlyDraft: row.sessionOnlyDraft, firstSessionId: row.firstSessionId,
-      continuation: row.continuation,
-    }
-  })
+  for (const id of targets.roots)
+    add('first-screen', `sidebar-row:${id}`, (pool) => {
+      const row = sidebarView(pool).row(id)
+      if (row === LOADING || row === undefined) return row
+      // A companion owns references to its model and view, not a serializable
+      // answer. Ask the facts UnifiedIssueRow displays, without walking its pool.
+      const progress = row.progress
+      if (progress === LOADING) return LOADING
+      return {
+        id: row.id,
+        title: row.title,
+        seq: row.issue.seq,
+        stage: row.issue.stage,
+        timing: row.timing,
+        working: row.visibleWorking,
+        asking: row.visibleAsking,
+        origin: row.origin,
+        decision: row.decision,
+        mergeCommits: row.mergeCommits,
+        progress,
+        showsChildProgress: row.showsChildProgress,
+        unread: row.visibleUnread,
+        errorClass: row.errorClass,
+        fleet: row.visibleFleet,
+        sessionOnlyDraft: row.sessionOnlyDraft,
+        firstSessionId: row.firstSessionId,
+        continuation: row.continuation,
+      }
+    })
 
   // POD-7088: the device's own counts (`heldCount`) are no question of all
   // history and are not asked; sessions have no stub and no screen counts
@@ -208,7 +252,8 @@ export function startupQuestions(
   for (const stage of ISSUE_BOARD_STAGES)
     for (const showAgentTasks of [false, true])
       add('counts', `board-column:${stage}${showAgentTasks ? ':agents' : ''}`, (pool) =>
-        board(pool).columnCount({ filter: {}, ordering: 'updated', showAgentTasks, stage }))
+        board(pool).columnCount({ filter: {}, ordering: 'updated', showAgentTasks, stage }),
+      )
   // POD-7087: counts over all history read the stubs, once they are complete.
   add('counts', 'stub-by-stage', (pool) => pool.collections.countBy('stage'))
   add('counts', 'stub-by-repo', (pool) => pool.collections.countBy('repoId'))
@@ -262,11 +307,21 @@ export function startupQuestions(
   // POD-7088: the closed tabs' counts, the archived ones shown too.
   for (const stage of ['done', 'backlog'] as const)
     add('board-archive', `archived:${stage}`, (pool) =>
-      board(pool).columnCount({ filter: { archived: true }, ordering: 'updated', showAgentTasks: false, stage }))
+      board(pool).columnCount({
+        filter: { archived: true },
+        ordering: 'updated',
+        showAgentTasks: false,
+        stage,
+      }),
+    )
   add('board-archive', 'closed-status', (pool) =>
-    board(pool).columnCount({ filter: { status: 'closed' }, ordering: 'updated', showAgentTasks: false, stage: 'done' }))
-
-
+    board(pool).columnCount({
+      filter: { status: 'closed' },
+      ordering: 'updated',
+      showAgentTasks: false,
+      stage: 'done',
+    }),
+  )
 
   for (const id of targets.parents) {
     add('closed-children', `child-counts:${id}`, (pool) => pool.queries.issueChildCounts(id))
@@ -279,9 +334,11 @@ export function startupQuestions(
       return { childCount: model.childCount, childDoneCount: model.childDoneCount }
     })
     add('closed-children', `mission:${id}`, (pool) => {
-      const view = missionView(pool), root = view.selectedRoot(id)
+      const view = missionView(pool),
+        root = view.selectedRoot(id)
       if (root === LOADING) return LOADING
-      return root ? view.deck(root.id, 'full').progress
+      return root
+        ? view.deck(root.id, 'full').progress
         : { total: 0, done: 0, working: 0, waiting: 0, todo: 0 }
     })
     add('closed-children', `board-card:${id}`, (pool) => {
@@ -297,24 +354,34 @@ export function startupQuestions(
 /** One answer per question, read inside a tracking context as a screen reads. */
 export function ask(pool: MobxPool, questions: readonly StartupQuestion[]): Map<string, unknown> {
   const answers = new Map<string, unknown>()
-  let failed = false, failure: unknown
-  const stop = autorun(() => {
-    answers.clear()
-    for (const question of questions) {
-      let answer: unknown
-      try {
-        answer = question.read(pool)
-      } catch (error) {
-        // A model getter throws LOADING for a cold dependency.
-        if (error !== LOADING) throw error
-        answer = LOADING
+  let failed = false,
+    failure: unknown
+  const stop = autorun(
+    () => {
+      answers.clear()
+      for (const question of questions) {
+        let answer: unknown
+        try {
+          answer = question.read(pool)
+        } catch (error) {
+          // A model getter throws LOADING for a cold dependency.
+          if (error !== LOADING) throw error
+          answer = LOADING
+        }
+        answers.set(question.name, plain(answer))
       }
-      answers.set(question.name, plain(answer))
-    }
-  }, { onError(error) { failed = true; failure = error } })
+    },
+    {
+      onError(error) {
+        failed = true
+        failure = error
+      },
+    },
+  )
   stop()
   if (failed) throw failure
-  if (answers.size !== questions.length) throw new Error('[no-wrong-number] incomplete or duplicate question list')
+  if (answers.size !== questions.length)
+    throw new Error('[no-wrong-number] incomplete or duplicate question list')
   return answers
 }
 
@@ -343,8 +410,10 @@ export function checkNoWrongNumber(
     loading: string[] = [],
     wrong: WrongNumber[] = []
   for (const [name, expected] of control) {
-    if (expected === LOADING) throw new Error(`[no-wrong-number] the control is unsettled at ${name}`)
-    if (!candidate.has(name)) throw new Error(`[no-wrong-number] the candidate was not asked ${name}`)
+    if (expected === LOADING)
+      throw new Error(`[no-wrong-number] the control is unsettled at ${name}`)
+    if (!candidate.has(name))
+      throw new Error(`[no-wrong-number] the candidate was not asked ${name}`)
     const actual = candidate.get(name)
     if (actual === LOADING) loading.push(name)
     else if (isDeepStrictEqual(actual, expected)) equal.push(name)
@@ -358,20 +427,27 @@ export function assertNoWrongNumber(report: NoWrongNumberReport, label = 'candid
   if (report.wrong.length === 0) return
   const sample = report.wrong
     .slice(0, 5)
-    .map((w) => `  ${w.name}: control ${JSON.stringify(w.control)?.slice(0, 160)} vs ${JSON.stringify(w.candidate)?.slice(0, 160)}`)
-  throw new Error(`[no-wrong-number] ${label}: ${report.wrong.length} of ${report.asked} answers are wrong numbers\n${sample.join('\n')}`)
+    .map(
+      (w) =>
+        `  ${w.name}: control ${JSON.stringify(w.control)?.slice(0, 160)} vs ${JSON.stringify(w.candidate)?.slice(0, 160)}`,
+    )
+  throw new Error(
+    `[no-wrong-number] ${label}: ${report.wrong.length} of ${report.asked} answers are wrong numbers\n${sample.join('\n')}`,
+  )
 }
 
 /** Per group: how many answers were equal, loading and wrong. */
-export function summarize(report: NoWrongNumberReport): Record<StartupGroup, { equal: number; loading: number; wrong: number }> {
+export function summarize(
+  report: NoWrongNumberReport,
+): Record<StartupGroup, { equal: number; loading: number; wrong: number }> {
   const out = {} as Record<StartupGroup, { equal: number; loading: number; wrong: number }>
   const bump = (name: string, key: 'equal' | 'loading' | 'wrong') => {
     const group = name.slice(0, name.indexOf(':')) as StartupGroup
     out[group] ??= { equal: 0, loading: 0, wrong: 0 }
     out[group][key]++
   }
-  report.equal.forEach((name) => bump(name, 'equal'))
-  report.loading.forEach((name) => bump(name, 'loading'))
-  report.wrong.forEach((w) => bump(w.name, 'wrong'))
+  for (const name of report.equal) bump(name, 'equal')
+  for (const name of report.loading) bump(name, 'loading')
+  for (const wrong of report.wrong) bump(wrong.name, 'wrong')
   return out
 }

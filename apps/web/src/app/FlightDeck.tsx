@@ -1,6 +1,4 @@
-import type { Trpc } from '@/app/trpc'
-import { useCommands } from '@podium/client-core/react'
-import { useUiValue } from '@podium/client-core/react'
+import { useCommands, useUiValue } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
 import {
   type DeckIssueState,
@@ -36,7 +34,9 @@ import {
 import type { JSX, MouseEvent as ReactMouseEvent, ReactNode, RefObject } from 'react'
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
+import type { Trpc } from '@/app/trpc'
 import { GhostBar, GhostDot, GhostPreview, GhostSquare } from '@/components/GhostPreview'
+import { ScreenRefreshMark } from '@/components/ScreenRefreshMark'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -1377,16 +1377,19 @@ export const FlightDeckContent = observer(function FlightDeckContent({
    * width modes (POD-6245): its edge resizes it.
    */
   const columnControls = (
-    <Button
-      variant="ghost"
-      size="icon-sm"
-      className="deck-eyebrow-chevron size-6 flex-none text-text-faint"
-      aria-label="Collapse Flight Deck"
-      title="Collapse Flight Deck"
-      onClick={onCollapse}
-    >
-      <ChevronLeft size={14} aria-hidden="true" />
-    </Button>
+    <>
+      <ScreenRefreshMark refreshing={screen.refreshing} />
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        className="deck-eyebrow-chevron size-6 flex-none text-text-faint"
+        aria-label="Collapse Flight Deck"
+        title="Collapse Flight Deck"
+        onClick={onCollapse}
+      >
+        <ChevronLeft size={14} aria-hidden="true" />
+      </Button>
+    </>
   )
   const fullActions: FlightDeckV6Actions = {
     activeSessionId,

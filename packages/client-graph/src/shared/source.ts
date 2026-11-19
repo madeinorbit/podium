@@ -72,6 +72,10 @@ export interface CollectionLoaderPort {
   /** The device started empty and its first download has not finished. */
   readonly firstDownload: boolean
   isComplete(spec: LoaderInstance): LoaderMarker | undefined
+  /** A gap left the complete local answer usable while its replacement is queued. */
+  isStale?(spec: LoaderInstance): boolean
+  /** All surviving disk-index holders of this record are stale; one fresh holder clears it. */
+  recordStale?(entity: string, id: string): boolean
   wasRefused(spec: LoaderInstance): boolean
   stubOf(entity: string, entityId: string): Readonly<Record<string, unknown>> | undefined
   stubsByParent(parentId: string): readonly string[]

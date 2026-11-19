@@ -21,6 +21,7 @@ import {
 import { companion, lazy } from '@podium/mobx-helpers'
 import { isFinished } from '@podium/model/browser'
 import { action, compareShallow, compareStructural, observable } from 'mobx'
+import { ISSUE_STUBS } from './collections'
 import { headerView } from './header-views'
 import { omitGone } from './lookup'
 import { FullDeck } from './mission-full-deck'
@@ -176,6 +177,20 @@ export class MissionScreen {
   }
 
   // The deck
+  @lazy get refreshing(): boolean {
+    return (
+      this.pool.collections.treeStatus(this.rootId) === 'refreshing' ||
+      this.pool.collections.reading(undefined, [
+        ISSUE_STUBS,
+        ...['issueDescription.ofIssue', 'issuePanelState.ofIssue'].map((collection) => ({
+          collection,
+          args: { issueId: this.rootId },
+          part: 'main' as const,
+        })),
+      ]) === 'refreshing'
+    )
+  }
+
   get root(): IssueModel {
     return this.reader.facts(this.rootId)
   }
@@ -547,8 +562,12 @@ export function missionRootId(
   const rootId = reader.rootFor(selectedId)
   if (rootId === LOADING) return LOADING
   if (rootId) {
-    const root = reader.issue(rootId)
-    return root === LOADING ? LOADING : root?.id
+    // Resolving navigation reads identity, not the rich deck header. Its
+    // roster/counts can need the tree that the opening will read: waiting
+    // for them here prevents that disk load from ever being requested after
+    // an offline restart. The screen owns readiness once its root is known.
+    const root = omitGone(pool.row('issue', rootId))
+    return root === LOADING ? LOADING : root ? rootId : undefined
   }
   // Cold and unknown selections spend the shared load window; gone selections
   // are omitted after the lookup settles and never restart that load.

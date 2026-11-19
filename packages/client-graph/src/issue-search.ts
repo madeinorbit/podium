@@ -16,6 +16,8 @@ export interface IssueSearchPage {
 export type IssueSearchQuery = (input: IssueSearchInput) => Promise<IssueSearchPage>
 
 export interface IssueSearchResult {
+  /** At least one of these hits is a complete local answer awaiting its gap reload. */
+  readonly refreshing: boolean
   /** Device order first, followed by distinct server identities. */
   readonly ids: readonly string[]
   readonly serverIds: readonly string[]
@@ -82,8 +84,14 @@ export class IssueSearch {
     const serverIds = answer?.ids ?? EMPTY
     // The hits the view reads are held while it reads them (POD-7158).
     this.pool.collections.holdRecords('issue', serverIds)
+    const ids = [...new Set([...deviceIds, ...serverIds])]
     return {
-      ids: [...new Set([...deviceIds, ...serverIds])],
+      ids,
+      refreshing:
+        this.pool.collections.reading(
+          ids,
+          ids.map((id) => ({ entity: 'issue' as const, id })),
+        ) === 'refreshing',
       serverIds,
       pending: answer?.pending ?? false,
       complete: answer?.complete ?? !this.pool.collections.available,

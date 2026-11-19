@@ -42,7 +42,13 @@ export const MissionDetailsScreen = observer(function MissionDetailsScreen() {
   const [launchIssue, setLaunchIssue] = useState<IssueNavigationModel | null>(null)
 
   return (
-    <Screen title="Mission details" onBack={() => router.back()} backAs="text" backLabel="Done">
+    <Screen
+      title="Mission details"
+      refreshing={screen?.refreshing ?? false}
+      onBack={() => router.back()}
+      backAs="text"
+      backLabel="Done"
+    >
       {!resolved ? (
         <DetailSkeleton />
       ) : root && screen ? (

@@ -67,6 +67,12 @@ export class PhoneWorkFilters {
 
 /** The phone draws the desktop's sections and borrows its screen's filters. */
 export class PhoneWorklist {
+  @lazy get refreshing(): boolean {
+    return (
+      this.worklist.desktop.refreshing || (Boolean(this.needle) && this.searchResults.refreshing)
+    )
+  }
+
   @observableRef accessor filters = new PhoneWorkFilters()
   readonly pinned = new PhoneWorkSection('pinned', this)
   readonly searchSection = new PhoneWorkSection('search-results', this)

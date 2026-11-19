@@ -317,6 +317,50 @@ export interface DiskIndexReader {
   memoryInstances(): ReadonlySet<string>
 }
 
+/**
+ * A record is behind the feed only when every instance that still holds it
+ * is stale. Follow comes-with holders to their instances; a fresh holder
+ * makes the shared record current. Dropped markers and holder cycles carry
+ * no freshness evidence. This is an addressed read of the existing index.
+ */
+export function recordStale(
+  index: DiskIndexReader,
+  markers: ReadonlyMap<string, InstanceRecord>,
+  entity: string,
+  id: string,
+): boolean {
+  return staleRecordHolders(index, markers, entity, id).length > 0
+}
+
+/** The stale source markers of a record, empty when any source is current. */
+export function staleRecordHolders(
+  index: DiskIndexReader,
+  markers: ReadonlyMap<string, InstanceRecord>,
+  entity: string,
+  id: string,
+): readonly InstanceRecord[] {
+  const pending = [rowKeyOf(entity, id)]
+  const seen = new Set<string>()
+  const stale = new Set<InstanceRecord>()
+  while (pending.length > 0) {
+    const key = pending.pop()!
+    if (seen.has(key)) continue
+    seen.add(key)
+    const entry = index.record(key)
+    if (entry?.level !== 'main') continue
+    for (const holder of entry.holders) {
+      if (isComesWithHolder(holder)) pending.push(holder.slice(COMES_WITH_HOLDER.length))
+      else {
+        const marker = markers.get(holder)
+        if (marker === undefined) continue
+        if (index.instance(holder)?.stale !== true) return []
+        stale.add(marker)
+      }
+    }
+  }
+  return [...stale]
+}
+
 const EMPTY_SET: ReadonlySet<string> = new Set()
 const NO_HOLDERS: readonly string[] = Object.freeze([]) as readonly string[]
 const NO_VIAS: readonly string[] = NO_HOLDERS

@@ -73,7 +73,11 @@ export function stagePriorityPage(stage: string, priority: number): LoaderInstan
 }
 
 /** How a view reads an instance or a lookup: here, on its way, or not loadable offline. */
-export type Availability = 'complete' | 'loading' | 'offline'
+export type Availability = 'complete' | 'refreshing' | 'loading' | 'offline'
+
+/** Freshness is separate from presence: refreshing answers remain usable. */
+export type Reading = 'here' | 'refreshing' | 'loading' | 'offline' | 'gone'
+export type AnswerSource = LoaderInstance | { readonly entity: LoaderEntity; readonly id: string }
 
 /** Child counts as the issue close contract counts them: every child, only `done` completed. */
 export interface StubChildCounts {
@@ -95,6 +99,7 @@ const replicaKind = (entity: string): string => (entity === 'issue' ? ISSUE : en
 /** What a reader of an instance's marker reads: whether it is held, to where, of how many, refused. */
 interface MarkerSeen {
   readonly held: boolean
+  readonly stale: boolean
   readonly end: boolean | undefined
   readonly through: string | undefined
   readonly total: number | undefined
@@ -103,6 +108,7 @@ interface MarkerSeen {
 
 const sameMarker = (a: MarkerSeen, b: MarkerSeen): boolean =>
   a.held === b.held &&
+  a.stale === b.stale &&
   a.end === b.end &&
   a.through === b.through &&
   a.total === b.total &&
@@ -242,6 +248,14 @@ export class PoolCollections {
     sameMarker,
     (key) => this.markerSpecs.delete(key),
   )
+  private readonly recordStaleReads = new KeyedReads<boolean>(
+    'pool.collections.recordStale',
+    (key) => {
+      const [entity, id] = JSON.parse(key) as [string, string]
+      return this.loader()?.recordStale?.(replicaKind(entity), id) === true
+    },
+    Object.is,
+  )
   /** POD-7165: an issue's stub, by id, told only when it moved. */
   private readonly stubReads = new KeyedReads<IssueStub | undefined>(
     'pool.collections.stub',
@@ -310,7 +324,9 @@ export class PoolCollections {
   status(spec: LoaderInstance): Availability {
     this.observeMarker(spec)
     this.connection.reportObserved()
-    return this.loader()?.status(spec) ?? 'complete'
+    const loader = this.loader()
+    if (loader?.isComplete(spec) !== undefined && loader.isStale?.(spec)) return 'refreshing'
+    return loader?.status(spec) ?? 'complete'
   }
 
   /**
@@ -339,16 +355,37 @@ export class PoolCollections {
   }
 
   /**
-   * TRACKED: how a view reads a lookup that is on its way. Without a
+   * TRACKED: how a view reads an answer from its own instances. A stale,
+   * complete instance still vouches for the answer at the device's cursor,
+   * even offline while its reload is queued. Scalars carry no provenance:
+   * their reader supplies the instances it used, never all pool instances.
+   * Without a
    * connection a load cannot start: the view shows "not available offline"
    * (`offline`), never an endless loading row; it recovers by itself when the
    * connection returns and the record arrives.
    */
-  reading(answer: unknown): 'here' | 'loading' | 'offline' | 'gone' {
+  reading(answer: unknown, instances: readonly AnswerSource[] = []): Reading {
     if (answer === LOADING) return this.online ? 'loading' : 'offline'
     if (typeof answer === 'object' && answer !== null && (answer as Gone).kind === 'gone')
       return 'gone'
-    return 'here'
+    return instances.some((spec) =>
+      'collection' in spec
+        ? this.status(spec) === 'refreshing'
+        : this.recordStale(spec.entity, spec.id),
+    )
+      ? 'refreshing'
+      : 'here'
+  }
+
+  /** TRACKED: freshness of a lookup/search hit, regardless of which instance fetched it. */
+  recordStale(entity: LoaderEntity, id: string): boolean {
+    return this.recordStaleReads.read(JSON.stringify([entity, id]))
+  }
+
+  /** TRACKED: the same tree instance that `treeHeld` reads (own tree, else its top ancestor). */
+  treeStatus(id: string): Availability {
+    const root = this.complete(treeOf(id)) ? id : (this.topOf(id) ?? id)
+    return this.status(treeOf(root))
   }
 
   /**
@@ -648,6 +685,7 @@ export class PoolCollections {
     const marker = spec === undefined ? undefined : loader?.isComplete(spec)
     return {
       held: marker !== undefined,
+      stale: spec !== undefined && (loader?.isStale?.(spec) ?? false),
       end: marker?.range?.end,
       through:
         marker?.range?.through === undefined ? undefined : JSON.stringify(marker.range.through),
@@ -685,6 +723,7 @@ export class PoolCollections {
     runInAction(() => {
       this.markers.reportChanged()
       this.markerReads.moved()
+      this.recordStaleReads.moved()
     })
   }
 
@@ -770,6 +809,7 @@ export class PoolCollections {
     this.heldRecords.issue.clear()
     this.heldRecords.session.clear()
     this.markerReads.clear()
+    this.recordStaleReads.clear()
     this.markerSpecs.clear()
     this.stubReads.clear()
     this.childCountReads.clear()
