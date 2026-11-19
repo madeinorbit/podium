@@ -1361,19 +1361,26 @@ describe('ChatView composer', () => {
       expect(strip?.textContent).toContain('shot.png')
       expect(strip?.textContent).not.toContain('Uploading')
     })
-    trace('ready observed')
+    trace(
+      `ready observed buttons=${[...container.querySelectorAll('button')].map((b) => `${b.getAttribute('aria-label')}:${b.disabled}`).join(',')}`,
+    )
     fireEvent.keyDown(textarea, { key: 'Enter' })
     trace('submitted')
-    await vi.waitFor(() => {
-      trace(`wait send calls=${fakeTrpc.sessions.sendText.mutate.mock.calls.length}`)
-      expect(fakeTrpc.sessions.sendText.mutate).toHaveBeenCalledWith(
-        expect.objectContaining({
-          sessionId: asSessionId('s1'),
-          text: 'describe this image',
-          attachments: [attachment],
-        }),
-      )
-    })
+    queueMicrotask(() => trace('submit microtask'))
+    setTimeout(() => trace('submit timer'), 0)
+    for (let i = 0; i < 10 && fakeTrpc.sessions.sendText.mutate.mock.calls.length === 0; i++) {
+      await new Promise<void>((resolve) => setTimeout(resolve, 20))
+      trace(`send poll ${i}`)
+    }
+    trace('send polling complete')
+    expect(fakeTrpc.sessions.sendText.mutate.mock.calls.length).toBe(1)
+    expect(fakeTrpc.sessions.sendText.mutate.mock.calls[0]?.[0]).toEqual(
+      expect.objectContaining({
+        sessionId: asSessionId('s1'),
+        text: 'describe this image',
+        attachments: [attachment],
+      }),
+    )
     trace('send asserted')
   })
 
