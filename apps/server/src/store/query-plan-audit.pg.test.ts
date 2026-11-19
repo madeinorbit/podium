@@ -728,9 +728,9 @@ const HINT_SHAPES: ReadonlyMap<string, HintShape> = new Map<string, HintShape>([
       [
         key,
         {
-          alsoReads: 'podium_events_pkey',
+          alsoReads: 'podium_events_workspace_id_id_unique',
           reason:
-            "Counts the events above the row cap's guess (POD-7035). SQLite is told its narrowest index, whose entries it counts without a table page; Postgres counts the primary key's range above the guess, the same rows.",
+            "Counts the events above the row cap's guess (POD-7035). SQLite is told its narrowest index, whose entries it counts without a table page; Postgres counts the tenant-scoped unique (workspace_id, id) range above the guess, the same rows.",
         },
       ] as const,
   ),
@@ -863,6 +863,18 @@ const RECENT_RANGE =
   "A collection's recent records (POD-7085): those after a cutoff of the last N days. The generic plan cannot know the cutoff and takes a third of the rows as recent; for a real one, the newest few, Postgres reads the time index."
 
 const PLANNER_CHOICES: ReadonlyMap<string, PlannerChoice> = new Map<string, PlannerChoice>([
+  ...(['implicitExpiryFirst', 'implicitExpiryAfter'] as const).map(
+    (name) =>
+      [
+        `apps/server/src/store/janitor-reads.ts:${name}`,
+        {
+          off: ['enable_sort', 'enable_incremental_sort'],
+          reads: 'idx_messages_delivery_order',
+          reason:
+            "The implicit-expiry page sorts the analyzed seed's broad expiry range; the pending-message order index serves the same page without sorting when that cost choice is barred.",
+        },
+      ] as const,
+  ),
   ...(
     [
       'automationRun.recent',
@@ -919,17 +931,6 @@ const PLANNER_CHOICES: ReadonlyMap<string, PlannerChoice> = new Map<string, Plan
     },
   ],
 
-  [
-    'apps/server/src/store/issues.ts:issuesMissingRepoIdCount',
-    {
-      reshape: [
-        `UPDATE issues SET repo_id = 'repo' WHERE repo_id IS NULL AND right(id, 2) <> '00'`,
-      ],
-      analyze: ['issues'],
-      reason:
-        "Counts the issues that have not got their repository id yet (the boot backfill's work). On the seed half the issues have none; on a real database they are the few left from before repository ids, read through idx_issues_repo_id_seq.",
-    },
-  ],
   ...(['runOwner', 'runOwnersOfIds [1]', 'runOwnersOfIds [4]'] as const).map(
     (name) =>
       [

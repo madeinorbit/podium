@@ -654,6 +654,7 @@
       "dependencies": {
         "@podium/blob-store": "workspace:*",
         "@podium/client-core": "workspace:*",
+        "@podium/client-graph": "workspace:*",
         "@podium/commands": "workspace:*",
         "@podium/harness": "workspace:*",
         "@podium/logger": "workspace:*",
