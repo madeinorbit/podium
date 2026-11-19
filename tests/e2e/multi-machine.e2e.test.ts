@@ -2,6 +2,8 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { asMachineId } from '@podium/model'
+import { directPtyDurableForTests } from '@podium/process/durable'
 import { readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
 import { afterAll, describe, expect, it } from 'vitest'
 import { type DaemonOptions, startDaemon } from '../../apps/daemon/src/daemon'
@@ -29,9 +31,9 @@ const FIXTURE = fileURLToPath(
   new URL('../../packages/pty/test/fixtures/fixture-tui.mjs', import.meta.url),
 )
 
-async function waitFor(pred: () => boolean, timeoutMs = 10_000): Promise<void> {
+async function waitFor(pred: () => boolean | Promise<boolean>, timeoutMs = 10_000): Promise<void> {
   const start = Date.now()
-  while (!pred()) {
+  while (!(await pred())) {
     if (Date.now() - start > timeoutMs) throw new Error('waitFor: timed out')
     await new Promise((r) => setTimeout(r, 20))
   }
@@ -60,6 +62,7 @@ describe('e2e: two-daemon pairing + routing', () => {
       identityDir: tmp1,
       launch: fixtureLaunch,
       backend: 'none',
+      durable: directPtyDurableForTests(),
       discovery: {
         background: false,
         cachePath: join(tmp1, 'discovery.db'),
@@ -80,6 +83,7 @@ describe('e2e: two-daemon pairing + routing', () => {
       identityDir: tmp2,
       launch: fixtureLaunch,
       backend: 'none',
+      durable: directPtyDurableForTests(),
       discovery: {
         background: false,
         cachePath: join(tmp2, 'discovery.db'),
@@ -113,9 +117,14 @@ describe('e2e: two-daemon pairing + routing', () => {
       expect(machines.find((m) => m.id === daemon2Id)?.online).toBe(true)
 
       const machine2Name = machines.find((m) => m.id === daemon2Id)?.name ?? ''
+      await srv.registry.modules.machines.changeAssignment(
+        asMachineId(daemon2Id),
+        { server: false, agentExecution: true },
+        'routing-fixture',
+      )
 
       // 3) Create a session explicitly targeting daemon2 (the "remote" paired machine)
-      const { sessionId } = srv.registry.modules.sessions.createSession({
+      const { sessionId } = await srv.registry.modules.sessions.createSession({
         // This runtime injects a fixture launcher, not an installed agent CLI.
         // Shell requires only the live daemon and still proves socket routing.
         agentKind: 'shell',
@@ -126,19 +135,19 @@ describe('e2e: two-daemon pairing + routing', () => {
       // 4) Wait for the session to go live: daemon2 received the spawn control message,
       //    executed the fixture, and sent a `bind` back — proving that the spawn was
       //    actually delivered to daemon2's socket, not daemon1's.
-      await waitFor(() => {
-        const s = srv.registry.modules.sessions
-          .listSessions()
-          .find((s) => s.sessionId === sessionId)
+      await waitFor(async () => {
+        const s = (await srv.registry.modules.sessions.listSessions()).find(
+          (s) => s.sessionId === sessionId,
+        )
         return s?.status === 'live'
       }, 10_000)
 
       // 5) Assert routing: the session is attributed to daemon2, NOT daemon1.
       //    The negative assertion (machineId !== daemon1Id) is the key proof —
       //    without it the test passes trivially if spawn lands on the wrong daemon.
-      const meta = srv.registry.modules.sessions
-        .listSessions()
-        .find((s) => s.sessionId === sessionId)
+      const meta = (await srv.registry.modules.sessions.listSessions()).find(
+        (s) => s.sessionId === sessionId,
+      )
       expect(meta).toBeDefined()
       expect(meta?.machineId).toBe(daemon2Id)
       expect(meta?.machineId).not.toBe(daemon1Id)

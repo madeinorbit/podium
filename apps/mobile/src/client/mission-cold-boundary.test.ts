@@ -38,7 +38,6 @@ it('settles the phone mission for the closed corpus root i938', async () => {
       const output = tracked(() => poolMobileScreensSnapshot(handle.pool, input))
       if (!handle.pool.hydrate() && output !== LOADING) {
         expect(output).not.toBe(LOADING)
-        if (output === LOADING) throw new Error('Phone mission did not settle')
         expect(output.sections.find((section) => section.key === 'mission')?.fields.root).toBe(
           'i938',
         )

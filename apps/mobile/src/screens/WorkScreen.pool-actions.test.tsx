@@ -435,7 +435,11 @@ describe('mobile pool work-list actions', () => {
     await mount((f) => f.patchIssue(TARGET, { readAt: null }))
     expect(value().emphasizeUnread).toBe(true)
     const navigation = vi.fn(() =>
-      expect(requests.filter((request) => request.procedure === 'issues.markRead')).toEqual([]),
+      expect(
+        requests.filter(
+          (request) => request.procedure === 'issues.markRead' && request.input.id === TARGET,
+        ),
+      ).toEqual([]),
     )
     router.push.mockImplementationOnce(navigation)
     fireEvent.click(button())

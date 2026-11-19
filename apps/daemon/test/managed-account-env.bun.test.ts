@@ -199,12 +199,11 @@ async function dumpEnvOfSpawnedProcess(
     )
     // Driver selection and hook installation have their own suites. This test
     // exercises the shared OS launch with the canonical spec of each harness.
-    const launched = await launchTerminalProcess(ctx, {
+    await launchTerminalProcess(ctx, {
       sessionId: msg.sessionId,
       spec,
       instrumentation: { args: [] },
     })
-    launched.announce()
   }
   expect(
     sent.find((message) => message.type === 'spawnError'),
