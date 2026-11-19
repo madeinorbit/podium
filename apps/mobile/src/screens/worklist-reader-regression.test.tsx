@@ -1,10 +1,10 @@
 import { referenceState } from '../../../../tests/worklist/diagnostics/reference-state'
 
-/** Cumulative derivations, not a subscription guard: enable before bootstrap
+/** Cumulative derivations and actual React commits: enable before bootstrap
  * and retain counts across updates, gestures, idle and provider rebuilds.
  * All data is synthetic. The real slice hooks/publisher are never mocked. */
 
-import { storeStats } from '@podium/client-core/perf'
+import { recordStoreReactCommit, storeStats } from '@podium/client-core/perf'
 import {
   createKernelReplica,
   createSideCache,
@@ -18,7 +18,7 @@ import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import { reposToViews } from '@podium/client-core/values'
 import type { EntityRecord } from '@podium/sync/replica'
 import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
-import type { ReactNode } from 'react'
+import { Profiler, type ReactNode } from 'react'
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest'
 import { buildCorpus } from '../../../../tests/worklist/harness/src/fixture'
 import type { MobilePool } from '../client/mobile-pool'
@@ -264,7 +264,9 @@ describe('mobile pool-only worklist regressions', () => {
       const stats = storeStats.snapshot()
       expect(stats.enabled).toBe(true)
       expect(stats.dropped).toBe(0)
-      expect(stats.runtimes.reduce((sum, runtime) => sum + runtime.publishes, 0)).toBeGreaterThan(0)
+      expect(
+        stats.runtimes.reduce((sum, runtime) => sum + runtime.reactCommits, 0),
+      ).toBeGreaterThan(0)
       const worklist = stats.runtimes.reduce(
         (sum, runtime) => sum + (runtime.slices.worklist ?? 0),
         0,
@@ -280,10 +282,15 @@ describe('mobile pool-only worklist regressions', () => {
     async function mount(principal: string) {
       const feed = kernelFixture(corpus)
       const view = await renderWithMobileStore(
-        <>
+        <Profiler
+          id="phone-readers"
+          onRender={() => {
+            if (state.runtime) recordStoreReactCommit(state.runtime)
+          }}
+        >
           <WorkScreen />
           <MissionDetailsScreen />
-        </>,
+        </Profiler>,
         {
           replica: feed.replica,
           principal,
