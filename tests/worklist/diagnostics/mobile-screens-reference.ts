@@ -70,6 +70,13 @@ type Issue = IssueNavigationModel
 // publication; rebuilding it for every opening adds no independent evidence.
 const publications = new WeakMap<ReferenceState, Issue[]>()
 const decks = new WeakMap<ReferenceState, Map<string, FlightDeckRow[]>>()
+const boardFacts = new WeakMap<
+  ReferenceState,
+  {
+    working: ReturnType<typeof confirmedWorkingAgentCountsByIssue>
+    progress: ReturnType<typeof taskProgressMap>
+  }
+>()
 function referenceIssues(source: ReferenceState): Issue[] {
   let issues = publications.get(source)
   if (!issues) {
@@ -520,14 +527,21 @@ export function expectMobileScreens(
       .map((section) => section.key),
     `${label}: task lanes`,
   ).toEqual(board.sections.map((section) => `tasks:${section.stage}`))
-  const working = confirmedWorkingAgentCountsByIssue(issues, sessions, source.coarseNow)
-  // The card meter counts the live formal tree; archived, deleted and draft
-  // branches have left that tree and cannot contribute descendant work.
-  const progress = taskProgressMap(
-    issues.filter((issue) => !issue.archived && !issue.deletedAt && !issue.isDraftVessel),
-    issues.map((issue) => issue.id),
-    working,
-  )
+  let facts = boardFacts.get(source)
+  if (board.sections.length > 0 && !facts) {
+    const working = confirmedWorkingAgentCountsByIssue(issues, sessions, source.coarseNow)
+    // These pure record counts belong to the publication, independent of the
+    // selected mission or board options. Mission-only comparisons need none.
+    facts = {
+      working,
+      progress: taskProgressMap(
+        issues.filter((issue) => !issue.archived && !issue.deletedAt && !issue.isDraftVessel),
+        issues.map((issue) => issue.id),
+        working,
+      ),
+    }
+    boardFacts.set(source, facts)
+  }
   for (const expected of board.sections) {
     const drawn = section(`tasks:${expected.stage}`)
     expect(
@@ -544,9 +558,13 @@ export function expectMobileScreens(
         childCount: row.childCount,
         expanded: row.expanded,
         parent: row.issue.parentId ? (members.get(row.issue.parentId)?.title ?? null) : null,
-        working: working.get(row.issue.id) ?? 0,
-        progress: progress.get(row.issue.id) ?? null,
-        state: taskStateWord(row.issue, working.get(row.issue.id) ?? 0, progress.get(row.issue.id)),
+        working: facts?.working.get(row.issue.id) ?? 0,
+        progress: facts?.progress.get(row.issue.id) ?? null,
+        state: taskStateWord(
+          row.issue,
+          facts?.working.get(row.issue.id) ?? 0,
+          facts?.progress.get(row.issue.id),
+        ),
       })
   }
 }

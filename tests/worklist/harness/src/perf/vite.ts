@@ -128,11 +128,11 @@ export function instrumentProductWork(code: string, id: string): string | undefi
       throw new Error(`Missing work measurement boundary ${file}: PoolMachineReadout`)
     const section = once(
       code.slice(start, end),
-      'return (\n    host ?',
-      "return __measureHeader('pool.metricRow', () =>\n    host ?",
+      'return host ? (',
+      "return __measureHeader('pool.metricRow', () => host ? (",
       file,
     )
-    code = code.slice(0, start) + section + code.slice(end)
+    code = code.slice(0, start) + section.replace(') : null', ') : null)') + code.slice(end)
   } else return undefined
   return `import { ${binding} } from ${JSON.stringify(meter)};\n${code}`
 }

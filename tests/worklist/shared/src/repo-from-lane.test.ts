@@ -12,7 +12,9 @@
  */
 
 import { readFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { join, resolve } from 'node:path'
+import { parseSync, types as t, traverse } from '@babel/core'
 import type { RelationMaintenance as MobxMaintenance } from '@podium/client-graph/relations'
 import * as composer from '@podium/client-graph/shared/repo-from-lane'
 import {
@@ -28,7 +30,6 @@ import {
   ingestOut as mobxIngestOut,
   ingestRecord as mobxIngestRecord,
 } from '@podium/client-graph/tables'
-import ts from 'typescript'
 import { describe, expect, it, vi } from 'vitest'
 import { moduleGraphOf } from '../../harness/entry-pin'
 import type { RowRecord } from './stats'
@@ -226,27 +227,41 @@ function codeOf(file: string): string {
     .replace(/(^|\s)\/\/[^\n]*/g, '$1')
 }
 
+const syntaxTypeScript = createRequire(import.meta.url).resolve('@babel/plugin-syntax-typescript')
 function directLaneReads(code: string): string[] {
-  const source = ts.createSourceFile('tables.ts', code, ts.ScriptTarget.Latest, true)
+  const source = parseSync(code, {
+    filename: 'tables.ts',
+    configFile: false,
+    babelrc: false,
+    plugins: [syntaxTypeScript],
+  })
+  if (!source) throw new Error('lane-read fixture did not parse')
   const fields = new Set(['repoPath', 'repoId', 'repoName'])
   const reads: string[] = []
-  const visit = (node: ts.Node): void => {
-    if (ts.isPropertyAccessExpression(node) && fields.has(node.name.text))
-      reads.push(node.getText(source))
-    if (
-      ts.isElementAccessExpression(node) &&
-      ts.isStringLiteralLike(node.argumentExpression) &&
-      fields.has(node.argumentExpression.text)
-    )
-      reads.push(node.getText(source))
-    if (ts.isObjectBindingPattern(node))
-      for (const element of node.elements) {
-        const name = element.propertyName ?? element.name
-        if (ts.isIdentifier(name) && fields.has(name.text)) reads.push(element.getText(source))
+  traverse(source, {
+    enter(path) {
+      if (path.isMemberExpression() || path.isOptionalMemberExpression()) {
+        const { property, computed } = path.node
+        const name =
+          computed && t.isStringLiteral(property)
+            ? property.value
+            : !computed && t.isIdentifier(property)
+              ? property.name
+              : undefined
+        if (name && fields.has(name)) reads.push(path.toString())
+      } else if (path.isObjectPattern()) {
+        for (const property of path.node.properties) {
+          if (!t.isObjectProperty(property)) continue
+          const name = t.isIdentifier(property.key)
+            ? property.key.name
+            : t.isStringLiteral(property.key)
+              ? property.key.value
+              : undefined
+          if (name && fields.has(name)) reads.push(path.toString())
+        }
       }
-    ts.forEachChild(node, visit)
-  }
-  visit(source)
+    },
+  })
   return reads
 }
 
