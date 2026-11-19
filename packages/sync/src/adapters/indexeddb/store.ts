@@ -230,6 +230,12 @@ export interface IndexedDbStoreOptions {
    * Tests inject a short value so a hung factory cannot stall the suite.
    */
   readonly openTimeoutMs?: number
+  /** Diagnostic only, after a version-change transaction has committed. */
+  readonly onSchemaUpgrade?: (event: {
+    readonly from: number
+    readonly to: number
+    readonly cachePrincipalsReset: number
+  }) => void
   /** POD-7184 — how much one group commit writes; default {@link GROUP_COMMIT_BOUNDS}. Tests pass small ones. */
   readonly groupCommitBounds?: GroupCommitBounds
   /** REQUIRED — see {@link DurabilityDegradation}. */
@@ -573,7 +579,7 @@ export class IndexedDbSyncStore {
     const name = options.databaseName ?? REPLICA_DB_NAME
     let db: IdbDatabaseLike
     try {
-      db = await openDatabase(options.factory, name, options.openTimeoutMs)
+      db = await openDatabase(options.factory, name, options.openTimeoutMs, options)
     } catch (error) {
       // A timeout is not corruption. Deleting the replica because Safari held
       // the lock would throw away a recoverable store and force a world-sized
@@ -587,7 +593,7 @@ export class IndexedDbSyncStore {
       // D5.1 is forward-only, so the only honest move is to drop it and cold start.
       await deleteDatabase(options.factory, name)
       try {
-        db = await openDatabase(options.factory, name, options.openTimeoutMs)
+        db = await openDatabase(options.factory, name, options.openTimeoutMs, options)
       } catch (fatal) {
         const store = new IndexedDbSyncStore(unavailableDatabase(), options)
         store.degrade('unavailable', 'unavailable', fatal)
@@ -839,6 +845,7 @@ export class IndexedDbSyncStore {
         this.options.factory,
         this.options.databaseName ?? REPLICA_DB_NAME,
         this.options.openTimeoutMs,
+        this.options,
       )
     } catch (error) {
       throw new IndexedDbReconnectError(error)
@@ -2512,10 +2519,12 @@ function openDatabase(
   factory: IdbFactoryLike,
   name: string,
   timeoutMs: number = IDB_OPEN_TIMEOUT_MS,
+  options?: Pick<IndexedDbStoreOptions, 'keyRange' | 'onSchemaUpgrade'>,
 ): Promise<IdbDatabaseLike> {
   return new Promise<IdbDatabaseLike>((resolve, reject) => {
     const request = factory.open(name, REPLICA_SCHEMA_VERSION)
     let settled = false
+    let upgraded: { from: number; to: number; cachePrincipalsReset: number } | undefined
     const timer = setTimeout(() => {
       if (settled) return
       settled = true
@@ -2527,8 +2536,22 @@ function openDatabase(
       clearTimeout(timer)
       fn()
     }
-    request.onupgradeneeded = () => {
-      upgradeSchema(request.result)
+    request.onupgradeneeded = (event) => {
+      const from = (event as { oldVersion?: number } | undefined)?.oldVersion ?? 0
+      upgraded = { from, to: REPLICA_SCHEMA_VERSION, cachePrincipalsReset: 0 }
+      upgradeSchema(
+        request.result,
+        request.transaction === null
+          ? undefined
+          : {
+              transaction: request.transaction,
+              oldVersion: from,
+              keyRange: options?.keyRange,
+              onLegacyReset: (count) => {
+                if (upgraded !== undefined) upgraded.cachePrincipalsReset = count
+              },
+            },
+      )
     }
     // Another connection is holding the version lock. Do not wait it out —
     // the timeout is the bound. A later success still closes the late handle.
@@ -2549,6 +2572,13 @@ function openDatabase(
       }
       finish(() => {
         resolve(db)
+        if (upgraded !== undefined) {
+          try {
+            options?.onSchemaUpgrade?.(upgraded)
+          } catch {
+            // Observability cannot refuse an already committed database open.
+          }
+        }
       })
     }
     request.onerror = () => {

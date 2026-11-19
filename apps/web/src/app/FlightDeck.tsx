@@ -55,6 +55,7 @@ import {
   CapabilityAgentItem,
   candidateFromAvailability,
 } from '@/lib/agent-capability'
+import { forceReload } from '@/lib/force-reload'
 import { type IssueAgentKind, issueAgentOptions, issueDefaultAgentKind } from '@/lib/issue-agents'
 import { renderReadoutMarkdown } from '@/lib/markdown'
 import type { ContextMenuAnchor } from '@/lib/session-context-menu'
@@ -710,7 +711,32 @@ export function ReviewSignpost({
  * strip deep, and a ghost that COLLAPSES on resolve reads worse than no ghost
  * at all.
  */
+export const DECK_LOAD_LIMIT_MS = 60_000
+
 export function SettlingDeck(): JSX.Element {
+  const [expired, setExpired] = useState(false)
+  const [failure, setFailure] = useState<string>()
+  useEffect(() => {
+    const timer = setTimeout(() => setExpired(true), DECK_LOAD_LIMIT_MS)
+    return () => clearTimeout(timer)
+  }, [])
+  if (expired)
+    return (
+      <div className="m-6 flex flex-col items-start gap-3 text-sm" role="alert">
+        <p>The deck could not finish loading.</p>
+        {failure && <p>{failure}</p>}
+        <Button
+          variant="outline"
+          onClick={() => {
+            void forceReload('deck-load-timeout').catch((error: unknown) =>
+              setFailure(error instanceof Error ? error.message : String(error)),
+            )
+          }}
+        >
+          Retry
+        </Button>
+      </div>
+    )
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-testid="flight-settling">
       <GhostPreview

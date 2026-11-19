@@ -288,6 +288,8 @@ export const SUPERAGENT_MODE_KEY = 'podium:superagent:mode'
  */
 /** sessionStorage-only PWA wire-version reload guard (not ui-state collection). */
 export const WIRE_RELOAD_COUNTER_KEY = 'podium.vreload'
+/** One pre-authentication interface repair per served build in this tab. */
+export const INTERFACE_REPAIR_TARGET_KEY = 'podium.interface-repair-target'
 /** Legacy pre-replica outbox blob key — replica migrates it once. */
 export const LEGACY_OUTBOX_LS_KEY = 'podium.outbox.v1'
 
@@ -317,6 +319,10 @@ export const KNOWN_NON_UI_ROUTES = {
     home: 'known-unrouted' as const,
     reason:
       'sessionStorage loop guard for wire-version hard-reload; must work before the store exists.',
+  },
+  [INTERFACE_REPAIR_TARGET_KEY]: {
+    home: 'known-unrouted' as const,
+    reason: 'sessionStorage loop guard for interface repair before sign-in and replica storage.',
   },
   /** Legacy pre-replica outbox blob key — replica migrates it once. */
   [LEGACY_OUTBOX_LS_KEY]: {

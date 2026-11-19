@@ -38,8 +38,9 @@
  * never wedge boot.
  */
 
-import type { MutationId } from '@podium/model'
-import type { IdbDatabaseLike } from './idb'
+import { COLLECTIONS, type MutationId } from '@podium/model'
+import { decodeCacheMeta } from '../../replica/cache-state'
+import type { IdbDatabaseLike, IdbKeyRangeLike, IdbTransactionLike } from './idb'
 
 export const REPLICA_DB_NAME = 'podium-replica'
 
@@ -48,7 +49,7 @@ export const REPLICA_DB_NAME = 'podium-replica'
  * There is no down migration: D5.1 is forward-only, and a client that has to go
  * backwards cold-starts (D4.5) rather than reading a layout it cannot understand.
  */
-export const REPLICA_SCHEMA_VERSION = 2
+export const REPLICA_SCHEMA_VERSION = 3
 
 export const ENTITY_STORE = 'entities'
 export const META_STORE = 'meta'
@@ -120,7 +121,15 @@ export interface StoredOutboxRecord {
  * live. Written to be idempotent per store so a future version's arm can add a
  * store without re-creating the others.
  */
-export function upgradeSchema(db: IdbDatabaseLike): void {
+export function upgradeSchema(
+  db: IdbDatabaseLike,
+  upgrade?: {
+    readonly transaction: IdbTransactionLike
+    readonly oldVersion: number
+    readonly keyRange?: IdbKeyRangeLike
+    readonly onLegacyReset?: (principals: number) => void
+  },
+): void {
   if (!db.objectStoreNames.contains(ENTITY_STORE)) {
     db.createObjectStore(ENTITY_STORE, { keyPath: ['principal', 'entity', 'entityId'] })
   }
@@ -135,5 +144,58 @@ export function upgradeSchema(db: IdbDatabaseLike): void {
   // transactions, so a crash there repeats it and drops nothing.
   if (!db.objectStoreNames.contains(INDEX_STORE)) {
     db.createObjectStore(INDEX_STORE, { keyPath: ['principal', 'key'] })
+  }
+  if (upgrade === undefined || upgrade.oldVersion === 0 || upgrade.oldVersion >= 3) return
+  // LEGACY(remove-after: 2027-05): schemas 1 and 2 accepted a pre-collection snapshot cursor; invalidating it here drops only cached data, retaining the outbox.
+  const tx = upgrade.transaction
+  const metadata = tx.objectStore(META_STORE).getAll()
+  metadata.onsuccess = () => {
+    const rows = metadata.result as StoredMeta[]
+    const byPrincipal = new Map<string, StoredMeta[]>()
+    for (const row of rows) {
+      const group = byPrincipal.get(row.principal)
+      if (group === undefined) byPrincipal.set(row.principal, [row])
+      else group.push(row)
+    }
+    const incompatible = new Set<string>()
+    for (const [principal, group] of byPrincipal) {
+      const { cursor, policy } = decodeCacheMeta(group)
+      if (cursor === null) continue
+      const usablePolicy = policy?.steps.every(
+        (step) =>
+          step !== null &&
+          typeof step === 'object' &&
+          Array.isArray(step.collections) &&
+          step.collections.every((id) => COLLECTIONS.has(id)),
+      )
+      if (!usablePolicy) incompatible.add(principal)
+    }
+    if (incompatible.size === 0) return
+    // Invalidate cache and cursor together, in the version-change transaction.
+    // The outbox and the other principals' compatible caches are independent.
+    for (const principal of incompatible) {
+      if (upgrade.keyRange !== undefined) {
+        const range = upgrade.keyRange.bound([principal, ''], [principal, '\uffff'])
+        for (const name of [ENTITY_STORE, META_STORE, INDEX_STORE])
+          tx.objectStore(name).delete(range)
+      }
+    }
+    if (upgrade.keyRange === undefined) {
+      for (const name of [ENTITY_STORE, META_STORE, INDEX_STORE]) {
+        const store = tx.objectStore(name)
+        const request = store.getAll()
+        request.onsuccess = () => {
+          for (const row of request.result as (StoredEntity & StoredMeta & StoredIndexRow)[]) {
+            if (!incompatible.has(row.principal)) continue
+            store.delete(
+              name === ENTITY_STORE
+                ? [row.principal, row.entity, row.entityId]
+                : [row.principal, row.key],
+            )
+          }
+        }
+      }
+    }
+    upgrade.onLegacyReset?.(incompatible.size)
   }
 }

@@ -23,7 +23,11 @@ import {
   type TranscriptIdbKeyRange,
 } from '@podium/client-core/transcript-store'
 import { createLogger } from '@podium/logger'
-import { type IdbFactoryLike, IndexedDbSyncStore } from '@podium/sync/adapters/indexeddb'
+import {
+  type IdbFactoryLike,
+  IndexedDbSyncStore,
+  REPLICA_SCHEMA_VERSION,
+} from '@podium/sync/adapters/indexeddb'
 import { browserMemorySignals } from '@podium/sync/replica'
 import type { Trpc } from '@/app/trpc'
 import { expireSignedInRuntime } from './account-context'
@@ -153,14 +157,22 @@ export async function openKernelAssembly(
     // moments and when the tab is hidden.
     memorySignals: browserMemorySignals(),
     evidence: options.evidence,
-    openStore: (onDegraded) =>
-      IndexedDbSyncStore.open({
+    openStore: async (onDegraded) => {
+      log.debug('opening client storage', { schemaVersion: REPLICA_SCHEMA_VERSION })
+      const store = await IndexedDbSyncStore.open({
         factory: options.factory ?? (globalThis.indexedDB as unknown as IdbFactoryLike),
         keyRange: options.factory === undefined ? globalThis.IDBKeyRange : undefined,
         databaseName,
         retainEntity: retainReplicaEntity,
         onDegraded,
-      }),
+        onSchemaUpgrade: (event) => log.info('client storage schema upgraded', event),
+      })
+      log.debug('client storage ready', {
+        schemaVersion: REPLICA_SCHEMA_VERSION,
+        durability: store.durability(),
+      })
+      return store
+    },
     settings: {
       storage: globalThis.localStorage,
       enumerateKeys: () => Object.keys(globalThis.localStorage),

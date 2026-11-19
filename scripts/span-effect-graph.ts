@@ -431,8 +431,13 @@ export const NOT_A_SPAN_OPENER: readonly OpenerExemption[] = [
     why: "IndexedDB's own transaction helper: a browser adapter, no server span.",
   },
   {
+    file: 'packages/sync/src/adapters/indexeddb/schema.ts',
+    line: 127,
+    why: 'The native IndexedDB versionchange transaction supplied by onupgradeneeded. This property holds a transaction handle; it cannot open a server span.',
+  },
+  {
     file: 'packages/sync/src/adapters/indexeddb/store.ts',
-    line: 787,
+    line: 793,
     why: 'Native IndexedDB transaction acquisition and connection recovery, taking store names and a mode without a body callback. Logical span bodies enter through the already-declared SyncUnitOfWork.transact port.',
   },
   {

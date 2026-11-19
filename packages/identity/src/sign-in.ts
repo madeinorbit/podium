@@ -301,7 +301,19 @@ export function signInOperations(runtime: Runtime, credentials: Credentials): Si
         return { refused: 'https_required' }
       }
       const typed = input.email === undefined ? undefined : normaliseEmail(input.email)
-      const key = typed ?? NO_EMAIL_KEY
+      // Older password managers saved the local member ID as the username.
+      // Only an unmatched non-address can mean the sole password account;
+      // a mistyped address or a server with several accounts stays refused.
+      let legacyEmail: string | undefined
+      if (typed !== undefined && !typed.includes('@')) {
+        const [matched] = await accountByEmail(runtime.db()).run({ email: typed })
+        if (!matched) {
+          const accounts = await firstPasswordAccounts(runtime.db()).run({})
+          if (accounts.length === 1) legacyEmail = accounts[0]?.email
+        }
+      }
+      // All legacy usernames share the password-only budget, including failures.
+      const key = legacyEmail === undefined ? (typed ?? NO_EMAIL_KEY) : NO_EMAIL_KEY
       const now = runtime.now().getTime()
       const source = facts.clientAddress
       const locked = throttle.lockedFor(key, source, now)
@@ -318,7 +330,7 @@ export function signInOperations(runtime: Runtime, credentials: Credentials): Si
 
       // An address in the reserved domain is never accepted as input.
       if (typed !== undefined && inGeneratedDomain(typed)) return refuseEarly()
-      const email = typed ?? (await identifierWithoutEmail())
+      const email = legacyEmail ?? typed ?? (await identifierWithoutEmail())
       if (email === undefined) return refuseEarly()
       if (runtime.signInGate) {
         const [account] = await accountByEmail(runtime.db()).run({ email })
