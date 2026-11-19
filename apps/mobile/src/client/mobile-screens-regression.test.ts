@@ -1,29 +1,21 @@
-import { attachMissionTestPreferences } from '@podium/client-graph/mission-screen.test.fixture'
+import { expectMobileScreens } from '../../../../tests/worklist/diagnostics/mobile-screens-reference'
 import { referenceState } from '../../../../tests/worklist/diagnostics/reference-state'
-/** Exact pool-only phone outputs frozen after the accepted parity controls.
- * Synthetic fixture roots select the same questions and publication gates. */
 
-import { createHash } from 'node:crypto'
-import type { ReferenceState as Store } from '../../../../tests/worklist/diagnostics/reference-state'
-import { type IssueNavigationModel, missionRootFor } from '@podium/client-core/values'
+/** Phone outputs compared to an independent record oracle across the accepted corpus gates. */
+
+import { missionRootFor } from '@podium/client-core/values'
 import { createWorklistPool } from '@podium/client-graph/create'
+import { attachMobileScreens } from '@podium/client-graph/mobile-screens'
+import type { MobxPool } from '@podium/client-graph/pool'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import {
   type MobileScreenInput,
   observeMobileScreens,
   poolMobileScreensSnapshot,
   trackMobileScreenRead as tracked,
 } from '../../../../tests/worklist/diagnostics/mobile-screens-snapshot'
-import { attachMobileScreens } from '@podium/client-graph/mobile-screens'
-import { MobxPool } from '@podium/client-graph/pool'
-import { MissionScreen } from '@podium/client-graph/mission-screen'
-import { settled } from '@podium/client-graph/mission-view'
-import { LOADING } from '@podium/client-graph/worklist/rollup'
-import { autorun } from 'mobx'
-import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import {
-  FENCE_SCENARIOS,
-  openFenceFeeds,
-} from '../../../../tests/worklist/harness/src/fence-feeds'
+import type { ReferenceState as Store } from '../../../../tests/worklist/diagnostics/reference-state'
+import { FENCE_SCENARIOS, openFenceFeeds } from '../../../../tests/worklist/harness/src/fence-feeds'
 import { FIXED_NOW } from '../../../../tests/worklist/harness/src/fixture/corpus'
 import {
   startScenarioEngine,
@@ -31,20 +23,6 @@ import {
   writeRescopeGrow,
 } from '../../../../tests/worklist/shared/src/scenarios'
 import { mostRelevantSession } from '../lib/mission-session'
-
-function fingerprint(value: unknown) {
-  const normalized = JSON.stringify(value, (_key, item) =>
-    item !== null && typeof item === 'object' && !Array.isArray(item)
-      ? Object.fromEntries(
-          Object.keys(item)
-            .sort()
-            .map((key) => [key, item[key]]),
-        )
-      : item,
-  )
-  if (normalized === undefined) throw new Error('Phone pool output is not settled')
-  return createHash('sha256').update(normalized).digest('hex')
-}
 
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ['Date'] })
@@ -67,28 +45,39 @@ function settle(pool: MobxPool, input: MobileScreenInput) {
 }
 
 it.each([
-  { selectedId: 'i100', header: { id: 'i100', archived: true, startedBySession: 's4048' }, hash: '3e698491bf56f08575933a73e0496e0821f54229ca0a73ee63098ca32dd596a6' },
-  { selectedId: 'i1157', header: { id: 'i1321', archived: true }, hash: 'dc908ac2055f75434757ee5cbaf8b0c6fe90ff14dd6c7462eabfa7c9967a4635' },
-])('archived corpus $selectedId retains its full header and frozen phone output', async ({ selectedId, header, hash }) => {
-  const ctx = await startScenarioEngine(1), feeds = openFenceFeeds(ctx, 'pooled')
-  const handle = createWorklistPool(feeds.rows.source, feeds.locals.source, {
-  })
+  { selectedId: 'i100', header: { id: 'i100', archived: true, startedBySession: 's4048' } },
+  { selectedId: 'i1157', header: { id: 'i1321', archived: true } },
+])('archived corpus $selectedId retains its full header and record-derived phone output', async ({
+  selectedId,
+  header,
+}) => {
+  const ctx = await startScenarioEngine(1),
+    feeds = openFenceFeeds(ctx, 'pooled')
+  const handle = createWorklistPool(feeds.rows.source, feeds.locals.source, {})
   await attachMobileScreens(handle.pool)
   try {
     for (const mode of ['full', 'working', 'needs-you'] as const) {
       const input: MobileScreenInput = {
-        selectSession: mostRelevantSession, tasks: null, selectedId, mode,
+        selectSession: mostRelevantSession,
+        tasks: null,
+        selectedId,
+        mode,
       }
       const stop = observeMobileScreens(handle.pool, input)
       try {
         settle(handle.pool, input)
         const output = tracked(() => poolMobileScreensSnapshot(handle.pool, input))
         if (typeof output === 'symbol') throw new Error('Archived root is still loading')
-        expect(output.sections.find(section => section.key === 'mission')?.fields).toMatchObject({
-          root: selectedId, header,
+        expect(output.sections.find((section) => section.key === 'mission')?.fields).toMatchObject({
+          root: selectedId,
+          header,
         })
-        // The existing corpus snapshots freeze these hashes in all three modes.
-        expect(fingerprint(output)).toBe(hash)
+        expectMobileScreens(
+          output,
+          referenceState(ctx.engine),
+          input,
+          `archived ${selectedId} ${mode}`,
+        )
       } finally {
         stop()
       }
@@ -128,9 +117,7 @@ function compare(pool: MobxPool, store: Store, label: string, all: boolean) {
         const output = tracked(() => poolMobileScreensSnapshot(pool, input))
         if (typeof output === 'symbol') throw new Error('Phone output is still loading')
         expect(output.pending).toBe(0)
-        expect(fingerprint(tracked(() => poolMobileScreensSnapshot(pool, input)))).toMatchSnapshot(
-          `${label} ${selectedId} ${mode}`,
-        )
+        expectMobileScreens(output, store, input, `${label} ${selectedId} ${mode}`)
         positions += output.sections.reduce((count, section) => count + section.rows.length, 0)
       } finally {
         stop()
@@ -154,9 +141,9 @@ function compare(pool: MobxPool, store: Store, label: string, all: boolean) {
       mode: 'full',
     }
     settle(pool, input)
-    expect(fingerprint(tracked(() => poolMobileScreensSnapshot(pool, input)))).toMatchSnapshot(
-      `${label} board options ${optionIndex}`,
-    )
+    const output = tracked(() => poolMobileScreensSnapshot(pool, input))
+    if (typeof output === 'symbol') throw new Error('Phone board is still loading')
+    expectMobileScreens(output, store, input, `${label} board options ${optionIndex}`)
   }
   return positions
 }
@@ -164,8 +151,7 @@ for (const scale of [1, 4] as const)
   it(`phone Tasks, Mission and Details: corpus and focused gates at ${scale}x`, async () => {
     const ctx = await startScenarioEngine(scale),
       feeds = openFenceFeeds(ctx, 'pooled')
-    const handle = createWorklistPool(feeds.rows.source, feeds.locals.source, {
-    })
+    const handle = createWorklistPool(feeds.rows.source, feeds.locals.source, {})
     await attachMobileScreens(handle.pool)
     try {
       let positions = compare(handle.pool, referenceState(ctx.engine), 'corpus', scale === 1)
