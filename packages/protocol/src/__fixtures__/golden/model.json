@@ -8053,6 +8053,44 @@
       "encoded": "\"daemon\""
     },
     {
+      "schema": "MachineConditionLive",
+      "variant": "minimal",
+      "wire": {
+        "online": true,
+        "since": null
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"online\":true,\"since\":null}"
+    },
+    {
+      "schema": "MachineConditionLive",
+      "variant": "full",
+      "wire": {
+        "online": true,
+        "since": "since",
+        "lastSeenAt": "lastSeenAt",
+        "presenceSource": "supervisor",
+        "availability": {
+          "epoch": "availability.epoch",
+          "server": true,
+          "daemon": true,
+          "supervisor": true
+        },
+        "daemonReadiness": {
+          "state": "attached",
+          "reason": "daemonReadiness.reason",
+          "quarantinedBindings": 1
+        },
+        "linkKind": "encrypted"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"online\":true,\"since\":\"since\",\"lastSeenAt\":\"lastSeenAt\",\"presenceSource\":\"supervisor\",\"availability\":{\"epoch\":\"availability.epoch\",\"server\":true,\"daemon\":true,\"supervisor\":true},\"daemonReadiness\":{\"state\":\"attached\",\"reason\":\"daemonReadiness.reason\",\"quarantinedBindings\":1},\"linkKind\":\"encrypted\"}"
+    },
+    {
       "schema": "MachineGrantEntry",
       "variant": "minimal",
       "wire": {
@@ -9548,6 +9586,43 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "\"workspace-trust\""
+    },
+    {
+      "schema": "PresenceIdentity",
+      "variant": "minimal",
+      "wire": {
+        "kind": "user",
+        "user": "user"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"user\",\"user\":\"user\"}"
+    },
+    {
+      "schema": "PresenceIdentity",
+      "variant": "full/arm0",
+      "wire": {
+        "kind": "user",
+        "user": "user"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"user\",\"user\":\"user\"}"
+    },
+    {
+      "schema": "PresenceIdentity",
+      "variant": "full/arm1",
+      "wire": {
+        "kind": "agent",
+        "agentIdentity": "agentIdentity",
+        "onBehalfOf": "onBehalfOf"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"agent\",\"agentIdentity\":\"agentIdentity\",\"onBehalfOf\":\"onBehalfOf\"}"
     },
     {
       "schema": "ProjectMemoryWire",
@@ -11667,6 +11742,32 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "\"logged-out\""
+    },
+    {
+      "schema": "SessionConditionLive",
+      "variant": "minimal",
+      "wire": {
+        "busy": true,
+        "requestsGated": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"busy\":true,\"requestsGated\":1}"
+    },
+    {
+      "schema": "SessionConditionLive",
+      "variant": "full",
+      "wire": {
+        "busy": true,
+        "requestsGated": 1,
+        "lastInputAt": "lastInputAt",
+        "contextUsagePercent": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"busy\":true,\"requestsGated\":1,\"lastInputAt\":\"lastInputAt\",\"contextUsagePercent\":1}"
     },
     {
       "schema": "SessionCostWire",
@@ -14836,6 +14937,66 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "\"starting\""
+    },
+    {
+      "schema": "SessionTerminalStateLive",
+      "variant": "minimal",
+      "wire": {
+        "controller": null,
+        "geometry": {
+          "cols": 1,
+          "rows": 1
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"controller\":null,\"geometry\":{\"cols\":1,\"rows\":1}}"
+    },
+    {
+      "schema": "SessionTerminalStateLive",
+      "variant": "full/arm0",
+      "wire": {
+        "controller": "controller",
+        "controllerIdentity": {
+          "kind": "user",
+          "user": "controllerIdentity.user"
+        },
+        "geometry": {
+          "cols": 1,
+          "rows": 1
+        },
+        "exit": {
+          "code": 1
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"controller\":\"controller\",\"controllerIdentity\":{\"kind\":\"user\",\"user\":\"controllerIdentity.user\"},\"geometry\":{\"cols\":1,\"rows\":1},\"exit\":{\"code\":1}}"
+    },
+    {
+      "schema": "SessionTerminalStateLive",
+      "variant": "full/arm1",
+      "wire": {
+        "controller": "controller",
+        "controllerIdentity": {
+          "kind": "agent",
+          "agentIdentity": "controllerIdentity.agentIdentity",
+          "onBehalfOf": "controllerIdentity.onBehalfOf"
+        },
+        "geometry": {
+          "cols": 2,
+          "rows": 2
+        },
+        "exit": {
+          "code": 2
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"controller\":\"controller\",\"controllerIdentity\":{\"kind\":\"agent\",\"agentIdentity\":\"controllerIdentity.agentIdentity\",\"onBehalfOf\":\"controllerIdentity.onBehalfOf\"},\"geometry\":{\"cols\":2,\"rows\":2},\"exit\":{\"code\":2}}"
     },
     {
       "schema": "SessionTombstone",
@@ -19744,6 +19905,24 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"id\":\"id\",\"name\":\"name\",\"description\":\"description\",\"scope\":\"global\",\"scopeRef\":\"scopeRef\",\"latestRevisionId\":\"latestRevisionId\",\"latestVersion\":1,\"archivedAt\":\"archivedAt\",\"createdAt\":\"createdAt\",\"updatedAt\":\"updatedAt\"}"
+    },
+    {
+      "schema": "WorkspaceId",
+      "variant": "minimal",
+      "wire": "x",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"x\""
+    },
+    {
+      "schema": "WorkspaceId",
+      "variant": "full",
+      "wire": "x",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"x\""
     },
     {
       "schema": "WorkState",
