@@ -121,7 +121,7 @@ export class AnswerRefresh {
     private readonly read: () => Promise<unknown> | void,
     readonly signal: AnswerSignal = focusRefresh,
   ) {}
-  open(): void {
+  open(options: { initial?: boolean } = {}): void {
     if (this.stop) return
     this.stop = () => {}
     let subscribing = true
@@ -129,7 +129,7 @@ export class AnswerRefresh {
       if (!subscribing) this.refresh()
     })
     subscribing = false
-    this.refresh()
+    if (options.initial !== false) this.refresh()
   }
   refresh(): void {
     if (!this.stop) return

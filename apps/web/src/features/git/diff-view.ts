@@ -56,12 +56,22 @@ export class DiffView {
     }, ports.refreshSignal)
   }
   open(): void {
-    if (!this.commitSha) this.refreshes.open()
+    // React loads the selected entry. Opening only subscribes to later
+    // invalidations; an initial refresh would race that read and fetch it twice.
+    // Recorded and commit diffs are immutable for this opening.
+    if (!this.commitSha && !this.sources) this.refreshes.open({ initial: false })
   }
   @action async load(entry: StatusEntry, changed = false): Promise<void> {
     this.entries.set(entry.path, entry)
     if (!changed && this.states.has(entry.path)) return
     const generation = this.generation
+    const previous = this.states.get(entry.path)
+    if (previous && !previous.loading)
+      this.totals = {
+        settled: this.totals.settled - 1,
+        added: this.totals.added - (previous.parsed?.added ?? 0),
+        removed: this.totals.removed - (previous.parsed?.removed ?? 0),
+      }
     const pending = { loading: true }
     this.states.set(entry.path, pending)
     const request = new RequestAnswer<Omit<DiffState, 'loading' | 'error'>>()
@@ -105,14 +115,11 @@ export class DiffView {
       if (generation !== this.generation || this.states.get(entry.path) !== pending) return
       const next = { loading: false, error: request.error, ...request.answer }
       this.states.set(entry.path, next)
-      this.totals = [...this.states.values()].reduce(
-        (total, state) => ({
-          settled: total.settled + (state.loading ? 0 : 1),
-          added: total.added + (state.parsed?.added ?? 0),
-          removed: total.removed + (state.parsed?.removed ?? 0),
-        }),
-        { settled: 0, added: 0, removed: 0 },
-      )
+      this.totals = {
+        settled: this.totals.settled + 1,
+        added: this.totals.added + (next.parsed?.added ?? 0),
+        removed: this.totals.removed + (next.parsed?.removed ?? 0),
+      }
     })
   }
   @action close(): void {
