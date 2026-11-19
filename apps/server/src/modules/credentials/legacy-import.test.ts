@@ -13,6 +13,7 @@ import { hashPassword } from '@podium/runtime/auth-store'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { fileKeyProvider, writeWrappedDataKey } from '@podium/runtime/vault-key'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import { SessionStore } from '../../store'
 import { memberFacts } from '../../store/fixtures/test-support'
 import { importLegacyCredentials } from './legacy-import'
@@ -104,9 +105,9 @@ describe('importLegacyCredentials at server start', () => {
     // credential type covers, a send, and the `apiKeys.*` secrets.
     sql(dbPath, (db) => {
       const row = db.prepare(
-        `INSERT INTO accounts (id, provider, kind, credential, identity, scope, created_at,
+        `INSERT INTO accounts (workspace_id, id, provider, kind, credential, identity, scope, created_at,
            owner_user_id, account_key, ref, shared_with)
-         VALUES (?, ?, ?, ?, 'masked', 'role', 1, ?, ?, NULL, NULL)`,
+         VALUES ('${SELF_HOSTED_WORKSPACE_ID}', ?, ?, ?, ?, 'masked', 'role', 1, ?, ?, NULL, NULL)`,
       )
       const own = (
         owner: UserId,
@@ -120,19 +121,19 @@ describe('importLegacyCredentials at server start', () => {
       own(MEMBER, 'managed:openai', 'openai', 'api-key', MEMBER_OPENAI)
       own(MEMBER, 'managed:claude-oauth', 'anthropic', 'oauth', MEMBER_CLAUDE_TOKEN)
       db.prepare(
-        'INSERT INTO account_machine_sends (account_id, machine_id, sent_at) VALUES (?, ?, ?)',
+        `INSERT INTO account_machine_sends (workspace_id, account_id, machine_id, sent_at) VALUES ('${SELF_HOSTED_WORKSPACE_ID}', ?, ?, ?)`,
       ).run(`managed:openai@${MEMBER}`, SENT_TO, '2026-11-01T00:00:00Z')
       const secret = db.prepare(
-        'INSERT OR REPLACE INTO server_secrets (key, value, updated_at) VALUES (?, ?, ?)',
+        `INSERT OR REPLACE INTO workspace_secrets (workspace_id, key, value, updated_at) VALUES ('${SELF_HOSTED_WORKSPACE_ID}', ?, ?, ?)`,
       )
       const at = new Date().toISOString()
       secret.run('apiKeys.anthropic', ADMIN_ANTHROPIC, at)
       secret.run('apiKeys.openai', WORKSPACE_OPENAI, at)
       secret.run('apiKeys.openrouter', WORKSPACE_OPENROUTER, at)
       const insert = db.prepare(
-        `INSERT INTO accounts (id, provider, kind, credential, identity, scope, created_at,
+        `INSERT INTO accounts (workspace_id, id, provider, kind, credential, identity, scope, created_at,
            owner_user_id, account_key, ref, shared_with)
-         VALUES (?, ?, ?, ?, '', 'role', 2, ?, ?, ?, NULL)`,
+         VALUES ('${SELF_HOSTED_WORKSPACE_ID}', ?, ?, ?, ?, '', 'role', 2, ?, ?, ?, NULL)`,
       )
       insert.run(
         'managed:openrouter',
@@ -278,7 +279,7 @@ describe('importLegacyCredentials at server start', () => {
     // The old values are still present (Task 21 destroys them).
     expect(count(dbPath, 'SELECT count(*) AS n FROM accounts')).toBe(6)
     expect(
-      count(dbPath, "SELECT count(*) AS n FROM server_secrets WHERE key LIKE 'apiKeys.%'"),
+      count(dbPath, "SELECT count(*) AS n FROM workspace_secrets WHERE key LIKE 'apiKeys.%'"),
     ).toBe(3)
     expect(count(dbPath, 'SELECT count(*) AS n FROM account_machine_sends')).toBe(1)
   })
