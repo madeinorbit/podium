@@ -1363,7 +1363,13 @@ export class Replica implements DeviceCollectionReads {
         pending.push(chunk)
         pendingRows += rowsOfChunk(chunk)
         if (chunk.last) break
-        if (pendingRows >= INSTALL_BATCH_ROWS || closesRequestedInstance(chunk)) install()
+        if (pendingRows >= INSTALL_BATCH_ROWS || closesRequestedInstance(chunk)) {
+          install()
+          // POD-7170: an answer already buffered resolves its next chunk in a
+          // microtask; without a task between installs the whole download,
+          // and every reader's reaction to it, ran as one task (6.5 s).
+          await nextTask()
+        }
       }
     } catch (error) {
       // The answer broke off: the chunks that arrived whole stay (POD-7086).
