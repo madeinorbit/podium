@@ -731,6 +731,8 @@ function useFixturePool(): MobxPool {
         // no separately attached PreferenceSource cache to refresh.
         peekView: (name: string): unknown => {
           if (name === 'preferences') return undefined
+          if (name === 'members.rosterFacts')
+            return (pool as unknown as Record<string, unknown>)['memberRoster']
           if (name === 'worklist.view')
             return (pool as unknown as Record<string, unknown>)['worklistView'] ?? undefined
           throw new Error(`Undeclared component fixture source: ${name}`)
@@ -753,9 +755,10 @@ function useFixturePool(): MobxPool {
           if (name === 'sidebar') return fixture.sidebar
           // The member roster (POD-6294): a fixture is a one-member instance
           // unless it supplies its own, so the task views keep their former rules.
-          if (name === 'members.roster') {
+          if (name === 'members.roster' || name === 'members.rosterFacts') {
             fixture.memberRoster ??= {
               shared: false,
+              sharedNames: [],
               members: [],
               currentMemberId: undefined,
               loading: false,

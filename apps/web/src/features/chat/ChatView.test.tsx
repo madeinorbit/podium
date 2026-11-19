@@ -1,4 +1,3 @@
-import { appendFileSync } from 'node:fs'
 import { encodeCursor } from '@podium/harness/browser'
 import { claudePromptTextMatches, transcriptRecordMapperFor } from '@podium/harness/metadata'
 import {
@@ -1320,9 +1319,6 @@ describe('ChatView composer', () => {
   })
 
   it('sends a staged attachment ref without pasting its path into message text', async () => {
-    const trace = (message: string) =>
-      appendFileSync('/tmp/podium-chat-attachment-trace.log', `${message}\n`)
-    trace('test started')
     const attachment = {
       id: 'staged-1',
       path: '/staged/shot.png',
@@ -1344,44 +1340,26 @@ describe('ChatView composer', () => {
     expect(textarea).not.toBeNull()
     if (!input || !textarea) return
 
-    trace('rendered')
     Object.defineProperty(input, 'files', {
       configurable: true,
       value: [new File(['pixels'], 'shot.png', { type: 'image/png' })],
     })
-    trace('changing')
     fireEvent.change(input)
-    trace('changed')
     await vi.waitFor(() => {
-      trace(`wait upload calls=${fakeTrpc.sessions.uploadImage.mutate.mock.calls.length}`)
       expect(fakeTrpc.sessions.uploadImage.mutate).toHaveBeenCalledTimes(1)
-      trace('upload call asserted')
       const strip = container.querySelector('[data-testid="attachment-strip"]')
-      trace(`strip text=${strip?.textContent}`)
       expect(strip?.textContent).toContain('shot.png')
       expect(strip?.textContent).not.toContain('Uploading')
     })
-    trace(
-      `ready observed buttons=${[...container.querySelectorAll('button')].map((b) => `${b.getAttribute('aria-label')}:${b.disabled}`).join(',')}`,
-    )
     fireEvent.keyDown(textarea, { key: 'Enter' })
-    trace('submitted')
-    queueMicrotask(() => trace('submit microtask'))
-    setTimeout(() => trace('submit timer'), 0)
-    for (let i = 0; i < 10 && fakeTrpc.sessions.sendText.mutate.mock.calls.length === 0; i++) {
-      await new Promise<void>((resolve) => setTimeout(resolve, 20))
-      trace(`send poll ${i}`)
-    }
-    trace('send polling complete')
-    expect(fakeTrpc.sessions.sendText.mutate.mock.calls.length).toBe(1)
-    expect(fakeTrpc.sessions.sendText.mutate.mock.calls[0]?.[0]).toEqual(
+    await vi.waitFor(() => expect(fakeTrpc.sessions.sendText.mutate).toHaveBeenCalledTimes(1))
+    expect(fakeTrpc.sessions.sendText.mutate).toHaveBeenCalledWith(
       expect.objectContaining({
         sessionId: asSessionId('s1'),
         text: 'describe this image',
         attachments: [attachment],
       }),
     )
-    trace('send asserted')
   })
 
   it('shows the exact send refusal and preserves failed attachment chips', async () => {

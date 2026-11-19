@@ -39,6 +39,18 @@ vi.mock('@podium/client-core/react', async (importOriginal) => {
     subscribe: (notify: () => void) =>
       selectMockSnapshot((state) => state.uiState)?.subscribe(notify) ?? (() => {}),
   })
+  const emptyReplica = {
+    rows: () => [],
+    row: () => undefined,
+    subscribeAddressedBatch: () => () => {},
+  }
+  const emptyHub = { on: () => () => {}, subscribeTopic: () => () => {} }
+  Object.defineProperty(owner, 'replica', {
+    get: () => selectMockSnapshot((state) => state.replica) ?? emptyReplica,
+  })
+  Object.defineProperty(owner.services.connection, 'hub', {
+    get: () => selectMockSnapshot((state) => state.hub) ?? emptyHub,
+  })
   return {
     ...actual,
     ...fixtureRuntimeHooks(() => owner),

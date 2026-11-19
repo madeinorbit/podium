@@ -186,6 +186,7 @@ export async function createChatContextFixture(resumeTwins = false) {
   let state: Store
   const owner = withKeyedInputs({
     drafts,
+    hub: { on: () => () => {}, subscribeTopic: () => () => {} },
     getSnapshot: () => state,
     subscribe: (fn: () => void) => {
       listeners.add(fn)

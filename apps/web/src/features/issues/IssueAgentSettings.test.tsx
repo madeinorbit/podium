@@ -10,8 +10,8 @@ const state = vi.hoisted(() => ({
   updateIssue: vi.fn(async () => {}),
   settings: undefined as { codingHarness: string } | undefined,
 }))
-vi.mock('@/features/settings/record-readers', () => ({
-  useSettingsRecord: () => ({ model: state.settings }),
+vi.mock('@/lib/my-preferences', () => ({
+  useMyCodingHarness: () => state.settings?.codingHarness,
 }))
 vi.mock('@/app/store', () => ({
   readFixture: (select: (store: unknown) => unknown) =>
@@ -25,7 +25,7 @@ afterEach(() => {
   vi.clearAllMocks()
 })
 
-it('follows the Settings harness for auto and pins it with a chosen model', async () => {
+it('follows my coding harness for auto and pins it with a chosen model', async () => {
   state.settings = observable({ codingHarness: 'claude-code' })
   modelCatalogFixture.current = {
     codex: [{ value: 'reported-codex', label: 'Reported Codex', efforts: ['high'] }],
@@ -49,7 +49,7 @@ it('follows the Settings harness for auto and pins it with a chosen model', asyn
   )
 })
 
-it('keeps an explicit issue harness authoritative over Settings', () => {
+it('keeps an explicit issue harness authoritative over my coding harness', () => {
   state.settings = { codingHarness: 'codex' }
   render(<IssueAgentSettings issue={makeIssue({ defaultAgent: 'claude-code' })} machines={[]} />)
   expect(screen.getByRole('button', { name: 'Agent' }).textContent).toContain('Claude Code')

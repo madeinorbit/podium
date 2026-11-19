@@ -60,6 +60,9 @@ function poolRuntime() {
       subscribe: () => () => {},
       enqueue: async () => {},
     },
+    get services() {
+      return { outbox: { queue: this.outbox } }
+    },
     subscribeOutboxOutcomes: () => () => {},
     attachPoolWriter: () => () => {},
     spawnNotices: { error: () => {}, info: () => {} },

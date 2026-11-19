@@ -1,3 +1,4 @@
+import '@/test-support/mock-store-action-ports'
 // @vitest-environment happy-dom
 /**
  * POD-1223: at balanced density the machine chip is two bare bars, and their

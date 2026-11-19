@@ -13,6 +13,7 @@ import {
 } from '@podium/client-core/react'
 import { loadRecordDeclarations } from '@podium/client-core/records'
 import { memoryStorage } from '@podium/client-core/replica'
+import { COLD_CURSOR, type FeedCursor } from '@podium/client-core/replica/feed'
 import { ClientRuntime } from '@podium/client-core/runtime-root'
 import { createReplicaFixture } from '@podium/client-core/test-support/replica'
 import { createRuntimeWorklistPool } from '@podium/client-graph/runtime-pool'
@@ -301,7 +302,11 @@ describe('the principal boundary tears down and rebuilds (POD-404)', () => {
     const hubAlice = seen.hub
     const replicaAlice = seen.replica
     // (1) a LIVE CURSOR: alice's replica is caught up to 42.
-    ;(replicaAlice as unknown as { setFeedCursor(c: number): void }).setFeedCursor(42)
+    ;(replicaAlice as unknown as { setFeedCursor(c: FeedCursor): void }).setFeedCursor({
+      feedId: 'alice-feed',
+      epoch: 'alice-epoch',
+      seq: 42,
+    })
     // (2) a QUEUED WRITE: a layout command with no server to answer it.
     act(() => seen.setDockTab('git'))
     await vi.waitFor(() => expect(seen.outboxSize).toBeGreaterThan(0))
@@ -312,7 +317,11 @@ describe('the principal boundary tears down and rebuilds (POD-404)', () => {
     // that never opened would make every claim below vacuously true.
     expect(hubAlice, "alice's transport must actually exist").toBeTruthy()
     expect(seen.outboxSize, "alice's queued write must actually be queued").toBeGreaterThan(0)
-    expect(replicaAlice?.getFeedCursor(), "alice's cursor must actually be live").toBe(42)
+    expect(replicaAlice?.getFeedCursor(), "alice's cursor must actually be live").toEqual({
+      feedId: 'alice-feed',
+      epoch: 'alice-epoch',
+      seq: 42,
+    })
     expect(dockTabAlice, "alice's cached selection must actually differ from the default").toBe(
       'git',
     )
@@ -356,7 +365,9 @@ describe('the principal boundary tears down and rebuilds (POD-404)', () => {
     // never ask for the rows it has never seen.
     const { replicaAlice } = await switchAliceToBob()
     expect(seen.replica, 'bob must not share alice’s replica').not.toBe(replicaAlice)
-    expect(seen.replica?.getFeedCursor(), 'bob must not inherit alice’s cursor').not.toBe(42)
+    expect(seen.replica?.getFeedCursor(), 'bob must not inherit alice’s cursor').toEqual(
+      COLD_CURSOR,
+    )
   })
 
   it('does not inherit the previous principal’s queued write, and does not destroy it either', async () => {
