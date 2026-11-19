@@ -9,7 +9,19 @@ import {
   REPLICA_KEY_PREFIX,
   replicaNamespaceKey,
 } from '@podium/client-core/replica'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+
+// AsyncStorage's CommonJS entry loads Flow-typed React Native under vitest, so
+// every mobile test stands it in. On the phone web it IS localStorage: read
+// the markers the producer wrote there.
+vi.mock('@react-native-async-storage/async-storage', () => ({
+  default: {
+    getAllKeys: async () => Object.keys(window.localStorage),
+    multiGet: async (keys: readonly string[]) =>
+      keys.map((key) => [key, window.localStorage.getItem(key)] as const),
+  },
+}))
+
 import { heldOfflineStatus } from './held-offline'
 
 const ALICE = replicaNamespaceKey({ syncBoundaryId: 'installation-a', memberId: 'mem_alice' })

@@ -5,6 +5,18 @@ import {
 } from '@podium/client-core/replica'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+
+// AsyncStorage's CommonJS entry loads Flow-typed React Native under vitest, so
+// every mobile test stands it in. On the phone web it IS localStorage: read
+// the markers the producer wrote there.
+vi.mock('@react-native-async-storage/async-storage', () => ({
+  default: {
+    getAllKeys: async () => Object.keys(window.localStorage),
+    multiGet: async (keys: readonly string[]) =>
+      keys.map((key) => [key, window.localStorage.getItem(key)] as const),
+  },
+}))
+
 import { ReadinessGate } from './ReadinessGate'
 
 afterEach(() => {

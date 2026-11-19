@@ -215,7 +215,8 @@ export function preparePrincipalNamespace(init: PrincipalNamespaceInit): Princip
 }
 
 /** Whether `key` is a principal namespace marker below `basePrefix`: the only keys
- *  `inspectPrincipalNamespaces` reads, so an async store can load just these. */
+ *  `inspectPrincipalNamespaces` reads (`readMarkers`' own test), so an async
+ *  store can load just these. */
 export function isPrincipalNamespaceMarkerKey(basePrefix: string, key: string): boolean {
   return key.startsWith(`${basePrefix}.principal.`) && key.endsWith(MARKER_SUFFIX)
 }
@@ -235,8 +236,9 @@ function readMarkers(init: {
   readonly basePrefix: string
 }): Map<string, NamespaceMarker & { keyPrefix: string }> {
   const result = new Map<string, NamespaceMarker & { keyPrefix: string }>()
+  const root = `${init.basePrefix}.principal.`
   for (const key of safeKeys(init.enumerateKeys)) {
-    if (!isPrincipalNamespaceMarkerKey(init.basePrefix, key)) continue
+    if (!key.startsWith(root) || !key.endsWith(MARKER_SUFFIX)) continue
     try {
       const parsed = JSON.parse(init.storage.getItem(key) ?? 'null') as Partial<NamespaceMarker>
       if (typeof parsed.principal !== 'string' || typeof parsed.lastUsedAt !== 'number') continue
