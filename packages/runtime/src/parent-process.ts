@@ -558,6 +558,7 @@ export class ParentProcess {
   /** Absolute cap and stall window for stretching {@link incomingDeadline}; see POD-6618. */
   private readonly incomingStretch: { capMs: number; stallMs: number } | undefined
   private bootDeadlineTimer: ReturnType<typeof setTimeout> | undefined
+  private coldBootCapMs: number | undefined
 
   /** Cancels queued boot confirmation when this parent stops owning startup. */
   get bootHealthSignal(): AbortSignal {
@@ -689,7 +690,18 @@ export class ParentProcess {
       if (this.bootStagesSeen.has(key)) continue
       this.bootStagesSeen.add(key)
       if (!this.bootProgress || step.atMs >= this.bootProgress.atMs) this.bootProgress = step
+      this.extendStartupTimeout()
     }
+  }
+
+  /** systemd's Type=notify start timeout must follow real boot progress too. */
+  private extendStartupTimeout(): void {
+    if (this.bootHealthy || this.coldBootCapMs === undefined) return
+    const remaining = this.coldBootCapMs - this.deps.now()
+    if (remaining <= 0) return
+    this.deps.notify(
+      `EXTEND_TIMEOUT_USEC=${Math.min(HANDOVER_HEALTH_TIMEOUT_MS, remaining) * 1000}`,
+    )
   }
 
   /**
@@ -1220,6 +1232,10 @@ export class ParentProcess {
   async start(onBootHealthy?: (signal: AbortSignal) => Promise<void> | void): Promise<void> {
     if (this.stopping || this.terminating || this.bootAbort.signal.aborted) return
     this.onBootHealthy = onBootHealthy
+    if (!this.isSuccessor()) {
+      this.coldBootCapMs = this.deps.now() + HANDOVER_MAX_MS
+      this.extendStartupTimeout()
+    }
     this.armBootDeadline()
     // BEFORE the first spawn. See invariant 1.
     this.installSignalHandlers()
@@ -1235,10 +1251,17 @@ export class ParentProcess {
     // A successor shares the outgoing parent's absolute deadline. A shorter
     // nested gate used to declare failure at 60s while handover still allowed 90s.
     // It is re-read on every probe, because progress stretches it (POD-6618).
+    // Cold startup must follow the same progress as its systemd extensions:
+    // returning at 90s can let the parent exit while its children still migrate.
     const fixedDeadline = this.deps.now() + HANDOVER_HEALTH_TIMEOUT_MS
     const healthy = await this.waitForHealthy(
       expected,
-      () => this.successorDeadline() ?? fixedDeadline,
+      () =>
+        this.successorDeadline() ??
+        Math.min(
+          this.coldBootCapMs ?? fixedDeadline,
+          Math.max(fixedDeadline, (this.lastBootProgress()?.atMs ?? 0) + HANDOVER_HEALTH_TIMEOUT_MS),
+        ),
     )
     if (this.stopping || this.terminating) return
     if (!healthy) {
@@ -1613,6 +1636,7 @@ export class ParentProcess {
         exitCode: code,
         signal,
         nowMs: this.deps.now(),
+        reason: channel.report().stopping?.reason,
       })
       this.publish()
       log.warn('supervised child exited', {
@@ -2236,18 +2260,19 @@ export class ParentProcess {
       : ({ action: 'continue' } as const)
 
     const deferring = opts.deferUnavailable === true && decision.action === 'unavailable'
+    const failureReason = `${because}: ${failure.detail}`
     if (opts.deferUnavailable && !deferring) this.updateReporter?.(failure)
     if (decision.action === 'rollback') {
       // Leave `handover_outgoing` first: `rollback()` respawns children, and
       // spawns are suppressed while a handover is nominally in flight.
       this.abandonHandover(priorPhase, { keepPostUpdate: true })
-      await this.rollback(because)
+      await this.rollback(failureReason)
       return 'reported'
     }
     if (decision.action === 'unavailable') {
       this.abandonHandover(priorPhase, { keepPostUpdate: true })
       // Deferred: `finishHandoverAfterReclaim` reports it if the retry cannot happen.
-      if (!deferring) this.reportRollbackUnavailable(decision.why, because)
+      if (!deferring) this.reportRollbackUnavailable(decision.why, failureReason)
     } else {
       this.abandonHandover(priorPhase)
     }
