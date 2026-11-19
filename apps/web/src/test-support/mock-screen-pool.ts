@@ -975,6 +975,19 @@ function useFixturePool(): MobxPool {
       },
       sessionPanes: {
         session: (id: string) => sessions().find((row) => row.sessionId === id),
+        window: () => ({
+          panelMode: Reflect.get(current(), 'panelMode') ?? {},
+          dockShells: Reflect.get(current(), 'dockShells') ?? {},
+        }),
+        pane: (session: { id: string }) => ({
+          present: sessions().some((row) => row.sessionId === session.id),
+        }),
+        loaded: (id: string | null | undefined) => {
+          const session = sessions().find((row) => row.sessionId === id)
+          return session ? { session, issueOutcome: null } : undefined
+        },
+        hasSessions: () => sessions().length > 0,
+        spawnConfirmed: (id: string) => sessions().some((row) => row.sessionId === id),
         machines,
       },
     } as unknown as MobxPool

@@ -378,10 +378,37 @@ export function expectMobileScreens(
     details.rows.map((row) => row.id),
     `${label}: deck order`,
   ).toEqual(rows.map((row) => row.issue.id))
-  for (const [index, row] of rows.entries())
+  for (const [index, row] of rows.entries()) {
+    const drawn = details.rows[index]?.fields
+    const mismatch = drawn?.actionableCount !== row.actionableCount
+    const byId = mismatch ? new Map(issues.map((issue) => [issue.id as string, issue])) : null
+    const contributors = mismatch
+      ? [row.issue.id, ...row.descendantIds].flatMap((id) => {
+          const child = rows.find((candidate) => candidate.issue.id === id)
+          if (!child) return []
+          return [
+            {
+              id,
+              stage: child.issue.stage,
+              needsHuman: child.issue.needsHuman,
+              coordinator: child.issue.coordinatorSessionId,
+              dependents: child.issue.dependents,
+              defaultAttention: issueNeedsHuman(child.issue, child.sessions),
+              indexedAttention: issueNeedsHuman(child.issue, child.sessions, byId!),
+              crew: child.sessions.map((session) => ({
+                id: session.sessionId,
+                issueId: session.issueId,
+                phase: session.agentState?.phase,
+                status: session.status,
+                archived: session.archived,
+              })),
+            },
+          ]
+        })
+      : []
     expect(
-      details.rows[index]?.fields,
-      `${label}: deck ${row.issue.id}; source ${JSON.stringify({ stage: row.issue.stage, needsHuman: row.issue.needsHuman, coordinator: row.issue.coordinatorSessionId, dependents: row.issue.dependents, ownCrew: row.sessions.map((s) => ({ id: s.sessionId, issueId: s.issueId, phase: s.agentState?.phase, status: s.status, archived: s.archived })), defaultAttention: issueNeedsHuman(row.issue, row.sessions), indexedAttention: issueNeedsHuman(row.issue, row.sessions, new Map(issues.map((i) => [i.id, i]))) })}`,
+      drawn,
+      `${label}: deck ${row.issue.id}${mismatch ? `; contributors ${JSON.stringify(contributors)}` : ''}`,
     ).toMatchObject({
       issue: fields(row.issue, true),
       depth: row.depth,
@@ -392,6 +419,7 @@ export function expectMobileScreens(
       workingAgentCount: row.workingAgentCount,
       waitingAgentCount: row.waitingAgentCount,
     })
+  }
   expect(
     section('departures').rows.map((row) => row.id),
     `${label}: departures`,

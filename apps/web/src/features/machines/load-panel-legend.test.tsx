@@ -11,11 +11,10 @@ import '@/test-support/mock-store-action-ports'
  * follows the machine processes topic while visible, releases it on close,
  * and requests a fresh sample through the refresh control.
  */
-import { asMachineId, asSessionId, type SessionMeta } from '@podium/model'
+import { asMachineId, asSessionId, type MachineId, type SessionMeta } from '@podium/model'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { JSX } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { resetPolledQueryCache } from '@/lib/use-polled-query'
 import { LoadPanel } from './LoadPanel'
 
 const MACHINE = 'vmi34'
@@ -31,6 +30,21 @@ const lifecycle = {
   worktreeGc: { mode: 'propose' as const, afterDays: 14 },
 }
 vi.mock('./host-lifecycle-settings', () => ({ useHostLifecycleSettings: () => lifecycle }))
+// Presentation inputs come from the header's current pool ports. The processes
+// topic below remains real so subscription, replay and refresh are exercised.
+vi.mock('@/app/header-data', async (original) => {
+  const actual = await original<typeof import('@/app/header-data')>()
+  const { fixtureSnapshot: readFixture } = await import('@/test-support/fixture-snapshot')
+  const { createHostSessionAggregatesSelector } = await import('@podium/client-core/values')
+  const aggregate = createHostSessionAggregatesSelector()
+  return {
+    ...actual,
+    usePoolPanelMetric: (id: MachineId) =>
+      readFixture((state) => state.hostMetrics.find((metric) => metric.machineId === id)),
+    usePoolHostAggregate: (id: MachineId) =>
+      readFixture((state) => aggregate(state.sessions).forMachine(id)),
+  }
+})
 
 const memory = { totalBytes: 32e9, availableBytes: 20e9, swapTotalBytes: 0, swapFreeBytes: 0 }
 // 412 GiB used with 46 GiB spendable → 90%, and a 5 GiB gap between used+avail
@@ -162,9 +176,6 @@ vi.mock('@/app/store', () => {
 })
 
 beforeEach(() => {
-  // The walk's cache is process-wide by design, so one test's answer would
-  // otherwise satisfy the next and the caching tests below would prove nothing.
-  resetPolledQueryCache()
   latestSample = undefined
   publishing = undefined
   topicSinks.clear()
@@ -190,7 +201,7 @@ const panel = (): JSX.Element => (
   <LoadPanel machineId={asMachineId(MACHINE)} onOpenConnection={() => {}} />
 )
 
-/** Both round trips the panel makes on open: the settings read and the walk. */
+/** Wait for the live topic to publish its first inventory. */
 const settled = async (): Promise<void> => {
   await waitFor(() =>
     expect(hub.subscribeTopic).toHaveBeenCalledWith(

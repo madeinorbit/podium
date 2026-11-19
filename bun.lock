@@ -730,6 +730,12 @@
         "@types/ws": "^8.5.13",
       },
     },
+    "tests/unit": {
+      "name": "@podium/unit-tests",
+      "devDependencies": {
+        "vitest": "5.0.0-beta.6",
+      },
+    },
     "tests/worklist": {
       "name": "@podium/worklist-tests",
       "version": "0.0.0",
@@ -1596,6 +1602,8 @@
     "@podium/terminal-client-react": ["@podium/terminal-client-react@workspace:packages/terminal-client-react"],
 
     "@podium/tsconfig": ["@podium/tsconfig@workspace:tooling/tsconfig"],
+
+    "@podium/unit-tests": ["@podium/unit-tests@workspace:tests/unit"],
 
     "@podium/web": ["@podium/web@workspace:apps/web"],
 
