@@ -11,6 +11,7 @@ import { installVitePreloadErrorRecovery } from '@/app/preload-error-recovery'
 import { ToolbarSlotProvider } from '@/app/ToolbarSlot'
 import { ThemeProvider } from '@/app/theme'
 import { TooltipProvider } from '@/components/ui/tooltip'
+import { AdminViewerContext } from '@/features/settings/admin-viewer'
 import { WebSyncProgressStore } from '@/lib/sync-progress'
 import '@/index.css'
 import '@/styles.css'
@@ -34,7 +35,19 @@ function Body() {
       },
     })
   }, [runtime, uiState])
-  return <AppBody syncProgress={syncProgress} />
+  return (
+    <AdminViewerContext.Provider
+      value={{
+        status: 'ready',
+        sections: [],
+        setupFinished: true,
+        capabilities: { addMachine: false, setUpServer: false },
+        retry: () => {},
+      }}
+    >
+      <AppBody syncProgress={syncProgress} />
+    </AdminViewerContext.Provider>
+  )
 }
 
 installVitePreloadErrorRecovery()
