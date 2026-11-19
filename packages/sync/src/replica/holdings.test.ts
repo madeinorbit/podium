@@ -1,21 +1,13 @@
 /**
- * THE TRIM, AS A PROPERTY (POD-7086 acceptance 3 and 4).
+ * WHAT THE DEVICE HOLDS, AS A PROPERTY (POD-7086, POD-7119).
  *
- * Random worlds of issues and sessions, random instances the device holds
+ * Random worlds of issues and sessions and random instances the device holds
  * complete (trees, single records, the sessions of an issue, what a record
- * comes with), random holders and a random cap. After the trim:
- *
- *  - no instance keeps its marker while a record of it is not whole;
- *  - no issue that was on the device is below its stub;
- *  - every instance a remaining whole record comes with, that was held, is still held;
- *  - nothing the policy or an open view holds is dropped.
- *
- * The world's membership is the server fixture's, evaluated over every record,
- * not over what the device holds, so a trim that trusted a stale device row
- * would be caught.
+ * comes with). The held index finds exactly the instances a record belongs
+ * to. What memory keeps is the warm set's (`memory.test.ts`, POD-7161).
  */
 
-import { type Clause, type Collection, clausesOf, instanceParams, isParam } from '@podium/model'
+import { COLLECTIONS, type Clause, type Collection, clausesOf, instanceParams, isParam } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   CollectionServer,
@@ -28,15 +20,13 @@ import {
 } from '../conformance/collection-server'
 import { InstanceMap, instanceKey } from './cache-state'
 import {
+  collectionComesWithSettled,
   comesWithOf,
   HeldIndex,
   type HeldRows,
   holds,
-  planTrim,
   policyArgs,
-  type ResolvedInstance,
   resolveInstance,
-  stubFieldsOf,
   stubOfValue,
 } from './holdings'
 import type { EntityRecord, InstanceRecord, InstanceSpec } from './types'
@@ -63,8 +53,6 @@ interface Case {
   readonly server: CollectionServer
   readonly rows: Map<string, EntityRecord>
   readonly instances: Map<string, InstanceRecord>
-  readonly held: Set<string>
-  readonly cap: number
 }
 
 function buildCase(seed: number): Case {
@@ -168,231 +156,8 @@ function buildCase(seed: number): Case {
       part: 'stub',
     })
   }
-  const held = new Set<string>()
-  // Views hold instances they name; what a record comes with is held through that record.
-  for (const [key, instance] of instances)
-    if (instance.via === undefined && next() < 0.25) held.add(key)
-  return { server, rows, instances, held, cap: Math.floor(next() * 12) }
+  return { server, rows, instances }
 }
-
-describe('the trim, over random worlds', () => {
-  it('keeps every marker true, every issue at least a stub, and what held records come with', () => {
-    let dropped = 0
-    let stubbed = 0
-    let removed = 0
-    for (let seed = 1; seed <= 300; seed += 1) {
-      const c = buildCase(seed)
-      const store: HeldRows = { readRow: (entity, id) => c.rows.get(rowKey(entity, id)) }
-      const plan = planTrim({
-        rows: [...c.rows.values()],
-        instances: c.instances,
-        held: c.held,
-        policy: WORLD_POLICY,
-        cap: c.cap,
-        now: WORLD_NOW,
-        store,
-      })
-      dropped += plan.dropInstances.length
-      stubbed += plan.toStub.length
-      removed += plan.remove.length
-
-      // Apply the plan, as the Replica does.
-      const after = new Map(c.rows)
-      for (const row of plan.toStub)
-        after.set(rowKey(row.entity, row.entityId), {
-          ...row,
-          value: stubOfValue(row.entity, row.value),
-          part: 'stub',
-        })
-      for (const row of plan.remove) after.delete(rowKey(row.entity, row.entityId))
-      const kept = new Map(c.instances)
-      for (const key of plan.dropInstances) kept.delete(key)
-      const label = `seed ${seed}`
-
-      // Acceptance 3: no marker while a record of its instance is missing.
-      for (const instance of kept.values()) {
-        for (const member of c.server.members(instance)) {
-          const row = after.get(rowKey(member.entity, member.id))
-          expect(row, `${label}: ${instance.key} lost ${member.id}`).toBeDefined()
-          expect(
-            row?.part,
-            `${label}: ${instance.key} took ${member.id} to its stub`,
-          ).toBeUndefined()
-        }
-      }
-      // Acceptance 4: an issue never goes below its stub.
-      for (const row of c.rows.values()) {
-        if (row.entity !== ISSUE) continue
-        expect(after.has(rowKey(ISSUE, row.entityId)), `${label}: ${row.entityId} vanished`).toBe(
-          true,
-        )
-      }
-      // Acceptance 4: what a remaining whole record comes with stays held.
-      const index = new HeldIndex(kept.values(), policyArgs(WORLD_POLICY))
-      const afterStore: HeldRows = { readRow: (entity, id) => after.get(rowKey(entity, id)) }
-      for (const row of after.values()) {
-        if (row.part === 'stub') continue
-        const memberOf = index.matching(row.entity, row.value, afterStore, WORLD_NOW)
-        for (const spec of comesWithOf(row.entity, row.value, memberOf, WORLD_NOW)) {
-          const key = instanceKey(spec)
-          if (c.instances.has(key))
-            expect(kept.has(key), `${label}: ${row.entityId} lost ${key}`).toBe(true)
-        }
-      }
-      // The policy and open views hold what they hold.
-      for (const key of c.held) expect(kept.has(key), `${label}: held ${key} dropped`).toBe(true)
-      // The cap: what only cache instances keep is at most the cap.
-      expect(plan.cacheRecords, label).toBeLessThanOrEqual(c.cap)
-    }
-    // The property is not vacuous: the worlds made the trim drop, stub and remove.
-    expect(dropped).toBeGreaterThan(50)
-    expect(stubbed).toBeGreaterThan(50)
-    expect(removed).toBeGreaterThan(10)
-  })
-
-  it('a plan that kept a trimmed instance’s marker would be caught', () => {
-    // The counterfactual: find a case whose trim drops an instance with a
-    // member it takes back to a stub, and check that keeping its marker breaks
-    // the first property above.
-    for (let seed = 1; seed <= 300; seed += 1) {
-      const c = buildCase(seed)
-      const store: HeldRows = { readRow: (entity, id) => c.rows.get(rowKey(entity, id)) }
-      const plan = planTrim({
-        rows: [...c.rows.values()],
-        instances: c.instances,
-        held: c.held,
-        policy: WORLD_POLICY,
-        cap: c.cap,
-        now: WORLD_NOW,
-        store,
-      })
-      const stubbed = new Set(plan.toStub.map((row) => rowKey(row.entity, row.entityId)))
-      const witness = plan.dropInstances.find((key) =>
-        c.server
-          .members(c.instances.get(key) as InstanceRecord)
-          .some((member) => stubbed.has(rowKey(member.entity, member.id))),
-      )
-      if (witness !== undefined) return
-    }
-    throw new Error('no world dropped an instance with a member: the property test is vacuous')
-  })
-})
-
-/**
- * POD-7115 — the trim before it was made linear: every instance tested every
- * record of its type, and every cache instance was tried on a copy of what was
- * kept. Kept here as the oracle the plan must still equal.
- */
-function oldPlanTrim(input: Parameters<typeof planTrim>[0]) {
-  const args = policyArgs(input.policy)
-  const main = input.rows.filter((row) => row.part !== 'stub')
-  const byKind = new Map<string, EntityRecord[]>()
-  for (const row of main) byKind.set(row.entity, [...(byKind.get(row.entity) ?? []), row])
-  const resolved = new Map<string, ResolvedInstance>()
-  for (const [key, record] of input.instances) {
-    const instance = resolveInstance(record, args)
-    if (instance !== undefined) resolved.set(key, instance)
-  }
-  const belongs = (instance: ResolvedInstance, row: EntityRecord) =>
-    new HeldIndex([{ ...instance.spec, range: instance.range }], args)
-      .matching(row.entity, row.value, input.store, input.now)
-      .some((found) => found.key === instance.key)
-  let keptInstances = new Set<string>()
-  let keptRows = new Set<string>()
-  let memberships = new Map<string, ResolvedInstance[]>()
-  const key = (row: EntityRecord) => rowKey(row.entity, row.entityId)
-  const keepInstance = (k: string, work: EntityRecord[]) => {
-    if (keptInstances.has(k)) return
-    const instance = resolved.get(k)
-    keptInstances.add(k)
-    if (instance === undefined || instance.spec.part === 'stub') return
-    for (const row of (byKind.get(instance.of) ?? []).filter((row) => belongs(instance, row))) {
-      memberships.set(key(row), [...(memberships.get(key(row)) ?? []), instance])
-      if (keptRows.has(key(row))) {
-        if ((instance.collection.comesWith?.length ?? 0) > 0) work.push(row)
-        continue
-      }
-      keptRows.add(key(row))
-      work.push(row)
-    }
-  }
-  const settle = (work: EntityRecord[]) => {
-    while (work.length > 0) {
-      const row = work.pop() as EntityRecord
-      for (const spec of comesWithOf(
-        row.entity,
-        row.value,
-        memberships.get(key(row)) ?? [],
-        input.now,
-      )) {
-        const k = instanceKey(spec)
-        if (input.instances.has(k)) keepInstance(k, work)
-      }
-    }
-  }
-  const work: EntityRecord[] = []
-  for (const k of input.held) if (input.instances.has(k)) keepInstance(k, work)
-  settle(work)
-  const base = new Set(keptRows)
-  const cache = [...input.instances.values()]
-    .filter((record) => record.via === undefined && !keptInstances.has(record.key))
-    .sort((a, b) => (b.releasedAt ?? 0) - (a.releasedAt ?? 0) || (a.key < b.key ? -1 : 1))
-  let cacheRecords = 0
-  for (const record of cache) {
-    const before = {
-      keptInstances: new Set(keptInstances),
-      keptRows: new Set(keptRows),
-      memberships: new Map([...memberships].map(([k, list]) => [k, [...list]])),
-    }
-    const next: EntityRecord[] = []
-    keepInstance(record.key, next)
-    settle(next)
-    const count = [...keptRows].filter((k) => !base.has(k)).length
-    if (count > input.cap) {
-      keptInstances = before.keptInstances
-      keptRows = before.keptRows
-      memberships = before.memberships
-      break
-    }
-    cacheRecords = count
-  }
-  return {
-    dropInstances: [...input.instances.keys()].filter((k) => !keptInstances.has(k)),
-    toStub: main.filter((row) => !keptRows.has(key(row)) && stubFieldsOf(row.entity).length > 0),
-    remove: main.filter((row) => !keptRows.has(key(row)) && stubFieldsOf(row.entity).length === 0),
-    cacheRecords,
-  }
-}
-
-describe('the linear trim (POD-7115)', () => {
-  it('plans exactly what the trim before it planned, over the same random worlds', () => {
-    const ids = (rows: readonly EntityRecord[]) =>
-      rows.map((row) => rowKey(row.entity, row.entityId)).sort()
-    for (let seed = 1; seed <= 300; seed += 1) {
-      const c = buildCase(seed)
-      const store: HeldRows = { readRow: (entity, id) => c.rows.get(rowKey(entity, id)) }
-      // Larger caps too, so many cache instances are admitted before one does not fit.
-      for (const cap of [c.cap, c.cap * 4, 1_000]) {
-        const input = {
-          rows: [...c.rows.values()],
-          instances: c.instances,
-          held: c.held,
-          policy: WORLD_POLICY,
-          cap,
-          now: WORLD_NOW,
-          store,
-        }
-        const plan = planTrim(input)
-        const old = oldPlanTrim(input)
-        const label = `seed ${seed} cap ${cap}`
-        expect([...plan.dropInstances].sort(), label).toEqual([...old.dropInstances].sort())
-        expect(ids(plan.toStub), label).toEqual(ids(old.toStub))
-        expect(ids(plan.remove), label).toEqual(ids(old.remove))
-        expect(plan.cacheRecords, label).toBe(old.cacheRecords)
-      }
-    }
-  })
-})
 
 /**
  * POD-7119 — the index before it looked instances up by key: it resolved
@@ -548,5 +313,60 @@ describe('the held index by key (POD-7119)', () => {
     }
     // Not vacuous: many records belong to many instances.
     expect(found).toBeGreaterThan(1_000)
+  })
+})
+
+describe('a record whose collection comes-with is settled (POD-7181)', () => {
+  const closed = issue('c1', { stage: 'done', closedReason: 'completed', parentId: 'r1' })
+  const open = issue('o1', { stage: 'in_progress', parentId: 'r1' })
+  it('needs no instance lookup when every collection that brings things is complete or cannot hold it', () => {
+    // No session collection declares comes-with: membership adds nothing.
+    expect(collectionComesWithSettled('session', session('s1'), undefined, WORLD_NOW)).toBe(true)
+    // A tree takes an argument, so only its complete bit settles it.
+    expect(collectionComesWithSettled('issueProjection', closed, [], WORLD_NOW)).toBe(false)
+    // The sidebar's rule reads no argument: a closed issue is no member.
+    expect(
+      collectionComesWithSettled('issueProjection', closed, ['issueProjection.tree'], WORLD_NOW),
+    ).toBe(true)
+    // An open issue is one, so the sidebar's comes-with must be complete too.
+    expect(
+      collectionComesWithSettled('issueProjection', open, ['issueProjection.tree'], WORLD_NOW),
+    ).toBe(false)
+    expect(
+      collectionComesWithSettled(
+        'issueProjection',
+        open,
+        ['issueProjection.tree', 'issueProjection.sidebar'],
+        WORLD_NOW,
+      ),
+    ).toBe(true)
+  })
+
+  it('is exact: what the instances of a settled record add, its complete bits already cover', () => {
+    const rows: HeldRows = { readRow: () => undefined }
+    for (const [kind, value, cw] of [
+      ['session', session('s1', { issueId: 'o1' }), []],
+      ['issueProjection', closed, ['issueProjection.tree']],
+      ['issueProjection', open, ['issueProjection.tree', 'issueProjection.sidebar']],
+    ] as const) {
+      expect(collectionComesWithSettled(kind, value, cw, WORLD_NOW)).toBe(true)
+      // Every instance of the kind's collections the record belongs to (a tree under its parent).
+      const memberOf = [...COLLECTIONS.values()]
+        .filter((collection) => collection.of === kind)
+        .flatMap((collection) => {
+          const args = Object.fromEntries(instanceParams(collection).map((name) => [name, 'r1']))
+          const resolved = resolveInstance(
+            { collection: collection.id, args, part: collection.part ?? 'main' },
+            policyArgs(WORLD_POLICY),
+          )
+          return resolved !== undefined && holds(resolved, kind, value, rows, WORLD_NOW) ? [resolved] : []
+        })
+      const own = new Set(comesWithOf(kind, value, [], WORLD_NOW).map((spec) => instanceKey(spec)))
+      const added = comesWithOf(kind, value, memberOf, WORLD_NOW).filter(
+        (spec) => !own.has(instanceKey(spec)),
+      )
+      if (kind === 'issueProjection') expect(added.length).toBeGreaterThan(0)
+      for (const spec of added) expect(cw).toContain(spec.via)
+    }
   })
 })

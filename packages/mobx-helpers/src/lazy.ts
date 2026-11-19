@@ -116,32 +116,46 @@ function decorate<T extends object, V>(
       value.get()
     })
     // Public MobX only: a read inside a reaction makes the new computed observed
-    // during get(); outside one it never does.
-    let watched = false
-    // The observed hook is removed after get(), so this callback's first
-    // call marks observation and every later call releases this same slot.
-    // Reuse it for both hooks: one field needs one lifecycle callback.
-    const lifecycle = () => {
-      if (!watched) {
-        watched = true
-        return
-      }
+    // during get(); outside one it never does. A reaction that reads a held
+    // entry before its release makes it an ordinary watched slot, released
+    // when that reaction leaves; a kept slot ignores a later observation.
+    // POD-7181: one observed hook for the computed's life, never removed.
+    // Removing it deletes a declared field of MobX's ComputedValue, which
+    // turns that object into a slow dictionary-mode object in V8 for every
+    // MobX operation on it afterwards.
+    // Typed wide: the hook below changes it, which narrowing cannot see.
+    let phase = 'reading' as 'reading' | 'watched' | 'held' | 'kept'
+    let temporary: Temporary | undefined
+    const unwatched = () => {
       const slots = (this as Holder)[SLOTS]
       if (slots?.get(field) === value) slots.delete(field)
       if (release) runInAction(release)
     }
-    const stop = onBecomeObserved(value, lifecycle)
+    onBecomeObserved(value, () => {
+      if (phase === 'reading') phase = 'watched'
+      else if (phase === 'held') {
+        phase = 'kept'
+        const fields = temporaries.get(this)
+        if (fields?.get(field) === temporary) fields?.delete(field)
+        keep(this, field, value, unwatched)
+      }
+    })
     try {
       return value.get()
     } finally {
-      stop()
-      if (watched) keep(this, field, value, lifecycle)
-      else hold(this, field, { value, release }, lifecycle)
+      if (phase === 'watched') {
+        phase = 'kept'
+        keep(this, field, value, unwatched)
+      } else {
+        phase = 'held'
+        temporary = { value, release }
+        hold(this, field, temporary)
+      }
     }
   }
 }
 
-function keep(target: object, field: symbol, value: IComputedValue<unknown>, lifecycle: () => void): void {
+function keep(target: object, field: symbol, value: IComputedValue<unknown>, unwatched: () => void): void {
   let slots = (target as Holder)[SLOTS]
   if (slots === undefined) {
     slots = new Map()
@@ -150,21 +164,13 @@ function keep(target: object, field: symbol, value: IComputedValue<unknown>, lif
   slots.set(field, value)
   // MobX reports this when the batch in which the last reader left ends; until
   // then a read in that batch still finds the slot.
-  onBecomeUnobserved(value, lifecycle)
+  onBecomeUnobserved(value, unwatched)
 }
 
-function hold(target: object, field: symbol, temporary: Temporary, lifecycle: () => void): void {
+function hold(target: object, field: symbol, temporary: Temporary): void {
   let fields = temporaries.get(target)
   if (fields === undefined) temporaries.set(target, fields = new Map())
   fields.set(field, temporary)
-  // A reaction that reads the entry before the release makes it an ordinary
-  // watched slot, released when that reaction leaves.
-  const stop = onBecomeObserved(temporary.value, () => {
-    stop()
-    if (fields.get(field) === temporary) fields.delete(field)
-    lifecycle()
-    keep(target, field, temporary.value, lifecycle)
-  })
   if (!releaseQueued) {
     releaseQueued = true
     queueMicrotask(releaseTemporaries)

@@ -20,6 +20,7 @@
  */
 
 import type { OwnedSyncSpan, SyncSpan } from '../span'
+import type { DiskIndexReader } from './disk-index'
 import type { StubTableReader } from './stub-table'
 import type {
   BootstrapChunk,
@@ -79,6 +80,19 @@ export type CacheOperation =
       readonly asOf?: number
       /** Write even over a row current as of the same number (a trim's downgrade keeps `asOf`). */
       readonly force?: true
+      /**
+       * POD-7159 — the main-part instances whose member the record is after
+       * this change (instance keys), for the disk index. Absent keeps the
+       * holders it had; a stub has none.
+       */
+      readonly holders?: readonly string[]
+      /**
+       * POD-7160 — the record is held only by instances on disk, none in
+       * memory: it is written to disk, and to memory only when memory holds
+       * the record when the write publishes (a disk load put it there
+       * meanwhile). Its stub columns are kept current either way.
+       */
+      readonly diskOnly?: true
     }
   /** Tombstone (`op: 'remove'`) — the entity is gone, globally. */
   | {
@@ -101,14 +115,40 @@ export type CacheOperation =
  * after its records, so a marker never claims a record the store lacks.
  */
 export type InstanceOperation =
-  /** Write (or replace) the marker of one instance. */
-  | { readonly kind: 'mark'; readonly instance: InstanceRecord }
+  /**
+   * Write (or replace) the marker of one instance. `members` are the row keys
+   * it holds (POD-7159, the disk index; added to what it held); without them
+   * a main-part instance cannot be loaded from disk, only from the server.
+   * `at` is when a view read it. A marker written this way is in memory: its
+   * rows came with it.
+   */
+  | {
+      readonly kind: 'mark'
+      readonly instance: InstanceRecord
+      readonly members?: readonly string[]
+      readonly at?: number
+    }
   /** Drop the marker of one instance (trimmed, or its holder left). */
   | { readonly kind: 'drop'; readonly key: string }
   /** Drop every marker: a feed gap that cannot be bridged, or the rights changed. */
   | { readonly kind: 'dropAll' }
   /** Note when a view released the instance; the trim drops the oldest release first. */
   | { readonly kind: 'release'; readonly key: string; readonly at: number }
+  /**
+   * POD-7160 — the instance's marker is behind the feed (a gap it could not
+   * bridge): its rows stay, it reads from disk as usual, and a read reloads
+   * it. A new `mark` clears it.
+   */
+  | { readonly kind: 'stale'; readonly key: string }
+  /**
+   * POD-7162 — the instance is being pruned: its members leave the device over
+   * several slices, so a disk load cannot answer it any more (only the
+   * server). `kept` are members something else keeps: they stay on the
+   * device and stop being its members, so the next slice does not look at
+   * them again. Its marker stays until its last member is gone (a `drop`); a
+   * new `mark` makes it whole again.
+   */
+  | { readonly kind: 'pruning'; readonly key: string; readonly kept?: readonly string[] }
 
 /**
  * Why the Replica's frame commit is multi-region at all, and why retirement
@@ -121,9 +161,21 @@ export type InstanceOperation =
  */
 
 /** One atomic batch. Everything in it commits together or not at all (ADR 2 D10, ADR 6 D4.1). */
+/**
+ * POD-7159 — what a record comes with, for the disk index (design POD-7157,
+ * "What comes with a record is not a separate instance"): a row a record
+ * brings (`held`), or the vias whose comes-with of a record is complete
+ * (`complete`, replacing what it had). Applied after `instances`.
+ */
+export type ComesWithOperation =
+  | { readonly kind: 'held'; readonly member: string; readonly holder: string }
+  | { readonly kind: 'complete'; readonly record: string; readonly vias: readonly string[] }
+
 export interface CacheMutation {
   /** Applied strictly in order. Adapters MUST NOT regroup or reorder. */
   readonly operations: readonly CacheOperation[]
+  /** POD-7159 — comes-with changes for the disk index, after `instances`. */
+  readonly comesWith?: readonly ComesWithOperation[]
   /** The cursor must never be ahead of the data it claims (ADR 2 D10). */
   readonly cursor?: Cursor
   /** Shape tokens bound to `cursor`; absent keeps the stored tokens on the same feed. */
@@ -149,28 +201,66 @@ export interface SnapshotVersions {
  * The replica CACHE: entities + cursor + collection markers.
  * Everything on this port has a home at the authority and is re-derivable at will.
  *
- * Reads are SYNCHRONOUS and from memory (design POD-7059 "Memory, cache and
- * leaving"): everything on the device is also in memory. A later disk-only
- * source belongs behind the loader, not on this port.
+ * TWO LAYERS (POD-7159, design POD-7157 "Layer 1", "Layer 2"). The disk keeps
+ * every row the device has fetched; memory keeps the RESIDENT SET (the policy
+ * collections and what they come with, the stub table, and what was loaded or
+ * fetched since). Row reads are SYNCHRONOUS and answer resident rows only; the
+ * disk index (`readDiskIndex`) says synchronously what is on disk. Rows on disk
+ * and not in memory are read with `readDiskRows` and put in memory with
+ * `installResident`; `unload` takes them out of memory again, never off disk.
+ * Writes (`applyAtomic`) go to disk and memory together.
  */
 export interface ReplicaCacheStore {
   readCursor(): Cursor | null
   readKindTokens(): KindTokens | undefined
-  /** Every stored marker, by instance key (`instanceKey`). */
+  /**
+   * Every stored marker, by instance key (`instanceKey`): what the device
+   * holds on disk, in memory or not. `readDiskIndex().inMemory(key)` says
+   * whether its rows are in memory.
+   */
   readInstances(): ReadonlyMap<string, InstanceRecord>
+  /**
+   * POD-7159 — the disk index: every record and instance on disk, always in
+   * memory, current with every published write.
+   */
+  readDiskIndex(): DiskIndexReader
+  /**
+   * POD-7159 — read rows from disk (not into memory), in one batched read,
+   * after every write published so far is durable. A key with no row is left
+   * out. Never a server request.
+   */
+  readDiskRows(keys: readonly string[]): Promise<readonly EntityRecord[]>
+  /**
+   * POD-7159 — put rows read from disk into memory. Memory only; nothing is
+   * written. A row is skipped when it is not the one on disk any more (the
+   * index has another feed number or level for it, or none) or memory holds
+   * it already. Returns the rows put in memory.
+   */
+  installResident(rows: readonly EntityRecord[]): readonly EntityRecord[]
+  /** POD-7159 — the instances' rows are in memory now: their markers answer `isComplete`. */
+  markInMemory(instanceKeys: readonly string[]): void
+  /**
+   * POD-7159 — take instances out of memory, keeping them on disk: each
+   * member no other in-memory instance holds leaves memory (its stub stays).
+   * Returns the rows that left.
+   */
+  unload(instanceKeys: readonly string[]): readonly Pick<EntityRecord, 'entity' | 'entityId'>[]
+  /** POD-7159 — a view read the instance (in memory only; the next release or mark writes it). */
+  touchInstance(instanceKey: string, at: number): void
   /** The policy of the last first download; null before one started. */
   readPolicy(): CachePolicy | null
   /** The feed number of a load still under way; null when none is. */
   readLoadingSince(): number | null
   /**
-   * Records with their main part. An issue held only as its stub is NOT here,
-   * so a reader written for whole records never sees a row without a title;
-   * stubs are read through {@link readStubs} and {@link readRow}.
+   * Records with their main part, IN MEMORY (POD-7159). An issue held only as
+   * its stub is NOT here, so a reader written for whole records never sees a
+   * row without a title; stubs are read through {@link readStubs} and
+   * {@link readRow}.
    */
   readEntities(): readonly EntityRecord[]
-  /** A record with its main part; `undefined` for a stub or an absent record. */
+  /** A record with its main part in memory; `undefined` for a stub, a row only on disk, or an absent record. */
   read(entity: string, entityId: string): EntityRecord | undefined
-  /** The one row of a record, whatever its part: a stub or the record. */
+  /** The one row of a record in memory, whatever its part: a stub or the record. */
   readRow(entity: string, entityId: string): EntityRecord | undefined
   /** Every row held only as a stub. */
   readStubs(): readonly EntityRecord[]

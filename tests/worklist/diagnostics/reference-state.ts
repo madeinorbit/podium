@@ -178,6 +178,10 @@ export function referenceState<T extends import('@podium/client-core/api').Podiu
         ? {
             uiState: runtime.deviceState,
             readPosition: runtime.readPosition,
+            // The runtime defines these on `ui.screen` as NON-enumerable getters,
+            // so the `...access` spread above drops them; read them explicitly.
+            paletteOpen: runtime.palette.open,
+            autoContinuePromptSessionId: runtime.autoContinueDialog.sessionId,
             setPaletteOpen: runtime.palette.setOpen,
             workspaceKey: runtime.ui.workspaceKey,
             closeAutoContinuePrompt: runtime.autoContinueDialog.close,

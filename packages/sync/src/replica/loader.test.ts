@@ -21,6 +21,7 @@ import {
 } from '../conformance/collection-server'
 import { inMemoryInstantiation } from '../conformance/in-memory'
 import type { ConformanceStorage } from '../conformance/instantiation'
+import { policyBudgets, TEST_BUDGETS } from '../conformance/test-budgets'
 import { instanceKey } from './cache-state'
 import { CollectionLoader, type LoaderSchedule, oneRecord } from './loader'
 import { Replica } from './replica'
@@ -40,7 +41,7 @@ const POLICY: CachePolicy = {
     { step: 'stubs', collections: ['issueProjection.stubs'] },
   ],
   recentDays: 30,
-  cacheCap: 5_000,
+  ...policyBudgets(TEST_BUDGETS),
 }
 
 const SIDEBAR: InstanceSpec = { collection: 'issueProjection.sidebar', part: 'main' }
@@ -87,6 +88,7 @@ function device(
   storage: ConformanceStorage,
   server: CollectionServer,
   onEvent?: (event: ReplicaEvent, d: Device) => void,
+  memory: { readonly warmInstances?: number } = {},
 ): Device {
   const { cache } = storage.viewFor('u-ada')
   const events: ReplicaEvent[] = []
@@ -97,6 +99,7 @@ function device(
     store: cache,
     authority: server,
     now: () => WORLD_NOW,
+    ...(memory.warmInstances === undefined ? {} : { memory }),
     view: () => loader?.takeView() ?? [],
     request: (specs) => loader?.request(specs),
     onEvent: (event) => {
@@ -393,15 +396,16 @@ describe('two examples from an empty device (design POD-7059)', () => {
 })
 
 describe('two holders of an instance: the policy and an open view', () => {
-  it('records a request returns are cache; what a view shows stays; the policy holds its own', async () => {
+  it('records a request returns are warm; what a view shows stays in memory; the policy holds its own', async () => {
     const server = new CollectionServer()
-    server.policy = { ...POLICY, cacheCap: 0 }
+    server.policy = POLICY
     server.chunkRows = 50
     server.put(ISSUE, 'R', issue('R', { stage: 'done', closedReason: 'completed' }))
     server.put(ISSUE, 'C', issue('C', { stage: 'done', closedReason: 'completed', parentId: 'R' }))
     server.put(ISSUE, 'HIT', issue('HIT', { stage: 'done', closedReason: 'completed' }))
     server.put(ISSUE, 'OPEN', issue('OPEN', { stage: 'review' }))
-    const d = device(await inMemoryInstantiation.open(), server)
+    // No room for warm instances (POD-7161): a memory warning unloads all of them.
+    const d = device(await inMemoryInstantiation.open(), server, undefined, { warmInstances: 0 })
     d.replica.connect()
     await settle(d)
     // A search hit, installed as a "one record" instance; a tree a view shows.
@@ -409,18 +413,18 @@ describe('two holders of an instance: the policy and an open view', () => {
     const release = d.loader.show(tree('R'))
     await settle(d)
     expect(requestsNaming(server, oneRecord(ISSUE, 'HIT'))).toBe(1)
-    await d.replica.trim()
-    // The hit was cache: with no room for cache the trim takes it back to its stub.
+    await d.replica.shrinkMemory('memoryWarning')
+    // The hit was warm: with no room, it leaves memory and stays on the device.
     expect(d.replica.view(ISSUE, 'HIT')).toBeUndefined()
     expect(d.replica.stubOf(ISSUE, 'HIT')).toBeDefined()
-    expect(d.loader.status(oneRecord(ISSUE, 'HIT'))).toBe('loading')
+    expect(d.replica.isUnloaded(ISSUE, 'HIT')).toBe(true)
     // The view holds its tree; the policy holds the sidebar.
     expect(d.replica.view(ISSUE, 'C')).toBeDefined()
     expect(d.replica.view(ISSUE, 'OPEN')).toBeDefined()
-    // Released, the tree is cache too.
+    // Released, the tree is warm too.
     release()
     await settle(d)
-    await d.replica.trim()
+    await d.replica.shrinkMemory('memoryWarning')
     expect(d.replica.view(ISSUE, 'C')).toBeUndefined()
     expect(d.replica.isComplete(tree('R'))).toBeUndefined()
     expect(d.replica.view(ISSUE, 'OPEN')).toBeDefined()
@@ -434,9 +438,17 @@ describe('comes with, on the client', () => {
     server.chunkRows = 50
     server.put(ISSUE, 'X', issue('X', { stage: 'done', closedReason: 'completed' }))
     server.put(SESSION, 'SX', session('SX', { issueId: 'X', status: 'ended' }))
-    const d = device(await inMemoryInstantiation.open(), server)
+    const storage = await inMemoryInstantiation.open()
+    const d = device(storage, server)
     d.replica.connect()
     await settle(d)
+    // POD-7159: what X comes with is recorded on X (its comes-with complete via).
+    const sessionsHeld = () =>
+      storage
+        .viewFor('u-ada')
+        .cache.readDiskIndex()
+        .record(`${ISSUE}\u0000X`)
+        ?.cw.includes('issueProjection.sidebar') === true
     const sessionsOfX: InstanceSpec = {
       collection: 'session.ofIssue',
       args: { issueId: 'X' },
@@ -451,17 +463,142 @@ describe('comes with, on the client', () => {
     await d.replica.receive(server.frameSince(before))
     await settle(d)
     expect(d.replica.view(ISSUE, 'X')).toBeDefined()
-    expect(d.replica.isComplete(sessionsOfX)).toBeDefined()
+    expect(sessionsHeld()).toBe(true)
     expect(d.replica.view(SESSION, 'SX')).toBeDefined()
     expect(requestsNaming(server, sessionsOfX)).toBe(1)
 
-    // Closed again: X leaves the sidebar, and what it came with goes with the trim.
+    // Closed again: X leaves the sidebar. What it came with stays on the
+    // device: leaving a collection is not leaving the device (POD-7161; only
+    // pruning, POD-7162, removes it).
     const again = server.head
     server.put(ISSUE, 'X', issue('X', { stage: 'done', closedReason: 'completed' }))
     await d.replica.receive(server.frameSince(again))
     await settle(d)
-    await d.replica.trim()
-    expect(d.replica.isComplete(sessionsOfX)).toBeUndefined()
-    expect(d.replica.view(SESSION, 'SX')).toBeUndefined()
+    expect(storage.viewFor('u-ada').cache.readDiskIndex().record(`${SESSION}\u0000SX`)?.level).toBe(
+      'main',
+    )
+  })
+})
+
+describe('a memory warning while an answer streams (POD-7155, POD-7161)', () => {
+  it('keeps the records an instance in flight has brought before its marker', async () => {
+    const server = new CollectionServer()
+    server.policy = POLICY
+    server.chunkRows = 2
+    server.put(ISSUE, 'R', issue('R', { stage: 'in_progress' }))
+    const members = ['C1', 'C2', 'C3', 'C4', 'C5', 'C6']
+    for (const id of members)
+      server.put(ISSUE, id, issue(id, { parentId: 'R', stage: 'done', closedReason: 'completed' }))
+    const d = device(await inMemoryInstantiation.open(), server, undefined, { warmInstances: 0 })
+    d.replica.connect()
+    await settle(d)
+
+    // The tree's answer stops after its first two chunks: four members are
+    // on the device whole, and its marker has not come yet.
+    let resume: () => void = () => {}
+    const paused = new Promise<void>((resolve) => {
+      resume = resolve
+    })
+    const answer = server.collections.bind(server)
+    server.collections = (instances) => {
+      const chunks = answer(instances)
+      if (!instances.some((request) => request.collection === 'issueProjection.tree')) return chunks
+      return (async function* () {
+        let served = 0
+        for await (const chunk of chunks) {
+          if (served === 2) await paused
+          served += 1
+          yield chunk
+        }
+      })()
+    }
+    const release = d.loader.show(tree('R'))
+    d.timer.due()
+    const loading = d.loader.flush()
+    await ticks(20)
+    expect(d.replica.view(ISSUE, 'C1')).toBeDefined()
+    expect(d.replica.isComplete(tree('R'))).toBeUndefined()
+
+    // Memory shrinks meanwhile, the grace overridden (the platform warned).
+    await d.replica.shrinkMemory('memoryWarning')
+    expect(d.replica.view(ISSUE, 'C1')).toBeDefined()
+
+    resume()
+    await loading
+    await settle(d)
+    expect(d.replica.isComplete(tree('R'))).toBeDefined()
+    for (const id of members) expect(d.replica.view(ISSUE, id)).toBeDefined()
+    release()
+  })
+})
+
+describe('a paged instance, a page at a time (POD-7158)', () => {
+  const PAGE: InstanceRequest = {
+    collection: 'issueProjection.byStage',
+    args: { stage: 'done' },
+    part: 'main',
+  }
+
+  async function pagedDevice() {
+    const server = new CollectionServer()
+    server.policy = POLICY
+    server.chunkRows = 50
+    server.pageRows = 10
+    for (let i = 1; i <= 25; i += 1)
+      server.put(ISSUE, `P${i}`, issue(`P${i}`, { stage: 'done', closedReason: 'completed' }))
+    const d = device(await inMemoryInstantiation.open(), server)
+    d.replica.connect()
+    await settle(d)
+    d.loader.request([PAGE], 'visible')
+    await settle(d)
+    const resident = () =>
+      Array.from({ length: 25 }, (_, i) => `P${i + 1}`).filter(
+        (id) => d.replica.view(ISSUE, id) !== undefined,
+      ).length
+    return { server, d, resident }
+  }
+
+  it('a later page loads below the last position held; asked again, or past the end, nothing is sent', async () => {
+    const { server, d, resident } = await pagedDevice()
+    const first = d.replica.isComplete(PAGE)
+    expect(first?.range?.end).toBe(false)
+    expect(resident()).toBe(10)
+    expect(requestsNaming(server, PAGE)).toBe(1)
+
+    // The page after the first: its instance is complete, yet the page is not on the device.
+    d.loader.request([{ ...PAGE, after: first!.range!.through! }], 'visible')
+    await settle(d)
+    expect(requestsNaming(server, PAGE)).toBe(2)
+    expect(resident()).toBe(20)
+    const second = d.replica.isComplete(PAGE)
+    expect(second?.range?.end).toBe(false)
+    expect(second?.range?.through).not.toEqual(first!.range!.through)
+
+    // The same page asked again: the device holds past it, nothing is sent.
+    d.loader.request([{ ...PAGE, after: first!.range!.through! }], 'visible')
+    await settle(d)
+    expect(requestsNaming(server, PAGE)).toBe(2)
+
+    // The last page, then nothing more.
+    d.loader.request([{ ...PAGE, after: second!.range!.through! }], 'visible')
+    await settle(d)
+    expect(resident()).toBe(25)
+    const last = d.replica.isComplete(PAGE)
+    expect(last?.range?.end).toBe(true)
+    d.loader.request([{ ...PAGE, after: last!.range!.through! }], 'visible')
+    d.loader.request([PAGE], 'visible')
+    await settle(d)
+    expect(requestsNaming(server, PAGE)).toBe(3)
+  })
+
+  it("a later page keeps the first page's total", async () => {
+    const { d } = await pagedDevice()
+    const first = d.replica.isComplete(PAGE)
+    expect(first?.total).toBe(25)
+    d.loader.request([{ ...PAGE, after: first!.range!.through! }], 'visible')
+    await settle(d)
+    const second = d.replica.isComplete(PAGE)
+    expect(second?.range?.through).not.toEqual(first!.range!.through)
+    expect(second?.total).toBe(25)
   })
 })

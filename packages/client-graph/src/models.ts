@@ -590,7 +590,9 @@ export class IssueModel extends EntityModel {
   @lazy get parentGone(): boolean {
     const parentId = this.parentRef
     if (parentId === null) return false
-    const parent = omitGone(this.host.row('issue', parentId))
+    // Pool filing observes this after a view closes: a maintenance read
+    // must neither request the parent nor inherit the view's lookup hold.
+    const parent = omitGone(this.host.row('issue', parentId, 'mark'))
     if (parent === LOADING || parent === undefined) return false
     const { archived, deletedAt } = parent as Pick<SliceIssue, 'archived' | 'deletedAt'>
     return archived === true || deletedAt != null

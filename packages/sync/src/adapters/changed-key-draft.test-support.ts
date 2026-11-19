@@ -32,6 +32,13 @@ const row = (id: string, value = 0): EntityRecord => ({
   provenance: { seq: value + 1 },
 })
 
+/**
+ * Rows by id. After a reopen the store reads its resident rows back in disk
+ * index order (POD-7159), so the order of `readEntities` is not compared there.
+ */
+const byId = (rows: readonly EntityRecord[]): EntityRecord[] =>
+  [...rows].sort((a, b) => (a.entityId < b.entityId ? -1 : a.entityId > b.entityId ? 1 : 0))
+
 const upsert = (id: string, value = 1): CacheOperation => ({ kind: 'upsert', ...row(id, value) })
 const remove = (id: string): CacheOperation => ({
   kind: 'remove',
@@ -158,7 +165,7 @@ export function changedKeyDraftTests(name: string, create: () => Promise<DraftFi
       store.close()
       const recovered = await reopen()
       try {
-        expect(recovered.viewFor(DRAFT_PRINCIPAL).cache.readEntities()).toEqual([row('a', 1)])
+        expect(byId(recovered.viewFor(DRAFT_PRINCIPAL).cache.readEntities())).toEqual([row('a', 1)])
         expect(recovered.viewFor(DRAFT_PRINCIPAL).cache.readCursor()).toEqual(POST)
       } finally {
         recovered.close()
@@ -203,7 +210,7 @@ export function changedKeyDraftTests(name: string, create: () => Promise<DraftFi
       store.close()
       const recovered = await reopen()
       try {
-        expect(recovered.viewFor(DRAFT_PRINCIPAL).cache.readEntities()).toEqual([
+        expect(byId(recovered.viewFor(DRAFT_PRINCIPAL).cache.readEntities())).toEqual([
           row('a'),
           row('b'),
         ])
@@ -236,7 +243,7 @@ export function changedKeyDraftTests(name: string, create: () => Promise<DraftFi
       store.close()
       const recovered = await reopen()
       try {
-        expect(recovered.viewFor(DRAFT_PRINCIPAL).cache.readEntities()).toEqual([
+        expect(byId(recovered.viewFor(DRAFT_PRINCIPAL).cache.readEntities())).toEqual([
           row('a', 1),
           row('b', 2),
         ])
@@ -293,7 +300,9 @@ export function changedKeyDraftTests(name: string, create: () => Promise<DraftFi
       store.close()
       const recovered = await reopen()
       try {
-        expect(recovered.viewFor(DRAFT_PRINCIPAL).cache.readEntities()).toEqual([row('tail', 2)])
+        expect(byId(recovered.viewFor(DRAFT_PRINCIPAL).cache.readEntities())).toEqual([
+          row('tail', 2),
+        ])
         expect(recovered.viewFor(DRAFT_PRINCIPAL).cache.readCursor()).toEqual(POST)
       } finally {
         recovered.close()

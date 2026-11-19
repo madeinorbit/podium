@@ -139,6 +139,9 @@ describe('the issues repository reads only its own workspace', () => {
       expect((await s.loadIssue(iss(2)))?.title).toBe(`${tag} issue 2`)
       expect(await s.loadIssue(only(o))).toBeUndefined()
       expect(ids((await s.loadIssues([iss(1), only(o)])).values(), tag)).toEqual([iss(1)])
+      const access = await s.loadIssueAccess([iss(1), only(o)])
+      expect([...access.keys()]).toEqual([iss(1)])
+      expect(access.get(iss(1))?.ownerUserId).toBe(owner(tag))
       expect(ids((await s.getIssues([iss(1), only(o)])).values(), tag)).toEqual([iss(1)])
       expect((await s.getIssueLive(iss(1)))?.title).toBe(`${tag} issue 1`)
       expect(await s.getIssueLive(only(o))).toBeNull()
@@ -183,6 +186,18 @@ describe('the issues repository reads only its own workspace', () => {
       const live = [1, 2, 3, 5].map(iss).sort()
 
       expect(ids(await s.listIssueRowsWhere(LIVE), tag)).toEqual(live)
+      const first = await s.listIssueRowsWhere(
+        { ...LIVE, order: 'priority-seq', limit: true },
+        { limit: 1 },
+      )
+      expect(ids(first, tag)).toEqual([iss(1)])
+      const last = first[0]
+      if (!last) throw new Error('missing first issue page')
+      const rest = await s.listIssueRowsWhere(
+        { ...LIVE, order: 'priority-seq', after: true, limit: true },
+        { after: last, limit: 10 },
+      )
+      expect(ids(rest, tag)).toEqual(live.filter((id) => id !== last.id))
       expect(
         ids(await s.listIssueRowsWhere({ ...LIVE, repo: true }, { repoId: REPO }), tag),
       ).toEqual(live)

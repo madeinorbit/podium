@@ -157,36 +157,54 @@ round 1.
 
 ## The AFTER run
 
-Run it on **the same host (vega)** from the candidate's issue checkout, once the phase's
-build tasks have landed on `integrate/4286-data-on-device`. The base and the candidate are
-measured side by side, in one interleaved schedule, so the host's drift cancels. The base
-is `17d01cd9c5`, with the candidate's `apps/web/harness` and `apps/mobile/harness` laid
-over it. Both arms run the same collector, and the base's product tree is exactly the one
-measured here.
+Final product `af8b3091e0` (POD-7119 feed apply and POD-7122 cold paint) against `17d01cd9c5`, matched collector and corpus within each surface, three scheduled interleaved samples per arm/cell on one authorized VM. POD-7148 is outside this fixed tip. This replaces the earlier interim observations; they remain in [the interim appendix](POD-7095-cache-cap-and-phone-memory/interim-startup.md) and raw artifacts.
 
-```sh
-# From the candidate's issue worktree on ludovico; <issue> is that issue's number.
-# Commit first: remote-lane pushes the committed HEAD. One remote-lane call at a time,
-# and no commit between the calls (each build is stamped with the HEAD it measures).
-R="python3 apps/web/harness/data-on-device-baseline.py"
-O="--host=vega --base=17d01cd9c5 --round=11"
-LANE_LOCK_TTL=40m LANE_TIMEOUT=2400 remote-lane vega <issue> run $R prepare $O
-LANE_LOCK_TTL=40m LANE_TIMEOUT=2400 remote-lane vega <issue> run $R memory $O
-LANE_LOCK_TTL=40m LANE_TIMEOUT=2400 remote-lane vega <issue> run $R timing --surface=web $O
-LANE_LOCK_TTL=40m LANE_TIMEOUT=2400 remote-lane vega <issue> run $R timing --surface=phone $O
-remote-lane vega <issue> run $R report $O --product-base=17d01cd9c5
-remote-lane vega <issue> run $R clean $O
-```
+| Surface | Population | Cold first paint s, before → after | Warm first paint s, before → after | Peak renderer RSS MiB, before → after |
+| --- | --- | --- | --- | --- |
+| Phone web proxy | 1x | 6.22 (6.18–6.42) → 5.22 (4.99–5.85) | 5.46 (5.45–5.53) → 4.55 (3.83–4.63) | 553.0 (549.8–553.1) → 508.1 (504.6–509.0) |
+| Phone web proxy | 10x | 18.86 (18.82–19.28) → 5.91 (5.83–6.05) | 14.85 (14.46–15.34) → 5.14 (4.77–5.44) | 1106.3 (1085.2–1118.2) → 556.3 (553.9–558.7) |
+| Phone web proxy | Operator-sized | 8.40 (8.25–8.52) → 4.90 (4.83–5.16) | 7.92 (7.35–7.95) → 4.50 (4.28–4.69) | 737.5 (702.8–747.1) → 510.5 (507.4–541.2) |
+| Web | 1x | 6.15 (6.00–6.19) → 7.00 (6.59–7.13) | 4.99 (4.69–5.03) → 5.64 (5.39–5.73) | 582.0 (581.4–588.4) → 599.8 (591.2–603.5) |
+| Web | 10x | 20.58 (19.15–21.59) → 7.95 (7.93–8.71) | 14.82 (14.37–15.25) → 6.19 (6.11–6.36) | 1093.0 (1073.2–1105.0) → 653.4 (623.2–786.5) |
+| Web | Operator-sized | 7.97 (7.78–8.95) → 6.49 (6.13–6.63) | 6.00 (5.64–6.20) → 5.11 (4.77–5.18) | 780.6 (639.4–791.0) → 594.2 (582.7–596.1) |
+| Desktop renderer proxy | 1x | 6.13 (6.06–6.23) → 6.83 (6.46–6.98) | 4.79 (4.63–5.09) → 5.30 (5.14–5.35) | 580.5 (580.5–581.9) → 603.9 (578.1–612.5) |
+| Desktop renderer proxy | 10x | 19.14 (19.05–19.24) → 7.70 (7.67–7.99) | 14.53 (14.40–14.65) → 5.83 (5.82–6.22) | 1202.0 (1196.5–1207.6) → 640.4 (629.8–658.5) |
+| Desktop renderer proxy | Operator-sized | 8.01 (7.61–8.43) → 6.29 (6.04–6.34) | 6.09 (5.88–6.15) → 4.93 (4.84–5.15) | 787.7 (781.5–792.8) → 589.4 (579.0–606.2) |
 
-`--base` checks the base out at `~/podium-test-<issue>-base`, beside the candidate's
-checkout, and every step then covers both. The report keys the arms
-`podium-test-<issue>-base/<cell>` and `podium-test-<issue>/<cell>`, and states whether the
-product base's tree equals a measured tree, which should be true for the base arm only.
-In this baseline, one surface's six pairs took 13 minutes of lock time. With two
-checkouts, a timing step holds the lock for about 26 minutes. Round numbers are never
-reused: captures are not overwritten. The report prints the Markdown tables and a
-`SUMMARY_JSON` line.
+| Surface | Population | Heap after GC MiB, before → after | Renderer RSS MiB, before → after |
+| --- | --- | --- | --- |
+| Phone web proxy | 1x | 182.1 (182.1–182.3) → 127.1 (127.1–127.2) | 390.6 (390.2–391.3) → 332.7 (331.7–333.3) |
+| Phone web proxy | 10x | 542.2 (542.2–542.3) → 133.3 (133.3–133.3) | 775.6 (771.9–775.7) → 347.6 (346.9–348.9) |
+| Phone web proxy | Operator-sized | 284.1 (269.9–284.1) → 120.5 (120.5–120.5) | 516.5 (495.4–516.6) → 326.7 (326.0–330.9) |
+| Web | 1x | 203.6 (203.5–203.6) → 190.4 (190.4–190.4) | 437.3 (437.2–439.3) → 426.6 (425.9–427.8) |
+| Web | 10x | 569.4 (569.4–569.5) → 195.8 (195.7–196.4) | 816.6 (816.2–818.7) → 443.9 (442.7–445.4) |
+| Web | Operator-sized | 292.4 (292.4–294.1) → 176.8 (176.8–176.9) | 547.2 (543.9–547.3) → 410.8 (408.7–410.8) |
+| Desktop renderer proxy | 1x | 203.6 (203.5–203.6) → 190.4 (190.3–190.4) | 437.0 (436.5–437.9) → 425.2 (424.5–426.9) |
+| Desktop renderer proxy | 10x | 569.3 (569.2–569.4) → 195.9 (195.8–195.9) | 821.9 (816.0–827.9) → 441.9 (441.3–445.3) |
+| Desktop renderer proxy | Operator-sized | 292.4 (292.4–292.4) → 176.8 (176.7–176.9) | 544.9 (544.3–547.2) → 409.6 (408.5–410.6) |
 
-Without `--base`, the same commands measure the current checkout alone, as here. `all`
-runs every step in one call; use it only on an otherwise idle host, since it holds the
-lock for the whole run.
+| Surface | Population | Cold CPU s, before → after | Warm CPU s, before → after | Collection resources begun before cold Paint, before → after | Summed fetch duration s, before → after |
+| --- | --- | --- | --- | --- | --- |
+| Phone web proxy | 1x | 5.53 (5.44–5.67) → 4.28 (4.15–4.90) | 4.84 (4.68–4.89) → 3.96 (3.26–3.98) | 0 (0–0) → 1 (1–1) | 0.00 (0.00–0.00) → 0.07 (0.06–0.07) |
+| Phone web proxy | 10x | 16.16 (16.16–16.46) → 4.76 (4.75–4.97) | 12.87 (12.68–12.87) → 4.36 (4.03–4.57) | 0 (0–0) → 1 (1–1) | 0.00 (0.00–0.00) → 0.09 (0.07–0.09) |
+| Phone web proxy | Operator-sized | 7.47 (7.35–7.54) → 4.04 (4.02–4.32) | 7.14 (6.55–7.19) → 3.86 (3.65–4.00) | 0 (0–0) → 1 (1–1) | 0.00 (0.00–0.00) → 0.08 (0.07–0.09) |
+| Web | 1x | 5.68 (5.49–5.72) → 6.21 (5.92–6.37) | 4.57 (4.27–4.58) → 5.10 (4.77–5.18) | 0 (0–0) → 0 (0–0) | 0.00 (0.00–0.00) → 0.00 (0.00–0.00) |
+| Web | 10x | 17.44 (16.65–18.40) → 6.94 (6.82–7.51) | 13.17 (12.57–13.21) → 5.57 (5.43–5.58) | 0 (0–0) → 0 (0–0) | 0.00 (0.00–0.00) → 0.00 (0.00–0.00) |
+| Web | Operator-sized | 7.23 (6.93–8.20) → 5.73 (5.42–5.83) | 5.42 (5.04–5.57) → 4.55 (4.27–4.69) | 0 (0–0) → 0 (0–0) | 0.00 (0.00–0.00) → 0.00 (0.00–0.00) |
+| Desktop renderer proxy | 1x | 5.63 (5.56–5.64) → 6.16 (5.81–6.27) | 4.42 (4.19–4.65) → 4.77 (4.70–4.78) | 0 (0–0) → 0 (0–0) | 0.00 (0.00–0.00) → 0.00 (0.00–0.00) |
+| Desktop renderer proxy | 10x | 16.46 (16.37–16.55) → 6.72 (6.68–6.96) | 12.90 (12.78–13.01) → 5.07 (5.06–5.32) | 0 (0–0) → 0 (0–0) | 0.00 (0.00–0.00) → 0.00 (0.00–0.00) |
+| Desktop renderer proxy | Operator-sized | 7.30 (6.91–7.73) → 5.65 (5.39–5.66) | 5.57 (5.27–5.59) → 4.39 (4.31–4.58) | 0 (0–0) → 0 (0–0) | 0.00 (0.00–0.00) → 0.00 (0.00–0.00) |
+
+| Surface | Population | Cold collection replies through reload, before → after | Summed cold route elapsed s, before → after | Fixture augmentation s, before → after |
+| --- | --- | --- | --- | --- |
+| Phone web proxy | 1x | 0 (0–0) → 3 (3–3) | 0.00 (0.00–0.00) → 0.18 (0.17–0.20) | 0.00 (0.00–0.00) → 0.01 (0.01–0.01) |
+| Phone web proxy | 10x | 0 (0–0) → 3 (3–3) | 0.00 (0.00–0.00) → 0.20 (0.19–0.20) | 0.00 (0.00–0.00) → 0.01 (0.01–0.01) |
+| Phone web proxy | Operator-sized | 0 (0–0) → 4 (3–4) | 0.00 (0.00–0.00) → 0.23 (0.18–0.24) | 0.00 (0.00–0.00) → 0.01 (0.01–0.01) |
+| Web | 1x | 0 (0–0) → 1 (1–1) | 0.00 (0.00–0.00) → 0.13 (0.11–0.16) | 0.00 (0.00–0.00) → 0.01 (0.01–0.01) |
+| Web | 10x | 0 (0–0) → 1 (1–1) | 0.00 (0.00–0.00) → 0.13 (0.12–0.13) | 0.00 (0.00–0.00) → 0.01 (0.01–0.02) |
+| Web | Operator-sized | 0 (0–0) → 1 (1–1) | 0.00 (0.00–0.00) → 0.13 (0.12–0.19) | 0.00 (0.00–0.00) → 0.01 (0.01–0.01) |
+| Desktop renderer proxy | 1x | 0 (0–0) → 1 (1–1) | 0.00 (0.00–0.00) → 0.12 (0.09–0.12) | 0.00 (0.00–0.00) → 0.01 (0.01–0.01) |
+| Desktop renderer proxy | 10x | 0 (0–0) → 1 (1–1) | 0.00 (0.00–0.00) → 0.15 (0.13–0.16) | 0.00 (0.00–0.00) → 0.02 (0.01–0.02) |
+| Desktop renderer proxy | Operator-sized | 0 (0–0) → 1 (1–1) | 0.00 (0.00–0.00) → 0.13 (0.11–0.15) | 0.00 (0.00–0.00) → 0.00 (0.00–0.01) |
+
+All startup and memory cells use round 40, with no cross-cohort pooling. All 36 phone/web captures and 17 of 18 desktop captures passed admission; desktop 10x before has two admitted controls, with one unexplained HTTP 404 excluded and retained in raw evidence. The phone and desktop are Chromium renderer proxies, excluding native phone/SQLite bridge and Tauri startup. Empty application storage, disabled HTTP cache; warm follows durable storage. Peak includes population verification and settling; retained V8 heap follows two forced collections. The final series, admission counts, commit and corpus digests, fetch attribution, cache caps, SQLite blocking startup and limitations are in [the measurement report](POD-7095-cache-cap-and-phone-memory.md). New results are not pooled with the older host or product.

@@ -10,6 +10,9 @@
  *
  * A ROW NOT IN THE POOL is one of three answers (frontend-data rule 7):
  * - REMOVED, when the replica's exit evidence says so;
+ * - UNLOADED (POD-7159, design POD-7157 "Layer 2"): the record left memory
+ *   and stays on the device's disk. Its reader gets LOADING and a disk load,
+ *   never REMOVED or NOT_VISIBLE, whatever the entity, offline too;
  * - on its way (`LOADING`): a record the pool does not hold is asked for
  *   through the one loader (`absent`, `collections.ts`, `@podium/sync`
  *   `CollectionLoader`), which fetches its "one record" instance in a 50 ms
@@ -55,6 +58,10 @@ export interface ResidencyOptions {
   readonly absent?: (entity: LoadableEntity, id: string) => typeof LOADING | Gone | undefined
   /** Borrow canonical replica exits; never copy its tombstone ledger. */
   readonly exitKind?: (entity: EntityName, id: string) => 'removed' | 'evicted' | undefined
+  /** POD-7159 — the record is whole on the device's disk and not in memory. */
+  readonly unloaded?: (entity: EntityName, id: string) => boolean
+  /** POD-7159 — read an unloaded record from disk (batched by the loader). */
+  readonly reload?: (entity: EntityName, id: string) => void
   readonly windowMs?: number
   readonly schedule?: Schedule
 }
@@ -70,6 +77,8 @@ export class Residency {
   private readonly hot: ResidencyOptions['hot']
   private readonly absent: ResidencyOptions['absent']
   private readonly exitKind: ResidencyOptions['exitKind']
+  private readonly unloadedRow: ResidencyOptions['unloaded']
+  private readonly reload: ResidencyOptions['reload']
   private readonly schedule: Schedule
   private readonly referenceQueue = new Set<string>()
   private cancel: (() => void) | null = null
@@ -81,6 +90,8 @@ export class Residency {
     this.hot = options.hot
     this.absent = options.absent
     this.exitKind = options.exitKind
+    this.unloadedRow = options.unloaded
+    this.reload = options.reload
     this.windowMs = options.windowMs ?? LOAD_WINDOW_MS
     this.schedule = options.schedule ?? realSchedule
   }
@@ -92,7 +103,9 @@ export class Residency {
 
   /** Whether a lookup can load a row of `entity` that the pool does not hold. */
   loadable(entity: EntityName): entity is LoadableEntity {
-    return this.schema[entity].loadable !== undefined && (entity === 'issue' || entity === 'session')
+    return (
+      this.schema[entity].loadable !== undefined && (entity === 'issue' || entity === 'session')
+    )
   }
 
   /**
@@ -103,6 +116,7 @@ export class Residency {
    */
   loading(entity: EntityName, id: string): boolean {
     if (this.hot[entity].has(id)) return false
+    if (this.unloaded(entity, id)) return this.lookup(entity, id) === LOADING
     return this.loadable(entity) && this.lookup(entity, id) === LOADING
   }
 
@@ -113,12 +127,29 @@ export class Residency {
    */
   lookup(entity: EntityName, id: string, request = true): typeof LOADING | Gone {
     if (this.removed(entity, id)) return REMOVED
+    // On the device's disk: on its way, and read from there (never "gone").
+    if (this.unloaded(entity, id)) {
+      if (request) this.reload?.(entity, id)
+      return LOADING
+    }
     if (!this.loadable(entity) || !request) return NOT_VISIBLE
     return this.absent?.(entity, id) ?? NOT_VISIBLE
   }
 
   removed(entity: EntityName, id: string): boolean {
     return this.exitKind?.(entity, id) === 'removed'
+  }
+
+  /** POD-7159 — the row left memory and stays on the device (`unloaded`, not removed). */
+  unloaded(entity: EntityName, id: string): boolean {
+    return this.unloadedRow?.(entity, id) === true
+  }
+
+  /** Why a row is not in the pool, when the device knows: removed, or unloaded to disk. */
+  exit(entity: EntityName, id: string): 'removed' | 'unloaded' | undefined {
+    if (this.removed(entity, id)) return 'removed'
+    if (this.unloaded(entity, id)) return 'unloaded'
+    return undefined
   }
 
   /** Unknown reference identities share one short window; no transport batch. */

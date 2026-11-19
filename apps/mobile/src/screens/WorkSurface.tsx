@@ -87,7 +87,7 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
     ],
   )
   return (
-    <Screen large title="Work" right={<NewWorkButton size={34} />}>
+    <Screen large title="Work" refreshing={phone.refreshing} right={<NewWorkButton size={34} />}>
       <View style={styles.controls}>
         <View style={styles.search}>
           <Icon as={Search} size={16} color={color.textFaint} />

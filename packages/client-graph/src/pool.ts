@@ -157,8 +157,10 @@ import { SeatVerdicts } from './worklist/seat-verdicts'
 import { worklistView } from './worklist/view-model'
 import {
   type HeldIssue,
+  isSidebarCandidate,
   readAtOf,
   rollupInputsOf,
+  sidebarKeeperOf,
   VisibleCollection,
   type VisibleInputs,
 } from './worklist/visible'
@@ -405,6 +407,15 @@ export class MobxPool {
   private readonly sessionFactsIndex: IssueSessionFactsIndex | undefined
   /** Each summarised issue's explicit seats, judged per seat change (POD-5423). */
   private readonly seatVerdicts: SeatVerdicts
+  /**
+   * POD-7148: per issue, the held sessions that can keep it on the sidebar
+   * (`SIDEBAR_CANDIDATES.keeper`), so a finished issue that only a session makes
+   * showable stays a filing candidate. Maintenance only, never read by a
+   * derivation; kept from the session table's own changes.
+   */
+  private readonly keepers = new Map<string, Set<string>>()
+  /** The issue each session was last judged to keep (`keepers`, inverted): what it lets go of. */
+  private readonly keeperOf = new Map<string, string>()
   readonly sources = new PoolSources(this)
   /** The index's `positionVersion` the settings rows last saw. */
   private positionsSeen = -1
@@ -502,6 +513,8 @@ export class MobxPool {
             hot: tables,
             absent: (entity, id) => this.collections.absent(entity, id),
             exitKind: lazy.exitKind,
+            unloaded: (entity, id) => this.collections.unloaded(entity, id),
+            reload: (entity, id) => this.collections.reload(entity, id),
             ...(lazy.windowMs === undefined ? {} : { windowMs: lazy.windowMs }),
             ...(lazy.schedule === undefined ? {} : { schedule: lazy.schedule }),
           })
@@ -690,14 +703,20 @@ export class MobxPool {
       fileGroups: (id, filing) => worklistGroups(this).file(id, filing),
     })
     worklistGroups(this, locals.selectedIssueWasFolded === true)
-    // Every issue in memory is a filing candidate: taken when its row enters
-    // the table, released when it leaves (inside the action that moved it).
-    // Its filing reaction runs only while the list is live (POD-5423).
+    // An issue in memory the sidebar can show is a filing candidate
+    // (POD-7148): judged when its row enters, changes or leaves the table, and
+    // when a session that can keep it does (inside the action that moved
+    // it). Its filing reaction runs only while the list is live (POD-5423).
     observe(this.tables.issue, (change) => {
       this.followTable(change.type, change.name)
       this.seatVerdicts.queueIssue(change.name)
     })
     observe(this.tables.session, (change) => {
+      this.followKeeper(
+        change.name,
+        change.type === 'add' ? undefined : (change.oldValue as SliceSession),
+        change.type === 'delete' ? undefined : (change.newValue as SliceSession),
+      )
       this.seatVerdicts.queueSession(change.name)
     })
     // Restoring saved selection must not derive placement before rows attach.
@@ -758,12 +777,17 @@ export class MobxPool {
         // record the device does not hold is on its way like any lookup,
         // never "gone" because history is not here. Maintenance modes start
         // no load.
-        return (absent === 'load' && (core === 'issue' || core === 'session')
-          ? this.collections.absent(core, id)
-          : undefined) ?? NOT_VISIBLE
+        return (
+          (absent === 'load' && (core === 'issue' || core === 'session')
+            ? this.collections.absent(core, id)
+            : undefined) ?? NOT_VISIBLE
+        )
       }
       return residency.lookup(core, id, absent === 'load')
     }
+    // A record a view looked up keeps its hold while it is read (POD-7158).
+    if (absent === 'load' && (core === 'issue' || core === 'session'))
+      this.collections.keepRecord(core, id)
     if (
       (core === 'session' || core === 'issue') &&
       (core === 'session'
@@ -1183,19 +1207,48 @@ export class MobxPool {
   }
 
   /**
-   * Archived/deleted rows stop being filing candidates and become one again
-   * on return. Stage exclusions retain theirs: pending edits can change stage
-   * through the one reader without an authoritative table publication.
+   * Issue `id` is a filing candidate while its row is one of the sidebar's
+   * declared candidates or a held session can keep it (`SIDEBAR_CANDIDATES`);
+   * otherwise it files nothing, whatever collection brought it to the device.
+   * Pending edits are in the row (the log writes the rebased row into the
+   * table), so they arrive here like any other change.
    */
   private followTable(type: 'add' | 'update' | 'delete', id: string): void {
     const row =
       type === 'delete'
         ? undefined
-        : (omitGone(this.row('issue', id, 'mark')) as Readonly<Record<string, unknown>> | undefined)
-    if (row === undefined || row['archived'] === true || row['deletedAt'] != null) {
-      this.worklist.untrack(id)
-    } else {
+        : (omitGone(this.row('issue', id, 'mark')) as Loaded<SliceIssue>)
+    if (row !== undefined && row !== LOADING && (isSidebarCandidate(row) || this.keepers.has(id))) {
       this.worklist.track(id)
+    } else {
+      this.worklist.untrack(id)
+    }
+  }
+
+  /** A session moved: the issues it could and can keep are judged again (inside its action). */
+  private followKeeper(
+    sessionId: string,
+    _before: SliceSession | undefined,
+    after: SliceSession | undefined,
+  ): void {
+    // What it kept when last judged, not its old row judged now: a window
+    // that lapsed since must still let go of the issue.
+    const was = this.keeperOf.get(sessionId)
+    const now = sidebarKeeperOf(after, this.clock.peekNow())
+    if (was === now) return
+    if (now === undefined) this.keeperOf.delete(sessionId)
+    else this.keeperOf.set(sessionId, now)
+    if (was !== undefined) {
+      const seats = this.keepers.get(was)
+      seats?.delete(sessionId)
+      if (seats?.size === 0) this.keepers.delete(was)
+      if (this.tables.issue.has(was)) this.followTable('update', was)
+    }
+    if (now !== undefined) {
+      const seats = this.keepers.get(now)
+      if (seats === undefined) this.keepers.set(now, new Set([sessionId]))
+      else seats.add(sessionId)
+      if (this.tables.issue.has(now)) this.followTable('update', now)
     }
   }
 
@@ -1221,6 +1274,8 @@ export class MobxPool {
     this.sessionFactsIndex?.clear()
     runInAction(() => {
       this.worklist.clear()
+      this.keepers.clear()
+      this.keeperOf.clear()
       this.sources.dispose()
       for (const entity of ENTITIES) this.tables[entity].clear()
       this.graph.clear()

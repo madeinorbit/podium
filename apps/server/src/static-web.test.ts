@@ -290,6 +290,34 @@ describe('registerWebStatic', () => {
     }
   })
 
+  it("lets the phone's worker control /mobile itself, and nothing else gets the header [POD-7179]", async () => {
+    // A worker at /mobile/sw.js may by default control only /mobile/…; the
+    // phone's page is /mobile, so an offline reload of it needs the wider scope.
+    const mobile = mkdtempSync(join(tmpdir(), 'podium-mobile-sw-'))
+    try {
+      writeFileSync(join(mobile, 'index.html'), '<!doctype html><title>Podium Mobile</title>')
+      writeFileSync(join(mobile, 'sw.js'), 'self.addEventListener("fetch", () => {})')
+      writeFileSync(join(mobile, 'app.js'), 'console.log(1)')
+      const app = new Hono()
+      registerWebStatic(app, mobile, {
+        basePath: '/mobile',
+        crossOriginIsolated: true,
+        serviceWorkerScope: '/mobile',
+      })
+      const worker = await app.request('/mobile/sw.js')
+      expect(worker.status).toBe(200)
+      expect(worker.headers.get('content-type')).toContain('javascript')
+      expect(worker.headers.get('Service-Worker-Allowed')).toBe('/mobile')
+      expect(worker.headers.get('Cache-Control')).toBe('no-cache')
+      expect(worker.headers.get('Cross-Origin-Embedder-Policy')).toBe('credentialless')
+      for (const path of ['/mobile', '/mobile/app.js']) {
+        expect((await app.request(path)).headers.get('Service-Worker-Allowed'), path).toBeNull()
+      }
+    } finally {
+      rmSync(mobile, { recursive: true, force: true })
+    }
+  })
+
   it('does not isolate the desktop shell by default [POD-541]', async () => {
     const res = await app.request('/')
     expect(res.status).toBe(200)

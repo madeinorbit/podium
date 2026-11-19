@@ -27,7 +27,6 @@ import {
 import {
   type ComponentType,
   type JSX,
-  lazy,
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
   Suspense,
@@ -39,6 +38,7 @@ import {
 } from 'react'
 import { createPortal } from 'react-dom'
 import type { Trpc } from '@/app/trpc'
+import { lazyScreen } from '@/components/LazyScreen'
 import { Button } from '@/components/ui/button'
 import { isArtifactsTab, useArtifactCount } from '@/features/files/artifacts-tab'
 import { FileTypeIcon } from '@/features/files/file-icon'
@@ -48,7 +48,6 @@ import { MemberMachineStep, useNeedsMemberMachine } from '@/features/setup/Membe
 import { AgentPanelBoundary } from '@/features/terminal/AgentPanelBoundary'
 import { useWarmSet } from '@/features/terminal/use-warm-set'
 import { useNewTaskOverlayOpen } from '@/features/worklist/new-task-overlay'
-import { throughRestarts } from '@/lib/chunk-recovery'
 import { MENU_ITEM, MENU_ITEM_DISABLED, MENU_PANEL, MENU_RULE } from '@/lib/menu-surface'
 import { AgentStatusGlyph } from '@/lib/motion'
 import type { ContextMenuAnchor } from '@/lib/session-context-menu'
@@ -91,17 +90,15 @@ import type {
 // The cold-start composer only renders in the empty pane (no issue selected),
 // and it fronts the whole first-run setup graph — loading it on demand keeps
 // that graph out of the eager bundle.
-const ColdStartComposer = lazy(() =>
-  throughRestarts(() => import('@/features/setup/ColdStartComposer')).then((module) => ({
-    default: module.ColdStartComposer,
-  })),
+const ColdStartComposer = lazyScreen(
+  () => import('@/features/setup/ColdStartComposer'),
+  (module) => module.ColdStartComposer,
 )
 // Loads only when a pane is empty: the mission view model and proposal rows it
 // reads stay out of the eager bundle.
-const MovedConversationPane = lazy(() =>
-  throughRestarts(() => import('./MovedConversationPane')).then((module) => ({
-    default: module.MovedConversationPane,
-  })),
+const MovedConversationPane = lazyScreen(
+  () => import('./MovedConversationPane'),
+  (module) => module.MovedConversationPane,
 )
 
 // dnd-kit is interaction infrastructure, not first-paint UI. A post-paint load

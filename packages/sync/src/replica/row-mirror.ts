@@ -11,6 +11,12 @@
  * keeps one copy of the stubs in memory, not a row object per stub beside it.
  *
  * A stub row read back (`get`, iteration) is built from the table each time.
+ *
+ * POD-7159: the mirror is the store's RESIDENT SET, not a copy of the disk.
+ * A whole record on disk that is not in memory keeps only its stub columns in
+ * its table (`putStubOf`), so the stub table stays complete over every record
+ * the device holds, while `get`, `has` and `mainRows` answer resident rows only.
+ * `unload` takes a whole record out of memory and leaves its stub columns.
  */
 
 import { recordOf } from '@podium/model'
@@ -65,6 +71,37 @@ export class RowMirror extends Map<string, EntityRecord> {
     super.set(key, row)
     if (fields.length > 0) this.table(row.entity, fields).put(row.entityId, row.value)
     return this
+  }
+
+  /**
+   * POD-7159 — the stub columns of a whole record that is on disk and not in
+   * memory (read from the disk index at start). Not a row: `get` and `has`
+   * do not answer it.
+   */
+  putStubOf(entity: string, entityId: string, value: unknown): void {
+    const fields = stubFieldsOf(entity)
+    if (fields.length > 0) this.table(entity, fields).put(entityId, value)
+  }
+
+  /**
+   * POD-7159 — take a whole record out of memory, keeping it on the device:
+   * its stub columns stay in the table. Returns whether a resident row left.
+   */
+  unload(key: string): boolean {
+    return super.delete(key)
+  }
+
+  /** Whether a whole record is in memory (a stub row is in its table, never here). */
+  hasMain(key: string): boolean {
+    return super.has(key)
+  }
+
+  /**
+   * POD-7181 — the row kept by key, without building a stub row from its
+   * table: what a read of resident rows asks (`get` builds one for a stub).
+   */
+  getMain(key: string): EntityRecord | undefined {
+    return super.get(key)
   }
 
   override delete(key: string): boolean {

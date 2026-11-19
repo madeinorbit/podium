@@ -9,6 +9,7 @@ import type { SessionStore } from './store'
 export type { GrantRow } from './store/grants'
 export type { MessagePageCursor } from './store/messages'
 export type {
+  IssueAccessRow,
   IssueRow,
   MessageRow,
   ObservationLeaseRecord,
@@ -23,7 +24,8 @@ export interface FeedVisibilityStore {
   readonly issues: Pick<
     SessionStore['issues'],
     'getIssue' | 'getIssues' | 'liveWorktreeIssuesOnMachines' | 'panel' | 'depsFromIssues'
-  >
+  > &
+    Partial<Pick<SessionStore['issues'], 'loadIssueAccess'>>
   readonly sessions: Pick<
     SessionStore['sessions'],
     'getSessions' | 'findSessionsByResumeValues' | 'findSessionsByIssueIds'

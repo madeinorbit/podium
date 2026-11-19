@@ -1,6 +1,6 @@
 // Generated from apps/server/src/router.ts. Run bun run api:types. Do not edit.
 import * as _podium_model from '@podium/model';
-import { MachineId, IssueId, UserId, IssueJoinVia, ArtifactId, SessionId, UserRole, UsageBucketWire, UpdateChannel, MachinePresenceSource, GitRepositoryWire, GitDiscoveryDiagnosticWire, TranscriptItem, AgentKind, AccountId, AgentPhase } from '@podium/model';
+import { MachineId, IssueId, UserId, IssueJoinVia, ArtifactId, SessionId, IssueProjection, UserRole, UsageBucketWire, UpdateChannel, MachinePresenceSource, GitRepositoryWire, GitDiscoveryDiagnosticWire, TranscriptItem, AgentKind, AccountId, AgentPhase } from '@podium/model';
 import { z } from 'zod';
 import * as Protocol from '@podium/protocol';
 import { ModelChoiceWire, ConvergenceState, MobileWebIdentity } from '@podium/protocol';
@@ -728,6 +728,15 @@ interface SeatCoordinator {
     ref: string;
     title: string;
     sessionId: SessionId;
+}
+
+/** One page of `issues.searchNormalized` (POD-7108). */
+interface IssueSearchPage {
+    hits: (IssueProjection & {
+        displayRef: string;
+    })[];
+    /** Continues the answer after the last hit; `null` when it is complete. */
+    next: string | null;
 }
 
 /**
@@ -1876,6 +1885,19 @@ type Input_issues_panelApply = {
 type Input_issues_search = {
     assignee?: string | undefined;
     label?: string | undefined;
+    parentId?: string | undefined;
+    priority?: number | undefined;
+    repoPath?: string | undefined;
+    stage?: "backlog" | "done" | "in_progress" | "planning" | "proposed" | "review" | "shipping" | undefined;
+    status?: "blocked" | "closed" | "deferred" | "open" | "ready" | undefined;
+    text?: string | undefined;
+    type?: "decision" | "phase" | "task" | undefined;
+};
+type Input_issues_searchNormalized = {
+    assignee?: string | undefined;
+    cursor?: string | undefined;
+    label?: string | undefined;
+    limit?: number | undefined;
     parentId?: string | undefined;
     priority?: number | undefined;
     repoPath?: string | undefined;
@@ -5102,158 +5124,6 @@ type Output_issues_resolveShipHold = {
         };
     };
 };
-type Output_issues_searchNormalized = Array<{
-    acceptance?: string | undefined;
-    activityNotes?: string | undefined;
-    agentProfileId?: string | undefined;
-    archived: boolean;
-    asked?: undefined | {
-        at?: string | undefined;
-        attribution?: undefined | {
-            actor: {
-                id: string & z.BRAND<"AgentIdentityId">;
-                kind: "agent";
-            } | {
-                id: string & z.BRAND<"MachineId">;
-                kind: "machine";
-            } | {
-                id: string & z.BRAND<"UserId">;
-                kind: "user";
-            } | {
-                job: string;
-                kind: "system";
-            };
-            onBehalfOf: (string & z.BRAND<"UserId">) | null;
-        };
-        by?: (string & z.BRAND<"SessionId">) | undefined;
-        options?: string[] | undefined;
-        question: string;
-    };
-    assignee?: (string & z.BRAND<"UserId">) | undefined;
-    audience: "agent" | "human";
-    blockedByNotes: string[];
-    branch?: string | undefined;
-    brief?: string | undefined;
-    closedAt?: string | undefined;
-    closedReason?: string | undefined;
-    coordinatorSessionId?: (string & z.BRAND<"SessionId">) | undefined;
-    createdAt: string;
-    createdBy: {
-        actor: {
-            id: string & z.BRAND<"AgentIdentityId">;
-            kind: "agent";
-        } | {
-            id: string & z.BRAND<"MachineId">;
-            kind: "machine";
-        } | {
-            id: string & z.BRAND<"UserId">;
-            kind: "user";
-        } | {
-            job: string;
-            kind: "system";
-        };
-        onBehalfOf: (string & z.BRAND<"UserId">) | null;
-    };
-    defaultAgent: string;
-    defaultEffort: string;
-    defaultModel: string;
-    deferUntil?: string | undefined;
-    deletedAt?: string | undefined;
-    dependencyNote?: string | undefined;
-    description: {
-        opsTail?: undefined | unknown[];
-        revision?: number | undefined;
-        value: string;
-    };
-    displayRef: string;
-    dueAt?: string | undefined;
-    duplicateOf?: (string & z.BRAND<"IssueId">) | undefined;
-    estimateMin?: number | undefined;
-    id: string & z.BRAND<"IssueId">;
-    intentOrigin: "agent" | "human";
-    isDraftVessel: boolean;
-    labels: string[];
-    landedAt?: string | undefined;
-    landedSha?: string | undefined;
-    lastLifecycleActor?: undefined | {
-        actor: {
-            id: string & z.BRAND<"AgentIdentityId">;
-            kind: "agent";
-        } | {
-            id: string & z.BRAND<"MachineId">;
-            kind: "machine";
-        } | {
-            id: string & z.BRAND<"UserId">;
-            kind: "user";
-        } | {
-            job: string;
-            kind: "system";
-        };
-        onBehalfOf: (string & z.BRAND<"UserId">) | null;
-    };
-    legacyAssignee?: string | undefined;
-    linearId?: string | undefined;
-    linearIdentifier?: string | undefined;
-    linearUrl?: string | undefined;
-    machineId?: (string & z.BRAND<"MachineId">) | undefined;
-    needsHuman: boolean;
-    notesUpdatedAt?: string | undefined;
-    owner: string & z.BRAND<"UserId">;
-    panel?: undefined | {
-        artifacts: {
-            addedAt: string;
-            artifactId?: (string & z.BRAND<"ArtifactId">) | undefined;
-            chatUploadId?: string | undefined;
-            chatUploadOwner?: string | undefined;
-            entry?: string | undefined;
-            files?: undefined | {
-                path: string;
-                size: number;
-            }[];
-            id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
-            issueId?: (string & z.BRAND<"IssueId">) | undefined;
-            path: string;
-            position?: number | undefined;
-            sourceKind?: "creation-attachment" | "terminal-evidence" | undefined;
-            sourcePaths?: string[] | undefined;
-            title?: string | undefined;
-            tracking?: "tracked" | "unknown" | "untracked" | undefined;
-            untrackedPaths?: string[] | undefined;
-        }[];
-        deferred: {
-            addedAt: string;
-            id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
-            issueId?: (string & z.BRAND<"IssueId">) | undefined;
-            position?: number | undefined;
-            text: string;
-        }[];
-        todos: {
-            done: boolean;
-            id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
-            issueId?: (string & z.BRAND<"IssueId">) | undefined;
-            position?: number | undefined;
-            text: string;
-        }[];
-    };
-    parentBranch: string;
-    parentId?: (string & z.BRAND<"IssueId">) | undefined;
-    prUrl?: string | undefined;
-    priority: number;
-    repoId?: (string & z.BRAND<"RepoId">) | undefined;
-    revision?: number | undefined;
-    seq: number;
-    sortKey?: string | undefined;
-    stage: "backlog" | "done" | "in_progress" | "planning" | "proposed" | "review" | "shipping";
-    startedBySession?: (string & z.BRAND<"SessionId">) | undefined;
-    suggestedReason?: string | undefined;
-    suggestedStage?: "backlog" | "done" | "in_progress" | "planning" | "proposed" | "review" | "shipping" | undefined;
-    supersededBy?: (string & z.BRAND<"IssueId">) | undefined;
-    title: string;
-    type: "decision" | "phase" | "task";
-    updatedAt: string;
-    visibility: "deployment-substrate" | "owned-compute" | "per-user-state" | "personal" | "secret";
-    worktreePath?: string | undefined;
-}>;
 type Output_issues_seat = ({
     askUserRefusal?: string | undefined;
     claimable?: string;
@@ -7465,8 +7335,8 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             meta: unknown;
         }>;
         "searchNormalized": TRPC.TRPCQueryProcedure<{
-            input: Input_issues_search;
-            output: Output_issues_searchNormalized;
+            input: Input_issues_searchNormalized;
+            output: IssueSearchPage;
             meta: unknown;
         }>;
         "seat": TRPC.TRPCQueryProcedure<{

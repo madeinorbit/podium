@@ -69,7 +69,6 @@ function port(stubs: readonly Issue[], complete: ReadonlySet<string>): Collectio
   return {
     request: () => {},
     show: () => () => {},
-    requestRecords: () => {},
     status: (spec) => (done(spec) ? 'complete' : 'loading'),
     online: true,
     firstDownload: false,

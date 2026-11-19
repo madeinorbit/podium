@@ -31,10 +31,12 @@ import {
   summarize,
 } from './no-wrong-number'
 import {
+  afterGapPool,
   collectGarbage,
   FIRST_DOWNLOAD_STEPS,
   firstDownloadPool,
   fullPool,
+  gapPool,
   openStartupFeed,
   partialPool,
   policySetPool,
@@ -200,6 +202,25 @@ describe('the check itself', () => {
 })
 
 describe(`startup states against the full bootstrap (${cell})`, () => {
+  it('after a gap, before the reload: refreshing numbers equal the control at the device cursor', () => {
+    const pool = afterGapPool(feed)
+    try {
+      expect(pool.collections.status({ collection: 'issueProjection.stubs', part: 'stub' })).toBe(
+        'refreshing',
+      )
+      const answers = ask(pool, questions)
+      const report = checkNoWrongNumber(control, answers)
+      assertNoWrongNumber(report, 'after a gap, before the reload')
+      expect(report.wrong).toEqual([])
+      expect(report.loading.filter((name) => /^(counts:|closed-children:)/.test(name))).toEqual([])
+      console.info(
+        `[no-wrong-number] after a gap, before the reload: ${JSON.stringify(summarize(report))}`,
+      )
+    } finally {
+      pool.dispose()
+    }
+  }, 600_000)
+
   it('a second full bootstrap answers every question the same', () => {
     const pool = fullPool(feed)
     const report = checkNoWrongNumber(control, ask(pool, questions))
@@ -245,6 +266,24 @@ describe(`startup states against the full bootstrap (${cell})`, () => {
     })
     expect(report.asked).toBe(questions.length)
     expectMoved('policy set', report)
+  }, 600_000)
+
+  it('after a gap, before and after reading the stale instances, no answer is wrong (POD-7160)', () => {
+    const states: Record<string, ReturnType<typeof summarize>> = {}
+    for (const read of [false, true]) {
+      collectGarbage()
+      const pool = gapPool(feed, { read })
+      const report = checkNoWrongNumber(control, ask(pool, questions))
+      pool.dispose()
+      const name = read ? 'gap then read' : 'gap'
+      states[name] = summarize(report)
+      expect(report.asked).toBe(questions.length)
+      assertNoWrongNumber(report, name)
+      // Read from disk, the stale instances answer at once: nothing waits.
+      if (read) expect(report.loading).toEqual([])
+    }
+    console.info(`[no-wrong-number] gap states: ${JSON.stringify(states)}`)
+    writeResult(`startup-no-wrong-number-gap-${cell}`, states)
   }, 600_000)
 
   it('no intermediate state of a first download gives a wrong number (POD-7087, POD-7088, POD-7089)', () => {

@@ -67,12 +67,15 @@ export interface LoaderMarker {
 export interface CollectionLoaderPort {
   request(requests: readonly LoaderInstance[], priority?: 'visible' | 'background'): void
   show(spec: LoaderInstance): () => void
-  requestRecords(kind: string, ids: readonly string[], priority?: 'visible' | 'background'): void
   status(spec: LoaderInstance): 'complete' | 'loading' | 'offline'
   readonly online: boolean
   /** The device started empty and its first download has not finished. */
   readonly firstDownload: boolean
   isComplete(spec: LoaderInstance): LoaderMarker | undefined
+  /** A gap left the complete local answer usable while its replacement is queued. */
+  isStale?(spec: LoaderInstance): boolean
+  /** All surviving disk-index holders of this record are stale; one fresh holder clears it. */
+  recordStale?(entity: string, id: string): boolean
   wasRefused(spec: LoaderInstance): boolean
   stubOf(entity: string, entityId: string): Readonly<Record<string, unknown>> | undefined
   stubsByParent(parentId: string): readonly string[]
@@ -81,6 +84,18 @@ export interface CollectionLoaderPort {
   ): readonly { readonly id: string; readonly stub: Readonly<Record<string, unknown>> }[]
   /** The record at a reference (repository and number), by the stubs (POD-7094: a table lookup). */
   stubIdAt?(entity: string, repoId: string, seq: number): string | undefined
+  /**
+   * POD-7159 — the record is whole on the device's disk and not in memory
+   * (its instance was unloaded): a reader gets LOADING and a disk load.
+   */
+  unloaded?(entity: string, entityId: string): boolean
+  /** POD-7159 — read records whole on disk into memory, batched, with no connection too. */
+  loadFromDisk?(entity: string, entityIds: readonly string[]): void
+  /**
+   * POD-7160 — the device holds the instance behind the feed (a gap left it
+   * on the device): it reads as usual and is reloading. POD-7166 shows it.
+   */
+  isStale?(spec: LoaderInstance): boolean
   subscribe(listener: (change: 'markers' | 'stubs' | 'connection') => void): () => void
 }
 

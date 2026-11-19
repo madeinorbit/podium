@@ -56,6 +56,8 @@ x10 and the full normalized answer takes 7.4 seconds median (8.1 seconds p95).
 The server currently normalizes every hit and the loader requests every returned
 ID. A bounded/paged response and bulk normalization need separate follow-up;
 this measurement does not attribute the broad-query cost to the scan alone.
+POD-7108 made the response a bounded page; see
+[issue-search-7108.md](issue-search-7108.md).
 
 ## Correctness evidence
 

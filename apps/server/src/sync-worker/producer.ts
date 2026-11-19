@@ -45,43 +45,44 @@ interface AnswerRange {
  * One output of the collection fetch as wire lines (POD-7085): whole records
  * in `feedBootstrap` chunks, issue stubs in `feedStubs` chunks, markers in a
  * `collectionComplete` line, every one stamped with the answer's feed number.
+ * A chunk's line is assembled from its changes' JSON, each change serialized
+ * once: the text that sizes it is the text that is sent (POD-7153).
  */
-function outputLines(output: FetchOutput, range: AnswerRange): unknown[] {
+function outputLines(output: FetchOutput, range: AnswerRange): string[] {
   if (output.type === 'complete') {
     return [
-      {
+      JSON.stringify({
         type: 'collectionComplete',
         feedId: range.feedId,
         epoch: range.epoch,
         seq: range.seq,
         instances: output.instances,
-      },
+      }),
     ]
   }
   const stub = output.type === 'stubs'
-  const lines: unknown[] = []
-  let batch: unknown[] = []
+  // `{"type":…,"minAvailableSeq":…` without its closing brace.
+  const head = JSON.stringify({ type: stub ? 'feedStubs' : 'feedBootstrap', ...range }).slice(0, -1)
+  const tail = stub ? ']}' : '],"last":false}'
+  const lines: string[] = []
+  let batch: string[] = []
   let bytes = 0
   const close = () => {
     if (batch.length === 0) return
-    lines.push(
-      stub
-        ? { type: 'feedStubs', ...range, changes: batch }
-        : { type: 'feedBootstrap', ...range, changes: batch, last: false },
-    )
+    lines.push(`${head},"changes":[${batch.join(',')}${tail}`)
     batch = []
     bytes = 0
   }
   for (const record of output.records) {
-    const change = {
+    const change = JSON.stringify({
       seq: range.seq,
       entity: record.entity,
       entityId: record.entityId,
       op: 'upsert',
       ...(stub ? { part: 'stub' } : {}),
       value: record.value,
-    }
-    const size = utf8.encode(JSON.stringify(change)).byteLength
+    })
+    const size = Buffer.byteLength(change, 'utf8')
     if (
       batch.length > 0 &&
       (batch.length >= SYNC_BATCH_MAX_ROWS || bytes + size > SYNC_BATCH_TARGET_BYTES)
@@ -138,9 +139,10 @@ async function* produceRecords(
     bytesBefore = 0,
     bytesAfter = 0
   let outcome = 'producer-failed'
+  /** One wire line: a record to serialize, or a line's JSON text already serialized. */
   const line = (record: unknown) => {
     const t = performance.now()
-    const bytes = utf8.encode(JSON.stringify(record) + '\n')
+    const bytes = utf8.encode(`${typeof record === 'string' ? record : JSON.stringify(record)}\n`)
     phase('encode', t, bytes.byteLength)
     if (bytes.byteLength - 1 > SYNC_LINE_MAX_BYTES) throw new SyncWorkerError('row-too-large')
     bytesBefore += bytes.byteLength
@@ -292,7 +294,7 @@ async function* produceRecords(
       const outputs = answer.instance(resolveInstance(instance))
       for await (const output of outputs) {
         check()
-        for (const object of outputLines(output, range)) yield line(object)
+        for (const text of outputLines(output, range)) yield line(text)
         if (output.type !== 'complete') {
           rows += output.records.length
           refCount += output.records.length

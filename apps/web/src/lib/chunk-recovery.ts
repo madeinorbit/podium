@@ -82,6 +82,7 @@ export type ChunkRecovery =
   | 'failed'
 
 export interface ChunkRecoveryDeps {
+  isOnline?: () => boolean
   /** Ask the server what it is serving. */
   askServer: () => Promise<ServedAssetsAnswer>
   /** Sleep. Injected so the test does not spend real seconds. */
@@ -247,7 +248,9 @@ export async function waitForServerAnswer(
   publishWaiting(waiting + 1)
   try {
     for (let attempt = 1; deps.now() - startedAt < budgetMs; attempt += 1) {
+      if (deps.isOnline?.() === false) return 'gave-up'
       await deps.wait(PROBE_DELAYS_MS[Math.min(attempt - 1, PROBE_DELAYS_MS.length - 1)] as number)
+      if (deps.isOnline?.() === false) return 'gave-up'
       const answer = await deps.askServer()
       if (answer !== 'unreachable') return answer
     }
@@ -304,23 +307,7 @@ async function recoverFromRestart<T>(
   }
 
   try {
-    if (failure.kind === 'stylesheet') {
-      // Ask for the stylesheet again OURSELVES. Vite will not: its `seen` map
-      // records the dep as handled the moment it first appends the link, so the
-      // retried loader skips it and the view would come back unstyled.
-      // Best-effort — a view with its styles missing is still far better than a
-      // view that is not there, so a second failure here does not stop the load.
-      await deps.loadStylesheet?.(failure.href).catch(() => {})
-    }
-    // The ordinary loader FIRST, and it is the right first move for both shapes.
-    // A stylesheet failure never got as far as importing the module, so nothing
-    // is poisoned and this simply works. A module failure will fail again — the
-    // module map answers from its record without a request — which costs one
-    // microtask and is what the cache-busted URL below is for.
-    const module = await load().catch(async (again: unknown) => {
-      if (failure.kind !== 'module') throw again
-      return deps.importUrl(retryUrl(failure.url, 1))
-    })
+    const module = await retryChunkImport(load, error, 1, deps)
     log.info('chunk loaded after the server came back', { failure: failure.kind })
     return { outcome: 'recovered-after-restart', module }
   } catch (retryError) {
@@ -332,6 +319,23 @@ async function recoverFromRestart<T>(
     })
     return { outcome: 'failed' }
   }
+}
+
+/** Repair Vite's failed CSS link and bypass a failed native module-map entry. */
+export async function retryChunkImport<T>(
+  load: () => Promise<T>,
+  error: unknown,
+  attempt = 1,
+  deps: ChunkRecoveryDeps = browserDeps(),
+): Promise<T> {
+  const failure = classifyChunkFailure(error)
+  if (failure.kind === 'stylesheet') {
+    await deps.loadStylesheet?.(failure.href).catch(() => {})
+  }
+  return load().catch((again: unknown) => {
+    if (failure.kind !== 'module') throw again
+    return deps.importUrl(retryUrl(failure.url, attempt)) as Promise<T>
+  })
 }
 
 /**
@@ -352,6 +356,9 @@ export async function importThroughRestarts<T>(
     if (!looksLikeChunkLoadFailure(error instanceof Error ? error.message : String(error))) {
       throw error
     }
+    // A disconnected device cannot fetch code. Let the surface show its offline
+    // state immediately; it will retry on `online`, without polling or a reload.
+    if (deps.isOnline?.() === false) throw error
     // ONE QUESTION FIRST, and it is the whole decision: is the server there?
     // Only `unreachable` earns any patience at all — everything else is a server
     // with an opinion, and its opinion is the boundary's business.
@@ -379,6 +386,7 @@ export async function importThroughRestarts<T>(
  */
 function browserDeps(): ChunkRecoveryDeps {
   return {
+    isOnline: () => navigator.onLine,
     askServer: async () => (await askServedAssets(window.location.origin)).answer,
     wait: (ms) => new Promise((resolve) => void window.setTimeout(resolve, ms)),
     now: () => Date.now(),

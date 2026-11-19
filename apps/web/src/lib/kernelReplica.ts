@@ -24,10 +24,11 @@ import {
 } from '@podium/client-core/transcript-store'
 import { createLogger } from '@podium/logger'
 import { type IdbFactoryLike, IndexedDbSyncStore } from '@podium/sync/adapters/indexeddb'
+import { browserMemorySignals } from '@podium/sync/replica'
 import type { Trpc } from '@/app/trpc'
 import { expireSignedInRuntime } from './account-context'
-import { type SyncProgressStore, WebSyncProgressStore } from './sync-progress'
 import { nativeDesktopBridge } from './nativeDesktop'
+import { type SyncProgressStore, WebSyncProgressStore } from './sync-progress'
 import { workspaceFetch } from './workspace-request'
 
 const log = createLogger('web:kernel-replica')
@@ -148,6 +149,9 @@ export async function openKernelAssembly(
   const assembly = await openReplicaAssembly({
     api: options.trpc,
     principal: options.principal,
+    // POD-7161: memory lets go of the screens left on the browser's idle
+    // moments and when the tab is hidden.
+    memorySignals: browserMemorySignals(),
     evidence: options.evidence,
     openStore: (onDegraded) =>
       IndexedDbSyncStore.open({

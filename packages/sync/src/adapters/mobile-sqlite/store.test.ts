@@ -17,12 +17,19 @@
 import type { MutationId } from '@podium/model'
 import { actorUser, asUserId } from '@podium/model'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { policyBudgets } from '../../conformance/test-budgets'
 import type { OutboxRecord } from '../../outbox/records'
 import { INSTANCE_META_PREFIX, instanceKey } from '../../replica/cache-state'
 import { ReplicaStoreCorruptError } from '../../replica/ports'
 import type { Cursor } from '../../replica/types'
 import { SyncCommitConflict } from '../../span'
-import { ENTITY_TABLE, META_TABLE, REPLICA_SCHEMA_VERSION, SCHEMA_VERSION_TABLE } from './schema'
+import {
+  ENTITY_TABLE,
+  INDEX_TABLE,
+  META_TABLE,
+  REPLICA_SCHEMA_VERSION,
+  SCHEMA_VERSION_TABLE,
+} from './schema'
 import { type DurabilityDegradation, SqliteSyncStore } from './store'
 import { freshDatabaseFile, readDurable, sqliteEngine } from './test-support'
 
@@ -116,7 +123,7 @@ describe('mobile SQLite adapter — store obligations', () => {
 
   it('stores markers, the policy and the load state durably, and erasing the principal drops them', async () => {
     const store = await open()
-    const policy = { clientType: 'phone', steps: [], recentDays: 7, cacheCap: 10 }
+    const policy = { clientType: 'phone', steps: [], recentDays: 7, ...policyBudgets() }
     await store.unitOfWork.transact(async (span) =>
       store.viewFor(ADA).cache.applyAtomic(
         {
@@ -153,7 +160,7 @@ describe('mobile SQLite adapter — store obligations', () => {
   })
 
   it('migrates a version-1 file in place: rows read whole, the outbox survives', async () => {
-    expect(REPLICA_SCHEMA_VERSION).toBe(2)
+    expect(REPLICA_SCHEMA_VERSION).toBe(3)
     const store = await open()
     const view = store.viewFor(ADA)
     await store.unitOfWork.transact(async (span) => {
@@ -571,5 +578,52 @@ describe('mobile SQLite adapter — store obligations', () => {
     ])
     expect(durable.cursors.map((row) => row.principal)).toEqual([GRACE])
     expect(durable.outbox.map((row) => row.principal)).toEqual([GRACE])
+  })
+
+  it('POD-7170: a stub-level record has no row, and a file whose stubs live in an unreadable index starts its cache cold, keeping the outbox', async () => {
+    const store = await open()
+    const cache = store.viewFor(ADA).cache
+    await store.unitOfWork.transact(async (span) =>
+      cache.applyAtomic(
+        {
+          operations: [
+            {
+              kind: 'upsert',
+              entity: 'issueProjection',
+              entityId: 'S1',
+              value: { id: 'S1', stage: 'done' },
+              provenance: { seq: 1 },
+              part: 'stub',
+              asOf: 1,
+            },
+          ],
+          cursor: CURSOR_1,
+        },
+        span,
+      ),
+    )
+    await store.viewFor(ADA).outbox.apply({
+      put: [record('queued')],
+      expect: [{ mutationId: M, expect: 'absent' }],
+    })
+    store.close()
+    const raw = sqliteEngine.open(file)
+    try {
+      expect(raw.prepare(`SELECT COUNT(*) AS n FROM ${ENTITY_TABLE}`).get()).toEqual({ n: 0 })
+      raw
+        .prepare(`INSERT INTO ${INDEX_TABLE} (principal, key, value) VALUES (?, ?, ?)`)
+        .run(ADA, 'unreadable', '42')
+    } finally {
+      raw.close()
+    }
+    const reopened = await open()
+    try {
+      const view = reopened.viewFor(ADA)
+      expect(view.cache.readCursor()).toBeNull()
+      expect(view.cache.readStubs()).toEqual([])
+      expect((await view.outbox.read()).map((row) => row.mutationId)).toEqual([M])
+    } finally {
+      reopened.close()
+    }
   })
 })

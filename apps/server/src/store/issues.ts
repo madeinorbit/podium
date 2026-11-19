@@ -100,6 +100,7 @@ import { IssuePanelRepository } from './issue-panel'
 import { StaleIssueRevisionError } from './issue-revision'
 import { prefixUpperBound } from './prefix-range'
 import type {
+  IssueAccessRow,
   IssueCommentRow,
   IssueMessageRow,
   IssueRow,
@@ -173,6 +174,30 @@ const issueClosureRowsOf = preparedFamily((db, t, size: number) =>
 const issuesByIds = preparedFamily((db, t, size: number) =>
   db
     .select()
+    .from(t.issues)
+    .where(inWorkspace(t.issues, inListOf(t.issues.id, size, 'ids')))
+    .prepare(),
+)
+
+/**
+ * What the sharing rules read of an issue (POD-7153): the execution pointers
+ * and the checkout path, plus the four columns the quarantine checks. Never
+ * the bodies, which a decision does not read.
+ */
+const issueAccessByIds = preparedFamily((db, t, size: number) =>
+  db
+    .select({
+      id: t.issues.id,
+      repoPath: t.issues.repoPath,
+      stage: t.issues.stage,
+      title: t.issues.title,
+      ownerUserId: t.issues.ownerUserId,
+      machineId: t.issues.machineId,
+      worktreePath: t.issues.worktreePath,
+      coordinatorSessionId: t.issues.coordinatorSessionId,
+      startedBySession: t.issues.startedBySession,
+      humanQuestionAskedBy: t.issues.humanQuestionAskedBy,
+    })
     .from(t.issues)
     .where(inWorkspace(t.issues, inListOf(t.issues.id, size, 'ids')))
     .prepare(),
@@ -1566,6 +1591,33 @@ export class IssuesRepository {
    * Shares {@link getIssues}' mapping and quarantine; every caller gets its
    * own copy.
    */
+  /** {@link loadIssueAccess}'s loader: the same scope and invalidation as {@link rowLoader}. */
+  private readonly accessLoader = operationLoader<string, IssueAccessRow>(
+    async (ids) => {
+      const out = new Map<string, IssueAccessRow>()
+      for (let i = 0; i < ids.length; i += 500) {
+        const chunk = ids.slice(i, i + 500)
+        const size = inListSize(chunk.length)
+        for (const r of await issueAccessByIds(this.db, size).all(
+          inListValues(chunk.map(asIssueId), size, 'ids'),
+        )) {
+          if (!structurallySound(r)) continue
+          out.set(r.id, {
+            id: r.id,
+            ownerUserId: r.ownerUserId,
+            machineId: r.machineId,
+            worktreePath: r.worktreePath,
+            coordinatorSessionId: r.coordinatorSessionId,
+            startedBySession: r.startedBySession ?? null,
+            humanQuestionAskedBy: r.humanQuestionAskedBy ?? null,
+          })
+        }
+      }
+      return out
+    },
+    { copy: (row) => ({ ...row }), perOperation: true },
+  )
+
   private readonly rowLoader = operationLoader<string, IssueRow>(
     async (ids) => await this.readIssuesByIds(ids),
     {
@@ -1671,6 +1723,7 @@ export class IssuesRepository {
 
   private rowsWritten(): void {
     this.rowLoader.invalidate()
+    this.accessLoader.invalidate()
     this.userStateLoader.invalidate()
   }
 
@@ -1973,6 +2026,17 @@ export class IssuesRepository {
     return await this.rowLoader.load(id)
   }
 
+  /**
+   * What the sharing rules read of these issues (POD-7153), by the same
+   * quarantine as {@link loadIssues}: an issue {@link loadIssues} would skip is
+   * absent here too. One `IN (…)` read per 500, without the bodies.
+   */
+  async loadIssueAccess(ids: Iterable<string>): Promise<Map<string, IssueAccessRow>> {
+    const out = new Map<string, IssueAccessRow>()
+    for (const [id, row] of await this.accessLoader.loadMany(ids)) if (row) out.set(id, row)
+    return out
+  }
+
   /** {@link loadIssue} for many ids; absent ids are absent from the map. */
   async loadIssues(ids: Iterable<string>): Promise<Map<string, IssueRow>> {
     const out = new Map<string, IssueRow>()
@@ -2079,6 +2143,8 @@ export class IssuesRepository {
     const key =
       shape.parents !== undefined ? 'parents' : shape.ids !== undefined ? 'ids' : undefined
     const chunks = key && list ? chunked([...new Set(list)], 500) : [undefined]
+    // A limit bounds one statement; merged chunks would each take their own.
+    if (shape.limit && chunks.length > 1) throw new Error('A limited listing reads one statement')
     const raw: (typeof issues.$inferSelect)[] = []
     for (const chunk of chunks) {
       if (chunk !== undefined && chunk.length === 0) continue

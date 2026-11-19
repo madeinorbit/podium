@@ -1,6 +1,6 @@
 import { companion, lazy } from '@podium/mobx-helpers'
 import { action, compareShallow, compareStructural, observable, observableRef } from 'mobx'
-import { issueSearch } from '../issue-search'
+import { ISSUE_SEARCH_PAGE, issueSearch } from '../issue-search'
 import type { MobxPool } from '../pool'
 import { isFinished } from '../shared/predicates'
 import { compareRank } from '../shared/row-view'
@@ -67,6 +67,12 @@ export class PhoneWorkFilters {
 
 /** The phone draws the desktop's sections and borrows its screen's filters. */
 export class PhoneWorklist {
+  @lazy get refreshing(): boolean {
+    return (
+      this.worklist.desktop.refreshing || (Boolean(this.needle) && this.searchResults.refreshing)
+    )
+  }
+
   @observableRef accessor filters = new PhoneWorkFilters()
   readonly pinned = new PhoneWorkSection('pinned', this)
   readonly searchSection = new PhoneWorkSection('search-results', this)
@@ -161,7 +167,21 @@ export class PhoneWorklist {
     return issueSearch(pool).read(
       this.needle,
       this.needle ? pool.queries.localTextIds(this.needle) : [],
+      undefined,
+      this.searchWant.needle === this.needle ? this.searchWant.count : ISSUE_SEARCH_PAGE,
     )
+  }
+  /** Server hits the search asks for (POD-7108): a page more each time the
+   * list scrolls to its end, back to one page for a new search. */
+  @observable private accessor searchWant = { needle: '', count: ISSUE_SEARCH_PAGE }
+  /** The server holds more hits than the list has. */
+  @lazy get searchMore(): boolean {
+    return Boolean(this.needle) && this.searchResults.more
+  }
+  @action moreSearch(): void {
+    if (!this.searchMore) return
+    const count = this.searchWant.needle === this.needle ? this.searchWant.count : ISSUE_SEARCH_PAGE
+    this.searchWant = { needle: this.needle, count: count + ISSUE_SEARCH_PAGE }
   }
   @lazy get searchIds(): ReadonlySet<string> {
     return new Set(this.searchResults.ids)

@@ -34,6 +34,7 @@ import {
   wordWantsAttention,
 } from '@podium/model/browser'
 import { action, compareShallow, compareStructural, observable } from 'mobx'
+import { LOADING } from './loading'
 import type { MissionScreen } from './mission-screen'
 import {
   type MissionDeckIssueModel,
@@ -56,8 +57,6 @@ export type FullDeckKind = 'phase' | 'decision' | 'task'
 export type FullDeckSeat = 'coordinator' | 'phase-lead' | 'worker' | 'helper'
 
 export type FullDeckCounts = Readonly<Record<FullDeckFilter | 'done', number>>
-
-const NO_IDS: readonly string[] = Object.freeze([])
 
 /**
  * One issue of the mission as the Full view draws it. A companion of the
@@ -111,16 +110,18 @@ export class FullDeckTask {
   /** Its parent in the drawn tree: the formal parent, or a graft's placement. */
   @lazy get parentId(): string | null {
     if (this.isRoot) return null
-    return requireLoaded(this.deck.source.topology).parent.get(this.id) ?? null
+    return this.deck.source.parentIn(this.id) ?? null
   }
   /** Direct sub-issues in the accepted tree: proposals and their subtrees
    * leave, sort_key order holds, and tasks come before phases (spec 06). */
   @lazy({ equals: compareShallow }) get childIds(): readonly string[] {
-    const shape = requireLoaded(this.deck.source.topology)
+    // POD-7178: this row's own children and each child's parent, never the
+    // whole shape, so a burst re-derives only the rows whose place it moved.
+    const source = this.deck.source
     const tasks: string[] = [],
       phases: string[] = []
-    for (const id of shape.children.get(this.id) ?? NO_IDS) {
-      if (shape.parent.get(id) !== this.id || id === this.deck.rootId) continue
+    for (const id of requireLoaded(source.childrenIn(this.id))) {
+      if (source.parentIn(id) !== this.id || id === this.deck.rootId) continue
       const child = this.deck.task(id)
       if (child.proposed) continue
       ;(child.kind === 'phase' ? phases : tasks).push(id)
@@ -129,10 +130,10 @@ export class FullDeckTask {
   }
   /** Proposed direct sub-issues: they leave the tree for the PROPOSED tail. */
   @lazy({ equals: compareShallow }) get proposalIds(): readonly string[] {
-    const shape = requireLoaded(this.deck.source.topology)
-    return (shape.children.get(this.id) ?? NO_IDS).filter(
+    const source = this.deck.source
+    return requireLoaded(source.childrenIn(this.id)).filter(
       (id) =>
-        shape.parent.get(id) === this.id && id !== this.deck.rootId && this.deck.task(id).proposed,
+        source.parentIn(id) === this.id && id !== this.deck.rootId && this.deck.task(id).proposed,
     )
   }
   /** Levels below the mission root, phases included (0 = a root child). */
@@ -217,10 +218,12 @@ export class FullDeckTask {
    * reason; a dependency that is gone no longer blocks. */
   @lazy({ equals: compareShallow }) get unmetBlockedByIds(): readonly string[] {
     const reader = this.deck.screen.reader
-    const targets = requireLoaded(settledAll(this.blockedByIds, (id) => reader.catalogIssue(id)))
+    // Reference and state are stub fields: a target outside the mission is
+    // read from its stub, never loaded whole (POD-7168).
+    const targets = requireLoaded(settledAll(this.blockedByIds, (id) => reader.reference(id)))
     return this.blockedByIds.filter((_, index) => {
       const target = targets[index]
-      return target !== undefined && !isFinished(target)
+      return target !== undefined && !target.finished
     })
   }
   /** The narrow lock keeps every reference in its tooltip, even when the
@@ -229,7 +232,7 @@ export class FullDeckTask {
     const reader = this.deck.screen.reader
     return this.unmetBlockedByIds
       .map((id) => {
-        const target = requireLoaded(reader.catalogIssue(id))
+        const target = requireLoaded(reader.reference(id))
         return target?.displayRef ?? id
       })
       .join(', ')
@@ -284,7 +287,12 @@ export class FullDeckTask {
   }
   /** Drawn: it matches, or a descendant does and it gives that one context. */
   @lazy get shown(): boolean {
-    return this.matches || this.childIds.some((id) => this.deck.task(id).shown)
+    if (settled(() => this.matches) === true) return true
+    // Every child is read before answering (and this row's own match), so a
+    // pending input never keeps its siblings out of the same load window.
+    const children = settledAll(this.childIds, (id) => this.deck.task(id).shown)
+    const matches = this.matches
+    return matches || requireLoaded(children).some(Boolean)
   }
   /** Something folds away under it: sub-issues or sessions. */
   @lazy get foldable(): boolean {
@@ -474,15 +482,27 @@ export class FullDeck {
   /** Rows under the root, in drawing order: shown, under open parents. */
   @lazy({ equals: compareShallow }) get rowIds(): readonly string[] {
     const out: string[] = []
+    // Every row is read before answering LOADING: a walk that stopped at its
+    // first pending row asked for one record per load window, and the deck
+    // settled in one round trip per row (POD-7168, as POD-6134's settledAll).
+    let pending = false
     const walk = (id: string) => {
       for (const child of this.task(id).childIds) {
         const task = this.task(child)
-        if (!task.shown) continue
+        const shown = settled(() => task.shown)
+        if (shown === LOADING) pending = true
+        if (shown !== true) continue
         out.push(child)
-        if (task.open) walk(child)
+        // Only a row with sub-issues has rows under it: a leaf's fold (which
+        // reads its word) never changes this list.
+        if (task.childIds.length === 0) continue
+        const open = settled(() => task.open)
+        if (open === LOADING) pending = true
+        if (open === true) walk(child)
       }
     }
     walk(this.rootId)
+    if (pending) throw LOADING
     return out
   }
   /** The PROPOSED tail: proposals anywhere in the accepted tree, each

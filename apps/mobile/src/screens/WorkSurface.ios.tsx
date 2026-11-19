@@ -55,6 +55,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { StyleSheet, useWindowDimensions, View } from 'react-native'
 import type { SearchBarCommands } from 'react-native-screens'
 import { NewWorkButton } from '../components/NewWorkButton'
+import { ScreenRefreshMark } from '../components/ScreenRefreshMark'
 import { MIN_REFRESH_CONFIRMATION_MS } from '../hooks/useRefreshableTab'
 import { useAgeNow } from '../lib/clock-hooks'
 import { workMenuActionIds } from '../lib/work-menu'
@@ -104,11 +105,14 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
     props.refresh.onRefresh()
     await new Promise((resolve) => setTimeout(resolve, MIN_REFRESH_CONFIRMATION_MS))
   }, [props.refresh.onRefresh])
-  const loadMore = () =>
+  // At the window's end with every row shown, the search asks the server for its next page.
+  const loadMore = () => {
+    if (!more) phone.moreSearch()
     setWindow((current) => ({
       scope,
       size: (current.scope === scope ? current.size : PAGE_SIZE) + PAGE_SIZE,
     }))
+  }
 
   return (
     <View style={styles.root}>
@@ -123,6 +127,9 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
         }}
       />
       <Stack.Toolbar placement="left">
+        <Stack.Toolbar.View>
+          <ScreenRefreshMark refreshing={phone.refreshing} />
+        </Stack.Toolbar.View>
         <Stack.Toolbar.Menu accessibilityLabel={`Work list: ${WORK_LANE_LABELS[phone.lane]}`}>
           <Stack.Toolbar.Label>{WORK_LANE_LABELS[phone.lane]}</Stack.Toolbar.Label>
           {WORK_LANES.map((lane) => (
@@ -208,7 +215,7 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
               ) : null}
             </Section>
           ))}
-          {more ? (
+          {more || phone.searchMore ? (
             <Text
               modifiers={[
                 ...quietRow,

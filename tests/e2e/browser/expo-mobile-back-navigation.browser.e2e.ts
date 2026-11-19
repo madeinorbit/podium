@@ -53,7 +53,7 @@ test('Expo session back preserves history and recovers from a direct load', asyn
   page,
 }) => {
   await page.goto('/mobile/issues?demo=1')
-  await page.getByRole('button', { name: 'Issue 87: OAuth refresh loop logs users out' }).click()
+  await page.getByRole('button', { name: /^Task 87: OAuth refresh loop logs users out/ }).click()
   await page.getByRole('button', { name: 'Fix OAuth token refresh' }).click()
 
   await expect(page).toHaveURL(/\/mobile\/session\/demo-auth/, { timeout: 30_000 })

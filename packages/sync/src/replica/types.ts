@@ -357,8 +357,12 @@ export interface CachePolicy {
   readonly clientType: string
   readonly steps: readonly { readonly step: string; readonly collections: readonly string[] }[]
   readonly recentDays: number
-  /** Records held as cache beyond the policy's collections. */
-  readonly cacheCap: number
+  /** The warm set's budget in memory, estimated MB (POD-7161, design "Layer 2: memory"). */
+  readonly memoryBudgetMb: number
+  /** Local storage's size budget, MB (POD-7162 prunes to it). */
+  readonly diskBudgetMb: number
+  /** An instance no view has read for longer than this many days leaves the device (POD-7162). */
+  readonly diskMaxIdleDays: number
 }
 
 /**
@@ -376,6 +380,12 @@ export type ReplicaEvent =
    * deletion and not a visibility change: a lookup now answers "on its way".
    */
   | { readonly type: 'released'; readonly entity: string; readonly entityId: string }
+  /**
+   * POD-7159 — the record left MEMORY and stays on the device's disk (its
+   * instance was unloaded). Not a removal, not a release: a reader gets
+   * LOADING and a disk load, never REMOVED or NOT_VISIBLE.
+   */
+  | { readonly type: 'unloaded'; readonly entity: string; readonly entityId: string }
   /** An issue's stub was written: the device holds it at stub level only. */
   | { readonly type: 'stub-upserted'; readonly record: EntityRecord }
   /**
@@ -451,5 +461,9 @@ export interface ReplicaStats {
   readonly bootstraps: number
   readonly framesApplied: number
   readonly watermarksApplied: number
+  /** Times memory shrank the warm set and unloaded something (POD-7161: idle, background, warning). */
+  readonly shrinks: number
+  /** POD-7162 — prune slices that removed something from the device (idle or background only). */
+  readonly prunes: number
   readonly entityCount: number
 }

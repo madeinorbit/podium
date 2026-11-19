@@ -24,16 +24,22 @@
  * Later issues add their own states (active-first stream) and feed them to
  * the same check.
  */
-import { COLLECTIONS, matchesWhere, type Where } from '@podium/model'
-import { createWorklistPool } from '../../../shared/src/clock-fixture-pool'
+
 import { MobxPool } from '@podium/client-graph/pool'
 import { fixedLocals } from '@podium/client-graph/shared/locals-source'
-import type { CollectionLoaderPort, LoaderInstance, RowRecord, RowSource } from '@podium/client-graph/shared/source'
-import type { SliceLocals } from '../../../shared/src/slice-types'
+import type {
+  CollectionLoaderPort,
+  LoaderInstance,
+  RowRecord,
+  RowSource,
+} from '@podium/client-graph/shared/source'
+import { COLLECTIONS, matchesWhere, type Where } from '@podium/model'
 import { runInAction } from 'mobx'
 import { referenceState } from '../../../diagnostics/reference-state'
+import { createWorklistPool } from '../../../shared/src/clock-fixture-pool'
 import { createRowSource } from '../../../shared/src/row-source'
 import { startEngineOnCorpus } from '../../../shared/src/scenarios'
+import type { SliceLocals } from '../../../shared/src/slice-types'
 import { buildCorpusCell, type CorpusCell } from '../fixture'
 
 export interface StartupFeed {
@@ -66,13 +72,19 @@ export async function openStartupFeed(cell: CorpusCell, seed = 4443): Promise<St
   const tables = new Map<string, Map<string, unknown>>()
   for (const row of rows) {
     let table = tables.get(row.kind)
-    if (!table) tables.set(row.kind, (table = new Map()))
+    if (!table) {
+      table = new Map()
+      tables.set(row.kind, table)
+    }
     table.set(row.id, row.value)
   }
   const ownRows = new Map<RowRecord['kind'], RowRecord[]>()
   for (const row of rows.slice(0, rows.length - companions.length)) {
     let list = ownRows.get(row.kind)
-    if (!list) ownRows.set(row.kind, (list = []))
+    if (!list) {
+      list = []
+      ownRows.set(row.kind, list)
+    }
     list.push(row)
   }
   const source: RowSource = {
@@ -117,6 +129,9 @@ export interface DeviceState {
   /** The issues the device holds a stub of: every one, or only these. */
   readonly stubs: ReadonlySet<string> | 'all'
   readonly firstDownload: boolean
+  /** Complete answers retained at the device cursor after an unbridgeable gap. */
+  readonly stale?: ReadonlySet<string> | 'all'
+  readonly online?: boolean
 }
 
 /**
@@ -130,7 +145,18 @@ export function devicePort(feed: StartupFeed, state: DeviceState): CollectionLoa
   for (const row of feed.rows)
     if (row.kind === 'issue' && (state.stubs === 'all' || state.stubs.has(row.id)))
       issues.set(row.id, row.value as unknown as Record<string, unknown>)
-  const STUB = ['id', 'repoId', 'seq', 'stage', 'closedReason', 'archived', 'deletedAt', 'isDraftVessel', 'audience', 'parentId']
+  const STUB = [
+    'id',
+    'repoId',
+    'seq',
+    'stage',
+    'closedReason',
+    'archived',
+    'deletedAt',
+    'isDraftVessel',
+    'audience',
+    'parentId',
+  ]
   const stubs = new Map<string, Readonly<Record<string, unknown>>>()
   const byParent = new Map<string, string[]>()
   for (const [id, value] of issues) {
@@ -152,20 +178,38 @@ export function devicePort(feed: StartupFeed, state: DeviceState): CollectionLoa
     state.complete === 'all' ||
     ((spec.args === undefined || Object.keys(spec.args).length === 0) &&
       state.complete.has(spec.collection))
+  const stale = (spec: LoaderInstance) =>
+    complete(spec) && (state.stale === 'all' || state.stale?.has(spec.collection) === true)
   return {
     request: () => {},
     show: () => () => {},
-    requestRecords: () => {},
-    status: (spec) => (complete(spec) ? 'complete' : 'loading'),
-    online: true,
+    status: (spec) =>
+      complete(spec) ? 'complete' : state.online === false ? 'offline' : 'loading',
+    online: state.online ?? true,
     firstDownload: state.firstDownload,
     isComplete: (spec) => (complete(spec) ? {} : undefined),
+    isStale: stale,
+    recordStale: () => state.stale === 'all',
     wasRefused: () => false,
     stubOf: (entity, id) => (entity === 'issueProjection' ? stubs.get(id) : undefined),
     stubsByParent: (parentId) => byParent.get(parentId) ?? [],
     stubRows: (entity) => (entity === 'issueProjection' ? rows : []),
     subscribe: () => () => {},
   }
+}
+
+/** After a gap, before the reload: compare the retained answer with the control at this cursor. */
+export function afterGapPool(feed: StartupFeed): MobxPool {
+  const pool = fullPool(feed)
+  const port = devicePort(feed, {
+    complete: 'all',
+    stubs: 'all',
+    firstDownload: false,
+    stale: 'all',
+    online: false,
+  })
+  pool.collections.attach(() => port)
+  return pool
 }
 
 /** Only the policy set's rows, and nothing that says history is missing. */
@@ -220,6 +264,33 @@ export function firstDownloadPool(feed: StartupFeed, steps: number, recentDays =
   return pool
 }
 
+/**
+ * POD-7160 — after a gap the feed could not bridge (design POD-7157 "Offline
+ * and gaps"): the policy's collections are reloaded, and every other
+ * instance the device held stays on disk, stale. Before a read (`read:
+ * false`) only the policy set is in memory and the stale instances are not
+ * complete there; after one, each was loaded from disk whole (every row, every
+ * instance complete), still stale until its reload lands. Never a first
+ * download: the device had its data.
+ */
+export function gapPool(feed: StartupFeed, options: { readonly read: boolean }): MobxPool {
+  const policy = new Set(FIRST_DOWNLOAD_STEPS.flatMap((step) => STEP_COLLECTIONS[step]))
+  const stale = new Set([...COLLECTIONS.keys()].filter((id) => !policy.has(id)))
+  const pool = new MobxPool(feed.locals)
+  if (options.read) {
+    fullSearchControl(pool)
+    const port = devicePort(feed, { complete: 'all', stubs: 'all', firstDownload: false, stale })
+    pool.collections.attach(() => port)
+    runInAction(() => pool.apply({ type: 'replace', rows: [...feed.rows] }))
+    return pool
+  }
+  const held = heldRows(feed, FIRST_DOWNLOAD_STEPS.length, 30)
+  const port = devicePort(feed, { complete: policy, stubs: 'all', firstDownload: false, stale })
+  pool.collections.attach(() => port)
+  runInAction(() => pool.apply({ type: 'replace', rows: held.rows }))
+  return pool
+}
+
 /** The rows the first `steps` steps of a first download hold, with what they come with. */
 function heldRows(
   feed: StartupFeed,
@@ -234,20 +305,35 @@ function heldRows(
     return rule
   }
   const holds = (collection: string, value: unknown): boolean =>
-    matchesWhere(where(collection), (value ?? {}) as Record<string, unknown>, { now, args: { recentDays } })
+    matchesWhere(where(collection), (value ?? {}) as Record<string, unknown>, {
+      now,
+      args: { recentDays },
+    })
   const issues = new Map<string, Record<string, unknown>>()
   const sessions = new Map<string, Record<string, unknown>>()
   for (const row of feed.rows) {
     if (row.kind === 'issue') issues.set(row.id, row.value as unknown as Record<string, unknown>)
-    if (row.kind === 'session') sessions.set(row.id, row.value as unknown as Record<string, unknown>)
+    if (row.kind === 'session')
+      sessions.set(row.id, row.value as unknown as Record<string, unknown>)
   }
-  const issueRules = done.flatMap((step) => STEP_COLLECTIONS[step].filter((c) => c.startsWith('issueProjection.') && c !== 'issueProjection.stubs'))
-  const sessionRules = done.flatMap((step) => STEP_COLLECTIONS[step].filter((c) => c.startsWith('session.')))
+  const issueRules = done.flatMap((step) =>
+    STEP_COLLECTIONS[step].filter(
+      (c) => c.startsWith('issueProjection.') && c !== 'issueProjection.stubs',
+    ),
+  )
+  const sessionRules = done.flatMap((step) =>
+    STEP_COLLECTIONS[step].filter((c) => c.startsWith('session.')),
+  )
   const heldIssues = new Set<string>()
   const sidebar = new Set<string>()
   for (const [id, value] of issues) {
-    if (issueRules.includes('issueProjection.sidebar') && holds('issueProjection.sidebar', value)) sidebar.add(id)
-    if (sidebar.has(id) || issueRules.some((c) => c !== 'issueProjection.sidebar' && holds(c, value))) heldIssues.add(id)
+    if (issueRules.includes('issueProjection.sidebar') && holds('issueProjection.sidebar', value))
+      sidebar.add(id)
+    if (
+      sidebar.has(id) ||
+      issueRules.some((c) => c !== 'issueProjection.sidebar' && holds(c, value))
+    )
+      heldIssues.add(id)
   }
   const heldSessions = new Set<string>()
   for (const [id, value] of sessions) {
@@ -272,7 +358,11 @@ function heldRows(
   }
   return {
     rows: feed.rows.filter((row) =>
-      row.kind === 'issue' ? heldIssues.has(row.id) : row.kind === 'session' ? heldSessions.has(row.id) : true,
+      row.kind === 'issue'
+        ? heldIssues.has(row.id)
+        : row.kind === 'session'
+          ? heldSessions.has(row.id)
+          : true,
     ),
     issues: heldIssues,
   }
@@ -284,10 +374,14 @@ function heldRows(
  */
 export function productionPool(feed: StartupFeed): { pool: MobxPool; dispose(): void } {
   const port = devicePort(feed, { complete: 'all', stubs: 'all', firstDownload: false })
-  const handle = createWorklistPool({ ...feed.source, loader: () => port }, fixedLocals(feed.locals).source, {
-    worklist: 'demand',
-    schedule: () => () => {},
-  })
+  const handle = createWorklistPool(
+    { ...feed.source, loader: () => port },
+    fixedLocals(feed.locals).source,
+    {
+      worklist: 'demand',
+      schedule: () => () => {},
+    },
+  )
   fullSearchControl(handle.pool)
   return handle
 }
@@ -301,5 +395,7 @@ export function collectGarbage(): void {
 export function memoryAt(stage: string): void {
   if (process.env['PODIUM_STARTUP_MEMORY'] !== '1') return
   const { rss, heapUsed } = process.memoryUsage()
-  process.stderr.write(`[startup-states] ${stage}: rss ${Math.round(rss / 1048576)} MiB, heap ${Math.round(heapUsed / 1048576)} MiB\n`)
+  process.stderr.write(
+    `[startup-states] ${stage}: rss ${Math.round(rss / 1048576)} MiB, heap ${Math.round(heapUsed / 1048576)} MiB\n`,
+  )
 }

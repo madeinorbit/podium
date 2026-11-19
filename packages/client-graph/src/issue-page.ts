@@ -1,7 +1,3 @@
-import { issueRefText } from '@podium/protocol'
-import { here, omitGone } from './lookup'
-import { companion, clearCompanions, lazy, keyedComputed } from '@podium/mobx-helpers'
-import type { ModelOf, SessionModel } from './models'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import {
@@ -10,11 +6,16 @@ import {
   isEmptyDraftVessel,
   issueDisplayTitle,
 } from '@podium/client-core/values'
+import { clearCompanions, companion, keyedComputed, lazy } from '@podium/mobx-helpers'
 import { asIssueId } from '@podium/model/browser'
+import { issueRefText } from '@podium/protocol'
 import { compareStructural } from 'mobx'
+import { ISSUE_STUBS } from './collections'
 import { ISSUE_PAGE_SUMMARIES } from './issue-page-schema'
+import { here, omitGone } from './lookup'
 import { missions } from './mission'
 import { missionView } from './mission-view'
+import type { ModelOf, SessionModel } from './models'
 import type { MobxPool } from './pool'
 import { createQueryResult } from './query-result'
 import { LOADING, type Loaded } from './worklist/rollup'
@@ -34,10 +35,7 @@ function createIssueDetailLists(issue: PageIssue, pool: MobxPool) {
     ids: () => pool.graph.many('issue', issue.id, 'treeChildren'),
     has: (id) => pool.queries.hasMember('issue', issue.id, 'treeChildren', id),
     order: (id) => {
-      const row = omitGone(pool.row('issue', id)) as
-        | { seq?: number }
-        | typeof LOADING
-        | undefined
+      const row = omitGone(pool.row('issue', id)) as { seq?: number } | typeof LOADING | undefined
       return row === LOADING ? '' : String(row?.seq ?? 0).padStart(12, '0')
     },
     read: (id) => {
@@ -207,6 +205,30 @@ export class IssuePageRow {
     this.lists = createIssueDetailLists(issue, pool)
   }
   readonly lists: ReturnType<typeof createIssueDetailLists>
+  @lazy get refreshing(): boolean {
+    return (
+      this.pool.collections.reading(this.issue, [
+        { entity: 'issue', id: this.issue.id },
+        ISSUE_STUBS,
+        ...[
+          'issueBrief',
+          'issueDescription',
+          'issuePanelState',
+          'issuePanelTodo',
+          'issuePanelArtifact',
+          'issuePanelDeferred',
+          'session',
+          'issueDep',
+          'issueGitState',
+          'issueUserState',
+        ].map((entity) => ({
+          collection: `${entity}.ofIssue`,
+          args: { issueId: this.issue.id },
+          part: 'main' as const,
+        })),
+      ]) === 'refreshing'
+    )
+  }
   /** Page draft naming uses raw page members; worklist naming can use cwd seats. */
   @lazy get title(): string {
     const title = this.issue.authoredTitle
@@ -446,7 +468,11 @@ export function createIssuePageViews(pool: MobxPool) {
   function issues(): Loaded<IssueViewModel[]> {
     if (disposed) return LOADING
     return pool.queries.project(
-      { kind: 'pageIssues' }, 'IssuePage@summaries', readSummary, {}, summaryIssues,
+      { kind: 'pageIssues' },
+      'IssuePage@summaries',
+      readSummary,
+      {},
+      summaryIssues,
     )
   }
   const detailLists = new Set<ReturnType<typeof createIssueDetailLists>>()

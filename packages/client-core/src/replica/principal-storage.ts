@@ -214,6 +214,13 @@ export function preparePrincipalNamespace(init: PrincipalNamespaceInit): Princip
   }
 }
 
+/** Whether `key` is a principal namespace marker below `basePrefix`: the only keys
+ *  `inspectPrincipalNamespaces` reads (`readMarkers`' own test), so an async
+ *  store can load just these. */
+export function isPrincipalNamespaceMarkerKey(basePrefix: string, key: string): boolean {
+  return key.startsWith(`${basePrefix}.principal.`) && key.endsWith(MARKER_SUFFIX)
+}
+
 /** Read-only evidence for the attribution gate. It never creates a global ledger. */
 export function inspectPrincipalNamespaces(init: {
   readonly storage: StorageApi

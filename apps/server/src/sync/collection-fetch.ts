@@ -89,7 +89,7 @@ const MAX_COMES_WITH_ROUNDS = 8
 export interface FetchPorts {
   readonly collections: Pick<
     CollectionsRepository,
-    'select' | 'sorted' | 'after' | 'keyed' | 'ancestors'
+    'select' | 'sorted' | 'after' | 'keyed' | 'ancestors' | 'keyPage'
   >
   readonly records: {
     build(kind: MetadataEntityKind, ids: readonly string[]): Promise<readonly BuiltRecord[]>
@@ -494,7 +494,31 @@ export class CollectionAnswer {
       }
       return out
     }
-    if (rule.where === undefined) {
+    // A record sent earlier in this answer, whole or as a stub, is not built again.
+    const unsent = (id: string) =>
+      !this.whole.has(keyOf(rule.kind, id)) && !this.stubbed.has(keyOf(rule.kind, id))
+    if (rule.where === undefined && isCollectionKind(rule.kind) && keyCount(rule.kind) === 1) {
+      // Every record of the type, listed by key a page at a time (POD-7153):
+      // only the ones not sent yet are built, BUILD_CHUNK at a time.
+      const kind = rule.kind
+      let pending: string[] = []
+      let after = ''
+      for (let more = true; more; ) {
+        const keys = await this.ports.collections.keyPage(kind, after, BUILD_CHUNK)
+        more = keys.length === BUILD_CHUNK
+        if (keys.length > 0) after = keys.at(-1)!
+        for (const key of keys) {
+          const id = recordIdOf(kind, [key])
+          if (id !== null && unsent(id)) pending.push(id)
+        }
+        while (pending.length >= BUILD_CHUNK || (!more && pending.length > 0)) {
+          const batch = pending.slice(0, BUILD_CHUNK)
+          pending = pending.slice(BUILD_CHUNK)
+          const out = emit(await this.built(kind, batch, undefined, instance))
+          if (out.length > 0) yield { type: 'stubs', records: out }
+        }
+      }
+    } else if (rule.where === undefined) {
       for await (const page of this.ports.records.streamAll(rule.kind as MetadataEntityKind)) {
         const out = emit(await this.visible(rule.kind, page, undefined, instance))
         if (out.length > 0) yield { type: 'stubs', records: out }
@@ -503,7 +527,7 @@ export class CollectionAnswer {
       const ids = this.ids(
         rule.kind,
         await this.ports.collections.select(rule, this.args(instance), this.ports.now),
-      )
+      ).filter(unsent)
       for (const batch of chunks(ids, BUILD_CHUNK)) {
         const out = emit(await this.built(rule.kind, batch, rule.where, instance))
         if (out.length > 0) yield { type: 'stubs', records: out }

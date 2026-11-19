@@ -1,4 +1,3 @@
-import type { Trpc } from '@/app/trpc'
 import { useCommands, useRequestClient } from '@podium/client-core/react'
 import type { SessionView, SessionViewWithLink } from '@podium/client-core/session-values'
 import {
@@ -28,10 +27,11 @@ import {
   MoreHorizontal,
   RotateCcw,
 } from 'lucide-react'
-import { type JSX, lazy, type ReactNode, Suspense, useMemo, useState } from 'react'
+import { type JSX, type ReactNode, Suspense, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { usePoolMachines } from '@/app/header-data'
 import type { IssueViewModel } from '@/app/store'
+import type { Trpc } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -40,6 +40,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { throughRestarts } from '@/lib/chunk-recovery'
+import { lazy } from '@/lib/lazy-surface'
 import { MENU_HEADER, MENU_HEADER_REF, MENU_RULE } from '@/lib/menu-surface'
 import type { ContextMenuAnchor } from '@/lib/session-context-menu'
 import { cn } from '@/lib/utils'

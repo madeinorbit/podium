@@ -1,11 +1,16 @@
 import { autorun, observable, runInAction } from 'mobx'
-import { expect, it, vi } from 'vitest'
+import { beforeAll, expect, it, vi } from 'vitest'
 import { CommandSessionRow, createCommandPalette, commandLaunchViews } from './command-launch-views'
 import { createReferencePicker, chatMentionMatches } from './chat-context'
 import { createLaunchCatalogPicker, launchOptionViews } from './launch-option-views'
 import { headerEntities } from './header-entities'
+import { loadSyncedModels } from './models'
 import { MobxPool } from './pool'
 import { LOADING } from './worklist/rollup'
+
+// The machine model is deferred; without it every machine reads as loading
+// and the launch catalog lists none.
+beforeAll(() => loadSyncedModels())
 
 // The old answer is still available here: the existing live catalog readers.
 // Every comparison includes a deliberately wrong answer to prove sensitivity.

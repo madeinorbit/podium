@@ -1,22 +1,21 @@
 /**
  * WHAT THE DEVICE HOLDS, AND WHAT A CHANGE MEANS FOR IT (POD-7086, design
- * POD-7059 "The feed", "Memory, cache and leaving", "Comes with").
+ * POD-7059 "The feed", "Comes with").
  *
  * The device holds INSTANCES of the declared collections (`@podium/model`
  * `records/`), each with a marker once complete. Every rule is data the
  * client evaluates in JavaScript over the record's own fields, so nothing
  * here needs the server to stamp a record with its collection.
  *
- * Three questions are answered here, and only here:
+ * Two questions are answered here, and only here:
  *  - Does a record belong to an instance the device holds? One lookup per
  *    collection definition, not per instance: a keyed instance ("the
  *    sessions of issue X") is found by the value of its key field.
  *  - What does a held record come with that the device does not hold yet?
  *    Its declared links, as ordinary keyed instances.
- *  - What does the trim keep? The instances the policy and the open views
- *    hold, then cache instances newest-released first up to the cap; a
- *    record stays while an instance kept contains it or a kept record comes
- *    with it. An issue falls back to its stub; nothing else is kept partly.
+ *
+ * What memory keeps is the warm set's (`memory.ts`, POD-7161), and what the
+ * device keeps is pruning's (POD-7162).
  *
  * Holding is not visibility. The server decides what this viewer may see;
  * these rules only say which of the records it sent the device keeps.
@@ -29,19 +28,14 @@ import {
   type ComesWith,
   instanceParams,
   matchesWhere,
+  paramsRead,
   type RecordDeclaration,
   type RuleArgs,
   recordOf,
   type Where,
 } from '@podium/model'
 import { instanceKey, listedMarkers } from './cache-state'
-import {
-  cachedKeyField,
-  type HeldSpec,
-  isListed,
-  keyedShapeOf,
-  keyedShapesOfKind,
-} from './instance-shapes'
+import { type HeldSpec, isListed, keyedShapeOf, keyedShapesOfKind } from './instance-shapes'
 import type { CachePolicy, EntityRecord, InstanceRecord, InstanceSpec } from './types'
 
 export type { HeldSpec } from './instance-shapes'
@@ -329,6 +323,52 @@ export function comesWithInstance(
  * (via the type) and the comes-with of each held instance it belongs to (via
  * that collection).
  */
+/** Per kind, the collections that declare comes-with (`collectionComesWithSettled`). */
+const collectionComesWith = new Map<
+  string,
+  readonly { readonly id: string; readonly where: Where | undefined; readonly bare: boolean; readonly holderOnly: boolean }[]
+>()
+
+/**
+ * POD-7181 — whether no held instance a record belongs to can add a
+ * comes-with that the device lacks, without finding the instances
+ * (`HeldIndex.matching`): each collection of its kind that declares
+ * comes-with either has it complete for this record on the disk (`cw`, for
+ * comes-with the record holds itself), or cannot hold the record by its
+ * rule, which reads no argument. A record kind with no such collection
+ * always qualifies. When this is false, the caller finds the instances.
+ */
+export function collectionComesWithSettled(
+  kind: string,
+  value: unknown,
+  cw: readonly string[] | undefined,
+  now: number,
+): boolean {
+  let collections = collectionComesWith.get(kind)
+  if (collections === undefined) {
+    collections = [...COLLECTIONS.values()]
+      .filter((collection) => collection.of === kind && (collection.comesWith?.length ?? 0) > 0)
+      .map((collection) => ({
+        id: collection.id,
+        where: collection.where,
+        bare: collection.where !== undefined && paramsRead(collection.where).length === 0,
+        holderOnly: (collection.comesWith ?? []).every((entry) => entry.key === undefined),
+      }))
+    collectionComesWith.set(kind, collections)
+  }
+  for (const collection of collections) {
+    if (collection.holderOnly && cw?.includes(collection.id) === true) continue
+    if (
+      collection.bare &&
+      collection.where !== undefined &&
+      !matchesWhere(collection.where, (value ?? {}) as Readonly<Record<string, unknown>>, { now, args: {} })
+    )
+      continue
+    return false
+  }
+  return true
+}
+
 export function comesWithOf(
   kind: string,
   value: unknown,
@@ -369,204 +409,4 @@ export function policyInstances(policy: CachePolicy | null): InstanceSpec[] {
     }
   }
   return out
-}
-
-// ---------------------------------------------------------------------------
-// The trim
-// ---------------------------------------------------------------------------
-
-/** What a trim does: the markers it drops, the issues it takes back to their stub, the rows it removes. */
-export interface TrimPlan {
-  readonly dropInstances: readonly string[]
-  readonly toStub: readonly EntityRecord[]
-  readonly remove: readonly EntityRecord[]
-  /** Records held only as cache after the trim. */
-  readonly cacheRecords: number
-}
-
-const rowKeyOf = (row: Pick<EntityRecord, 'entity' | 'entityId'>): string =>
-  `${row.entity}\u0000${row.entityId}`
-
-/**
- * Plan a trim. `held` are the keys the policy and the open views hold (and
- * fetches in flight); every other instance is cache. Instances that arrived
- * because another record is held (`via`) are kept exactly while that record is.
- *
- * POD-7115: linear in what it keeps. A keyed instance finds its members
- * through an index by its key field, not by testing every record of its type,
- * and each cache instance is tried in a layer over what is kept so far: kept
- * if it fits under the cap, forgotten if not, never copying what is kept.
- * The trim runs after every fetch, so a first download used to pay for every
- * instance times every record, and again per cache instance while the cache
- * stayed under its cap.
- */
-export function planTrim(input: {
-  readonly rows: readonly EntityRecord[]
-  readonly instances: ReadonlyMap<string, InstanceRecord>
-  readonly held: ReadonlySet<string>
-  readonly policy: CachePolicy | null
-  readonly cap: number
-  readonly now: number
-  readonly store: HeldRows
-}): TrimPlan {
-  const args = policyArgs(input.policy)
-  const main = input.rows.filter((row) => row.part !== 'stub')
-  const byKind = new Map<string, EntityRecord[]>()
-  for (const row of main) {
-    const list = byKind.get(row.entity) ?? []
-    list.push(row)
-    byKind.set(row.entity, list)
-  }
-  const resolved = new Map<string, ResolvedInstance>()
-  for (const [key, record] of input.instances) {
-    const instance = resolveInstance(record, args)
-    if (instance !== undefined) resolved.set(key, instance)
-  }
-  /** kind → key field → value → the records with that value: a keyed instance's candidates. */
-  const byField = new Map<string, Map<string, Map<unknown, EntityRecord[]>>>()
-  const candidatesOf = (instance: ResolvedInstance): readonly EntityRecord[] => {
-    const rows = byKind.get(instance.of) ?? []
-    const field = cachedKeyField(instance.collection)
-    if (field === undefined) return rows
-    let fields = byField.get(instance.of)
-    if (fields === undefined) {
-      fields = new Map()
-      byField.set(instance.of, fields)
-    }
-    let index = fields.get(field)
-    if (index === undefined) {
-      index = new Map()
-      for (const row of rows) {
-        const value = ((row.value ?? {}) as Record<string, unknown>)[field] ?? null
-        const list = index.get(value)
-        if (list === undefined) index.set(value, [row])
-        else list.push(row)
-      }
-      fields.set(field, index)
-    }
-    const param = instanceParams(instance.collection)[0]
-    return index.get(param === undefined ? null : (instance.args[param] ?? null)) ?? []
-  }
-
-  /** What is kept: instances, rows, and the collections each kept row belongs to. */
-  const kept = {
-    instances: new Set<string>(),
-    rows: new Set<string>(),
-    memberships: new Map<string, ResolvedInstance[]>(),
-  }
-  /** One cache instance on trial: what it would add over `kept`. */
-  type Layer = typeof kept
-  const ctxFor = new Map<string, (args: RuleArgs) => Parameters<typeof matchesWhere>[2]>()
-  const ctxOf = (kind: string) => {
-    let ctx = ctxFor.get(kind)
-    if (ctx === undefined) {
-      ctx = matchContext(recordOf(kind), input.store, input.now)
-      ctxFor.set(kind, ctx)
-    }
-    return ctx
-  }
-  const membershipsOf = (key: string, trial: Layer | undefined): readonly ResolvedInstance[] => {
-    const base = kept.memberships.get(key) ?? []
-    const more = trial?.memberships.get(key)
-    return more === undefined ? base : [...base, ...more]
-  }
-  const keepRows = (
-    rows: readonly EntityRecord[],
-    via: ResolvedInstance | undefined,
-    work: EntityRecord[],
-    into: Layer,
-    trial: Layer | undefined,
-  ) => {
-    for (const row of rows) {
-      const key = rowKeyOf(row)
-      if (via !== undefined) {
-        const list = into.memberships.get(key)
-        if (list === undefined) into.memberships.set(key, [via])
-        else list.push(via)
-      }
-      if (kept.rows.has(key) || trial?.rows.has(key) === true) {
-        // A row already kept may now belong to one more collection, whose
-        // comes-with it must bring along too.
-        if (via !== undefined && (via.collection.comesWith?.length ?? 0) > 0) work.push(row)
-        continue
-      }
-      into.rows.add(key)
-      work.push(row)
-    }
-  }
-  const keepInstance = (
-    key: string,
-    work: EntityRecord[],
-    into: Layer,
-    trial: Layer | undefined,
-  ): void => {
-    if (kept.instances.has(key) || trial?.instances.has(key) === true) return
-    const instance = resolved.get(key)
-    into.instances.add(key)
-    if (instance === undefined || instance.spec.part === 'stub') return
-    const ctx = ctxOf(instance.of)
-    const members = candidatesOf(instance).filter((row) =>
-      belongs(instance, (row.value ?? {}) as Record<string, unknown>, ctx),
-    )
-    keepRows(members, instance, work, into, trial)
-  }
-  /** Close over comes-with; stops early once `over()` says the layer cannot fit. */
-  const settle = (
-    work: EntityRecord[],
-    into: Layer,
-    trial: Layer | undefined,
-    over: () => boolean = () => false,
-  ): void => {
-    for (let guard = 0; work.length > 0; guard += 1) {
-      if (guard > 10_000_000) throw new Error('trim closure did not settle')
-      if (over()) return
-      const row = work.pop()!
-      const memberOf = membershipsOf(rowKeyOf(row), trial)
-      for (const spec of comesWithOf(row.entity, row.value, memberOf, input.now)) {
-        const key = instanceKey(spec)
-        if (input.instances.has(key)) keepInstance(key, work, into, trial)
-      }
-    }
-  }
-
-  const work: EntityRecord[] = []
-  for (const key of input.held)
-    if (input.instances.has(key)) keepInstance(key, work, kept, undefined)
-  settle(work, kept, undefined)
-  const base = kept.rows.size
-  const cache = [...input.instances.values()]
-    .filter((record) => record.via === undefined && !kept.instances.has(record.key))
-    .sort((a, b) => (b.releasedAt ?? 0) - (a.releasedAt ?? 0) || (a.key < b.key ? -1 : 1))
-  let cacheRecords = 0
-  for (const record of cache) {
-    if (kept.instances.has(record.key)) continue
-    // Tried in a layer: it is kept only if the cache stays under the cap.
-    const trial: Layer = { instances: new Set(), rows: new Set(), memberships: new Map() }
-    const next: EntityRecord[] = []
-    const over = () => kept.rows.size - base + trial.rows.size > input.cap
-    keepInstance(record.key, next, trial, trial)
-    settle(next, trial, trial, over)
-    // Released longest ago go first: this one and every older one are dropped.
-    if (over()) break
-    for (const key of trial.instances) kept.instances.add(key)
-    for (const key of trial.rows) kept.rows.add(key)
-    for (const [key, list] of trial.memberships) {
-      const held = kept.memberships.get(key)
-      if (held === undefined) kept.memberships.set(key, list)
-      else held.push(...list)
-    }
-    cacheRecords = kept.rows.size - base
-  }
-  const keptInstances = kept.instances
-  const keptRows = kept.rows
-
-  const dropInstances = [...input.instances.keys()].filter((key) => !keptInstances.has(key))
-  const toStub: EntityRecord[] = []
-  const remove: EntityRecord[] = []
-  for (const row of main) {
-    if (keptRows.has(rowKeyOf(row))) continue
-    if (stubFieldsOf(row.entity).length > 0) toStub.push(row)
-    else remove.push(row)
-  }
-  return { dropInstances, toStub, remove, cacheRecords }
 }

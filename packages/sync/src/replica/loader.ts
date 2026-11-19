@@ -3,22 +3,26 @@
  * "Lookup", "Search and references").
  *
  * Its input is a list of INSTANCES of declared collections; its output is
- * whole records installed in the device store, with a marker per instance
- * (the Replica's `load`, over the one fetch route). It:
+ * whole records in the device store's memory, with a marker per instance
+ * (the Replica's `load`). The Replica answers from TWO SOURCES (POD-7159,
+ * design POD-7157 "The loader: two sources"): an instance on disk is read
+ * from disk, with no server request; the rest goes over the one fetch route
+ * and is written to disk and memory together. It:
  *  - collects requests for 50 ms and removes duplicates, so many lookups in
  *    one burst make one request;
  *  - skips what the device already holds complete, or is fetching;
  *  - sends what a visible view asks for first. Before the first download
  *    has a feed to answer against, the visible requests ride in that
  *    download as its second step (`takeView`, the Replica's `view`);
- *  - starts nothing without a connection. A view reads that as "not
- *    available offline" (`status`), never as an endless loading row; the
- *    queue is sent when the connection returns.
+ *  - starts nothing from the server without a connection. A view reads
+ *    that as "not available offline" (`status`), never as an endless
+ *    loading row; the queue is sent when the connection returns. What the
+ *    device answers itself (from disk) is sent offline too.
  *
- * Two things hold an instance: the policy (the Replica's own) and an open
- * view (`show`). Everything else a load brings is cache: the records of a
- * lookup ("one record" instances) and the records a request returns
- * (`requestRecords`), whose ids the view keeps.
+ * Two things hold an instance: the policy (the Replica's own) and a view
+ * that reads it (`show`, which the pool calls for every read: holding
+ * follows reading, POD-7158). What no view reads any more is cache, whether
+ * a lookup's "one record" instance or the records a request returned.
  *
  * Nothing here is per screen: a screen that needs another question gets a
  * collection definition, never a branch in this file.
@@ -57,6 +61,17 @@ export interface LoaderReplica {
   stubRows(entity: string): readonly StubRow[]
   /** The record at a reference (repository and number), by the stubs. */
   stubIdAt?(entity: string, repoId: string, seq: number): string | undefined
+  /** POD-7159 — whether the device answers the instance itself (from disk): sent offline too. */
+  onDevice?(spec: InstanceSpec): boolean
+  /** POD-7159 — whether a record is whole on disk and not in memory. */
+  isUnloaded?(entity: string, entityId: string): boolean
+  /** POD-7159 — read records whole on disk into memory, by key. */
+  loadRecords?(entity: string, entityIds: readonly string[]): Promise<void>
+  /** POD-7160 — whether the device holds the instance behind the feed (after a gap): it reloads when read. */
+  instanceStale?(spec: InstanceSpec): boolean
+  /** Freshness of one record through all instances that hold it on the device. */
+  recordStale?(entity: string, id: string): boolean
+  staleRecordHolders?(entity: string, id: string): readonly InstanceRecord[]
 }
 
 /** How a view reads one instance: held complete, on its way, or not loadable without a connection. */
@@ -85,6 +100,8 @@ export interface LoaderStats {
   instances: number
   /** Instances that rode in the first download's view step. */
   viewInstances: number
+  /** Changes told to the views: at most one of each kind per burst (POD-7165). */
+  notifications: number
 }
 
 const realSchedule: LoaderSchedule = (run, ms) => {
@@ -110,8 +127,10 @@ interface Queued {
 }
 
 export class CollectionLoader {
+  /** Marker identity changes on replacement: one request per holder per stale period, with no retained history. */
+  private readonly staleRecordRequests = new WeakSet<InstanceRecord>()
   readonly windowMs: number
-  readonly stats: LoaderStats = { requests: 0, instances: 0, viewInstances: 0 }
+  readonly stats: LoaderStats = { requests: 0, instances: 0, viewInstances: 0, notifications: 0 }
   private readonly replica: LoaderReplica
   private readonly schedule: LoaderSchedule
   private readonly queue = new Map<string, Queued>()
@@ -119,8 +138,13 @@ export class CollectionLoader {
   private readonly inFlight = new Map<string, InstanceRequest>()
   /** Sent in the first download's view step; back to the queue if it ends without them. */
   private readonly riding = new Map<string, InstanceRequest>()
+  /** POD-7159 — records to read from disk in the next window. */
+  private readonly diskRecords = new Map<string, { readonly entity: string; readonly id: string }>()
   private readonly listeners = new Set<(change: LoaderChange) => void>()
   private cancel: (() => void) | null = null
+  /** Inside a burst of the Replica's events: what moved, told once when it ends. */
+  private burst = 0
+  private readonly moved = new Set<LoaderChange>()
   private connected = false
   private disposed = false
   /** The device started empty and its first download has not finished. */
@@ -154,7 +178,7 @@ export class CollectionLoader {
     let added = false
     for (const request of requests) {
       const key = instanceKey(request)
-      if (this.replica.isComplete(request) !== undefined) continue
+      if (this.held(request)) continue
       if (this.inFlight.has(key) || this.riding.has(key)) continue
       this.refusedKeys.delete(key)
       const queued = this.queue.get(key)
@@ -182,8 +206,10 @@ export class CollectionLoader {
   }
 
   /**
-   * The records a request returned (server search hits): each is installed
-   * as a "one record" instance, cache, never held. The view keeps the ids.
+   * Ask for the records a request returned (server search hits), each as its
+   * "one record" instance, without holding them: a view that reads them holds
+   * them through the pool (`holdRecords`). A record already whole on the
+   * device is answered from it, with no fetch (POD-7159).
    */
   requestRecords(kind: string, ids: readonly string[], priority: LoadPriority = 'visible'): void {
     this.request(
@@ -192,10 +218,60 @@ export class CollectionLoader {
     )
   }
 
-  /** How a view reads an instance. Offline only for what is not complete. */
+  /** How a view reads an instance. Offline only for what neither memory nor disk holds. */
   status(spec: InstanceSpec): LoadStatus {
     if (this.replica.isComplete(spec) !== undefined) return 'complete'
-    return this.connected ? 'loading' : 'offline'
+    return this.connected || this.replica.onDevice?.(spec) === true ? 'loading' : 'offline'
+  }
+
+  /**
+   * POD-7160 — whether the device holds the instance behind the feed: a gap
+   * the feed could not bridge left it on the device. It reads as usual (its
+   * `status` is complete once in memory), and a read reloads it in place;
+   * POD-7166 shows it as refreshing.
+   */
+  isStale(spec: InstanceSpec): boolean {
+    return this.replica.instanceStale?.(spec) === true
+  }
+
+  /** A fresh holder makes a shared record current, even when another holder is stale. */
+  recordStale(entity: string, id: string): boolean {
+    const holders = this.replica.staleRecordHolders?.(entity, id)
+    if (holders === undefined) return this.replica.recordStale?.(entity, id) === true
+    const requests: InstanceSpec[] = []
+    for (const holder of holders) {
+      if (this.staleRecordRequests.has(holder)) continue
+      this.staleRecordRequests.add(holder)
+      const { collection, args, part, via } = holder
+      requests.push({ collection, args, part, ...(via === undefined ? {} : { via }) })
+    }
+    if (requests.length > 0) this.request(requests, 'background')
+    return holders.length > 0
+  }
+
+  /**
+   * POD-7159 — whether a record is whole on the device's disk and not in
+   * memory: a reader gets LOADING and a disk load (`loadFromDisk`), never
+   * "gone".
+   */
+  unloaded(entity: string, entityId: string): boolean {
+    return this.replica.isUnloaded?.(entity, entityId) === true
+  }
+
+  /**
+   * POD-7159 — read records that are on disk into memory, batched in the
+   * window like any request, and with no connection too.
+   */
+  loadFromDisk(entity: string, entityIds: readonly string[]): void {
+    if (this.disposed || this.replica.loadRecords === undefined) return
+    let added = false
+    for (const id of entityIds) {
+      const key = `${entity}\u0000${id}`
+      if (this.diskRecords.has(key)) continue
+      this.diskRecords.set(key, { entity, id })
+      added = true
+    }
+    if (added) this.arm()
   }
 
   /** Whether the device has a connection to load over (the view's "not available offline"). */
@@ -251,6 +327,26 @@ export class CollectionLoader {
     return out
   }
 
+  /**
+   * One burst of the Replica's events (the composition root's `batchEvents`):
+   * the views hear each kind of change once, when the burst ends, not once
+   * per record (POD-7165: an answer of 1,000 issues told every view of the
+   * stubs 1,000 times).
+   */
+  batch(emitAll: () => void): void {
+    this.burst += 1
+    try {
+      emitAll()
+    } finally {
+      this.burst -= 1
+      if (this.burst === 0 && this.moved.size > 0) {
+        const moved = [...this.moved]
+        this.moved.clear()
+        for (const change of moved) this.notify(change)
+      }
+    }
+  }
+
   /** Pipe the Replica's events here (the composition root fans them out). */
   onEvent(event: ReplicaEvent): void {
     if (this.disposed) return
@@ -280,6 +376,8 @@ export class CollectionLoader {
       case 'released':
       case 'removed':
       case 'evicted':
+      // POD-7160: a feed change written to disk only moves its stub too.
+      case 'unloaded':
         if (hasStub(event.entity)) this.notify('stubs')
         return
       // The first download ends for the views when its records are in the
@@ -306,16 +404,35 @@ export class CollectionLoader {
   async flush(): Promise<void> {
     this.cancel?.()
     this.cancel = null
-    if (this.disposed || this.queue.size === 0) return
-    // Without a connection, or before the first download has a feed, nothing
-    // can start: the queue waits for the connection or the cursor.
-    if (!this.connected || !this.replica.canFetch) return
-    const batch = [...this.queue.values()]
-      .sort((a, b) => rank(a.priority) - rank(b.priority))
-      .map((queued) => queued.request)
-      .filter((request) => this.replica.isComplete(request) === undefined)
-    this.queue.clear()
+    if (this.disposed) return
     const sends: Promise<void>[] = []
+    if (this.diskRecords.size > 0) sends.push(this.sendDiskRecords())
+    if (this.queue.size === 0) {
+      await Promise.all(sends)
+      return
+    }
+    // Without a connection, or before the first download has a feed, nothing
+    // can start from the server: the queue waits for the connection or the
+    // cursor. What the device answers from disk goes now (POD-7159).
+    const offline = !this.connected || !this.replica.canFetch
+    const queued = [...this.queue.values()]
+      .sort((a, b) => rank(a.priority) - rank(b.priority))
+      .map((entry) => entry.request)
+    const batch: InstanceRequest[] = []
+    for (const request of queued) {
+      const key = instanceKey(request)
+      if (this.held(request)) {
+        this.queue.delete(key)
+        continue
+      }
+      if (offline && this.replica.onDevice?.(request) !== true) continue
+      this.queue.delete(key)
+      batch.push(request)
+    }
+    if (batch.length === 0) {
+      await Promise.all(sends)
+      return
+    }
     for (let at = 0; at < batch.length; at += MAX_INSTANCES)
       sends.push(this.send(batch.slice(at, at + MAX_INSTANCES)))
     await Promise.all(sends)
@@ -327,13 +444,32 @@ export class CollectionLoader {
     this.cancel?.()
     this.cancel = null
     this.queue.clear()
+    this.diskRecords.clear()
     this.listeners.clear()
   }
 
   // ------------------------------------------------------------ internals
 
+  private async sendDiskRecords(): Promise<void> {
+    const byEntity = new Map<string, string[]>()
+    for (const { entity, id } of this.diskRecords.values()) {
+      const ids = byEntity.get(entity)
+      if (ids === undefined) byEntity.set(entity, [id])
+      else ids.push(id)
+    }
+    this.diskRecords.clear()
+    await Promise.all(
+      [...byEntity].map(([entity, ids]) =>
+        this.replica.loadRecords?.(entity, ids).catch(() => undefined),
+      ),
+    )
+  }
+
   private async send(requests: readonly InstanceRequest[]): Promise<void> {
     if (requests.length === 0) return
+    const fromDevice = new Set(
+      requests.filter((request) => this.replica.onDevice?.(request) === true).map(instanceKey),
+    )
     for (const request of requests) this.inFlight.set(instanceKey(request), request)
     this.stats.requests += 1
     this.stats.instances += requests.length
@@ -349,8 +485,18 @@ export class CollectionLoader {
     }
     if (this.disposed) return
     for (const request of requests) {
-      if (this.replica.isComplete(request) !== undefined) continue
       const key = instanceKey(request)
+      if (this.replica.isComplete(request) !== undefined) {
+        // A stale disk load requests its replacement before this send has
+        // left inFlight. Keep that handoff: it was deduplicated while the
+        // disk answer landed, and reconnect must still reload it. Only a
+        // disk answer queues here; a failed server reload never spins.
+        if (fromDevice.has(key) && this.replica.instanceStale?.(request) === true) {
+          if (!this.queue.has(key)) this.queue.set(key, { request, priority: 'background' })
+          if (this.connected) this.arm()
+        }
+        continue
+      }
       // Queued again without arming: it goes with the next burst, cursor or
       // connection, never in a loop of its own against a failing route.
       if (failed) {
@@ -358,6 +504,23 @@ export class CollectionLoader {
       } else this.refusedKeys.add(key)
     }
     this.notify('markers')
+  }
+
+  /**
+   * Whether the device already holds what `request` asks for. An instance's
+   * key ignores a page's position, so a later page (`after`) of a paged
+   * instance the device holds part of is not held yet: its marker has a
+   * range short of the end, through exactly that position (POD-7158: next
+   * pages were dropped as complete and never loaded).
+   */
+  private held(request: InstanceRequest): boolean {
+    const marker = this.replica.isComplete(request)
+    if (marker === undefined) return false
+    // POD-7160: a stale instance is asked again: the Replica reloads it.
+    if (this.replica.instanceStale?.(request) === true) return false
+    if (request.after === undefined) return true
+    const range = marker.range
+    return range === undefined || range.end || !samePosition(range.through, request.after)
   }
 
   /** Answered in full without a marker: the server will not say this one is complete. */
@@ -387,6 +550,11 @@ export class CollectionLoader {
   }
 
   private notify(change: LoaderChange): void {
+    if (this.burst > 0) {
+      this.moved.add(change)
+      return
+    }
+    this.stats.notifications += 1
     for (const listener of [...this.listeners]) {
       try {
         listener(change)
@@ -398,6 +566,16 @@ export class CollectionLoader {
 }
 
 const rank = (priority: LoadPriority): number => (priority === 'visible' ? 0 : 1)
+
+/** Two page positions, value by value. */
+const samePosition = (
+  a: readonly unknown[] | undefined,
+  b: readonly unknown[] | undefined,
+): boolean =>
+  a !== undefined &&
+  b !== undefined &&
+  a.length === b.length &&
+  a.every((value, at) => value === b[at])
 
 const hasStub = (kind: string): boolean => (recordOf(kind)?.stub.length ?? 0) > 0
 

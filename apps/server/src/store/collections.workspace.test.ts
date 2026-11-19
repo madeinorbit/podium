@@ -16,6 +16,8 @@ import { resolveRule } from '../sync/collection-shapes'
 import { storeSql } from '../test-support/store-sql'
 import {
   ALICE,
+  heldBy,
+  iss,
   only,
   owner,
   scope,
@@ -89,6 +91,24 @@ async function open(): Promise<Record<Tag, CollectionsRepository>> {
 const ids = (rows: readonly (readonly unknown[])[]) => rows.map((row) => String(row[0])).sort()
 
 describe('the collection fetch reads one workspace (POD-7118)', () => {
+  it('pages record keys in its workspace without duplicates or keys from another', async () => {
+    const walk = async (tag: Tag) => {
+      const out: string[] = []
+      let after = ''
+      for (;;) {
+        const page = await repos[tag].keyPage('issueProjection', after, 1)
+        const [key] = page
+        if (key === undefined) return out
+        expect(page).toHaveLength(1)
+        expect(key > after).toBe(true)
+        out.push(key)
+        after = key
+      }
+    }
+    expect(await walk('a')).toEqual([iss(1), iss(2), heldBy('a'), KID, ROOT_ISSUE].sort())
+    expect(await walk('b')).toEqual([iss(1), iss(2), heldBy('b'), B_KID, KID, ROOT_ISSUE].sort())
+  })
+
   it("answers a rule over the row from the workspace's own rows", async () => {
     const live = resolveRule('session.live')
     for (const tag of ['a', 'b'] as const) {

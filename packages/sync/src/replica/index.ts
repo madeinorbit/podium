@@ -10,7 +10,15 @@
  * computed (ADR 1 D1, ADR 2 Amendment 1 D12.7).
  */
 
+export type { DiskIndexReader, InstanceState, RecordEntry } from './disk-index'
 export * from './loader'
+export {
+  browserMemorySignals,
+  type MemorySignals,
+  manualMemorySignals,
+  type ShrinkReason,
+  WARM_GRACE_MS,
+} from './memory'
 export * from './memory-store'
 export * from './overlay'
 export * from './overlay-projection'

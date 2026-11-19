@@ -10,14 +10,20 @@
  * the issue map, every listing was also compared with the map's code.
  */
 
-import { fixtureWriteScope } from '@podium/sync/testing'
 import { asIssueId, asUserId, firstAdminMemberId, type UserId } from '@podium/model'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { sql } from 'drizzle-orm'
-import { afterEach, describe, expect, it } from 'vitest'
-import type { SessionStore } from '../../../store'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SELF_HOSTED_WORKSPACE_ID } from '../../../self-hosted-workspace'
-import { BOB, CAROL, type CorpusIssue, grantIssue, seededStore } from '../../../test-support/issue-corpus'
+import type { SessionStore } from '../../../store'
+import {
+  BOB,
+  CAROL,
+  type CorpusIssue,
+  grantIssue,
+  seededStore,
+} from '../../../test-support/issue-corpus'
 import { sessionReadPorts } from '../../../test-support/session-facts'
 import { storeSql } from '../../../test-support/store-sql'
 import { IssueStore } from './core'
@@ -37,7 +43,9 @@ async function plantDanglingEdge(store: SessionStore): Promise<void> {
   if (raw.engine === 'sqlite') {
     const db = (store as unknown as { db: SqlDatabase }).db
     db.exec('PRAGMA foreign_keys = OFF')
-    db.prepare("INSERT INTO issue_deps (workspace_id, from_id, to_id, type) VALUES (?, 'iss_9', 'iss_gone_blocker', 'blocked-by')").run(SELF_HOSTED_WORKSPACE_ID)
+    db.prepare(
+      "INSERT INTO issue_deps (workspace_id, from_id, to_id, type) VALUES (?, 'iss_9', 'iss_gone_blocker', 'blocked-by')",
+    ).run(SELF_HOSTED_WORKSPACE_ID)
     db.exec('PRAGMA foreign_keys = ON')
     return
   }
@@ -75,8 +83,16 @@ const ids = (reports: readonly { id: string }[]) => reports.map((report) => repo
 describe('issue listings over the database', () => {
   it('over the edge fixtures', async () => {
     const live = (seq: number, patch: Partial<CorpusIssue> = {}): CorpusIssue => ({
-      id: `iss_${seq}`, seq, repoPath: '/a', worktreePath: null, parentId: null, stage: 'backlog',
-      archived: false, deletedAt: null, updatedAt: '2026-06-01T00:00:00.000Z', ...patch,
+      id: `iss_${seq}`,
+      seq,
+      repoPath: '/a',
+      worktreePath: null,
+      parentId: null,
+      stage: 'backlog',
+      archived: false,
+      deletedAt: null,
+      updatedAt: '2026-06-01T00:00:00.000Z',
+      ...patch,
     })
     const rows: CorpusIssue[] = [
       live(1, { title: 'Epic about login', type: 'phase' }),
@@ -97,21 +113,36 @@ describe('issue listings over the database', () => {
       live(16, { ownerUserId: CAROL }),
       // A second repository: the same numbers, and a child of a parent in /a.
       live(1, { id: 'iss_b1', repoPath: '/b', parentId: 'iss_1', title: 'Login elsewhere' }),
-      live(2, { id: 'iss_b2', repoPath: '/b', worktreePath: '/b/.worktrees/issue-2', stage: 'done' }),
-      live(3, { id: 'iss_b3', repoPath: '/b', stage: 'done', closedReason: 'done', worktreePath: '/b/wt-3' }),
+      live(2, {
+        id: 'iss_b2',
+        repoPath: '/b',
+        worktreePath: '/b/.worktrees/issue-2',
+        stage: 'done',
+      }),
+      live(3, {
+        id: 'iss_b3',
+        repoPath: '/b',
+        stage: 'done',
+        closedReason: 'done',
+        worktreePath: '/b/wt-3',
+      }),
       live(17, { id: 'iss_gone_blocker' }),
     ]
-    const store = await seededStore(rows, ['/a', '/b'], [
-      { fromId: 'iss_2', toId: 'iss_3', type: 'blocked-by' },
-      { fromId: 'iss_3', toId: 'iss_4', type: 'blocked-by' }, // a deleted, open blocker still blocks
-      { fromId: 'iss_8', toId: 'iss_6', type: 'blocked-by' }, // a finished blocker does not
-      { fromId: 'iss_9', toId: 'iss_gone_blocker', type: 'blocked-by' },
-      { fromId: 'iss_10', toId: 'iss_b1', type: 'blocked-by' },
-      { fromId: 'iss_b1', toId: 'iss_2', type: 'related' },
-      { fromId: 'iss_12', toId: 'iss_13', type: 'blocked-by' },
-      { fromId: 'iss_13', toId: 'iss_12', type: 'blocked-by' }, // a cycle for doctor
-      { fromId: 'iss_14', toId: 'iss_16', type: 'duplicates' },
-    ])
+    const store = await seededStore(
+      rows,
+      ['/a', '/b'],
+      [
+        { fromId: 'iss_2', toId: 'iss_3', type: 'blocked-by' },
+        { fromId: 'iss_3', toId: 'iss_4', type: 'blocked-by' }, // a deleted, open blocker still blocks
+        { fromId: 'iss_8', toId: 'iss_6', type: 'blocked-by' }, // a finished blocker does not
+        { fromId: 'iss_9', toId: 'iss_gone_blocker', type: 'blocked-by' },
+        { fromId: 'iss_10', toId: 'iss_b1', type: 'blocked-by' },
+        { fromId: 'iss_b1', toId: 'iss_2', type: 'related' },
+        { fromId: 'iss_12', toId: 'iss_13', type: 'blocked-by' },
+        { fromId: 'iss_13', toId: 'iss_12', type: 'blocked-by' }, // a cycle for doctor
+        { fromId: 'iss_14', toId: 'iss_16', type: 'duplicates' },
+      ],
+    )
     stores.push(store)
     // A blocker whose row is gone.
     await store.issues.deleteIssue('iss_gone_blocker')
@@ -123,25 +154,52 @@ describe('issue listings over the database', () => {
     await grantIssue(store, 'iss_b1', BOB, 'manage')
     await grantIssue(store, 'iss_16', BOB, 'write')
     const viewer = await firstAdminMemberId(store)
-    await store.issues.setIssueUserState(fixtureWriteScope(), viewer, asIssueId('iss_2'), { readAt: '2026-10-01T00:00:00.000Z', tuckedAt: '2026-10-02T00:00:00.000Z' })
+    await store.issues.setIssueUserState(fixtureWriteScope(), viewer, asIssueId('iss_2'), {
+      readAt: '2026-10-01T00:00:00.000Z',
+      tuckedAt: '2026-10-02T00:00:00.000Z',
+    })
     const reports = reportsOver(store, 'abc fix #2 and issue/3-login\n#14 done')
 
     // Work queues: an open blocker blocks even when deleted; a finished one or
     // a missing row does not; deferral leaves the ready queue.
-    expect(ids(await reports.blockedList('/a'))).toEqual(['iss_2', 'iss_3', 'iss_10', 'iss_12', 'iss_13'])
-    expect(ids(await reports.readyList('/a'))).toEqual(['iss_14', 'iss_1', 'iss_11', 'iss_15', 'iss_16'])
+    expect(ids(await reports.blockedList('/a'))).toEqual([
+      'iss_2',
+      'iss_3',
+      'iss_10',
+      'iss_12',
+      'iss_13',
+    ])
+    expect(ids(await reports.readyList('/a'))).toEqual([
+      'iss_14',
+      'iss_1',
+      'iss_11',
+      'iss_15',
+      'iss_16',
+    ])
     expect((await reports.doctor('/a')).cycles.length).toBeGreaterThan(0)
     // Open issues the repository's log names, by `#N` or branch stem.
     expect((await reports.orphans('/a')).map((orphan) => [orphan.id, orphan.ref])).toEqual([
-      ['iss_2', '#2'], ['iss_3', 'issue/3-'], ['iss_14', '#14'],
+      ['iss_2', '#2'],
+      ['iss_3', 'issue/3-'],
+      ['iss_14', '#14'],
     ])
 
     // Search filters, in priority then sequence order across repositories.
     expect(ids(await reports.search({ label: 'auth' }))).toEqual(['iss_b1', 'iss_2'])
     expect(ids(await reports.search({ text: 'login' }))).toEqual(['iss_1', 'iss_b1', 'iss_2'])
     expect(ids(await reports.search({ text: 'LÖGIN' }))).toEqual(['iss_14'])
-    expect(ids(await reports.search({ parentId: asIssueId('iss_1') }))).toEqual(['iss_b1', 'iss_2', 'iss_5', 'iss_15'])
-    expect(ids(await reports.search({ stage: 'done' }))).toEqual(['iss_b2', 'iss_b3', 'iss_5', 'iss_6'])
+    expect(ids(await reports.search({ parentId: asIssueId('iss_1') }))).toEqual([
+      'iss_b1',
+      'iss_2',
+      'iss_5',
+      'iss_15',
+    ])
+    expect(ids(await reports.search({ stage: 'done' }))).toEqual([
+      'iss_b2',
+      'iss_b3',
+      'iss_5',
+      'iss_6',
+    ])
     expect(ids(await reports.search({ priority: 0 }))).toEqual(['iss_14'])
     expect(ids(await reports.search({ assignee: asUserId('nobody') }))).toEqual([])
 
@@ -161,7 +219,106 @@ describe('issue listings over the database', () => {
     expect(await reports.getBySeq('/no/such/repo', 1)).toBeUndefined()
 
     // The closed-issue sweep: closed, live, with a worktree or a member.
-    expect([...(await reports.closedWithWork(new Set(['iss_6', 'iss_7', 'iss_b3'])))].sort()).toEqual(['iss_6', 'iss_7', 'iss_b2', 'iss_b3'])
+    expect(
+      [...(await reports.closedWithWork(new Set(['iss_6', 'iss_7', 'iss_b3'])))].sort(),
+    ).toEqual(['iss_6', 'iss_7', 'iss_b2', 'iss_b3'])
     expect(await reports.closedWithWork(new Set())).toEqual(['iss_b2', 'iss_b3'])
+  })
+})
+
+describe('paged normalized search (POD-7108)', () => {
+  it('pages the unbounded search in its order, for every filter and reader', async () => {
+    const issue = (n: number, patch: Partial<CorpusIssue> = {}): CorpusIssue => ({
+      id: `iss_${String(n).padStart(2, '0')}`,
+      seq: n,
+      repoPath: '/a',
+      worktreePath: null,
+      parentId: null,
+      stage: 'backlog',
+      archived: false,
+      deletedAt: null,
+      updatedAt: '2026-06-01T00:00:00.000Z',
+      priority: n % 4,
+      title: `Match ${n}`,
+      ...patch,
+    })
+    const rows: CorpusIssue[] = [
+      ...Array.from({ length: 24 }, (_, i) => issue(i + 1)),
+      // The same numbers and priorities in a second repository: ties break by path, then id.
+      ...Array.from({ length: 8 }, (_, i) =>
+        issue(i + 1, { id: `iss_b${i + 1}`, repoPath: '/b', title: `Other match ${i + 1}` }),
+      ),
+      issue(25, { title: 'Unrelated', description: 'body has the MATCH' }),
+      issue(26, { title: 'Brief only' }),
+      issue(27, { title: 'Deleted match', deletedAt: '2026-10-01T00:00:00.000Z' }),
+      issue(28, { title: 'Snoozed match', deferUntil: '2099-01-01' }),
+      issue(29, { title: 'Snoozed again', deferUntil: 'next-message' }),
+      issue(30, { title: 'Mätch ünïcode', stage: 'done', closedReason: 'done' }),
+      issue(31, { title: 'MÄTCH upper' }),
+    ]
+    const store = await seededStore(rows, ['/a', '/b'])
+    stores.push(store)
+    await storeSql(store).run(
+      sql`UPDATE issues SET brief = 'only the brief says match'
+          WHERE workspace_id = ${SELF_HOSTED_WORKSPACE_ID} AND id = 'iss_26'`,
+    )
+    await store.issues.setIssueLabels(asIssueId('iss_03'), ['auth'])
+    await store.issues.setIssueLabels(asIssueId('iss_b3'), ['auth', 'ui'])
+    const reports = reportsOver(store)
+    const listing = vi.spyOn(store.issues, 'listIssueRowsWhere')
+    const filters = [
+      { text: 'match' },
+      {},
+      { text: 'match', repoPath: '/b' },
+      { status: 'ready' as const },
+      { status: 'deferred' as const },
+      { text: 'mätch' },
+      { label: 'auth' },
+      { text: 'no such words' },
+    ]
+    for (const reader of [undefined, readerFor(reports, BOB)]) {
+      for (const filter of filters) {
+        const all = await reports.search(filter, reader)
+        for (const limit of [1, 4, 50]) {
+          const walked: string[] = []
+          let cursor: string | undefined
+          let pages = 0
+          do {
+            listing.mockClear()
+            const page = await reports.searchNormalized({ ...filter, limit, cursor }, reader)
+            expect(page.hits.length).toBeLessThanOrEqual(limit)
+            if (page.next !== null) expect(page.hits).toHaveLength(limit)
+            // Every SQL-decided search reads at most one row past the page.
+            if (!('status' in filter) && filter.text !== 'mätch') {
+              for (const read of listing.mock.results)
+                expect((await read.value).length).toBeLessThanOrEqual(limit + 1)
+            }
+            for (const hit of page.hits) {
+              const row = (await reports.store.row(hit.id))!
+              const report = all.find((r) => r.id === hit.id)!
+              expect(hit).toEqual({
+                ...(await reports.store.projection(row)),
+                displayRef: report.displayRef,
+              })
+            }
+            walked.push(...page.hits.map((hit) => hit.id))
+            cursor = page.next ?? undefined
+            pages++
+          } while (cursor !== undefined && pages < 100)
+          expect(walked, JSON.stringify({ filter, limit })).toEqual(ids(all))
+        }
+      }
+    }
+    // The fixture exercises what it claims: ties across repositories, the
+    // body and brief, deferral and non-ASCII matching.
+    const broad = ids(await reports.search({ text: 'match' }))
+    expect(broad.indexOf('iss_01')).toBeLessThan(broad.indexOf('iss_b1'))
+    expect(broad).toEqual(expect.arrayContaining(['iss_25', 'iss_26', 'iss_28']))
+    expect(broad).not.toContain('iss_27')
+    expect(ids(await reports.search({ text: 'mätch' })).sort()).toEqual(['iss_30', 'iss_31'])
+    expect(ids(await reports.search({ status: 'deferred' }))).toEqual(['iss_28', 'iss_29'])
+    await expect(
+      reports.searchNormalized({ text: 'match', limit: 4, cursor: 'not-a-cursor' }),
+    ).rejects.toThrow('unreadable search cursor')
   })
 })

@@ -42,6 +42,9 @@ function apply(map: Map<string, InstanceRecord>, ops: readonly InstanceOperation
     if (op.kind === 'mark') next.set(op.instance.key, op.instance)
     else if (op.kind === 'drop') next.delete(op.key)
     else if (op.kind === 'dropAll') next.clear()
+    // POD-7160: a stale marker stays as it was (the flag is the disk index's).
+    // POD-7162: so does a marker being pruned (the indexed flag is the index's too).
+    else if (op.kind === 'stale' || op.kind === 'pruning') continue
     else {
       const held = next.get(op.key)
       if (held !== undefined) next.set(op.key, { ...held, releasedAt: op.at })

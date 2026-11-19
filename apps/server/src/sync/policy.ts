@@ -2,8 +2,8 @@
  * THE SERVER'S POLICY PER CLIENT TYPE (POD-7085, design POD-7059 "Policy").
  *
  * Which collections each kind of app holds at all times, in which order its
- * first download loads them, how many days "recent" reaches back, and how many
- * records it may keep as cache. The client says only what it is; the policy
+ * first download loads them, how many days "recent" reaches back, and the
+ * device's budgets in memory and on disk. The client says only what it is; the policy
  * comes back in the load header (`syncMeta.policy`). The numbers live here, on
  * the server, so they change without a client release.
  *
@@ -12,8 +12,10 @@
  * view asks for; recent; the sidebar with what it comes with, and the
  * sidebar's lanes; the issue stubs last.
  *
- * Cache caps are placeholders until POD-7095 measures them; nothing on the
- * server reads them.
+ * The budgets (design POD-7157, "Decisions"): the warm set in memory (what no
+ * view reads but the device keeps for going back, POD-7161), and local
+ * storage's size and unread age (POD-7162). Held views and the policy's own
+ * collections are outside every budget. The server publishes these numbers.
  */
 
 import { DESIGN_COLLECTIONS, RECORDS } from '@podium/model'
@@ -42,18 +44,21 @@ const STEPS: readonly PolicyStep[] = [
   { step: 'stubs', collections: [...DESIGN_COLLECTIONS.issueStubs] },
 ]
 
-const policy = (clientType: ClientType, recentDays: number, cacheCap: number): SyncPolicy => ({
-  clientType,
-  steps: STEPS as SyncPolicy['steps'],
-  recentDays,
-  cacheCap,
-})
+const policy = (
+  clientType: ClientType,
+  recentDays: number,
+  budgets: Pick<SyncPolicy, 'memoryBudgetMb' | 'diskBudgetMb' | 'diskMaxIdleDays'>,
+): SyncPolicy => ({ clientType, steps: STEPS as SyncPolicy['steps'], recentDays, ...budgets })
 
-/** One policy per client type. */
+/**
+ * One policy per client type. The budgets are design POD-7157's ("Decisions"
+ * 1): the warm set in memory, local storage, and the unread age. POD-7164 may
+ * move each by up to a factor of two from measurement.
+ */
 export const SYNC_POLICIES: Readonly<Record<ClientType, SyncPolicy>> = {
-  phone: policy('phone', 7, 1_000),
-  browser: policy('browser', 30, 5_000),
-  desktop: policy('desktop', 30, 10_000),
+  phone: policy('phone', 7, { memoryBudgetMb: 20, diskBudgetMb: 150, diskMaxIdleDays: 14 }),
+  browser: policy('browser', 30, { memoryBudgetMb: 80, diskBudgetMb: 500, diskMaxIdleDays: 30 }),
+  desktop: policy('desktop', 30, { memoryBudgetMb: 160, diskBudgetMb: 1024, diskMaxIdleDays: 60 }),
 }
 
 /** A request that names no client type is a browser's (the CLI and tests included). */

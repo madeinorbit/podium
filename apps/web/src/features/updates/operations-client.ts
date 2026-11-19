@@ -116,8 +116,8 @@ function startOutcome(answer: unknown): StartUpdateOutcome {
  * left the button saying "Trying again…" forever. Starting an operation is a
  * few reads and one write, so thirty seconds without an answer means the answer
  * is lost, not slow. The caller then treats it like any other lost answer: it
- * polls for the operation the server may already have created, and only after
- * that says the update could not be confirmed.
+ * polls for the operation the server may already have created, and says so
+ * when the server stays silent (POD-7154).
  */
 export const UPDATE_REQUEST_TIMEOUT_MS = 30_000
 

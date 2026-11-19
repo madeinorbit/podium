@@ -1,16 +1,42 @@
 import { compareShallow, compareStructural } from 'mobx'
 import { lazy } from '@podium/mobx-helpers'
-import { aggregateFields, type Aggregate, type RollupSelf, type RollupInputs } from './rollup'
+import { aggregateFieldsOver, childAggregatesOf, inNestOrder,
+  type Aggregate, type RollupSelf, type RollupInputs } from './rollup'
 import type { SidebarSessionFacts } from './sidebar-row'
 
 
 /** Narrow cached answers for one roll-up input path. Both filing and drawn
- * rows reuse this implementation; it holds no issue or session facts. */
+ * rows reuse this implementation; it holds no issue or session facts.
+ *
+ * POD-7173: the nest children are walked once per burst (`children`, and
+ * `ordered` sorted once), not once per field; each narrow field then reads
+ * only its own field of each child. The view it hands out is one object,
+ * so a parent's list of its children's views compares shallowly. */
 export class AttentionFields {
   constructor(readonly row: RollupSelf & { readonly id: string }, private readonly inputs: () => RollupInputs) {}
   get id() { return this.row.id }
-  private readAggregate(): Aggregate { return aggregateFields(this.inputs(), this.row.id, this.row) }
+  private readAggregate(): Aggregate {
+    return aggregateFieldsOver(this.row, () => this.children, () => this.ordered)
+  }
+
+  /** The nest children's aggregates, in nest order. */
+  @lazy({ equals: compareShallow }) private get children(): readonly Aggregate[] {
+    return childAggregatesOf(this.inputs(), this.row.id, this.row)
+  }
+
+  /** The nest children's aggregates in sidebar order, for the ordered fields. */
+  @lazy({ equals: compareShallow }) private get ordered(): readonly Aggregate[] {
+    return inNestOrder(this.children)
+  }
+
+  // One view per helper, so every reader holds the same object.
+  private view: Aggregate | undefined
   get value(): Aggregate {
+    if (this.view === undefined) this.view = this.makeValue()
+    return this.view
+  }
+
+  private makeValue(): Aggregate {
     const model = this
     return {
       get railWaiting() { return model.aggregateRailWaiting },

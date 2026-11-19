@@ -40,8 +40,17 @@ import type { MutationId } from '@podium/model'
 import { actorUser, asUserId } from '@podium/model'
 import { IDBKeyRange } from 'fake-indexeddb'
 import { beforeEach, describe, expect, it } from 'vitest'
+import {
+  commitPruneSlice,
+  expectCutSlice,
+  expectPruneWorldAgrees,
+  planPruneSlice,
+  pruneWorldState,
+  seedPruneWorld,
+} from '../../conformance/prune-crash'
 import type { OutboxRecord } from '../../outbox/records'
 import { instanceKey, instanceMetaKey } from '../../replica/cache-state'
+import { bucketOf } from '../../replica/disk-index'
 import type { InstanceOperation } from '../../replica/ports'
 import type { Cursor } from '../../replica/types'
 import type { IdbFactoryLike } from './idb'
@@ -296,15 +305,22 @@ describe('IndexedDB adapter — kill between writes, at every boundary', () => {
    * `writes` is the number of write requests the transaction issues; it is
    * ASSERTED per case rather than assumed, so a change that makes the commit carry
    * fewer requests fails these cases instead of silently collapsing them onto the
-   * same instant. Three regions plus a marker ⇒ four requests: the outbox delete, the entity
-   * put, the cursor put and the marker put.
+   * same instant. Three regions plus a marker and their disk index rows (POD-7159) ⇒ six requests:
+   * the outbox delete, the entity put, the cursor put, the marker put, the
+   * record's index row and the instance's.
    */
   const BOUNDARIES = [
     { at: 0, mode: 'deny' as const, what: 'before the outbox removal reached the store' },
     { at: 1, mode: 'deny' as const, what: 'between the outbox removal and the entity upsert' },
     { at: 2, mode: 'deny' as const, what: 'between the entity upsert and the cursor advance' },
     { at: 3, mode: 'deny' as const, what: 'between the cursor advance and the instance marker' },
-    { at: 3, mode: 'after' as const, what: 'after every write was issued and before the commit' },
+    {
+      at: 4,
+      mode: 'deny' as const,
+      what: "between the instance marker and the record's index row",
+    },
+    { at: 5, mode: 'deny' as const, what: "between the record's index row and the instance's" },
+    { at: 5, mode: 'after' as const, what: 'after every write was issued and before the commit' },
   ]
 
   for (const boundary of BOUNDARIES) {
@@ -321,10 +337,10 @@ describe('IndexedDB adapter — kill between writes, at every boundary', () => {
       // SURFACED, not swallowed: the kernel that opened the unit of work is told.
       await expect(commitAllThree(store.viewFor(PRINCIPAL), store)).rejects.toThrow(/power loss/)
 
-      // The transaction really did carry four write requests, so the boundary this
+      // The transaction really did carry six write requests, so the boundary this
       // case names is the boundary it hit. `deny` refuses its target, so one fewer
-      // reaches the engine; `after` lets all four through and then kills.
-      expect(factory.writesIssued - before).toBe(boundary.mode === 'after' ? 4 : boundary.at + 1)
+      // reaches the engine; `after` lets all six through and then kills.
+      expect(factory.writesIssued - before).toBe(boundary.mode === 'after' ? 6 : boundary.at + 1)
       expect(factory.denials).toBe(1)
 
       // THE KILL: the store object dies, IndexedDB does not.
@@ -398,5 +414,176 @@ describe('IndexedDB adapter — kill between writes, at every boundary', () => {
     await store.settled()
     store.close()
     await expectPost()
+  })
+})
+
+// ─── The index journal's fold (POD-7160) ──────────────────────────────────────
+
+/**
+ * Three commits leave three journal rows over 40 records (two changed, one
+ * removed); the fold writes the buckets those records land in and deletes the
+ * journal rows, in ONE transaction. Killed at any of its writes, the journal
+ * stays whole and the store reads the same index after a restart.
+ */
+const FOLD_ISSUE = 'issueProjection'
+const foldRow = (id: string, seq: number) => ({
+  kind: 'upsert' as const,
+  entity: FOLD_ISSUE,
+  entityId: id,
+  value: { v: seq },
+  provenance: { seq },
+  asOf: seq,
+})
+const foldAt = (seq: number): Cursor => ({ ...CURSOR_1, seq })
+const FOLD_KEYS = Array.from({ length: 40 }, (_, n) => `${FOLD_ISSUE}\u0000R${n}`)
+/** The fold's writes: a row per bucket the 40 records land in, and the three journal deletes. */
+const FOLD_WRITES = new Set(FOLD_KEYS.map((key) => bucketOf(key))).size + 3
+const FOLD_POINTS = [0, 1, Math.floor(FOLD_WRITES / 2), FOLD_WRITES - 1]
+
+describe('IndexedDB adapter — the index journal fold, killed at every write (POD-7160)', () => {
+  let factory: FaultyIdbFactory
+  beforeEach(() => {
+    factory = new FaultyIdbFactory(freshFactory())
+  })
+  const open = async (): Promise<IndexedDbSyncStore> =>
+    await IndexedDbSyncStore.open({
+      factory: factory as IdbFactoryLike,
+      keyRange: IDBKeyRange,
+      databaseName: REPLICA_DB_NAME,
+      onDegraded: () => {},
+    })
+  const journaled = async (): Promise<void> => {
+    const store = await open()
+    const { cache } = store.viewFor(PRINCIPAL)
+    cache.applyAtomic({
+      operations: FOLD_KEYS.map((_, n) => foldRow(`R${n}`, 1)),
+      cursor: foldAt(1),
+    })
+    cache.applyAtomic({ operations: [foldRow('R3', 2), foldRow('R17', 2)], cursor: foldAt(2) })
+    cache.applyAtomic({
+      operations: [{ kind: 'remove', entity: FOLD_ISSUE, entityId: 'R5' }],
+      cursor: foldAt(3),
+    })
+    await store.settled()
+    store.close()
+  }
+  const journalRows = async (): Promise<number> =>
+    (
+      ((await readDurable(factory))['disk-index'] ?? []) as { principal: string; key: string }[]
+    ).filter((row) => row.principal === PRINCIPAL && row.key.startsWith('j')).length
+  const expectIndex = async (): Promise<void> => {
+    const store = await open()
+    const { cache } = store.viewFor(PRINCIPAL)
+    const index = cache.readDiskIndex()
+    expect(index.recordCount).toBe(39)
+    expect(index.record(`${FOLD_ISSUE}\u0000R3`)?.seq).toBe(2)
+    expect(index.record(`${FOLD_ISSUE}\u0000R5`)).toBeUndefined()
+    const rows = await cache.readDiskRows(FOLD_KEYS)
+    const values = new Map(rows.map((row) => [row.entityId, row.value]))
+    expect(values.get('R3')).toEqual({ v: 2 })
+    expect(values.get('R0')).toEqual({ v: 1 })
+    expect(values.has('R5')).toBe(false)
+    store.close()
+  }
+
+  it("POSITIVE CONTROL — the fold writes the journal's buckets and deletes its rows, in one transaction", async () => {
+    await journaled()
+    expect(await journalRows()).toBe(3)
+    const store = await open()
+    const before = factory.writesIssued
+    store.foldIndexJournals()
+    await store.settled()
+    expect(factory.writesIssued - before).toBe(FOLD_WRITES)
+    store.close()
+    expect(await journalRows()).toBe(0)
+    await expectIndex()
+  })
+
+  for (const at of FOLD_POINTS)
+    for (const mode of at === FOLD_WRITES - 1 ? (['deny', 'after'] as const) : (['deny'] as const))
+      it(`a fold killed at write ${at} (${mode}) leaves the journal whole and the index the same`, async () => {
+        await journaled()
+        const store = await open()
+        const before = factory.writesIssued
+        factory.denyWriteAt({ at, mode, error: new Error('power loss') })
+        store.foldIndexJournals()
+        await store.settled().catch(() => undefined)
+        expect(factory.writesIssued - before).toBe(mode === 'after' ? FOLD_WRITES : at + 1)
+        expect(factory.denials).toBe(1)
+        store.close()
+        expect(await journalRows()).toBe(3)
+        await expectIndex()
+      })
+})
+
+// ─── A prune slice (POD-7162) ─────────────────────────────────────────────────
+
+describe('IndexedDB adapter — a prune slice killed at every write (POD-7162)', () => {
+  let factory: FaultyIdbFactory
+  const open = async (): Promise<IndexedDbSyncStore> =>
+    await IndexedDbSyncStore.open({
+      factory: factory as IdbFactoryLike,
+      keyRange: IDBKeyRange,
+      databaseName: REPLICA_DB_NAME,
+      onDegraded: () => {},
+    })
+  /** A fresh device with the world on it, closed; then opened again with the slice planned. */
+  const seededAndPlanned = async () => {
+    factory = new FaultyIdbFactory(freshFactory())
+    const seeding = await open()
+    seedPruneWorld(seeding.viewFor(PRINCIPAL).cache)
+    await seeding.settled()
+    seeding.close()
+    const store = await open()
+    const { cache } = store.viewFor(PRINCIPAL)
+    const before = pruneWorldState(cache)
+    const plan = planPruneSlice(cache)
+    expectCutSlice(plan)
+    return { store, cache, before, plan }
+  }
+  const reopened = async (label: string) => {
+    const store = await open()
+    const { cache } = store.viewFor(PRINCIPAL)
+    await expectPruneWorldAgrees(cache, label)
+    const state = pruneWorldState(cache)
+    store.close()
+    return state
+  }
+
+  it('POSITIVE CONTROL — the slice commits whole, in one transaction, and the reopened store agrees', async () => {
+    const { store, cache, before, plan } = await seededAndPlanned()
+    commitPruneSlice(cache, plan)
+    await store.settled()
+    const after = pruneWorldState(cache)
+    store.close()
+    expect(after).not.toEqual(before)
+    expect(after.trees.A).toMatch(/^pruning:/)
+    expect(await reopened('after the slice')).toEqual(after)
+  })
+
+  it('killed at any of its writes, the reopened store is as before the slice, and agrees', async () => {
+    const control = await seededAndPlanned()
+    const start = factory.writesIssued
+    commitPruneSlice(control.cache, control.plan)
+    await control.store.settled()
+    const writes = factory.writesIssued - start
+    control.store.close()
+    expect(writes).toBeGreaterThan(2)
+    for (const at of [0, 1, Math.floor(writes / 2), writes - 1])
+      for (const mode of at === writes - 1 ? (['deny', 'after'] as const) : (['deny'] as const)) {
+        const { store, cache, before, plan } = await seededAndPlanned()
+        factory.denyWriteAt({ at, mode, error: new Error('power loss') })
+        try {
+          commitPruneSlice(cache, plan)
+        } catch {
+          // The refusal may surface at once or with the durable wait.
+        }
+        await store.settled().catch(() => undefined)
+        expect(factory.denials, `killed at ${at} (${mode})`).toBe(1)
+        store.close()
+        expect(await reopened(`killed at ${at} (${mode})`), `killed at ${at} (${mode})`).toEqual(
+          before,
+        )
+      }
   })
 })

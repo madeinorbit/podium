@@ -7,11 +7,17 @@
  * grouping left to the implementation provided D4.1 holds. This is the unified
  * shape:
  *
- *   `entities`  keyPath [principal, entity, entityId]  one row per cached entity
- *   `meta`      keyPath [principal, key]               cursor, markers, policy, load state
- *   `outbox`    keyPath [principal, mutationId]        the user's unsent writes
+ *   `entities`    keyPath [principal, entity, entityId]  one row per cached entity
+ *   `meta`        keyPath [principal, key]               cursor, markers, policy, load state
+ *   `outbox`      keyPath [principal, mutationId]        the user's unsent writes
+ *   `disk-index`  keyPath [principal, key]               the disk index (version 2, POD-7159)
  *
- * THREE OBJECT STORES IN ONE DATABASE, and that is the D4.1 requirement rather
+ * The disk index is one row per record (its feed number, level, size, holders
+ * and, for a record with a stub, its stub) and one per instance (when it was
+ * last read, whether it is stale). It is read whole at open, with no entity
+ * row, and written in the same transaction as the rows it describes.
+ *
+ * OBJECT STORES IN ONE DATABASE, and that is the D4.1 requirement rather
  * than a preference: an IndexedDB transaction may span object stores but never
  * databases, so entities + cursor + outbox in three DATABASES could not commit
  * together at all. The overlay has no store because the kernel keeps it derived
@@ -42,14 +48,16 @@ export const REPLICA_DB_NAME = 'podium-replica'
  * There is no down migration: D5.1 is forward-only, and a client that has to go
  * backwards cold-starts (D4.5) rather than reading a layout it cannot understand.
  */
-export const REPLICA_SCHEMA_VERSION = 1
+export const REPLICA_SCHEMA_VERSION = 2
 
 export const ENTITY_STORE = 'entities'
 export const META_STORE = 'meta'
 export const OUTBOX_STORE = 'outbox'
+/** POD-7159 (version 2): the disk index. */
+export const INDEX_STORE = 'disk-index'
 
 /** Every store one transaction must be able to span. Order is irrelevant; completeness is not. */
-export const ALL_STORES: readonly string[] = [ENTITY_STORE, META_STORE, OUTBOX_STORE]
+export const ALL_STORES: readonly string[] = [ENTITY_STORE, META_STORE, OUTBOX_STORE, INDEX_STORE]
 
 /**
  * Metadata keys are namespaced per principal by the compound key. The cursor,
@@ -71,6 +79,13 @@ export interface StoredEntity {
   readonly part?: 'stub'
   /** The feed number the row is current as of; absent means its provenance seq. */
   readonly asOf?: number
+}
+
+/** A `disk-index` row: a record's entry (key `entity\0id`) or an instance's state (key `\u0001<instance key>`). */
+export interface StoredIndexRow {
+  readonly principal: string
+  readonly key: string
+  readonly v: unknown
 }
 
 /** A `meta` row. `value` is the cursor for {@link CURSOR_KEY}. */
@@ -114,5 +129,11 @@ export function upgradeSchema(db: IdbDatabaseLike): void {
   }
   if (!db.objectStoreNames.contains(OUTBOX_STORE)) {
     db.createObjectStore(OUTBOX_STORE, { keyPath: ['principal', 'mutationId'] })
+  }
+  // Version 2 (POD-7159). The index itself is built from the existing rows at
+  // the first open that finds no `disk-index` flag (see `store.ts`), in normal
+  // transactions, so a crash there repeats it and drops nothing.
+  if (!db.objectStoreNames.contains(INDEX_STORE)) {
+    db.createObjectStore(INDEX_STORE, { keyPath: ['principal', 'key'] })
   }
 }

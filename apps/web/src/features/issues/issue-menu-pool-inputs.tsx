@@ -1,9 +1,14 @@
 import type { IssueNavigationModel } from '@podium/client-core/values'
 import { LOADING, type MobxPool } from '@podium/client-graph'
-import { type MissionActionInputs, missionView, readMissionActionInputs } from '@podium/client-graph/mission-view'
-import { type ComponentProps, lazy, Suspense, useCallback } from 'react'
+import {
+  type MissionActionInputs,
+  missionView,
+  readMissionActionInputs,
+} from '@podium/client-graph/mission-view'
+import { type ComponentProps, Suspense, useCallback } from 'react'
 import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import { throughRestarts } from '@/lib/chunk-recovery'
+import { lazy } from '@/lib/lazy-surface'
 import { useFeature } from '@/lib/use-feature'
 
 const IssueContextMenu = lazy(() =>
@@ -12,7 +17,10 @@ const IssueContextMenu = lazy(() =>
   })),
 )
 
-export type IssueMenuPoolInputs = Pick<MissionActionInputs, 'sessions' | 'repos' | 'machines' | 'handoff'>
+export type IssueMenuPoolInputs = Pick<
+  MissionActionInputs,
+  'sessions' | 'repos' | 'machines' | 'handoff'
+>
 
 /** Share the addressed menu computeds: counts and one handoff sender, plus
  * its source lane. Destination payloads belong to the opened target list. */
@@ -21,7 +29,12 @@ export function readIssueMenuPoolInputs(
   issues: readonly Pick<IssueNavigationModel, 'id'>[],
   handoffEnabled = true,
 ): IssueMenuPoolInputs | typeof LOADING {
-  return readMissionActionInputs(missionView(pool), issues.map(issue => issue.id), undefined, handoffEnabled)
+  return readMissionActionInputs(
+    missionView(pool),
+    issues.map((issue) => issue.id),
+    undefined,
+    handoffEnabled,
+  )
 }
 
 /** Mounted on menu open; the content never borrows store reader inputs. */

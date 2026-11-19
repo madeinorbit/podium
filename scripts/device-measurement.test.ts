@@ -1,9 +1,50 @@
+import { FeedBootstrapMessageLenient } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import { collectionFixture } from '../apps/web/harness/collection-fixture'
 import { operatorCorpus } from '../apps/web/harness/measurement-corpus'
 import { augmentAnswer } from '../apps/web/harness/staged-bootstrap.mjs'
 
 describe('synthetic operator measurement input', () => {
+  it('gives a synthetic-only collection reply a production-decodable envelope', () => {
+    const fixture = collectionFixture(
+      [{ entity: 'issueBrief', entityId: 'one', value: { id: 'one', text: 'brief' } }],
+      0,
+      7,
+    )
+    const answer = augmentAnswer(
+      [
+        {
+          type: 'syncMeta',
+          mode: 'snapshot',
+          feedId: 'main',
+          epoch: 'epoch',
+          seq: 64,
+          minAvailableSeq: 0,
+        },
+        {
+          type: 'collectionComplete',
+          feedId: 'main',
+          epoch: 'epoch',
+          seq: 64,
+          instances: [{ collection: 'issueBrief.ofIssue', part: 'main', args: { issueId: 'one' } }],
+        },
+        { type: 'syncComplete', feedId: 'main', epoch: 'epoch', seq: 64, rows: 0, records: 1 },
+      ],
+      fixture,
+    )
+    const records = answer.body
+      .trim()
+      .split('\n')
+      .map((line: string) => JSON.parse(line))
+    const rowFrame = records.find((record: { changes?: unknown[] }) => record.changes?.length)
+    expect(rowFrame?.changes).toHaveLength(1)
+    expect(FeedBootstrapMessageLenient.safeParse(rowFrame).success).toBe(true)
+    expect(
+      FeedBootstrapMessageLenient.safeParse({ ...rowFrame, type: undefined, feedId: undefined })
+        .success,
+    ).toBe(false)
+  })
+
   it('has exact populations, closed tree membership and no dangling edges', () => {
     const corpus = operatorCorpus(4443)
     expect(corpus.issues).toHaveLength(8_687)

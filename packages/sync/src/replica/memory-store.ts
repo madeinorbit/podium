@@ -29,8 +29,18 @@ import {
   EMPTY_CACHE_META,
   isMainRow,
   nextCacheMeta,
-  rowAfter,
 } from './cache-state'
+import {
+  DiskIndex,
+  DiskIndexDraft,
+  type DiskIndexReader,
+  DiskOnlyWrites,
+  installResidentRows,
+  stageIndexComesWith,
+  stageIndexInstances,
+  stageRow,
+  unloadResident,
+} from './disk-index'
 import type { RetirementIntent } from './overlay'
 import type {
   CacheMutation,
@@ -127,12 +137,23 @@ export class InMemoryOutbox {
  */
 interface CacheDraft {
   rows: ChangedKeyDraft<EntityRecord, RowMirror>
+  disk: ChangedKeyDraft<EntityRecord>
+  index: DiskIndexDraft
+  /** POD-7160 — rows written to disk and not to memory. */
+  diskOnly: DiskOnlyWrites
   meta: CacheMeta
 }
 
+/**
+ * POD-7159 — this adapter's "disk" is a map of every row it holds, beside
+ * the resident set in memory (`rows`), so the two layers behave here as on
+ * the durable adapters: an unloaded instance leaves memory and stays here.
+ */
 class InMemoryCache implements ReplicaCacheStore {
   // POD-7115: a stub is kept only in its record type's stub table.
   private rows = new RowMirror()
+  private disk = new Map<string, EntityRecord>()
+  private index = new DiskIndex()
   private meta: CacheMeta = EMPTY_CACHE_META
   private readonly drafts = new Map<SyncSpan, CacheDraft>()
   corrupt = false
@@ -166,13 +187,51 @@ class InMemoryCache implements ReplicaCacheStore {
     return this.meta.loadingSince
   }
 
+  readDiskIndex(): DiskIndexReader {
+    this.guard()
+    return this.index
+  }
+
+  async readDiskRows(keys: readonly string[]): Promise<readonly EntityRecord[]> {
+    this.guard()
+    const out: EntityRecord[] = []
+    for (const key of keys) {
+      const row = this.disk.get(key)
+      if (row !== undefined) out.push(row)
+    }
+    return out
+  }
+
+  installResident(rows: readonly EntityRecord[]): readonly EntityRecord[] {
+    this.guard()
+    return installResidentRows(this.rows, this.index, rows)
+  }
+
+  markInMemory(instanceKeys: readonly string[]): void {
+    this.guard()
+    this.index.setInMemory(
+      instanceKeys.filter((key) => this.meta.instances.has(key)),
+      true,
+    )
+  }
+
+  unload(instanceKeys: readonly string[]): readonly Pick<EntityRecord, 'entity' | 'entityId'>[] {
+    this.guard()
+    return unloadResident(this.rows, this.index, instanceKeys)
+  }
+
+  touchInstance(instanceKey: string, at: number): void {
+    this.index.touch(instanceKey, at)
+  }
+
   readEntities(): readonly EntityRecord[] {
     this.guard()
     return this.rows.mainRows()
   }
 
   read(entity: string, entityId: string): EntityRecord | undefined {
-    const row = this.readRow(entity, entityId)
+    this.guard()
+    const row = this.rows.getMain(key(entity, entityId))
     return row === undefined || !isMainRow(row) ? undefined : row
   }
 
@@ -203,19 +262,36 @@ class InMemoryCache implements ReplicaCacheStore {
     if (span === undefined) {
       // Stage the post-state first and publish once: a throw part-way through
       // leaves the pre-operation rows, never a torn mix (ADR 6 D4.1).
-      const next = new ChangedKeyDraft<EntityRecord, RowMirror>()
-      applyInto(next, this.rows, mutation)
+      const draft = this.newDraft()
+      applyInto(draft, this.rows, this.disk, mutation)
       const meta = nextCacheMeta(this.meta, mutation).meta
-      this.rows = next.publish(this.rows)
-      this.meta = meta
+      this.publishDraft(draft, meta)
       this.physical.countTransaction()
       return
     }
     const draft = this.draftFor(span)
     // EXTENDS the one draft. A second call must not restage from the live map, or
     // the first call's operations would be silently dropped at publish.
-    applyInto(draft.rows, this.rows, mutation)
+    applyInto(draft, this.rows, this.disk, mutation)
     draft.meta = nextCacheMeta(draft.meta, mutation).meta
+  }
+
+  private newDraft(): CacheDraft {
+    return {
+      rows: new ChangedKeyDraft<EntityRecord, RowMirror>(),
+      disk: new ChangedKeyDraft<EntityRecord>(),
+      index: new DiskIndexDraft(this.index),
+      diskOnly: new DiskOnlyWrites(),
+      meta: this.meta,
+    }
+  }
+
+  private publishDraft(draft: CacheDraft, meta: CacheMeta): void {
+    this.rows = draft.rows.publish(this.rows)
+    draft.diskOnly.publish(this.rows)
+    this.disk = draft.disk.publish(this.disk)
+    this.index.publish(draft.index)
+    this.meta = meta
   }
 
   installSnapshot(
@@ -232,25 +308,45 @@ class InMemoryCache implements ReplicaCacheStore {
     // in which the replica holds a mixture of two principals' slices.
     const draft = span === undefined ? undefined : this.draftFor(span)
     const replacement = RowMirror.of(rows)
-    const next = new ChangedKeyDraft<EntityRecord, RowMirror>(replacement)
+    const diskRows = new Map<string, EntityRecord>()
+    const index = new DiskIndexDraft(this.index)
+    index.clearAll()
+    for (const row of rows) {
+      const at = key(row.entity, row.entityId)
+      diskRows.set(at, row)
+      index.row(at, row)
+    }
+    const next: CacheDraft = {
+      rows: new ChangedKeyDraft<EntityRecord, RowMirror>(replacement),
+      disk: new ChangedKeyDraft<EntityRecord>(diskRows),
+      index,
+      diskOnly: new DiskOnlyWrites(),
+      meta: EMPTY_CACHE_META,
+    }
     let meta = nextCacheMeta(EMPTY_CACHE_META, {
       operations: [],
       cursor,
       ...(versions.kindTokens === undefined ? {} : { kindTokens: versions.kindTokens }),
     }).meta
     for (const mutation of buffered) {
-      applyInto(next, replacement, mutation)
+      applyInto(next, replacement, diskRows, mutation)
       meta = nextCacheMeta(meta, mutation).meta
     }
     if (draft === undefined) {
       this.rows = replacement
+      next.diskOnly.publish(replacement)
+      this.disk = diskRows
+      this.index.publish(index)
       this.meta = meta
       this.physical.countTransaction()
       return
     }
     // An install REPLACES rather than extends, so it overwrites the draft's rows
     // outright — the replacement IS the semantics, unlike applyAtomic's extension.
-    draft.rows = next
+    draft.rows = next.rows
+    draft.disk = next.disk
+    draft.index = index
+    draft.diskOnly = next.diskOnly
     draft.meta = meta
   }
 
@@ -260,6 +356,8 @@ class InMemoryCache implements ReplicaCacheStore {
     // span either: a discard is a lone single-region operation (D10 clause 2), so
     // it cannot be composed into a transaction that also touches the outbox.
     this.rows = new RowMirror()
+    this.disk = new Map()
+    this.index.clear()
     this.meta = EMPTY_CACHE_META
     this.physical.countTransaction()
   }
@@ -271,10 +369,7 @@ class InMemoryCache implements ReplicaCacheStore {
   private draftFor(span: SyncSpan): CacheDraft {
     const existing = this.drafts.get(span)
     if (existing !== undefined) return existing
-    const draft: CacheDraft = {
-      rows: new ChangedKeyDraft<EntityRecord, RowMirror>(),
-      meta: this.meta,
-    }
+    const draft = this.newDraft()
     this.drafts.set(span, draft)
     span.join({
       prepare: () => {
@@ -286,8 +381,7 @@ class InMemoryCache implements ReplicaCacheStore {
         }
       },
       publish: () => {
-        this.rows = draft.rows.publish(this.rows)
-        this.meta = draft.meta
+        this.publishDraft(draft, draft.meta)
         this.drafts.delete(span)
       },
       discard: () => {
@@ -303,8 +397,9 @@ class InMemoryCache implements ReplicaCacheStore {
 }
 
 function applyInto(
-  rows: ChangedKeyDraft<EntityRecord, RowMirror>,
+  draft: CacheDraft,
   base: RowMirror,
+  disk: ReadonlyMap<string, EntityRecord>,
   mutation: CacheMutation,
 ): void {
   // IN ORDER. Never grouped by kind: a frame carrying remove(seq 1) then
@@ -313,15 +408,26 @@ function applyInto(
   // correctness property). POD-374/POD-375 inherit this obligation.
   for (const op of mutation.operations) {
     const at = key(op.entity, op.entityId)
-    const next = rowAfter(rows.get(at, base), op)
-    if (next === undefined) continue
+    // POD-7160: newest wins against the row in memory or, only on disk, its index entry.
+    const staged = stageRow(at, op, draft.rows.get(at, base), draft.diskOnly, draft.index)
+    if (staged === undefined) continue
+    const next = staged.row
     // A tombstone and an eviction both drop the row from the CACHE. They stay
     // separate op kinds so the layer above can still tell them apart
     // (Amendment 1 D14.5) — merging them here would make the distinction
     // unrecoverable exactly where it matters.
-    if (next === null) rows.delete(at)
-    else rows.set(at, next)
+    if (next === null) {
+      draft.rows.delete(at)
+      if (draft.disk.get(at, disk) !== undefined) draft.disk.delete(at)
+      draft.index.row(at, null)
+    } else {
+      if (staged.memory) draft.rows.set(at, next)
+      draft.disk.set(at, next)
+      draft.index.row(at, next, op.kind === 'upsert' ? op.holders : undefined)
+    }
   }
+  stageIndexInstances(draft.index, mutation.instances)
+  stageIndexComesWith(draft.index, mutation.comesWith)
 }
 
 export interface StoreView {

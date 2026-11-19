@@ -56,8 +56,10 @@ it('opens a cold production mission in Waterfall without throwing the loading se
   const stop = autorun(() => void screen.ready)
   try {
     // Match the mission opening seam: header ready, no Waterfall reads warmed.
-    for (let turn = 0; turn < 8 && !screen.ready; turn++) {
-      await Promise.resolve()
+    // A large mission derives its rows over a few tasks before it settles
+    // (POD-7168), so each turn lets a task run.
+    for (let turn = 0; turn < 40 && !screen.ready; turn++) {
+      await new Promise((resolve) => setTimeout(resolve, 0))
       handle.pool.hydrate()
     }
     expect(screen.ready).toBe(true)

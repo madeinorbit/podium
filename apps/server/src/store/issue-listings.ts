@@ -119,6 +119,11 @@ export interface IssueListingShape {
   label?: boolean
   /** Lowercased ASCII text inside `title description brief`. */
   text?: boolean
+  /** Keyset page (POD-7108): only rows after `:afterPriority, :afterSeq,
+   *  :afterPath, :afterId` in `priority-seq` order. */
+  after?: boolean
+  /** At most `:limit` rows. */
+  limit?: boolean
   /** `path-seq`: the boot map's order (repository path, sequence);
    *  `updated`: oldest update first. */
   order: 'repo-seq' | 'path-seq' | 'priority-seq' | 'seq' | 'updated'
@@ -138,6 +143,8 @@ const FLAGS = [
   'parent',
   'label',
   'text',
+  'after',
+  'limit',
 ] as const
 
 export function listingKey(shape: IssueListingShape): string {
@@ -233,6 +240,13 @@ function listingWhere(
         : sql`instr(lower(${haystack}), ${sql.placeholder('text')}) > 0`,
     )
   }
+  if (shape.after) {
+    if (shape.order !== 'priority-seq') throw new Error('A keyset page is in priority-seq order')
+    // The row value compares in the listing's own order, every key ascending.
+    where.push(
+      sql`(${t.issues.priority}, ${t.issues.seq}, ${t.issues.repoPath}, ${t.issues.id}) > (${sql.placeholder('afterPriority')}, ${sql.placeholder('afterSeq')}, ${sql.placeholder('afterPath')}, ${sql.placeholder('afterId')})`,
+    )
+  }
   return inWorkspace(t.issues, ...where)
 }
 
@@ -265,13 +279,23 @@ function listingOrder(t: StoreTables, shape: IssueListingShape, dialect: StoreDi
 export const issueListing = preparedFamily((db, t, key: string) => {
   const shape = parseListingKey(key)
   const dialect = dialectOf(db)
-  return db
+  const listing = db
     .select()
     .from(t.issues)
     .where(listingWhere(t, shape, dialect))
     .orderBy(...listingOrder(t, shape, dialect))
-    .prepare()
+    .$dynamic()
+  if (shape.limit) listing.limit(sql.placeholder('limit'))
+  return listing.prepare()
 })
+
+/** Where a `priority-seq` page ends: the last row's ordering keys. */
+export interface IssueListingKeyset {
+  priority: number
+  seq: number
+  repoPath: string
+  id: string
+}
 
 /** The values a listing of this shape binds. */
 export interface IssueListingInput {
@@ -288,6 +312,10 @@ export interface IssueListingInput {
   label?: string
   /** Already lowercased ASCII. */
   text?: string
+  /** For `after`: the previous page's last row. */
+  after?: IssueListingKeyset
+  /** For `limit`. */
+  limit?: number
 }
 
 export function listingValues(
@@ -303,6 +331,13 @@ export function listingValues(
   for (const key of ['stage', 'priority', 'type', 'assignee', 'parent', 'label', 'text'] as const) {
     if (shape[key]) values[key] = input[key]
   }
+  if (shape.after) {
+    values.afterPriority = input.after?.priority
+    values.afterSeq = input.after?.seq
+    values.afterPath = input.after?.repoPath
+    values.afterId = input.after?.id
+  }
+  if (shape.limit) values.limit = input.limit
   return values
 }
 

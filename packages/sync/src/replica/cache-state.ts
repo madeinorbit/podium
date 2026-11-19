@@ -378,6 +378,10 @@ export function nextCacheMeta(
           next.clear()
           writes.push({ kind: 'deleteInstances' })
           break
+        case 'stale':
+        case 'pruning':
+          // The marker stays as it was; the stale and indexed flags are the disk index's.
+          break
         case 'release': {
           const held = next.get(op.key)
           if (held === undefined) break
@@ -443,8 +447,7 @@ const isPolicy = (value: unknown): value is CachePolicy => {
     typeof row === 'object' &&
     typeof row.clientType === 'string' &&
     Array.isArray(row.steps) &&
-    typeof row.recentDays === 'number' &&
-    typeof row.cacheCap === 'number'
+    typeof row.recentDays === 'number'
   )
 }
 
@@ -467,9 +470,11 @@ export function decodeCacheMeta(
     else if (key === LOADING_SINCE_META_KEY)
       loadingSince = typeof value === 'number' && Number.isSafeInteger(value) ? value : 0
     else if (key.startsWith(INSTANCE_META_PREFIX) && isInstance(value)) {
-      instances.set(value.key, value)
-      if (isListed(value)) listed.set(value.key, value)
-      else listed.delete(value.key)
+      // POD-7159: the instance's disk-index state rides beside the marker (`_s`).
+      const { _s: _state, ...marker } = value as InstanceRecord & { readonly _s?: unknown }
+      instances.set(marker.key, marker)
+      if (isListed(marker)) listed.set(marker.key, marker)
+      else listed.delete(marker.key)
     }
   }
   listedOfPlain.set(instances, listed)

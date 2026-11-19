@@ -3,6 +3,7 @@ import type { OutboxStorePort } from '@podium/sync/outbox'
 import {
   CollectionLoader,
   Replica as KernelReplica,
+  type MemorySignals,
   type ReplicaCacheStore,
   type SyncUnitOfWork,
 } from '@podium/sync/replica'
@@ -97,6 +98,11 @@ export interface OpenReplicaAssemblyOptions<T extends ReplicaDataStore> {
   readonly createProgress?: (now: () => number) => SyncProgressStore
   /** Absent: chats keep no history on the device and read the server. */
   readonly transcripts?: TranscriptDatabases
+  /**
+   * When memory may let go of the screens left (POD-7161): the platform's idle
+   * moments, background and memory warnings. Absent, nothing leaves memory.
+   */
+  readonly memorySignals?: MemorySignals
 }
 
 export interface ReplicaAssembly<T extends ReplicaDataStore = ReplicaDataStore> {
@@ -358,11 +364,17 @@ export async function openReplicaAssembly<T extends ReplicaDataStore>(
             .catch((error: unknown) => options.onDegraded?.(error))
         }
       },
-      batchEvents: (emitAll) => facade.batch(emitAll),
+      // One burst, one notification of each kind: the facade's rows, then the
+      // loader's markers and stubs, each once per burst (POD-7165).
+      batchEvents: (emitAll) =>
+        loader === undefined ? facade.batch(emitAll) : loader.batch(() => facade.batch(emitAll)),
       // The one loader (POD-7087): the visible view rides in the first
       // download, and what held records come with shares its window.
       view: () => loader?.takeView() ?? [],
       request: (specs) => loader?.request(specs),
+      ...(options.memorySignals === undefined
+        ? {}
+        : { memory: { signals: options.memorySignals } }),
     })
     kernel = replicaKernel
     loader = new CollectionLoader({ replica: replicaKernel })
@@ -413,6 +425,7 @@ export async function openReplicaAssembly<T extends ReplicaDataStore>(
     const stop = (): void => {
       stopped = true
       replicaKernel.disconnect()
+      replicaKernel.stopMemory()
       side?.dispose()
       loader?.dispose()
       cancelSweep?.()
@@ -464,6 +477,7 @@ export async function openReplicaAssembly<T extends ReplicaDataStore>(
     }
   } catch (error) {
     kernel?.disconnect()
+    kernel?.stopMemory()
     side?.dispose()
     transcriptCache?.dispose()
     transcriptStore?.close()

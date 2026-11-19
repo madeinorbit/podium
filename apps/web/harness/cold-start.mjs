@@ -233,7 +233,7 @@ async function bindContext(context) {
     const markedKeys=new Set(prepared.body.trim().split('\n').map(x=>JSON.parse(x)).filter(x=>x.type==='collectionComplete').flatMap(x=>x.instances).map(m=>diagInstanceKey({...m,part:m.part??'main'})))
     const unmarked=request.instances.filter(x=>!markedKeys.has(diagInstanceKey({...x,part:x.part??'main'})))
     const serverMarked=records.filter(x=>x.type==='collectionComplete').flatMap(x=>x.instances).length
-    result.collectionFetches??=[];result.collectionFetches.push({markers:markedKeys.size,serverMarkers:serverMarked,unmarked:unmarked.length,unmarkedSample:unmarked.slice(0,5),beganAt:new Date(Date.now()-(performance.now()-began)).toISOString(),collections:[...new Set(request.instances.map(x=>x.collection))],instances:request.instances.length,rows:prepared.count,fixtureMs,elapsedMs:performance.now()-began,at:new Date().toISOString()});save()
+    result.collectionFetches??=[];result.collectionFetches.push({specs:request.instances,markers:markedKeys.size,serverMarkers:serverMarked,unmarked:unmarked.length,unmarkedSample:unmarked.slice(0,5),beganAt:new Date(Date.now()-(performance.now()-began)).toISOString(),collections:[...new Set(request.instances.map(x=>x.collection))],instances:request.instances.length,rows:prepared.count,fixtureMs,elapsedMs:performance.now()-began,at:new Date().toISOString()});save()
   })
   await context.route('**/sync/bootstrap*',async route=>{
     const headersIn=await route.request().allHeaders()
@@ -334,6 +334,9 @@ async function makePage() {
     // POD-7122 diagnosis: every readwrite IndexedDB transaction, its request
     // count and its completion, on the page's clock (one counter per request).
     window.__idbTimeline=[]
+    // POD-7170: every long main-thread task, for the first download's write window.
+    window.__longTasks=[]
+    try{new PerformanceObserver(list=>{for(const e of list.getEntries())window.__longTasks.push({startMs:e.startTime,ms:e.duration})}).observe({type:'longtask',buffered:true})}catch{}
     const nativeTransaction=IDBDatabase.prototype.transaction
     IDBDatabase.prototype.transaction=function(names,mode,options){
       const tx=nativeTransaction.call(this,names,mode,options)
@@ -353,6 +356,9 @@ async function makePage() {
           entry.requests++
           const by=(entry.byStore??={})[this.name]??={requests:0,sampled:0,bytes:0}
           by.requests++
+          entry.firstPutMs??=performance.now();entry.lastPutMs=performance.now()
+          // The load's durable commit is the one that deletes its 'loading-since'.
+          if(method==='delete'&&this.name==='meta'&&Array.isArray(args[0])&&args[0][1]==='loading-since')entry.loadDone=true
           if(method!=='delete'&&by.requests%25===1){try{by.bytes+=JSON.stringify(args[0]).length;by.sampled++}catch{}}
         }
         return native.apply(this,args)
@@ -439,13 +445,24 @@ async function population(page) {
   const seen=await durable(page)
   const action=result.actions.at(-1)
   if(action){action.durableAtMs=seen.durableAtMs;action.durableAfterPaintMs=seen.durableAtMs-action.inputToPaintMs}
+  if(pendingProfile){const {cdp,stem}=pendingProfile;pendingProfile=null;writeFileSync(resolve(out,`${stem}.durable.cpuprofile`),JSON.stringify((await cdp.send('Profiler.stop')).profile))}
+  // POD-7170: the whole first download's writes, read once it is durable.
+  if(action)Object.assign(action,await page.evaluate(()=>({settledIdb:window.__idbTimeline??[],settledSync:window.__syncTimeline??[],longTasks:window.__longTasks??[]})))
   const counts=await page.evaluate(async()=>{
     const counts={}
     for(const info of await indexedDB.databases()) {
       const db=await new Promise((yes,no)=>{const request=indexedDB.open(info.name);request.onsuccess=()=>yes(request.result);request.onerror=()=>no(request.error)})
+      // POD-7170: a stub-level record lives in its disk-index entry only; count
+      // each record once, from its entity row or its index entry.
+      const seen=new Set()
+      const count=(entity,id)=>{const key=entity+'\0'+id;if(seen.has(key))return;seen.add(key);counts[entity]=(counts[entity]??0)+1}
       if(db.objectStoreNames.contains('entities'))await new Promise((yes,no)=>{
         const request=db.transaction('entities','readonly').objectStore('entities').getAll()
-        request.onsuccess=()=>{for(const row of request.result)counts[row.entity]=(counts[row.entity]??0)+1;yes()};request.onerror=()=>no(request.error)
+        request.onsuccess=()=>{for(const row of request.result)count(row.entity,row.entityId);yes()};request.onerror=()=>no(request.error)
+      })
+      if(db.objectStoreNames.contains('disk-index'))await new Promise((yes,no)=>{
+        const request=db.transaction('disk-index','readonly').objectStore('disk-index').getAll()
+        request.onsuccess=()=>{for(const row of request.result)for(const key of Array.isArray(row.v?.k)?row.v.k:[]){const at=key.indexOf('\0');count(key.slice(0,at),key.slice(at+1))};yes()};request.onerror=()=>no(request.error)
       })
       db.close()
     }
@@ -505,15 +522,19 @@ async function memoryAfterColdStart(fixture,timeline) {
   return memory
 }
 let recordIndex=0
+let pendingProfile=null
 async function startup(fixture,name,profile=false) {
   const stop=await trace(fixture.cdp), before=await metrics(fixture.cdp), load=loadavg(), began=new Date().toISOString()
   if(profile){await fixture.cdp.send('Profiler.enable');await fixture.cdp.send('Profiler.setSamplingInterval',{interval:100});await fixture.cdp.send('Profiler.start')}
   await fixture.page.goto(url(),{waitUntil:'domcontentloaded',timeout:120000});await ready(fixture.page,{firstRow:true})
-  const cpu=profile?(await fixture.cdp.send('Profiler.stop')).profile:null
+  // POD-7170: --profile-durable keeps the profiler on until the first download is durable.
+  const throughDurable=profile&&process.argv.includes('--profile-durable')
+  const cpu=profile&&!throughDurable?(await fixture.cdp.send('Profiler.stop')).profile:null
   const events=await stop(), after=await metrics(fixture.cdp)
   const stem=`${name}-${recordIndex++}`
   writeFileSync(resolve(out,`${stem}.trace.json.gz`),gzipSync(JSON.stringify(events)))
   if(cpu)writeFileSync(resolve(out,`${stem}.cpuprofile`),JSON.stringify(cpu))
+  if(throughDurable)pendingProfile={cdp:fixture.cdp,stem}
   result.startupMarks??=[]
   result.startupMarks.push({name,marks:events.filter(e=>e.name.startsWith('comparison:')).map(e=>({name:e.name,ph:e.ph,ts:e.ts,pid:e.pid}))});save()
   const measured=paintOf(events,'comparison:navigation-start','comparison:startup-dom')
@@ -533,52 +554,202 @@ async function startup(fixture,name,profile=false) {
   save(); console.log(`${name}: ${measured.inputToPaintMs.toFixed(1)} ms${profile?' (profile, excluded)':''}`)
 }
 async function firstDeck(fixture, tree) {
-  const {page,cdp}=fixture
-  if(surface==='phone') {
-    const search=page.getByRole('textbox',{name:'Search work',exact:true})
-    if(!await search.isVisible())await page.getByLabel('Search work',{exact:true}).click()
+  const { page, cdp } = fixture
+  const children = tree.ids
+    .filter((id) => id !== tree.root)
+    .map((id) => issuesById.get(id))
+    .filter(Boolean)
+    .map((issue) => ({ id: issue.id, title: issue.title }))
+  if (!children.length) throw Error(`Measurement tree ${tree.size} has no child`)
+  if (surface === 'phone') {
+    const search = page.getByRole('textbox', { name: 'Search work', exact: true })
+    if (!(await search.isVisible())) await page.getByLabel('Search work', { exact: true }).click()
     await search.fill(tree.title)
-    await page.getByText(tree.title,{exact:true}).first().waitFor()
+    await page.getByText(tree.title, { exact: true }).first().waitFor()
   }
-  if(surface!=='phone') {
+  if (surface !== 'phone') {
     await page.getByTestId('topbar-nav-issues').click()
-    const row=page.locator(`aside [data-issue-row="${tree.root}"]`).first()
-    if(!await row.count()) {
-      // Fixture roots sort first in their project; expanding a collapsed
-      // project is preparation, outside the measured input window.
-      const issue=issuesById.get(tree.root)
-      const group=page.getByTestId('project-group').filter({has:page.getByTestId('project-group-label').filter({hasText:issue.repoPath.split('/').at(-1)})}).first()
-      if(await group.getAttribute('data-collapsed')==='true')await group.getByTestId('project-group-label').click()
+    const row = page.locator(`aside [data-issue-row="${tree.root}"]`).first()
+    if (!(await row.count())) {
+      const issue = issuesById.get(tree.root)
+      const group = page
+        .getByTestId('project-group')
+        .filter({
+          has: page
+            .getByTestId('project-group-label')
+            .filter({ hasText: issue.repoPath.split('/').at(-1) }),
+        })
+        .first()
+      if ((await group.getAttribute('data-collapsed')) === 'true')
+        await group.getByTestId('project-group-label').click()
     }
     await row.scrollIntoViewIfNeeded()
   }
-  const stop=await trace(cdp), before=await metrics(cdp)
-  await page.evaluate(({title,phone})=>{
-    window.__deckReady=false
-    const ready=()=>phone
-      ? !!document.querySelector('[aria-label="Mission actions"]')&&document.body.innerText.includes(title)
-      : [...document.querySelectorAll('.deck-header')].some(header=>header.textContent?.includes(title)&&header.getBoundingClientRect().width>0&&!header.closest('[aria-hidden="true"]'))&&!!document.querySelector('[data-testid="flight-deck-scroller"] [data-flight-issue]')
-    const observer=new MutationObserver(()=>{
-      if(!window.__deckReady&&ready()) {window.__deckReady=true;performance.mark('comparison:deck-dom');observer.disconnect()}
-    })
-    observer.observe(document,{subtree:true,childList:true,attributes:true,characterData:true})
-    performance.mark('comparison:deck-input')
-  },{title:tree.title,phone:surface==='phone'})
-  if(surface==='phone')await page.getByText(tree.title,{exact:true}).first().click()
-  else await page.locator(`aside [data-issue-row="${tree.root}"]`).first().click()
-  if(surface!=='phone') {
+  const treeRequests = () =>
+    (result.collectionFetches ?? [])
+      .flatMap((fetch) => fetch.specs ?? [])
+      .filter((spec) => spec.collection === 'issueProjection.tree' && spec.args?.root === tree.root)
+  if (treeRequests().length) throw Error(`Measurement tree ${tree.size} was fetched before opening`)
+  const fetchOffset = (result.collectionFetches ?? []).length
+  const stop = await trace(cdp),
+    before = await metrics(cdp)
+  await page.evaluate(
+    ({ title, children, phone }) => {
+      window.__deckReady = false
+      window.__deckVisibleChild = null
+      const childIds = new Set(children.map((child) => child.id)),
+        childTitles = new Map(children.map((child) => [child.title, child.id]))
+      const visible = (element, row = false) => {
+        if (!element || element.closest('[aria-hidden="true"]')) return false
+        const rect = element.getBoundingClientRect()
+        if (
+          !(
+            rect.width > 0 &&
+            rect.height > 0 &&
+            rect.top >= 0 &&
+            rect.bottom <= innerHeight &&
+            rect.left >= 0 &&
+            rect.right <= innerWidth
+          )
+        )
+          return false
+        if (row) {
+          const top = document.elementFromPoint(
+            rect.left + rect.width / 2,
+            rect.top + rect.height / 2,
+          )
+          if (!top || !element.contains(top)) return false
+        }
+        return true
+      }
+      const ready = () => {
+        if (phone) {
+          if (
+            !location.pathname.endsWith('/details') ||
+            !visible(
+              document.querySelector(
+                '[aria-label="Fold every branch"],[aria-label="Expand every branch"]',
+              ),
+            )
+          )
+            return false
+          return [...document.querySelectorAll('[role="button"][aria-label]')].some((element) => {
+            const label = element.getAttribute('aria-label'),
+              childId = childTitles.get(label.slice(label.indexOf(' ') + 1).split(', ')[0])
+            if (!childId || !visible(element, true)) return false
+            window.__deckVisibleChild = childId
+            return true
+          })
+        }
+        if (
+          ![...document.querySelectorAll('.deck-header')].some(
+            (header) => header.textContent?.includes(title) && visible(header),
+          )
+        )
+          return false
+        return [
+          ...document.querySelectorAll('[data-testid="flight-deck-scroller"] [data-flight-issue]'),
+        ].some((element) => {
+          const childId = element.getAttribute('data-flight-issue')
+          if (!childIds.has(childId) || !visible(element, true)) return false
+          window.__deckVisibleChild = childId
+          return true
+        })
+      }
+      const observer = new MutationObserver(() => {
+        if (!window.__deckReady && ready()) {
+          window.__deckReady = true
+          performance.mark('comparison:deck-dom')
+          observer.disconnect()
+        }
+      })
+      observer.observe(document, {
+        subtree: true,
+        childList: true,
+        attributes: true,
+        characterData: true,
+      })
+      window.__deckInputTime = performance.now()
+      performance.mark('comparison:deck-input')
+    },
+    { title: tree.title, children, phone: surface === 'phone' },
+  )
+  if (surface === 'phone') {
+    await page.getByText(tree.title, { exact: true }).first().click()
+    await page.getByRole('button', { name: /^Mission details,/ }).click()
+  } else {
+    await page.locator(`aside [data-issue-row="${tree.root}"]`).first().click()
     await frames(page)
-    const open=page.getByRole('button',{name:'Open flight deck',exact:true})
-    if(await open.isVisible())await open.click()
+    const open = page.getByRole('button', { name: 'Open flight deck', exact: true })
+    // Selecting a root can mount its collapsed deck after the click's first
+    // frame. Wait for its control (or the already expanded target header)
+    // before deciding whether to expand it.
+    await page.waitForFunction(
+      (title) => {
+        const visible = (element) => {
+          if (!element || element.closest('[aria-hidden="true"]')) return false
+          const rect = element.getBoundingClientRect()
+          return rect.width > 0 && rect.height > 0
+        }
+        return (
+          [...document.querySelectorAll('button[aria-label="Open flight deck"]')].some(visible) ||
+          [...document.querySelectorAll('.deck-header')].some(
+            (header) => header.textContent?.includes(title) && visible(header),
+          )
+        )
+      },
+      tree.title,
+      { timeout: 60000 },
+    )
+    if (await open.isVisible()) await open.click()
   }
-  await page.waitForFunction(()=>window.__deckReady,undefined,{timeout:120000})
+  await page.waitForFunction(() => window.__deckReady, undefined, { timeout: 60000 })
   await frames(page)
-  const events=await stop(), after=await metrics(cdp), measured=paintOf(events,'comparison:deck-input','comparison:deck-dom')
-  const traceName=`deck-${tree.size}.trace.json.gz`
-  writeFileSync(resolve(out,traceName),gzipSync(JSON.stringify(events)))
-  result.decks??=[];result.decks.push({size:tree.size,root:tree.root,...measured,mainThreadMs:(after.TaskDuration-before.TaskDuration)*1000,trace:traceName})
+  const events = await stop(),
+    after = await metrics(cdp),
+    measured = paintOf(events, 'comparison:deck-input', 'comparison:deck-dom')
+  const collectionResources = await page.evaluate(
+    (duration) =>
+      performance
+        .getEntriesByType('resource')
+        .filter(
+          (entry) =>
+            entry.name.includes('/sync/collections') &&
+            entry.startTime >= window.__deckInputTime &&
+            entry.startTime < window.__deckInputTime + duration,
+        )
+        .map((entry) => ({
+          startMs: entry.startTime - window.__deckInputTime,
+          durationMs: entry.duration,
+        })),
+    measured.inputToPaintMs,
+  )
+  const targetChild = await page.evaluate(() => window.__deckVisibleChild)
+  if (collectionFixture && !treeRequests().length)
+    throw Error(`Measurement tree ${tree.size} did not fetch on opening`)
+  const screenshotName = `deck-${tree.size}.png`
+  await page.screenshot({ path: resolve(out, screenshotName) })
+  const traceName = `deck-${tree.size}.trace.json.gz`
+  writeFileSync(resolve(out, traceName), gzipSync(JSON.stringify(events)))
+  result.decks ??= []
+  result.decks.push({
+    size: tree.size,
+    root: tree.root,
+    targetChild,
+    boundary: surface === 'phone' ? 'mission-details-deck' : 'expanded-flight-deck',
+    treeRequested: treeRequests().length > 0,
+    screenshot: screenshotName,
+    collectionReplies: (result.collectionFetches ?? []).slice(fetchOffset),
+    ...measured,
+    mainThreadMs: (after.TaskDuration - before.TaskDuration) * 1000,
+    collectionResources,
+    trace: traceName,
+  })
   save()
-  if(surface==='phone')await page.goBack()
+  if (surface === 'phone') {
+    await page.goBack()
+    await page.goBack()
+  }
 }
 try {
   for(let i=0;i<180;i++) { if(server.exitCode!==null) throw Error(`Harness exited ${server.exitCode}: ${serverLog.toString().slice(-2000)}`);try{if((await fetch(`${base}/health`)).ok)break}catch{};await pause(500) }

@@ -42,6 +42,7 @@ import type {
 } from '../../conformance/instantiation'
 import type { OutboxApplyResult, OutboxStoreMutation, OutboxStorePort } from '../../outbox/ports'
 import type { OutboxRecord } from '../../outbox/records'
+import type { DiskIndexReader } from '../../replica/disk-index'
 import type { CacheMutation, ReplicaCacheStore, SnapshotVersions } from '../../replica/ports'
 import type { StubTableReader } from '../../replica/stub-table'
 import type {
@@ -93,6 +94,24 @@ class GatedCache implements ReplicaCacheStore {
   }
   readStubTable(entity: string): StubTableReader | undefined {
     return this.inner.readStubTable(entity)
+  }
+  readDiskIndex(): DiskIndexReader {
+    return this.inner.readDiskIndex()
+  }
+  readDiskRows(keys: readonly string[]): Promise<readonly EntityRecord[]> {
+    return this.inner.readDiskRows(keys)
+  }
+  installResident(rows: readonly EntityRecord[]): readonly EntityRecord[] {
+    return this.inner.installResident(rows)
+  }
+  markInMemory(instanceKeys: readonly string[]): void {
+    this.inner.markInMemory(instanceKeys)
+  }
+  unload(instanceKeys: readonly string[]): readonly Pick<EntityRecord, 'entity' | 'entityId'>[] {
+    return this.inner.unload(instanceKeys)
+  }
+  touchInstance(instanceKey: string, at: number): void {
+    this.inner.touchInstance(instanceKey, at)
   }
   beginSpan(): OwnedSyncSpan {
     return this.inner.beginSpan()

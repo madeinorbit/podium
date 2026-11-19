@@ -1,6 +1,4 @@
-import type { Trpc } from '@/app/trpc'
-import { useRequestClient, useCommands } from '@podium/client-core/react'
-import { useUiValue } from '@podium/client-core/react'
+import { useCommands, useRequestClient, useUiValue } from '@podium/client-core/react'
 import {
   activeFilterCount,
   assigneeFacet,
@@ -16,7 +14,6 @@ import {
 import { Plus } from 'lucide-react'
 import type { JSX, MouseEvent as ReactMouseEvent } from 'react'
 import {
-  lazy,
   memo,
   Suspense,
   useCallback,
@@ -26,12 +23,15 @@ import {
   useRef,
   useState,
 } from 'react'
-import { type IssueViewModel } from '@/app/store'
+import type { IssueViewModel } from '@/app/store'
 import { ToolbarSlot } from '@/app/ToolbarSlot'
+import type { Trpc } from '@/app/trpc'
+import { ScreenRefreshMark } from '@/components/ScreenRefreshMark'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { throughRestarts } from '@/lib/chunk-recovery'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
+import { lazy } from '@/lib/lazy-surface'
 import { useMemberRoster } from '@/lib/member-roster'
 import { usePersistedUiState } from '@/lib/use-persisted-ui-state'
 import { BoardShortcutSheet } from './BoardShortcutSheet'
@@ -41,6 +41,7 @@ import {
   useBoardData,
   useBoardMenu,
   useBoardOpenIds,
+  useBoardRefreshing,
 } from './board-pool-data'
 import { useBoardAddressed, useBoardCloseGuard, useBoardIssueReader } from './board-pool-row'
 import { boardKeyAction } from './board-shortcuts'
@@ -67,8 +68,8 @@ import { useIssuesFilters, useMemberScope } from './issues-filters-state'
 import { type IssuesKeyAction, type IssuesKeyState, issuesKeyReduce } from './issues-keys'
 import type { IssuesDisplayPatch } from './issues-view-model'
 import { NewIssueDialog } from './NewIssueDialog'
-import { useLabelPool } from './use-label-pool'
 import { PoolIssuePage } from './pool-issue-page'
+import { useLabelPool } from './use-label-pool'
 
 const IssueContextMenu = lazy(() =>
   throughRestarts(() => import('./IssueContextMenu')).then((module) => ({
@@ -187,6 +188,7 @@ export function IssuesView(): JSX.Element {
     [display.layout, display.ordering, showAgentTasks, deferredFilter, expanded, isMobile],
   )
   const { view } = useBoardData(options)
+  const refreshing = useBoardRefreshing(options)
   const catalog = useBoardCatalog(projectMenuOpen, showAgentTasks)
   const labelPool = useLabelPool(propMenu?.kind === 'l', () => trpc.issues.labelList.query({}))
   const menuInputs = useBoardMenu(ctxMenu?.ids, showAgentTasks)
@@ -437,6 +439,7 @@ export function IssuesView(): JSX.Element {
           and an H1 restating the mode tab. The board keeps the vertical budget. */}
       <ToolbarSlot>
         <div className="topbar-tools" data-testid="tasks-toolbar">
+          <ScreenRefreshMark refreshing={refreshing} />
           <Input
             value={filter.text ?? ''}
             onChange={(event) => setFilter({ ...filter, text: event.target.value || undefined })}

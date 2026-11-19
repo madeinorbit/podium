@@ -9,6 +9,7 @@ import type { MutationId } from '@podium/model'
 import { actorUser, asUserId } from '@podium/model'
 import { IDBKeyRange } from 'fake-indexeddb'
 import { beforeEach, describe, expect, it } from 'vitest'
+import { policyBudgets } from '../../conformance/test-budgets'
 import type { OutboxRecord } from '../../outbox/records'
 import { INSTANCE_META_PREFIX, instanceKey } from '../../replica/cache-state'
 import type { Cursor } from '../../replica/types'
@@ -17,13 +18,14 @@ import { indexedDbInstantiation } from './conformance'
 import { type IdbFactoryLike, type IdbOpenRequestLike, requestAsPromise } from './idb'
 import {
   ENTITY_STORE,
+  INDEX_STORE,
   META_STORE,
   OUTBOX_STORE,
   REPLICA_DB_NAME,
   REPLICA_SCHEMA_VERSION,
 } from './schema'
 import { type DurabilityDegradation, IndexedDbSyncStore } from './store'
-import { freshFactory, readDurable } from './test-support'
+import { FaultyIdbFactory, freshFactory, readDurable } from './test-support'
 
 const PRINCIPAL = asUserId('ada')
 const CURSOR: Cursor = { feedId: 'feed', epoch: 'e1', seq: 1 }
@@ -97,7 +99,7 @@ describe('IndexedDbSyncStore', () => {
       ),
     )
     store.close()
-    const db = await requestAsPromise(factory.open(REPLICA_DB_NAME, 1))
+    const db = await requestAsPromise(factory.open(REPLICA_DB_NAME, REPLICA_SCHEMA_VERSION))
     try {
       const tx = db.transaction([META_STORE], 'readwrite')
       const complete = new Promise<void>((resolve, reject) => {
@@ -125,7 +127,7 @@ describe('IndexedDbSyncStore', () => {
 
   it('stores markers, the policy, the load state and stub rows durably; erasing drops them', async () => {
     const store = await open()
-    const policy = { clientType: 'browser', steps: [], recentDays: 30, cacheCap: 10 }
+    const policy = { clientType: 'browser', steps: [], recentDays: 30, ...policyBudgets() }
     await store.unitOfWork.transact(async (span) =>
       store.viewFor(PRINCIPAL).cache.applyAtomic(
         {
@@ -593,5 +595,179 @@ describe('IndexedDbSyncStore', () => {
     expect(rows.map((r) => r.mutationId)).toEqual(['m-guard'])
     expect(view.cache.read('issueProjection', 'ADA-1')?.value).toEqual({ v: 0 })
     expect(indexedDbInstantiation.name).toBe('indexeddb')
+  })
+})
+
+describe('POD-7170: the first download writes few, small transactions', () => {
+  // Newest wins per record, so each later write carries a later feed number.
+  const upsert = (entityId: string, title: string, part?: 'stub', seq = 2) => ({
+    kind: 'upsert' as const,
+    entity: 'issueProjection',
+    entityId,
+    value: { id: entityId, title, stage: 'in_progress' },
+    provenance: { seq },
+    asOf: seq,
+    ...(part === undefined ? {} : { part }),
+  })
+  const openOn = async (factory: IdbFactoryLike) =>
+    await IndexedDbSyncStore.open({ factory, databaseName: REPLICA_DB_NAME, onDegraded: () => {} })
+  const writes = (factory: FaultyIdbFactory) =>
+    factory.transactions.filter((tx) => tx.mode === 'readwrite').length
+
+  it('eager writes queued together commit as ONE transaction, each key in its last state', async () => {
+    const factory = new FaultyIdbFactory(freshFactory())
+    const store = await openOn(factory)
+    const cache = store.viewFor(PRINCIPAL).cache
+    const before = writes(factory)
+    // A first download installs its chunks one after another, faster than they commit.
+    cache.applyAtomic({ operations: [upsert('A', 'one')], cursor: CURSOR })
+    cache.applyAtomic({ operations: [upsert('A', 'two', undefined, 3), upsert('B', 'b')] })
+    cache.applyAtomic({ operations: [upsert('C', 'c')] })
+    await store.settled()
+    expect(writes(factory) - before).toBe(1)
+    const durable = (await readDurable(factory))[ENTITY_STORE] as {
+      entityId: string
+      value: { title: string }
+    }[]
+    expect(durable.map((row) => [row.entityId, row.value.title])).toEqual([
+      ['A', 'two'],
+      ['B', 'b'],
+      ['C', 'c'],
+    ])
+    store.close()
+    const reopened = await openOn(factory)
+    const read = reopened.viewFor(PRINCIPAL).cache
+    expect(read.readCursor()).toEqual(CURSOR)
+    expect(read.readDiskIndex().recordCount).toBe(3)
+    reopened.close()
+  })
+
+  it('POD-7184: a group stays within its bounds; the drafts past them commit as the next groups, in order', async () => {
+    const factory = new FaultyIdbFactory(freshFactory())
+    // A row of about 10 KB: two drafts fit in a group of 25 KB, three do not.
+    const big = (entityId: string, seq = 2) => ({
+      ...upsert(entityId, 'x'.repeat(10_000), undefined, seq),
+    })
+    const store = await IndexedDbSyncStore.open({
+      factory,
+      databaseName: REPLICA_DB_NAME,
+      onDegraded: () => {},
+      groupCommitBounds: { ops: 1_000, bytes: 25_000 },
+    })
+    const cache = store.viewFor(PRINCIPAL).cache
+    const before = writes(factory)
+    cache.applyAtomic({ operations: [big('A')], cursor: CURSOR })
+    for (const id of ['B', 'C', 'D', 'E']) cache.applyAtomic({ operations: [big(id)] })
+    cache.applyAtomic({ operations: [big('A', 3)] })
+    await store.settled()
+    // [A B] [C D] [E A]: never more than the bound, never a draft split.
+    expect(writes(factory) - before).toBe(3)
+    const durable = (await readDurable(factory))[ENTITY_STORE] as {
+      entityId: string
+      provenance: { seq: number }
+    }[]
+    expect(durable.map((row) => [row.entityId, row.provenance.seq])).toEqual([
+      ['A', 3],
+      ['B', 2],
+      ['C', 2],
+      ['D', 2],
+      ['E', 2],
+    ])
+    store.close()
+    const reopened = await openOn(factory)
+    expect(reopened.viewFor(PRINCIPAL).cache.readDiskIndex().recordCount).toBe(5)
+    reopened.close()
+
+    // The request bound alone splits the same way.
+    const counted = new FaultyIdbFactory(freshFactory())
+    const byOps = await IndexedDbSyncStore.open({
+      factory: counted,
+      databaseName: REPLICA_DB_NAME,
+      onDegraded: () => {},
+      groupCommitBounds: { ops: 1, bytes: Number.POSITIVE_INFINITY },
+    })
+    const start = writes(counted)
+    for (const id of ['A', 'B', 'C'])
+      byOps.viewFor(PRINCIPAL).cache.applyAtomic({ operations: [upsert(id, id)] })
+    await byOps.settled()
+    expect(writes(counted) - start).toBe(3)
+    byOps.close()
+  })
+
+  it('a span committed between eager writes keeps its place: the later write wins', async () => {
+    const factory = new FaultyIdbFactory(freshFactory())
+    const store = await openOn(factory)
+    const cache = store.viewFor(PRINCIPAL).cache
+    const before = writes(factory)
+    cache.applyAtomic({ operations: [upsert('A', 'eager first')], cursor: CURSOR })
+    const span = cache.beginSpan()
+    cache.applyAtomic({ operations: [upsert('A', 'in a span', undefined, 3)] }, span)
+    span.commit()
+    cache.applyAtomic({ operations: [upsert('A', 'eager last', undefined, 4)] })
+    await store.settled()
+    expect(writes(factory) - before).toBe(3)
+    const durable = (await readDurable(factory))[ENTITY_STORE] as { value: { title: string } }[]
+    expect(durable.map((row) => row.value.title)).toEqual(['eager last'])
+    store.close()
+  })
+
+  it('a stub-level record has no entity row; it reads back from the index, and a whole record taken back to its stub drops its row', async () => {
+    const factory = new FaultyIdbFactory(freshFactory())
+    const store = await openOn(factory)
+    const cache = store.viewFor(PRINCIPAL).cache
+    cache.applyAtomic({
+      operations: [upsert('S', 'stub only', 'stub'), upsert('W', 'whole')],
+      cursor: CURSOR,
+    })
+    await store.settled()
+    const ids = async () =>
+      ((await readDurable(factory))[ENTITY_STORE] as { entityId: string }[]).map(
+        (row) => row.entityId,
+      )
+    expect(await ids()).toEqual(['W'])
+    cache.applyAtomic({
+      operations: [{ ...upsert('W', 'whole', 'stub'), provenance: { seq: 3 }, asOf: 3 }],
+    })
+    await store.settled()
+    expect(await ids()).toEqual([])
+    store.close()
+    const reopened = await openOn(factory)
+    const read = reopened.viewFor(PRINCIPAL).cache
+    expect(read.readRow('issueProjection', 'S')).toMatchObject({
+      part: 'stub',
+      value: { title: 'stub only' },
+    })
+    expect(read.readRow('issueProjection', 'W')).toMatchObject({ part: 'stub', asOf: 3 })
+    reopened.close()
+  })
+
+  it('a store whose stubs live in an unreadable index starts its cache cold and keeps its outbox', async () => {
+    const factory = new FaultyIdbFactory(freshFactory())
+    const store = await openOn(factory)
+    store.viewFor(PRINCIPAL).cache.applyAtomic({
+      operations: [upsert('S', 'stub only', 'stub')],
+      cursor: CURSOR,
+    })
+    await store.settled()
+    await store.viewFor(PRINCIPAL).outbox.apply({
+      put: [record('m-1')],
+      expect: [{ mutationId: 'm-1' as MutationId, expect: 'absent' }],
+    })
+    store.close()
+    const request = factory.open(REPLICA_DB_NAME, REPLICA_SCHEMA_VERSION)
+    const db = await requestAsPromise(request as IdbOpenRequestLike)
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction([INDEX_STORE], 'readwrite')
+      tx.objectStore(INDEX_STORE).put({ principal: PRINCIPAL, key: 'unreadable', v: 42 })
+      tx.oncomplete = () => resolve()
+      tx.onerror = () => reject(tx.error)
+    })
+    db.close()
+    const reopened = await openOn(factory)
+    const view = reopened.viewFor(PRINCIPAL)
+    expect(view.cache.readCursor()).toBeNull()
+    expect(view.cache.readStubs()).toEqual([])
+    expect((await view.outbox.read()).map((row) => row.mutationId)).toEqual(['m-1'])
+    reopened.close()
   })
 })

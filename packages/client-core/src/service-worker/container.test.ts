@@ -1,5 +1,6 @@
+// @vitest-environment happy-dom
 import { afterEach, describe, expect, it } from 'vitest'
-import { serviceWorkerAvailability, serviceWorkerContainer } from './sw-container'
+import { serviceWorkerAvailability, serviceWorkerContainer } from './container'
 
 /**
  * The accessor exists for ONE case that `typeof navigator === 'undefined'` does

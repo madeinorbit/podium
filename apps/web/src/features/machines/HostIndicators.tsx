@@ -5,11 +5,11 @@ import {
   hostMemoryView,
 } from '@podium/client-core/values'
 import type { HeaderAggregate } from '@podium/client-graph/header-views'
-import type { HostMetricsWire, MachineId, MachineFacts } from '@podium/model/browser'
+import type { HostMetricsWire, MachineFacts, MachineId } from '@podium/model/browser'
 import { isMachineOfflineForLiveTerminal } from '@podium/model/browser'
 import { CircleArrowUp, MemoryStick } from 'lucide-react'
 import type { JSX } from 'react'
-import { lazy, memo, Suspense, useState } from 'react'
+import { memo, Suspense, useState } from 'react'
 import {
   useHeaderActions,
   usePoolHeaderMetrics,
@@ -22,6 +22,7 @@ import {
 } from '@/app/header-data'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { throughRestarts } from '@/lib/chunk-recovery'
+import { lazy } from '@/lib/lazy-surface'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 import { cn } from '@/lib/utils'
 import { machineNeedsUpdate, useServerAppVersion } from '@/lib/version-skew'
@@ -333,19 +334,17 @@ const PoolMachineReadout = memo(function PoolMachineReadout({
   const host = usePoolMetric(id)
   const machine = usePoolMachine(host?.machineId)
   const aggregate = usePoolHostAggregate(host?.machineId)
-  return (
-    host ? (
-      <HeaderMachineChip
-        host={host}
-        machine={machine}
-        aggregate={aggregate}
-        lifecycle={lifecycle}
-        serverAppVersion={serverAppVersion}
-        healthStatus={healthStatus}
-        onInfo={onInfo}
-      />
-    ) : null
-  )
+  return host ? (
+    <HeaderMachineChip
+      host={host}
+      machine={machine}
+      aggregate={aggregate}
+      lifecycle={lifecycle}
+      serverAppVersion={serverAppVersion}
+      healthStatus={healthStatus}
+      onInfo={onInfo}
+    />
+  ) : null
 })
 
 /**

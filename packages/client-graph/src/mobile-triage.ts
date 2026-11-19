@@ -189,9 +189,6 @@ export class ProposalScreening {
     })
   }
   open() {
-    // The deck holds its page while open; nearing the end of the cards the
-    // device holds asks for the next page (design "Proposal screening").
-    const release = this.pool.collections.show(PROPOSED_PAGE)
     const stop = reaction(
       () => (this.booting ? undefined : this.queue),
       (queue) => {
@@ -199,15 +196,20 @@ export class ProposalScreening {
       },
       { fireImmediately: true },
     )
+    // The deck reads its page while open, which holds it, every page of it
+    // (POD-7158); nearing the end of the cards the device holds asks for the
+    // next page (design "Proposal screening"), again each time cards arrive.
     const stopPaging = reaction(
-      () => this.order.length - this.index <= 5,
+      () =>
+        !this.pool.collections.pageEnded(PROPOSED_PAGE) && this.order.length - this.index <= 5
+          ? this.order.length
+          : undefined,
       (near) => {
-        if (near) this.pool.collections.nextPage(PROPOSED_PAGE)
+        if (near !== undefined) this.pool.collections.nextPage(PROPOSED_PAGE)
       },
       { fireImmediately: true },
     )
     return () => {
-      release()
       stopPaging()
       stop()
       for (const cancel of this.waits) cancel()

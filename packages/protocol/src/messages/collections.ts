@@ -72,15 +72,20 @@ export type PolicyStep = z.infer<typeof PolicyStep>
 /**
  * The server's policy for one client type, sent in the load header: which
  * collections the client always holds and in which order they load, how many
- * days "recent" reaches back, and how many records the client may keep as
- * cache. The client never chooses these.
+ * days "recent" reaches back, and the device's budgets (design POD-7157): the
+ * warm set in memory, local storage's size, and how long an unread instance
+ * stays on the device. The client never chooses these.
  */
 export const SyncPolicy = z.object({
   clientType: ClientType,
   steps: z.array(PolicyStep).nonempty(),
   recentDays: z.number().int().positive(),
-  /** Records held as cache beyond the policy's collections. */
-  cacheCap: z.number().int().nonnegative(),
+  /** The warm set's budget in memory, estimated MB (instances no view reads, kept for going back). */
+  memoryBudgetMb: z.number().int().positive(),
+  /** Local storage's size budget, MB. */
+  diskBudgetMb: z.number().int().positive(),
+  /** An instance no view has read for longer than this many days leaves the device. */
+  diskMaxIdleDays: z.number().int().positive(),
 })
 export type SyncPolicy = z.infer<typeof SyncPolicy>
 

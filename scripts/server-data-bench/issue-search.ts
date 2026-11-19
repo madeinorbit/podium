@@ -1,6 +1,8 @@
-/** SQLite searchNormalized timings on the two-axis history corpus with 2 KiB synthetic briefs.
+/** SQLite searchNormalized page timings on the two-axis history corpus with 2 KiB synthetic
+ * briefs. Each first and second page is checked against the unbounded search (POD-7108).
  * Run only on an agent VM: bun --conditions=@podium/source scripts/server-data-bench/issue-search.ts
  * Output is JSON; fixture preparation and warm-up are excluded from timings. */
+import { ISSUE_SEARCH_PAGE_DEFAULT } from '@podium/commands'
 import { firstAdminMemberId } from '@podium/model'
 import { sql } from 'drizzle-orm'
 import { IssueStore } from '../../apps/server/src/modules/issues/service/core'
@@ -13,6 +15,7 @@ import { foldedDeps, rawSql, seededStore } from '../../apps/server/src/test-supp
 import { sessionReadPorts } from '../../apps/server/src/test-support/session-facts'
 import { exportCorpus } from './corpus-export'
 
+const PAGE = ISSUE_SEARCH_PAGE_DEFAULT
 const results: object[] = []
 for (const cell of ['h1a1', 'h10a1']) {
   const corpus = await exportCorpus(cell, 4443)
@@ -45,27 +48,47 @@ for (const cell of ['h1a1', 'h10a1']) {
       { name: 'broad-title', text: 're' },
     ]
     for (const query of cases) {
-      const input = { text: query.text }
-      const expected = await reports.searchNormalized(input, reader)
-      const times: number[] = []
-      for (let sample = 0; sample < 11; sample++) {
-        const start = performance.now()
-        const hits = await reports.searchNormalized(input, reader)
-        times.push(performance.now() - start)
-        if (hits.length !== expected.length) throw new Error('search population changed')
+      // The unbounded search is the parity control (POD-7108): the first page
+      // is its first PAGE ids in its order, and the next page continues it.
+      const all = (await reports.search({ text: query.text }, reader)).map((hit) => hit.id)
+      const input = { text: query.text, limit: PAGE }
+      const first = await reports.searchNormalized(input, reader)
+      const expectFirst = all.slice(0, PAGE)
+      if (JSON.stringify(first.hits.map((hit) => hit.id)) !== JSON.stringify(expectFirst))
+        throw new Error(`${query.name}: first page differs from the unbounded search`)
+      if ((first.next !== null) !== all.length > PAGE)
+        throw new Error(`${query.name}: next cursor disagrees with the unbounded search`)
+      const second = first.next
+        ? await reports.searchNormalized({ ...input, cursor: first.next }, reader)
+        : undefined
+      if (
+        second &&
+        JSON.stringify(second.hits.map((hit) => hit.id)) !==
+          JSON.stringify(all.slice(PAGE, 2 * PAGE))
+      )
+        throw new Error(`${query.name}: second page differs from the unbounded search`)
+      const sample = async (pageInput: typeof input & { cursor?: string }) => {
+        const times: number[] = []
+        for (let n = 0; n < 11; n++) {
+          const start = performance.now()
+          const page = await reports.searchNormalized(pageInput, reader)
+          times.push(performance.now() - start)
+          if (page.hits.length !== Math.min(PAGE, all.length - (pageInput.cursor ? PAGE : 0)))
+            throw new Error('search population changed')
+        }
+        const sorted = [...times].sort((a, b) => a - b)
+        return { samplesMs: times, medianMs: sorted[5], p95Ms: sorted[10], minMs: sorted[0] }
       }
-      const sorted = [...times].sort((a, b) => a - b)
       const result = {
         cell,
         issues: corpus.issues.length,
         query: query.name,
         text: query.text,
-        hits: expected.length,
-        samplesMs: times,
-        medianMs: sorted[5],
-        p95Ms: sorted[10],
-        minMs: sorted[0],
-        maxMs: sorted[10],
+        hits: all.length,
+        page: PAGE,
+        pageHits: first.hits.length,
+        firstPage: await sample(input),
+        ...(first.next ? { secondPage: await sample({ ...input, cursor: first.next }) } : {}),
       }
       results.push(result)
       console.log(JSON.stringify(result))
@@ -74,4 +97,4 @@ for (const cell of ['h1a1', 'h10a1']) {
     await store.close()
   }
 }
-console.log(JSON.stringify({ engine: 'SQLite', seed: 4443, samples: 11, results }))
+console.log(JSON.stringify({ engine: 'SQLite', seed: 4443, samples: 11, page: PAGE, results }))

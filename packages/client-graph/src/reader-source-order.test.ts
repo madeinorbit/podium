@@ -54,10 +54,14 @@ it('counts order-only incidence and family work before equality barriers', () =>
       }
       // Moving a loser between two collapsed groups preserves every visibility
       // verdict but changes z's canonical order between a and z.
+      // The device index files what it holds when asked (POD-7181): ask it
+      // before each count, so each counts one publication's filing.
+      index.sessionQuestionFact('z')
       const beforeCold = { ...coldQuestions!.updates }, beforeResident = pool.queries.residentUpdates
       const event: RowSourceEvent = { type: 'update', rows: [session('a', turn % 2 ? 'primary' : 'other', { status: 'exited' })] }
       apply(event)
       const delta = index.changes(event)
+      index.sessionQuestionFact('z')
       incidence.publications++
       incidence.visibilityFlips += delta.flips.length
       expect(delta.flips).toEqual([])
@@ -265,7 +269,13 @@ it('files a simultaneous visibility and order change once in each index', () => 
     expect(delta.orders).toContainEqual(['session', 'z'])
     const calls = (kind: 'visibility' | 'order') => tracked.flatMap(spies => spies[kind].mock.calls)
       .filter(([id]) => id === 'z').length
+    // POD-7181: the publication files the effective resident fork only; the
+    // device index files the change once, when something asks it.
+    expect(calls('visibility')).toBe(1)
+    pool.deviceIndex().sessionQuestionFact('z')
     expect(calls('visibility')).toBe(2) // the device index and the effective resident fork
     expect(calls('order')).toBe(0)
+    pool.deviceIndex().sessionQuestionFact('z')
+    expect(calls('visibility')).toBe(2)
   } finally { pool.dispose(); restores.forEach(restore => restore()); spy.mockRestore() }
 })

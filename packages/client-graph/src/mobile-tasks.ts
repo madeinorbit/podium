@@ -10,6 +10,7 @@ import {
 import { companion, lazy } from '@podium/mobx-helpers'
 import { asIssueId, ISSUE_STATUS_LABELS, isFinished } from '@podium/model/browser'
 import { action, compareShallow, compareStructural, observable, observableRef } from 'mobx'
+import { boardRefreshing } from './issue-board-layout'
 import type { BoardListRow, BoardQuery } from './issue-board-schema'
 import { omitGone } from './lookup'
 import { MOBILE_TASK_STAGES, type MobileTasksOptions } from './mobile-screens-schema'
@@ -263,6 +264,14 @@ class BoardLane {
  * proposal count. Entity facts stay on the shared models; placement borrows
  * the desktop board's declared query and position rows. */
 export class MobileTasksBoard {
+  @lazy get refreshing(): boolean {
+    return boardRefreshing(
+      this.pool,
+      MOBILE_TASK_STAGES.filter((stage) => stage !== 'done' || this.includesDone),
+      this.searchFilter,
+    )
+  }
+
   // --- Options (the view's own state)
 
   /** The Show-done toggle. */

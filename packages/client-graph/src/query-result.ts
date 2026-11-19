@@ -18,6 +18,8 @@ interface Node<T> {
   size: number
   minPoint: number
   maxPoint: number
+  /** The keyed answer that may still edit this node in place (`owned`). */
+  owner: object | undefined
 }
 const height = <T>(node?: Node<T>) => node?.height ?? 0
 const size = <T>(node?: Node<T>) => node?.size ?? 0
@@ -44,6 +46,7 @@ function node<T>(item: Item<T>, left?: Node<T>, right?: Node<T>): Node<T> {
       left?.maxPoint ?? -Infinity,
       right?.maxPoint ?? -Infinity,
     ),
+    owner: undefined,
   }
 }
 function balance<T>(item: Item<T>, left?: Node<T>, right?: Node<T>): Node<T> {
@@ -112,6 +115,127 @@ function replace<T>(
   if (before && (!after || compareItems(before, after) !== 0))
     root = remove(root, before, compareItems)
   return after ? put(root, after, compareItems) : root
+}
+/** POD-7181 — edits by one keyed answer between two publications. A node the
+ * answer made since its last fork or snapshot is reachable from that answer
+ * alone, so it changes in place; a shared node is copied once and then owned.
+ * A burst of edits copies each path once instead of once per edit. Every node
+ * has the one shape `node` gives it. */
+function owned<T>(root: Node<T>, owner: object): Node<T> {
+  if (root.owner === owner) return root
+  return {
+    item: root.item,
+    left: root.left,
+    right: root.right,
+    height: root.height,
+    size: root.size,
+    minPoint: root.minPoint,
+    maxPoint: root.maxPoint,
+    owner,
+  }
+}
+/** Recompute an owned node's summary from its item and children. */
+function fix<T>(root: Node<T>): Node<T> {
+  const left = root.left, right = root.right, point = root.item.point
+  let height = 0, size = 1, minPoint = point ?? Infinity, maxPoint = point ?? -Infinity
+  if (left) {
+    height = left.height
+    size += left.size
+    if (left.minPoint < minPoint) minPoint = left.minPoint
+    if (left.maxPoint > maxPoint) maxPoint = left.maxPoint
+  }
+  if (right) {
+    if (right.height > height) height = right.height
+    size += right.size
+    if (right.minPoint < minPoint) minPoint = right.minPoint
+    if (right.maxPoint > maxPoint) maxPoint = right.maxPoint
+  }
+  root.height = height + 1
+  root.size = size
+  root.minPoint = minPoint
+  root.maxPoint = maxPoint
+  return root
+}
+/** Rebalance an owned node whose subtrees differ in height by at most two. */
+function rebalanceOwned<T>(root: Node<T>, owner: object): Node<T> {
+  const leftHeight = height(root.left), rightHeight = height(root.right)
+  if (leftHeight > rightHeight + 1) {
+    let top = owned(root.left!, owner)
+    if (height(top.right) > height(top.left)) {
+      const middle = owned(top.right!, owner)
+      top.right = middle.left
+      middle.left = fix(top)
+      top = middle
+    }
+    root.left = top.right
+    top.right = fix(root)
+    return fix(top)
+  }
+  if (rightHeight > leftHeight + 1) {
+    let top = owned(root.right!, owner)
+    if (height(top.left) > height(top.right)) {
+      const middle = owned(top.left!, owner)
+      top.left = middle.right
+      middle.right = fix(top)
+      top = middle
+    }
+    root.right = top.left
+    top.left = fix(root)
+    return fix(top)
+  }
+  return fix(root)
+}
+function putOwned<T>(
+  root: Node<T> | undefined,
+  item: Item<T>,
+  compareItems: (a: Item<T>, b: Item<T>) => number,
+  owner: object,
+): Node<T> {
+  if (!root) {
+    const leaf = node(item)
+    leaf.owner = owner
+    return leaf
+  }
+  const order = compareItems(item, root.item)
+  const next = owned(root, owner)
+  if (order < 0) next.left = putOwned(next.left, item, compareItems, owner)
+  else if (order > 0) next.right = putOwned(next.right, item, compareItems, owner)
+  else next.item = item
+  return rebalanceOwned(next, owner)
+}
+function removeOwned<T>(
+  root: Node<T> | undefined,
+  item: Item<T>,
+  compareItems: (a: Item<T>, b: Item<T>) => number,
+  owner: object,
+): Node<T> | undefined {
+  if (!root) return undefined
+  const order = compareItems(item, root.item)
+  if (order === 0) {
+    if (!root.left) return root.right
+    if (!root.right) return root.left
+  }
+  const next = owned(root, owner)
+  if (order < 0) next.left = removeOwned(next.left, item, compareItems, owner)
+  else if (order > 0) next.right = removeOwned(next.right, item, compareItems, owner)
+  else {
+    let successor = next.right!
+    while (successor.left) successor = successor.left
+    next.item = successor.item
+    next.right = removeOwned(next.right, successor.item, compareItems, owner)
+  }
+  return rebalanceOwned(next, owner)
+}
+function replaceOwned<T>(
+  root: Node<T> | undefined,
+  before: Item<T> | undefined,
+  after: Item<T> | undefined,
+  compareItems: (a: Item<T>, b: Item<T>) => number,
+  owner: object,
+): Node<T> | undefined {
+  if (before && (!after || compareItems(before, after) !== 0))
+    root = removeOwned(root, before, compareItems, owner)
+  return after ? putOwned(root, after, compareItems, owner) : root
 }
 /** Initial demand has no published root to preserve. Sort its entries once
  * and construct each immutable node once; subsequent edits use persistent paths. */
@@ -282,6 +406,11 @@ export function createKeyedAnswer<T>(
 ): KeyedAnswer<T> {
   let root = seed?.root,
     keys = seed?.keys
+  // What this answer may edit in place; renewed when its nodes are shared.
+  let owner: object = {}
+  const seal = () => {
+    owner = {}
+  }
   const item = (id: string): Item<T> | undefined => {
     let cursor = keys
     while (cursor) {
@@ -327,17 +456,49 @@ export function createKeyedAnswer<T>(
       const before = item(id)
       if (before?.order === order && before.value === value) return
       const after = { id, order, value, point: point?.(value) }
-      keys = put(keys, { id, order: id, value: after })
-      root = replace(root, before, after, compareItems)
+      keys = putOwned(keys, { id, order: id, value: after }, compare, owner)
+      root = replaceOwned(root, before, after, compareItems, owner)
     },
     delete(id: string): void {
       const before = item(id)
       if (!before) return
-      keys = remove(keys, { id, order: id, value: before })
-      root = remove(root, before, compareItems)
+      keys = removeOwned(keys, { id, order: id, value: before }, compare, owner)
+      root = removeOwned(root, before, compareItems, owner)
     },
-    snapshot: () => snapshot(root),
-    fork: () => createKeyedAnswer(compareValues, point, { root, keys }),
+    // A snapshot or a fork shares the nodes: neither side edits them in place again.
+    snapshot: () => {
+      seal()
+      return snapshot(root)
+    },
+    fork: () => {
+      seal()
+      return createKeyedAnswer(compareValues, point, { root, keys })
+    },
+  }
+}
+
+/**
+ * POD-7181 — the nested answers a keyed collection of buckets may edit in
+ * place: the forks it made since it last shared its buckets (its own fork).
+ * Forking a bucket once per edit made each edit copy that bucket's paths.
+ */
+export function createBucketWriter(): {
+  /** The bucket's answer to edit: itself when this writer made it, else a fork (or `create()`). */
+  writable<T>(answer: KeyedAnswer<T> | undefined, create: () => KeyedAnswer<T>): KeyedAnswer<T>
+  /** The buckets are now shared (the collection was forked): fork each again before its next edit. */
+  share(): void
+} {
+  let mine = new WeakSet<object>()
+  return {
+    writable(answer, create) {
+      if (answer !== undefined && mine.has(answer)) return answer
+      const next = answer?.fork() ?? create()
+      mine.add(next)
+      return next
+    },
+    share() {
+      mine = new WeakSet()
+    },
   }
 }
 

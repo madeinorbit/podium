@@ -13,8 +13,9 @@
  * chosen feed number, which is what the ordering and resume cases need.
  */
 
-import { COLLECTIONS, matchesWhere, recordOf } from '@podium/model'
-import { policyArgs, resolveInstance, stubOfValue } from '../replica/holdings'
+import { COLLECTIONS, matchesWhere, type RuleValue, recordOf, resolveValue } from '@podium/model'
+import { instanceKey } from '../replica/cache-state'
+import { comesWithOf, policyArgs, resolveInstance, stubOfValue } from '../replica/holdings'
 import type { AuthorityReadPort } from '../replica/ports'
 import type {
   BootstrapChunk,
@@ -25,8 +26,10 @@ import type {
   Cursor,
   DeltaFrame,
   InstanceRequest,
+  InstanceScalar,
   InstanceSpec,
 } from '../replica/types'
+import { policyBudgets, TEST_BUDGETS } from './test-budgets'
 
 /** 2026-11-18T12:00:00Z: every "recent" rule in the cases compares against it. */
 export const WORLD_NOW = Date.parse('2026-11-18T12:00:00.000Z')
@@ -44,7 +47,8 @@ export const WORLD_POLICY: CachePolicy = {
     { step: 'stubs', collections: ['issueProjection.stubs'] },
   ],
   recentDays: 30,
-  cacheCap: 1_000,
+  // POD-7163: tiny by default, so the unload and prune paths run in every case.
+  ...policyBudgets(TEST_BUDGETS),
 }
 
 interface WorldRow {
@@ -114,16 +118,44 @@ export class CollectionServer implements AuthorityReadPort {
   answerSeq: number | undefined
   /** Hold every answer before its first chunk until this resolves. */
   gate: Promise<void> | undefined
+  /**
+   * Answer what each instance's records come with in the same answer, with a
+   * marker per instance, until nothing new arrives: the server's collection
+   * route does (`collection-fetch.ts`, step 4). Off, the client asks for it
+   * in its next request, which the older cases expect.
+   */
+  answerComesWith = false
   /** Stop every answer after this many chunks, as a process that died does: it never resumes. */
   dieAfterChunks: number | undefined
+  /**
+   * Answer a paged collection a page of this many records at a time, as the
+   * server's fetch route does with the declared size: a range marker, the
+   * total with the first page, a later page below `after`. Unset, a paged
+   * collection is answered whole.
+   */
+  pageRows: number | undefined
   private chunksServed = 0
   private readonly rows = new Map<string, WorldRow>()
+  /** The same rows by record type, then id: an answer reads one type. */
+  private readonly byEntity = new Map<string, Map<string, WorldRow>>()
   private readonly log: ChangeEnvelope[] = []
+
+  /** The ids of every record of a type the server holds (POD-7162: what a disk could hold). */
+  idsOf(entity: string): string[] {
+    return [...(this.byEntity.get(entity)?.keys() ?? [])]
+  }
 
   /** Write a record; returns its feed change. */
   put(entity: string, id: string, value: Readonly<Record<string, unknown>>): ChangeEnvelope {
     this.head += 1
-    this.rows.set(rowKey(entity, id), { entity, id, value, seq: this.head })
+    const row: WorldRow = { entity, id, value, seq: this.head }
+    this.rows.set(rowKey(entity, id), row)
+    let ofEntity = this.byEntity.get(entity)
+    if (ofEntity === undefined) {
+      ofEntity = new Map()
+      this.byEntity.set(entity, ofEntity)
+    }
+    ofEntity.set(id, row)
     const change: ChangeEnvelope = {
       seq: this.head,
       entity,
@@ -139,6 +171,7 @@ export class CollectionServer implements AuthorityReadPort {
   drop(entity: string, id: string, op: 'remove' | 'evict' = 'remove'): ChangeEnvelope {
     this.head += 1
     this.rows.delete(rowKey(entity, id))
+    this.byEntity.get(entity)?.delete(id)
     const change: ChangeEnvelope = { seq: this.head, entity, entityId: id, op }
     this.log.push(change)
     return change
@@ -208,8 +241,22 @@ export class CollectionServer implements AuthorityReadPort {
     const parentLink = declaration?.parentLink
     const key = declaration?.key
     const of = resolved.of
-    return [...this.rows.values()]
-      .filter((row) => row.entity === of)
+    // A single clause testing a field for one value (`ofIssue`, `one`) reads
+    // only the rows with that value; the rule below still decides (POD-7165:
+    // a deck's thousands of instances each scanned every row).
+    const where = resolved.where
+    let candidates: Iterable<WorldRow> = this.byEntity.get(of)?.values() ?? []
+    if (where !== undefined && !Array.isArray(where)) {
+      for (const [field, test] of Object.entries(where as Readonly<Record<string, unknown>>)) {
+        if (field.includes('.') || test === null || typeof test !== 'object' || !('eq' in test))
+          continue
+        const wanted = resolveValue((test as { eq: RuleValue }).eq, resolved.args ?? {})
+        if (typeof wanted !== 'string') continue
+        candidates = [...candidates].filter((row) => row.value[field] === wanted)
+        break
+      }
+    }
+    return [...candidates]
       .filter(
         (row) =>
           resolved.where === undefined ||
@@ -245,10 +292,40 @@ export class CollectionServer implements AuthorityReadPort {
       last: false,
       kindTokens: { ...this.kindTokens },
     }
-    for (const spec of instances) {
+    const queue = [...instances]
+    const asked = new Set(queue.map((spec) => instanceKey(spec)))
+    // A record goes out once per answer; a later instance names it in its marker.
+    const sent = new Set<string>()
+    for (let next = 0; next < queue.length; next += 1) {
+      const spec = queue[next]!
       const stub = spec.part === 'stub'
-      const rows = this.members(spec).filter((row) => row.seq <= at)
-      const envelopes = rows.map(
+      let rows = this.members(spec).filter((row) => row.seq <= at)
+      const paged = this.page(spec as InstanceRequest, rows)
+      if (paged !== undefined) rows = paged.rows
+      if (this.answerComesWith && !stub) {
+        const resolved = resolveInstance(spec, policyArgs(this.policy))
+        for (const row of rows)
+          for (const along of comesWithOf(
+            row.entity,
+            row.value,
+            resolved ? [resolved] : [],
+            WORLD_NOW,
+          )) {
+            const key = instanceKey(along)
+            if (asked.has(key)) continue
+            asked.add(key)
+            queue.push(along)
+          }
+      }
+      const fresh = stub
+        ? rows
+        : rows.filter((row) => {
+            const key = rowKey(row.entity, row.id)
+            if (this.answerComesWith && sent.has(key)) return false
+            sent.add(key)
+            return true
+          })
+      const envelopes = fresh.map(
         (row): ChangeEnvelope => ({
           seq: row.seq,
           entity: row.entity,
@@ -262,6 +339,8 @@ export class CollectionServer implements AuthorityReadPort {
         part: spec.part,
         ...(spec.args === undefined ? {} : { args: spec.args }),
         ...(spec.via === undefined ? {} : { via: spec.via }),
+        ...(paged === undefined ? {} : { range: paged.range }),
+        ...(paged?.total === undefined ? {} : { total: paged.total }),
       }
       if (envelopes.length === 0) chunks.push({ ...base, changes: [], complete: [marker] })
       for (let offset = 0; offset < envelopes.length; offset += this.chunkRows) {
@@ -290,6 +369,41 @@ export class CollectionServer implements AuthorityReadPort {
         yield chunk
       }
     })()
+  }
+
+  /** One page of a paged collection's members (`pageRows`), its range and, first, its total. */
+  private page(
+    spec: InstanceRequest,
+    rows: readonly WorldRow[],
+  ): { rows: WorldRow[]; range: NonNullable<CompleteMarker['range']>; total?: number } | undefined {
+    const page = COLLECTIONS.get(spec.collection)?.page
+    if (page === undefined || this.pageRows === undefined) return undefined
+    const position = (row: WorldRow): InstanceScalar[] =>
+      page.sort.map(({ field }) => (row.value[field] ?? null) as InstanceScalar)
+    const compare = (a: readonly InstanceScalar[], b: readonly InstanceScalar[]): number => {
+      for (let at = 0; at < page.sort.length; at += 1) {
+        const x = a[at] ?? null
+        const y = b[at] ?? null
+        if (x === y) continue
+        const order = x === null ? -1 : y === null ? 1 : x < y ? -1 : 1
+        return page.sort[at]!.direction === 'desc' ? -order : order
+      }
+      return 0
+    }
+    const sorted = [...rows].sort((a, b) => compare(position(a), position(b)))
+    const after = spec.after
+    const below =
+      after === undefined ? sorted : sorted.filter((row) => compare(position(row), after) > 0)
+    const taken = below.slice(0, this.pageRows)
+    const last = taken.at(-1)
+    return {
+      rows: taken,
+      range: {
+        ...(last === undefined ? {} : { through: position(last) }),
+        end: below.length <= this.pageRows,
+      },
+      ...(after === undefined ? { total: sorted.length } : {}),
+    }
   }
 
   /** Chunks served so far, across every answer. */

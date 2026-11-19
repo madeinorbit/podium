@@ -31,6 +31,27 @@ describe('reload preparation', () => {
     expect(navigate).toHaveBeenCalledOnce()
   })
 
+  /**
+   * POD-7154: a navigation that never commits leaves this document alive. The
+   * latch used to stay held for the life of the page, so Reload and Reset both
+   * returned the settled promise and did nothing.
+   */
+  it('lets Reload act again once a started navigation has not replaced the page', async () => {
+    const { registerReloadPreparation, withReloadPreparation, RELOAD_COMMIT_GRACE_MS } =
+      await import('./reload-preparation')
+    registerReloadPreparation(async () => {})
+    const navigate = vi.fn()
+    await withReloadPreparation(navigate)
+    expect(navigate).toHaveBeenCalledOnce()
+    // Within the grace period a second request is the same reload.
+    await withReloadPreparation(navigate)
+    expect(navigate).toHaveBeenCalledOnce()
+    // The page is still here afterwards: the next press navigates again.
+    await vi.advanceTimersByTimeAsync(RELOAD_COMMIT_GRACE_MS)
+    await withReloadPreparation(navigate)
+    expect(navigate).toHaveBeenCalledTimes(2)
+  })
+
   it('ends a stalled save within the budget, retaining the page and allowing retry', async () => {
     const { registerReloadPreparation, withReloadPreparation, RELOAD_SAVE_BUDGET_MS } =
       await import('./reload-preparation')

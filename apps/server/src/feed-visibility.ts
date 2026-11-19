@@ -1,4 +1,4 @@
-import { readIssue, readIssues } from './modules/issues/issue-reader'
+import { readIssue, readIssueAccess, readIssues } from './modules/issues/issue-reader'
 /**
  * THE FEED'S VISIBILITY POLICY (POD-418).
  *
@@ -69,7 +69,13 @@ import type {
   VisibilityStatePort,
 } from '@podium/sync'
 import { type CheckoutReach, checkoutReaders, covers } from './checkout-reach'
-import type { FeedVisibilityStore, GrantRow, IssueRow, SessionRow } from './hot-path-ports'
+import type {
+  FeedVisibilityStore,
+  GrantRow,
+  IssueAccessRow,
+  IssueRow,
+  SessionRow,
+} from './hot-path-ports'
 import { FEED_WINDOW } from './modules/issue-events/feed'
 import { custodianFromEdges, executionPointersOf } from './modules/issues/execution-visibility'
 import { INSTANCE_EFFECT_KINDS } from './modules/operations/instance-effect-kinds'
@@ -83,7 +89,8 @@ import type { WorkflowVisibilityFacts } from './store/workflows'
 type BootstrapVisibilityPrefetch = {
   readonly panelParents: ReadonlyMap<string, string>
   readonly issueIds: ReadonlySet<string>
-  readonly issues: ReadonlyMap<string, IssueRow>
+  /** What the sharing rules read of each issue, never its bodies (POD-7153). */
+  readonly issues: ReadonlyMap<string, IssueAccessRow>
   readonly shipOrderIds: ReadonlySet<string>
   readonly issueIdsByShipOrder: ReadonlyMap<string, string>
   /** POD-4974 O2: each prefetched lane's member issues, read from the lane's
@@ -764,8 +771,8 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
     }
     const issues =
       issueIds.size === 0
-        ? new Map<string, IssueRow>()
-        : await readIssues(store.issues, [...issueIds])
+        ? new Map<string, IssueAccessRow>()
+        : await readIssueAccess(store.issues, [...issueIds])
     // The sessions a task's private fields point at are read with the rest:
     // their owners decide who receives those pointers (POD-6288).
     for (const row of issues.values()) {

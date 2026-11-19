@@ -84,6 +84,7 @@ import type { HttpSyncSourceDeps } from '@podium/client-core/sync-stream'
 import { createLogger } from '@podium/logger'
 import { asUserId, type SessionId } from '@podium/model'
 import { CONNECT_DEFAULT_BASE_URL } from '@podium/protocol/server-locate'
+import type { MemorySignals } from '@podium/sync/replica'
 
 export { BOOT_STALL_MS, STORE_REFRESH_NOTICE } from '@podium/client-core/replica-assembly'
 
@@ -102,6 +103,7 @@ import { platformClockWakeSource } from './clock-wake-source'
 // the router in just to report that its boot failed.
 import { LaunchReadyView } from './launch-ready'
 import { MobileSyncBoundary } from './MobileSyncBoundary'
+import { platformMemorySignals } from './memory-signals'
 import { openMobileEntityStore } from './mobile-entity-store'
 import { mobileVersionObservers } from './mobile-live-connection'
 import { installMobileMetadataStorage } from './mobile-metadata-storage'
@@ -154,6 +156,7 @@ export { MOBILE_REPLICA_DB } from './replica-storage-constants'
 
 import { mobileAccountEraser } from './account-data'
 import { mobileBrowserAccounts } from './browser-accounts'
+import { heldOfflineStatus } from './held-offline'
 import { discardRefusedMember, refusedPrincipal } from './refused-member'
 import { MOBILE_REPLICA_DB } from './replica-storage-constants'
 import { noteSignedOut } from './signed-out-notice'
@@ -190,6 +193,8 @@ export interface MobileReplicaDeps {
   readonly api: PodiumClientApi
   /** Hydrated side-cache home for ui-state and the outbox blobs. */
   readonly storage: StorageApi
+  /** When memory may let go of the screens left (POD-7161). Absent, nothing leaves memory. */
+  readonly memorySignals?: MemorySignals
   /** Hydrated AsyncStorage inventory used for namespace retention/erasure. */
   readonly enumerateKeys?: () => string[]
   /** Await write-behind durability, especially before sign-out reloads. */
@@ -800,7 +805,19 @@ function LiveProvider({ children }: { children: ReactNode }) {
           ).drain()
         const [bridge, status, pendingCleanups] = await Promise.all([
           createAsyncStorageReplicaStorage(AsyncStorage, [REPLICA_KEY_PREFIX]),
-          inheritedAuthStatus ?? fetchAuthStatus(config.httpOrigin, bearer, config.workspaceId),
+          inheritedAuthStatus ??
+            fetchAuthStatus(config.httpOrigin, bearer, config.workspaceId).catch(
+              async (cause: unknown) => {
+                // The recovery probe got NO answer (no network): open the
+                // member this device already holds, if it holds exactly one
+                // (POD-7176; the desktop's `resolveAccountPrincipal` rule). An
+                // answer, even a refusal, is never replaced by local identity.
+                if (cause instanceof ReplicaGateError) throw cause
+                const held = await heldOfflineStatus(serverProfileRef.current?.profile)
+                if (!held) throw cause
+                return held
+              },
+            ),
           Platform.OS === 'web' ? Promise.resolve([]) : loadPendingProfileCleanups(),
         ])
         const identity = classifyAuthStatus(status)
@@ -845,6 +862,7 @@ function LiveProvider({ children }: { children: ReactNode }) {
           // The same client the store gets, so the queue sends through the
           // transport the rest of the app is authenticated on (POD-2073).
           api: memberTrpc,
+          memorySignals: platformMemorySignals,
           broadcastChannelFactory: platformFeedChannel(),
           transcripts: mobileTranscriptDatabases,
           storage: bridge.storage,
