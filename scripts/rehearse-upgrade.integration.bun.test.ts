@@ -56,7 +56,13 @@ function ownership(db: SqlDatabase) {
     providerKeys: db
       .prepare('SELECT id, owner_user_id, credential FROM accounts ORDER BY id')
       .all(),
-    logins: db.prepare('SELECT * FROM client_sessions ORDER BY token_hash').all(),
+    // Compare the credential and device identity across schema generations;
+    // workspace placement is a separate post-upgrade invariant below.
+    logins: db
+      .prepare(`SELECT token_hash, user_id, created_at, expires_at,
+      label, device_id, device_name, platform, last_seen_at, session_id
+      FROM client_sessions ORDER BY token_hash`)
+      .all(),
   }
 }
 
@@ -446,6 +452,9 @@ describe('upgrade rehearsal', () => {
         const kept = (logins: unknown[]) =>
           (logins as { label: string }[]).filter((row) => !RETIRED_LABELS.includes(row.label))
         const after = ownership(upgraded)
+        expect(upgraded.prepare('SELECT DISTINCT workspace_id FROM client_sessions').all()).toEqual(
+          [{ workspace_id: 'local' }],
+        )
         expect({ ...after, logins: kept(after.logins) }).toEqual({
           ...before,
           logins: kept(before.logins),
