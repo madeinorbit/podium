@@ -102,6 +102,7 @@ describe('binding receipt crash durability', () => {
       // Exercise POD-1079's real, live grant resolver. This capability exists
       // only for an apply; it is intentionally never handed to BindingStore.
       let grants = [
+        { grantee: machineOwner, verb: 'manage', custody: true },
         { grantee: owner, verb: 'see' },
         { grantee: owner, verb: 'use' },
       ]
@@ -176,7 +177,7 @@ describe('binding receipt crash durability', () => {
       // The human loses the use grant while the daemon is down. Recovery still
       // restores the delegation reference; the first apply resolves this table
       // again and refuses it.
-      grants = []
+      grants = grants.filter((grant) => !(grant.grantee === owner && grant.verb === 'use'))
 
       const restarted = await BindingStore.open({ dir })
       const sent: DaemonMessage[] = []

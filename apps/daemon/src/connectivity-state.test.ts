@@ -1,18 +1,15 @@
-// Issue #19: the daemon must TELL THE TRUTH about its server link — a status file next to
-// daemon.json records connected / disconnected / terminally-blocked, a consumed pair code is
-// dropped from config.json, and a terminal rejection fires onBlocked (the CLI's distinct-exit
-// hook) instead of crash-looping.
+// The daemon reports its enrolled link truthfully. Fresh enrollment belongs
+// to the machine supervisor; reconnect and credential rejection stay here.
 import { mkdtempSync, rmSync, watch } from 'node:fs'
 import { createServer, type Server } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { type PeerHelloReply, DAEMON_WIRE_VERSION } from '@podium/protocol'
-import { loadConfig, saveConfig } from '@podium/runtime/config'
+import { DAEMON_WIRE_VERSION, type PeerHelloReply } from '@podium/protocol'
 import { connectivityPath, readConnectivityForTest } from '@podium/runtime/connectivity'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { WebSocketServer } from 'ws'
 import { type ReconnectTimers, startDaemon } from './daemon'
-import { loadIdentity } from './identity'
+import { loadIdentity, saveToken } from './identity'
 
 const priorStateDir = process.env.PODIUM_STATE_DIR!
 
@@ -73,48 +70,8 @@ describe('daemon connectivity state (#19)', () => {
     return { timers, next }
   }
 
-  it('a successful pair writes connected state, persists the token, and consumes the pair code', async () => {
-    // The join wrote mode/serverUrl/pairCode; the pair must clear ONLY the consumed code.
-    saveConfig({
-      mode: 'daemon',
-      serverUrl: `ws://localhost:${port}`,
-      pairCode: 'CODE-1',
-      updateChannel: 'edge',
-    })
-    wss.on('connection', (ws) => {
-      ws.once('message', () => {
-        const reply: PeerHelloReply = {
-          type: 'peerHelloOk',
-          v: DAEMON_WIRE_VERSION,
-          caps: [],
-          issuedToken: 'tok-1',
-          assignedId: 'm-1',
-          name: 'box',
-        }
-        ws.send(JSON.stringify(reply))
-      })
-    })
-    const daemon = await startDaemon(bootOpts({ pairCode: 'CODE-1' }))
-    try {
-      const conn = readConnectivityForTest(dir)
-      expect(conn?.state).toBe('connected')
-      expect(conn?.processId).toBe(process.pid)
-      expect(conn?.appVersion).toBeTruthy()
-      expect(conn?.lastHelloOkAt).toBeTruthy()
-      expect(conn?.serverUrl).toBe(`ws://localhost:${port}`)
-      // Token persisted; identity survived.
-      expect(loadIdentity({ dir }).token).toBe('tok-1')
-      // Consumed pair code dropped; the REST of the config is untouched.
-      const cfg = loadConfig()
-      expect(cfg.pairCode).toBeUndefined()
-      expect(cfg.updateChannel).toBe('edge')
-      expect(cfg.serverUrl).toBe(`ws://localhost:${port}`)
-    } finally {
-      await daemon.close()
-    }
-  })
-
-  it('reconnects with the freshly paired token without restarting the daemon', async () => {
+  it('reconnects with its enrolled token without restarting the daemon', async () => {
+    saveToken('tok-reconnect', { dir })
     const handshakes: Array<Record<string, unknown>> = []
     const reconnectClock = controlledReconnectClock()
     let resolveReconnected!: (frame: Record<string, unknown>) => void
@@ -130,8 +87,6 @@ describe('daemon connectivity state (#19)', () => {
             type: 'peerHelloOk',
             v: DAEMON_WIRE_VERSION,
             caps: [],
-            issuedToken: 'tok-reconnect',
-            assignedId: 'm-1',
             name: 'box',
           }
           ws.send(JSON.stringify(reply), () => ws.close())
@@ -148,9 +103,7 @@ describe('daemon connectivity state (#19)', () => {
       })
     })
 
-    const daemon = await startDaemon(
-      bootOpts({ pairCode: 'CODE-1', reconnectTimers: reconnectClock.timers }),
-    )
+    const daemon = await startDaemon(bootOpts({ reconnectTimers: reconnectClock.timers }))
     try {
       const retry = await reconnectClock.next
       expect(retry.ms).toBe(500)
@@ -166,7 +119,11 @@ describe('daemon connectivity state (#19)', () => {
       expect(handshakes).toHaveLength(2)
       expect(handshakes[0]).toMatchObject({
         type: 'peerHello',
-        credential: { kind: 'pairCode', code: 'CODE-1' },
+        credential: {
+          kind: 'machineToken',
+          token: 'tok-reconnect',
+          machineHint: loadIdentity({ dir }).machineId,
+        },
       })
       expect(handshakes[1]).toMatchObject({
         type: 'peerHello',
@@ -178,7 +135,8 @@ describe('daemon connectivity state (#19)', () => {
     }
   })
 
-  it('a terminal pairRejected writes the blocked marker and fires onBlocked (no reconnect loop)', async () => {
+  it('a terminal credential rejection records unauthorized and fires onBlocked without reconnecting', async () => {
+    saveToken('invalid-enrolled-token', { dir })
     let connections = 0
     wss.on('connection', (ws) => {
       connections++
@@ -192,9 +150,7 @@ describe('daemon connectivity state (#19)', () => {
       })
     })
     const onBlocked = vi.fn()
-    await expect(startDaemon(bootOpts({ pairCode: 'WRONG', onBlocked }))).rejects.toThrow(
-      /rejected/,
-    )
+    await expect(startDaemon(bootOpts({ onBlocked }))).rejects.toThrow(/rejected/)
     const conn = readConnectivityForTest(dir)
     expect(conn?.state).toBe('unauthorized')
     expect(conn?.authorizationReason).toContain('peerHelloRejected')

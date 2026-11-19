@@ -23,19 +23,24 @@ import {
   ShippingService,
 } from '../../../../server/src/modules/shipping'
 import { SessionStore } from '../../../../server/src/store'
-import { testStoreRecords } from '../../../../server/src/test-support/record-writer'
+import { installChangeLogHooks } from '../../../../server/src/test-support/change-log-hooks'
+import { assignHostMachine } from '../../../../server/src/test-support/host-daemon'
+import { logStoreRecords } from '../../../../server/src/test-support/record-writer'
 
 const [phase, dbPath, repoPath, daemonJournal] = process.argv.slice(2)
 if (!phase || !dbPath || !repoPath || !daemonJournal) throw new Error('missing recovery arguments')
 const machineId = asMachineId('shipping-recovery-machine')
 const store = await SessionStore.open(dbPath, machineId)
 const ownerUserId = await firstAdminMemberId(store)
+await assignHostMachine(store)
+await store.repos.addRepo(repoPath, machineId)
 const ledger = new Ledger({
   repo: store.sync,
-  records: testStoreRecords(store),
+  records: await logStoreRecords(store),
   now: Date.now,
   transact: (fn) => store.transact(fn),
 })
+installChangeLogHooks(store, testLedgerWriter(ledger))
 const issues = await IssueService.create({
   store,
   runningSessionFacts: () => [],
