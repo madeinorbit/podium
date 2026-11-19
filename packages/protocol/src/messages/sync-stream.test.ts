@@ -7,6 +7,7 @@ import {
 import { SYNC_WIRE_FIXTURES } from './sync-stream.fixtures'
 import golden from './wire-golden.json'
 import { WelcomeMessage } from './terminal'
+import { SyncPolicy } from './collections'
 
 const { URLSearchParams } = globalThis as unknown as {
   URLSearchParams: new (query: string) => { getAll(name: string): string[]; set(name: string, value: string): void }
@@ -107,5 +108,34 @@ describe('delta query', () => {
   })
   it.each(['feedId=f&epoch=e', 'feedId=f&from=0', 'epoch=e&from=0', 'feedId=f&epoch=e&from=2&to=1', 'feedId=f&epoch=e&from=0&from=1', 'feedId=f&feedId=g&epoch=e&from=0'])('rejects missing, inverted, or duplicate query fields: %s', (query) => {
     expect(parseSyncDeltaQuery(new URLSearchParams(query)).success).toBe(false)
+  })
+})
+
+describe('the policy in the load header (POD-7161)', () => {
+  const policy = {
+    clientType: 'phone',
+    steps: [{ step: 'always', collections: ['session.live'] }, { step: 'view', collections: [] }],
+    recentDays: 7,
+    memoryBudgetMb: 20,
+    diskBudgetMb: 150,
+    diskMaxIdleDays: 14,
+  }
+  it('round trips the device budgets in the meta of a first download', () => {
+    const parsed = SyncRecord.parse({ ...meta, policy })
+    const line = JSON.stringify(parsed)
+    expect(parseSyncRecord(line)).toEqual({ kind: 'record', record: parsed })
+    expect((parsed as { policy?: unknown }).policy).toEqual(policy)
+  })
+  it('requires every budget, as whole positive numbers; the record cap is gone', () => {
+    expect(SyncPolicy.safeParse(policy).success).toBe(true)
+    for (const field of ['memoryBudgetMb', 'diskBudgetMb', 'diskMaxIdleDays'] as const) {
+      const { [field]: _gone, ...without } = policy
+      expect(SyncPolicy.safeParse(without).success, field).toBe(false)
+      expect(SyncPolicy.safeParse({ ...policy, [field]: 0 }).success, field).toBe(false)
+      expect(SyncPolicy.safeParse({ ...policy, [field]: 1.5 }).success, field).toBe(false)
+    }
+    // A policy of the release before (a record cap, no budgets) is refused.
+    const { memoryBudgetMb: _m, diskBudgetMb: _d, diskMaxIdleDays: _a, ...old } = policy
+    expect(SyncPolicy.safeParse({ ...old, cacheCap: 1_000 }).success).toBe(false)
   })
 })

@@ -837,6 +837,17 @@ describe('the first download arrives in the policy order, each collection closed
     const browser = await linesOf({ ...base(user) })
     expect((phone[0]!['policy'] as { recentDays: number }).recentDays).toBe(7)
     expect((browser[0]!['policy'] as { recentDays: number }).recentDays).toBe(30)
+    // The device budgets of design POD-7157 ("Decisions" 1), per client type (POD-7161).
+    expect(phone[0]!['policy']).toMatchObject({
+      memoryBudgetMb: 20,
+      diskBudgetMb: 150,
+      diskMaxIdleDays: 14,
+    })
+    expect(browser[0]!['policy']).toMatchObject({
+      memoryBudgetMb: 80,
+      diskBudgetMb: 500,
+      diskMaxIdleDays: 30,
+    })
     // Closed 15 days ago and held by nothing else: recent for a browser only.
     expect(wholeIn(browser).has('issueProjection:iss_month')).toBe(true)
     expect(wholeIn(phone).has('issueProjection:iss_month')).toBe(false)
