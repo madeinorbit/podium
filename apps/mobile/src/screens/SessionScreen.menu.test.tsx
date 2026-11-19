@@ -50,11 +50,6 @@ vi.mock('expo-router', () => ({
 vi.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 20, right: 0, bottom: 34, left: 0 }),
 }))
-vi.mock('lucide-react-native', () => ({
-  ChevronLeft: () => null,
-  MoreVertical: () => null,
-  SquareTerminal: () => null,
-}))
 // The transcript is not what this file is about; the menu lives in the chrome.
 vi.mock('../components/SessionConversation', () => ({ SessionConversation: () => null }))
 vi.mock('../components/AgentMark', () => ({ HarnessChip: () => null }))

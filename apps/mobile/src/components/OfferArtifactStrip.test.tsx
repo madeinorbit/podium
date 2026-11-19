@@ -15,12 +15,6 @@ vi.mock('expo-haptics', () => ({
 }))
 // Ships untranspiled Flow, which this environment cannot parse — the same stub
 // the neighbouring card tests use. Rows are found by label, not by glyph.
-vi.mock('lucide-react-native', () => ({
-  FileText: () => null,
-  Globe: () => null,
-  Image: () => null,
-  Play: () => null,
-}))
 vi.mock('../client/hooks', () => ({ useHttpOrigin: () => 'https://podium.local' }))
 // The panel the paths resolve against is the pool's issue model (POD-6778);
 // here it is the issue each test builds.

@@ -581,6 +581,14 @@ describe('the unbranded-ts-id-members item', () => {
     const source = `${SCAFFOLD}export interface FakeSession { sessionId: string }`
     const ctx = ctxOf(source, 'apps/server/src/service.test.ts')
     ctx.files[0]!.isTest = true
+    // Keep the production population canary alive while this entire test file
+    // is excluded; a zero-file synthetic context must still trip that guard.
+    ctx.files.push({
+      file: 'packages/model/src/entities/scaffold.ts',
+      raw: SCAFFOLD,
+      stripped: stripComments(SCAFFOLD),
+      isTest: false,
+    })
     expect(unbrandedTsIdMembers(ctx)).toHaveLength(0)
   })
 

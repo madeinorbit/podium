@@ -1,5 +1,5 @@
-import { MobxPool } from '@podium/client-graph/pool'
 import type { IssueViewModel } from '@podium/client-core/replica'
+import { MobxPool } from '@podium/client-graph/pool'
 import type { IssuePanelArtifact } from '@podium/model'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -26,71 +26,6 @@ vi.mock('expo-haptics', () => ({
 }))
 // Ships untranspiled Flow; the whole barrel is stubbed through a Proxy so any
 // glyph a child reaches for resolves — rows are found by label, not by icon.
-vi.mock('lucide-react-native', () => ({
-  Activity: () => null,
-  AlarmClock: () => null,
-  AlertTriangle: () => null,
-  ArrowDown: () => null,
-  ArrowDownToLine: () => null,
-  ArrowRight: () => null,
-  ArrowUp: () => null,
-  Check: () => null,
-  CheckCircle2: () => null,
-  ChevronDown: () => null,
-  ChevronLeft: () => null,
-  ChevronRight: () => null,
-  ChevronUp: () => null,
-  ChevronsDownUp: () => null,
-  ChevronsUpDown: () => null,
-  Circle: () => null,
-  CircleDot: () => null,
-  ClipboardPaste: () => null,
-  Cpu: () => null,
-  Eraser: () => null,
-  ExternalLink: () => null,
-  FileText: () => null,
-  Flag: () => null,
-  FlagOff: () => null,
-  Gauge: () => null,
-  GitBranch: () => null,
-  GitCommit: () => null,
-  GitMerge: () => null,
-  Globe: () => null,
-  Image: () => null,
-  Inbox: () => null,
-  KanbanSquare: () => null,
-  Layers: () => null,
-  Lightbulb: () => null,
-  Link2: () => null,
-  Mail: () => null,
-  Maximize2: () => null,
-  MessageCircleQuestion: () => null,
-  MessagesSquare: () => null,
-  Mic: () => null,
-  MicOff: () => null,
-  Monitor: () => null,
-  Moon: () => null,
-  MoreHorizontal: () => null,
-  MoreVertical: () => null,
-  Paperclip: () => null,
-  Pencil: () => null,
-  Pin: () => null,
-  Play: () => null,
-  Plus: () => null,
-  RefreshCw: () => null,
-  RotateCcw: () => null,
-  Rows3: () => null,
-  Search: () => null,
-  Settings: () => null,
-  SkipForward: () => null,
-  Smartphone: () => null,
-  Square: () => null,
-  SquareTerminal: () => null,
-  Trash2: () => null,
-  Unlock: () => null,
-  Users: () => null,
-  X: () => null,
-}))
 vi.mock('react-native-svg', async () => {
   const { View } = await import('react-native')
   return {

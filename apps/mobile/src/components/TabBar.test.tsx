@@ -8,12 +8,6 @@ vi.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ ...insets }),
 }))
 vi.mock('expo-haptics', () => ({ selectionAsync: vi.fn(async () => {}) }))
-vi.mock('lucide-react-native', () => ({
-  Activity: () => null,
-  KanbanSquare: () => null,
-  MessagesSquare: () => null,
-  Rows3: () => null,
-}))
 // The capsule renders through BlurView; the shim keeps RNW's style pipeline
 // (the real one is itself just a View plus backdrop-filter) while marking the
 // element so the test can tell the blur capsule rendered at all.

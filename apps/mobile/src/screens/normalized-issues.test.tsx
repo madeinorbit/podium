@@ -53,42 +53,6 @@ vi.mock('../hooks/useReduceMotion', () => ({ useReduceMotion: () => true }))
 // Flow-typed RN icon source never parses in this lane; every glyph is a no-op.
 // Named one by one because vitest validates a mock against the factory's OWN
 // keys — when the task page's component tree grows an icon, this list grows.
-vi.mock('lucide-react-native', () => ({
-  AlertTriangle: () => null,
-  ArrowRight: () => null,
-  ArrowUp: () => null,
-  CheckCircle2: () => null,
-  ChevronDown: () => null,
-  ChevronLeft: () => null,
-  ChevronRight: () => null,
-  ChevronUp: () => null,
-  Circle: () => null,
-  CircleDot: () => null,
-  ClipboardPaste: () => null,
-  ExternalLink: () => null,
-  FileText: () => null,
-  Flag: () => null,
-  FlagOff: () => null,
-  GitBranch: () => null,
-  GitCommit: () => null,
-  GitMerge: () => null,
-  Link2: () => null,
-  Mail: () => null,
-  MessageCircleQuestion: () => null,
-  Mic: () => null,
-  MicOff: () => null,
-  MoreHorizontal: () => null,
-  Paperclip: () => null,
-  Play: () => null,
-  Plus: () => null,
-  RefreshCw: () => null,
-  Square: () => null,
-  SquareTerminal: () => null,
-  Trash2: () => null,
-  Unlock: () => null,
-  Users: () => null,
-  X: () => null,
-}))
 // Status/priority glyphs draw with react-native-svg, whose RN source never
 // parses in this lane; the geometry is not what this file is about.
 vi.mock('react-native-svg', async () => {
