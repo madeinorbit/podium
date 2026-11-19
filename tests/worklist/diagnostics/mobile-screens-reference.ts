@@ -16,6 +16,7 @@ import {
   orderIssues,
   reposToViews,
   sessionAsksOnIssue,
+  sessionAtWork,
   sessionNeedsHuman,
   sessionsForIssueNav,
   tallyMissionBuckets,
@@ -211,18 +212,50 @@ function referenceDeck(
     roots.set(rootId, full)
   }
   if (mode === 'full') return full
-  const counts = new Map(full.map((row) => [row.issue.id as string, row]))
-  return buildFlightDeckRows(issues, sessions, rootId, mode, paths).map((row) => {
-    const expected = counts.get(row.issue.id)
-    return expected
-      ? {
-          ...row,
-          actionableCount: expected.actionableCount,
-          waitingAgentCount: expected.waitingAgentCount,
-          workingAgentCount: expected.workingAgentCount,
-        }
-      : row
-  })
+  // Matching is an OWN-row decision. A live coordinator receives ordinary
+  // delegate asks, while delegate exceptions still reach the human. The old
+  // pure deck helper predates that policy and cannot select the narrowed view.
+  const matches = new Set<string>()
+  const bySession = new Map(sessions.map((session) => [session.sessionId, session]))
+  const pending = new Map<string, number>()
+  for (const interaction of source.pendingInteractions ?? [])
+    if (interaction.status === 'asked')
+      pending.set(interaction.sessionId, (pending.get(interaction.sessionId) ?? 0) + 1)
+  for (const row of full) {
+    const coordinated = coordinatorLive(bySession.get(row.issue.coordinatorSessionId ?? ''))
+    const verdict = (session: ReferenceState['sessions'][number]) =>
+      coordinatedSeat(
+        session,
+        session.sessionId === row.issue.coordinatorSessionId ? 'coordinator' : 'delegate',
+        { count: pending.get(session.sessionId) ?? 0 },
+        !isFinished(row.issue),
+      )
+    const matched =
+      mode === 'needs-you'
+        ? issueNeedsHuman(
+            row.issue,
+            row.sessions,
+            undefined,
+            coordinated ? (session) => verdict(session).asks : undefined,
+          )
+        : row.sessions.some((session) =>
+            coordinated
+              ? !session.archived && session.status !== 'exited' && verdict(session).working
+              : sessionAtWork(session),
+          )
+    if (matched) matches.add(row.issue.id)
+  }
+  // Preserve context along the drawn tree, including grafted provenance edges.
+  const retained = new Set<string>([rootId])
+  const ancestors: string[] = []
+  for (const row of full) {
+    ancestors.length = row.depth
+    ancestors.push(row.issue.id)
+    if (matches.has(row.issue.id)) for (const id of ancestors) retained.add(id)
+  }
+  return full
+    .filter((row) => retained.has(row.issue.id))
+    .map((row) => ({ ...row, matched: matches.has(row.issue.id) }))
 }
 
 /** Board matches retain eligible ancestors; human proposals lead their own blocks. */

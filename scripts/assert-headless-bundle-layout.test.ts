@@ -590,8 +590,23 @@ describe('the gate and the signing step name the same JIT keys', () => {
       'vite build && bun ../../scripts/archive-web-sourcemaps.ts dist && bun ../../scripts/precompress-dist.ts dist && bun --conditions=@podium/source ../../scripts/write-web-build-stamp.ts dist && bun ../../scripts/web-bundle-correctness.ts dist',
     )
     expect(web.scripts['build:dist']).toBeUndefined()
-    expect(mobile.scripts.build).toBe(
-      'EXPO_UNSTABLE_METRO_OPTIMIZE_GRAPH=1 EXPO_UNSTABLE_TREE_SHAKING=1 expo export -p web && bun scripts/patch-web-html.ts && bun ../../scripts/precompress-dist.ts dist && bun --conditions=@podium/source ../../scripts/write-web-build-stamp.ts dist',
+    // The phone now also emits its service worker. Follow the actual packaging
+    // stages and prove the stamp runs after every byte-producing step; an
+    // exact historical command string hid that ordering behind an unrelated
+    // pipeline change.
+    const mobileSteps = mobile.scripts.build?.split(' && ') ?? []
+    const exportIndex = mobileSteps.indexOf(
+      'EXPO_UNSTABLE_METRO_OPTIMIZE_GRAPH=1 EXPO_UNSTABLE_TREE_SHAKING=1 expo export -p web',
+    )
+    const htmlIndex = mobileSteps.indexOf('bun scripts/patch-web-html.ts')
+    const workerIndex = mobileSteps.indexOf('bun scripts/generate-service-worker.ts dist')
+    const compressIndex = mobileSteps.indexOf('bun ../../scripts/precompress-dist.ts dist')
+    expect(exportIndex).toBe(0)
+    expect(htmlIndex).toBeGreaterThan(exportIndex)
+    expect(workerIndex).toBeGreaterThan(htmlIndex)
+    expect(compressIndex).toBeGreaterThan(workerIndex)
+    expect(mobileSteps.at(-1)).toBe(
+      'bun --conditions=@podium/source ../../scripts/write-web-build-stamp.ts dist',
     )
     expect(mobile.scripts['build:web']).toBeUndefined()
     expect(packageJson).not.toContain('package:clients')

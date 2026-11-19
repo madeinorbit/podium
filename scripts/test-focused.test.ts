@@ -19,6 +19,7 @@ const run = (args: string[], env = process.env) => {
   expect(result.error, `${result.stdout}\n${result.stderr}`).toBeUndefined()
   return {
     code: result.status,
+    rawOutput: `${result.stdout}\n${result.stderr}`,
     output: stripVTControlCharacters(`${result.stdout}\n${result.stderr}`),
   }
 }
@@ -314,7 +315,7 @@ it('positive after failure', () => expect(2).toBe(2))
       const result = run(['test:file', '--', source], env)
       const output = stripVTControlCharacters(result.output)
       expect(result.code, output).toBe(1)
-      expect(result.output).toContain('\u001b[')
+      expect(result.rawOutput).toContain('\u001b[')
       expect(output).not.toContain('EISDIR')
       expect(output).not.toContain('Unhandled Errors')
       expect(output).toMatch(/Tests\s+2 failed\s*\|\s*2 passed\s*\(4\)/)

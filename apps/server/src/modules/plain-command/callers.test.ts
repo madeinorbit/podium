@@ -316,7 +316,11 @@ describe('every current caller of the non-sync commands', () => {
     //  - settings.updateInstance: records.instancePreferences.edit (POD-6677).
     const queued = [...CONTRACTS.values()].filter((c) => c.delivery.class === 'offline-eligible')
     expect(queued.map((c) => c.name)).toEqual([])
-    const plain = [...CONTRACTS.values()].filter((c) => c.delivery.class !== 'offline-eligible')
+    // Contracted reads use their query's authorization gate, not the plain
+    // mutation executor. Their caller floors remain covered by CALLERS below.
+    const plain = [...CONTRACTS.values()].filter(
+      (c) => c.delivery.class !== 'offline-eligible' && c.policy.action !== 'read',
+    )
     for (const contract of plain) {
       const registered = plainCommands().lookup(contract.name)
       expect(registered, `${contract.name} has a real registration`).toBeDefined()

@@ -27,6 +27,7 @@ import {
   readRunAccounting,
   sharedTurboCacheDir,
 } from './typecheck'
+import { VALIDATION_COST_MB } from './validation-admission'
 import { readWorkspaceResolutionCensus } from './workspace-resolution-census'
 
 describe('decideForce', () => {
@@ -714,18 +715,18 @@ describe('decideConcurrency', () => {
 })
 
 describe('decideAdaptiveConcurrency (kept for the machine-wide cap to come)', () => {
-  // The box this was re-measured on: 8 cores, 24GB, ~3GB peak per tsgo on apps/server.
   const box = (mb: number) => ({ cores: 6, availableMb: mb })
 
   it('caps by MEMORY when memory is the scarce thing', () => {
     // The incident: load 90, 859MB available, turbo happily starting ten.
     expect(decideAdaptiveConcurrency(box(859)).cap).toBe(1)
-    // 5GB looks roomy and is not: after the 1.5GB reserve one 3GB compiler fits.
-    expect(decideAdaptiveConcurrency(box(5000)).cap).toBe(1)
-    // 8GB is two; 6GB was what three compilers were admitted on before the
-    // constant was corrected, and it is one.
-    expect(decideAdaptiveConcurrency(box(8000)).cap).toBe(2)
-    expect(decideAdaptiveConcurrency(box(6000)).cap).toBe(1)
+    // Admission and this cap share the measured compiler cost. Exercise the
+    // boundary on both sides: another compiler must fit in addition to the
+    // reserve, rather than inheriting a historical tsgo RSS measurement.
+    const twoCompilers = 1500 + 2 * VALIDATION_COST_MB.typecheck
+    expect(decideAdaptiveConcurrency(box(twoCompilers - 1)).cap).toBe(1)
+    expect(decideAdaptiveConcurrency(box(twoCompilers)).cap).toBe(2)
+    expect(decideAdaptiveConcurrency(box(twoCompilers + VALIDATION_COST_MB.typecheck)).cap).toBe(3)
   })
 
   it('reserves headroom for everything else on the box', () => {
