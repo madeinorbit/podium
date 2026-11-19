@@ -1,11 +1,11 @@
 import { asMachineId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
+  type MachineGrants,
   machineViews,
   NO_MACHINE_GRANTS,
   resolveSpawnTargetMachine,
   usableMachines,
-  type MachineGrants,
 } from './authority'
 
 // ---------------------------------------------------------------------------
@@ -22,7 +22,11 @@ import {
 // principal lacks `use` on.
 // ---------------------------------------------------------------------------
 
-const machine = (id: string, online: boolean) => ({ id, online })
+const machine = (id: string, online: boolean) => ({
+  id,
+  online,
+  serviceAssignment: { server: false, agentExecution: true },
+})
 
 const grants = (over: Partial<MachineGrants> = {}): MachineGrants => ({
   see: true,

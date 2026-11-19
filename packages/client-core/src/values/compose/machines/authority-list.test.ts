@@ -7,6 +7,7 @@ const machine = (id: string, use?: 'granted' | 'denied'): MachineWire => ({
   name: id,
   hostname: `${id}.test`,
   online: true,
+  serviceAssignment: { server: false, agentExecution: true },
   lastSeenAt: '2026-08-03T00:00:00.000Z',
   ...(use === undefined ? {} : { use }),
 })

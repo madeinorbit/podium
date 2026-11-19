@@ -177,9 +177,17 @@ describe('a generic record write on the kernel queue', () => {
     expect(submits.map((s) => s.command)).toEqual(['records.issueProjection.edit'])
     expect(outbox.pending()).toEqual([])
     expect(outbox.awaiting()).toEqual([])
-    expect(onDropped).toHaveBeenCalledWith(expect.objectContaining({ mutationId: M1 }), {
-      code: 'invalid',
-    })
+    expect(onDropped).toHaveBeenCalledWith(
+      expect.objectContaining({
+        mutationId: M1,
+        kind: 'recordEdit',
+        input: { kind: 'issueProjection', id: ISSUE, patch: {}, unset: ['acceptance'] },
+      }),
+      expect.objectContaining({
+        code: 'invalid',
+        message: expect.stringContaining('records.issueProjection.edit'),
+      }),
+    )
     outbox.dispose()
   })
 })

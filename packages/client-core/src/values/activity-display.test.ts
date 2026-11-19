@@ -23,15 +23,31 @@ const tool = (command = 'git status'): TranscriptItem => ({
 it.each([
   [note(), 'received-notes', true, false, true],
   [note(2), 'received-notes', false, true, true],
-  [tool(), 'tool', false, false, false],
   [tool('podium issue mail send POD-12 --body ready'), 'sent-note', true, false, true],
   [tool('podium issue mail inbox'), 'inbox-read', true, false, true],
-  [{ ...tool('podium issue mail inbox'), toolResult: 'error: failed' }, 'tool', false, false, true],
 ] as const)('describes singleton %s as %s', (item, kind, inline, multiple, asBlock) => {
   const block = presentToolBlock({ item })
   const display = activitySingletonDisplay(block)
   expect(display).toMatchObject({ kind, inline, multiple, asBlock })
   expect(display.block).toBe(block)
+})
+
+it('keeps command executions inline, including a failed inbox command without a mail result', () => {
+  for (const item of [
+    tool(),
+    { ...tool('podium issue mail inbox'), toolResult: 'error: failed' },
+  ]) {
+    const block = presentToolBlock({ item })
+    expect(block.execution).toBeDefined()
+    expect(activitySingletonDisplay(block)).toMatchObject({
+      kind: 'tool',
+      inline: true,
+      multiple: false,
+    })
+  }
+  const opaque = presentToolBlock({ item: { ...tool(), toolName: 'OpaqueTool', toolInput: {} } })
+  expect(opaque.execution).toBeUndefined()
+  expect(activitySingletonDisplay(opaque)).toMatchObject({ kind: 'tool', inline: false })
 })
 
 it('keeps retained and snapshot descriptors aligned as a singleton becomes mixed', () => {

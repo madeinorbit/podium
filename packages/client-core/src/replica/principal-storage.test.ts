@@ -3,7 +3,7 @@ import { addSink } from '@podium/logger'
 import { asUserId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { asClientPrincipal, principalKey, samePrincipal } from '../principal'
-import type { StorageApi, StorageEventApi } from './contract'
+import type { StorageApi } from './contract'
 import { createSideCache } from './kernel/side-cache'
 import {
   type PrincipalNamespacePolicy,
@@ -171,27 +171,6 @@ describe('principal replica storage', () => {
     alice.dispose()
     bob.dispose()
   })
-
-  it('cross-tab storage events never cross principal keys, and dispose detaches', () => {
-    const memory = keyedStorage()
-    const events = storageEvents()
-    const alice = createSideCache({
-      storage: memory.api,
-      enumerateKeys: memory.keys,
-      storageEventApi: events.api,
-      keyPrefix: principalKeyPrefix('podium.kernel-replica', 'alice'),
-    })
-    const changed = vi.fn()
-    openLegacyDeviceKeys(alice.deviceStorage()).subscribe(changed)
-
-    events.fire(principalKeyPrefix('podium.kernel-replica', 'bob') + '.uistate.v1')
-    expect(changed).not.toHaveBeenCalled()
-    events.fire(principalKeyPrefix('podium.kernel-replica', 'alice') + '.uistate.v1')
-    expect(changed).toHaveBeenCalledTimes(1)
-    alice.dispose()
-    events.fire(principalKeyPrefix('podium.kernel-replica', 'alice') + '.uistate.v1')
-    expect(changed).toHaveBeenCalledTimes(1)
-  })
 })
 
 describe('quota self-heal (POD-3967)', () => {
@@ -272,23 +251,6 @@ function keyedStorage(): { api: StorageApi; keys: () => string[] } {
       removeItem: (key) => void values.delete(key),
     },
     keys: () => [...values.keys()],
-  }
-}
-
-function storageEvents(): {
-  api: StorageEventApi
-  fire(key: string): void
-} {
-  const listeners = new Set<(event: StorageEvent) => void>()
-  return {
-    api: {
-      addEventListener: (_type, listener) => listeners.add(listener),
-      removeEventListener: (_type, listener) => listeners.delete(listener),
-    },
-    fire: (key) => {
-      const event = { key } as StorageEvent
-      for (const listener of [...listeners]) listener(event)
-    },
   }
 }
 

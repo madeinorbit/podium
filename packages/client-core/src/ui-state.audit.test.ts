@@ -210,17 +210,12 @@ describe('UI persistence ownership lint', () => {
     expect(source).toContain('readPreAuthTheme')
   })
 
-  it('NO key is left unrouted that names an issue as its home', () => {
-    // A `known-unrouted` row is a promissory note: it says an issue owns the
-    // decision. POD-1380 was the last one, so the remaining two must be the
-    // mechanism exceptions (a pre-store sessionStorage guard and the replica's
-    // own legacy blob) and nothing else. A new deferred key has to be a
-    // deliberate edit here rather than something that accumulates quietly.
-    const unrouted = Object.entries(KNOWN_NON_UI_ROUTES)
-      .filter(([, route]) => route.home === 'known-unrouted')
-      .map(([key]) => key)
-      .sort()
-    expect(unrouted).toEqual(['podium.outbox.v1', 'podium.vreload'])
+  it('unrouted non-UI keys name their storage mechanism, never a deferred issue', () => {
+    for (const [key, route] of Object.entries(KNOWN_NON_UI_ROUTES)) {
+      if (route.home !== 'known-unrouted') continue
+      expect(route.reason, key).toMatch(/sessionStorage|Replica outbox adapter/)
+      expect(route.reason, key).not.toMatch(/POD-\d+|TODO|TBD/)
+    }
   })
 
   it('the command-homed key is REFUSED by the ui-state router, not written locally', () => {
@@ -324,8 +319,19 @@ const LEGACY_SECTION_PREFIXES: readonly string[] = ['podium:sidebar:', 'tips.see
  * never from `LAYOUT_EXACT_KEYS` — a set built from the list it is meant to
  * check is the tautology this audit exists to replace.
  */
+// Current pool consumers write canonical layout keys directly. They need no
+// legacy alias: include actual producer/reader calls, not a second key roster.
+const directLayoutKeys = new Set(
+  sources(join(ROOT, 'packages/client-graph/src')).flatMap((path) =>
+    [
+      ...readFileSync(path, 'utf8').matchAll(
+        /\b(?:layoutValue|setLayoutValue)\(\s*['"]([^'"]+)['"]/g,
+      ),
+    ].map((match) => match[1]!),
+  ),
+)
 function reachableLayoutKeys(vocabulary: readonly string[]): ReadonlySet<string> {
-  const reached = new Set<string>()
+  const reached = new Set<string>(directLayoutKeys)
   for (const legacy of vocabulary) {
     if (uiStateRoute(legacy).home !== 'per-user-replicated') continue
     const layoutKey = layoutKeyFromLegacy(legacy)

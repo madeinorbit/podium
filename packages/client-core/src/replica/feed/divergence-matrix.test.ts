@@ -390,7 +390,7 @@ describe('POD-376 divergence matrix', () => {
     // The rights moved by more than it is worth enumerating. The replica must
     // discard and re-bootstrap SCOPED — and the world it re-installs is the one
     // the authority evaluates NOW, so the revoked row does not come back.
-    authority.policy.revoke('user:alice', 'session', 'b')
+    authority.revoke('user:alice', 'session', 'b')
     alice.sink.frame({
       type: 'feedRescope',
       feedId: alice.replica.cursor?.feedId ?? '',
