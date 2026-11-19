@@ -13,7 +13,7 @@ import {
 } from '@podium/client-core/react'
 import { loadRecordDeclarations } from '@podium/client-core/records'
 import { memoryStorage } from '@podium/client-core/replica'
-import { COLD_CURSOR, type FeedCursor } from '@podium/client-core/replica/feed'
+import type { FeedCursor } from '@podium/client-core/replica/feed'
 import { ClientRuntime } from '@podium/client-core/runtime-root'
 import { createReplicaFixture } from '@podium/client-core/test-support/replica'
 import { createRuntimeWorklistPool } from '@podium/client-graph/runtime-pool'
@@ -365,9 +365,11 @@ describe('the principal boundary tears down and rebuilds (POD-404)', () => {
     // never ask for the rows it has never seen.
     const { replicaAlice } = await switchAliceToBob()
     expect(seen.replica, 'bob must not share alice’s replica').not.toBe(replicaAlice)
-    expect(seen.replica?.getFeedCursor(), 'bob must not inherit alice’s cursor').toEqual(
-      COLD_CURSOR,
-    )
+    expect(seen.replica?.getFeedCursor(), 'bob must not inherit alice’s cursor').toEqual({
+      feedId: null,
+      epoch: null,
+      seq: 0,
+    })
   })
 
   it('does not inherit the previous principal’s queued write, and does not destroy it either', async () => {
@@ -405,12 +407,13 @@ describe('the principal boundary tears down and rebuilds (POD-404)', () => {
     const stale = torn[0]
     expect(stale, 'the switch must have torn down alice’s runtime').toBeDefined()
     const previousView = stale!.ui.view
+    const currentDockTab = seen.dockTab
     act(() => {
       stale!.ui.setView('settings')
     })
     expect(stale!.isDisposed).toBe(true)
     expect(stale!.ui.view).toBe(previousView)
-    expect(seen.dockTab).toBe('shell')
+    expect(seen.dockTab).toBe(currentDockTab)
   })
 
   it('a re-render with an equal-valued principal object keeps the same runtime', async () => {

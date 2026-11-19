@@ -65,6 +65,7 @@ function poolRuntime() {
     },
     subscribeOutboxOutcomes: () => () => {},
     attachPoolWriter: () => () => {},
+    attachPool: () => () => {},
     spawnNotices: { error: () => {}, info: () => {} },
   }
   const handle = createRuntimeWorklistPool(rt as unknown as WorklistRuntime)

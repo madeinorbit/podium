@@ -174,14 +174,16 @@ it.each([
         resolveRecords = resolve
       }),
   )
+  const api = {
+    sessions: { transcriptRead: { query: async () => ({ items: [item], hasMore: false }) } },
+    messages: { records: { query: records } },
+  }
   const runtime = {
     ...corpus.owner,
-    access: {
-      hub: { subscribeTranscript: () => () => {} },
-      trpc: {
-        sessions: { transcriptRead: { query: async () => ({ items: [item], hasMore: false }) } },
-        messages: { records: { query: records } },
-      },
+    api,
+    services: {
+      ...corpus.owner.services,
+      connection: { hub: { subscribeTranscript: () => () => {} } },
     },
   }
   const conversation = createWebConversation(runtime as never, corpus.pool, sessionId, {})

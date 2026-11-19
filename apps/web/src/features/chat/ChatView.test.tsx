@@ -17,7 +17,7 @@ import queued283 from '../../../../../docs/measurements/pod-4982-claude-pasted-c
 import measured285 from '../../../../../docs/measurements/pod-4982-claude-pasted-content/claude-2.1.285-gate-on-boundaries.jsonl?raw'
 import queued285 from '../../../../../docs/measurements/pod-4982-claude-pasted-content/claude-2.1.285-gate-on-queued.jsonl?raw'
 import './test-support/client-core-mock'
-import { resetFakeStore, setFakeStore } from './test-support/fake-store-handle'
+import { fakeStoreHandle, resetFakeStore, setFakeStore } from './test-support/fake-store-handle'
 import { outboxChatSendActions } from './test-support/outbox-chat-send'
 
 // ---------------------------------------------------------------------------
@@ -629,7 +629,7 @@ This is agent mail, not the operator's latest prompt.
   })
 
   it('keeps operator prompts in normal flow when the device preference is disabled', async () => {
-    fakeUiValues.set('podium.chat.stickyPrompts', 'false')
+    fakeStoreHandle.ui.setDevicePref('podium.chat.stickyPrompts', 'false')
     act(() => {
       root.render(<ChatView sessionId={asSessionId('s1')} />)
     })
@@ -766,7 +766,7 @@ describe('ChatView composer', () => {
     if (!entry) throw new Error('no prompt entry')
     entry.cursor = encodeCursor({ fileId: 'claude-paste', offset: 100, uuid: entry.id, sub: 0 })
     const id = 'msg-person-paste'
-    fakeUiValues.set('podium.chat.stickyPrompts', 'false')
+    fakeStoreHandle.ui.setDevicePref('podium.chat.stickyPrompts', 'false')
     setFakeStore({ messageRecords: [sentRecord(id, measured.input, { status: 'typed' })] })
     act(() => root.render(<ChatView sessionId={asSessionId('s1')} />))
     await act(async () => reads[0]?.resolve({ items: [], hasMore: false }))
@@ -831,7 +831,7 @@ describe('ChatView composer', () => {
       sub: 0,
     })
     const id = 'msg-person-queued-paste'
-    fakeUiValues.set('podium.chat.stickyPrompts', 'false')
+    fakeStoreHandle.ui.setDevicePref('podium.chat.stickyPrompts', 'false')
     setFakeStore({ messageRecords: [sentRecord(id, measured.input, { status: 'typed' })] })
     act(() => root.render(<ChatView sessionId={asSessionId('s1')} />))
     await act(async () => reads[0]?.resolve({ items: [], hasMore: false }))

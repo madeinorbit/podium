@@ -731,6 +731,8 @@ function useFixturePool(): MobxPool {
         // no separately attached PreferenceSource cache to refresh.
         peekView: (name: string): unknown => {
           if (name === 'preferences') return undefined
+          if (name === 'sessionPanes')
+            return (pool as unknown as Record<string, unknown>)['sessionPanes']
           if (name === 'members.rosterFacts')
             return (pool as unknown as Record<string, unknown>)['memberRoster']
           if (name === 'worklist.view')
