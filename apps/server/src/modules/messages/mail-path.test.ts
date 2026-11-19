@@ -337,12 +337,19 @@ describe('the mail writes are on the sync write entry point', () => {
     const f = await makeFixture()
     // Held for the operator: nothing past the server holds it, so a retract
     // cancels it once the request committed.
-    const held = (await f.o.call.messages.send({ to: 'operator', body: 'take it back' })) as {
+    const held = (await f.o.call.messages.send({ to: f.issueId, body: 'take it back' })) as {
       id: string
     }
-    const read = (await f.o.call.messages.send({ to: 'operator', body: 'clear me' })) as {
+    // An agent's reply reaches this person's operator box. A person may clear
+    // their own incoming mail, never the message they sent to an agent.
+    const request = (await f.o.call.messages.send({ to: f.agent, body: 'please reply' })) as {
       id: string
     }
+    const reply = await relay(f, 'messages', 'reply', { id: request.id, body: 'clear me' })
+    expect(reply.ok).toBe(true)
+    const [read] = await messagesWithBody(f, 'clear me')
+    if (!read) throw new Error('the reply did not reach the operator mailbox')
+    expect((await f.o.store.messages.getMessage(read.id))?.toKind).toBe('operator')
     const calls = entryCalls(f.o)
     const cleared = await f.o.call.messages.dismiss({ id: read.id })
     const cancelled = await f.o.call.messages.cancel({ id: held.id })
