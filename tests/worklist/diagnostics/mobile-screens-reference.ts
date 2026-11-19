@@ -27,7 +27,9 @@ import {
   coordinatedSeat,
   coordinatorLive,
   leafTasks,
+  sessionWord,
   sessionWorkingFact,
+  wordWantsAttention,
 } from '@podium/model/browser'
 import { expect } from 'vitest'
 import type { MobileScreenInput } from './mobile-screens-snapshot'
@@ -364,10 +366,24 @@ export function expectMobileScreens(
         (a, b) => (rank.get(a.sessionId) ?? 0) - (rank.get(b.sessionId) ?? 0),
       )
     : []
-  const current =
-    crew.find((session) => session.sessionId === input.requestedSessionId) ??
-    input.selectSession(crew)
   const members = new Map(issues.map((issue) => [issue.id as string, issue]))
+  // The expected answer uses source records and the declared phone triage rule.
+  // Calling the production selector here passed raw rows to model-only getters
+  // and silently ranked every source session as closed.
+  const selectionRank = (session: (typeof crew)[number]) => {
+    if (session.archived || session.status === 'exited' || session.status === 'hibernated') return 3
+    const issue = session.issueId ? members.get(session.issueId) : undefined
+    if (
+      wordWantsAttention(sessionWord(session, { issueClosed: issue ? isFinished(issue) : false }))
+    )
+      return 0
+    return session.agentState?.phase === 'working' ? 1 : 2
+  }
+  const automatic = [...crew].sort(
+    (a, b) => selectionRank(a) - selectionRank(b) || b.lastActiveAt.localeCompare(a.lastActiveAt),
+  )[0]
+  const current =
+    crew.find((session) => session.sessionId === input.requestedSessionId) ?? automatic
   const header = (current?.issueId ? members.get(current.issueId) : undefined) ?? root
   const headerFields = header ? fields(header) : null
   if (headerFields) delete headerFields.pinned

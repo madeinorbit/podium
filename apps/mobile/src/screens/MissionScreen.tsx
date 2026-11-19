@@ -49,7 +49,7 @@ import { color } from '../theme/theme'
  * dismissal, focus containment, and keyboard behavior.
  */
 
-const NO_SESSIONS: readonly SessionView[] = []
+const NO_SESSIONS: readonly SessionModel[] = []
 
 export const MissionScreen = observer(function MissionScreen() {
   const pool = useMobilePool()
@@ -69,7 +69,7 @@ export const MissionScreen = observer(function MissionScreen() {
   const ready = resolved && screen?.ready === true
   const rootValue = ready ? screen.reader.issue(screen.rootId) : undefined
   const root = rootValue && rootValue !== LOADING ? rootValue : undefined
-  const missionSessions = ready ? (screen.crew as unknown as readonly SessionView[]) : NO_SESSIONS
+  const missionSessions = ready ? screen.crew : NO_SESSIONS
 
   const requestedSessionId = Array.isArray(params.sessionId)
     ? params.sessionId[0]

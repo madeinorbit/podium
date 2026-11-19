@@ -1,4 +1,3 @@
-import type { SessionView } from '@podium/client-core/session-values'
 import type { SessionModel } from '@podium/client-graph/models'
 
 /**
@@ -17,13 +16,11 @@ import type { SessionModel } from '@podium/client-graph/models'
  * agents from immediate conversation selection. That exclusion and the exact
  * working-phase rank are phone navigation rules, independent of execution.
  */
-export function mostRelevantSession<S extends SessionModel | SessionView>(sessions: readonly S[]): S | undefined {
+export function mostRelevantSession<S extends SessionModel>(sessions: readonly S[]): S | undefined {
   const rank = (s: S): number => {
-    // The phone projection carries the pool's models through its wire-shaped API.
-    const model = s as SessionModel
-    if (!model.open || model.status === 'hibernated') return 3
-    if (model.attention) return 0
-    if (model.phase === 'working') return 1
+    if (!s.open || s.status === 'hibernated') return 3
+    if (s.attention) return 0
+    if (s.phase === 'working') return 1
     return 2
   }
   return [...sessions].sort(

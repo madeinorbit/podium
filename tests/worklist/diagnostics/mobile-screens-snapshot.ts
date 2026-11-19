@@ -17,6 +17,7 @@ import {
   settled,
 } from '@podium/client-graph/mission-view'
 import type { MobileTasksOptions } from '@podium/client-graph/mobile-screens-schema'
+import type { SessionModel } from '@podium/client-graph/models'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { autorun, reaction } from 'mobx'
@@ -29,7 +30,7 @@ import { sessionComparable } from './oracle'
 import type { SidebarSnapshot } from './sidebar-check'
 
 export interface MobileScreenInput {
-  selectSession(sessions: readonly SessionView[]): SessionView | undefined
+  selectSession(sessions: readonly SessionModel[]): SessionModel | undefined
   /** Tasks do not depend on mission selection; null skips a repeated check. */
   tasks: MobileTasksOptions | null
   selectedId: string | null
@@ -137,7 +138,7 @@ const flight = (row: FlightDeckRow) => ({
 /** What the phone's mission routes read from one opening. */
 interface PhoneMission {
   root: IssueViewModel | undefined
-  missionSessions: SessionView[]
+  missionSessions: readonly SessionModel[]
   progress: MissionScreen['progress']
   header(issueId: string | undefined): IssueViewModel | undefined
   author(row: FlightDeckRow): string | null
@@ -231,7 +232,7 @@ function phoneMission(
   return [
     {
       root,
-      missionSessions: screen.crew as unknown as SessionView[],
+      missionSessions: screen.crew,
       progress: screen.progress,
       header(issueId) {
         const issue = issueId && screen.members.has(issueId) ? reader.issue(issueId) : undefined
