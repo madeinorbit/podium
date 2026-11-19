@@ -8,7 +8,7 @@ import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { loadQuotes, QUOTES_KEY, saveQuotes, sweepQuotes } from '@/lib/quote/quote-store'
 import { quoteLabel } from '@/lib/quote/quote-tokens'
-import { createSideCache } from '../../../../../../packages/client-core/src/replica/kernel/side-cache'
+import { createSideCache } from '../../../../../packages/client-core/src/replica/kernel/side-cache'
 import { type UseQuotesResult, useQuotes } from './QuoteTokens'
 
 let currentOwner: RoutedUiState

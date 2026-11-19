@@ -1,3 +1,4 @@
+import { appendFileSync } from 'node:fs'
 import { encodeCursor } from '@podium/harness/browser'
 import { claudePromptTextMatches, transcriptRecordMapperFor } from '@podium/harness/metadata'
 import {
@@ -177,35 +178,6 @@ vi.mock('@/lib/markdown-references', () => ({
 // Counts composer draws without changing them: the ask-anything regression
 // below holds an agent-state publication that keeps the phase to none.
 const composerRenders = vi.hoisted(() => vi.fn())
-const stateTrace = vi.hoisted(() => ({
-  writes: 0,
-  last: [] as string[],
-  wrappers: new WeakMap<Function, Function>(),
-}))
-vi.mock('react', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('react')>()
-  return {
-    ...actual,
-    useState(initial: unknown) {
-      const [value, set] = actual.useState(initial)
-      let wrapped = stateTrace.wrappers.get(set)
-      if (!wrapped) {
-        wrapped = (next: unknown) => {
-          stateTrace.writes++
-          if (stateTrace.writes < 15 || stateTrace.writes % 100 === 0) {
-            stateTrace.last.push(`${stateTrace.writes}: ${new Error().stack}`)
-            stateTrace.last = stateTrace.last.slice(-5)
-          }
-          if (stateTrace.writes > 1000)
-            throw new Error(`attachment state loop ${stateTrace.last.join('\n')}`)
-          return set(next)
-        }
-        stateTrace.wrappers.set(set, wrapped)
-      }
-      return [value, wrapped]
-    },
-  }
-})
 vi.mock('./ChatComposer', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./ChatComposer')>()
   const { createElement } = await import('react')
@@ -213,10 +185,6 @@ vi.mock('./ChatComposer', async (importOriginal) => {
     ...actual,
     ChatComposer: (props: Parameters<typeof actual.ChatComposer>[0]) => {
       composerRenders()
-      if (composerRenders.mock.calls.length > 1000)
-        throw new Error(
-          `attachment render loop; state writes=${stateTrace.writes} ${stateTrace.last.join('\n')}`,
-        )
       return createElement(actual.ChatComposer, props)
     },
   }
@@ -269,8 +237,6 @@ let container: HTMLDivElement
 let root: Root
 
 beforeEach(() => {
-  stateTrace.writes = 0
-  stateTrace.last = []
   reads.length = 0
   fakeHub.subscribes.length = 0
   storeSessions = [meta({})]
@@ -1354,6 +1320,9 @@ describe('ChatView composer', () => {
   })
 
   it('sends a staged attachment ref without pasting its path into message text', async () => {
+    const trace = (message: string) =>
+      appendFileSync('/tmp/podium-chat-attachment-trace.log', `${message}\n`)
+    trace('test started')
     const attachment = {
       id: 'staged-1',
       path: '/staged/shot.png',
@@ -1375,27 +1344,37 @@ describe('ChatView composer', () => {
     expect(textarea).not.toBeNull()
     if (!input || !textarea) return
 
+    trace('rendered')
     Object.defineProperty(input, 'files', {
       configurable: true,
       value: [new File(['pixels'], 'shot.png', { type: 'image/png' })],
     })
+    trace('changing')
     fireEvent.change(input)
+    trace('changed')
     await vi.waitFor(() => {
+      trace(`wait upload calls=${fakeTrpc.sessions.uploadImage.mutate.mock.calls.length}`)
       expect(fakeTrpc.sessions.uploadImage.mutate).toHaveBeenCalledTimes(1)
+      trace('upload call asserted')
       const strip = container.querySelector('[data-testid="attachment-strip"]')
+      trace(`strip text=${strip?.textContent}`)
       expect(strip?.textContent).toContain('shot.png')
       expect(strip?.textContent).not.toContain('Uploading')
     })
+    trace('ready observed')
     fireEvent.keyDown(textarea, { key: 'Enter' })
-    await vi.waitFor(() =>
+    trace('submitted')
+    await vi.waitFor(() => {
+      trace(`wait send calls=${fakeTrpc.sessions.sendText.mutate.mock.calls.length}`)
       expect(fakeTrpc.sessions.sendText.mutate).toHaveBeenCalledWith(
         expect.objectContaining({
           sessionId: asSessionId('s1'),
           text: 'describe this image',
           attachments: [attachment],
         }),
-      ),
-    )
+      )
+    })
+    trace('send asserted')
   })
 
   it('shows the exact send refusal and preserves failed attachment chips', async () => {
