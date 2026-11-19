@@ -1,5 +1,4 @@
 import type { SessionView, SessionViewInput } from '@podium/client-core/session-values'
-import { sessionView } from '@podium/client-core/session-values'
 import { asMachineId, asSessionId, type SessionId, type TranscriptItem } from '@podium/model'
 import { waitFor } from '@testing-library/react'
 import { act } from 'react'
@@ -337,7 +336,7 @@ describe('ChatView machine-offline history (POD-4808)', () => {
   })
 })
 
-it('the live offline banner uses the replicated session machine name', async () => {
+it('the live offline banner reads the machine record name beside its live condition', async () => {
   const raw = meta({
     status: 'live',
     machineId: asMachineId('m1'),
@@ -348,8 +347,10 @@ it('the live offline banner uses the replicated session machine name', async () 
       nativeSubagentCount: 0,
     },
   })
-  storeSessions = [sessionView(raw, { machine: { name: 'Renamed home', loggedOutHarnesses: [] } })]
-  storeMachines = [{ id: 'm1', name: 'Stale live frame', online: false }]
+  storeSessions = [raw]
+  // Listing-shaped fixtures publish name as a durable machine record and
+  // online as its separate live condition, just as the current feed does.
+  storeMachines = [{ id: 'm1', name: 'Renamed home', online: false }]
   act(() => {
     setFakeStore({})
     root.render(<ChatView sessionId={asSessionId('s1')} />)
@@ -375,5 +376,11 @@ it('the live offline banner uses the replicated session machine name', async () 
   await flush()
   const marker = container.querySelector('[data-testid="transcript-machine-offline"]')
   expect(marker?.textContent).toContain('Renamed home')
-  expect(marker?.textContent).not.toContain('Stale live frame')
+  expect(marker?.textContent).not.toContain('Old session name')
+  act(() => {
+    storeMachines = [{ id: 'm1', name: 'Renamed again', online: false }]
+    setFakeStore({})
+    root.render(<ChatView sessionId={asSessionId('s1')} />)
+  })
+  await waitFor(() => expect(marker?.textContent).toContain('Renamed again'))
 })

@@ -1890,7 +1890,7 @@ button.sync-item:focus-visible,
   border-radius: 8px;
   background: var(--primary);
   color: var(--primary-foreground);
-  font-size: 9.5px;
+  font-size: var(--shell-type-micro);
   font-weight: 600;
   line-height: 1;
   pointer-events: none;
@@ -3072,7 +3072,7 @@ button.sync-item:focus-visible,
   background: transparent;
   color: var(--text-faint);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--shell-type-micro);
   font-variant-numeric: tabular-nums;
   line-height: 1.2;
   cursor: pointer;

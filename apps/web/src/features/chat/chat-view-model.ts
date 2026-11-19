@@ -15,7 +15,6 @@ import { here, omitGone } from '@podium/client-graph/lookup'
 import { currentMessageRecord } from '@podium/client-graph/message-models'
 import type { SessionModel } from '@podium/client-graph/models'
 import { lazy } from '@podium/mobx-helpers'
-import type { MachineFacts } from '@podium/model/browser'
 import { isAgentComputing, isMachineOfflineForLiveTerminal } from '@podium/model/browser'
 import { actionBound, compareShallow, compareStructural, observable, observableRef } from 'mobx'
 import type { PendingItem } from './chat'
@@ -259,12 +258,11 @@ export class ChatViewModel {
     if (!this.active) return null
     const pool = this.conversation.pool
     const id = this.session?.machineId
-    const machine =
-      id === undefined
-        ? undefined
-        : (omitGone(pool.row('machine', id)) as MachineFacts | symbol | undefined)
-    return machine && typeof machine !== 'symbol' && isMachineOfflineForLiveTerminal(machine)
-      ? (this.session?.machineName ?? machine.name ?? id ?? null)
+    // Presence is the machine model's LiveStore reading. Its durable row has
+    // no online flag and cannot answer whether a terminal is disconnected.
+    const machine = id === undefined ? undefined : here(pool.model('machine', id))
+    return machine && isMachineOfflineForLiveTerminal(machine)
+      ? machine.name || this.session?.machineName || id || null
       : null
   }
   @lazy({ equals: compareStructural }) get attached() {
