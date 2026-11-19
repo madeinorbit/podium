@@ -560,6 +560,31 @@ describe('record sources (POD-6920)', () => {
     // Declared after the oracle was frozen (POD-6881): it was never a hand-written row
     // builder to compare against; `store/notices.test.ts` and the isolation test cover it.
     const AFTER_THE_ORACLE: readonly string[] = ['inboxNotice']
+    /**
+     * WHAT CREDENTIAL MANAGEMENT CHANGED SINCE THE ORACLE (POD-6857), each named, so
+     * everything else stays byte-equal to it. The instance record gained the daemon
+     * link's trusted networks; the session rows gained their credential columns,
+     * which its capture trigger watches; and the wire schemas of these kinds gained
+     * fields, which moves their shape tokens.
+     */
+    const sinceTheOracle = (kind: string, recordBytes: string): string =>
+      kind === 'instancePreferences'
+        ? recordBytes.replaceAll(',"daemonLink.trustedNetworks":[]', '')
+        : recordBytes
+    const CREDENTIAL_COLUMNS_WATCHED =
+      ' OR OLD."credential_id" IS NOT NEW."credential_id" OR OLD."effective_auth" IS NOT NEW."effective_auth" OR OLD."credential_mismatch" IS NOT NEW."credential_mismatch"'
+    const SHAPES_CHANGED_SINCE_THE_ORACLE: Record<string, string> = {
+      effect: 'a schema its wire value nests gained credential management fields',
+      instancePreferences: "the daemon link's trusted networks",
+      machineAccess: 'a schema its wire value nests gained credential management fields',
+      session: 'the credential a session runs on, what it reported and the mismatch',
+      userPreferences: "a person's credential defaults per harness",
+      inboxNotice: 'declared after the oracle',
+    }
+    const withoutChangedShapes = (tokens: Record<string, string>) =>
+      Object.fromEntries(
+        Object.entries(tokens).filter(([kind]) => !(kind in SHAPES_CHANGED_SINCE_THE_ORACLE)),
+      )
     const bytes = (rows: readonly unknown[]) => JSON.stringify(rows)
     const byId = (streamed: string): string =>
       JSON.stringify(
@@ -655,12 +680,15 @@ describe('record sources (POD-6920)', () => {
         // key leads SQLite through the key index instead of the table's row order
         // (POD-7118; Postgres has its own). Each record's bytes are compared, by id.
         expect(
-          byId(bytes(await collectRecords(after.streamAll(replay.reads, kind)))),
+          byId(
+            sinceTheOracle(kind, bytes(await collectRecords(after.streamAll(replay.reads, kind)))),
+          ),
           `${kind}: stream`,
         ).toBe(byId(expected.streamBytes))
-        expect(bytes(await after.build(replay.reads, kind, expected.ids)), `${kind}: build`).toBe(
-          expected.buildBytes,
-        )
+        expect(
+          sinceTheOracle(kind, bytes(await after.build(replay.reads, kind, expected.ids))),
+          `${kind}: build`,
+        ).toBe(expected.buildBytes)
         expect(bytes(await after.build(replay.reads, kind, [])), `${kind}: no ids`).toBe(
           expected.emptyBytes,
         )
@@ -696,7 +724,11 @@ describe('record sources (POD-6920)', () => {
     // every trigger is the frozen text; and every trigger keys its row's workspace.
     it('keeps every generated capture trigger textually equal to before, with the workspace added', () => {
       const triggers = captureTriggerStatements()
-      expect(triggers.map(withoutWorkspaceTerms)).toEqual(frozen.triggers)
+      expect(
+        triggers
+          .filter((text) => !text.includes('"sync_capture__inboxNotice__'))
+          .map((text) => withoutWorkspaceTerms(text).replace(CREDENTIAL_COLUMNS_WATCHED, '')),
+      ).toEqual(frozen.triggers)
       // `meta` is an install table: its fleet keys capture no workspace.
       for (const trigger of triggers.filter((text) => !text.includes(' ON "meta" '))) {
         expect(trigger, trigger.slice(0, 80)).toMatch(/json_array\((OLD|NEW)\."workspace_id", /)
@@ -723,7 +755,9 @@ describe('record sources (POD-6920)', () => {
         SyncRepository,
         'readKindGenerations'
       > as SyncRepository
-      expect(await readKindTokens(sync, frozen.effectKinds)).toEqual(frozen.tokens)
+      expect(withoutChangedShapes(await readKindTokens(sync, frozen.effectKinds))).toEqual(
+        withoutChangedShapes(frozen.tokens),
+      )
     })
   })
 
