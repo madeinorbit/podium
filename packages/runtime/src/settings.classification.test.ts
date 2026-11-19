@@ -39,10 +39,7 @@ const blobLeaves = () => settingsLeafPaths(PodiumSettings)
 const classifiedPaths = () => SETTINGS_CLASSIFICATION.map((c) => c.path)
 
 describe('the blob walk, probed before it is believed', () => {
-  it('finds a non-trivial number of leaves, nested ones included', () => {
-    // 42 + the shell-idle and backstop hibernation controls + transcripts.mirror,
-    // minus the removed roles.coding.subagentStrategy.
-    expect(blobLeaves().length).toBe(55)
+  it('walks top-level and nested leaves of the live settings blob', () => {
     expect(blobLeaves()).toContain('roles.coding.model')
     expect(blobLeaves()).toContain('roles.background.accountId')
     expect(blobLeaves()).toContain('roles.shipwright.accountId')

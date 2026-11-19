@@ -10,7 +10,11 @@ import {
   readOrCreateDaemonSecret,
   readOrCreateLocalMachineId,
 } from './local-machine'
-import { createMachineCredential } from './machine-credential'
+import {
+  createMachineCredential,
+  machinePublicKeyWire,
+  readMachineCredential,
+} from './machine-credential'
 import { loadSupervisorState, saveSupervisorState } from './machine-supervisor'
 import { saveCachedSessionToken } from './session-token'
 
@@ -31,6 +35,8 @@ vi.mock('node:fs', async (importOriginal) => {
 const ALLOWED_PERSISTENT_FILES = [
   'cli-session.json',
   'config.json',
+  // Cross-process serialization belongs to the live config path.
+  'config.json.write-lock.sqlite',
   'daemon.secret',
   'instance.json',
   'machine.json',
@@ -132,7 +138,7 @@ it('refuses changed cleanup inputs instead of deleting data written after public
 })
 
 it('resolves disagreeing legacy identities by credential: supervisor, then daemon, then machine.id', () => {
-  // ludovico's real state root on 2026-09-18: machine.id and supervisor.json name the
+  // A legacy server state root: machine.id and supervisor.json name the
   // server's row, daemon.json a stale row from an earlier pairing. The dev.166 daemon
   // refused this shape at first boot and every updated machine went dark.
   const dir = mkdtempSync(join(tmpdir(), 'podium-state-disagree-'))
@@ -210,7 +216,9 @@ describe('a 0.1.0 server host stages its own re-key at import (POD-5931)', () =>
       agentExecution: true,
       preauthorized: false,
     })
-    expect(readFileSync(join(dir, 'machine.key'), 'utf8')).toContain(request!.publicKey.slice(-12))
+    const credential = readMachineCredential(dir)
+    if (!credential) throw new Error('legacy import must persist its new credential')
+    expect(machinePublicKeyWire(credential)).toBe(request?.publicKey)
     // The import ran once; later reads see the same request rather than a new one.
     expect(loadSupervisorState(dir).setupEnrollment).toEqual(request)
   })

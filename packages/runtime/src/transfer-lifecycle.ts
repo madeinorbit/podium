@@ -23,7 +23,7 @@
 import { randomUUID } from 'node:crypto'
 import { copyFileSync, existsSync, linkSync, renameSync, unlinkSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { type MachineId } from '@podium/model'
+import type { MachineId } from '@podium/model'
 import {
   configPath,
   forgetConfig,
@@ -105,6 +105,14 @@ function syncParent(path: string): void {
   syncPath(dirname(path))
 }
 
+/** A private staging name has no competing writers after saveConfig returns. */
+function removeConfigTemp(path: string): void {
+  removeTemp(path)
+  // saveConfig's cross-process lock is durable at a live config path. These
+  // random, transaction-owned staging paths are retired after publication.
+  removeTemp(`${path}.write-lock.sqlite`)
+}
+
 function removeTemp(path: string): void {
   try {
     unlinkSync(path)
@@ -171,7 +179,7 @@ function saveTransferConfig(config: PodiumConfig, transferAssignment = true): vo
     syncParent(path)
     saveTransferSupervisorAssignment(loadConfig())
   } finally {
-    removeTemp(tempPath)
+    removeConfigTemp(tempPath)
   }
 }
 
@@ -224,7 +232,7 @@ function preserveConfigValue(config: PodiumConfig, backupPath: string): void {
       if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
     }
   } finally {
-    removeTemp(tempPath)
+    removeConfigTemp(tempPath)
   }
 }
 

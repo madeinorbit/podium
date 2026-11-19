@@ -40,7 +40,7 @@ it('serializes a competing current writer in the acknowledged-code final-check t
           process.execPath,
           [
             '--conditions=@podium/source',
-            resolve('scripts/fixtures/config-competing-writer.ts'),
+            resolve(import.meta.dirname, '../../../scripts/fixtures/config-competing-writer.ts'),
             path,
             report,
           ],
@@ -93,7 +93,7 @@ it('releases shared config ownership when a writer dies without cleanup', async 
     process.execPath,
     [
       '--conditions=@podium/source',
-      resolve('scripts/fixtures/config-competing-writer.ts'),
+      resolve(import.meta.dirname, '../../../scripts/fixtures/config-competing-writer.ts'),
       path,
       report,
       'hold',
