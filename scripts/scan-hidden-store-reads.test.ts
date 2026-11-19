@@ -10,10 +10,17 @@
  * remember to run the script.
  */
 
-import { describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it } from 'vitest'
 import { probe, scanCheckout } from './scan-hidden-store-reads'
 
 describe('the hidden-read inventory', () => {
+  let census: ReturnType<typeof scanCheckout>
+  // Both assertions inspect the same immutable checkout. Build and typecheck
+  // that program once; constructing it twice spent most of the test budget on
+  // identical compiler work as the server graph grew.
+  beforeAll(() => {
+    census = scanCheckout()
+  }, 60_000)
   it('can say yes, and stays quiet on the shapes that are not reads', () => {
     // Reasons rather than a count, so a failure says WHICH half broke: losing a
     // planted read and flooding on a handle accessor are opposite defects.
@@ -22,7 +29,7 @@ describe('the hidden-read inventory', () => {
 
   it('finds no store read in a constructor or getter in shipping code', () => {
     // Named sites rather than a length, so a failure names the constructor.
-    expect(scanCheckout().shipping.map((f) => `${f.file}:${f.line} ${f.holder}`)).toEqual([])
+    expect(census.shipping.map((f) => `${f.file}:${f.line} ${f.holder}`)).toEqual([])
   })
 
   it('still counts the boot reads and the registration instead of hiding them', () => {
@@ -33,7 +40,7 @@ describe('the hidden-read inventory', () => {
     // store read or an eager listener install returning here is a regression.
     // CLASSIFICATION.registrations still names onAppend so a constructor
     // reintroduction is counted as a registration, not a shipping read.
-    const { boot, registrations } = scanCheckout()
+    const { boot, registrations } = census
     expect(boot).toHaveLength(0)
     expect(registrations).toEqual([])
   })

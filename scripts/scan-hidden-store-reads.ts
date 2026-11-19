@@ -274,6 +274,9 @@ export function analyze(
     if (!file.startsWith('apps/server/src/') && !file.startsWith('packages/')) return false
     const body = bodyOf(decl)
     if (!body) return false
+    // A factory may return another callable as its expression body. Creating
+    // that authorization callback does not execute the callback's query.
+    if (isFunctionBoundary(body)) return false
     const next = new Set(seen).add(decl)
     let found = false
     const inspect = (node: ts.Node) => {
