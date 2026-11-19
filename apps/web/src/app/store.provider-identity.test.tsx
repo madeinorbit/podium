@@ -13,7 +13,6 @@ import {
 } from '@podium/client-core/react'
 import { loadRecordDeclarations } from '@podium/client-core/records'
 import { memoryStorage } from '@podium/client-core/replica'
-import type { FeedCursor } from '@podium/client-core/replica/feed'
 import { ClientRuntime } from '@podium/client-core/runtime-root'
 import { createReplicaFixture } from '@podium/client-core/test-support/replica'
 import { createRuntimeWorklistPool } from '@podium/client-graph/runtime-pool'
@@ -21,6 +20,7 @@ import { asUserId } from '@podium/model'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { FeedCursor } from '../../../../packages/client-core/src/replica/feed'
 
 /** `MemoryStorage` is not on the package's public surface; the observable
  *  key-set seam is what this suite needs, so it is named structurally. */

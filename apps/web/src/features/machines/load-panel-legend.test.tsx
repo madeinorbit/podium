@@ -64,6 +64,7 @@ type Sample = {
 }
 type TopicSink = { onState(state: unknown): void }
 const topicSinks = new Set<TopicSink>()
+const replica = { rows: () => [], subscribeAddressedBatch: () => () => {} }
 let latestSample: Sample | undefined
 let publishing: Promise<void> | undefined
 const publishSample = () =>
@@ -130,7 +131,7 @@ vi.mock('@/app/store', () => {
   }
   const useStore = () => ({
     hub,
-    replica: { rows: () => [], subscribeAddressedBatch: () => () => {} },
+    replica,
     hostMetrics: [
       {
         hostname: 'vmi',
