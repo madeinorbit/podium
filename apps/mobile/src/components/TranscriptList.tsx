@@ -436,6 +436,7 @@ function MobileCommandExecution({ block, forceOpen }: { block: ChatBlock; forceO
       <PressableScale
         accessibilityRole="button"
         accessibilityState={{ expanded: open }}
+        aria-expanded={open}
         accessibilityLabel={`${open ? 'Collapse' : 'Expand'} ${title}`}
         onPress={toggle}
         style={styles.executionHeader}

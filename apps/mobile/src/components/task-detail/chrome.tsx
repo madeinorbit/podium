@@ -1,4 +1,3 @@
-import { ChevronRight } from '../icons'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { Animated, StyleSheet, Text, TextInput, View } from 'react-native'
 import { useReduceMotion } from '../../hooks/useReduceMotion'
@@ -15,6 +14,7 @@ import {
   spring,
 } from '../../theme/theme'
 import { Icon } from '../Icon'
+import { ChevronRight } from '../icons'
 import { PressableScale } from '../PressableScale'
 
 /**
@@ -166,6 +166,7 @@ export function InlineEditable({
         accessibilityRole="button"
         accessibilityLabel={filled ? `${ariaLabel} — edit` : ariaLabel}
         accessibilityState={{ disabled: loading, busy: loading }}
+        aria-busy={loading}
         disabled={loading}
         onPress={() => {
           setDraft(value)

@@ -230,6 +230,7 @@ const WebGroupHeader = observer(function WebGroupHeader({
       accessibilityRole="button"
       accessibilityLabel={`${section.label} · ${section.ids.length}`}
       accessibilityState={{ expanded: !collapsed }}
+      aria-expanded={!collapsed}
       onPress={() => onToggle(section.key)}
       scaleTo={1}
       style={styles.group}

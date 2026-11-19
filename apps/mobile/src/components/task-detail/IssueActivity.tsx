@@ -1,6 +1,5 @@
-import { issueObserver as observer } from '../../client/issue-observer'
-import { IssueAge, IssueDayLabel } from './IssueAge'
 import type { IssueWithBodies } from '@podium/client-core/replica'
+import { ISSUE_ASSISTANT_KIND } from '@podium/client-core/spawn-agent'
 import {
   type ActivityEntry,
   type ActivityItem,
@@ -9,12 +8,12 @@ import {
   type IssueEventIcon,
   type IssueEventLine,
 } from '@podium/client-core/values'
+import type { IssueHistoryView } from '@podium/client-graph/issue-activity'
 import { useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
-import type { IssueCommands, IssueMailMessage } from '../../lib/issue-detail'
-import type { IssueHistoryView } from '@podium/client-graph/issue-activity'
-import { ISSUE_ASSISTANT_KIND } from '@podium/client-core/spawn-agent'
+import { issueObserver as observer } from '../../client/issue-observer'
 import { useMobilePool } from '../../client/mobile-pool'
+import type { IssueCommands, IssueMailMessage } from '../../lib/issue-detail'
 import { alpha } from '../../theme/mix'
 import { color, font, leading, mono, radius, sans, space } from '../../theme/theme'
 import { Icon } from '../Icon'
@@ -37,6 +36,7 @@ import {
 } from '../icons'
 import { PressableScale } from '../PressableScale'
 import { MachineLabel, SectionHeading } from './chrome'
+import { IssueAge, IssueDayLabel } from './IssueAge'
 
 /**
  * The activity half of the task page [POD-724]: agent mail, the assistant note,
@@ -79,7 +79,9 @@ export const MailSection = observer(function MailSection({ mail }: { mail: Issue
             {m.status === 'claimed' && m.claimedBy ? (
               <Text style={styles.claimed}>claimed · {m.claimedBy}</Text>
             ) : null}
-            <Text style={styles.stamp}><IssueAge stamp={m.createdAt} /></Text>
+            <Text style={styles.stamp}>
+              <IssueAge stamp={m.createdAt} />
+            </Text>
           </View>
           <Text style={styles.mailBody} selectable>
             {m.body}
@@ -139,6 +141,7 @@ export const IssueActivitySection = observer(function IssueActivitySection({
             accessibilityRole="button"
             accessibilityLabel="Refresh AI notes"
             accessibilityState={refreshing ? { disabled: true, busy: true } : { disabled: busy }}
+            aria-busy={waiting}
             disabled={waiting}
             onPress={commands.refreshAssistant}
             hitSlop={10}
@@ -154,7 +157,9 @@ export const IssueActivitySection = observer(function IssueActivitySection({
           <View style={styles.assistantHead}>
             <MachineLabel>Assistant</MachineLabel>
             {issue.notesUpdatedAt ? (
-              <Text style={styles.stamp}><IssueAge stamp={issue.notesUpdatedAt} /></Text>
+              <Text style={styles.stamp}>
+                <IssueAge stamp={issue.notesUpdatedAt} />
+              </Text>
             ) : null}
           </View>
           <Text style={styles.assistantBody} selectable>
@@ -174,7 +179,9 @@ export const IssueActivitySection = observer(function IssueActivitySection({
           {days.map((day) => (
             <View key={day.key}>
               <View style={styles.day}>
-                <MachineLabel><IssueDayLabel day={day.key} stamp={day.entries[0]?.ts ?? ''} /></MachineLabel>
+                <MachineLabel>
+                  <IssueDayLabel day={day.key} stamp={day.entries[0]?.ts ?? ''} />
+                </MachineLabel>
                 <View style={styles.dayRule} />
               </View>
               {day.entries.map((entry) => (
