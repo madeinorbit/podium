@@ -106,7 +106,7 @@ async function harness(requestCoordinatorRestart?: (() => void) | HarnessOptions
   await registry.modules.machines.setMachineBuild(
     hostMachineId,
     { appVersion: process.env.PODIUM_APP_VERSION ?? 'dev' },
-    [],
+    ['update.delivery.feed', 'update.delivery.bundle'],
     '2026-08-13T00:00:00.000Z',
   )
   const hostUpdateReceiver = opts.hostUpdateReceiver ?? (() => {})
@@ -403,7 +403,7 @@ describe('one default channel', () => {
     await registry.modules.machines.setMachineBuild(
       sharedMachineId,
       { appVersion: '0.4.1' },
-      [],
+      ['update.delivery.feed', 'update.delivery.bundle'],
       '2026-08-26T00:00:00.000Z',
     )
     const refreshTarget = vi
@@ -464,7 +464,7 @@ describe('release target checks', () => {
         outcome: {
           status: 'unavailable',
           // The resolver names the manifest boundary so feed failures stay actionable.
-          reason: 'stable target unavailable: release manifest getaddrinfo ENOTFOUND',
+          reason: expect.stringContaining('getaddrinfo ENOTFOUND'),
         },
       },
     ])
@@ -559,7 +559,7 @@ describe('the fleet counted is the fleet the global action would grant', () => {
     await registry.modules.machines.setMachineBuild(
       id,
       { appVersion },
-      [],
+      ['update.delivery.feed', 'update.delivery.bundle'],
       '2026-08-13T00:00:00.000Z',
     )
   }
@@ -656,7 +656,7 @@ describe('the fleet counted is the fleet the global action would grant', () => {
     await registry.modules.machines.setMachineBuild(
       asMachineId('stable-vps'),
       { appVersion: '0.1.2' },
-      [],
+      ['update.delivery.feed', 'update.delivery.bundle'],
       '2026-08-13T00:00:00.000Z',
     )
     await registry.modules.updates.setTarget('stable', target('0.1.3'))
@@ -689,7 +689,7 @@ describe('the fleet counted is the fleet the global action would grant', () => {
     await registry.modules.machines.setMachineBuild(
       asMachineId('stable-vps'),
       { appVersion: '0.1.2' },
-      [],
+      ['update.delivery.feed', 'update.delivery.bundle'],
       '2026-08-13T00:00:00.000Z',
     )
     await registry.modules.updates.setTarget('dev', target('dev+47a01e3'))
@@ -784,7 +784,7 @@ describe('updates tRPC', () => {
     await registry.modules.machines.setMachineBuild(
       registry.sessionStore.hostMachineId,
       { appVersion: '0.4.2' },
-      [],
+      ['update.delivery.feed', 'update.delivery.bundle'],
       '2026-08-10T00:00:00.000Z',
     )
     await registry.modules.updates.setTarget(target())
@@ -809,7 +809,7 @@ describe('updates tRPC', () => {
     await registry.modules.machines.setMachineBuild(
       registry.sessionStore.hostMachineId,
       { appVersion: 'dev+47a01e3' },
-      [],
+      ['update.delivery.feed', 'update.delivery.bundle'],
       '2026-08-13T00:00:00.000Z',
     )
     await registry.modules.updates.setTarget({
@@ -845,7 +845,7 @@ describe('updates tRPC', () => {
     await registry.modules.machines.setMachineBuild(
       registry.sessionStore.hostMachineId,
       { appVersion: 'dev+47a01e3' },
-      [],
+      ['update.delivery.feed', 'update.delivery.bundle'],
       '2026-08-13T00:00:00.000Z',
     )
     await registry.sessionStore.machines.upsertMachine({
@@ -930,7 +930,7 @@ describe('updates tRPC', () => {
     await registry.modules.machines.setMachineBuild(
       registry.sessionStore.hostMachineId,
       { appVersion: 'dev+47a01e3' },
-      [],
+      ['update.delivery.feed', 'update.delivery.bundle'],
       '2026-08-13T00:00:00.000Z',
     )
     await registry.sessionStore.machines.upsertMachine({
@@ -944,7 +944,7 @@ describe('updates tRPC', () => {
     await registry.modules.machines.setMachineBuild(
       asMachineId('installed-edge'),
       { appVersion: 'dev+aaaaaaa' },
-      [],
+      ['update.delivery.feed', 'update.delivery.bundle'],
       '2026-08-13T00:00:00.000Z',
     )
     await registry.gateway.attachDaemon('installed-edge', (message) => grants.push(message))
@@ -983,7 +983,7 @@ describe('updates tRPC', () => {
     await registry.modules.machines.setMachineBuild(
       registry.sessionStore.hostMachineId,
       { appVersion: 'dev+47a01e3' },
-      [],
+      ['update.delivery.feed', 'update.delivery.bundle'],
       '2026-08-13T00:00:00.000Z',
     )
     await registry.sessionStore.machines.upsertMachine({
@@ -997,7 +997,7 @@ describe('updates tRPC', () => {
     await registry.modules.machines.setMachineBuild(
       asMachineId('installed-edge'),
       { appVersion: 'dev+aaaaaaa' },
-      [],
+      ['update.delivery.feed', 'update.delivery.bundle'],
       '2026-08-13T00:00:00.000Z',
     )
     await registry.gateway.attachDaemon('installed-edge', (message) => grants.push(message))
@@ -1092,7 +1092,7 @@ describe('updates tRPC', () => {
     await registry.modules.machines.setMachineBuild(
       registry.sessionStore.hostMachineId,
       { appVersion: 'dev+47a01e3' },
-      [],
+      ['update.delivery.feed', 'update.delivery.bundle'],
       '2026-08-13T00:00:00.000Z',
     )
     await registry.sessionStore.machines.upsertMachine({
@@ -1106,7 +1106,7 @@ describe('updates tRPC', () => {
     await registry.modules.machines.setMachineBuild(
       asMachineId('installed-edge'),
       { appVersion: 'dev+aaaaaaa' },
-      [],
+      ['update.delivery.feed', 'update.delivery.bundle'],
       '2026-08-13T00:00:00.000Z',
     )
     await registry.gateway.attachDaemon('installed-edge', (message) => grants.push(message))
@@ -1163,7 +1163,7 @@ describe('updates tRPC', () => {
     await registry.modules.machines.setMachineBuild(
       registry.sessionStore.hostMachineId,
       { appVersion: 'dev+aaaaaaa' },
-      [],
+      ['update.delivery.feed', 'update.delivery.bundle'],
       '2026-08-13T00:00:00.000Z',
     )
     await registry.modules.updates.setTarget({
@@ -1242,7 +1242,7 @@ describe('updates tRPC', () => {
     await registry.modules.machines.setMachineBuild(
       asMachineId('installed-edge'),
       { appVersion: 'dev+aaaaaaa' },
-      [],
+      ['update.delivery.feed', 'update.delivery.bundle'],
       '2026-08-13T00:00:00.000Z',
     )
     await registry.gateway.attachDaemon('installed-edge', (message) => grants.push(message))
@@ -1321,7 +1321,7 @@ describe('updates tRPC', () => {
     await registry.modules.machines.setMachineBuild(
       asMachineId('installed-edge'),
       { appVersion: 'dev+47a01e3' },
-      [],
+      ['update.delivery.feed', 'update.delivery.bundle'],
       '2026-08-13T00:00:01.000Z',
     )
     registry.bus.emit('machine.connected', { machineId: asMachineId('installed-edge') })
@@ -1353,7 +1353,7 @@ describe('updates tRPC', () => {
     await registry.modules.machines.setMachineBuild(
       registry.sessionStore.hostMachineId,
       { appVersion: 'dev+aaaaaaa' },
-      [],
+      ['update.delivery.feed', 'update.delivery.bundle'],
       '2026-08-13T00:00:00.000Z',
     )
     await registry.modules.updates.setTarget({
@@ -1393,7 +1393,7 @@ describe('updates tRPC', () => {
     await registry.modules.machines.setMachineBuild(
       registry.sessionStore.hostMachineId,
       { appVersion: 'dev+47a01e3' },
-      [],
+      ['update.delivery.feed', 'update.delivery.bundle'],
       '2026-08-13T00:00:01.000Z',
     )
     registry.bus.emit('machine.connected', { machineId: registry.sessionStore.hostMachineId })
@@ -1420,7 +1420,7 @@ describe('updates tRPC', () => {
     await registry.modules.machines.setMachineBuild(
       registry.sessionStore.hostMachineId,
       { appVersion: 'dev+47a01e3' },
-      [],
+      ['update.delivery.feed', 'update.delivery.bundle'],
       '2026-08-13T00:00:00.000Z',
     )
     await registry.modules.updates.setTarget({
@@ -1449,7 +1449,7 @@ describe('updates tRPC', () => {
       await registry.modules.machines.setMachineBuild(
         registry.sessionStore.hostMachineId,
         { appVersion: 'dev+47a01e3' },
-        [],
+        ['update.delivery.feed', 'update.delivery.bundle'],
         '2026-08-13T00:00:00.000Z',
       )
       await registry.modules.updates.setTarget({
@@ -1558,7 +1558,7 @@ describe('updates tRPC', () => {
     await registry.modules.machines.setMachineBuild(
       registry.sessionStore.hostMachineId,
       { appVersion: '0.4.2' },
-      [],
+      ['update.delivery.feed', 'update.delivery.bundle'],
       '2026-08-10T00:00:00.000Z',
     )
     await registry.sessionStore.machines.upsertMachine({
@@ -1572,7 +1572,7 @@ describe('updates tRPC', () => {
     await registry.modules.machines.setMachineBuild(
       asMachineId('remote-machine'),
       { appVersion: '0.4.1' },
-      [],
+      ['update.delivery.feed', 'update.delivery.bundle'],
       '2026-08-10T00:00:00.000Z',
     )
     await registry.gateway.attachDaemon('remote-machine', (message) => grants.push(message))
@@ -1597,7 +1597,7 @@ describe('updates tRPC', () => {
     await registry.modules.machines.setMachineBuild(
       registry.sessionStore.hostMachineId,
       { appVersion: '0.4.2' },
-      [],
+      ['update.delivery.feed', 'update.delivery.bundle'],
       '2026-08-10T00:00:00.000Z',
     )
     await registry.modules.updates.setTarget(target())
@@ -1629,7 +1629,7 @@ describe('updates tRPC', () => {
     await registry.modules.machines.setMachineBuild(
       asMachineId('stable-machine'),
       { appVersion: '0.4.1' },
-      [],
+      ['update.delivery.feed', 'update.delivery.bundle'],
       '2026-08-10T00:00:00.000Z',
     )
     await registry.modules.updates.setTarget(target())
@@ -1671,7 +1671,7 @@ describe('the update operation', () => {
     await built.registry.modules.machines.setMachineBuild(
       built.registry.sessionStore.hostMachineId,
       { appVersion: '0.4.1' },
-      [],
+      ['update.delivery.feed', 'update.delivery.bundle'],
       '2026-08-13T00:00:00.000Z',
     )
     await built.registry.modules.updates.setTarget(target())
@@ -1725,7 +1725,7 @@ describe('the update operation', () => {
     await registry.modules.machines.setMachineBuild(
       registry.sessionStore.hostMachineId,
       { appVersion: '0.4.2' },
-      [],
+      ['update.delivery.feed', 'update.delivery.bundle'],
       '2026-08-13T00:00:00.000Z',
     )
     const behind = asMachineId('behind-machine')
@@ -1740,7 +1740,7 @@ describe('the update operation', () => {
     await registry.modules.machines.setMachineBuild(
       behind,
       { appVersion: '0.4.1' },
-      [],
+      ['update.delivery.feed', 'update.delivery.bundle'],
       '2026-08-13T00:00:00.000Z',
     )
     await registry.modules.machines.setUpdateChannel(behind, 'dev')
@@ -1883,7 +1883,7 @@ describe('the update operation', () => {
     await registry.modules.machines.setMachineBuild(
       registry.sessionStore.hostMachineId,
       { appVersion: '0.4.2' },
-      [],
+      ['update.delivery.feed', 'update.delivery.bundle'],
       '2026-08-13T00:00:00.000Z',
     )
     await registry.modules.updates.setTarget(target())

@@ -148,14 +148,19 @@ const human = (id: UserId, role: 'admin' | 'worker' = 'admin'): CommandPrincipal
   // a colleague's box and the D20 oracle pin below would be unstatable.
   // Worker by explicit opt-in for the machine-oracle case, mirroring
   // command-plane.test.ts. Scope stays `all`.
-  capability: { role, scope: { kind: 'all' } },
+  capability: { role, scope: { kind: 'owned', userId: id }, actorUser: id, onBehalfOf: id },
 })
 
 const agentFor = (sessionId: string, onBehalfOf: UserId): AgentCommandPrincipal => ({
   kind: 'agent',
   agentSessionId: asSessionId(sessionId),
   onBehalfOf,
-  capability: { role: 'admin', scope: { kind: 'all' }, actorSessionId: asSessionId(sessionId) },
+  capability: {
+    role: 'admin',
+    scope: { kind: 'owned', userId: onBehalfOf },
+    onBehalfOf,
+    actorSessionId: asSessionId(sessionId),
+  },
   chain: [],
 })
 

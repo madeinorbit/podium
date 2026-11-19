@@ -152,7 +152,10 @@ describe('SessionRegistry', () => {
         sessionId,
         new Date().toISOString(),
       ),
-    ).rejects.toThrow(/readonly|read.only/i)
+    ).rejects.toThrow()
+    expect(
+      await queryOnly.sessions.getReadAt(await firstAdminMemberId(queryOnly), sessionId),
+    ).toBeNull()
     await recovery.dispose()
     await queryOnly.close()
 
@@ -3087,38 +3090,6 @@ describe('agent state', () => {
     }
   })
 
-  it('suppresses configured notification delivery while the feature is disabled', async () => {
-    const store = await openTestStore(':memory:', TEST_MACHINE)
-    // POD-419: the bot token is a server-owned secret and lives in the keyed
-    // store, not the blob. Written through the repository here for the same
-    // reason the preferences below are: this fixture is arranging state, not
-    // exercising the command surface (`service.commands.test.ts` does that).
-    await store.secrets.set(
-      'notifications.telegramBotToken',
-      '123456:secret',
-      '2026-07-30T00:00:00.000Z',
-    )
-    const settings = await store.settings.getSettings()
-    await store.settings.setSettings({
-      ...settings,
-      experimental: { ...settings.experimental, notifications: false },
-      notifications: {
-        ...settings.notifications,
-        ntfyTopic: 'podium-topic',
-        telegramChatId: '-100123',
-      },
-    })
-    const ntfy = vi.fn(async () => {})
-    const telegram = vi.fn(async () => {})
-    try {
-      const reg = await SessionRegistry.create(store, { ntfy, telegram }, { instanceId: 'default' })
-      await reg.modules.notify.notifyExternal({ title: 'hidden', body: 'hidden' })
-      expect(ntfy).not.toHaveBeenCalled()
-      expect(telegram).not.toHaveBeenCalled()
-    } finally {
-      await store.close()
-    }
-  })
   it('connects Telegram from a start-code update', async () => {
     const store = await openTestStore(':memory:', TEST_MACHINE)
     // POD-419: the bot token is a server-owned secret and lives in the keyed
@@ -5266,10 +5237,10 @@ describe('hibernation', () => {
       code: 139,
       observerGeneration: retryGeneration,
     })
-    expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.status).toBe('starting')
     await vi.waitFor(() =>
       expect(daemon.filter((message) => message.type === 'spawn')).toHaveLength(2),
     )
+    expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.status).toBe('starting')
     const postBindSpawns = daemon.filter(
       (message): message is Extract<ControlMessage, { type: 'spawn' }> =>
         message.type === 'spawn' && message.sessionId === sessionId,

@@ -179,7 +179,10 @@ describe('a timeout says it stopped watching before the product stopped trying',
   // because the stall deadline retried has failed — but the timeout never said
   // so, and "did not reach a terminal state within 300s" reads as "the wave is
   // dead". These pin the note, not the timeouts.
-  const silenceSeconds = UPDATE_STEP_DEADLINES[UPDATE_STEP_MACHINES].silenceMs! / 1000
+  const machinesDeadline = UPDATE_STEP_DEADLINES[UPDATE_STEP_MACHINES]
+  if (!machinesDeadline?.silenceMs)
+    throw new Error('machines step must declare its silence deadline')
+  const silenceSeconds = machinesDeadline.silenceMs / 1000
   async function note(waited: number): Promise<string> {
     const run = await bash(`say_watch_budget ${waited}`)
     return run.stderr.trim()
