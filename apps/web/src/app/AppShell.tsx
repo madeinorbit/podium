@@ -8,6 +8,7 @@ import type { JSX } from 'react'
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { flushSync } from 'react-dom'
 import { toast } from 'sonner'
+import { lazyScreen } from '@/components/LazyScreen'
 import { PodiumLinkHost } from '@/components/PodiumLinkHost'
 import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
@@ -69,6 +70,7 @@ import { DensityProvider } from './density'
 import { ErrorBoundary } from './ErrorBoundary'
 import { FLIGHT_DECK_SIZING, readFlightDeckWidth } from './flight-deck-display'
 import { LoadingScreen } from './LoadingScreen'
+import { mainScreenImports, prefetchMainScreens } from './main-screen-imports'
 import { OperatorFocusProvider } from './operator-focus'
 import { ReplicaFailureShell } from './ReplicaFailureShell'
 import { RightDock } from './RightDock'
@@ -110,26 +112,26 @@ import { useResponsiveSidebars } from './use-responsive-sidebars'
  */
 // The app lands on the work list. Loading Workspace here used to pull the chat,
 // terminal and editor stack into first paint before a workspace was selected.
-const Workspace = lazy(() =>
-  throughRestarts(() => import('./Workspace')).then((module) => ({ default: module.Workspace })),
+const Workspace = lazyScreen(() =>
+  import('./Workspace').then((module) => ({ default: module.Workspace })),
 )
-const SettingsView = lazy(() =>
-  throughRestarts(() => import('@/features/settings/SettingsView')).then((module) => ({
+const SettingsView = lazyScreen(() =>
+  import('@/features/settings/SettingsView').then((module) => ({
     default: module.SettingsView,
   })),
 )
-const UsageView = lazy(() =>
-  throughRestarts(() => import('@/features/usage/UsageView')).then((module) => ({
+const UsageView = lazyScreen(() =>
+  import('@/features/usage/UsageView').then((module) => ({
     default: module.UsageView,
   })),
 )
 // FlightDeck already unmounts when folded. Deferring its module in exactly that
 // state changes no subscriptions or retained component state.
-const FlightDeck = lazy(() =>
-  throughRestarts(() => import('./FlightDeck')).then((module) => ({ default: module.FlightDeck })),
+const FlightDeck = lazyScreen(() =>
+  mainScreenImports.deck().then((module) => ({ default: module.FlightDeck })),
 )
-const FoldedFlightDeckBar = lazy(() =>
-  throughRestarts(() => import('./FoldedFlightDeckBar')).then((module) => ({
+const FoldedFlightDeckBar = lazyScreen(() =>
+  import('./FoldedFlightDeckBar').then((module) => ({
     default: module.FoldedFlightDeckBar,
   })),
 )
@@ -863,6 +865,7 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
    */
   useEffect(() => {
     const cancels = [
+      prefetchMainScreens(),
       prefetchAfterFirstPaint(loadAgentPanel),
       // AgentPanel deliberately keeps chat-first sessions free of a hidden PTY.
       // Warm only the renderer bytes here: preloadTerminalRuntime neither mounts

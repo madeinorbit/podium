@@ -58,6 +58,7 @@
     "test:unit": "bun scripts/test.ts",
     "//test:cached": "Focused turbo-cache probes for the web and mobile package tasks. The default test command now routes every package-owned unit task through the same cache-safe wrapper, which refuses a cached green against a missing/dangling node_modules/@podium (POD-1343).",
     "test:cached": "bun scripts/test.ts --shared-admission --filter @podium/web --filter @podium/mobile",
+    "test:offline-routes": "bun scripts/validation-admission.ts focused --label test:offline-routes -- bun --conditions=@podium/source apps/web/harness/offline-routes.mjs",
     "test:web": "bun scripts/test.ts --shared-admission --filter @podium/web",
     "test:mobile": "bun scripts/test.ts --shared-admission --filter @podium/mobile",
     "//test:rust": "The desktop shell's Rust tests (native NDJSON sink, rotation, panic hook, crash hand-off). They ran in NO lane until POD-1906; see scripts/test-rust.ts for why cargo needs placeholder resources.",

@@ -1,28 +1,29 @@
 import { useUiValue } from '@podium/client-core/react'
 import type { JSX, ReactNode } from 'react'
-import { lazy, Suspense } from 'react'
+import { Suspense } from 'react'
+import { lazyScreen } from '@/components/LazyScreen'
 import { WaitingForServer } from '@/components/WaitingForServer'
-import { throughRestarts } from '@/lib/chunk-recovery'
 import { useFeature } from '@/lib/use-feature'
-import { type MainView } from './store'
+import { mainScreenImports } from './main-screen-imports'
+import type { MainView } from './store'
 
-const AutomationsView = lazy(() =>
-  throughRestarts(() => import('@/features/automations/AutomationsView')).then((module) => ({
+const AutomationsView = lazyScreen(() =>
+  mainScreenImports.automations().then((module) => ({
     default: module.AutomationsView,
   })),
 )
-const IssuesView = lazy(() =>
-  throughRestarts(() => import('@/features/issues/IssuesView')).then((module) => ({
+const IssuesView = lazyScreen(() =>
+  mainScreenImports.board().then((module) => ({
     default: module.IssuesView,
   })),
 )
-const WorkflowsView = lazy(() =>
-  throughRestarts(() => import('@/features/workflows/WorkflowsView')).then((module) => ({
+const WorkflowsView = lazyScreen(() =>
+  mainScreenImports.workflows().then((module) => ({
     default: module.WorkflowsView,
   })),
 )
-const SpecsView = lazy(() =>
-  throughRestarts(() => import('@/features/specs/SpecsView')).then((module) => ({
+const SpecsView = lazyScreen(() =>
+  mainScreenImports.specs().then((module) => ({
     default: module.SpecsView,
   })),
 )
