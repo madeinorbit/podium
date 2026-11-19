@@ -73,6 +73,13 @@ const kindsByTable: Record<string, readonly string[]> = {
  * here with its own reason. A listed migration that does not exist fails the test.
  */
 const NO_RECORD_CHANGE: Readonly<Record<string, string>> = {
+  '20261117054120_session-launch-posture':
+    'adds nullable observed_mode and launch_posture_json columns without a backfill; ' +
+    'existing sessions still project neither optional value, and no stored record value changes',
+  '20261117220206_session-asks-user':
+    'materializes the offer/checkpoint asking predicate in sessions.asks_user; ' +
+    'the session record does not include this query-only flag (session-asks-user.test.ts ' +
+    'checks its backfill and maintenance against the live predicate)',
   '20261118101144_workspace-column':
     "adds the workspace_id partition column and renames the sync tables' tenant_id; " +
     'the column is part of no record value or wire payload (POD-7012), and capture ' +

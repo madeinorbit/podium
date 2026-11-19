@@ -4,14 +4,14 @@
  * names the mux and not a feature.
  */
 
-import { asMachineId, asSessionId, asUserId, asAgentIdentityId } from '@podium/model'
+import { asAgentIdentityId, asMachineId, asSessionId, asUserId } from '@podium/model'
 import {
   AGENT_RELAY_FRAMES,
   attributionOf,
   DAEMON_PLANE_CLASS,
+  type DaemonPtyOutputBatch,
   edgeOf,
   HOST_EDGE_FRAMES,
-  type DaemonPtyOutputBatch,
   type MachinePrincipal,
 } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
@@ -181,52 +181,17 @@ describe('machine scope and the writer class', () => {
     const sessionFrames = (Object.keys(DAEMON_FRAME_PORTS) as DaemonMessage['type'][]).filter(
       (t) => DAEMON_FRAME_PORTS[t].length === 1 && DAEMON_FRAME_PORTS[t][0] === 'sessions',
     )
-    // 21 since the catch-up merge, not 20: main's `agentContext` (POD-1262, the
-    // exact harness-reported context-window reading) is session-owned like every
-    // other frame in this set. Counted rather than derived so a frame that joins
-    // the set has to be acknowledged HERE — which is how this one was noticed.
-    //
-    // 23 since POD-1953. `sessionKillResult` (what a kill ACTUALLY did to the
-    // durable host) and `durableSessionCensus` (which labels a machine is really
-    // running) both drive a session-row repair, so both are session-owned and
-    // both must arrive with the machine principal that observed them: the repair
-    // only ever touches rows on the reporting machine.
-    //
-    // 24 since POD-2021. `runtimeEvent` is the Agent Runtime contract's causal
-    // stream for a flagged session — a per-session observation like every other
-    // frame here, and one whose ownership check is exactly what stops a machine
-    // from narrating a session it does not hold.
-    //
-    // 25 since POD-2023. `runtimeInteractionAsked` is a server-family driver's
-    // protocol ask on its way to the interactions aggregate. Session-owned for
-    // the same reason and with more at stake: the ownership check is what stops
-    // a machine from opening a blocking ask against a session it does not hold,
-    // and an ask nobody can answer is the stuck session §4 exists to abolish.
-    //
-    // 26 since POD-2132. `runtimeQueueDrainAbandoned` names the turns a session's
-    // queue never typed, and what it triggers is a TERMINAL write to those durable
-    // rows. Session-owned with the ownership check earning its keep: a machine that
-    // does not hold the session must not be able to dead-letter its mail.
-    //
-    // 27 since POD-2292. `driverSelected` announces the daemon's driver decision
-    // before bind so the session view can select the correct surface during launch.
-    // It names one session and mutates that session's durable selection, so it
-    // carries the same ownership boundary as bind and the runtime frames above.
-    //
-    // 28 since POD-2411: fine token deltas have their own live-only frame but
-    // retain the same per-session machine ownership check as coarse events.
-    //
-    // 29 since POD-3239. `geometryApplied` is the daemon reporting the grid it
-    // dispatched to one session's pty, and it is the only thing that may move
-    // that session's authoritative size — so it carries exactly the ownership
-    // boundary `bind` does: a machine that does not hold the session must not be
-    // able to tell every viewer of it what size it now is.
-    expect(sessionFrames.length).toBe(29)
+    // Inventory totality is checked above. Exercise every current session frame,
+    // including model/mode observations, rather than pinning an unrelated count.
+    expect(sessionFrames).not.toHaveLength(0)
     for (const type of sessionFrames) {
       const { ports, calls } = fakePorts()
-      muxWith(ports).routeDaemonFrame(PRINCIPAL, sampleFrame(type))
-      expect(calls[0]?.method).toBe('onSessionDaemonFrame')
-      expect(calls[0]?.args[0]).toBe(PRINCIPAL)
+      const frame = sampleFrame(type)
+      muxWith(ports).routeDaemonFrame(PRINCIPAL, frame)
+      expect(calls, type).toHaveLength(1)
+      expect(calls[0]?.method, type).toBe('onSessionDaemonFrame')
+      expect(calls[0]?.args[0], type).toBe(PRINCIPAL)
+      expect(calls[0]?.args[1], type).toBe(frame)
     }
   })
 
@@ -461,10 +426,19 @@ describe('retired daemon attribution ingress', () => {
   })
 })
 
-
 it('records readiness against the authenticated reporting machine', () => {
   const { ports, calls } = fakePorts()
-  const daemonReadiness = { state: 'recovering' as const, reason: 'retrying handshake', quarantinedBindings: 2 }
-  muxWith(ports).routeDaemonFrame(PRINCIPAL, { ...sampleFrame('hostMetrics'), daemonReadiness } as DaemonMessage)
-  expect(calls.find((call) => call.method === 'recordDaemonReadiness')?.args).toEqual([PRINCIPAL.machine, daemonReadiness])
+  const daemonReadiness = {
+    state: 'recovering' as const,
+    reason: 'retrying handshake',
+    quarantinedBindings: 2,
+  }
+  muxWith(ports).routeDaemonFrame(PRINCIPAL, {
+    ...sampleFrame('hostMetrics'),
+    daemonReadiness,
+  } as DaemonMessage)
+  expect(calls.find((call) => call.method === 'recordDaemonReadiness')?.args).toEqual([
+    PRINCIPAL.machine,
+    daemonReadiness,
+  ])
 })

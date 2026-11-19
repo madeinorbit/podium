@@ -50,6 +50,8 @@ const BOOLEAN_COLUMNS = [
   'messages.expects_response',
   'quota_windows.partial',
   'sessions.archived',
+  // The materialized asking flag is maintained by the offer/checkpoint triggers.
+  'sessions.asks_user',
   'sessions.desired_force',
   'sessions.draft_sync_engine',
   'sessions.headless',
