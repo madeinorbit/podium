@@ -8,6 +8,7 @@ describe('mobile Vitest dependency resolution', () => {
       mobileVitestResolution.assetsRegistry,
       mobileVitestResolution.expoFetch,
       mobileVitestResolution.expoModulesCore,
+      mobileVitestResolution.mobxReactLite,
       mobileVitestResolution.react,
       mobileVitestResolution.reactDom,
       mobileVitestResolution.reactNativeSafeAreaContext,
@@ -23,8 +24,9 @@ describe('mobile Vitest dependency resolution', () => {
     expect(haptics.ImpactFeedbackStyle.Light).toBe('light')
   })
 
-  it('keeps native ESM packages inside Vite for web resolution', () => {
+  it('keeps observers and native ESM inside Vite for the mobile React dispatcher', () => {
     expect(mobileVitestResolution.inlineDependencies).toEqual([
+      'mobx-react-lite',
       'react-native-gesture-handler',
       'react-native-reanimated',
       'react-native-safe-area-context',
