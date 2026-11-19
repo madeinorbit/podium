@@ -18,7 +18,10 @@ vi.mock('../runtime/server-reap', () => ({ beginServerDriverReap: vi.fn(async ()
 vi.mock('../runtime/instance-process-reaper', () => ({
   reapInstanceSessionProcesses: vi.fn(async () => ({ examined: 0, remaining: 0 })),
 }))
-vi.mock('../session-uploads', () => ({ removeSessionUploads: vi.fn() }))
+vi.mock('../session-uploads', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../session-uploads')>()),
+  removeSessionUploads: vi.fn(),
+}))
 
 vi.mock('../runtime/registry', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../runtime/registry')>()

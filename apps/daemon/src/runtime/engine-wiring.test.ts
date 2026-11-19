@@ -294,7 +294,7 @@ describe('the driver bind fact', () => {
       const source = readFileSync(file, 'utf8')
       const lines = source.split('\n')
       for (const [index, line] of lines.entries()) {
-        if (!line.includes('bindFrame(')) continue
+        if (!line.includes('bindFrame(') && !line.includes('sendBind(ctx, {')) continue
         if (line.includes('bindFrame(sessionSize(ctx, facts.sessionId)')) {
           // sendBind forwards the already-typed BindFacts, preserving its driver.
           expect(line).toContain('pictures ? { ...facts, pictures: true } : facts')
@@ -389,8 +389,8 @@ describe('the driver bind fact', () => {
      * a new bind site cannot be added without coming here and deciding what it
      * reports.
      */
-    expect(bindSites).toBe(12)
-    expect(portForwarders).toBe(1)
+    expect(bindSites).toBe(13)
+    expect(portForwarders).toBe(2)
   })
 })
 

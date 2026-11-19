@@ -1,3 +1,4 @@
+import { runDrizzleMigrations } from '../../server/src/migrations'
 import { DRIZZLE_MIGRATIONS } from '../../server/src/migrations/drizzle-manifest.generated'
 /**
  * THE CUSTOMER UPGRADE, daemon arm [POD-3974]. Acceptance matrix rows (design
@@ -30,21 +31,22 @@ import {
   firstAdminMemberId,
 } from '@podium/model'
 import type { BindingConfirmations } from '@podium/protocol'
+import { loadMachineState } from '@podium/runtime/local-machine'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   bindingFileName,
   daemonBindings,
   daemonReceipts,
-  manifest,
   identityShapes,
-  writeIdentityShape,
+  manifest,
+  serverReleaseMigrations,
   serverRows,
+  writeIdentityShape,
 } from '../../../packages/runtime/src/fixtures/customer-upgrade'
 import { openTestStore } from '../../server/src/test-support/open-test-store'
-import { loadMachineState } from '@podium/runtime/local-machine'
-import { loadIdentity } from './identity'
 import { BindingStore } from './binding-store'
+import { loadIdentity } from './identity'
 
 const MACHINE = asMachineId(manifest.daemon.machineId)
 const HEALTHY = asSessionId('session-healthy')
@@ -102,36 +104,47 @@ async function serverFacts(
   const root = await mkdtemp(join(tmpdir(), 'podium-customer-upgrade-server-'))
   roots.push(root)
   const path = join(root, 'podium.db')
-  await (await openTestStore(path)).close()
-  const member = firstAdminMemberId()
   const db = openDatabase(path)
   try {
-    for (const session of serverRows.sessions) {
-      const row = { ...session, owner_user_id: member }
-      const names = Object.keys(row)
-      db.prepare(
-        `INSERT INTO sessions (${names.join(', ')}) VALUES (${names.map(() => '?').join(', ')})`,
-      ).run(...names.map((n) => row[n as keyof typeof row] as never))
+    // Seed the captured release schema, then let current boot run every real
+    // migration, including delegation and workspace ownership, exactly once.
+    const released = new Set(serverReleaseMigrations.migrations)
+    runDrizzleMigrations(
+      db,
+      DRIZZLE_MIGRATIONS.filter((migration) => released.has(migration.name)),
+    )
+    db.exec('PRAGMA foreign_keys = OFF')
+    db.exec('DELETE FROM users')
+    for (const [table, rows] of Object.entries({
+      users: serverRows.users,
+      machines: serverRows.machines,
+      sessions: serverRows.sessions,
+    })) {
+      for (const row of rows) {
+        const entries = Object.entries(row)
+        db.prepare(
+          `INSERT INTO ${table} (${entries.map(([name]) => name).join(', ')}) VALUES (${entries.map(() => '?').join(', ')})`,
+        ).run(...entries.map(([, value]) => value as never))
+      }
     }
-    // Rows above reproduce the old database after the test store installed its
-    // schema. Run the real new data migration over them, not a fixture mapping.
-    const migration = DRIZZLE_MIGRATIONS.find((m) => m.name.endsWith('_session-delegation-record'))
-    if (!migration) throw new Error('delegation migration missing')
-    for (const statement of migration.sql.split('--> statement-breakpoint').slice(1))
-      db.exec(statement)
   } finally {
     db.close()
   }
   const store = await openTestStore(path)
   try {
-    return { facts: await store.sessions.bindingConfirmations(ids), member }
+    return {
+      facts: await store.sessions.bindingConfirmations(ids),
+      member: await firstAdminMemberId(store),
+    }
   } finally {
     await store.close()
   }
 }
 
 describe('customer upgrade fixture: daemon', () => {
-  it.each(identityShapes)('first identity boot: $name selects the authenticating row and retains legacy sections', async (shape) => {
+  it.each(
+    identityShapes,
+  )('first identity boot: $name selects the authenticating row and retains legacy sections', async (shape) => {
     const dir = await mkdtemp(join(tmpdir(), 'podium-identity-upgrade-'))
     roots.push(dir)
     writeIdentityShape(dir, shape)

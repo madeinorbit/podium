@@ -53,8 +53,12 @@ describe('daemonRuntimeHost', () => {
       const spec = specFor(harnessContext(await harnessRuntime.current(), 'codex', homeDir))
       const sessionId = asSessionId('selected-install')
       const instrumentation = await host.installInstrumentation(sessionId, spec)
-      // The selected installation's version passes the hook gate.
-      expect(instrumentation.degradedKind).toBe('untrusted')
+      // This selected version supports trust scoped to Podium's handlers.
+      // The resulting launch arguments must carry that trust for this session.
+      expect(instrumentation.args).toEqual(
+        expect.arrayContaining(['-c', expect.stringMatching(/hooks/)]),
+      )
+      expect(instrumentation.degradedReason).toBeUndefined()
       await harnessRuntime.refresh()
       // A session spawned after the refresh carries the replacement's context;
       // it must not disturb the first session's.

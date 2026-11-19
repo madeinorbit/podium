@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { claudeProjectSlug } from '@podium/harness'
 import {
+  asAgentIdentityId,
   asIssueId,
   asMachineId,
   asRepoId,
@@ -306,6 +307,13 @@ describe('handoff package', () => {
         principal: { kind: 'user', userId: asUserId('user:alice') },
         issueId: asIssueId('issue-1013'),
         attemptId: 'attempt-a-1',
+        delegation: {
+          actor: asAgentIdentityId('roundtrip-agent'),
+          onBehalfOf: asUserId('user:alice'),
+          grantedScope: { kind: 'subtree', rootId: asIssueId('issue-1013') },
+          parentBindingId: null,
+          revision: 1,
+        },
       }),
     )
     const delegation = bindingsA.currentDelegation(born)

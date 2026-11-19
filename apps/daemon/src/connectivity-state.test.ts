@@ -51,23 +51,27 @@ describe('daemon connectivity state (#19)', () => {
     ...extra,
   })
 
-  function controlledReconnectClock(): {
-    timers: ReconnectTimers
-    next: Promise<{ fire: () => void; ms: number }>
-  } {
-    let resolveNext!: (timer: { fire: () => void; ms: number }) => void
-    const next = new Promise<{ fire: () => void; ms: number }>((resolve) => {
-      resolveNext = resolve
-    })
+  function controlledReconnectClock() {
+    const active = new Set<{ fire: () => void; ms: number }>()
     const timers: ReconnectTimers = {
       setTimeout: (fire, ms) => {
         const timer = { fire, ms }
-        resolveNext(timer)
+        active.add(timer)
         return timer
       },
-      clearTimeout: vi.fn(),
+      clearTimeout: (timer) => {
+        active.delete(timer as { fire: () => void; ms: number })
+      },
     }
-    return { timers, next }
+    return {
+      timers,
+      next: async () => {
+        // The successful HELLO cancels its acknowledgement deadline. Observe
+        // the surviving reconnect timer, not the first timer the transport arms.
+        await vi.waitFor(() => expect(active.size).toBe(1))
+        return [...active][0]!
+      },
+    }
   }
 
   it('reconnects with its enrolled token without restarting the daemon', async () => {
@@ -105,7 +109,7 @@ describe('daemon connectivity state (#19)', () => {
 
     const daemon = await startDaemon(bootOpts({ reconnectTimers: reconnectClock.timers }))
     try {
-      const retry = await reconnectClock.next
+      const retry = await reconnectClock.next()
       expect(retry.ms).toBe(500)
       const connectedAgain = new Promise<void>((resolve) => {
         const watcher = watch(connectivityPath(dir), () => {
