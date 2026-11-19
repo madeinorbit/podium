@@ -2253,18 +2253,19 @@ export class ParentProcess {
       : ({ action: 'continue' } as const)
 
     const deferring = opts.deferUnavailable === true && decision.action === 'unavailable'
+    const failureReason = `${because}: ${failure.detail}`
     if (opts.deferUnavailable && !deferring) this.updateReporter?.(failure)
     if (decision.action === 'rollback') {
       // Leave `handover_outgoing` first: `rollback()` respawns children, and
       // spawns are suppressed while a handover is nominally in flight.
       this.abandonHandover(priorPhase, { keepPostUpdate: true })
-      await this.rollback(failure.detail)
+      await this.rollback(failureReason)
       return 'reported'
     }
     if (decision.action === 'unavailable') {
       this.abandonHandover(priorPhase, { keepPostUpdate: true })
       // Deferred: `finishHandoverAfterReclaim` reports it if the retry cannot happen.
-      if (!deferring) this.reportRollbackUnavailable(decision.why, failure.detail)
+      if (!deferring) this.reportRollbackUnavailable(decision.why, failureReason)
     } else {
       this.abandonHandover(priorPhase)
     }
