@@ -13,7 +13,7 @@ it('keeps a nested unvisited screen in its shell and retries the child on online
   vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
   vi.spyOn(console, 'error').mockImplementation(() => {})
   const load = vi
-    .fn()
+    .fn<() => Promise<{ default: () => ReactNode }>>()
     .mockRejectedValueOnce(new TypeError('Failed to fetch dynamically imported module: /screen.js'))
     .mockResolvedValue({ default: () => <p>Local screen data</p> })
   const UnvisitedScreen = lazyScreen(load, (module) => module.default)

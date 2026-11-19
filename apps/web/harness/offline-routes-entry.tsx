@@ -1,5 +1,5 @@
 /** Production shell over the shared local demo replica. Only transport is stubbed. */
-import { useClientRuntime, useDeviceState } from '@podium/client-core/react'
+import { useClientRuntime, useDeviceState, useRequestClient } from '@podium/client-core/react'
 import { asIssueId } from '@podium/model'
 import { type ComponentType, Suspense, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
@@ -11,6 +11,7 @@ import { ErrorBoundary } from '@/app/ErrorBoundary'
 import { installVitePreloadErrorRecovery } from '@/app/preload-error-recovery'
 import { ToolbarSlotProvider } from '@/app/ToolbarSlot'
 import { ThemeProvider } from '@/app/theme'
+import type { Trpc } from '@/app/trpc'
 import { lazyScreen } from '@/components/LazyScreen'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { AdminViewerContext } from '@/features/settings/admin-viewer'
@@ -21,6 +22,7 @@ import '@/styles.css'
 
 function Body() {
   const runtime = useClientRuntime()
+  const api = useRequestClient<Trpc>()
   const uiState = useDeviceState()
   const [LateScreen, setLateScreen] = useState<ComponentType | null>(null)
   const [syncProgress] = useState(() => {
@@ -29,6 +31,12 @@ function Body() {
     return progress
   })
   useEffect(() => {
+    // The demo summary has no usage history. Supply the sheet's other read-only
+    // transport answers before opening it, rather than throwing from its effect.
+    Object.assign(api, {
+      quota: { history: { query: async () => [] } },
+      cost: { tasks: { query: async () => [] } },
+    })
     Object.assign(window, {
       offlineRoutes: {
         registry: () => lazySurfaces.snapshot(),
@@ -57,7 +65,7 @@ function Body() {
         },
       },
     })
-  }, [runtime, uiState])
+  }, [runtime, uiState, api])
   return (
     <AdminViewerContext.Provider
       value={{
