@@ -29,6 +29,8 @@ const CLI_ALIASES: Record<string, string> = {
   agent: 'defaultAgent',
   model: 'defaultModel',
   effort: 'defaultEffort',
+  profile: 'agentProfile',
+  createLabel: 'createLabels',
   machine: 'machineId',
   start: 'startNow',
 }
@@ -76,8 +78,9 @@ describe('CLI table ↔ server registry FIELD drift (#347)', () => {
   it('start: every server field is settable from the CLI, and vice versa', () => {
     const serverKeys = shapeKeys(issueRegistry.defs.start.input)
     // Intentional gaps — each must stay justified:
+    //  - sessionId: the device-minted session identity, supplied by transports.
     //  - mutationId/expectedRev/…: sync plumbing from `env`, supplied by transports.
-    for (const k of ['mutationId', 'expectedRev', 'origin']) serverKeys.delete(k)
+    for (const k of ['mutationId', 'expectedRev', 'origin', 'sessionId']) serverKeys.delete(k)
     // start's proc spells the harness `agentKind` (a one-shot override) where create's
     // spells it `defaultAgent`; the CLI flag is `--agent` on both, and CLI_ALIASES maps
     // it to `defaultAgent`. Normalise onto that so the pin compares like with like.

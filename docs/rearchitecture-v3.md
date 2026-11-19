@@ -632,6 +632,7 @@ same commit.**
 | `packages/terminal-client` | L2 kernel | browser-safe | terminal-port | — |
 | `packages/client-core` | L3 feature | browser-safe | values | → client engine split (Phase 6 POD-331) |
 | `packages/client-graph` | L3 feature | browser-safe | client-graph | worklist feeds over the client runtime (pool, worklist, sidebar); tagged POD-5615 |
+| `packages/working-mark` | L3 feature | browser-safe | working-mark | Animated working mark, its frames and APNG, and an optional React component (POD-5558); no workspace dependencies. |
 | `packages/terminal-client-react` | L3 feature | browser-safe | terminal-react | — |
 | `packages/janitor` | L3 feature | node-only | maintenance-jobs | maintenance/steward jobs lifted out of `apps/server` (was `apps/janitor` on main after POD-296; moved to `packages/` as an engine, PDM-27 [spec:SP-c29e]) — feeds Phase 4 server decomposition (POD-292) |
 | `apps/cli` | L4 app | node-only | cli-surface | — |
