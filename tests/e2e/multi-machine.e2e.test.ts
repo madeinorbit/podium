@@ -2,9 +2,15 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { asMachineId } from '@podium/model'
+import { asMachineId, firstAdminMemberId } from '@podium/model'
 import { directPtyDurableForTests } from '@podium/process/durable'
+import { wireSchemaDigest } from '@podium/protocol'
 import { readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
+import {
+  createMachineSupervisorConnection,
+  loadSupervisorState,
+  saveSupervisorState,
+} from '@podium/runtime/machine-supervisor'
 import { afterAll, describe, expect, it } from 'vitest'
 import { type DaemonOptions, startDaemon } from '../../apps/daemon/src/daemon'
 import { startServer } from '../../apps/server/src/test-support/enrolled-server'
@@ -74,12 +80,40 @@ describe('e2e: two-daemon pairing + routing', () => {
     })
 
     // mint a pairing code for daemon2
-    const pairCode = srv.registry.modules.machines.mintPairingCode()
+    const ownerUserId = await firstAdminMemberId(srv.registry.sessionStore)
+    const pairCode = srv.registry.modules.machines.mintPairingCode({ ownerUserId })
+    const supervisorState = loadSupervisorState(tmp2)
+    supervisorState.assignment = { server: false, agentExecution: true }
+    supervisorState.generation = 1
+    saveSupervisorState(tmp2, supervisorState)
+    const supervisor = createMachineSupervisorConnection({
+      serverUrl,
+      stateDir: tmp2,
+      state: supervisorState,
+      pairCode,
+      name: 'routing-peer',
+      build: {
+        appVersion: 'fixture',
+        wireSchemaDigest: wireSchemaDigest(),
+        supervisorGeneration: 1,
+      },
+      deliveryCaps: [],
+      report: () => ({
+        server: { policy: 'disabled', state: 'stopped', observedAt: new Date().toISOString() },
+        agentExecution: {
+          policy: 'enabled',
+          state: 'starting',
+          observedAt: new Date().toISOString(),
+        },
+      }),
+      onGrant: () => {},
+    })
+    supervisor.start()
+    expect(await supervisor.waitUntilConnected(15_000)).toBe(true)
 
     // daemon2: the "remote" machine that pairs with the code
     const daemon2 = await startDaemon({
       serverUrl,
-      pairCode,
       identityDir: tmp2,
       launch: fixtureLaunch,
       backend: 'none',
@@ -95,6 +129,7 @@ describe('e2e: two-daemon pairing + routing', () => {
     })
 
     try {
+      await waitFor(() => daemon1.connected && daemon2.connected)
       // 1) Both machines must appear online
       const machines = (await srv.registry.modules.machines.listMachines()).filter(
         (machine) => machine.online,
@@ -155,6 +190,7 @@ describe('e2e: two-daemon pairing + routing', () => {
     } finally {
       await daemon1.close({ reapSessions: true })
       await daemon2.close({ reapSessions: true })
+      supervisor.close()
       await srv.close()
       rmSync(tmp1, { recursive: true, force: true })
       rmSync(tmp2, { recursive: true, force: true })

@@ -28,9 +28,10 @@ import WebSocket from 'ws'
 import { noJanitorWorkerForTests } from '../../apps/server/src/janitor-host'
 import type { AppRouter } from '../../apps/server/src/router'
 import { startServer } from '../../apps/server/src/server'
+import { attachHostDaemon } from '../../apps/server/src/test-support/host-daemon'
 import { cookieOf } from '../../apps/server/src/test-support/test-identity'
 
-const FEED_TYPES = new Set(['feedDelta', 'feedBootstrap', 'feedRescope', 'feedResyncRequired'])
+const FEED_TYPES = new Set(['feedDelta', 'feedResume', 'feedRescope', 'feedResyncRequired'])
 
 const priorStateDir = process.env.PODIUM_STATE_DIR
 const priorMode = process.env.PODIUM_MODE
@@ -51,6 +52,7 @@ describe('POD-376 · wire v2 feed into the kernel replica (live server)', () => 
     process.env.PODIUM_STATE_DIR = stateDir
     process.env.PODIUM_MODE = 'server'
     server = await startServer({ port: 0, janitorWorkerForTests: noJanitorWorkerForTests })
+    await attachHostDaemon(server.registry, () => {}, { repos: ['/repo'] })
     owner = await firstAdminMemberId(server.registry.sessionStore)
     const account = await server.registry.sessionStore.users.get(owner)
     if (!account?.accountId) throw new Error('The fixture owner has no account')
@@ -165,6 +167,12 @@ describe('POD-376 · wire v2 feed into the kernel replica (live server)', () => 
     }
 
     await openSocket()
+    await until(
+      () =>
+        replica.cursor !== null &&
+        replica.posture !== 'cold' &&
+        replica.posture !== 'bootstrapping',
+    )
     const client: LiveClient = {
       replica,
       store,

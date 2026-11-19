@@ -131,13 +131,6 @@ describe('two members on independent machine processes', () => {
       await expect
         .poll(() => f!.handle.registry.modules.machines.hasDaemon(machineId), { timeout: 25_000 })
         .toBe(true)
-      // Fresh enrollment is admin-only. Move the second machine's custody
-      // explicitly, through the same audited member command the UI uses.
-      if (who === 'bob')
-        await (await f.as('alice')).trpc.machines.transferOwnership.mutate({
-          id: machineId,
-          newOwnerUserId: f.members.bob.id,
-        })
       machines.set(who, { id: machineId, root, pid: child.pid })
       await f.handle.registry.sessionStore.repos.addRepo(root, asMachineId(machineId))
       expect(await f.handle.registry.sessionStore.machines.custodian(asMachineId(machineId))).toBe(
