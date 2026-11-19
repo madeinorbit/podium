@@ -26,7 +26,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { hostname, tmpdir, userInfo } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { asMachineId, asSessionId } from '@podium/model'
 import {
@@ -677,7 +677,16 @@ describe('long instance durable sockets', () => {
     // before it did, and a customer who upgrades keeps each running one. The
     // daemon must find a named instance's abduco master where the older daemon
     // put it: under the ABDUCO_SOCKET_DIR `applyInstanceRuntimeEnv` pins.
-    const bin = legacyAbducoBin
+    // The skew preparation has already pinned this release tree. Build its
+    // genuine session-creating binary; today's product only adopts old sessions.
+    const legacySource = join(
+      process.env.PODIUM_SKEW_DIR ?? join(dirname(ROOT), 'podium-skew-checkouts'),
+      'v0.1.0',
+      'packages/pty/src/abduco-bin.ts',
+    )
+    const bin =
+      legacyAbducoBin ??
+      (await import(legacySource)).buildVendoredAbduco(join(TEST_ROOT, 'legacy-abduco'))
     if (!bin) throw new Error('set PODIUM_TEST_ABDUCO_BIN for legacy adoption acceptance')
 
     const instanceId = `update-e2e-${'x'.repeat(21)}`
