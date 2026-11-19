@@ -127,12 +127,12 @@ import {
   type ChatgptPlanService,
   composeChatgptPlan,
 } from './modules/credentials/chatgpt-plan/service'
-import { recordFoundLogins } from './modules/credentials/found-logins'
 import {
   PlanSessionRenewal,
   realTimer,
   SESSION_TOKEN_MIN_LEFT_MS,
 } from './modules/credentials/chatgpt-plan/session-renewal'
+import { recordFoundLogins } from './modules/credentials/found-logins'
 import {
   CREDENTIAL_EXPIRY_SWEEP_MS,
   CREDENTIAL_TURN_BOUNDARY,
@@ -734,7 +734,9 @@ export class SessionRegistry {
    *  write scope in the process. */
   private readonly writes: WriteContexts
   /** What the machine records are written from (POD-6644). */
-  private machineRecordsDeps!: () => MachineRecordsDeps
+  private machineRecordsDeps!: () => MachineRecordsDeps & {
+    reach: NonNullable<MachineRecordsDeps['reach']>
+  }
   /** Each machine's checkouts as synced records (POD-6644). */
   private checkouts!: CheckoutsService
   /** Curated issue-event window, resolved during async registry hydration. */
@@ -1054,7 +1056,9 @@ export class SessionRegistry {
       },
       onInventoryRecorded: async () => await seedSuperagentDefaults?.(),
     })
-    this.machineRecordsDeps = (): MachineRecordsDeps => ({
+    this.machineRecordsDeps = (): MachineRecordsDeps & {
+      reach: NonNullable<MachineRecordsDeps['reach']>
+    } => ({
       facts: async (ids) => await machines.recordFacts(ids),
       // The grant edges themselves, in one read through the operation's loader.
       grants: async (ids) => await this.store.grants.loadForResources('machine', ids),
@@ -1345,7 +1349,7 @@ export class SessionRegistry {
     const compareMachineRecords = makeMachineRecordCompare(
       this.store,
       writes.system('machines.records'),
-      this.machineRecordsDeps().reach!,
+      this.machineRecordsDeps().reach,
     )
     this.store.grants.machineRecordWrites.compare = async (write, writer) =>
       await asSystemWrite(async () => await compareMachineRecords(write, writer))
@@ -2718,7 +2722,8 @@ export class SessionRegistry {
       readSessionFactsById: async (sessionId) => await sessionsSvc.readSessionFactsById(sessionId),
       readSessionFactsByIssue: async (worktreePath, issueId) =>
         await sessionsSvc.readSessionFactsByIssue(worktreePath, issueId),
-      readSessionFactsByIssues: async (issues) => await sessionsSvc.readSessionFactsByIssues(issues),
+      readSessionFactsByIssues: async (issues) =>
+        await sessionsSvc.readSessionFactsByIssues(issues),
       // The by-id read [POD-1646]: one session, not the full pass.
       sessionById: async (sessionId) => await sessionsSvc.sessionById(sessionId),
       // The narrow read [POD-1639]: an issue mutation asks for ITS sessions, not

@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { join, relative, resolve } from 'node:path'
 import ts from 'typescript'
+import { isTestFile } from './architecture-manifest'
 
 const REPO = resolve(import.meta.dirname, '..')
 const ROOT = resolve(REPO, 'apps/server/src/relay.ts')
@@ -68,6 +69,34 @@ export const SITES: CompositionSite[] = [
     container: 'wireSessionLifecycle',
     bag: 'bag',
     note: "SessionLifecycle's constructor body, moved out of the class (POD-1396). The `as any` write surface disables TypeScript's definite-assignment analysis, so this walk is the only thing checking its order.",
+  },
+  {
+    id: 'session',
+    file: 'apps/server/src/modules/sessions/session.ts',
+    kind: 'constructor',
+    container: 'Session',
+    note: 'Session identity, terminal, lifecycle and runtime ports are assembled in dependency order.',
+  },
+  {
+    id: 'issue-deck',
+    file: 'apps/server/src/modules/issues/service/deck.ts',
+    kind: 'constructor',
+    container: 'readDeck',
+    note: 'Deck assembly orders visibility, topology, crew and rollups before its wire result.',
+  },
+  {
+    id: 'store-executor',
+    file: 'apps/server/src/store/executor/executor.ts',
+    kind: 'constructor',
+    container: 'createStoreExecutor',
+    note: 'The query layer, scheduler and transaction runner share the executor ports built here.',
+  },
+  {
+    id: 'store-scheduler',
+    file: 'apps/server/src/store/executor/scheduler.ts',
+    kind: 'constructor',
+    container: 'createScheduler',
+    note: 'The scheduler constructs its admission, statement and lease operations in one assembly.',
   },
 ]
 
@@ -392,7 +421,7 @@ function serverSourceFiles(directory: string, found: string[] = []): string[] {
     if (entry === 'node_modules' || entry === 'dist') continue
     const path = join(directory, entry)
     if (statSync(path).isDirectory()) serverSourceFiles(path, found)
-    else if (entry.endsWith('.ts') && !entry.endsWith('.test.ts')) found.push(path)
+    else if (entry.endsWith('.ts') && !isTestFile(path)) found.push(path)
   }
   return found
 }
