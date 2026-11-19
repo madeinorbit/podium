@@ -11,6 +11,7 @@ import { generatePhoneServiceWorker } from './generate-service-worker'
  * inside `node_modules`, and the files that must stay out of the precache.
  */
 const FONT = 'assets/__node_modules/.bun/geist@0.4.2/node_modules/geist/Geist.0123456789abcdef.ttf'
+const IMAGE = 'assets/node_modules/expo-router/assets/arrow_down.0123456789abcdef.png'
 
 let dist: string
 let sw: string
@@ -29,6 +30,7 @@ beforeAll(async () => {
   put('_expo/static/js/web/entry-0123456789abcdef.js', 'console.log("entry")')
   put('_expo/static/css/xterm-0123456789abcdef.css', 'body{}')
   put(FONT, 'font')
+  put(IMAGE, 'image')
   put('manifest.webmanifest', '{"start_url":"/mobile"}')
   put('podium-build.json', '{"appVersion":"0.1.0"}')
   put('index.html.br', 'compressed')
@@ -39,11 +41,12 @@ beforeAll(async () => {
 afterAll(() => rmSync(dist, { recursive: true, force: true }))
 
 describe('the phone service worker', () => {
-  it('precaches the page, its chunks, styles and package fonts', () => {
+  it('precaches the page, its chunks, styles and package assets, dot directories too', () => {
     expect(sw).toContain('url:"index.html"')
     expect(sw).toContain('_expo/static/js/web/entry-0123456789abcdef.js')
     expect(sw).toContain('_expo/static/css/xterm-0123456789abcdef.css')
-    expect(sw).toContain(FONT)
+    expect(sw).toContain(`url:"${FONT}"`)
+    expect(sw).toContain(`url:"${IMAGE}"`)
     expect(sw).toContain('manifest.webmanifest')
   })
 

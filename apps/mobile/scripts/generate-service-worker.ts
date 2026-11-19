@@ -27,28 +27,42 @@
  * `write-web-build-stamp.ts` rewrites the `index.html` revision afterwards, as
  * it does for the desktop's `sw.js` (POD-3083), because it changes that page.
  *
- * A file over the size ceiling is a FAILED BUILD here, not a warning: workbox
- * would leave it out of the precache, and an offline reload would then fail on
- * exactly that file.
+ * Workbox's glob does not enter dot directories, and Metro can export package
+ * assets under an install path that has one (`.bun`): those files are added
+ * to the manifest by name, with their content hash as the revision.
+ *
+ * A file left out is a FAILED BUILD here, not a warning: an offline reload
+ * would fail on exactly that file. So after generating, every file of a
+ * precached type in the export must be in the worker's manifest.
  */
-import { join } from 'node:path'
+import { createHash } from 'node:crypto'
+import { readdirSync, readFileSync } from 'node:fs'
+import { join, relative, sep } from 'node:path'
 import { type GenerateSWOptions, generateSW } from 'workbox-build'
 
 export const PHONE_BASE_PATH = '/mobile'
 
 /** What the page loads: scripts, styles, the page, fonts, images, the manifest. */
 const PRECACHED = 'js,css,html,svg,png,ico,woff2,ttf,webmanifest'
+const PRECACHED_FILE = new RegExp(`\\.(${PRECACHED.split(',').join('|')})$`)
 
 /** The settings above, for a phone dist at `distDir`. */
 export function phoneServiceWorkerOptions(distDir: string): GenerateSWOptions {
+  const inDotDirectory = precachedTypeFiles(distDir).filter((path) =>
+    path
+      .split('/')
+      .slice(0, -1)
+      .some((part) => part.startsWith('.')),
+  )
   return {
     globDirectory: distDir,
-    globPatterns: [
-      `**/*.{${PRECACHED}}`,
-      // Metro exports package assets under their install path, which has dot
-      // directories (`.bun`) that `**` does not enter; name them explicitly.
-      `**/.*/**/*.{${PRECACHED}}`,
-    ],
+    additionalManifestEntries: inDotDirectory.map((url) => ({
+      url,
+      revision: createHash('md5')
+        .update(readFileSync(join(distDir, url)))
+        .digest('hex'),
+    })),
+    globPatterns: [`**/*.{${PRECACHED}}`],
     // Not workbox's default `**/node_modules/**`: the export keeps package
     // assets (fonts, the router's images) under a `node_modules` path.
     globIgnores: ['sw.js', 'workbox-*.js'],
@@ -67,12 +81,29 @@ export function phoneServiceWorkerOptions(distDir: string): GenerateSWOptions {
   }
 }
 
+/** Every file of a precached type in the export, dot directories included. */
+function precachedTypeFiles(distDir: string): string[] {
+  return readdirSync(distDir, { recursive: true, withFileTypes: true })
+    .filter((entry) => entry.isFile() && PRECACHED_FILE.test(entry.name))
+    .map((entry) => relative(distDir, join(entry.parentPath, entry.name)).split(sep).join('/'))
+    .filter((path) => path !== 'sw.js' && !/^workbox-[^/]*\.js$/.test(path))
+}
+
 export async function generatePhoneServiceWorker(
   distDir: string,
 ): Promise<{ count: number; size: number }> {
-  const { count, size, warnings } = await generateSW(phoneServiceWorkerOptions(distDir))
-  if (warnings.length > 0) {
-    throw new Error(`the phone service worker would be incomplete:\n${warnings.join('\n')}`)
+  const options = phoneServiceWorkerOptions(distDir)
+  const { count, size, warnings } = await generateSW(options)
+  const worker = readFileSync(options.swDest, 'utf8')
+  const missing = precachedTypeFiles(distDir).filter((path) => !worker.includes(`url:"${path}"`))
+  if (warnings.length > 0 || missing.length > 0) {
+    throw new Error(
+      [
+        'the phone service worker would be incomplete:',
+        ...warnings,
+        ...missing.map((path) => `not precached: ${path}`),
+      ].join('\n'),
+    )
   }
   return { count, size }
 }
