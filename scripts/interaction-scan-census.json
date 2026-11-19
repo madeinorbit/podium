@@ -29449,19 +29449,19 @@
       "file": "packages/client-graph/src/shared/issue-identities.ts",
       "holder": "createIssueIdentities/fork/callback",
       "rule": "helper-consumer",
-      "tokens": "6f3d99988d97e703efd11a4c7e9c635cf570e0d2ba66890de9e535304788bb68",
+      "tokens": "eba1bb4c4da2cde800ed79ef3dc8526440d859a817c20bdc05fc64b9fc97e2bf",
       "gate": [],
       "origin": [
         "18b7067a719ca6f79882902c60deaa8aea15295423c444e89308e2b8f0701d22",
         "bc460dbf6ac0cff6d3d8c51408588df67cd9fb011f2d93a93e8d1ee76ad052aa"
       ],
-      "fingerprint": "4341ce25825d49027293c9ea570fa3776619aec58f30b9845397dfc16886832e",
+      "fingerprint": "b550a29ac684375f1cf8baef269915f44a8adf3ca60e0b3337283855f59a21a5",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of createIssueIdentities/fork/callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. The existing generic helper is unchanged semantically; its dependency fingerprint changed through the symmetric keyed-answer predecessor addition and scoped formatting. Catalogue caller debt remains open.",
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. The existing generic helper is unchanged semantically; its dependency fingerprint changed through the symmetric keyed-answer predecessor addition and scoped formatting. Catalogue caller debt remains open. POD-7181: the fork callback now first marks the buckets shared (the bucket writer) and is a block; same origins, same work.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
