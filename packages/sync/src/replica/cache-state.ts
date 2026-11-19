@@ -446,8 +446,7 @@ const isPolicy = (value: unknown): value is CachePolicy => {
     typeof row === 'object' &&
     typeof row.clientType === 'string' &&
     Array.isArray(row.steps) &&
-    typeof row.recentDays === 'number' &&
-    typeof row.cacheCap === 'number'
+    typeof row.recentDays === 'number'
   )
 }
 

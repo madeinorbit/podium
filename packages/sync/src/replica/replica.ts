@@ -57,13 +57,20 @@ import {
   comesWithOf,
   HeldIndex,
   type HeldRows,
-  planTrim,
   policyArgs,
   policyInstances,
   resolveInstance,
   stubFieldsOf,
   stubOfValue,
 } from './holdings'
+import {
+  type MemorySignals,
+  planUnload,
+  type ShrinkReason,
+  type UnloadPlan,
+  type WarmBudget,
+  warmBudgetOfMb,
+} from './memory'
 import type { OptimisticOverlayPort, RetirementEvidence, RetirementIntent } from './overlay'
 import { computeOverlay, type OverlayRow } from './overlay-projection'
 import {
@@ -170,6 +177,17 @@ export interface ReplicaOptions {
    * offline rule. Absent, the Replica batches them itself per microtask.
    */
   readonly request?: (specs: readonly InstanceSpec[]) => void
+  /**
+   * POD-7161 — when memory may let go of the warm set (design "Layer 2:
+   * memory"): the platform's idle moments, background and memory warnings.
+   * Absent, nothing leaves memory on its own (a server, the CLI, a test that
+   * does not drive it).
+   */
+  readonly memory?: {
+    readonly signals?: MemorySignals
+    /** A test hook: the warm budget as a number of instances instead of the policy's MB. */
+    readonly warmInstances?: number
+  }
 }
 
 /** Most instances one fetch names; the route's own bound. */
@@ -184,15 +202,6 @@ const FETCH_MAX_INSTANCES = 200
  * installed.
  */
 const INSTALL_BATCH_ROWS = 4096
-
-/**
- * POD-7165 — the automatic cache trim waits until no fetch has run for this
- * long. A trim reads every row and instance on the device; a view that opens
- * fetches in waves (a tree, what it comes with, a parent at a time), and a
- * trim after each wave cost more than the wave. The cap is a target, not a
- * wall: the cache may stand above it for the length of a burst of fetches.
- */
-const TRIM_QUIET_MS = 1_000
 
 /**
  * POD-7159 — the most rows a disk load puts in memory in one burst: one
@@ -410,10 +419,18 @@ export class Replica implements DeviceCollectionReads {
   /** What held records come with, gathered for one batched fetch. */
   private readonly needs = new Map<string, InstanceRequest>()
   private needsScheduled = false
-  private trimScheduled = false
-  /** A trim was asked for while a fetch was in flight: it runs once none is. */
-  private trimAfterFetches = false
-  private trimTimer: ReturnType<typeof setTimeout> | undefined
+  /** POD-7161 — when each warm instance (in memory, no view reading it) was released. */
+  private readonly releasedAt = new Map<string, number>()
+  private readonly memorySignals: MemorySignals | undefined
+  private readonly warmInstances: number | undefined
+  /** An idle moment memory asked for and has not had yet. */
+  private idleCancel: (() => void) | undefined
+  /** An idle moment came while a fetch or a disk load ran: memory asks again once none does. */
+  private idleAfterFetches = false
+  /** Memory waits for the oldest warm instance to leave its grace. */
+  private graceTimer: ReturnType<typeof setTimeout> | undefined
+  private memoryUnsubscribe: (() => void) | undefined
+  private stoppedMemory = false
   private heldIndexCache:
     | {
         readonly instances: ReadonlyMap<string, InstanceRecord>
@@ -430,7 +447,7 @@ export class Replica implements DeviceCollectionReads {
     bootstraps: 0,
     framesApplied: 0,
     watermarksApplied: 0,
-    trims: 0,
+    shrinks: 0,
     pendingGap: false,
   }
 
@@ -450,6 +467,11 @@ export class Replica implements DeviceCollectionReads {
     this.maxBootstrapAttempts = options.maxBootstrapAttempts ?? 3
     this.viewRequests = options.view
     this.requestHook = options.request
+    this.memorySignals = options.memory?.signals
+    this.warmInstances = options.memory?.warmInstances
+    this.memoryUnsubscribe = this.memorySignals?.subscribe((reason) => {
+      void this.shrinkMemory(reason).catch(() => undefined)
+    })
     this.cursorValue = this.readCursorSafely()
     if (this.cursorValue !== null) this.state = 'stale'
   }
@@ -478,7 +500,7 @@ export class Replica implements DeviceCollectionReads {
       bootstraps: this.counters.bootstraps,
       framesApplied: this.counters.framesApplied,
       watermarksApplied: this.counters.watermarksApplied,
-      trims: this.counters.trims,
+      shrinks: this.counters.shrinks,
       entityCount: this.store.readEntities().length,
     }
   }
@@ -608,11 +630,6 @@ export class Replica implements DeviceCollectionReads {
 
   /** Go offline. The last-known slice stays VISIBLE, marked stale (D7). Never blank. */
   disconnect(): TransitionOutcome {
-    if (this.trimTimer !== undefined) {
-      clearTimeout(this.trimTimer)
-      this.trimTimer = undefined
-      this.trimScheduled = false
-    }
     // Abandon any walk in flight: its staging is discarded, never half-installed.
     this.walkAbort.abort()
     this.walkAbort = new AbortController()
@@ -1786,7 +1803,7 @@ export class Replica implements DeviceCollectionReads {
       await this.drainBuffer()
       if (this.state === 'live' && generation === this.walkGeneration) {
         this.requestMissingComesWith()
-        this.scheduleTrim()
+        this.wakeMemory()
       }
     }
   }
@@ -2175,7 +2192,12 @@ export class Replica implements DeviceCollectionReads {
       const holder = rowKeyOf(row.entity, row.entityId)
       // POD-7181: the instances a record belongs to add only collection
       // comes-with; when none of those can be missing, they are not looked for.
-      const memberOf = collectionComesWithSettled(row.entity, row.value, disk.record(holder)?.cw, now)
+      const memberOf = collectionComesWithSettled(
+        row.entity,
+        row.value,
+        disk.record(holder)?.cw,
+        now,
+      )
         ? []
         : index.matching(row.entity, row.value, this.ruleRows, now)
       for (const spec of comesWithOf(row.entity, row.value, memberOf, now)) {
@@ -2503,6 +2525,10 @@ export class Replica implements DeviceCollectionReads {
         this.diskLoads.set(key, tracked)
         void tracked.then(() => {
           if (this.diskLoads.get(key) === tracked) this.diskLoads.delete(key)
+          this.arrivedWarm(key)
+          // What the disk load put in memory may take the warm set over budget.
+          this.idleAfterFetches = true
+          this.wakeMemoryAfterFetches()
         })
       }
       this.fetching = Promise.all([this.fetching, tracked]).then(() => undefined)
@@ -2675,25 +2701,172 @@ export class Replica implements DeviceCollectionReads {
     if (keys.length === 0) return
     for (let guard = 0; guard < 50 && (this.fetchCount > 0 || this.diskLoads.size > 0); guard += 1)
       await Promise.all([this.fetching, ...this.diskLoads.values()])
-    await this.serial(() => {
-      const left = this.store.unload(keys)
-      this.batchEvents(() => {
-        for (const row of left)
-          this.emit({ type: 'unloaded', entity: row.entity, entityId: row.entityId })
-        this.emit({ type: 'markers' })
-      })
+    await this.serial(() => this.unloadNow(keys))
+  }
+
+  /** Take instances out of memory now, inside a store step; their readers see LOADING. */
+  private unloadNow(keys: readonly string[]): void {
+    const left = this.store.unload(keys)
+    for (const key of keys) this.releasedAt.delete(key)
+    this.batchEvents(() => {
+      for (const row of left)
+        this.emit({ type: 'unloaded', entity: row.entity, entityId: row.entityId })
+      this.emit({ type: 'markers' })
     })
   }
 
   /**
-   * POD-7159's test hook (POD-7161 decides when memory lets go): unload every
-   * instance in memory that no view holds, the policy's excepted.
+   * POD-7159's test hook: unload every instance in memory that no view holds,
+   * the policy's excepted, whatever the budget.
    */
   async unloadForTest(): Promise<void> {
     const held = new Set(this.holds.keys())
     await this.unload(
       [...this.store.readDiskIndex().memoryInstances()].filter((key) => !held.has(key)),
     )
+  }
+
+  // ─── The warm set (POD-7161) ──────────────────────────────────────────────
+
+  /** A test's view of what the views hold now, by instance key: held is never unloaded. */
+  heldForTest(): readonly string[] {
+    return [...this.holds.keys()]
+  }
+
+  /**
+   * The instances memory must keep: the policy's (always resident), what a
+   * view reads, and what a fetch or a disk load is filling (held).
+   */
+  private pinnedInstances(): Set<string> {
+    return new Set<string>([
+      ...policyInstances(this.store.readPolicy()).map((spec) => instanceKey(spec)),
+      ...this.holds.keys(),
+      ...this.inFlight.keys(),
+      ...this.diskLoads.keys(),
+    ])
+  }
+
+  /** The warm set's budget: the test hook's instances, else the policy's MB; none without a policy. */
+  private warmBudget(): WarmBudget | undefined {
+    if (this.warmInstances !== undefined) return { instances: this.warmInstances }
+    const mb = this.store.readPolicy()?.memoryBudgetMb
+    // A policy stored by the release before has no budget until the next load header.
+    return typeof mb === 'number' && Number.isFinite(mb) ? warmBudgetOfMb(mb) : undefined
+  }
+
+  /**
+   * An instance a fetch or a disk load brought that no view holds (a lookup,
+   * what a record comes with) is warm from when it arrived, as if released
+   * then, so the grace counts from its arrival.
+   */
+  private arrivedWarm(key: string): void {
+    if (this.memorySignals === undefined || this.holds.has(key) || this.releasedAt.has(key)) return
+    this.releasedAt.set(key, this.now())
+  }
+
+  /** Ask the platform for an idle moment, once; memory shrinks then, never now. */
+  private wakeMemory(): void {
+    if (this.memorySignals === undefined || this.stoppedMemory || this.idleCancel !== undefined)
+      return
+    if (this.fetchCount > 0 || this.diskLoads.size > 0) {
+      this.idleAfterFetches = true
+      return
+    }
+    let ran = false
+    const cancel = this.memorySignals.requestIdle(() => {
+      ran = true
+      this.idleCancel = undefined
+      void this.shrinkMemory('idle').catch(() => undefined)
+    })
+    if (!ran) this.idleCancel = cancel
+  }
+
+  private wakeMemoryAfterFetches(): void {
+    if (!this.idleAfterFetches || this.fetchCount > 0 || this.diskLoads.size > 0) return
+    this.idleAfterFetches = false
+    this.wakeMemory()
+  }
+
+  /**
+   * Shrink the warm set to its budget (design "When it shrinks"), oldest
+   * released first; never a held or always-resident instance. An idle tick
+   * or the background keeps what was released within the grace, and skips
+   * while a fetch or a disk load runs (the device is not idle; it asks again
+   * after). A memory warning overrides the grace. Runs as a store step of
+   * its own, never inside a fetch completion, a feed apply or a render.
+   */
+  shrinkMemory(reason: ShrinkReason): Promise<UnloadPlan | undefined> {
+    if (reason !== 'memoryWarning' && (this.fetchCount > 0 || this.diskLoads.size > 0)) {
+      this.idleAfterFetches = true
+      return Promise.resolve(undefined)
+    }
+    let plan: UnloadPlan | undefined
+    return this.serial(() => {
+      if (this.state === 'bootstrapping' && reason !== 'memoryWarning') return
+      const budget = this.warmBudget()
+      if (budget === undefined) return
+      const index = this.store.readDiskIndex()
+      const now = this.now()
+      plan = planUnload({
+        index,
+        resident: (key) => {
+          const { entity, entityId } = splitRowKey(key)
+          const row = this.store.read(entity, entityId)
+          return row !== undefined && row.part !== 'stub'
+        },
+        pinned: this.pinnedInstances(),
+        // An instance in memory that neither a release nor an arrival dated
+        // is warm from the first time memory sees it.
+        releasedAt: (key) => {
+          let at = this.releasedAt.get(key)
+          if (at === undefined) {
+            at = now
+            this.releasedAt.set(key, at)
+          }
+          return at
+        },
+        now,
+        budget,
+        grace: reason !== 'memoryWarning',
+      })
+      if (plan.unload.length > 0) {
+        this.counters.shrinks += 1
+        this.unloadNow(plan.unload)
+      }
+      for (const key of this.releasedAt.keys())
+        if (!index.inMemory(key) || this.holds.has(key)) this.releasedAt.delete(key)
+      if (plan.graceEndsAt !== undefined) this.wakeAfterGrace(plan.graceEndsAt - now)
+    }).then(() => plan)
+  }
+
+  /**
+   * Stop listening to the platform's memory signals: the assembly is closing
+   * (sign-out, a new principal). Going offline is not this: memory still
+   * shrinks while the device is offline.
+   */
+  stopMemory(): void {
+    this.memoryUnsubscribe?.()
+    this.memoryUnsubscribe = undefined
+    this.idleCancel?.()
+    this.idleCancel = undefined
+    if (this.graceTimer !== undefined) clearTimeout(this.graceTimer)
+    this.graceTimer = undefined
+    this.idleAfterFetches = false
+    this.stoppedMemory = true
+  }
+
+  /** Over budget only because of the grace: ask for an idle moment once it ends. */
+  private wakeAfterGrace(ms: number): void {
+    if (this.graceTimer !== undefined) return
+    const timer = setTimeout(
+      () => {
+        this.graceTimer = undefined
+        this.wakeMemory()
+      },
+      Math.max(0, ms),
+    )
+    ;(timer as { unref?: () => void }).unref?.()
+    this.graceTimer = timer
   }
 
   /** Whether a record is whole on disk and not in memory: a reader gets LOADING and a disk load. */
@@ -2868,15 +3041,16 @@ export class Replica implements DeviceCollectionReads {
           else await this.serial(() => this.completeComesWith(members))
         }
       } finally {
-        for (const request of fresh) this.inFlight.delete(instanceKey(request))
+        for (const request of fresh) {
+          const key = instanceKey(request)
+          this.inFlight.delete(key)
+          this.arrivedWarm(key)
+        }
         this.inFlightVersion += 1
         this.fetchCount -= 1
         if (this.fetchCount === 0) {
           this.seen = null
-          if (this.trimAfterFetches) {
-            this.trimAfterFetches = false
-            this.scheduleTrim()
-          }
+          this.wakeMemoryAfterFetches()
         }
       }
       if (signal.aborted) return
@@ -2896,7 +3070,7 @@ export class Replica implements DeviceCollectionReads {
         }
         this.request(this.missingComesWith(insideLoad ? written : entered))
       }
-      this.scheduleTrim()
+      this.wakeMemory()
     })()
     const tracked = task.catch((error) => {
       if (error instanceof ReplicaStoreCorruptError) this.onCorruption()
@@ -2988,14 +3162,16 @@ export class Replica implements DeviceCollectionReads {
 
   /**
    * Hold an instance for an open view (design "Two holders of an instance").
-   * The trim never drops a held instance; releasing it makes it cache, the
-   * most recently released last to go. Returns the release.
+   * Memory never unloads a held instance (POD-7161); releasing it makes it
+   * warm, the most recently released last to go. Returns the release.
    */
   hold(spec: InstanceSpec): () => void {
     const key = instanceKey(spec)
     const entry = this.holds.get(key) ?? { spec, count: 0 }
     entry.count += 1
     this.holds.set(key, entry)
+    // A fresh read moves a warm instance back to held.
+    this.releasedAt.delete(key)
     this.store.touchInstance(key, this.now())
     let released = false
     return () => {
@@ -3004,6 +3180,7 @@ export class Replica implements DeviceCollectionReads {
       entry.count -= 1
       if (entry.count > 0) return
       this.holds.delete(key)
+      this.releasedAt.set(key, this.now())
       void this.serial(() => {
         if (this.store.readInstances().has(key))
           this.store.applyAtomic({
@@ -3011,7 +3188,7 @@ export class Replica implements DeviceCollectionReads {
             instances: [{ kind: 'release', key, at: this.now() }],
           })
       }).catch(() => undefined)
-      this.scheduleTrim()
+      this.wakeMemory()
     }
   }
 
@@ -3066,102 +3243,6 @@ export class Replica implements DeviceCollectionReads {
   /** Whether a load can start now: the device has a feed to answer against. */
   get canFetch(): boolean {
     return this.cursorValue !== null && this.authority.collections !== undefined
-  }
-
-  /** Trim the cache by instance now (design "Memory, cache and leaving"). */
-  async trim(): Promise<void> {
-    await this.serial(() => this.trimNow())
-  }
-
-  private scheduleTrim(): void {
-    if (this.trimScheduled || this.store.readPolicy() === null) return
-    // POD-7165: one trim once the fetches are done and quiet (TRIM_QUIET_MS),
-    // not one after each of them. What a fetch in flight brings is kept
-    // anyway (POD-7155).
-    if (this.fetchCount > 0) {
-      this.trimAfterFetches = true
-      return
-    }
-    this.trimScheduled = true
-    const timer = setTimeout(() => {
-      this.trimTimer = undefined
-      // A fetch started meanwhile: the trim waits for it, and then for quiet again.
-      if (this.fetchCount > 0) {
-        this.trimScheduled = false
-        this.trimAfterFetches = true
-        return
-      }
-      void this.serial(() => {
-        this.trimScheduled = false
-        this.trimNow()
-      }).catch(() => undefined)
-    }, TRIM_QUIET_MS)
-    ;(timer as { unref?: () => void }).unref?.()
-    this.trimTimer = timer
-  }
-
-  private trimNow(): void {
-    const policy = this.store.readPolicy()
-    if (policy === null || this.state === 'bootstrapping') return
-    this.counters.trims += 1
-    const held = new Set<string>([
-      ...policyInstances(policy).map((spec) => instanceKey(spec)),
-      ...this.holds.keys(),
-      ...this.inFlight.keys(),
-    ])
-    const plan = planTrim({
-      rows: this.store.readEntities(),
-      instances: this.store.readInstances(),
-      held,
-      inFlight: [...this.inFlight.values()],
-      policy,
-      cap: policy.cacheCap,
-      now: this.now(),
-      store: this.store,
-    })
-    // POD-7159: the trim reads the rows in memory only, so it cannot tell what
-    // an instance whose rows are on disk alone keeps; it never drops such a
-    // marker (one not in memory, or holding a member that is only on disk).
-    // Leaving the device is pruning's (POD-7162), never a side effect of memory.
-    const disk = this.store.readDiskIndex()
-    const evaluable = (key: string): boolean => {
-      if (!disk.inMemory(key)) return false
-      for (const member of disk.membersOf(key)) {
-        if (disk.record(member)?.level !== 'main') continue
-        const { entity, entityId } = splitRowKey(member)
-        if (this.store.read(entity, entityId) === undefined) return false
-      }
-      return true
-    }
-    const dropInstances = plan.dropInstances.filter(evaluable)
-    if (dropInstances.length === 0 && plan.toStub.length === 0 && plan.remove.length === 0) return
-    const operations: CacheOperation[] = [
-      ...plan.toStub.map(
-        (row): CacheOperation => ({
-          kind: 'upsert',
-          entity: row.entity,
-          entityId: row.entityId,
-          value: stubOfValue(row.entity, row.value),
-          ...(row.revision === undefined ? {} : { revision: row.revision }),
-          provenance: row.provenance,
-          part: 'stub',
-          asOf: rowAsOf(row),
-          force: true,
-        }),
-      ),
-      ...plan.remove.map(
-        (row): CacheOperation => ({ kind: 'remove', entity: row.entity, entityId: row.entityId }),
-      ),
-    ]
-    this.store.applyAtomic({
-      operations,
-      instances: dropInstances.map((key) => ({ kind: 'drop' as const, key })),
-    })
-    this.batchEvents(() => {
-      for (const row of [...plan.toStub, ...plan.remove])
-        this.emit({ type: 'released', entity: row.entity, entityId: row.entityId })
-      if (dropInstances.length > 0) this.emit({ type: 'markers' })
-    })
   }
 
   /** Wait for a task in which no fetched answer has installed yet, and take it. */

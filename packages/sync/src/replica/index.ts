@@ -12,6 +12,13 @@
 
 export type { DiskIndexReader, InstanceState, RecordEntry } from './disk-index'
 export * from './loader'
+export {
+  browserMemorySignals,
+  type MemorySignals,
+  manualMemorySignals,
+  type ShrinkReason,
+  WARM_GRACE_MS,
+} from './memory'
 export * from './memory-store'
 export * from './overlay'
 export * from './overlay-projection'

@@ -84,6 +84,7 @@ import type { HttpSyncSourceDeps } from '@podium/client-core/sync-stream'
 import { createLogger } from '@podium/logger'
 import { asUserId, type SessionId } from '@podium/model'
 import { CONNECT_DEFAULT_BASE_URL } from '@podium/protocol/server-locate'
+import type { MemorySignals } from '@podium/sync/replica'
 
 export { BOOT_STALL_MS, STORE_REFRESH_NOTICE } from '@podium/client-core/replica-assembly'
 
@@ -102,6 +103,7 @@ import { platformClockWakeSource } from './clock-wake-source'
 // the router in just to report that its boot failed.
 import { LaunchReadyView } from './launch-ready'
 import { MobileSyncBoundary } from './MobileSyncBoundary'
+import { platformMemorySignals } from './memory-signals'
 import { openMobileEntityStore } from './mobile-entity-store'
 import { mobileVersionObservers } from './mobile-live-connection'
 import { installMobileMetadataStorage } from './mobile-metadata-storage'
@@ -191,6 +193,8 @@ export interface MobileReplicaDeps {
   readonly api: PodiumClientApi
   /** Hydrated side-cache home for ui-state and the outbox blobs. */
   readonly storage: StorageApi
+  /** When memory may let go of the screens left (POD-7161). Absent, nothing leaves memory. */
+  readonly memorySignals?: MemorySignals
   /** Hydrated AsyncStorage inventory used for namespace retention/erasure. */
   readonly enumerateKeys?: () => string[]
   /** Await write-behind durability, especially before sign-out reloads. */
@@ -858,6 +862,7 @@ function LiveProvider({ children }: { children: ReactNode }) {
           // The same client the store gets, so the queue sends through the
           // transport the rest of the app is authenticated on (POD-2073).
           api: memberTrpc,
+          memorySignals: platformMemorySignals,
           broadcastChannelFactory: platformFeedChannel(),
           transcripts: mobileTranscriptDatabases,
           storage: bridge.storage,

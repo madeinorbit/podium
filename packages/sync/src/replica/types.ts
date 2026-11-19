@@ -357,8 +357,12 @@ export interface CachePolicy {
   readonly clientType: string
   readonly steps: readonly { readonly step: string; readonly collections: readonly string[] }[]
   readonly recentDays: number
-  /** Records held as cache beyond the policy's collections. */
-  readonly cacheCap: number
+  /** The warm set's budget in memory, estimated MB (POD-7161, design "Layer 2: memory"). */
+  readonly memoryBudgetMb: number
+  /** Local storage's size budget, MB (POD-7162 prunes to it). */
+  readonly diskBudgetMb: number
+  /** An instance no view has read for longer than this many days leaves the device (POD-7162). */
+  readonly diskMaxIdleDays: number
 }
 
 /**
@@ -457,7 +461,7 @@ export interface ReplicaStats {
   readonly bootstraps: number
   readonly framesApplied: number
   readonly watermarksApplied: number
-  /** Cache trims run (POD-7165: one once the fetches in flight are done, not one per answer). */
-  readonly trims: number
+  /** Times memory shrank the warm set and unloaded something (POD-7161: idle, background, warning). */
+  readonly shrinks: number
   readonly entityCount: number
 }
