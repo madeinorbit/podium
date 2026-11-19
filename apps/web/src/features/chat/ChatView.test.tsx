@@ -1344,9 +1344,7 @@ describe('ChatView composer', () => {
       configurable: true,
       value: [new File(['pixels'], 'shot.png', { type: 'image/png' })],
     })
-    await act(async () => {
-      input.dispatchEvent(new Event('change', { bubbles: true }))
-    })
+    fireEvent.change(input)
     await vi.waitFor(() => {
       expect(fakeTrpc.sessions.uploadImage.mutate).toHaveBeenCalledTimes(1)
       const strip = container.querySelector('[data-testid="attachment-strip"]')
