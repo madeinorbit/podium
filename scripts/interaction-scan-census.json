@@ -2575,7 +2575,7 @@
       "classification": "bounded local work",
       "owner": "POD-5633",
       "trigger": "Demanded visible session history response",
-      "bound": "One addressed session’s activity samples",
+      "bound": "One addressed session\u2019s activity samples",
       "reason": "Request answers belong to the opening, are fenced against stale responses, and never refresh on minute ticks.",
       "guard": "waterfall-view.parity.test.ts: history demand and closed/superseded response fences"
     },
@@ -2597,7 +2597,7 @@
       "classification": "bounded local work",
       "owner": "POD-5633",
       "trigger": "Demanded visible session history response",
-      "bound": "One addressed session’s activity samples",
+      "bound": "One addressed session\u2019s activity samples",
       "reason": "Request answers belong to the opening, are fenced against stale responses, and never refresh on minute ticks.",
       "guard": "waterfall-view.parity.test.ts: history demand and closed/superseded response fences"
     },
@@ -6856,7 +6856,7 @@
       "count": 1,
       "classification": "visible output",
       "owner": "POD-6667",
-      "trigger": "Opening Account and loading the caller’s sign-in inventory",
+      "trigger": "Opening Account and loading the caller\u2019s sign-in inventory",
       "bound": "One EntityRow is rendered for each returned sign-in in the explicitly opened Account section.",
       "reason": "The Account redesign replaces the old connected-phone subset with every caller sign-in. This map directly renders those visible rows and performs no hidden whole-workspace scan.",
       "guard": "Exact fingerprint and multiplicity; connected-devices tests cover every client kind, current-first ordering, and per-row sign-out."
@@ -6878,7 +6878,7 @@
       "owner": "POD-6667",
       "trigger": "Opening one project detail takeover",
       "bound": "One row is rendered for each worktree of each checkout of the selected project.",
-      "reason": "The project detail renders its addressed project’s worktrees. The map consumes only the opened project’s checkout relations and produces a visible row for every item.",
+      "reason": "The project detail renders its addressed project\u2019s worktrees. The map consumes only the opened project\u2019s checkout relations and produces a visible row for every item.",
       "guard": "Exact fingerprint and multiplicity; repos tests retain checkout/worktree detail behavior and opening ownership."
     },
     {
@@ -7918,55 +7918,57 @@
         "exit:then:5e2a14e1fded6dcf5bd2bbeb0a38680fd681e01937e3beb0794cbfbe6fbfbbad"
       ],
       "origin": [
+        "0dd52a44cee415be7900ad1ce02ffaebcfe49ddb0ea189325d8cd3cdfdec052f",
         "6eaa0385ee25575a2b8641ff25b6cd72ef2fa78aca967cd7f17f5c096194a7f4"
       ],
-      "fingerprint": "9c8c9c01ed18afcc1fc84670c000a1381b22b5666d28a6162e644fa82600b05e",
+      "fingerprint": "aa0c091c090ff241f8192a66ef1a92440b911a532ca5d1ec12f9eccdd7ed3f74",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5801",
       "trigger": "Opening a signed-in user's replica assembly, building a replica, or mounting one chat.",
       "bound": "Constant work: the per-user chat history store is created once and handed on by reference; no transcript collection is read or iterated at this site.",
-      "reason": "The scan follows transcript-named ports (TranscriptStore, the replica's transcripts cache) through composition and erase wiring; nothing here enumerates messages.",
+      "reason": "The scan follows transcript-named ports (TranscriptStore, the replica's transcripts cache) through composition and erase wiring; nothing here enumerates messages. POD-7193: storage open/upgrade diagnostics add constant logging to replica composition; the forwarded transcript port and collection bound are unchanged.",
       "guard": "assembly.test.ts \"chat history database (POD-5801)\" opens one database per user and erases it on sign-out; transcript-log.stored.test.ts drives the wired cache end to end."
     },
     {
       "file": "apps/web/src/lib/kernelReplica.ts",
       "holder": "openKernelAssembly/assembly",
       "rule": "helper-consumer",
-      "tokens": "0e20ff6b3763f99af91143d14c764fb09f611bcdad916881314b012131dd5eb9",
+      "tokens": "9f835c528475ee0d818c759614f7336b77c7c8c499f4a1559dca277173c05fca",
       "gate": [
         "exit:then:5e2a14e1fded6dcf5bd2bbeb0a38680fd681e01937e3beb0794cbfbe6fbfbbad"
       ],
       "origin": [
         "6eaa0385ee25575a2b8641ff25b6cd72ef2fa78aca967cd7f17f5c096194a7f4"
       ],
-      "fingerprint": "3c18da853f197c470afb7da2e1279cae4efa898f91bbe168bd13aa7447193efd",
+      "fingerprint": "d3e5a437df0bbd56cf2f9b69f00cf112769b0a3567b9eb4ee1c2710b71e2b98e",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5801",
       "trigger": "Opening a signed-in user's replica assembly, building a replica, or mounting one chat.",
       "bound": "Constant work: the per-user chat history store is created once and handed on by reference; no transcript collection is read or iterated at this site.",
-      "reason": "The scan follows transcript-named ports (TranscriptStore, the replica's transcripts cache) through composition and erase wiring; nothing here enumerates messages. POD-6778: normalized panel records change fixture/bootstrap payloads and remove the panel body request; the collection bound and classification are unchanged. POD-6772: per-kind replacement and IndexedDB range wiring change this composition fingerprint; transcript access and its collection bound are unchanged. POD-6947: the feed sink's access-move listener (onAccessMoved) in the assembly's feed port changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7086: the facade gains the device's collection reads (markers and stubs) and the assembly hands it the kernel Replica's, which changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7087: the facade gains the one loader (`loader()`, and `stubRows` among the collection reads) and the assembly builds it beside the kernel Replica and pipes it the Replica's events, which changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7122: the Replica gains a `load-installed` event (the first download is in memory) that the facade, the loader and the sync progress read, which changes this composition fingerprint; the collection bound and classification are unchanged. POD-7165: the Replica's `batchEvents` composes the loader's burst around the facade's (each kind of change told once per burst), which changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7159: the Replica gains its disk layer (disk reads, unload, the record-level disk load the loader batches, the unloaded event the facade reads), which changes this composition fingerprint; the collection bound and classification are unchanged. POD-7161: the assembly hands the Replica the browser's memory signals (idle moments and the page going hidden), which changes this composition fingerprint; transcript access and its collection bound are unchanged.",
+      "reason": "The scan follows transcript-named ports (TranscriptStore, the replica's transcripts cache) through composition and erase wiring; nothing here enumerates messages. POD-6778: normalized panel records change fixture/bootstrap payloads and remove the panel body request; the collection bound and classification are unchanged. POD-6772: per-kind replacement and IndexedDB range wiring change this composition fingerprint; transcript access and its collection bound are unchanged. POD-6947: the feed sink's access-move listener (onAccessMoved) in the assembly's feed port changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7086: the facade gains the device's collection reads (markers and stubs) and the assembly hands it the kernel Replica's, which changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7087: the facade gains the one loader (`loader()`, and `stubRows` among the collection reads) and the assembly builds it beside the kernel Replica and pipes it the Replica's events, which changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7122: the Replica gains a `load-installed` event (the first download is in memory) that the facade, the loader and the sync progress read, which changes this composition fingerprint; the collection bound and classification are unchanged. POD-7165: the Replica's `batchEvents` composes the loader's burst around the facade's (each kind of change told once per burst), which changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7159: the Replica gains its disk layer (disk reads, unload, the record-level disk load the loader batches, the unloaded event the facade reads), which changes this composition fingerprint; the collection bound and classification are unchanged. POD-7161: the assembly hands the Replica the browser's memory signals (idle moments and the page going hidden), which changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7193: storage open/upgrade diagnostics add constant logging to replica composition; the forwarded transcript port and collection bound are unchanged.",
       "guard": "assembly.test.ts \"chat history database (POD-5801)\" opens one database per user and erases it on sign-out; transcript-log.stored.test.ts drives the wired cache end to end."
     },
     {
       "file": "apps/web/src/lib/kernelReplica.ts",
       "holder": "openKernelAssembly/assembly",
       "rule": "reader-summary",
-      "tokens": "d870a616833763f0bf2166f9d29da6a3974fec83731b42d88c9f69d0d051c3dd",
+      "tokens": "cb5b136e9175feb447b012002bec71095ff1760921ba370939eef0fe537cc9b2",
       "gate": [
         "exit:then:5e2a14e1fded6dcf5bd2bbeb0a38680fd681e01937e3beb0794cbfbe6fbfbbad"
       ],
       "origin": [
+        "0dd52a44cee415be7900ad1ce02ffaebcfe49ddb0ea189325d8cd3cdfdec052f",
         "6eaa0385ee25575a2b8641ff25b6cd72ef2fa78aca967cd7f17f5c096194a7f4"
       ],
-      "fingerprint": "6f5d314672034439a5d0147c123547b2218b4bf771e44ef5acbaf0c9887c02cd",
+      "fingerprint": "986d58f4ec9532e367170a3b572a08849a54f41ef89db2def8452675b42d10ef",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5801",
       "trigger": "Opening a signed-in user's replica assembly, building a replica, or mounting one chat.",
       "bound": "Constant work: the per-user chat history store is created once and handed on by reference; no transcript collection is read or iterated at this site.",
-      "reason": "The scan follows transcript-named ports (TranscriptStore, the replica's transcripts cache) through composition and erase wiring; nothing here enumerates messages. POD-6772: per-kind replacement and IndexedDB range wiring change this composition fingerprint; transcript access and its collection bound are unchanged. POD-6947: the feed sink's access-move listener (onAccessMoved) in the assembly's feed port changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7086: the facade gains the device's collection reads (markers and stubs) and the assembly hands it the kernel Replica's, which changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7087: the facade gains the one loader (`loader()`, and `stubRows` among the collection reads) and the assembly builds it beside the kernel Replica and pipes it the Replica's events, which changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7165: the Replica's `batchEvents` composes the loader's burst around the facade's (each kind of change told once per burst), which changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7161: the assembly hands the Replica the browser's memory signals (idle moments and the page going hidden), which changes this composition fingerprint; transcript access and its collection bound are unchanged.",
+      "reason": "The scan follows transcript-named ports (TranscriptStore, the replica's transcripts cache) through composition and erase wiring; nothing here enumerates messages. POD-6772: per-kind replacement and IndexedDB range wiring change this composition fingerprint; transcript access and its collection bound are unchanged. POD-6947: the feed sink's access-move listener (onAccessMoved) in the assembly's feed port changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7086: the facade gains the device's collection reads (markers and stubs) and the assembly hands it the kernel Replica's, which changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7087: the facade gains the one loader (`loader()`, and `stubRows` among the collection reads) and the assembly builds it beside the kernel Replica and pipes it the Replica's events, which changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7165: the Replica's `batchEvents` composes the loader's burst around the facade's (each kind of change told once per burst), which changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7161: the assembly hands the Replica the browser's memory signals (idle moments and the page going hidden), which changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7193: storage open/upgrade diagnostics add constant logging to replica composition; the forwarded transcript port and collection bound are unchanged.",
       "guard": "assembly.test.ts \"chat history database (POD-5801)\" opens one database per user and erases it on sign-out; transcript-log.stored.test.ts drives the wired cache end to end."
     },
     {
@@ -11241,7 +11243,7 @@
       "classification": "ingest",
       "owner": "POD-2304",
       "trigger": "A newest transcript snapshot would trim a boundary still owned by a mounted reader.",
-      "bound": "One reconciled snapshot, only above 2 × initialLimit and only while following; an addressed boundary ID limits the retained suffix. Incremental frame trimming uses the existing item-position index.",
+      "bound": "One reconciled snapshot, only above 2 \u00d7 initialLimit and only while following; an addressed boundary ID limits the retained suffix. Incremental frame trimming uses the existing item-position index.",
       "reason": "Complete active turn membership must survive the following window. This scan locates the requested boundary in the incoming snapshot before committing its ordered contents; no computed screen scan or global cache is added.",
       "guard": "transcript-log.test.ts proves stream and newest-refresh retention, normal-window release, and explicit reset; conversation-presentation.test.ts and TranscriptFeed.turn-line.test.tsx cross both 300-row and 400-item limits."
     },
@@ -11262,7 +11264,7 @@
       "classification": "ingest",
       "owner": "POD-5621",
       "trigger": "TranscriptLog applies an authority read, reset, older page or incoming delta for its addressed conversation.",
-      "bound": "One reconciled transcript snapshot while following. Keep the requested display-boundary suffix when it exceeds the normal 2 × initialLimit window; older complete turns can still leave. Incremental frames use the addressed item-position index instead.",
+      "bound": "One reconciled transcript snapshot while following. Keep the requested display-boundary suffix when it exceeds the normal 2 \u00d7 initialLimit window; older complete turns can still leave. Incremental frames use the addressed item-position index instead.",
       "reason": "These operations maintain transcript order, frozen rows and incremental facts during ingestion; no computed screen reader or send-context action scans transcript history. POD-2304 retains the displayed turn boundary through an addressed callback; unrelated collection ownership and classifications are unchanged. Predecessor: 3e6e7ee56cb28529fd267359c2e8752fc65c764a705256e60cfe5f5e577a5827.",
       "guard": "conversation/transcript-log.test.ts and transcript-log.facts.test.ts preserve paging, reset and fact rules; model-observation.test.ts guards row-only replacement; model.test.ts guards one publication per frame. transcript-log.test.ts and conversation-presentation.test.ts cover boundary retention beyond 300/400 records, newest refresh, explicit reset, and release back to the normal window."
     },
@@ -11781,15 +11783,16 @@
       "tokens": "2ee90abaa1862e11c0939b33769879194a5d5d641a4241f3a93e72519fe96f61",
       "gate": [],
       "origin": [
+        "0dd52a44cee415be7900ad1ce02ffaebcfe49ddb0ea189325d8cd3cdfdec052f",
         "6eaa0385ee25575a2b8641ff25b6cd72ef2fa78aca967cd7f17f5c096194a7f4"
       ],
-      "fingerprint": "741b83230b5985acb3317bbe862924f31b633e53d822b58f805d1750625d5eca",
+      "fingerprint": "642189b02aeac0d40e25490b662cfde5e2a4137c7f94f8db82582427e2d4b9bb",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5801",
       "trigger": "Opening a signed-in user's replica assembly, building a replica, or mounting one chat.",
       "bound": "Constant work: the per-user chat history store is created once and handed on by reference; no transcript collection is read or iterated at this site.",
-      "reason": "The scan follows transcript-named ports (TranscriptStore, the replica's transcripts cache) through composition and erase wiring; nothing here enumerates messages.",
+      "reason": "The scan follows transcript-named ports (TranscriptStore, the replica's transcripts cache) through composition and erase wiring; nothing here enumerates messages. POD-7193: storage open/upgrade diagnostics add constant logging to replica composition; the forwarded transcript port and collection bound are unchanged.",
       "guard": "assembly.test.ts \"chat history database (POD-5801)\" opens one database per user and erases it on sign-out; transcript-log.stored.test.ts drives the wired cache end to end."
     },
     {
@@ -13104,15 +13107,16 @@
         "exit:then:d8cb67250ccc897f5c5185c0cb4eed967378f9583ec0a9e28c60d344c2e920f0"
       ],
       "origin": [
+        "0dd52a44cee415be7900ad1ce02ffaebcfe49ddb0ea189325d8cd3cdfdec052f",
         "6eaa0385ee25575a2b8641ff25b6cd72ef2fa78aca967cd7f17f5c096194a7f4"
       ],
-      "fingerprint": "a2086621ed06dacd683ff5750293fe0394012781322c18a68efd7fab85be095e",
+      "fingerprint": "4882e3e915adeb5558336688eb223d4fda2ffa8d3e47480a9ce3aac1bc253626",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5801",
       "trigger": "Opening a signed-in user's replica assembly, building a replica, or mounting one chat.",
       "bound": "Constant work: the per-user chat history store is created once and handed on by reference; no transcript collection is read or iterated at this site.",
-      "reason": "The scan follows transcript-named ports (TranscriptStore, the replica's transcripts cache) through composition and erase wiring; nothing here enumerates messages.",
+      "reason": "The scan follows transcript-named ports (TranscriptStore, the replica's transcripts cache) through composition and erase wiring; nothing here enumerates messages. POD-7193: storage open/upgrade diagnostics add constant logging to replica composition; the forwarded transcript port and collection bound are unchanged.",
       "guard": "assembly.test.ts \"chat history database (POD-5801)\" opens one database per user and erases it on sign-out; transcript-log.stored.test.ts drives the wired cache end to end."
     },
     {
@@ -13126,15 +13130,16 @@
         "exit:then:d8cb67250ccc897f5c5185c0cb4eed967378f9583ec0a9e28c60d344c2e920f0"
       ],
       "origin": [
+        "0dd52a44cee415be7900ad1ce02ffaebcfe49ddb0ea189325d8cd3cdfdec052f",
         "6eaa0385ee25575a2b8641ff25b6cd72ef2fa78aca967cd7f17f5c096194a7f4"
       ],
-      "fingerprint": "d4d3e1db25f7556372963ac1133e94bb1e15178f9a1a9a7014416dd045c61c08",
+      "fingerprint": "771074c23a59d871bccc68eed2446b7dfcf9817d18f4b213c794f5607530fbfc",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5801",
       "trigger": "Opening a signed-in user's replica assembly, building a replica, or mounting one chat.",
       "bound": "Constant work: the per-user chat history store is created once and handed on by reference; no transcript collection is read or iterated at this site.",
-      "reason": "The scan follows transcript-named ports (TranscriptStore, the replica's transcripts cache) through composition and erase wiring; nothing here enumerates messages.",
+      "reason": "The scan follows transcript-named ports (TranscriptStore, the replica's transcripts cache) through composition and erase wiring; nothing here enumerates messages. POD-7193: storage open/upgrade diagnostics add constant logging to replica composition; the forwarded transcript port and collection bound are unchanged.",
       "guard": "assembly.test.ts \"chat history database (POD-5801)\" opens one database per user and erases it on sign-out; transcript-log.stored.test.ts drives the wired cache end to end."
     },
     {
@@ -18240,7 +18245,7 @@
       "trigger": "A newly fetched issue event page is appended.",
       "bound": "One supplied page (the shared request owner asks for at most 50 rows per RPC); retained history is never enumerated for ID deduplication.",
       "reason": "The history owns its ID index and formats only new rows, with stable event/feed arrays and cursor advancement.",
-      "guard": "packages/client-graph/src/issue-activity.test.ts: append element work is 1→1 for 128/512 retained events; a planted retained-ID map/Set fails."
+      "guard": "packages/client-graph/src/issue-activity.test.ts: append element work is 1\u21921 for 128/512 retained events; a planted retained-ID map/Set fails."
     },
     {
       "file": "packages/client-core/src/values/issue-activity.ts",
@@ -22112,7 +22117,7 @@
       "owner": "POD-6652",
       "trigger": "The settings query or viewer-visible pages change.",
       "bound": "Two static groups and 13 source-defined settings pages, with 110 source-defined search rows (including the fixed FEATURES registry). Search renders at most 14 results. No issue, session, machine or member records are traversed.",
-      "reason": "Search ranks labels, help and keywords from the fixed settings page definitions; the input comes only from the frame’s visible subset of SETTINGS_GROUPS.",
+      "reason": "Search ranks labels, help and keywords from the fixed settings page definitions; the input comes only from the frame\u2019s visible subset of SETTINGS_GROUPS.",
       "guard": "apps/web/src/features/settings/surfaces.test.ts pins the 13 pages and viewer visibility. settings-frame.test.ts covers catalog row coverage, cross-page row search and lazy target navigation; searchSettings caps results with slice(0, 14)."
     },
     {
@@ -22133,7 +22138,7 @@
       "owner": "POD-6652",
       "trigger": "The settings query or viewer-visible pages change.",
       "bound": "Two static groups and 13 source-defined settings pages, with 110 source-defined search rows (including the fixed FEATURES registry). Search renders at most 14 results. No issue, session, machine or member records are traversed.",
-      "reason": "Search ranks labels, help and keywords from the fixed settings page definitions; the input comes only from the frame’s visible subset of SETTINGS_GROUPS.",
+      "reason": "Search ranks labels, help and keywords from the fixed settings page definitions; the input comes only from the frame\u2019s visible subset of SETTINGS_GROUPS.",
       "guard": "apps/web/src/features/settings/surfaces.test.ts pins the 13 pages and viewer visibility. settings-frame.test.ts covers catalog row coverage, cross-page row search and lazy target navigation; searchSettings caps results with slice(0, 14)."
     },
     {
@@ -22154,7 +22159,7 @@
       "owner": "POD-6652",
       "trigger": "The settings query or viewer-visible pages change.",
       "bound": "Two static groups and 13 source-defined settings pages, with 110 source-defined search rows (including the fixed FEATURES registry). Search renders at most 14 results. No issue, session, machine or member records are traversed.",
-      "reason": "Search ranks labels, help and keywords from the fixed settings page definitions; the input comes only from the frame’s visible subset of SETTINGS_GROUPS.",
+      "reason": "Search ranks labels, help and keywords from the fixed settings page definitions; the input comes only from the frame\u2019s visible subset of SETTINGS_GROUPS.",
       "guard": "apps/web/src/features/settings/surfaces.test.ts pins the 13 pages and viewer visibility. settings-frame.test.ts covers catalog row coverage, cross-page row search and lazy target navigation; searchSettings caps results with slice(0, 14)."
     },
     {
@@ -22175,7 +22180,7 @@
       "owner": "POD-6652",
       "trigger": "The settings query or viewer-visible pages change.",
       "bound": "Two static groups and 13 source-defined settings pages, with 110 source-defined search rows (including the fixed FEATURES registry). Search renders at most 14 results. No issue, session, machine or member records are traversed.",
-      "reason": "Search ranks labels, help and keywords from the fixed settings page definitions; the input comes only from the frame’s visible subset of SETTINGS_GROUPS.",
+      "reason": "Search ranks labels, help and keywords from the fixed settings page definitions; the input comes only from the frame\u2019s visible subset of SETTINGS_GROUPS.",
       "guard": "apps/web/src/features/settings/surfaces.test.ts pins the 13 pages and viewer visibility. settings-frame.test.ts covers catalog row coverage, cross-page row search and lazy target navigation; searchSettings caps results with slice(0, 14)."
     },
     {
@@ -22196,7 +22201,7 @@
       "owner": "POD-6652",
       "trigger": "The settings query or viewer-visible pages change.",
       "bound": "Two static groups and 13 source-defined settings pages, with 110 source-defined search rows (including the fixed FEATURES registry). Search renders at most 14 results. No issue, session, machine or member records are traversed.",
-      "reason": "Search ranks labels, help and keywords from the fixed settings page definitions; the input comes only from the frame’s visible subset of SETTINGS_GROUPS.",
+      "reason": "Search ranks labels, help and keywords from the fixed settings page definitions; the input comes only from the frame\u2019s visible subset of SETTINGS_GROUPS.",
       "guard": "apps/web/src/features/settings/surfaces.test.ts pins the 13 pages and viewer visibility. settings-frame.test.ts covers catalog row coverage, cross-page row search and lazy target navigation; searchSettings caps results with slice(0, 14)."
     },
     {
@@ -26087,7 +26092,7 @@
       "owner": "POD-5530",
       "trigger": "Invocation of chatMentionIssues",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-5872: Reference summaries project declared fields explicitly instead of spreading a row; mention enumeration is unchanged. Predecessor: 4659641bc2c43763e5caeb88042eceb81bc3fe296b1cb6f108d9bb961b95b4fb. POD-6400: the reference text goes through issueRefText (a pending number reads PREFIX-…); mention enumeration is unchanged. Predecessor: 6fa2a0e73440b146834296fa786a5b4ba19e22332978cb16e0acfd22ed34bcd1.",
+      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-5872: Reference summaries project declared fields explicitly instead of spreading a row; mention enumeration is unchanged. Predecessor: 4659641bc2c43763e5caeb88042eceb81bc3fe296b1cb6f108d9bb961b95b4fb. POD-6400: the reference text goes through issueRefText (a pending number reads PREFIX-\u2026); mention enumeration is unchanged. Predecessor: 6fa2a0e73440b146834296fa786a5b4ba19e22332978cb16e0acfd22ed34bcd1.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -27308,7 +27313,7 @@
       "trigger": "Default LoadPanel metric question",
       "bound": "One stored source-order element, or one iterator.next() when no first ordered ID exists.",
       "reason": "The keys iterator is advanced once; it is never spread, looped or materialized. Named metric demand bypasses the iterator. No whole-table scan occurs.",
-      "guard": "packages/client-graph/src/header-point-questions.test.ts and apps/web/src/app/header-data.point.test.tsx: first/repeat/addressed/missing/update/closed at128/512; all structural counters flat; whole-ID control grows132→516 elements."
+      "guard": "packages/client-graph/src/header-point-questions.test.ts and apps/web/src/app/header-data.point.test.tsx: first/repeat/addressed/missing/update/closed at128/512; all structural counters flat; whole-ID control grows132\u2192516 elements."
     },
     {
       "file": "packages/client-graph/src/header-repositories.ts",
@@ -28661,8 +28666,8 @@
       "owner": "POD-6673",
       "trigger": "A reader of my pins or my settings (sidebar layout, launch picker, settings screen).",
       "bound": "The pool's pin and userPreferences tables hold only the principal's own records: the things one person pinned, and one settings record.",
-      "reason": "The feed delivers these per-user rows to their owner only (per-user-state), so the walk is over one person’s pins, kept equal by value per pin kind.",
-      "guard": "packages/client-graph/src/per-user-records.ts reads only the pool pin and userPreferences tables, which the per-user-state feed fills with the principal’s own records."
+      "reason": "The feed delivers these per-user rows to their owner only (per-user-state), so the walk is over one person\u2019s pins, kept equal by value per pin kind.",
+      "guard": "packages/client-graph/src/per-user-records.ts reads only the pool pin and userPreferences tables, which the per-user-state feed fills with the principal\u2019s own records."
     },
     {
       "file": "packages/client-graph/src/per-user-records.ts",
@@ -28679,8 +28684,8 @@
       "owner": "POD-6673",
       "trigger": "A reader of my pins or my settings (sidebar layout, launch picker, settings screen).",
       "bound": "The pool's pin and userPreferences tables hold only the principal's own records: the things one person pinned, and one settings record.",
-      "reason": "The feed delivers these per-user rows to their owner only (per-user-state), so the walk is over one person’s pins, kept equal by value per pin kind.",
-      "guard": "packages/client-graph/src/per-user-records.ts reads only the pool pin and userPreferences tables, which the per-user-state feed fills with the principal’s own records."
+      "reason": "The feed delivers these per-user rows to their owner only (per-user-state), so the walk is over one person\u2019s pins, kept equal by value per pin kind.",
+      "guard": "packages/client-graph/src/per-user-records.ts reads only the pool pin and userPreferences tables, which the per-user-state feed fills with the principal\u2019s own records."
     },
     {
       "file": "packages/client-graph/src/per-user-records.ts",
@@ -28697,8 +28702,8 @@
       "owner": "POD-6673",
       "trigger": "A reader of my pins or my settings (sidebar layout, launch picker, settings screen).",
       "bound": "The pool's pin and userPreferences tables hold only the principal's own records: the things one person pinned, and one settings record.",
-      "reason": "The feed delivers these per-user rows to their owner only (per-user-state), so the walk is over one person’s pins, kept equal by value per pin kind.",
-      "guard": "packages/client-graph/src/per-user-records.ts reads only the pool pin and userPreferences tables, which the per-user-state feed fills with the principal’s own records."
+      "reason": "The feed delivers these per-user rows to their owner only (per-user-state), so the walk is over one person\u2019s pins, kept equal by value per pin kind.",
+      "guard": "packages/client-graph/src/per-user-records.ts reads only the pool pin and userPreferences tables, which the per-user-state feed fills with the principal\u2019s own records."
     },
     {
       "file": "packages/client-graph/src/per-user-records.ts",
@@ -28716,8 +28721,8 @@
       "owner": "POD-6673",
       "trigger": "A reader of my pins or my settings (sidebar layout, launch picker, settings screen).",
       "bound": "The pool's pin and userPreferences tables hold only the principal's own records: the things one person pinned, and one settings record.",
-      "reason": "The feed delivers these per-user rows to their owner only (per-user-state), so the walk is over one person’s pins, kept equal by value per pin kind.",
-      "guard": "packages/client-graph/src/per-user-records.ts reads only the pool pin and userPreferences tables, which the per-user-state feed fills with the principal’s own records."
+      "reason": "The feed delivers these per-user rows to their owner only (per-user-state), so the walk is over one person\u2019s pins, kept equal by value per pin kind.",
+      "guard": "packages/client-graph/src/per-user-records.ts reads only the pool pin and userPreferences tables, which the per-user-state feed fills with the principal\u2019s own records."
     },
     {
       "file": "packages/client-graph/src/pool.ts",
@@ -29175,7 +29180,7 @@
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-2153",
-      "trigger": "A base-branch picker (sidebar project menu, Settings → Repositories, task page) is open.",
+      "trigger": "A base-branch picker (sidebar project menu, Settings \u2192 Repositories, task page) is open.",
       "bound": "One checkout's worktree list (a handful of lanes).",
       "reason": "Offers the branch names a checkout already reports so the picker needs no branch-listing request.",
       "guard": "repo-base-branch.test.ts covers choices and checkout lookup; BaseBranchMenu.test.tsx covers the menu."
@@ -29194,7 +29199,7 @@
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-2153",
-      "trigger": "A base-branch picker (sidebar project menu, Settings → Repositories, task page) is open.",
+      "trigger": "A base-branch picker (sidebar project menu, Settings \u2192 Repositories, task page) is open.",
       "bound": "One row per per-machine repository scan; the repository table is always resident and holds tens of rows (schema: cold never).",
       "reason": "Finds a checkout of one logical repository (repoId-qualified, never by path alone) for the base-branch write; the menu that reads it mounts only while open.",
       "guard": "repo-base-branch.test.ts covers choices and checkout lookup; BaseBranchMenu.test.tsx covers the menu."
@@ -29213,7 +29218,7 @@
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-2153",
-      "trigger": "A base-branch picker (sidebar project menu, Settings → Repositories, task page) is open.",
+      "trigger": "A base-branch picker (sidebar project menu, Settings \u2192 Repositories, task page) is open.",
       "bound": "One row per per-machine repository scan; the repository table is always resident and holds tens of rows (schema: cold never).",
       "reason": "Finds the checkout a repository base-branch write goes through; the menu that reads it mounts only while open.",
       "guard": "repo-base-branch.test.ts covers choices and checkout lookup; BaseBranchMenu.test.tsx covers the menu."
@@ -29231,7 +29236,7 @@
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-2153",
-      "trigger": "A base-branch picker (sidebar project menu, Settings → Repositories, task page) is open.",
+      "trigger": "A base-branch picker (sidebar project menu, Settings \u2192 Repositories, task page) is open.",
       "bound": "One row per per-machine repository scan; the repository table is always resident and holds tens of rows (schema: cold never).",
       "reason": "Finds the checkout a repository base-branch write goes through; the menu that reads it mounts only while open.",
       "guard": "repo-base-branch.test.ts covers choices and checkout lookup; BaseBranchMenu.test.tsx covers the menu."
@@ -29250,7 +29255,7 @@
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-2153",
-      "trigger": "A base-branch picker (sidebar project menu, Settings → Repositories, task page) is open.",
+      "trigger": "A base-branch picker (sidebar project menu, Settings \u2192 Repositories, task page) is open.",
       "bound": "One row per per-machine repository scan; the repository table is always resident and holds tens of rows (schema: cold never).",
       "reason": "Finds the checkout a repository base-branch write goes through; the menu that reads it mounts only while open.",
       "guard": "repo-base-branch.test.ts covers choices and checkout lookup; BaseBranchMenu.test.tsx covers the menu."
@@ -29270,7 +29275,7 @@
       "owner": "POD-6267",
       "trigger": "The open Repositories settings section renders each repository with its checkouts and worktrees.",
       "bound": "One checkout's worktree list.",
-      "reason": "Counts worktrees whose folder is gone for the checkout line's '· N missing' note.",
+      "reason": "Counts worktrees whose folder is gone for the checkout line's '\u00b7 N missing' note.",
       "guard": "settings-repositories.test.ts pins the grouping (registered worktrees fold into their checkout, one checkout per machine, loose worktrees stand alone, live worktree arrival); settings-launch-records.parity.test.ts compares the old two-scan fixture."
     },
     {
@@ -35307,8 +35312,8 @@
       "owner": "POD-6675",
       "trigger": "A reader of my superagent threads (the superagent pane, the phone screen, the chat context).",
       "bound": "The pool's superagentThread table holds only the principal's own records: one person's threads.",
-      "reason": "The feed delivers superagent thread records to their owner only (per-user-state), so the walk is over one person’s threads.",
-      "guard": "packages/client-graph/src/superagent.ts reads only the pool superagentThread table, which the per-user-state feed fills with the principal’s own records."
+      "reason": "The feed delivers superagent thread records to their owner only (per-user-state), so the walk is over one person\u2019s threads.",
+      "guard": "packages/client-graph/src/superagent.ts reads only the pool superagentThread table, which the per-user-state feed fills with the principal\u2019s own records."
     },
     {
       "file": "packages/client-graph/src/superagent.ts",
@@ -35325,8 +35330,8 @@
       "owner": "POD-6675",
       "trigger": "A reader of my superagent threads (the superagent pane, the phone screen, the chat context).",
       "bound": "The pool's superagentThread table holds only the principal's own records: one person's threads.",
-      "reason": "The feed delivers superagent thread records to their owner only (per-user-state), so the walk is over one person’s threads.",
-      "guard": "packages/client-graph/src/superagent.ts reads only the pool superagentThread table, which the per-user-state feed fills with the principal’s own records."
+      "reason": "The feed delivers superagent thread records to their owner only (per-user-state), so the walk is over one person\u2019s threads.",
+      "guard": "packages/client-graph/src/superagent.ts reads only the pool superagentThread table, which the per-user-state feed fills with the principal\u2019s own records."
     },
     {
       "file": "packages/client-graph/src/workflow-views.ts",
@@ -36983,7 +36988,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5872",
-      "trigger": "Initialize or refresh one open conversation’s existing message-record port.",
+      "trigger": "Initialize or refresh one open conversation\u2019s existing message-record port.",
       "bound": "The addressed noticeSession membership only; no new numeric cap on held notices or records is asserted.",
       "reason": "The existing snapshot and row-version subscription moved from a manual computed to a lazy service field. Collection ownership and work are preserved; transcript refresh and subscription redesign belongs to POD-5800. POD-6093: superagent sends carry staged attachment paths in their text instead of refusing them; collection demand is unchanged. Predecessor: 5a80f4115b2dbeb6ff8b12905e2a116be7defbfb9ca7b491a74d8368f6488b55. POD-2304 retains the displayed turn boundary through an addressed callback; unrelated collection ownership and classifications are unchanged. Predecessor: 52b1428c198e0a4d9caae68a8dbe399b9648052a248cbadea6bee09fcbcb24ba. Predecessor: 49d2cc3aa158194d0844119f9c3deaf2a12a95b37a5e606f54bacbbd932f992b (POD-6397: the conversation's Stop writes a turn-scoped effect record through the store; collection demand is unchanged). Predecessor: 9a0b429be4417f397150e675cb56fa20e25197252b07b91e643794f402be3dba (POD-6419: the superagent's writes go through sync.submit with the old route as fallback; collection demand is unchanged). POD-6682 moved the command or transport home; its collection strategy is unchanged.",
       "guard": "ChatView.test.tsx and conversation-service.parity.test.ts preserve delivery and record answers; exact fingerprint and multiplicity remain enforced. This entry does not claim a repaired collection bound."
@@ -37003,7 +37008,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5872",
-      "trigger": "Initialize or refresh one open conversation’s existing message-record port.",
+      "trigger": "Initialize or refresh one open conversation\u2019s existing message-record port.",
       "bound": "The addressed noticeSession membership only; no new numeric cap on held notices or records is asserted.",
       "reason": "The existing snapshot and row-version subscription moved from a manual computed to a lazy service field. Collection ownership and work are preserved; transcript refresh and subscription redesign belongs to POD-5800. POD-6093: superagent sends carry staged attachment paths in their text instead of refusing them; collection demand is unchanged. Predecessor: 51c998ca196a9a6c243e1bbe5d981eabc11baa7e3cef40d3f3e29834b5c00df1. POD-2304 retains the displayed turn boundary through an addressed callback; unrelated collection ownership and classifications are unchanged. Predecessor: f7ccab7429b608e010b0a2ef8b453da51946e2cd458267fbbefbe008d438ad14. Predecessor: 64f36fb1c70946bf326a85986d85559cc948d79ae6412f624999b59fc8a6e077 (POD-6397: the conversation's Stop writes a turn-scoped effect record through the store; collection demand is unchanged). Predecessor: 30b5b60f9286a3af0abde779479547903c4c5e87995141d67a630334172b3de8 (POD-6419: the superagent's writes go through sync.submit with the old route as fallback; collection demand is unchanged). POD-6682 moved the command or transport home; its collection strategy is unchanged.",
       "guard": "ChatView.test.tsx and conversation-service.parity.test.ts preserve delivery and record answers; exact fingerprint and multiplicity remain enforced. This entry does not claim a repaired collection bound."
@@ -39785,6 +39790,28 @@
       "bound": "At most six declared stage markers and one stub marker. With text search, only the existing title/ref index matches and requested server-hit pages are read; no history table or unrelated tree is visited.",
       "reason": "The screen derives one refreshing bit from its own column/count sources and its current search hits. Record freshness is an addressed disk-index holder read, independent of unrelated stale instances.",
       "guard": "refreshing.test.ts and both platform ScreenRefreshMark.test.tsx files cover complete cached answers, in-place replacement, and unrelated stale-tree isolation; record-freshness.test.ts covers shared holder freshness."
+    },
+    {
+      "file": "packages/client-core/src/replica-assembly/assembly.ts",
+      "holder": "openReplicaAssembly/facade",
+      "rule": "helper-consumer",
+      "tokens": "308ca5c1a457d407ed828d904d57726d2052d17ad29cf3932898e2c7d8bb024c",
+      "gate": [
+        "exit:then:2add58fa692a9dfe7737492b2446bf6c801473caeea929a8d748c72f5d0a6624",
+        "exit:then:99d6c8122697f27293f4373c3ae6b7dddc99d6a1bbe120cb0edfcfddec8ba89a",
+        "exit:then:d8cb67250ccc897f5c5185c0cb4eed967378f9583ec0a9e28c60d344c2e920f0"
+      ],
+      "origin": [
+        "a4d15dd05cff7e7b6d651c6208c8ed24cc3d278d5385d9e776ea242048950750"
+      ],
+      "fingerprint": "ced2971fa9210f8386b4b6ca716f1974a0322ccd614a3f3bcae40f872999313d",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-7193",
+      "trigger": "Opening a signed-in user's replica assembly, building a replica, or mounting one chat.",
+      "bound": "Constant composition: forwards cache, collection and transcript ports by reference without reading or enumerating transcript rows.",
+      "reason": "The scan follows transcript-named ports (TranscriptStore, the replica's transcripts cache) through composition and erase wiring; nothing here enumerates messages. POD-7193: storage open/upgrade diagnostics add constant logging to replica composition; the forwarded transcript port and collection bound are unchanged.",
+      "guard": "assembly.test.ts \"chat history database (POD-5801)\" opens one database per user and erases it on sign-out; transcript-log.stored.test.ts drives the wired cache end to end."
     }
   ]
 }
