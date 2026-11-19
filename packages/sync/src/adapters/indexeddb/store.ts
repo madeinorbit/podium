@@ -227,6 +227,8 @@ export interface IndexedDbStoreOptions {
    * Tests inject a short value so a hung factory cannot stall the suite.
    */
   readonly openTimeoutMs?: number
+  /** POD-7184 — how much one group commit writes; default {@link GROUP_COMMIT_BOUNDS}. Tests pass small ones. */
+  readonly groupCommitBounds?: GroupCommitBounds
   /** REQUIRED — see {@link DurabilityDegradation}. */
   readonly onDegraded: (degradation: DurabilityDegradation) => void
   /**
@@ -300,6 +302,74 @@ function lanesOf(draft: SpanDraft): readonly CommitLane[] {
 interface CacheGroup {
   readonly drafts: SpanDraft[]
   run: Promise<void>
+  /** POD-7184 — the requests and estimated bytes of its drafts, before the merge. */
+  ops: number
+  bytes: number
+}
+
+/**
+ * POD-7184 — the most one group commit writes: drafts queued behind a running
+ * commit join its group only while the group stays within both. A draft larger
+ * than either is a group of its own (a draft is all-or-nothing).
+ */
+export interface GroupCommitBounds {
+  readonly ops: number
+  readonly bytes: number
+}
+
+export const GROUP_COMMIT_BOUNDS: GroupCommitBounds = { ops: 16_384, bytes: 16 * 1024 * 1024 }
+
+/**
+ * About the bytes a value takes once IndexedDB has serialized it: string
+ * characters, 8 per number, the bytes of a binary view, plus a little per
+ * property. An estimate for a bound, not a measurement.
+ */
+function estimateBytes(root: unknown): number {
+  let bytes = 0
+  const stack: unknown[] = [root]
+  while (stack.length > 0) {
+    const value = stack.pop()
+    switch (typeof value) {
+      case 'string':
+        bytes += value.length + 2
+        continue
+      case 'number':
+      case 'bigint':
+        bytes += 8
+        continue
+      case 'object':
+        break
+      default:
+        bytes += 1
+        continue
+    }
+    if (value === null) {
+      bytes += 1
+      continue
+    }
+    if (ArrayBuffer.isView(value) || value instanceof ArrayBuffer) {
+      bytes += value.byteLength + 8
+      continue
+    }
+    if (Array.isArray(value)) {
+      bytes += 4
+      for (const item of value) stack.push(item)
+      continue
+    }
+    bytes += 4
+    for (const key in value as Record<string, unknown>) {
+      bytes += key.length + 2
+      stack.push((value as Record<string, unknown>)[key])
+    }
+  }
+  return bytes
+}
+
+/** The estimated bytes of a draft's operations (a delete costs its key). */
+function draftBytes(draft: SpanDraft): number {
+  let bytes = 0
+  for (const op of draft.ops) bytes += op.kind === 'put' ? estimateBytes(op.value) : 32
+  return bytes
 }
 
 /** A draft that may join a group: an eager write of the cache region alone, with no precondition. */
@@ -988,14 +1058,32 @@ export class IndexedDbSyncStore {
    * when it starts, or when any other commit of the cache region is queued, so
    * the region's order holds. A failure degrades every draft of the group, as
    * it degrades one eager draft today.
+   *
+   * POD-7184 — A GROUP IS BOUNDED, in requests and in estimated bytes
+   * (`GROUP_COMMIT_BOUNDS`). Unbounded, a large first download installed faster
+   * than it committed became one transaction of the whole download: at 10x
+   * history, 184,576 requests and about 68 MB, which Chromium refused at commit
+   * with QuotaExceededError (no request failed; gigabytes of quota were free),
+   * and the store degraded to memory for the session. With the requests in
+   * flight bounded too (`write-batch.ts`), no transaction of a download is
+   * larger than a few installs. A draft that would take the open group past a
+   * bound starts the next group instead, queued behind it. Each group is still
+   * a run of whole drafts in queue order, so a crash or a refusal leaves what
+   * the drafts before it left: a prefix, as one transaction per draft did.
    */
   private joinCacheGroup(draft: SpanDraft): Promise<void> {
+    const bounds = this.options.groupCommitBounds ?? GROUP_COMMIT_BOUNDS
+    const ops = draft.ops.length
+    const bytes = draftBytes(draft)
     const open = this.cacheGroup
-    if (open !== null) {
+    if (open !== null && open.ops + ops <= bounds.ops && open.bytes + bytes <= bounds.bytes) {
       open.drafts.push(draft)
+      open.ops += ops
+      open.bytes += bytes
       return open.run
     }
-    const group: CacheGroup = { drafts: [draft], run: Promise.resolve() }
+    // The open group, if any, is full: it stays queued, and this group runs after it.
+    const group: CacheGroup = { drafts: [draft], run: Promise.resolve(), ops, bytes }
     this.cacheGroup = group
     group.run = this.laneTails.cache.then(async () => {
       if (this.cacheGroup === group) this.cacheGroup = null

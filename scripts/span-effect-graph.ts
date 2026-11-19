@@ -432,7 +432,7 @@ export const NOT_A_SPAN_OPENER: readonly OpenerExemption[] = [
   },
   {
     file: 'packages/sync/src/adapters/indexeddb/store.ts',
-    line: 714,
+    line: 784,
     why: 'Native IndexedDB transaction acquisition and connection recovery, taking store names and a mode without a body callback. Logical span bodies enter through the already-declared SyncUnitOfWork.transact port.',
   },
   {

@@ -29,7 +29,10 @@
 import type { MutationId } from '@podium/model'
 import { actorUser, asUserId } from '@podium/model'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { CollectionServer, issue, session, WORLD_NOW } from '../../conformance/collection-server'
 import type { OutboxRecord } from '../../outbox/records'
+import type { ReplicaCacheStore } from '../../replica/ports'
+import { Replica } from '../../replica/replica'
 import type { Cursor } from '../../replica/types'
 import type { IdbFactoryLike } from './idb'
 import { CURSOR_KEY, ENTITY_STORE, META_STORE, OUTBOX_STORE, REPLICA_DB_NAME } from './schema'
@@ -250,5 +253,162 @@ describe('IndexedDB adapter — quota-full (ADR 6 D4.4)', () => {
 
       expect(touched).toEqual([])
     })
+  })
+})
+
+/**
+ * POD-7184 — a first download installed faster than it commits is written as
+ * several BOUNDED group commits. A quota refusal inside one of them must leave
+ * the store on whole groups (a prefix of the installs, never half of one), it
+ * must reopen consistent, and the next start must finish the load.
+ */
+describe('IndexedDB adapter — a quota refusal inside a bounded group commit (POD-7184)', () => {
+  const world = (): CollectionServer => {
+    const server = new CollectionServer()
+    for (let n = 1; n <= 16; n += 1) {
+      server.put('issueProjection', `A${n}`, issue(`A${n}`))
+      server.put(
+        'issueProjection',
+        `D${n}`,
+        issue(`D${n}`, { stage: 'done', closedReason: 'completed' }),
+      )
+    }
+    server.put('session', 'S1', session('S1', { issueId: 'A1' }))
+    return server
+  }
+  const ticks = async (count = 5): Promise<void> => {
+    for (let i = 0; i < count; i += 1) await new Promise((resolve) => setTimeout(resolve, 0))
+  }
+  const openOn = async (
+    factory: FaultyIdbFactory,
+    degradations: DurabilityDegradation[],
+    bounds?: { ops: number; bytes: number },
+  ) =>
+    await IndexedDbSyncStore.open({
+      factory: factory as IdbFactoryLike,
+      databaseName: REPLICA_DB_NAME,
+      onDegraded: (degradation) => {
+        degradations.push(degradation)
+      },
+      ...(bounds === undefined ? {} : { groupCommitBounds: bounds }),
+    })
+  /** A kernel over the store, connected until the load and its commits are done. */
+  const boot = async (store: IndexedDbSyncStore, server: CollectionServer): Promise<Replica> => {
+    const replica = new Replica({
+      store: store.viewFor(PRINCIPAL).cache,
+      authority: server,
+      now: () => WORLD_NOW,
+      onEvent: () => {},
+    })
+    replica.connect()
+    for (let round = 0; round < 3; round += 1) {
+      await replica.settled()
+      await ticks()
+      await store.settled()
+    }
+    return replica
+  }
+  const contents = (cache: ReplicaCacheStore) => ({
+    rows: [...cache.readEntities(), ...cache.readStubs()]
+      .map((row) => `${row.entity}/${row.entityId}/${row.part ?? 'main'}`)
+      .sort(),
+    instances: [...cache.readInstances().keys()].sort(),
+    cursor: cache.readCursor(),
+    loadingSince: cache.readLoadingSince(),
+  })
+  const readWrites = (factory: FaultyIdbFactory) =>
+    factory.transactions.filter((tx) => tx.mode === 'readwrite').length
+  /** The principal's entity rows on disk, by row key. */
+  const diskRows = async (factory: FaultyIdbFactory): Promise<Set<string>> =>
+    new Set(
+      (
+        (await readDurable(factory as IdbFactoryLike))[ENTITY_STORE] as {
+          principal: string
+          entity: string
+          entityId: string
+        }[]
+      )
+        .filter((row) => row.principal === PRINCIPAL)
+        .map((row) => `${row.entity}\u0000${row.entityId}`),
+    )
+
+  it('the store reopens on whole groups, consistent, and the next start finishes the load', async () => {
+    const bounds = { ops: 8, bytes: Number.POSITIVE_INFINITY }
+    // What a clean first download leaves, on its own store, and how many writes it takes.
+    const cleanFactory = new FaultyIdbFactory(freshFactory())
+    const clean = await openOn(cleanFactory, [], bounds)
+    const cleanBefore = readWrites(cleanFactory)
+    ;(await boot(clean, world())).disconnect()
+    const downloadWrites = readWrites(cleanFactory) - cleanBefore
+    const expected = contents(clean.viewFor(PRINCIPAL).cache)
+    const cleanIndex = clean.viewFor(PRINCIPAL).cache.readDiskIndex()
+    const expectedOnDisk = cleanIndex.recordCount
+    const cleanMembers = new Map(
+      [...clean.viewFor(PRINCIPAL).cache.readInstances().keys()].map((key) => [
+        key,
+        [...cleanIndex.membersOf(key)],
+      ]),
+    )
+    clean.close()
+    expect(expected.loadingSince).toBeNull()
+    // Bounded, the download is several transactions.
+    expect(downloadWrites).toBeGreaterThanOrEqual(3)
+
+    const factory = new FaultyIdbFactory(freshFactory())
+    const degradations: DurabilityDegradation[] = []
+    const store = await openOn(factory, degradations, bounds)
+    const before = readWrites(factory)
+    // The refusal lands inside a write in the middle of the download, after
+    // its first request was issued: the groups before it are durable, it is not.
+    const failing = Math.floor(downloadWrites / 2)
+    factory.denyWriteAt({
+      at: 0,
+      mode: 'after',
+      error: new QuotaExceededDomError(),
+      skipWrites: failing,
+    })
+    const first = await boot(store, world())
+    expect(factory.denials).toBe(1)
+    expect(degradations).toHaveLength(1)
+    expect(degradations[0]).toMatchObject({ mode: 'degraded-memory', cause: 'quota' })
+    expect(store.durability()).toBe('degraded-memory')
+    // Nothing reached the engine after the refused group.
+    expect(readWrites(factory) - before).toBe(failing + 1)
+    // The session goes on in memory with the whole download.
+    expect(contents(store.viewFor(PRINCIPAL).cache).rows).toEqual(expected.rows)
+    first.disconnect()
+    store.close()
+
+    // THE RESTART: durable again, on the first group alone.
+    const reopened = await openOn(factory, degradations)
+    expect(reopened.durability()).toBe('durable')
+    const cache = reopened.viewFor(PRINCIPAL).cache
+    const index = cache.readDiskIndex()
+    const onDisk = await diskRows(factory)
+    expect(onDisk.size).toBeGreaterThan(0)
+    expect(index.recordCount).toBeLessThan(expectedOnDisk)
+    // Consistent: every whole record the index names has its row, every row its entry…
+    for (const [key, entry] of index.records())
+      if (entry.level === 'main') expect(onDisk.has(key), key).toBe(true)
+    for (const key of onDisk) expect(index.record(key), key).toBeDefined()
+    // …and every instance the disk holds complete has every member the clean
+    // download gave it: its marker came in the same group as its rows.
+    for (const instance of cache.readInstances().keys())
+      for (const member of cleanMembers.get(instance) ?? [])
+        expect(index.record(member), `${instance} holds ${member}`).toBeDefined()
+    // The load is not over: what is on disk does not claim a finished download.
+    expect(
+      cache.readLoadingSince() !== null || cache.readCursor() === null,
+      'a partial download is marked as loading, or not started',
+    ).toBe(true)
+
+    // The next start resumes the load and ends where a clean one ends.
+    const second = await boot(reopened, world())
+    expect(second.posture).toBe('live')
+    expect(contents(cache)).toEqual(expected)
+    expect(cache.readDiskIndex().recordCount).toBe(expectedOnDisk)
+    expect(degradations).toHaveLength(1)
+    second.disconnect()
+    reopened.close()
   })
 })

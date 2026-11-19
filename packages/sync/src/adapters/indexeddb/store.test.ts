@@ -642,6 +642,58 @@ describe('POD-7170: the first download writes few, small transactions', () => {
     reopened.close()
   })
 
+  it('POD-7184: a group stays within its bounds; the drafts past them commit as the next groups, in order', async () => {
+    const factory = new FaultyIdbFactory(freshFactory())
+    // A row of about 10 KB: two drafts fit in a group of 25 KB, three do not.
+    const big = (entityId: string, seq = 2) => ({
+      ...upsert(entityId, 'x'.repeat(10_000), undefined, seq),
+    })
+    const store = await IndexedDbSyncStore.open({
+      factory,
+      databaseName: REPLICA_DB_NAME,
+      onDegraded: () => {},
+      groupCommitBounds: { ops: 1_000, bytes: 25_000 },
+    })
+    const cache = store.viewFor(PRINCIPAL).cache
+    const before = writes(factory)
+    cache.applyAtomic({ operations: [big('A')], cursor: CURSOR })
+    for (const id of ['B', 'C', 'D', 'E']) cache.applyAtomic({ operations: [big(id)] })
+    cache.applyAtomic({ operations: [big('A', 3)] })
+    await store.settled()
+    // [A B] [C D] [E A]: never more than the bound, never a draft split.
+    expect(writes(factory) - before).toBe(3)
+    const durable = (await readDurable(factory))[ENTITY_STORE] as {
+      entityId: string
+      provenance: { seq: number }
+    }[]
+    expect(durable.map((row) => [row.entityId, row.provenance.seq])).toEqual([
+      ['A', 3],
+      ['B', 2],
+      ['C', 2],
+      ['D', 2],
+      ['E', 2],
+    ])
+    store.close()
+    const reopened = await openOn(factory)
+    expect(reopened.viewFor(PRINCIPAL).cache.readDiskIndex().recordCount).toBe(5)
+    reopened.close()
+
+    // The request bound alone splits the same way.
+    const counted = new FaultyIdbFactory(freshFactory())
+    const byOps = await IndexedDbSyncStore.open({
+      factory: counted,
+      databaseName: REPLICA_DB_NAME,
+      onDegraded: () => {},
+      groupCommitBounds: { ops: 1, bytes: Number.POSITIVE_INFINITY },
+    })
+    const start = writes(counted)
+    for (const id of ['A', 'B', 'C'])
+      byOps.viewFor(PRINCIPAL).cache.applyAtomic({ operations: [upsert(id, id)] })
+    await byOps.settled()
+    expect(writes(counted) - start).toBe(3)
+    byOps.close()
+  })
+
   it('a span committed between eager writes keeps its place: the later write wins', async () => {
     const factory = new FaultyIdbFactory(freshFactory())
     const store = await openOn(factory)

@@ -112,6 +112,8 @@ export interface WriteFault {
   readonly error?: Error
   /** How many transactions this fault applies to before it disarms. Default 1. */
   readonly times?: number
+  /** POD-7184 — readwrite transactions to let through before the fault applies. Default 0. */
+  readonly skipWrites?: number
 }
 
 /**
@@ -155,9 +157,13 @@ export class FaultyIdbFactory implements IdbFactoryLike {
   }
 
   /** Consume one use of the armed fault, if any applies to a new transaction. */
-  takeFault(): WriteFault | undefined {
+  takeFault(mode: string): WriteFault | undefined {
     const fault = this.fault
     if (fault === undefined) return undefined
+    if ((fault.skipWrites ?? 0) > 0) {
+      if (mode === 'readwrite') this.fault = { ...fault, skipWrites: (fault.skipWrites ?? 0) - 1 }
+      return undefined
+    }
     const times = fault.times ?? 1
     if (times <= 1) this.fault = undefined
     else this.fault = { ...fault, times: times - 1 }
@@ -207,13 +213,17 @@ function wrapDatabase(db: IdbDatabaseLike, factory: FaultyIdbFactory): IdbDataba
         names: typeof names === 'string' ? [names] : [...names],
         mode: mode ?? 'readonly',
       })
-      return wrapTransaction(db.transaction(names, mode), factory)
+      return wrapTransaction(db.transaction(names, mode), factory, mode ?? 'readonly')
     },
   }
 }
 
-function wrapTransaction(tx: IdbTransactionLike, factory: FaultyIdbFactory): IdbTransactionLike {
-  const fault = factory.takeFault()
+function wrapTransaction(
+  tx: IdbTransactionLike,
+  factory: FaultyIdbFactory,
+  mode: string,
+): IdbTransactionLike {
+  const fault = factory.takeFault(mode)
   let writeIndex = 0
   let injected: Error | undefined
   const wrapper: IdbTransactionLike = {
