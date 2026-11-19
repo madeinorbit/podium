@@ -7,13 +7,13 @@ import {
   type IssueDeckProposal,
   type IssueDeckSession,
   type IssueId,
+  isSessionReconnecting,
   leafTasks,
   resumeKey,
   rollUpTaskWords,
   type SeatWords,
   type SessionId,
   type SessionMeta,
-  isSessionReconnecting,
   seatWords,
   tallyTaskWords,
   taskHidden,
@@ -24,6 +24,14 @@ import type { IssueRow } from '../../../store'
 import { readSessionRefs } from '../../sessions/refs'
 import type { IssueStore } from './core'
 import { IssueNotFound } from './not-found'
+
+/** Missing assembly inputs name the violated invariant instead of becoming
+ * an undefined property read further down the deck derivation. */
+function deckEntry<K, V>(values: ReadonlyMap<K, V>, key: K, kind: string): V {
+  const value = values.get(key)
+  if (value === undefined) throw new Error(`issue deck invariant: missing ${kind} ${String(key)}`)
+  return value
+}
 
 /** The full, unfolded deck, independent of a device's fold/filter preferences.
  * Visibility is applied before topology, roll-up, counts and dependency joins. */
@@ -112,7 +120,7 @@ export async function readDeck(
       facts.filter((s) => s.issueId && admitted.has(s.issueId)).map((s) => s.sessionId),
     )
     for (const id of admitted) {
-      const row = rows.get(id)!
+      const row = deckEntry(rows, id, 'issue')
       if (row.stage === 'proposed' && row.startedBySession) candidates.add(row.startedBySession)
     }
     // Resume collapse is global in the UI. Read only these candidates' twins,
@@ -144,8 +152,8 @@ export async function readDeck(
   }
   for (const kids of children.values())
     kids.sort((left, right) => {
-      const a = rows.get(left)!,
-        b = rows.get(right)!
+      const a = deckEntry(rows, left, 'issue'),
+        b = deckEntry(rows, right, 'issue')
       return a.sortKey && b.sortKey && a.sortKey !== b.sortKey
         ? a.sortKey.localeCompare(b.sortKey)
         : a.seq - b.seq || left.localeCompare(right)
@@ -172,7 +180,7 @@ export async function readDeck(
     refs.set(row.id, value)
     return value
   }
-  for (const id of admitted) await refOf(rows.get(id)!)
+  for (const id of admitted) await refOf(deckEntry(rows, id, 'issue'))
   const blockers = new Map<IssueId, IssueDeckNode['blockers']>()
   // The blockers' rows by id in one read: a blocker may be archived, a draft or
   // outside the deck, and still blocks.
@@ -183,7 +191,7 @@ export async function readDeck(
   )
   for (const dep of deps) {
     if (dep.type !== 'blocked-by' || !admitted.has(dep.fromId)) continue
-    if (store.isClosed(rows.get(dep.fromId)!)) continue
+    if (store.isClosed(deckEntry(rows, dep.fromId, 'issue'))) continue
     const target = targets.get(dep.toId)
     if (!target || target.deletedAt || store.isClosed(target) || !(await mayRead(target.id)))
       continue
@@ -233,7 +241,9 @@ export async function readDeck(
         machineOnline,
         model: s.observedModel ?? s.model,
         effort: s.observedEffort ?? s.effort,
-        ...(sessionRefs.has(s.sessionId) ? { displayRef: sessionRefs.get(s.sessionId)! } : {}),
+        ...(sessionRefs.has(s.sessionId)
+          ? { displayRef: deckEntry(sessionRefs, s.sessionId, 'session reference') }
+          : {}),
         coordinator,
       }),
       seat: !coordinator
@@ -253,9 +263,9 @@ export async function readDeck(
     list.sort(
       (a, b) =>
         Number(b.coordinator === true) - Number(a.coordinator === true) ||
-        projected
-          .get(a.sessionId)!
-          .createdAt.localeCompare(projected.get(b.sessionId)!.createdAt) ||
+        deckEntry(projected, a.sessionId, 'projected session').createdAt.localeCompare(
+          deckEntry(projected, b.sessionId, 'projected session').createdAt,
+        ) ||
         a.sessionId.localeCompare(b.sessionId),
     )
   const tree = {
@@ -264,7 +274,8 @@ export async function readDeck(
       return row ? { ...row, blocked: (blockers.get(id)?.length ?? 0) > 0 } : undefined
     },
     children: workChildren,
-    sessions: (id: IssueId) => (seats.get(id) ?? []).map((s) => seatWordsOf.get(s.sessionId)!),
+    sessions: (id: IssueId) =>
+      (seats.get(id) ?? []).map((s) => deckEntry(seatWordsOf, s.sessionId, 'seat words')),
     // POD-2171: the coordinator may sit on an ancestor, so its liveness is read
     // from every session's facts, not this row's seats. Only a boolean leaves.
     coordinated: (id: IssueId) => {
@@ -279,18 +290,20 @@ export async function readDeck(
   const wordOf = (id: IssueId) => words.get(id) ?? 'not-started'
   const names =
     (await assignees?.names?.(
-      [...admitted].map((id) => rows.get(id)!.ownerUserId).filter((id): id is UserId => !!id),
+      [...admitted]
+        .map((id) => deckEntry(rows, id, 'issue').ownerUserId)
+        .filter((id): id is UserId => !!id),
     )) ?? new Map()
   const wanted = assignees?.assignee
   const shows = (id: IssueId): boolean =>
-    rows.get(id)!.ownerUserId === wanted || workChildren(id).some(shows)
+    deckEntry(rows, id, 'issue').ownerUserId === wanted || workChildren(id).some(shows)
   const build = (id: IssueId): IssueDeckNode => {
-    const row = rows.get(id)!
+    const row = deckEntry(rows, id, 'issue')
     const tally = tallyTaskWords(counterChildren(id, tree), wordOf)
     const name = row.ownerUserId ? names.get(row.ownerUserId) : undefined
     return {
       id,
-      displayRef: refs.get(id)!,
+      displayRef: deckEntry(refs, id, 'reference'),
       title: row.title,
       type: row.type,
       stage: row.stage,
@@ -308,7 +321,7 @@ export async function readDeck(
   const proposals: IssueDeckProposal[] = [...proposalIds]
     .filter((id) => wanted === undefined || shows(id))
     .map((id) => {
-      const row = rows.get(id)!,
+      const row = deckEntry(rows, id, 'issue'),
         author = row.startedBySession ? kept.get(row.startedBySession) : undefined
       return {
         ...build(id),
@@ -316,7 +329,7 @@ export async function readDeck(
           ? {
               sessionId: author.sessionId,
               ...(sessionRefs.has(author.sessionId)
-                ? { displayRef: sessionRefs.get(author.sessionId)! }
+                ? { displayRef: deckEntry(sessionRefs, author.sessionId, 'session reference') }
                 : {}),
             }
           : null,

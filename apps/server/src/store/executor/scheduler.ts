@@ -654,9 +654,13 @@ export function createScheduler(options: SchedulerOptions): Scheduler {
    * the driver's problem, so a double failure is reported as both.
    */
   function closeOutcome<T>(
-    outcome: LeaseOutcome<T>,
+    outcome: LeaseOutcome<T> | undefined,
     closeError: unknown,
   ): { ok: false; error: unknown } {
+    if (outcome === undefined)
+      throw new Error('store scheduler invariant: closing a reader without an outcome', {
+        cause: closeError,
+      })
     if (outcome.ok) return { ok: false, error: closeError }
     return {
       ok: false,
@@ -689,7 +693,7 @@ export function createScheduler(options: SchedulerOptions): Scheduler {
       let drainTimer: ReturnType<typeof setTimeout> | undefined
       let revoking: Promise<void> | undefined
       let drain: (() => void) | undefined
-      let outcome: LeaseOutcome<T>
+      let outcome: LeaseOutcome<T> | undefined
       try {
         session = await openReader.call(driver)
         const activity = leaseActivity(session, now)
@@ -723,17 +727,18 @@ export function createScheduler(options: SchedulerOptions): Scheduler {
             try {
               await revoking
             } catch (error) {
-              outcome = closeOutcome(outcome!, error)
+              outcome = closeOutcome(outcome, error)
             }
           }
           await session?.close()
         } catch (error) {
-          outcome = closeOutcome(outcome!, error)
+          outcome = closeOutcome(outcome, error)
         } finally {
           inFlight--
           pump()
         }
       }
+      if (outcome === undefined) throw new Error('store scheduler invariant: reader has no outcome')
       if (outcome.ok) return outcome.value
       throw outcome.error
     },
