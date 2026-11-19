@@ -219,6 +219,7 @@ function referenceDeck(
   // A coordinator may be headless and absent from the phone's drawn crew.
   // Its live role still governs every visible delegate on the task.
   const bySession = new Map(source.sessions.map((session) => [session.sessionId, session]))
+  const byIssue = new Map(issues.map((issue) => [issue.id as string, issue]))
   const pending = new Map<string, number>()
   for (const interaction of source.pendingInteractions ?? [])
     if (interaction.status === 'asked')
@@ -230,7 +231,7 @@ function referenceDeck(
         session,
         session.sessionId === row.issue.coordinatorSessionId ? 'coordinator' : 'delegate',
         { count: pending.get(session.sessionId) ?? 0 },
-        !isFinished(row.issue),
+        !isFinished(byIssue.get(session.issueId ?? '') ?? {}),
       )
     const matched =
       mode === 'needs-you'
@@ -438,9 +439,28 @@ export function expectMobileScreens(
   })
   const rows = root ? referenceDeck(source, issues, sessions, root.id, input.mode, paths) : []
   const details = section('details')
+  const actualIds = new Set(details.rows.map((row) => row.id))
+  const omitted = rows
+    .filter((row) => !actualIds.has(row.issue.id))
+    .map((row) => ({
+      id: row.issue.id,
+      stage: row.issue.stage,
+      matched: row.matched,
+      needsHuman: row.issue.needsHuman,
+      dependents: row.issue.dependents,
+      coordinator: row.issue.coordinatorSessionId,
+      crew: row.sessions.map((session) => ({
+        id: session.sessionId,
+        home: session.issueId,
+        phase: session.agentState?.phase,
+        status: session.status,
+        archived: session.archived,
+        offer: Boolean(session.offer),
+      })),
+    }))
   expect(
     details.rows.map((row) => row.id),
-    `${label}: deck order`,
+    `${label}: deck order${omitted.length ? `; omitted ${JSON.stringify(omitted)}` : ''}`,
   ).toEqual(rows.map((row) => row.issue.id))
   for (const [index, row] of rows.entries()) {
     const drawn = details.rows[index]?.fields
