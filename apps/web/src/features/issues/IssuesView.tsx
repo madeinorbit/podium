@@ -14,7 +14,6 @@ import {
 import { Plus } from 'lucide-react'
 import type { JSX, MouseEvent as ReactMouseEvent } from 'react'
 import {
-  lazy,
   memo,
   Suspense,
   useCallback,
@@ -32,6 +31,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { throughRestarts } from '@/lib/chunk-recovery'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
+import { lazy } from '@/lib/lazy-surface'
 import { useMemberRoster } from '@/lib/member-roster'
 import { usePersistedUiState } from '@/lib/use-persisted-ui-state'
 import { BoardShortcutSheet } from './BoardShortcutSheet'

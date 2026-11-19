@@ -4,28 +4,23 @@ import { Suspense } from 'react'
 import { lazyScreen } from '@/components/LazyScreen'
 import { WaitingForServer } from '@/components/WaitingForServer'
 import { useFeature } from '@/lib/use-feature'
-import { mainScreenImports } from './main-screen-imports'
 import type { MainView } from './store'
 
-const AutomationsView = lazyScreen(() =>
-  mainScreenImports.automations().then((module) => ({
-    default: module.AutomationsView,
-  })),
+const AutomationsView = lazyScreen(
+  () => import('@/features/automations/AutomationsView'),
+  (module) => module.AutomationsView,
 )
-const IssuesView = lazyScreen(() =>
-  mainScreenImports.board().then((module) => ({
-    default: module.IssuesView,
-  })),
+const IssuesView = lazyScreen(
+  () => import('@/features/issues/IssuesView'),
+  (module) => module.IssuesView,
 )
-const WorkflowsView = lazyScreen(() =>
-  mainScreenImports.workflows().then((module) => ({
-    default: module.WorkflowsView,
-  })),
+const WorkflowsView = lazyScreen(
+  () => import('@/features/workflows/WorkflowsView'),
+  (module) => module.WorkflowsView,
 )
-const SpecsView = lazyScreen(() =>
-  mainScreenImports.specs().then((module) => ({
-    default: module.SpecsView,
-  })),
+const SpecsView = lazyScreen(
+  () => import('@/features/specs/SpecsView'),
+  (module) => module.SpecsView,
 )
 
 function ViewFallback(): JSX.Element {

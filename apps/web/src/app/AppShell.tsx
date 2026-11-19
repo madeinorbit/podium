@@ -5,7 +5,7 @@ import { useSocketHub } from '@podium/client-core/react'
 import { parseReplicaNamespaceKey, replicaNamespaceKey } from '@podium/client-core/replica'
 import { observer } from '@podium/client-graph/react'
 import type { JSX } from 'react'
-import { lazy, Suspense, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { Suspense, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { flushSync } from 'react-dom'
 import { toast } from 'sonner'
 import { lazyScreen } from '@/components/LazyScreen'
@@ -51,6 +51,7 @@ import { webAccounts } from '@/lib/accounts'
 import { throughRestarts } from '@/lib/chunk-recovery'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { useSettingsShortcut } from '@/lib/hooks/use-settings-shortcut'
+import { lazy, lazySurfaces } from '@/lib/lazy-surface'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 import { prefetchAfterFirstPaint } from '@/lib/prefetch-after-first-paint'
 import { QuoteLayer } from '@/lib/quote/QuoteLayer'
@@ -70,7 +71,6 @@ import { DensityProvider } from './density'
 import { ErrorBoundary } from './ErrorBoundary'
 import { FLIGHT_DECK_SIZING, readFlightDeckWidth } from './flight-deck-display'
 import { LoadingScreen } from './LoadingScreen'
-import { mainScreenImports, prefetchMainScreens } from './main-screen-imports'
 import { OperatorFocusProvider } from './operator-focus'
 import { ReplicaFailureShell } from './ReplicaFailureShell'
 import { RightDock } from './RightDock'
@@ -112,12 +112,13 @@ import { useResponsiveSidebars } from './use-responsive-sidebars'
  */
 // The app lands on the work list. Loading Workspace here used to pull the chat,
 // terminal and editor stack into first paint before a workspace was selected.
-const Workspace = lazyScreen(() =>
-  import('./Workspace').then((module) => ({ default: module.Workspace })),
+const Workspace = lazyScreen(
+  () => import('./Workspace'),
+  (module) => module.Workspace,
 )
 const SettingsView = lazyScreen(
-  () =>
-    import('@/features/settings/SettingsView').then((module) => ({ default: module.SettingsView })),
+  () => import('@/features/settings/SettingsView'),
+  (module) => module.SettingsView,
   (content, { onClose }) => (
     <AppSheet
       label="Settings"
@@ -130,7 +131,8 @@ const SettingsView = lazyScreen(
   ),
 )
 const UsageView = lazyScreen(
-  () => import('@/features/usage/UsageView').then((module) => ({ default: module.UsageView })),
+  () => import('@/features/usage/UsageView'),
+  (module) => module.UsageView,
   (content, { onClose }) => (
     <AppSheet
       label="Usage & analytics"
@@ -144,13 +146,13 @@ const UsageView = lazyScreen(
 )
 // FlightDeck already unmounts when folded. Deferring its module in exactly that
 // state changes no subscriptions or retained component state.
-const FlightDeck = lazyScreen(() =>
-  mainScreenImports.deck().then((module) => ({ default: module.FlightDeck })),
+const FlightDeck = lazyScreen(
+  () => import('./FlightDeck'),
+  (module) => module.FlightDeck,
 )
-const FoldedFlightDeckBar = lazyScreen(() =>
-  import('./FoldedFlightDeckBar').then((module) => ({
-    default: module.FoldedFlightDeckBar,
-  })),
+const FoldedFlightDeckBar = lazyScreen(
+  () => import('./FoldedFlightDeckBar'),
+  (module) => module.FoldedFlightDeckBar,
 )
 const OnboardingWizard = lazy(() =>
   throughRestarts(() => import('@/features/setup/OnboardingWizard')).then((module) => ({
@@ -882,7 +884,7 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
    */
   useEffect(() => {
     const cancels = [
-      prefetchMainScreens(),
+      prefetchAfterFirstPaint(() => lazySurfaces.warm()),
       prefetchAfterFirstPaint(loadAgentPanel),
       // AgentPanel deliberately keeps chat-first sessions free of a hidden PTY.
       // Warm only the renderer bytes here: preloadTerminalRuntime neither mounts

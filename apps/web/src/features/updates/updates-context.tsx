@@ -29,9 +29,10 @@
  *    placeholder — it is the truth.
  */
 import type { JSX, ReactNode } from 'react'
-import { lazy, Suspense } from 'react'
+import { Suspense } from 'react'
 import { throughRestarts } from '@/lib/chunk-recovery'
 import { isIterationMode } from '@/lib/iteration-mode'
+import { lazy } from '@/lib/lazy-surface'
 
 const UpdatesEngine = lazy(() =>
   throughRestarts(() => import('./UpdatesEngine')).then((module) => ({

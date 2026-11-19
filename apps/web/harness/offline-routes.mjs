@@ -34,6 +34,7 @@ const result = {
   frameNavigated: [],
   documentRequests: [],
   loadedScripts: [],
+  idleRegistry: null,
   offlineScriptRequests: [],
   errors: [],
 }
@@ -90,6 +91,9 @@ try {
   await page.goto(`${server.url}?demo=1`, { waitUntil: 'networkidle' })
   await expect(page.locator('.desktop-shell')).toBeVisible({ timeout: 30000 })
   await page.waitForFunction(() => Boolean(window.offlineRoutes))
+  await page.waitForFunction(() => window.offlineRoutes.registry().unloaded === 0)
+  result.idleRegistry = await page.evaluate(() => window.offlineRoutes.registry())
+  assert(result.idleRegistry.registered >= 7, 'The route registry was not populated')
   // These production chunks must finish loading while no route has visited them.
   const graph = JSON.parse(readFileSync(resolve(dist, '.vite/import-graph.json'), 'utf8'))
   for (const source of [
@@ -110,8 +114,8 @@ try {
     )
   }
   assert(
-    !result.loadedScripts.some((path) => path.includes('/UsageView-')),
-    'Usage was unexpectedly prefetched',
+    !result.loadedScripts.some((path) => path.includes('/offline-unvisited-screen-')),
+    'The late screen was unexpectedly prefetched',
   )
   const documentId = await page.evaluate(() => window.offlineDocumentId)
   const navigate = (path) =>
@@ -168,9 +172,10 @@ try {
     'Warmed navigation tried to fetch code offline',
   )
 
-  // No visit or prefetch for this real route. It must fail only within the shell.
+  // A screen declared after the idle pass has no warmup. Its real import must
+  // fail inside the shell and retry, including its named export, on online.
   phase = 'uncached-offline'
-  await navigate('/usage')
+  await page.evaluate(() => window.offlineRoutes.openUncached())
   await expect(page.locator('[data-offline-screen]')).toContainText(
     'This screen is not available offline.',
     { timeout: 10000 },

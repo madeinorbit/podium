@@ -3,7 +3,6 @@ import { isServerReadiness, type ServerReadiness } from '@podium/model'
 import { reaction } from 'mobx'
 import {
   createContext,
-  lazy,
   type ReactNode,
   Suspense,
   useCallback,
@@ -15,6 +14,7 @@ import {
 import { LoadingScreen } from '@/app/LoadingScreen'
 import { serverConfig } from '@/app/trpc'
 import { throughRestarts } from '@/lib/chunk-recovery'
+import { lazy } from '@/lib/lazy-surface'
 import { hasSyncedReplica } from '@/lib/replica-presence'
 import { workspaceFetch } from '@/lib/workspace-request'
 import { isTooOldForLocalData, localBuildStamp } from './local-build-guard'

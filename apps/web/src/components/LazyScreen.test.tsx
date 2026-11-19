@@ -9,14 +9,18 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-it('keeps an unvisited offline screen in its shell, then renders it on online', async () => {
+it('keeps a nested unvisited screen in its shell and retries the child on online', async () => {
   vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
   vi.spyOn(console, 'error').mockImplementation(() => {})
   const load = vi
     .fn()
     .mockRejectedValueOnce(new TypeError('Failed to fetch dynamically imported module: /screen.js'))
     .mockResolvedValue({ default: () => <p>Local screen data</p> })
-  const Screen = lazyScreen(load)
+  const UnvisitedScreen = lazyScreen(load, (module) => module.default)
+  const Screen = lazyScreen(
+    async () => ({ default: UnvisitedScreen }),
+    (module) => module.default,
+  )
   render(
     <div>
       <nav>App shell</nav>
@@ -47,9 +51,12 @@ it('passes real module errors to the enclosing error boundary', async () => {
       return this.state.error ? <p>Real module error</p> : this.props.children
     }
   }
-  const Screen = lazyScreen(async () => {
-    throw new Error('module evaluation failed')
-  })
+  const Screen = lazyScreen(
+    async () => {
+      throw new Error('module evaluation failed')
+    },
+    () => () => null,
+  )
   render(
     <Parent>
       <Suspense fallback={null}>

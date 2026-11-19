@@ -2,21 +2,21 @@ import {
   Component,
   type ComponentType,
   type LazyExoticComponent,
-  lazy,
   type ReactNode,
+  lazy as reactLazy,
 } from 'react'
 import { looksLikeChunkLoadFailure } from '@/app/chunk-load-failure'
 import { retryOnOnline } from '@/app/preload-error-recovery'
 import { retryChunkImport, throughRestarts } from '@/lib/chunk-recovery'
+import { lazy } from '@/lib/lazy-surface'
 
-type ScreenModule<Props extends object> = { default: ComponentType<Props> }
-type ScreenLoader<Props extends object> = () => Promise<ScreenModule<Props>>
 type OfflineFrame<Props> = (content: ReactNode, props: Props) => ReactNode
 
 /** Keep code-fetch failures inside their screen; render bugs still reach the app boundary. */
-class ScreenBoundary<Props extends object> extends Component<
+class ScreenBoundary<Module, Props extends object> extends Component<
   {
-    load: ScreenLoader<Props>
+    load: () => Promise<Module>
+    select: (module: Module) => ComponentType<Props>
     screen: LazyExoticComponent<ComponentType<Props>>
     screenProps: Props
     offlineFrame?: OfflineFrame<Props>
@@ -49,9 +49,13 @@ class ScreenBoundary<Props extends object> extends Component<
     if (!failure) return
     this.cancelOnline?.()
     const attempt = ++this.attempts
-    // React.lazy remembers a rejection too. A new lazy type and a fresh native
-    // module URL are both needed to recover without replacing the document.
-    const screen = lazy(() => retryChunkImport(this.props.load, failure.error, attempt))
+    // Both React.lazy and the native module map remember a rejection. Select
+    // the named export AFTER recovery, including a cache-busted native import.
+    const screen = reactLazy(() =>
+      retryChunkImport(this.props.load, failure.error, attempt).then((module) => ({
+        default: this.props.select(module),
+      })),
+    )
     this.setState({ failure: null, screen })
   }
 
@@ -83,14 +87,21 @@ class ScreenBoundary<Props extends object> extends Component<
   }
 }
 
-export function lazyScreen<Props extends object>(
-  load: ScreenLoader<Props>,
+export function lazyScreen<Module, Props extends object>(
+  load: () => Promise<Module>,
+  select: (module: Module) => ComponentType<Props>,
   offlineFrame?: OfflineFrame<Props>,
 ): ComponentType<Props> {
-  const screen = lazy(() => throughRestarts(load))
+  const screen = lazy(() => throughRestarts(load).then((module) => ({ default: select(module) })))
   return function LazyScreen(props: Props) {
     return (
-      <ScreenBoundary load={load} screen={screen} screenProps={props} offlineFrame={offlineFrame} />
+      <ScreenBoundary
+        load={load}
+        select={select}
+        screen={screen}
+        screenProps={props}
+        offlineFrame={offlineFrame}
+      />
     )
   }
 }

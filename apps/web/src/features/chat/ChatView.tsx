@@ -11,8 +11,9 @@ import { useVoiceInput } from '@podium/terminal-client-react'
 import { ArrowDownToLine } from 'lucide-react'
 import { observer } from 'mobx-react-lite'
 import type { JSX, MutableRefObject, RefObject } from 'react'
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
+import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { TranscriptFeedBoundary } from '@/features/chat/TranscriptFeedBoundary'
+import { lazy } from '@/lib/lazy-surface'
 import {
   markQuoteSinkFocused,
   type QuoteInput,

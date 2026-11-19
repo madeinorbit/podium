@@ -1,6 +1,7 @@
 import type { JSX } from 'react'
-import { lazy, Suspense, useEffect, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 import { throughRestarts } from '@/lib/chunk-recovery'
+import { lazy } from '@/lib/lazy-surface'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 import { AboutPodium } from './AboutPodium'
 import {
