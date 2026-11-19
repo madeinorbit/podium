@@ -471,8 +471,14 @@ describe('SuperagentScreen chrome', () => {
 
   it('sends the picked model and effort with the turn', async () => {
     const sendTurn = vi.fn(async () => ({ threadId: 'global' }))
+    const catalog = vi.fn(async () => ({
+      machineId: 'model-test-machine',
+      fetchedAt: Date.now(),
+      byAgent: { 'claude-code': [{ value: 'opus', label: 'Opus', efforts: ['low', 'high'] }] },
+    }))
     await renderWithMobileStore(<SuperagentScreen />, {
       api: {
+        models: { catalog: { query: catalog } },
         superagent: {
           sendTurn: { mutate: sendTurn },
           clear: { mutate: async () => {} },
@@ -481,7 +487,8 @@ describe('SuperagentScreen chrome', () => {
       },
     })
     fireEvent.click(screen.getByLabelText('Model'))
-    fireEvent.click(screen.getByLabelText('Claude Code Opus'))
+    fireEvent.click(await screen.findByLabelText('Claude Code Opus'))
+    expect(catalog).toHaveBeenCalled()
     fireEvent.click(screen.getByText('send'))
     await waitFor(() =>
       expect(sendTurn).toHaveBeenCalledWith(

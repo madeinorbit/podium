@@ -14,8 +14,6 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import type { MobxPool } from '@podium/client-graph'
-import { omitGone } from '@podium/client-graph/lookup'
-import { preferenceSource } from '@podium/client-graph/preference-source'
 import type { SqlDatabaseLike } from '@podium/sync/adapters/mobile-sqlite'
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
@@ -322,29 +320,24 @@ describe('mobile pool ownership', () => {
     expect(state.pools).toEqual([{ runtime: app.seen.runtime, disposed: false }])
     const alice = { runtime: currentRuntime(app.seen.runtime), pool: app.seen.pool }
     if (!alice.pool) throw new Error('The mobile pool did not attach')
-    expect(preferenceSource(alice.pool)?.keys() ?? []).toHaveLength(3)
-    expect(
-      (preferenceSource(alice.pool)?.keys() ?? []).map((key) =>
-        omitGone(alice.pool!.row('preference', key)),
-      ),
-    ).toMatchObject([
-      { key: 'podium.chat.stickyPrompts', value: 'saved' },
-      { key: 'podium:sidebar:task-details-fold', value: 'false' },
-      { key: 'podium:sidebar:repo', value: 'true' },
-    ])
+    // Hooks read the routed UI store directly. The pool's optional preference
+    // read port does not materialize an inventory of unobserved keys.
+    expect(alice.runtime.ui.get('podium.chat.stickyPrompts')).toBe('saved')
+    expect(alice.runtime.ui.get('podium:sidebar:task-details-fold')).toBe('false')
+    expect(alice.runtime.ui.get('podium:sidebar:repo')).toBe('true')
     await app.switchUser('bob')
     await waitFor(() => expect(app.seen.pool).toBeTruthy(), { timeout: 10_000 })
     await waitFor(() =>
       expect(screen.getByTestId('preferences').textContent).toBe('default:true:false'),
     )
-    expect(preferenceSource(alice.pool)?.keys() ?? []).toEqual([])
+    expect(state.pools[0]?.disposed).toBe(true)
     act(() => alice.runtime.deviceState.set('podium.chat.stickyPrompts', 'old-person'))
     await settle()
     expect(screen.getByTestId('preferences').textContent).toBe('default:true:false')
     const bobPool = app.seen.pool
     if (!bobPool) throw new Error('The next principal has no pool')
     await app.quit()
-    expect(preferenceSource(bobPool)?.keys() ?? []).toEqual([])
+    expect(state.pools.every((pool) => pool.disposed)).toBe(true)
     expect(errors.mock.calls).toEqual([])
     errors.mockRestore()
   })
