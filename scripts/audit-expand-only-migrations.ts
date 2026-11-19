@@ -87,6 +87,131 @@ export const APPROVED_CONTRACT_STEPS = new Map<
   }
 >([
   [
+    'apps/server/src/migrations/drizzle/20260812145728_superagent-thread-backend-and-queue/migration.sql',
+    {
+      reason:
+        'POD-7196 historical review: copies every queued input into the thread-backed queue and rebuilds its primary key and thread-order index',
+      admits: [
+        { kind: 'table-rebuild', table: 'superagent_queued_inputs' },
+      ],
+    },
+  ],
+  [
+    'apps/server/src/migrations/drizzle/20260812175034_shipping-durable-model/migration.sql',
+    {
+      reason:
+        'POD-7196 historical review: copies every issue into the rebuilt table to admit the shipping and verifying stages required by the durable shipping model',
+      admits: [
+        { kind: 'table-rebuild', table: 'issues' },
+      ],
+    },
+  ],
+  [
+    'apps/server/src/migrations/drizzle/20260814023533_shipping-train-authority/migration.sql',
+    {
+      reason:
+        'POD-7196 historical review: copies shipping attempts, orders and train members into tables carrying train-authority constraints after releasing the previous train generation',
+      admits: [
+        { kind: 'table-rebuild', table: 'ship_attempts' },
+        { kind: 'table-rebuild', table: 'ship_orders' },
+        { kind: 'table-rebuild', table: 'ship_train_members' },
+      ],
+    },
+  ],
+  [
+    'apps/server/src/migrations/drizzle/20260814032110_shipping-train-proof-authority/migration.sql',
+    {
+      reason:
+        'POD-7196 historical review: rebuilds copied delivery receipts and train manifests with immutable proof and execution-location authority',
+      admits: [
+        { kind: 'table-rebuild', table: 'delivery_receipts' },
+        { kind: 'table-rebuild', table: 'ship_train_manifests' },
+      ],
+    },
+  ],
+  [
+    'apps/server/src/migrations/drizzle/20260814032524_interactions-superseded/migration.sql',
+    {
+      reason:
+        'POD-7196 historical review: copies all pending interactions while widening the status CHECK to admit superseded',
+      admits: [
+        { kind: 'table-rebuild', table: 'pending_interactions' },
+      ],
+    },
+  ],
+  [
+    'apps/server/src/migrations/drizzle/20260826195939_supervisor-machine-presence/migration.sql',
+    {
+      reason:
+        'POD-7196 historical review: backfills service assignments from recorded machine components, then removes the obsolete supervised flag',
+      admits: [
+        { kind: 'drop-column', table: 'machines', column: 'supervised' },
+      ],
+    },
+  ],
+  [
+    'apps/server/src/migrations/drizzle/20260911082826_retire-the-solo-user/migration.sql',
+    {
+      reason:
+        'POD-7196 historical review: rewrites every solo-user reference to the installation-minted member id and copies all rows into tables without the retired literal owner defaults',
+      admits: [
+        { kind: 'table-rebuild', table: 'automation_runs' },
+        { kind: 'table-rebuild', table: 'automations' },
+        { kind: 'table-rebuild', table: 'execution_profiles' },
+        { kind: 'table-rebuild', table: 'issues' },
+        { kind: 'table-rebuild', table: 'sessions' },
+        { kind: 'table-rebuild', table: 'superagent_messages' },
+        { kind: 'table-rebuild', table: 'superagent_pending_turns' },
+        { kind: 'table-rebuild', table: 'superagent_queued_inputs' },
+        { kind: 'table-rebuild', table: 'superagent_threads' },
+        { kind: 'table-rebuild', table: 'workflow_bindings' },
+        { kind: 'table-rebuild', table: 'workflow_runs' },
+        { kind: 'table-rebuild', table: 'workflows' },
+      ],
+    },
+  ],
+  [
+    'apps/server/src/migrations/drizzle/20260917212210_machine-custody-grant-edges/migration.sql',
+    {
+      reason:
+        'POD-7196 historical review: copies recorded machine ownership into use and custody grant edges and grant audiences before dropping owner_user_id',
+      admits: [
+        { kind: 'drop-column', table: 'machines', column: 'owner_user_id' },
+      ],
+    },
+  ],
+  [
+    'apps/server/src/migrations/drizzle/20261025170514_remove-task-colors/migration.sql',
+    {
+      reason:
+        'POD-7196 historical review: removes the retired task color field and rotates the feed epoch so replicas discard cached color payloads',
+      admits: [
+        { kind: 'drop-column', table: 'issues', column: 'color' },
+      ],
+    },
+  ],
+  [
+    'apps/server/src/migrations/drizzle/20261109003141_issue-pins-as-pin-records/migration.sql',
+    {
+      reason:
+        'POD-7196 historical review: copies every issue pin and its original timestamp into pins before removing the redundant pinned_at marker',
+      admits: [
+        { kind: 'drop-column', table: 'issue_user_state', column: 'pinned_at' },
+      ],
+    },
+  ],
+  [
+    'apps/server/src/migrations/drizzle/20261111133104_identity-import-retirement/migration.sql',
+    {
+      reason:
+        'POD-7196 historical review: drops local invite and credential tables only after the local identity import hook has carried their authority into the identity store',
+      admits: [
+        { kind: 'drop-table', table: 'member_invites' },
+        { kind: 'drop-table', table: 'user_credentials' },
+      ],
+    },
+  ],
+  [
     'apps/server/src/migrations/drizzle/20260929145432_drop-legacy-message-status/migration.sql',
     {
       // POD-4787 (user decision, 2026-09-29): drop the legacy `messages.status`
