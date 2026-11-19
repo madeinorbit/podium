@@ -363,7 +363,7 @@ describe('the lake parts conversion', () => {
     await expect(refused).rejects.toMatchObject({
       neededBytes: large.length + LAKE_CONVERSION_MARGIN_BYTES,
       freeBytes: 1000,
-      largestPath: largePath,
+      sourcePath: largePath,
     })
     // Nothing moved, and the next boot tries again.
     expect(readFileSync(smallPath).equals(small)).toBe(true)

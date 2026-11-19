@@ -2258,13 +2258,13 @@ export class ParentProcess {
       // Leave `handover_outgoing` first: `rollback()` respawns children, and
       // spawns are suppressed while a handover is nominally in flight.
       this.abandonHandover(priorPhase, { keepPostUpdate: true })
-      await this.rollback(because)
+      await this.rollback(failure.detail)
       return 'reported'
     }
     if (decision.action === 'unavailable') {
       this.abandonHandover(priorPhase, { keepPostUpdate: true })
       // Deferred: `finishHandoverAfterReclaim` reports it if the retry cannot happen.
-      if (!deferring) this.reportRollbackUnavailable(decision.why, because)
+      if (!deferring) this.reportRollbackUnavailable(decision.why, failure.detail)
     } else {
       this.abandonHandover(priorPhase)
     }

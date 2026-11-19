@@ -119,11 +119,11 @@ export class LakeConversionNoSpace extends Error {
   constructor(
     readonly neededBytes: number,
     readonly freeBytes: number,
-    readonly largestPath: string,
+    readonly sourcePath: string,
   ) {
     super(
-      `the transcript lake conversion needs ${neededBytes} bytes free (the largest lake file, ` +
-        `${largestPath}, plus a ${LAKE_CONVERSION_MARGIN_BYTES}-byte margin); ${freeBytes} are free`,
+      `the transcript lake conversion needs ${neededBytes} bytes free (the next lake file, ` +
+        `${sourcePath}, plus a ${LAKE_CONVERSION_MARGIN_BYTES}-byte margin); ${freeBytes} are free`,
     )
   }
 }
@@ -162,6 +162,7 @@ export async function convertLakeToParts(
  * it, writers join its single-flight conversion, and only verified parts can
  * replace it. No mirror ever appends to a legacy source or partial conversion.
  */
+// LEGACY(remove-after: 2027-06): mixed-layout reads and writes while old transcript lakes convert; removing drops pre-parts upgrades.
 export class ConvertingLake extends PartedLake {
   private readonly pending = new Map<string, Promise<number | undefined>>()
   private tail: Promise<void> = Promise.resolve()

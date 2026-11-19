@@ -1353,6 +1353,7 @@ describe('ParentProcess', () => {
       releaseHadMigrations?: boolean
       appliedIds?: string[]
       children?: ('server' | 'daemon')[]
+      refusal?: string
     }): Promise<{ install: string; state: string; kids: FakeChild[]; parent: ParentProcess }> {
       const { install, state } = installDirs('2.0.0')
       await migrationJournal(state, deps.appliedIds)
@@ -1362,6 +1363,17 @@ describe('ParentProcess', () => {
       const spawnImpl: SpawnChildFn = (_cmd, args, options) => {
         const child = channelChild(nextPid++, args, options)
         if (args[0] !== 'parent') kids.push(child)
+        else if (deps.refusal) {
+          const deadline = Number(options?.env?.[PARENT_HANDOVER_DEADLINE_ENV])
+          mkdirSync(join(state, 'run'), { recursive: true })
+          writeFileSync(
+            join(state, 'run', `supervisor-gate-${child.pid}.json`),
+            JSON.stringify({
+              deadline, until: deadline,
+              detail: { refusedBy: { child: 'server', because: 'stopping', reason: deps.refusal } },
+            }),
+          )
+        }
         return child as unknown as ReturnType<SpawnChildFn>
       }
       const parent = track(
@@ -1414,6 +1426,15 @@ describe('ParentProcess', () => {
       })
       expect(versionAt(install)).toBe('1.0.0')
       expect(outcomeIn(state)?.outcome).toBe('rolled-back')
+    })
+
+    it('keeps the successor refusal in the durable rollback outcome', async () => {
+      const refusal = 'Podium cannot upgrade its database: there is not enough free disk space.'
+      const { state } = await abortHandoverOn({ releaseHadMigrations: false, refusal })
+      expect(outcomeIn(state)).toMatchObject({
+        outcome: 'rolled-back',
+        why: expect.stringContaining(refusal),
+      })
     })
 
     it('KEEPS the arming and reports why when migrations forbid the rollback', async () => {
