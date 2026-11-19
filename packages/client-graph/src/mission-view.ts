@@ -1101,13 +1101,13 @@ export class MissionDeckModel {
   }
   // Topology recomputes on any member's row change; equal paths keep the
   // drawn placements (and their companions) instead of rebuilding every row.
-  @lazy({ equals: compareStructural }) private get paths() {
+  @lazy({ equals: compareStructural }) private get paths(): string[][] | typeof LOADING {
     return settled(() => this.readPaths())
   }
   @lazy({ equals: compareShallow }) private get placements() {
     return settled(() => requireLoaded(this.paths).map((path) => path[path.length - 1]!))
   }
-  private readPaths() {
+  private readPaths(): string[][] {
     if (this.mode !== 'full') {
       // Filter the paths the full deck actually draws. A graft's preferred
       // parent can lead outside this root, and graph cycles must retain the

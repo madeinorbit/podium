@@ -5716,7 +5716,10 @@ export class SessionRegistry {
   private async commitServerRepoWrite<T>(write: () => Promise<T>): Promise<T> {
     return await asSystemWrite(
       async () =>
-        await checkoutWrites.read().commitRepoWrite(this.writes.system('repos.registry'), write),
+        await this.modules.issues.reports.store.commitRepoWrite(
+          this.writes.system('repos.registry'),
+          write,
+        ),
     )
   }
 

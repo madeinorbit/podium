@@ -5227,15 +5227,6 @@ describe('boot target hydration observation boundary (POD-4257)', () => {
       expect(resolveTarget).toHaveBeenCalledTimes(1)
       const issued = h.sent.slice(grantsBefore)
       if (scenario === 'own target') {
-        if (issued.length === 0)
-          console.info(
-            'boot target observation',
-            JSON.stringify({
-              before: before.steps?.find(({ id }) => id === UPDATE_STEP_MACHINES),
-              after: (await h.read()).steps?.find(({ id }) => id === UPDATE_STEP_MACHINES),
-              fleet: await successor.updates.fleet('dev'),
-            }),
-          )
         expect(issued.map(({ machineId }) => machineId)).toEqual(['b'])
         for (const { message } of issued) {
           expect(message.target.version).toBe(target.version)
