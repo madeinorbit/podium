@@ -33,8 +33,6 @@ describe('a large tree and its sessions install in bounded work (POD-7165)', () 
       expect(run.notifications).toBeLessThanOrEqual(3 * run.bursts)
       // One publication into the pool per burst that brought rows, at most.
       expect(run.flushes).toBeLessThanOrEqual(run.bursts)
-      // The trim runs once the fetches in flight are done, not after each.
-      expect(run.trims).toBeLessThanOrEqual(3)
     } finally {
       run?.dispose()
     }

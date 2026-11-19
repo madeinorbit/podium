@@ -17,6 +17,7 @@
 import type { MutationId } from '@podium/model'
 import { actorUser, asUserId } from '@podium/model'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { policyBudgets } from '../../conformance/test-budgets'
 import type { OutboxRecord } from '../../outbox/records'
 import { INSTANCE_META_PREFIX, instanceKey } from '../../replica/cache-state'
 import { ReplicaStoreCorruptError } from '../../replica/ports'
@@ -122,7 +123,7 @@ describe('mobile SQLite adapter — store obligations', () => {
 
   it('stores markers, the policy and the load state durably, and erasing the principal drops them', async () => {
     const store = await open()
-    const policy = { clientType: 'phone', steps: [], recentDays: 7, cacheCap: 10 }
+    const policy = { clientType: 'phone', steps: [], recentDays: 7, ...policyBudgets() }
     await store.unitOfWork.transact(async (span) =>
       store.viewFor(ADA).cache.applyAtomic(
         {

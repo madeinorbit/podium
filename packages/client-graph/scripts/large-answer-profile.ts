@@ -31,7 +31,6 @@ console.log(
     bursts: run.bursts,
     notifications: run.notifications,
     flushes: run.flushes,
-    trims: run.trims,
     hops: run.hops,
     lookups: run.fetches.filter((fetch) => fetch.collections.includes('issueProjection.one'))
       .length,

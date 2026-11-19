@@ -21,7 +21,7 @@ import {
 } from '../conformance/collection-server'
 import { inMemoryInstantiation } from '../conformance/in-memory'
 import type { ConformanceStorage } from '../conformance/instantiation'
-import { TEST_BUDGETS } from '../conformance/test-budgets'
+import { policyBudgets, TEST_BUDGETS } from '../conformance/test-budgets'
 import { instanceKey } from './cache-state'
 import { CollectionLoader, type LoaderSchedule, oneRecord } from './loader'
 import { Replica } from './replica'
@@ -41,7 +41,7 @@ const POLICY: CachePolicy = {
     { step: 'stubs', collections: ['issueProjection.stubs'] },
   ],
   recentDays: 30,
-  cacheCap: TEST_BUDGETS.cacheCap,
+  ...policyBudgets(TEST_BUDGETS),
 }
 
 const SIDEBAR: InstanceSpec = { collection: 'issueProjection.sidebar', part: 'main' }
@@ -88,6 +88,7 @@ function device(
   storage: ConformanceStorage,
   server: CollectionServer,
   onEvent?: (event: ReplicaEvent, d: Device) => void,
+  memory: { readonly warmInstances?: number } = {},
 ): Device {
   const { cache } = storage.viewFor('u-ada')
   const events: ReplicaEvent[] = []
@@ -98,6 +99,7 @@ function device(
     store: cache,
     authority: server,
     now: () => WORLD_NOW,
+    ...(memory.warmInstances === undefined ? {} : { memory }),
     view: () => loader?.takeView() ?? [],
     request: (specs) => loader?.request(specs),
     onEvent: (event) => {
@@ -394,15 +396,16 @@ describe('two examples from an empty device (design POD-7059)', () => {
 })
 
 describe('two holders of an instance: the policy and an open view', () => {
-  it('records a request returns are cache; what a view shows stays; the policy holds its own', async () => {
+  it('records a request returns are warm; what a view shows stays in memory; the policy holds its own', async () => {
     const server = new CollectionServer()
-    server.policy = { ...POLICY, cacheCap: 0 }
+    server.policy = POLICY
     server.chunkRows = 50
     server.put(ISSUE, 'R', issue('R', { stage: 'done', closedReason: 'completed' }))
     server.put(ISSUE, 'C', issue('C', { stage: 'done', closedReason: 'completed', parentId: 'R' }))
     server.put(ISSUE, 'HIT', issue('HIT', { stage: 'done', closedReason: 'completed' }))
     server.put(ISSUE, 'OPEN', issue('OPEN', { stage: 'review' }))
-    const d = device(await inMemoryInstantiation.open(), server)
+    // No room for warm instances (POD-7161): a memory warning unloads all of them.
+    const d = device(await inMemoryInstantiation.open(), server, undefined, { warmInstances: 0 })
     d.replica.connect()
     await settle(d)
     // A search hit, installed as a "one record" instance; a tree a view shows.
@@ -410,18 +413,18 @@ describe('two holders of an instance: the policy and an open view', () => {
     const release = d.loader.show(tree('R'))
     await settle(d)
     expect(requestsNaming(server, oneRecord(ISSUE, 'HIT'))).toBe(1)
-    await d.replica.trim()
-    // The hit was cache: with no room for cache the trim takes it back to its stub.
+    await d.replica.shrinkMemory('memoryWarning')
+    // The hit was warm: with no room, it leaves memory and stays on the device.
     expect(d.replica.view(ISSUE, 'HIT')).toBeUndefined()
     expect(d.replica.stubOf(ISSUE, 'HIT')).toBeDefined()
-    expect(d.loader.status(oneRecord(ISSUE, 'HIT'))).toBe('loading')
+    expect(d.replica.isUnloaded(ISSUE, 'HIT')).toBe(true)
     // The view holds its tree; the policy holds the sidebar.
     expect(d.replica.view(ISSUE, 'C')).toBeDefined()
     expect(d.replica.view(ISSUE, 'OPEN')).toBeDefined()
-    // Released, the tree is cache too.
+    // Released, the tree is warm too.
     release()
     await settle(d)
-    await d.replica.trim()
+    await d.replica.shrinkMemory('memoryWarning')
     expect(d.replica.view(ISSUE, 'C')).toBeUndefined()
     expect(d.replica.isComplete(tree('R'))).toBeUndefined()
     expect(d.replica.view(ISSUE, 'OPEN')).toBeDefined()
@@ -464,18 +467,20 @@ describe('comes with, on the client', () => {
     expect(d.replica.view(SESSION, 'SX')).toBeDefined()
     expect(requestsNaming(server, sessionsOfX)).toBe(1)
 
-    // Closed again: X leaves the sidebar, and what it came with goes with the trim.
+    // Closed again: X leaves the sidebar. What it came with stays on the
+    // device: leaving a collection is not leaving the device (POD-7161; only
+    // pruning, POD-7162, removes it).
     const again = server.head
     server.put(ISSUE, 'X', issue('X', { stage: 'done', closedReason: 'completed' }))
     await d.replica.receive(server.frameSince(again))
     await settle(d)
-    await d.replica.trim()
-    expect(sessionsHeld()).toBe(false)
-    expect(d.replica.view(SESSION, 'SX')).toBeUndefined()
+    expect(storage.viewFor('u-ada').cache.readDiskIndex().record(`${SESSION}\u0000SX`)?.level).toBe(
+      'main',
+    )
   })
 })
 
-describe('a trim while an answer streams (POD-7155)', () => {
+describe('a memory warning while an answer streams (POD-7155, POD-7161)', () => {
   it('keeps the records an instance in flight has brought before its marker', async () => {
     const server = new CollectionServer()
     server.policy = POLICY
@@ -484,7 +489,7 @@ describe('a trim while an answer streams (POD-7155)', () => {
     const members = ['C1', 'C2', 'C3', 'C4', 'C5', 'C6']
     for (const id of members)
       server.put(ISSUE, id, issue(id, { parentId: 'R', stage: 'done', closedReason: 'completed' }))
-    const d = device(await inMemoryInstantiation.open(), server)
+    const d = device(await inMemoryInstantiation.open(), server, undefined, { warmInstances: 0 })
     d.replica.connect()
     await settle(d)
 
@@ -514,8 +519,8 @@ describe('a trim while an answer streams (POD-7155)', () => {
     expect(d.replica.view(ISSUE, 'C1')).toBeDefined()
     expect(d.replica.isComplete(tree('R'))).toBeUndefined()
 
-    // A trim runs meanwhile (another answer ended, a view let go).
-    await d.replica.trim()
+    // Memory shrinks meanwhile, the grace overridden (the platform warned).
+    await d.replica.shrinkMemory('memoryWarning')
     expect(d.replica.view(ISSUE, 'C1')).toBeDefined()
 
     resume()

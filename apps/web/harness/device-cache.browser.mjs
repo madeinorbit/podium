@@ -1,4 +1,8 @@
-/** Real replica trim + facade + row source + pool. Measurement fixture only. */
+/**
+ * Real replica warm set + facade + row source + pool. Measurement fixture only.
+ * `cap` is the warm set's budget in MB (POD-7161); the shrink is a memory
+ * warning's, so the grace does not keep what the fixture just released.
+ */
 import { InMemoryReplicaStore } from '../../../packages/sync/src/replica/memory-store'
 import { Replica } from '../../../packages/sync/src/replica/replica'
 import { instanceKey } from '../../../packages/sync/src/replica/cache-state'
@@ -14,14 +18,14 @@ window.measureDeviceCache = async ({ rows, policy, instances, now, cap }) => {
   cache.applyAtomic({
     operations: rows.map(row => ({ kind: 'upsert', entity: row.entity, entityId: row.entityId, value: row.value,
       provenance: { seq: 1 }, ...(row.part === 'stub' ? { part: 'stub' } : {}) })),
-    policy: { ...policy, cacheCap: cap }, cursor,
+    policy: { ...policy, memoryBudgetMb: cap }, cursor,
     instances: instances.map((spec, index) => ({ kind: 'mark', instance: {
       ...spec, key: instanceKey(spec), completeAt: cursor, releasedAt: index + 1,
     } })),
   })
   const replica = new Replica({ store: cache, authority: {}, now: () => now, onEvent: () => {} })
   const trimStart = performance.now()
-  await replica.trim()
+  await replica.shrinkMemory('memoryWarning')
   const trimMs = performance.now() - trimStart
   const side = createSideCache({ storage: localStorage, adoptLegacyOutbox: false })
   const facade = createKernelReplica({ cache, side, collections: () => replica })

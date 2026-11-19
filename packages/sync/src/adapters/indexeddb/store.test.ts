@@ -9,6 +9,7 @@ import type { MutationId } from '@podium/model'
 import { actorUser, asUserId } from '@podium/model'
 import { IDBKeyRange } from 'fake-indexeddb'
 import { beforeEach, describe, expect, it } from 'vitest'
+import { policyBudgets } from '../../conformance/test-budgets'
 import type { OutboxRecord } from '../../outbox/records'
 import { INSTANCE_META_PREFIX, instanceKey } from '../../replica/cache-state'
 import type { Cursor } from '../../replica/types'
@@ -126,7 +127,7 @@ describe('IndexedDbSyncStore', () => {
 
   it('stores markers, the policy, the load state and stub rows durably; erasing drops them', async () => {
     const store = await open()
-    const policy = { clientType: 'browser', steps: [], recentDays: 30, cacheCap: 10 }
+    const policy = { clientType: 'browser', steps: [], recentDays: 30, ...policyBudgets() }
     await store.unitOfWork.transact(async (span) =>
       store.viewFor(PRINCIPAL).cache.applyAtomic(
         {

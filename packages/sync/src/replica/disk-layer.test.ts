@@ -48,7 +48,7 @@ describe('a disk load (POD-7159)', () => {
   it('puts N rows in memory in at most ceil(N / chunk) bursts, each told to the readers once', async () => {
     const members = 2 * DISK_INSTALL_ROWS + 500
     const server = new CollectionServer()
-    server.policy = { ...WORLD_POLICY, cacheCap: 100_000 }
+    server.policy = WORLD_POLICY
     server.chunkRows = 500
     server.put(ISSUE, 'R', issue('R', { stage: 'done', closedReason: 'completed' }))
     for (let n = 1; n < members; n += 1)
@@ -106,10 +106,9 @@ describe('a disk load (POD-7159)', () => {
   })
 })
 
-describe('the trim and the disk (POD-7159)', () => {
-  it('never drops a marker whose rows are only on disk: an unloaded screen comes back with no fetch', async () => {
+describe('unloading and the disk (POD-7159)', () => {
+  it('keeps every marker of an unloaded screen on the device: it comes back with no fetch', async () => {
     const server = new CollectionServer()
-    server.policy = { ...WORLD_POLICY, cacheCap: 0 }
     server.answerComesWith = true
     server.put(ISSUE, 'R', issue('R', { stage: 'done', closedReason: 'completed' }))
     for (let n = 1; n <= 3; n += 1) {
@@ -142,8 +141,6 @@ describe('the trim and the disk (POD-7159)', () => {
     )
     expect(screen).toContain(instanceKey(tree('R')))
     await replica.unload(screen)
-    // The cap is 0: a trim now can only see the policy's rows in memory.
-    await replica.trim()
     for (const key of screen) expect(cache.readInstances().has(key), key).toBe(true)
     // What the tree's records come with stays recorded on them.
     expect(cache.readDiskIndex().record(`${ISSUE}\u0000M1`)?.cw.length).toBeGreaterThan(0)

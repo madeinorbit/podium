@@ -11,10 +11,11 @@
  *    fake fetch time and one frame (`serverLoadingBudget`). An answer
  *    installed in many bursts (POD-7165) costs a frame each, and fails.
  * 3. Open, leave, reopen offline: once its data is on the device, a screen
- *    reopens complete with zero server requests, also after memory let it go.
- *    Unloading memory while the disk keeps the data is POD-7159's; until its
- *    test hook lands these are pending (`PENDING_UNLOAD`), and its lane turns
- *    them on.
+ *    reopens complete with zero server requests, also after memory let it go
+ *    (POD-7159's unload) and after the warm set's budget made it go
+ *    (POD-7161, an idle tick over budget).
+ * 4. Back and forth (POD-7161): a screen left less than the warm set's grace
+ *    ago comes back from memory: no disk load, no server request.
  */
 import { afterEach, describe, expect, it } from 'vitest'
 import type { CollectionServer } from '../../sync/src/conformance/collection-server'
@@ -24,7 +25,6 @@ import {
   FETCH_MS,
   serverLoadingBudget,
 } from '../../sync/src/conformance/load-recorder'
-import { largeBudget } from '../../sync/src/conformance/test-budgets'
 import { ISSUE_SEARCH_DEBOUNCE_MS } from './issue-search'
 import {
   closedValue,
@@ -47,17 +47,6 @@ import {
   searchReaders,
   sidebarReaders,
 } from './test-support/screens.test.fixture'
-
-/**
- * POD-7159's unload test hook (`unloadForTest` on the Replica, read by the
- * device fixture's `unload()`) drops from memory what no view reads and keeps
- * it on disk. These cases run with a large budget: the legacy trim
- * (`cacheCap`) still takes released instances off the device, and they test
- * unloading and reopening, not that trim.
- */
-const UNLOAD_BUDGET = largeBudget(
-  'these cases test unload and reopen, not the legacy trim; POD-7161 replaces the trim with memory-only unloading and moves them back to TEST_BUDGETS',
-)
 
 const disposers: (() => void)[] = []
 afterEach(() => {
@@ -104,6 +93,14 @@ interface ScreenCase {
   readonly readers: (device: Device) => ScreenReaders
   /** The longest LOADING its opening from the server may show, in simulated ms. */
   readonly budgetMs: number
+  /** Reads only the policy's collections: always resident, memory never lets it go. */
+  readonly alwaysResident?: true
+  /**
+   * A hold of this screen outlives it until the pool next recomputes, so one
+   * instance it left may still be held at the first idle tick: the issue that
+   * fixes it. Every other check of the forced-unload case still runs.
+   */
+  readonly lateRelease?: `POD-${number}`
 }
 
 const SEARCH_HITS = Array.from({ length: 12 }, (_, i) => `H${i + 1}`)
@@ -176,6 +173,7 @@ const SCREENS: readonly ScreenCase[] = [
     },
     readers: (device) => sidebarReaders(device),
     budgetMs: serverLoadingBudget(DECLARED_HOPS.sidebar),
+    alwaysResident: true,
   },
   {
     // The phone opens a task of the mission: its root by the stubs, then the deck.
@@ -188,6 +186,8 @@ const SCREENS: readonly ScreenCase[] = [
     },
     readers: (device) => phoneMissionReaders(device, 'M5'),
     budgetMs: serverLoadingBudget(DECLARED_HOPS.phoneMission),
+    // Its lookup of the selected task stays held after it closes.
+    lateRelease: 'POD-7185',
   },
 ]
 
@@ -304,7 +304,7 @@ const NOT_ON_DISK: ReadonlySet<ScreenName> = new Set(['search'])
 describe('open, leave, unload and reopen offline: complete with zero server requests', () => {
   for (const screen of SCREENS.filter((entry) => !NOT_ON_DISK.has(entry.name))) {
     it(`${screen.name}: reopened offline from the device, no request, LOADING under ${DISK_LOADING_BUDGET_MS} ms`, async () => {
-      const d = await device({ ...screen.options, budgets: UNLOAD_BUDGET })
+      const d = await device(screen.options)
       const first = await openScreen(d, screen.name, () => screen.readers(d))
       expect(first.ready, evidence(first, d)).toBe(true)
       first.close()
@@ -323,4 +323,95 @@ describe('open, leave, unload and reopen offline: complete with zero server requ
       }
     })
   }
+})
+
+describe('open, leave, the warm budget unloads it, reopen offline: complete with zero server requests (POD-7161)', () => {
+  for (const screen of SCREENS.filter((entry) => !NOT_ON_DISK.has(entry.name))) {
+    it(`${screen.name}: an idle tick over budget unloads what it left; it reopens offline from the device`, async () => {
+      const d = await device(screen.options)
+      const before = d.memoryInstances()
+      const first = await openScreen(d, screen.name, () => screen.readers(d))
+      expect(first.ready, evidence(first, d)).toBe(true)
+      first.close()
+      // What the screen brought into memory, now warm.
+      const left = [...d.memoryInstances()].filter((key) => !before.has(key))
+      if (screen.alwaysResident) expect(left, 'it reads only the policy').toEqual([])
+      else expect(left.length, 'it brought instances into memory').toBeGreaterThan(0)
+      // Other reads crowd memory: more warm instances than the budget (2).
+      for (let i = 1; i <= 30; i += 1) d.pool.row('issue', `C${i}`)
+      await d.settle()
+      // Without an idle tick, nothing has left memory, over budget as it is.
+      expect(d.replica.stats().shrinks).toBe(0)
+      d.passGrace()
+      await d.idle()
+      // The budget made memory let go, and what the screen left went first
+      // (released longest ago); the policy's collections stay.
+      expect(d.replica.stats().shrinks).toBeGreaterThan(0)
+      const inMemory = d.memoryInstances()
+      if (screen.lateRelease === undefined)
+        expect(
+          left.filter((key) => inMemory.has(key)),
+          `the screen left memory (held now: ${JSON.stringify(d.replica.heldForTest())}; ${JSON.stringify(d.replica.stats())})`,
+        ).toEqual([])
+      expect(
+        [...before].filter((key) => !inMemory.has(key)),
+        'always resident',
+      ).toEqual([])
+      d.offline()
+      const again = await openScreen(d, `${screen.name} (offline)`, () => screen.readers(d))
+      try {
+        expect(again.ready, evidence(again, d)).toBe(true)
+        expect(again.requests, evidence(again, d)).toBe(0)
+        d.recorder.expectLoadingWithin(`${screen.name} (offline)`, DISK_LOADING_BUDGET_MS)
+      } finally {
+        again.close()
+      }
+    })
+  }
+})
+
+describe('back and forth within the grace (POD-7161)', () => {
+  it('deck A, deck B, back to A within 60 s: A comes from memory, no disk load, no server request', async () => {
+    const tree = (root: string) => ({
+      collection: 'issueProjection.tree',
+      args: { root },
+      part: 'main' as const,
+    })
+    const d = await device({
+      world: (server) => {
+        for (const root of ['A', 'B']) {
+          server.put(
+            ISSUE,
+            root,
+            issueValue(root, { stage: 'in_progress', title: `Mission ${root}` }),
+          )
+          for (let n = 1; n <= 8; n += 1)
+            server.put(ISSUE, `${root}${n}`, closedValue(`${root}${n}`, { parentId: root }))
+        }
+        crowded(server)
+      },
+    })
+    const a = await openScreen(d, 'deck A', () => deckReaders(d, 'A'))
+    expect(a.ready, evidence(a, d)).toBe(true)
+    a.close()
+    const b = await openScreen(d, 'deck B', () => deckReaders(d, 'B'))
+    expect(b.ready, evidence(b, d)).toBe(true)
+    b.close()
+    // An idle tick while both are warm and over budget: the grace keeps them.
+    await d.idle()
+    // Still in memory, so its reopening needs no disk load.
+    expect(d.replica.isComplete(tree('A')), 'deck A is still in memory').toBeDefined()
+    const leftMemory = Array.from({ length: 8 }, (_, n) => `A${n + 1}`).filter((id) =>
+      d.replica.isUnloaded(ISSUE, id),
+    )
+    expect(leftMemory, 'no row of deck A left memory').toEqual([])
+    const back = await openScreen(d, 'deck A again', () => deckReaders(d, 'A'))
+    try {
+      expect(back.ready, evidence(back, d)).toBe(true)
+      expect(back.requests, evidence(back, d)).toBe(0)
+      expect(back.loadingMs, evidence(back, d)).toBe(0)
+    } finally {
+      back.close()
+    }
+  })
 })

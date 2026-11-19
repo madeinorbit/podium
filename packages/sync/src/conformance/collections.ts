@@ -15,6 +15,7 @@ import { describe, expect, it } from 'vitest'
 import { instanceKey } from '../replica/cache-state'
 import { comesWithHolderOf, pointerTargetOf } from '../replica/disk-index'
 import { CollectionLoader } from '../replica/loader'
+import { manualMemorySignals, WARM_GRACE_MS } from '../replica/memory'
 import type { CacheMutation, ReplicaCacheStore } from '../replica/ports'
 import { Replica } from '../replica/replica'
 import {
@@ -84,6 +85,8 @@ interface Booted {
   readonly replica: Replica
   readonly events: ReplicaEvent[]
   readonly clock: { now: number }
+  /** The platform's memory signals, driven by hand (POD-7161). */
+  readonly memory: ReturnType<typeof manualMemorySignals>
 }
 
 function kernelOver(
@@ -93,21 +96,28 @@ function kernelOver(
   options: {
     readonly unitOfWork?: SyncUnitOfWork
     readonly onEvent?: (event: ReplicaEvent) => void
+    /** The warm set's budget in instances (POD-7161's test hook); default the policy's MB. */
+    readonly warmInstances?: number
   } = {},
 ): Booted {
   const { cache } = storage.viewFor(PRINCIPAL)
   const events: ReplicaEvent[] = []
+  const memory = manualMemorySignals()
   const replica = new Replica({
     store: cache,
     authority: server,
     now: () => clock.now,
+    memory: {
+      signals: memory,
+      ...(options.warmInstances === undefined ? {} : { warmInstances: options.warmInstances }),
+    },
     onEvent: (event) => {
       events.push(event)
       options.onEvent?.(event)
     },
     ...(options.unitOfWork === undefined ? {} : { unitOfWork: options.unitOfWork }),
   })
-  return { storage, cache, replica, events, clock }
+  return { storage, cache, replica, events, clock, memory }
 }
 
 /** The storage's unit of work, each transaction held until `gate` opens: a durable commit that has not landed. */
@@ -158,8 +168,9 @@ async function boot(
   instantiation: SyncInstantiation,
   server: CollectionServer,
   storage?: ConformanceStorage,
+  options: { readonly warmInstances?: number } = {},
 ): Promise<Booted> {
-  const booted = kernelOver(storage ?? (await instantiation.open()), server)
+  const booted = kernelOver(storage ?? (await instantiation.open()), server, undefined, options)
   booted.replica.connect()
   await booted.replica.settled()
   await ticks()
@@ -219,12 +230,22 @@ function comesWithHeld(cache: ReplicaCacheStore, spec: InstanceSpec): boolean {
 function expectMarkersTrue(cache: ReplicaCacheStore, server: CollectionServer): void {
   for (const instance of cache.readInstances().values()) {
     if (instance.part === 'stub') {
+      // A record whole on disk and out of memory (POD-7159) keeps its stub in the stub table.
       for (const row of server.members(instance))
-        expect(cache.readRow(row.entity, row.id), `${instance.key} holds ${row.id}`).toBeDefined()
+        expect(
+          cache.readRow(row.entity, row.id) ?? cache.readStubTable(row.entity)?.stubOf(row.id),
+          `${instance.key} holds ${row.id}`,
+        ).toBeDefined()
       continue
     }
+    // Whole in memory, or whole on disk and out of memory (POD-7159, POD-7161).
+    const index = cache.readDiskIndex()
     for (const row of server.members(instance))
-      expect(cache.read(row.entity, row.id), `${instance.key} holds ${row.id}`).toBeDefined()
+      expect(
+        cache.read(row.entity, row.id) ??
+          (index.record(keyOf(row.entity, row.id))?.level === 'main' ? 'on disk' : undefined),
+        `${instance.key} holds ${row.id}`,
+      ).toBeDefined()
   }
 }
 
@@ -973,10 +994,9 @@ export function describeCollectionStore(instantiation: SyncInstantiation): void 
       })
     })
 
-    // ─── The trim ─────────────────────────────────────────────────────────────
+    // ─── The warm set (POD-7161) ──────────────────────────────────────────────
 
-    describe('trim by instance', () => {
-      const policy = (cacheCap: number): CachePolicy => ({ ...WORLD_POLICY, cacheCap })
+    describe('the warm set: leaving memory is not leaving the device (POD-7161)', () => {
       const withTrees = (server: CollectionServer) => {
         seedWorld(server)
         server.put(ISSUE, 'T1', issue('T1', { stage: 'done', closedReason: 'completed' }))
@@ -995,53 +1015,59 @@ export function describeCollectionStore(instantiation: SyncInstantiation): void 
         release()
         await booted.replica.settled()
       }
+      const inMemory = (booted: Booted, spec: InstanceSpec) =>
+        booted.cache.readDiskIndex().inMemory(instanceKey(spec))
+      const onDisk = (booted: Booted, id: string) =>
+        booted.cache.readDiskIndex().record(`${ISSUE}\u0000${id}`)?.level === 'main'
+      const idle = async (booted: Booted) => {
+        if (booted.memory.idle() === 0) await booted.replica.shrinkMemory('idle')
+        await booted.replica.settled()
+      }
 
-      it('drops the instances released longest ago, whole, with their markers; issues fall back to their stub', async () => {
+      it('an idle tick unloads the warm instances released longest ago; markers and rows stay on the device', async () => {
         const server = new CollectionServer()
         withTrees(server)
-        server.policy = policy(2)
-        const booted = await boot(instantiation, server)
+        const booted = await boot(instantiation, server, undefined, { warmInstances: 1 })
         await openAndRelease(booted, 'T1', WORLD_NOW + 1)
-        expect(marked(booted.cache, tree('T1'))).toBe(true)
         await openAndRelease(booted, 'U1', WORLD_NOW + 2)
-        await booted.replica.trim()
-        // U1 (released last, one record) fits the cap; T1 (two more) does not.
-        expect(marked(booted.cache, tree('U1'))).toBe(true)
-        expect(marked(booted.cache, tree('T1'))).toBe(false)
-        expect(partOf(booted.cache, ISSUE, 'U1')).toBe('main')
-        expect(partOf(booted.cache, ISSUE, 'T1')).toBe('stub')
-        expect(partOf(booted.cache, ISSUE, 'T2')).toBe('stub')
-        // The policy's collections are never trimmed.
-        for (const spec of [LIVE, SIDEBAR, STUBS]) expect(marked(booted.cache, spec)).toBe(true)
+        booted.clock.now = WORLD_NOW + 2 + WARM_GRACE_MS
+        await idle(booted)
+        // U1 (released last) stays warm; T1 leaves memory, not the device.
+        expect(inMemory(booted, tree('U1'))).toBe(true)
+        expect(inMemory(booted, tree('T1'))).toBe(false)
+        expect(marked(booted.cache, tree('T1'))).toBe(true)
+        for (const id of ['T1', 'T2']) {
+          expect(onDisk(booted, id), id).toBe(true)
+          expect(booted.replica.isUnloaded(ISSUE, id), id).toBe(true)
+        }
+        // The policy's collections are always resident.
+        for (const spec of [LIVE, SIDEBAR, STUBS]) expect(inMemory(booted, spec)).toBe(true)
         expectMarkersTrue(booted.cache, server)
       })
 
-      it('never drops an instance an open view holds', async () => {
+      it('never unloads an instance an open view holds, at budget 0, on a memory warning', async () => {
         const server = new CollectionServer()
         withTrees(server)
-        server.policy = policy(0)
-        const booted = await boot(instantiation, server)
+        const booted = await boot(instantiation, server, undefined, { warmInstances: 0 })
         booted.replica.hold(tree('T1'))
         await booted.replica.load([tree('T1')])
-        // The answer fills the stubs it was read at the same feed number as
-        // (rowAfter); the trim then keeps what the view holds.
+        await booted.replica.settled()
+        booted.memory.memoryWarning()
+        await booted.replica.settled()
         expect(partOf(booted.cache, ISSUE, 'T1')).toBe('main')
         expect(partOf(booted.cache, ISSUE, 'T2')).toBe('main')
-        await booted.replica.trim()
-        expect(partOf(booted.cache, ISSUE, 'T1')).toBe('main')
-        expect(partOf(booted.cache, ISSUE, 'T2')).toBe('main')
-        expect(marked(booted.cache, tree('T1'))).toBe(true)
+        expect(booted.replica.isComplete(tree('T1'))).toBeDefined()
       })
 
-      it('keeps a record a held record comes with, and never takes an issue below its stub', async () => {
+      it('keeps a record a held record comes with, and never takes an issue off the device', async () => {
         const server = new CollectionServer()
         withTrees(server)
         // A live session on a closed issue: the session comes with its issue.
         server.put(SESSION, 'S5', session('S5', { issueId: 'D1', lastActiveAt: RECENTLY }))
-        server.policy = policy(0)
-        const booted = await boot(instantiation, server)
+        const booted = await boot(instantiation, server, undefined, { warmInstances: 0 })
         await openAndRelease(booted, 'T1', WORLD_NOW + 1)
-        await booted.replica.trim()
+        booted.memory.memoryWarning()
+        await booted.replica.settled()
         expect(partOf(booted.cache, ISSUE, 'D1')).toBe('main')
         expect(
           comesWithHeld(booted.cache, {
@@ -1051,9 +1077,78 @@ export function describeCollectionStore(instantiation: SyncInstantiation): void 
             via: SESSION,
           }),
         ).toBe(true)
+        // Every issue keeps its stub in memory; what left memory is whole on disk.
         for (const id of ['A1', 'A2', 'D1', 'D2', 'T1', 'T2', 'U1'])
-          expect(partOf(booted.cache, ISSUE, id), id).not.toBe('absent')
+          expect(booted.replica.stubOf(ISSUE, id), id).toBeDefined()
+        for (const id of ['T1', 'T2']) {
+          expect(onDisk(booted, id), id).toBe(true)
+          expect(booted.replica.isUnloaded(ISSUE, id), id).toBe(true)
+        }
         expectMarkersTrue(booted.cache, server)
+      })
+
+      it('the grace: released 10 s ago survives an over-budget idle tick, and leaves on a memory warning', async () => {
+        const server = new CollectionServer()
+        withTrees(server)
+        const booted = await boot(instantiation, server, undefined, { warmInstances: 0 })
+        await openAndRelease(booted, 'T1', WORLD_NOW + 1)
+        booted.clock.now = WORLD_NOW + 1 + 10_000
+        await idle(booted)
+        expect(inMemory(booted, tree('T1'))).toBe(true)
+        booted.memory.background()
+        await booted.replica.settled()
+        expect(inMemory(booted, tree('T1')), 'the background keeps the grace too').toBe(true)
+        booted.memory.memoryWarning()
+        await booted.replica.settled()
+        expect(inMemory(booted, tree('T1'))).toBe(false)
+        expect(marked(booted.cache, tree('T1'))).toBe(true)
+      })
+
+      it('without an idle tick, a background or a warning, nothing leaves memory, far over budget', async () => {
+        const server = new CollectionServer()
+        withTrees(server)
+        const booted = await boot(instantiation, server, undefined, { warmInstances: 0 })
+        await openAndRelease(booted, 'T1', WORLD_NOW + 1)
+        await openAndRelease(booted, 'U1', WORLD_NOW + 2)
+        booted.clock.now = WORLD_NOW + 10 * WARM_GRACE_MS
+        // Fetches, feed frames and releases go by; memory only asks for an idle moment.
+        server.put(
+          ISSUE,
+          'T2',
+          issue('T2', { stage: 'done', closedReason: 'completed', parentId: 'T1', title: 'moved' }),
+        )
+        await feed(booted, server)
+        await booted.replica.load([tree('D1')])
+        await booted.replica.settled()
+        await ticks()
+        for (const root of ['T1', 'U1']) expect(inMemory(booted, tree(root)), root).toBe(true)
+        expect(booted.replica.stats().shrinks).toBe(0)
+        expect(booted.memory.pendingIdle).toBeGreaterThan(0)
+        // The page goes to the background: past the grace, both leave memory.
+        booted.memory.background()
+        await booted.replica.settled()
+        for (const root of ['T1', 'U1']) expect(inMemory(booted, tree(root)), root).toBe(false)
+      })
+
+      it('an unloaded warm instance is read again from disk with zero server requests', async () => {
+        const server = new CollectionServer()
+        withTrees(server)
+        const booted = await boot(instantiation, server, undefined, { warmInstances: 0 })
+        await openAndRelease(booted, 'T1', WORLD_NOW + 1)
+        booted.clock.now = WORLD_NOW + 1 + WARM_GRACE_MS
+        await idle(booted)
+        expect(inMemory(booted, tree('T1'))).toBe(false)
+        const fetched = server.fetches.length
+        const bootstraps = server.bootstraps
+        server.collections = () => {
+          throw new Error('offline: no fetch may reach the server')
+        }
+        await booted.replica.load([tree('T1')])
+        await booted.replica.settled()
+        expect(server.fetches.length, 'no server request').toBe(fetched)
+        expect(server.bootstraps).toBe(bootstraps)
+        expect(booted.replica.isComplete(tree('T1'))).toBeDefined()
+        for (const id of ['T1', 'T2']) expect(partOf(booted.cache, ISSUE, id), id).toBe('main')
       })
     })
 

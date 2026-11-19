@@ -19,9 +19,10 @@ import {
   WORLD_NOW,
 } from '../../sync/src/conformance/collection-server'
 import { inMemoryInstantiation } from '../../sync/src/conformance/in-memory'
-import { TEST_BUDGETS } from '../../sync/src/conformance/test-budgets'
+import { policyBudgets, TEST_BUDGETS } from '../../sync/src/conformance/test-budgets'
 import { instanceKey } from '../../sync/src/replica/cache-state'
 import { CollectionLoader, type LoaderSchedule } from '../../sync/src/replica/loader'
+import { manualMemorySignals } from '../../sync/src/replica/memory'
 import { Replica } from '../../sync/src/replica/replica'
 import type { CachePolicy, InstanceSpec } from '../../sync/src/replica/types'
 import { oneRecordOf } from './collections'
@@ -44,7 +45,7 @@ const POLICY: CachePolicy = {
     { step: 'stubs', collections: ['issueProjection.stubs'] },
   ],
   recentDays: 30,
-  cacheCap: TEST_BUDGETS.cacheCap,
+  ...policyBudgets(TEST_BUDGETS),
 }
 
 const ticks = async (count = 8): Promise<void> => {
@@ -81,10 +82,10 @@ async function boot(
     server.put(ISSUE, 'OPEN', value('OPEN', { stage: 'in_progress' }))
     server.put(ISSUE, 'OLD', value('OLD', { stage: 'done', closedReason: 'completed' }))
   },
-  policy: Partial<CachePolicy> = {},
+  memory: { readonly warmInstances?: number } = {},
 ) {
   const server = new CollectionServer()
-  server.policy = { ...POLICY, ...policy }
+  server.policy = POLICY
   server.chunkRows = 50
   world(server)
   const storage = await inMemoryInstantiation.open()
@@ -99,10 +100,13 @@ async function boot(
     collections: () => replica,
     loader: () => loader,
   })
+  // Memory shrinks only when the platform says so (POD-7161); the test is the platform.
+  const signals = manualMemorySignals()
   replica = new Replica({
     store: cache,
     authority: server,
     now: () => WORLD_NOW,
+    memory: { signals, warmInstances: memory.warmInstances ?? TEST_BUDGETS.warmInstances },
     view: () => loader?.takeView() ?? [],
     request: (specs) => loader?.request(specs),
     onEvent: (event) => {
@@ -165,6 +169,13 @@ async function boot(
     naming,
     rows,
     holds: () => holds,
+    /** The platform warns of low memory: the warm set shrinks to its budget, the grace overridden. */
+    memoryWarning: async () => {
+      signals.memoryWarning()
+      await settle()
+    },
+    /** Whether the instance's marker is on the device (in memory or not). */
+    onDevice: (spec: InstanceSpec) => cache.readInstances().has(instanceKey(spec)),
   }
 }
 
@@ -300,10 +311,10 @@ it('server search holds its hits as one-record instances through the real loader
   }
 })
 
-describe('an open view holds what it reads, over a small cache cap (POD-7155)', () => {
-  it('reaches ready, keeps its tree while open and stops fetching; closed, the tree is cache', async () => {
+describe('an open view holds what it reads, over a tiny warm budget (POD-7155, POD-7161)', () => {
+  it('reaches ready, keeps its tree while open and stops fetching; closed, the tree is warm and can leave memory', async () => {
     const members: string[] = []
-    const { server, replica, pool, settle } = await boot(
+    const { server, replica, pool, settle, memoryWarning, onDevice } = await boot(
       (server) => {
         server.put(ISSUE, 'R', value('R', { stage: 'in_progress' }))
         const closed = (id: string, parentId: string) => {
@@ -324,8 +335,8 @@ describe('an open view holds what it reads, over a small cache cap (POD-7155)', 
           }
         }
       },
-      // Fewer records than the tree and what it comes with: as cache it never fits.
-      { cacheCap: 10 },
+      // No room for warm instances: closed, the tree leaves memory on the first warning.
+      { warmInstances: 0 },
     )
     attachMissionTestPreferences(pool)
     const tree: InstanceSpec = {
@@ -344,28 +355,30 @@ describe('an open view holds what it reads, over a small cache cap (POD-7155)', 
     expect(rows).toBe(members.length + 1)
     for (const id of members) expect(replica.view(ISSUE, id)).toBeDefined()
 
-    // Open, the deck asks for nothing more, a trim included.
+    // Open, the deck asks for nothing more, a memory warning included.
     const before = server.fetches.length
-    await replica.trim()
+    await memoryWarning()
     await settle()
     expect(screen.ready).toBe(true)
     expect(server.fetches.length).toBe(before)
 
-    // Closed, the tree is cache: over the cap, the trim lets it go.
+    // Closed, the tree is warm: over the budget, a warning takes it out of
+    // memory, and the device keeps it.
     stop()
     screen.close()
     await settle()
-    await replica.trim()
+    await memoryWarning()
     expect(replica.isComplete(tree)).toBeUndefined()
+    expect(onDevice(tree)).toBe(true)
   })
 
-  it('an open board column keeps its page and stops fetching; closed, the page is cache', async () => {
-    const { server, replica, pool, settle } = await boot(
+  it('an open board column keeps its page and stops fetching; closed, the page is warm and can leave memory', async () => {
+    const { server, replica, pool, settle, memoryWarning, onDevice } = await boot(
       (server) => {
         for (let i = 1; i <= 30; i += 1)
           server.put(ISSUE, `D${i}`, value(`D${i}`, { stage: 'done', closedReason: 'completed' }))
       },
-      { cacheCap: 10 },
+      { warmInstances: 0 },
     )
     const board = createBoardLayout(pool)
     const column: BoardColumnOptions = {
@@ -387,26 +400,27 @@ describe('an open view holds what it reads, over a small cache cap (POD-7155)', 
     expect(held).toBe(true)
     expect(replica.isComplete(page)).toBeDefined()
 
-    // Open, the trim keeps the page and the column asks for nothing more.
+    // Open, a memory warning keeps the page and the column asks for nothing more.
     const before = server.fetches.length
-    await replica.trim()
+    await memoryWarning()
     await settle()
     expect(held).toBe(true)
     expect(replica.isComplete(page)).toBeDefined()
     expect(server.fetches.length).toBe(before)
 
-    // Closed, the page is cache: over the cap, the trim lets it go.
+    // Closed, the page is warm: over the budget, a warning takes it out of memory, not off the device.
     stop()
     await settle()
-    await replica.trim()
+    await memoryWarning()
     expect(replica.isComplete(page)).toBeUndefined()
+    expect(onDevice(page)).toBe(true)
   })
 })
 
 describe('holding follows reading: every view read holds what it reads (POD-7158)', () => {
   const closed = (id: string, fields: Record<string, unknown> = {}) =>
     value(id, { stage: 'done', closedReason: 'completed', ...fields })
-  /** Lookups nobody reads (cache), more than the cap: the trim has to choose. */
+  /** Lookups nobody reads (warm), more than the budget: memory has to choose. */
   const crowd = async (
     pool: ReturnType<typeof createWorklistPool>['pool'],
     settle: () => Promise<void>,
@@ -418,8 +432,8 @@ describe('holding follows reading: every view read holds what it reads (POD-7158
     for (let i = 1; i <= 30; i += 1) server.put(ISSUE, `C${i}`, closed(`C${i}`))
   }
 
-  it('the deck holds its tree, its root (a lookup) and the root body while open; closed, they are cache', async () => {
-    const { server, replica, pool, settle, holds } = await boot(
+  it('the deck holds its tree, its root (a lookup) and the root body while open; closed, they are warm', async () => {
+    const { server, replica, pool, settle, holds, memoryWarning, onDevice } = await boot(
       (server) => {
         // A closed root: no policy collection holds it, the deck looks it up.
         server.put(ISSUE, 'R', closed('R'))
@@ -430,7 +444,7 @@ describe('holding follows reading: every view read holds what it reads (POD-7158
         }
         crowded(server)
       },
-      { cacheCap: 10 },
+      { warmInstances: 0 },
     )
     attachMissionTestPreferences(pool)
     const base = holds()
@@ -459,9 +473,9 @@ describe('holding follows reading: every view read holds what it reads (POD-7158
     expect(title).toBe('Issue R')
     await crowd(pool, settle)
 
-    // Open: a trim keeps all of it, and the deck asks for nothing more.
+    // Open: a memory warning keeps all of it, and the deck asks for nothing more.
     const before = server.fetches.length
-    await replica.trim()
+    await memoryWarning()
     await settle()
     expect(screen.ready).toBe(true)
     expect(title).toBe('Issue R')
@@ -470,26 +484,28 @@ describe('holding follows reading: every view read holds what it reads (POD-7158
       expect(replica.isComplete(spec)?.releasedAt).toBeUndefined()
     expect(server.fetches.length).toBe(before)
 
-    // Closed: every hold is released at once, and the deck's instances are cache.
+    // Closed: every hold is released at once, and the deck's instances are
+    // warm; a warning takes them out of memory, and the device keeps them.
     stop()
     screen.close()
     expect(holds()).toBe(base)
     await settle()
-    await replica.trim()
+    await memoryWarning()
     expect(replica.isComplete(tree)).toBeUndefined()
+    expect(onDevice(tree)).toBe(true)
     for (const spec of [body, root]) {
       const marker = replica.isComplete(spec)
       if (marker !== undefined) expect(marker.releasedAt).toBeDefined()
     }
   })
 
-  it('a board column holds its page and the next page while open; closed, they are cache', async () => {
-    const { server, replica, pool, settle, holds } = await boot(
+  it('a board column holds its page and the next page while open; closed, they are warm', async () => {
+    const { server, replica, pool, settle, holds, memoryWarning, onDevice } = await boot(
       (server) => {
         server.pageRows = 10
         for (let i = 1; i <= 30; i += 1) server.put(ISSUE, `D${i}`, closed(`D${i}`))
       },
-      { cacheCap: 10 },
+      { warmInstances: 0 },
     )
     const base = holds()
     const board = createBoardLayout(pool)
@@ -527,29 +543,31 @@ describe('holding follows reading: every view read holds what it reads (POD-7158
     expect(total).toBe(30)
     const held = resident()
 
-    // Open: a trim keeps both pages, and the column asks for nothing more.
+    // Open: a memory warning keeps both pages, and the column asks for nothing more.
     const before = server.fetches.length
-    await replica.trim()
+    await memoryWarning()
     await settle()
     expect(resident()).toEqual(held)
     expect(replica.isComplete(page)?.releasedAt).toBeUndefined()
     expect(server.fetches.length).toBe(before)
 
-    // Closed: the hold is released at once, and over the cap the trim lets the pages go.
+    // Closed: the hold is released at once; over the budget a warning takes
+    // the pages out of memory, and the device keeps them.
     stop()
     expect(holds()).toBe(base)
     await settle()
-    await replica.trim()
+    await memoryWarning()
     expect(replica.isComplete(page)).toBeUndefined()
+    expect(onDevice(page)).toBe(true)
   })
 
-  it('an issue opened by lookup is held while read; closed, it is cache', async () => {
-    const { server, replica, pool, settle, holds } = await boot(
+  it('an issue opened by lookup is held while read; closed, it is warm', async () => {
+    const { server, replica, pool, settle, holds, memoryWarning } = await boot(
       (server) => {
         server.put(ISSUE, 'OLD', closed('OLD'))
         crowded(server)
       },
-      { cacheCap: 10 },
+      { warmInstances: 0 },
     )
     const base = holds()
     const one = oneRecordOf('issue', 'OLD') as InstanceSpec
@@ -562,29 +580,29 @@ describe('holding follows reading: every view read holds what it reads (POD-7158
     expect(title).toBe('Issue OLD')
     await crowd(pool, settle)
 
-    // Open: over the cap, the trim keeps the record, and nothing is asked again.
+    // Open: over the budget, a memory warning keeps the record, and nothing is asked again.
     const before = server.fetches.length
-    await replica.trim()
+    await memoryWarning()
     await settle()
     expect(title).toBe('Issue OLD')
     expect(replica.view(ISSUE, 'OLD')).toBeDefined()
     expect(replica.isComplete(one)?.releasedAt).toBeUndefined()
     expect(server.fetches.length).toBe(before)
 
-    // Closed: released at once; the record is cache.
+    // Closed: released at once; the record is warm.
     stop()
     expect(holds()).toBe(base)
     await settle()
     expect(replica.isComplete(one)?.releasedAt).toBeDefined()
   })
 
-  it('a search result list holds its hits while it reads them; closed, they are cache', async () => {
-    const { server, replica, pool, settle, holds } = await boot(
+  it('a search result list holds its hits while it reads them; closed, they are warm', async () => {
+    const { server, replica, pool, settle, holds, memoryWarning, onDevice } = await boot(
       (server) => {
         for (let i = 1; i <= 12; i += 1) server.put(ISSUE, `H${i}`, closed(`H${i}`))
         crowded(server)
       },
-      { cacheCap: 10 },
+      { warmInstances: 0 },
     )
     const { issueSearch } = await import('./issue-search')
     const hits = Array.from({ length: 12 }, (_, i) => `H${i + 1}`)
@@ -602,20 +620,21 @@ describe('holding follows reading: every view read holds what it reads (POD-7158
     for (const spec of ones) expect(replica.isComplete(spec)).toBeDefined()
     await crowd(pool, settle)
 
-    // Open: more hits than the cap, all kept by a trim; nothing is asked again.
+    // Open: more hits than the budget, all kept by a memory warning; nothing is asked again.
     const before = server.fetches.length
-    await replica.trim()
+    await memoryWarning()
     await settle()
     for (const id of hits) expect(replica.view(ISSUE, id)).toBeDefined()
     for (const spec of ones) expect(replica.isComplete(spec)?.releasedAt).toBeUndefined()
     expect(server.fetches.length).toBe(before)
 
-    // Closed: released at once; over the cap, the trim lets hits go.
+    // Closed: released at once; over the budget, a warning takes the hits out of memory, not off the device.
     stop()
     expect(holds()).toBe(base)
     await settle()
-    await replica.trim()
-    expect(ones.filter((spec) => replica.isComplete(spec) !== undefined).length).toBeLessThan(12)
+    await memoryWarning()
+    expect(ones.filter((spec) => replica.isComplete(spec) !== undefined)).toEqual([])
+    for (const spec of ones) expect(onDevice(spec)).toBe(true)
   })
 
   it('opening and closing the same views 100 times leaves no hold behind', async () => {
@@ -627,7 +646,7 @@ describe('holding follows reading: every view read holds what it reads (POD-7158
           server.put(ISSUE, `A${a}`, closed(`A${a}`, { parentId: 'R' }))
         for (let i = 1; i <= 30; i += 1) server.put(ISSUE, `D${i}`, closed(`D${i}`))
       },
-      { cacheCap: 10 },
+      { warmInstances: 0 },
     )
     attachMissionTestPreferences(pool)
     const { issueSearch } = await import('./issue-search')

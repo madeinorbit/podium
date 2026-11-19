@@ -17,7 +17,7 @@ import {
   WORLD_NOW,
 } from '../../sync/src/conformance/collection-server'
 import { inMemoryInstantiation } from '../../sync/src/conformance/in-memory'
-import { TEST_BUDGETS } from '../../sync/src/conformance/test-budgets'
+import { policyBudgets, TEST_BUDGETS } from '../../sync/src/conformance/test-budgets'
 import { instanceKey } from '../../sync/src/replica/cache-state'
 import { CollectionLoader, type LoaderSchedule } from '../../sync/src/replica/loader'
 import { Replica } from '../../sync/src/replica/replica'
@@ -42,7 +42,7 @@ const POLICY: CachePolicy = {
     { step: 'stubs', collections: ['issueProjection.stubs'] },
   ],
   recentDays: 30,
-  cacheCap: TEST_BUDGETS.cacheCap,
+  ...policyBudgets(TEST_BUDGETS),
 }
 
 const ticks = async (count = 8): Promise<void> => {
@@ -93,8 +93,6 @@ export interface LargeDeckRun {
   readonly bursts: number
   /** Changes the loader told the views while the deck opened. */
   readonly notifications: number
-  /** Cache trims while the deck opened. */
-  readonly trims: number
   /** Row-source publications while the deck opened. */
   readonly flushes: number
   /** The longest single burst or publication while the deck opened, in ms. */
@@ -421,7 +419,6 @@ export async function openLargeDeck(
   const burstsBefore = bursts
   const notificationsBefore = loader!.stats.notifications
   const flushesBefore = rows.stats.flushes
-  const trimsBefore = kernel.stats().trims
   let screen = new MissionScreen(handle.pool, rootId, { sessionName: (s) => s.name ?? '' })
   let shown = 0
   // What the Full view draws once it has settled: its rows and their words.
@@ -463,7 +460,6 @@ export async function openLargeDeck(
     bursts: bursts - burstsBefore,
     notifications: loader!.stats.notifications - notificationsBefore,
     flushes,
-    trims: kernel.stats().trims - trimsBefore,
     longestMs,
     publications,
     burstMs,

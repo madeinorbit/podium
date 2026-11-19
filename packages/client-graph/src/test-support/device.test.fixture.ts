@@ -12,13 +12,23 @@
  * and each install burst costs a frame.
  *
  * A test that needs a large budget passes `budgets: largeBudget(why)`.
+ *
+ * Memory shrinks only when the platform says so (POD-7161): the fixture is the
+ * platform, and `idle()`, `background()` and `memoryWarning()` say it. The
+ * Replica's clock is the simulated one, so `passGrace()` lets what was just
+ * released leave its grace.
  */
 import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
 import { CollectionServer, issue, WORLD_NOW } from '../../../sync/src/conformance/collection-server'
 import { inMemoryInstantiation } from '../../../sync/src/conformance/in-memory'
 import { FRAME_MS, LoadRecorder, SimClock } from '../../../sync/src/conformance/load-recorder'
-import { TEST_BUDGETS, type TestBudgets } from '../../../sync/src/conformance/test-budgets'
+import {
+  policyBudgets,
+  TEST_BUDGETS,
+  type TestBudgets,
+} from '../../../sync/src/conformance/test-budgets'
 import { CollectionLoader } from '../../../sync/src/replica/loader'
+import { manualMemorySignals, WARM_GRACE_MS } from '../../../sync/src/replica/memory'
 import { Replica } from '../../../sync/src/replica/replica'
 import type { CachePolicy } from '../../../sync/src/replica/types'
 import type { SyncUnitOfWork } from '../../../sync/src/span'
@@ -39,7 +49,7 @@ export function devicePolicy(budgets: TestBudgets = TEST_BUDGETS): CachePolicy {
       { step: 'stubs', collections: ['issueProjection.stubs'] },
     ],
     recentDays: 30,
-    ...budgets,
+    ...policyBudgets(budgets),
   }
 }
 
@@ -76,7 +86,8 @@ export async function openDevice(options: DeviceOptions = {}) {
     ...(options.fetchMs === undefined ? {} : { fetchMs: options.fetchMs }),
   })
   const server = new CollectionServer()
-  server.policy = { ...devicePolicy(options.budgets ?? TEST_BUDGETS), ...options.policy }
+  const budgets = options.budgets ?? TEST_BUDGETS
+  server.policy = { ...devicePolicy(budgets), ...options.policy }
   server.chunkRows = options.chunkRows ?? 50
   // The real route answers what records come with in the same answer (POD-7168).
   server.answerComesWith = options.serverComesWith ?? true
@@ -97,11 +108,13 @@ export async function openDevice(options: DeviceOptions = {}) {
   let events = 0
   let bursts = 0
   const unitOfWork = options.unitOfWork?.(storage.unitOfWork)
+  const memory = manualMemorySignals()
   replica = new Replica({
     store: cache,
     authority: server,
     ...(unitOfWork === undefined ? {} : { unitOfWork }),
-    now: () => WORLD_NOW,
+    now: () => WORLD_NOW + clock.now(),
+    memory: { signals: memory, warmInstances: budgets.warmInstances },
     view: () => loader?.takeView() ?? [],
     request: (specs) => loader?.request(specs),
     onEvent: (event) => {
@@ -174,6 +187,10 @@ export async function openDevice(options: DeviceOptions = {}) {
     recorder,
     clock,
     settle,
+    /** The instances whose rows are in memory now (the disk index's view), by instance key. */
+    memoryInstances(): ReadonlySet<string> {
+      return new Set(cache.readDiskIndex().memoryInstances())
+    },
     /** Cut the connection: the loader stops, and every load attempted is refused and counted. */
     offline(): void {
       recorder.offline = true
@@ -193,6 +210,32 @@ export async function openDevice(options: DeviceOptions = {}) {
       if (hook === undefined) throw new Error('unload needs POD-7159 (the disk layer)')
       await hook.call(kernel)
       await settle()
+    },
+    /**
+     * An idle moment: memory shrinks the warm set to its budget, keeping what
+     * was released within the grace. The platform reports one when memory
+     * asked for it; when it has not, the fixture reports one anyway.
+     */
+    async idle(): Promise<void> {
+      if (memory.idle() === 0) await kernel.shrinkMemory('idle')
+      await kernel.settled()
+      await settle()
+    },
+    /** The page or app goes to the background. */
+    async background(): Promise<void> {
+      memory.background()
+      await kernel.settled()
+      await settle()
+    },
+    /** The platform warns of low memory: the grace does not hold. */
+    async memoryWarning(): Promise<void> {
+      memory.memoryWarning()
+      await kernel.settled()
+      await settle()
+    },
+    /** Let simulated time pass the warm set's grace (what was released is then oldest-first fair game). */
+    passGrace(): void {
+      clock.spend(WARM_GRACE_MS + 1)
     },
     /** Run `dispose` when the device is closed. */
     onDispose(dispose: () => void): void {
