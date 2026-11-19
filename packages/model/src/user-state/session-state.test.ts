@@ -228,7 +228,7 @@ describe('the fragment factory is reused, not re-implemented', () => {
 })
 
 describe('layout key routing (POD-1350 / POD-403 shared vocabulary)', () => {
-  it('admits dynamic section keys, and refuses the LEGACY spelling of an admitted key', () => {
+  it('admits dynamic section keys and maps renamed legacy spellings to one canonical row', () => {
     // `for (const key of LAYOUT_EXACT_KEYS) expect(isLayoutKey(key)).toBe(true)`
     // used to stand here and was deleted, not amended: `isLayoutKey` tests
     // membership of a set BUILT FROM `LAYOUT_EXACT_KEYS`, so it cannot fail for
@@ -237,13 +237,16 @@ describe('layout key routing (POD-1350 / POD-403 shared vocabulary)', () => {
     // every exact key and every prefix reaches a declared home — lives with the
     // routing table, in `packages/client-core/src/ui-state.audit.test.ts`.
     //
-    // What is asserted here is the part that CAN fail: the canonical vocabulary
-    // is disjoint from the legacy storage spellings that map onto it. Admitting
+    // Renamed storage spellings must not acquire their own rows. An unchanged
+    // canonical spelling remains valid across the migration. Admitting
     // `podium.dockTab` as a layout key would give one setting two rows.
     expect(isLayoutKey('sidebar.section.closed')).toBe(true)
-    for (const legacy of Object.keys(LAYOUT_KEY_FROM_LEGACY)) {
-      expect(isLayoutKey(legacy), legacy).toBe(false)
+    for (const [legacy, canonical] of Object.entries(LAYOUT_KEY_FROM_LEGACY)) {
+      expect(layoutKeyFromLegacy(legacy), legacy).toBe(canonical)
+      if (legacy !== canonical) expect(isLayoutKey(legacy), legacy).toBe(false)
     }
+    expect(layoutKeyFromLegacy('tips.enabled')).toBe('tips.enabled')
+    expect(isLayoutKey('tips.enabled')).toBe(true)
   })
 
   it('refuses free-form keys, bare prefixes, retired dock sections, and device-local geometry', () => {

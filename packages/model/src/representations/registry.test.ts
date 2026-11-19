@@ -6,6 +6,7 @@ import { HandoffManifest, HandoffManifestV1, HandoffManifestV2 } from '../entiti
 import { IssueGraphNode, OrphanIssue } from '../entities/issue'
 import { SessionMeta } from '../entities/session'
 import { IssueIdentity } from '../fields/issue'
+import { SessionDelegation } from '../identity/delegation'
 import {
   type RetainedRepresentation,
   representationViolations,
@@ -223,6 +224,24 @@ describe('the live registry', () => {
   it('documents every representation in the required form', () => {
     const v = representationViolations(RETAINED_REPRESENTATIONS, OWNERSHIP_MATRIX_INDEX)
     expect(v.filter((x) => x.kind === 'undocumented')).toEqual([])
+  })
+
+  it('accepts only the canonical declared delegation operand, while rejecting copied or extended authority', () => {
+    const check = (schema: z.ZodTypeAny) =>
+      representationViolations([{ ...valid, schema }], OWNERSHIP_MATRIX_INDEX).filter(
+        (finding) => finding.kind === 'capability-snapshot',
+      )
+    expect(check(z.object({ delegation: SessionDelegation.optional() }))).toEqual([])
+    expect(
+      check(
+        z.object({
+          delegation: SessionDelegation.extend({ effectiveRights: z.array(z.string()) }).optional(),
+        }),
+      ),
+    ).toHaveLength(1)
+    expect(
+      check(z.object({ delegation: z.object({ grantedScope: z.string() }).optional() })),
+    ).toHaveLength(1)
   })
 
   it('carries NO serialized effective-capability snapshot and NO instance partition', () => {
