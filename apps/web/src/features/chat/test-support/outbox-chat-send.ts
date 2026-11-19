@@ -1,4 +1,3 @@
-import { appendFileSync } from 'node:fs'
 /**
  * The store's chat-send actions over the REAL outbox (POD-4762), draining into
  * a test's fake tRPC.
@@ -46,13 +45,10 @@ export interface OutboxChatSendActions {
 }
 
 export function outboxChatSendActions(api: () => unknown): OutboxChatSendActions {
-  const trace = (message: string) =>
-    appendFileSync('/tmp/podium-chat-attachment-trace.log', `${message}\n`)
   let opening: Promise<Opened> | undefined
   let opened: Opened | undefined
   const open = (): Promise<Opened> => {
     opening ??= (async () => {
-      trace('outbox opening')
       const settlements = new OutboxSettlements()
       const create = await openKernelEngineOutbox({
         store: new InMemoryOutboxStore(),
@@ -60,7 +56,6 @@ export function outboxChatSendActions(api: () => unknown): OutboxChatSendActions
         api: api() as PodiumClientApi,
         onDegraded: () => {},
       })
-      trace('outbox opened')
       const outbox = create({
         api: api() as PodiumClientApi,
         replica: {} as never,
@@ -70,21 +65,14 @@ export function outboxChatSendActions(api: () => unknown): OutboxChatSendActions
         onlineEvents: { add: () => {}, remove: () => {} },
       })
       outbox.attach()
-      trace('outbox attached')
       opened = { outbox, settlements }
       return opened
     })()
     return opening
   }
   return {
-    sendChat: async (input, mutationId) => {
-      trace('send action entered')
-      const queue = await open()
-      trace('send action opened')
-      const sent = await sendChatThroughOutbox(queue, input, mutationId ?? newChatMessageId())
-      trace('send action settled')
-      return sent
-    },
+    sendChat: async (input, mutationId) =>
+      sendChatThroughOutbox(await open(), input, mutationId ?? newChatMessageId()),
     chatSendsFor: (sessionId) => (opened ? outboxChatSends(opened.outbox, sessionId) : []),
     discardChat: async (mutationId) => {
       if (opened) await discardChatThroughOutbox(opened.outbox, mutationId)

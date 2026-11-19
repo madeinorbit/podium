@@ -48,6 +48,18 @@ const keyedHandle = withKeyedInputs({
       'hub',
       'httpOrigin',
       'replica',
+      'attachedSessionId',
+    ] as const) {
+      if (!Object.getOwnPropertyDescriptor(snapshot, key)) {
+        Object.defineProperty(snapshot, key, {
+          enumerable: true,
+          get: () => selectMockSnapshot((state) => state[key]),
+        })
+      }
+    }
+    // The UI adapter recognizes supplied action functions without evaluating
+    // arbitrary snapshot getters. Keep these as stable callable descriptors.
+    for (const key of [
       'setSessionDraft',
       'sendChat',
       'discardChat',
@@ -56,17 +68,15 @@ const keyedHandle = withKeyedInputs({
       'getUserFocus',
       'clearAttachedSession',
       'openFile',
-      'attachedSessionId',
       'interruptTurn',
       'endSession',
       'dismissEffect',
     ] as const) {
-      if (!Object.getOwnPropertyDescriptor(snapshot, key)) {
+      if (!Object.hasOwn(snapshot, key))
         Object.defineProperty(snapshot, key, {
           enumerable: true,
-          get: () => selectMockSnapshot((state) => state[key]),
+          value: (...args: unknown[]) => selectMockSnapshot((state) => state[key])?.(...args),
         })
-      }
     }
     return snapshot
   },

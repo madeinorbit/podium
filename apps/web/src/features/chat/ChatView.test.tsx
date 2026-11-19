@@ -107,16 +107,16 @@ let storeSessions: SessionMeta[] = []
 let storeDrafts: Record<string, string> = {}
 let storeExitKind: 'evicted' | 'removed' | undefined
 const fakeUiValues = new Map<string, string>()
-const fakeUiListeners = new Set<() => void>()
+const fakeUiListeners = new Set<(changed: ReadonlySet<string>) => void>()
 const fakeUiState = {
   get: (key: string) => fakeUiValues.get(key) ?? null,
   set: (key: string, value: string | null) => {
     if ((fakeUiValues.get(key) ?? null) === value) return
     if (value === null) fakeUiValues.delete(key)
     else fakeUiValues.set(key, value)
-    for (const listener of [...fakeUiListeners]) listener()
+    for (const listener of [...fakeUiListeners]) listener(new Set([key]))
   },
-  subscribe: (listener: () => void) => {
+  subscribe: (listener: (changed: ReadonlySet<string>) => void) => {
     fakeUiListeners.add(listener)
     return () => fakeUiListeners.delete(listener)
   },

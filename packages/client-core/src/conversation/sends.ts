@@ -1,8 +1,3 @@
-import { appendFileSync } from 'node:fs'
-
-const trace7196 = (message: string) =>
-  appendFileSync('/tmp/podium-chat-attachment-trace.log', `${message}\n`)
-
 import { lazy } from '@podium/mobx-helpers'
 import type { MessageRecordWire, SessionId, SessionOffer } from '@podium/model'
 import { formatAgentError } from '@podium/model'
@@ -248,16 +243,11 @@ export class Sends {
   }
 
   @action async submit(input: ConversationSendInput): Promise<ConversationPendingTurn | null> {
-    trace7196('Sends.submit entered')
     const turn = this.createTurn(input, 'message')
-    trace7196('Sends.turn created')
     if (!turn) return null
     this.setDraft('')
-    trace7196('Sends.draft cleared')
     const retired = this.retireOffer()
-    trace7196('Sends.dispatching')
     await this.dispatch(turn, retired, false)
-    trace7196('Sends.dispatched')
     return turn
   }
 
@@ -563,9 +553,7 @@ export class Sends {
     retiredOfferAt: string | null,
     rethrow: boolean,
   ): Promise<void> {
-    trace7196('Sends.marking sent')
     const sendSeq = this.markSent()
-    trace7196('Sends.marked sent')
     try {
       await this.deliver(turn)
     } catch (error) {
@@ -595,9 +583,7 @@ export class Sends {
   private async deliver(turn: ConversationPendingTurn): Promise<void> {
     this.following.add(turn.id)
     try {
-      trace7196('Sends.deliver entered')
       const result = await this.options.deliver(turn)
-      trace7196('Sends.deliver answered')
       if (result?.state) {
         this.replacePending({
           ...turn,

@@ -1,4 +1,3 @@
-import { appendFileSync } from 'node:fs'
 import { useHttpOrigin, useRequestClient, useUi } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
 import {
@@ -174,38 +173,21 @@ export function useChatLayout(opts: UseChatLayoutOptions): ChatSurface {
   const setDraft = view.setDraft
   const submitDraft = useCallback(
     (draft: string) => {
-      const trace = (message: string) =>
-        appendFileSync('/tmp/podium-chat-attachment-trace.log', `${message}\n`)
-      trace('layout submit entered')
       const text = draft.trim()
       const { paths, legacyPaths, refs, tags } = attachments.ready()
-      trace('attachment refs ready')
       if ((!text && paths.length === 0 && refs.length === 0) || attachments.uploading) return
       conversation.rememberPrompt(text)
-      trace('prompt remembered')
       view.captureContext()
-      trace('context captured')
       attachments.clearReady()
-      trace('attachment consumed')
       scroll.pinToBottom()
-      trace('scroller pinned')
-      trace('submitting sends')
-      void sends
-        .submit({
-          text:
-            legacyPaths.length > 0
-              ? [legacyPaths.join('\n'), text].filter(Boolean).join('\n')
-              : text,
-          ...(tags.length ? { tags } : {}),
-          ...(paths.length ? { toolPaths: paths } : {}),
-          ...(refs.length ? { attachments: refs } : {}),
-          ...(view.superThread ? { backend: view.backend } : {}),
-        })
-        .then(
-          () => trace('sends settled'),
-          (error) => trace(`sends failed ${error?.stack}`),
-        )
-      trace('sends submitted')
+      void sends.submit({
+        text:
+          legacyPaths.length > 0 ? [legacyPaths.join('\n'), text].filter(Boolean).join('\n') : text,
+        ...(tags.length ? { tags } : {}),
+        ...(paths.length ? { toolPaths: paths } : {}),
+        ...(refs.length ? { attachments: refs } : {}),
+        ...(view.superThread ? { backend: view.backend } : {}),
+      })
     },
     [attachments, conversation, view, scroll.pinToBottom, sends],
   )

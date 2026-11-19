@@ -1,4 +1,3 @@
-import { appendFileSync } from 'node:fs'
 import {
   type ConversationOptions,
   type ConversationPendingTurn,
@@ -306,12 +305,7 @@ export function createWebConversation(
           })
         },
         deliver: async (turn) => {
-          const trace = (message: string) =>
-            appendFileSync('/tmp/podium-chat-attachment-trace.log', `${message}\n`)
-          trace('web deliver entered')
           conversation.rememberPrompt(turn.text)
-          trace('web prompt remembered')
-          trace(`web context ready=${conversation.ready}`)
           if (!conversation.ready) throw new Error('Conversation context is loading.')
           const composer = composerState({
             session: conversation.session,
@@ -328,16 +322,13 @@ export function createWebConversation(
               ? { ownThreadIds: new Set(conversation.thread ? [conversation.thread.id] : []) }
               : {}),
           })
-          trace(`web route ${route.kind}`)
           if (conversation.heldSends.some((send) => send.mutationId === turn.deliveryId))
             return chatSends.sendChat(
               { sessionId, text: turn.wire, wake: route.kind === 'resume' },
               asMutationId(turn.deliveryId),
             )
           if (route.kind === 'session' || route.kind === 'resume') {
-            trace('web setting mode')
             runtime.ui.setPanelMode(sessionId, 'chat')
-            trace('web mode set')
             return chatSends.sendChat(
               {
                 sessionId,
