@@ -555,7 +555,11 @@ describe('record sources (POD-6920)', () => {
   // record bytes on Postgres are held by record-payloads.pg.test.ts (POD-7118).
   describe.runIf(testStoreEngine() !== 'pg')('one-row generation (POD-7091)', () => {
     const after = serverRecordBuilders()
-    const kinds = Object.keys(frozen.records) as (keyof typeof ROW_RECORDS)[]
+    const kinds = Object.keys(frozen.records) as (keyof typeof frozen.records &
+      keyof typeof ROW_RECORDS)[]
+    // Declared after the oracle was frozen (POD-6881): it was never a hand-written row
+    // builder to compare against; `store/notices.test.ts` and the isolation test cover it.
+    const AFTER_THE_ORACLE: readonly string[] = ['inboxNotice']
     const bytes = (rows: readonly unknown[]) => JSON.stringify(rows)
     const byId = (streamed: string): string =>
       JSON.stringify(
@@ -623,7 +627,9 @@ describe('record sources (POD-6920)', () => {
         (record) => record.kind,
       )
       expect(Object.keys(ROW_RECORDS).sort()).toEqual([...rowKinds].sort())
-      expect([...kinds].sort()).toEqual([...rowKinds].sort())
+      expect([...kinds].sort()).toEqual(
+        rowKinds.filter((kind) => !AFTER_THE_ORACLE.includes(kind)).sort(),
+      )
       for (const binding of Object.values(ROW_RECORDS)) {
         expect(after.get(binding.declaration.kind)).toBe(binding.builder)
         expect(RECORD_SOURCES[binding.declaration.kind]).toBe(binding.sources)

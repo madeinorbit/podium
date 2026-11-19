@@ -7,8 +7,10 @@
 import { asUserId, type UserId } from '@podium/model'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
 import { beforeEach, describe, expect, it } from 'vitest'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import { openMigratedTestDatabase } from '../test-support/migrated-database'
 import { stageASeam } from '../test-support/stage-a-seam'
+import { workspaceQueries } from './executor/sync-drizzle'
 import { type NewNotice, type NoticeRow, NoticesRepository } from './notices'
 
 const ALICE: UserId = asUserId('mem_alice')
@@ -45,7 +47,7 @@ function rowCount(): number {
 beforeEach(() => {
   seq = 0
   db = openMigratedTestDatabase()
-  notices = new NoticesRepository(stageASeam(db))
+  notices = new NoticesRepository(workspaceQueries(stageASeam(db), SELF_HOSTED_WORKSPACE_ID))
   captured = []
   // The change-log commit every write runs as (POD-6920), here recording the
   // rows each write returned; a write that changed nothing returns none.

@@ -906,7 +906,7 @@ const othersGroup: Group = {
       version: MODEL_CATALOG_VERSION,
     })
     await store.settings.recordSetupEnrollment('request', `${tag}-receipt`)
-    await store.secrets.set('apiKeys.openrouter', `${tag}-key`, AT)
+    await store.secrets.set('notifications.telegramBotToken', `${tag}-key`, AT)
     await store.sync.appendChanges(
       [{ entity: 'session', entityId: S1, op: 'upsert', payload: JSON.stringify({ tag }) }],
       1000,
@@ -959,11 +959,11 @@ const othersGroup: Group = {
     },
     secrets: {
       read: async ({ store }) => ({
-        key: await store.secrets.get('apiKeys.openrouter'),
+        key: await store.secrets.get('notifications.telegramBotToken'),
         presence: await store.secrets.presence(),
       }),
       write: async ({ store }) => {
-        await store.secrets.clear('apiKeys.openrouter')
+        await store.secrets.clear('notifications.telegramBotToken')
       },
     },
     sync: {
