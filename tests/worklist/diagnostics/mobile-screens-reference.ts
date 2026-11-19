@@ -143,17 +143,23 @@ function referenceDeck(
     for (const row of source.pendingInteractions ?? [])
       if (row.status === 'asked')
         interactions.set(row.sessionId, (interactions.get(row.sessionId) ?? 0) + 1)
+    const ancestors = new Map<string, string[]>()
+    for (const parent of rows)
+      for (const childId of parent.descendantIds) {
+        const chain = ancestors.get(childId) ?? []
+        chain.push(parent.issue.id)
+        ancestors.set(childId, chain)
+      }
     full = rows.map((row) => {
       const ids = new Set<string>([row.issue.id, ...row.descendantIds])
-      const leads = [...coordinated].filter((id) => ids.has(id))
       let actionableCount = 0,
         waitingAgentCount = 0,
         workingAgentCount = 0
       for (const id of ids) {
         const child = byRow.get(id)
         if (!child) continue
-        const delegated = leads.some(
-          (lead) => lead !== id && byRow.get(lead)?.descendantIds.includes(id),
+        const delegated = (ancestors.get(id) ?? []).some(
+          (lead) => ids.has(lead) && coordinated.has(lead),
         )
         const roleOf = (session: ReferenceState['sessions'][number]) =>
           delegated
@@ -373,7 +379,10 @@ export function expectMobileScreens(
     `${label}: deck order`,
   ).toEqual(rows.map((row) => row.issue.id))
   for (const [index, row] of rows.entries())
-    expect(details.rows[index]?.fields, `${label}: deck ${row.issue.id}`).toMatchObject({
+    expect(
+      details.rows[index]?.fields,
+      `${label}: deck ${row.issue.id}; source ${JSON.stringify({ stage: row.issue.stage, needsHuman: row.issue.needsHuman, coordinator: row.issue.coordinatorSessionId, dependents: row.issue.dependents, ownCrew: row.sessions.map((s) => ({ id: s.sessionId, issueId: s.issueId, phase: s.agentState?.phase, status: s.status, archived: s.archived })), defaultAttention: issueNeedsHuman(row.issue, row.sessions), indexedAttention: issueNeedsHuman(row.issue, row.sessions, new Map(issues.map((i) => [i.id, i]))) })}`,
+    ).toMatchObject({
       issue: fields(row.issue, true),
       depth: row.depth,
       descendantIds: row.descendantIds,
