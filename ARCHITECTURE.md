@@ -35,16 +35,24 @@ L0 — model
                                 deps: nothing — this is the leaf
 
 L1 — wire / commands / contracts
+  @podium/api-types             browser-safe
+                                deps: @podium/model, @podium/protocol
+  @podium/blob-store            node-only
+                                deps: @podium/model
   @podium/commands              browser-safe
                                 deps: @podium/model, @podium/protocol
   @podium/issue-client          node-only
                                 deps: @podium/commands, @podium/model, @podium/protocol
+  @podium/mobx-helpers          browser-safe
+                                deps: anything below its layer
   @podium/protocol              browser-safe
                                 deps: @podium/model
 
 L2 — kernels / ports
   @podium/harness               neutral, host capability — importable only by @podium/cli, @podium/daemon, @podium/mobile, scripts/
-                                deps: @podium/logger, @podium/model, @podium/protocol, @podium/runtime
+                                deps: @podium/commands, @podium/logger, @podium/model, @podium/protocol, @podium/runtime
+  @podium/identity              node-only
+                                deps: @podium/model
   @podium/pty                   node-only, host capability — importable only by @podium/daemon, scripts/
                                 deps: @podium/logger, @podium/model, @podium/protocol, @podium/runtime
   @podium/runtime               neutral
@@ -60,11 +68,13 @@ L3 — features / adapters
   @podium/client-core           browser-safe
                                 deps: anything below its layer
   @podium/client-graph          browser-safe
-                                deps: @podium/client-core, @podium/harness, @podium/model
+                                deps: @podium/client-core, @podium/harness, @podium/logger, @podium/mobx-helpers, @podium/model, @podium/protocol
   @podium/janitor               node-only
                                 deps: anything below its layer
   @podium/terminal-client-react browser-safe
                                 deps: anything below its layer
+  @podium/working-mark          browser-safe
+                                deps: nothing — this is the leaf
 
 L4 — app composition roots
   @podium/cli                   node-only
@@ -88,6 +98,7 @@ L5 — build / compose tier
 
 **Declared same-layer edges** — the only legal sideways imports:
 
+- `@podium/api-types → @podium/protocol`
 - `@podium/client-graph → @podium/client-core`
 - `@podium/commands → @podium/protocol`
 - `@podium/harness → @podium/runtime`
