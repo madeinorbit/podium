@@ -2,10 +2,10 @@
  * Every seam is exact and required, so a changed derivation cannot silently
  * turn a positive guard into an empty report. Both unit and browser probes use
  * these same counters around the real production computations. */
-import { fileURLToPath } from 'node:url'
+import { resolve } from 'node:path'
 
-const boardMeter = fileURLToPath(new URL('./issue-board.ts', import.meta.url))
-const headerMeter = fileURLToPath(new URL('./header.ts', import.meta.url))
+const boardMeter = resolve(import.meta.dirname, 'issue-board.ts')
+const headerMeter = resolve(import.meta.dirname, 'header.ts')
 
 function once(code: string, anchor: string, replacement: string, file: string): string {
   if (code.split(anchor).length !== 2)

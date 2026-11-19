@@ -62,6 +62,7 @@ it.each([
   const ctx = await startScenarioEngine(1),
     feeds = openFenceFeeds(ctx, 'pooled')
   const handle = createWorklistPool(feeds.rows.source, feeds.locals.source, {})
+  feeds.attachPool(handle.pool)
   await attachMobileScreens(handle.pool)
   try {
     for (const mode of ['full', 'working', 'needs-you'] as const) {
@@ -98,6 +99,7 @@ it.each([
 })
 
 async function compare(pool: MobxPool, store: Store, label: string, all: boolean) {
+  console.info('[phone gate]', label)
   const issues = store.issueProjections
   const roots = [
     ...new Set(
@@ -206,6 +208,7 @@ for (const scale of [1, 4] as const)
     const ctx = await startScenarioEngine(scale),
       feeds = openFenceFeeds(ctx, 'pooled')
     const handle = createWorklistPool(feeds.rows.source, feeds.locals.source, {})
+    feeds.attachPool(handle.pool)
     await attachMobileScreens(handle.pool)
     try {
       let positions = await compare(handle.pool, referenceState(ctx.engine), 'corpus', scale === 1)
