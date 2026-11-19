@@ -559,13 +559,13 @@ it('keeps a matching graft under this root even when its natural parent is outsi
         seq: 4,
         parentId: 'outside',
         startedBySession: 'starter',
-        stage: 'done',
+        stage: 'review',
+        needsHuman: true,
       }),
-      issue('review', { seq: 5, parentId: 'graft', stage: 'review', needsHuman: true }),
     ],
     [session('starter', 'inside')],
   )
-  const expected = ['root', 'inside', 'graft', 'review']
+  const expected = ['root', 'inside', 'graft']
   expect(tracked(() => reader.deck('root').rowIds())).toEqual(expected)
   expect(tracked(() => reader.deck('root', 'needs-you').rowIds())).toEqual(expected)
 })

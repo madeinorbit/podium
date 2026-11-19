@@ -1110,26 +1110,24 @@ export class MissionDeckModel {
   private readPaths() {
     const shape = requireLoaded(this.topology),
       members = requireLoaded(this.members)
-    const included = new Set<string>([this.id])
+    const matches = new Set<string>()
     for (const id of members) {
       if (!this.view.facts(id).visible || !this.model(id).matches(this.mode)) continue
-      // A graft can reach the same task along several paths. Its preferred
-      // parent may even lead outside this root. Keep every path to a match;
-      // selecting one parent can hide a matching branch of the visible tree.
-      const ancestors = [id]
-      while (ancestors.length) {
-        const current = ancestors.pop()!
-        if (included.has(current)) continue
-        included.add(current)
-        ancestors.push(...(shape.parents.get(current) ?? []))
-      }
+      matches.add(id)
     }
     const paths: string[][] = []
-    const walk = (id: string, path: readonly string[]) => {
-      if (path.includes(id) || !included.has(id) || !this.view.facts(id).visible) return
+    // A graft's preferred parent can lead outside this root. Filter the
+    // actual drawn paths, including their cycle fence, rather than walking a
+    // single parent chain or letting a cycle retain an unrelated branch.
+    const walk = (id: string, path: readonly string[]): boolean => {
+      if (path.includes(id) || !this.view.facts(id).visible) return false
       const next = [...path, id]
+      const start = paths.length
       paths.push(next)
-      for (const child of shape.children.get(id) ?? []) walk(child, next)
+      let matched = matches.has(id)
+      for (const child of shape.children.get(id) ?? []) matched = walk(child, next) || matched
+      if (!matched && id !== this.id) paths.length = start
+      return matched
     }
     walk(this.id, [])
     return paths
