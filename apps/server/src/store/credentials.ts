@@ -311,7 +311,8 @@ const legacySharedCandidates = prepared((db, t) =>
     .orderBy(
       asc(sql`substr(${t.credentials.legacyId}, 1, 8) = 'apiKeys.'`),
       asc(t.credentials.createdAt),
-      asc(t.credentials.legacyId),
+      // NULLS FIRST is SQLite's own order for ASC, written out for Postgres.
+      sql`${t.credentials.legacyId} ASC NULLS FIRST`,
       asc(t.credentials.id),
     )
     .prepare(),
@@ -444,7 +445,7 @@ const credentialsWithExpiry = prepared((db, t) =>
         ne(t.credentials.status, 'revoked'),
       ),
     )
-    .orderBy(asc(t.credentials.expiresAt), asc(t.credentials.id))
+    .orderBy(sql`${t.credentials.expiresAt} ASC NULLS FIRST`, asc(t.credentials.id))
     .prepare(),
 )
 
