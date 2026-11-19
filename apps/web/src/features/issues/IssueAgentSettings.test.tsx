@@ -1,3 +1,4 @@
+import '@/test-support/mock-store-action-ports'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { observable, runInAction } from 'mobx'
 import { afterEach, expect, it, vi } from 'vitest'

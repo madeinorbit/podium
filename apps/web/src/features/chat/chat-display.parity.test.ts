@@ -1,4 +1,5 @@
 import { DraftStore } from '@podium/client-core/conversation'
+import { fixtureRoot } from '@podium/client-core/test-support/command-hooks'
 import { fixtureUi } from '@podium/client-core/test-support/ui'
 import { TranscriptRevealActions } from '@podium/client-core/ui'
 import {
@@ -78,7 +79,7 @@ function fixture() {
       connectionHealth: () => ({ status: 'ok' }),
     } as never,
   })
-  const runtime = {
+  const runtime = fixtureRoot({
     ui: fixtureUi(),
     transcriptReveals: new TranscriptRevealActions(),
     drafts,
@@ -89,7 +90,7 @@ function fixture() {
       },
       getUserFocus: () => ({}),
     },
-  } as any
+  }) as any
   const conversation = createWebConversation(runtime, pool, id, {})
   const view = new ChatViewModel(conversation, false, undefined, () => {})
   view.open()

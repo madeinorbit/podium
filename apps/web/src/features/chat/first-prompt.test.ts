@@ -1,5 +1,6 @@
 import { DraftStore } from '@podium/client-core/conversation'
 import type { ClientRuntime } from '@podium/client-core/runtime-root'
+import { fixtureRoot } from '@podium/client-core/test-support/command-hooks'
 import { MobxPool } from '@podium/client-graph'
 import { here } from '@podium/client-graph/lookup'
 import { ingestMessageRecords } from '@podium/client-graph/message-models'
@@ -62,7 +63,7 @@ function fixture({ headless = false, initialRecords = [] as MessageRecordWire[] 
   })
   const cancel = vi.fn(async () => ({ deliveryStatus: 'cancelled' }))
   const lookup = vi.fn(async () => ({ records: [] }))
-  const runtime = {
+  const runtime = fixtureRoot({
     drafts,
     access: {
       hub: { subscribeTranscript: () => () => {} },
@@ -71,7 +72,7 @@ function fixture({ headless = false, initialRecords = [] as MessageRecordWire[] 
         messages: { cancel: { mutate: cancel }, records: { query: lookup } },
       },
     },
-  } as unknown as ClientRuntime<Trpc>
+  }) as unknown as ClientRuntime<Trpc>
   const conversation = createWebConversation(runtime, pool, id, {
     initialPendingText: 'Review the image',
   })

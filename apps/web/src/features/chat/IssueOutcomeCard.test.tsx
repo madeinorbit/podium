@@ -1,3 +1,4 @@
+import '@/test-support/mock-store-action-ports'
 // @vitest-environment happy-dom
 import type { SessionIssueOutcome } from '@podium/client-core/values'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'

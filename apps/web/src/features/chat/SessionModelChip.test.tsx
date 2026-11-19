@@ -1,3 +1,4 @@
+import '@/test-support/mock-store-action-ports'
 import { asSessionId } from '@podium/model/browser'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { runInAction } from 'mobx'

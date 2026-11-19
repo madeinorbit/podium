@@ -1,3 +1,4 @@
+import '@/test-support/mock-store-action-ports'
 // @vitest-environment happy-dom
 
 import { MobxPool } from '@podium/client-graph'
