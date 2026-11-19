@@ -132,6 +132,20 @@ async function ctxFor(
   opts: { ownership?: MachineOwnershipIndex; visibility?: SessionVisibility } = {},
 ): Promise<SessionCommandCtx> {
   const modules = o.reg.modules
+  const humanId =
+    principal.kind === 'user'
+      ? principal.user
+      : principal.kind === 'agent'
+        ? principal.onBehalfOf
+        : undefined
+  if (humanId === COLLEAGUE && !(await o.store.users.get(COLLEAGUE)))
+    await memberFacts(o.store).create({
+      id: COLLEAGUE,
+      displayName: 'Colleague',
+      role: 'member',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      disabledAt: null,
+    })
   const deps: SessionCommandDeps = {
     sessions: () => sessionCommandServices(modules),
     stageAttachment: (input) => modules.sessions.runtimeGateway.stageAttachment(input),
@@ -665,7 +679,7 @@ describe('draft launch compensation', () => {
       )
   })
 
-  it('joins the task that owns the cwd only for a starter who may write to it', async () => {
+  it('joins a shared task worktree for either member while each session keeps its starter', async () => {
     const o = await makeOracle()
     await provisionHost(o)
     await colleagueConnectionOnHost(o)
@@ -696,9 +710,15 @@ describe('draft launch compensation', () => {
     )
 
     const colleagueTask = await o.reg.modules.sessions.readSessionIssueId(colleague.sessionId)
-    expect(colleagueTask).not.toBe(task.id)
-    expect((await o.reg.issues.reports.get(colleagueTask ?? ''))?.draft).toBe(true)
+    expect(colleagueTask).toBe(task.id)
     expect(await o.reg.modules.sessions.readSessionIssueId(owner.sessionId)).toBe(task.id)
+    expect(await o.reg.modules.sessions.sessionOwner(colleague.sessionId)).toEqual({
+      owner: COLLEAGUE,
+    })
+    expect(await o.reg.modules.sessions.sessionOwner(owner.sessionId)).toEqual({
+      owner: firstAdminMemberId(),
+    })
+    expect((await o.reg.issues.reports.list('/p')).filter((issue) => issue.draft)).toEqual([])
   })
 
   it('finds the task that owns a cwd only among tasks homed on the starting machine', async () => {
@@ -723,7 +743,7 @@ describe('draft launch compensation', () => {
     expect(await access.soleOwnerForCwd('/p/.worktrees/a', asMachineId('machine-b'))).toBeNull()
   })
 
-  it("gives a non-admin fresh resume in someone else's task worktree a draft of its own", async () => {
+  it('resumes into a shared task worktree without transferring the session to its task creator', async () => {
     const o = await makeOracle()
     await provisionHost(o)
     await colleagueConnectionOnHost(o)
@@ -754,9 +774,11 @@ describe('draft launch compensation', () => {
     )
 
     const joined = await o.reg.modules.sessions.readSessionIssueId(resumed.sessionId)
-    expect(joined).not.toBe(task.id)
-    expect((await o.reg.issues.reports.get(joined ?? ''))?.draft).toBe(true)
-    expect((await o.store.issues.getIssue(joined ?? ''))?.ownerUserId).toBe(COLLEAGUE)
+    expect(joined).toBe(task.id)
+    expect(await o.reg.modules.sessions.sessionOwner(resumed.sessionId)).toEqual({
+      owner: COLLEAGUE,
+    })
+    expect((await o.reg.issues.reports.list('/p')).filter((issue) => issue.draft)).toEqual([])
   })
 
   it('starts a fresh resume with no authenticated owner task-less', async () => {

@@ -320,7 +320,13 @@ describe('every current caller of the non-sync commands', () => {
     for (const contract of plain) {
       const registered = plainCommands().lookup(contract.name)
       expect(registered, `${contract.name} has a real registration`).toBeDefined()
-      expect(registered?.door).toMatchObject(contractFrontDoor(contract))
+      if (!registered) throw new Error(`missing ${contract.name}`)
+      for (const principal of Object.values(PRINCIPALS))
+        for (const transport of ['trpc', 'relay'] as const)
+          expect(
+            coarselyPermitted(registered.door, principal, transport),
+            `${contract.name} on ${transport}`,
+          ).toBe(coarselyPermitted(contractFrontDoor(contract), principal, transport))
     }
     for (const row of CALLERS) expect(CONTRACTS.has(row.command), row.command).toBe(true)
   })

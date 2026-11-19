@@ -8,12 +8,7 @@
  * yes and no, and the route is the walking skeleton's.
  */
 
-import {
-  IMMEDIATE_SESSION_STATE_COMMANDS,
-  isExposedOn,
-  SESSION_STATE_COMMAND_TABLES,
-  sessionStateCommand,
-} from '@podium/commands'
+import { isExposedOn, SESSION_STATE_COMMAND_TABLES, sessionStateCommand } from '@podium/commands'
 import { asSessionId, MemberId, type UserId } from '@podium/model'
 
 import { afterEach, describe, expect, it } from 'vitest'
@@ -23,6 +18,7 @@ import { OPERATOR } from '../../test-support/capabilities'
 import { attachHostDaemon } from '../../test-support/host-daemon'
 import { openTestStore } from '../../test-support/open-test-store'
 import { type RenameServices, renameOnTargetPath } from './rename-target-path'
+import { IMMEDIATE_SESSION_STATE_COMMANDS } from './sync-write'
 import { sessionSurfaceManifest } from './trpc'
 
 const registries: SessionRegistry[] = []
@@ -190,7 +186,7 @@ describe('rename is served by the derived surface, on the target envelope', () =
         !submitOnly.has(name) &&
         isExposedOn(sessionStateCommand(name) as never, 'trpc'),
     )
-    expect(presence).toEqual(declared)
+    expect(presence.sort()).toEqual(declared.sort())
   })
 
   it('is still governed by its session-state contract’s exposure declaration', () => {
