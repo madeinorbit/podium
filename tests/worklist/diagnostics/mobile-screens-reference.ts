@@ -216,7 +216,9 @@ function referenceDeck(
   // delegate asks, while delegate exceptions still reach the human. The old
   // pure deck helper predates that policy and cannot select the narrowed view.
   const matches = new Set<string>()
-  const bySession = new Map(sessions.map((session) => [session.sessionId, session]))
+  // A coordinator may be headless and absent from the phone's drawn crew.
+  // Its live role still governs every visible delegate on the task.
+  const bySession = new Map(source.sessions.map((session) => [session.sessionId, session]))
   const pending = new Map<string, number>()
   for (const interaction of source.pendingInteractions ?? [])
     if (interaction.status === 'asked')
