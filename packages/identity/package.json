@@ -46,5 +46,8 @@
     "@podium/model": "workspace:*",
     "better-auth": "1.7.4",
     "drizzle-orm": "1.0.0-rc.4"
+  },
+  "devDependencies": {
+    "vitest": "5.0.0-beta.6"
   }
 }

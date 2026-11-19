@@ -44,12 +44,13 @@
   },
   "devDependencies": {
     "@libsql/client": "^0.18.0",
-    "@types/ws": "^8.5.13",
-    "typescript": "^6.0.3",
-    "vitest": "5.0.0-beta.6",
     "@podium/api-types": "workspace:*",
-    "happy-dom": "^20.10.2",
     "@podium/client-core": "workspace:*",
-    "@xterm/addon-fit": "^0.10.0"
+    "@types/ws": "^8.5.13",
+    "@xterm/addon-fit": "^0.10.0",
+    "drizzle-kit": "1.0.0-rc.4",
+    "happy-dom": "^20.10.2",
+    "typescript": "^6.0.3",
+    "vitest": "5.0.0-beta.6"
   }
 }

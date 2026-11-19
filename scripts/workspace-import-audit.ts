@@ -15,8 +15,8 @@
  *   bun --conditions=@podium/source scripts/workspace-import-audit.ts --resolve
  */
 
-import { builtinModules } from 'node:module'
 import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs'
+import { builtinModules } from 'node:module'
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -94,6 +94,50 @@ export interface WorkspaceImportAudit {
   thirdPartyDeclarationViolations: AuditViolation[]
 }
 
+/** A declared source-condition target may live outside src/ (test support).
+ * It must still resolve to this checkout, to that exact source file. */
+export function sourceResolutionMatches(
+  resolved: string,
+  packageRoot: string,
+  manifest: PackageManifest,
+  specifier: string,
+): boolean {
+  if (!inside(resolved, packageRoot)) return false
+  if (inside(resolved, join(packageRoot, 'src'))) return true
+  const key =
+    specifier === manifest.name ? '.' : `.${specifier.slice((manifest.name ?? '').length)}`
+  const exports = manifest.exports
+  if (!exports || typeof exports === 'string') return false
+  let entry = exports[key]
+  let capture = ''
+  if (entry === undefined)
+    for (const [pattern, value] of Object.entries(exports)) {
+      const star = pattern.indexOf('*')
+      if (
+        star < 0 ||
+        !key.startsWith(pattern.slice(0, star)) ||
+        !key.endsWith(pattern.slice(star + 1))
+      )
+        continue
+      capture = key.slice(
+        star,
+        pattern.length - star - 1 ? -(pattern.length - star - 1) : undefined,
+      )
+      entry = value
+      break
+    }
+  if (!entry || typeof entry !== 'object') return false
+  const declared = Reflect.get(entry, '@podium/source')
+  if (typeof declared !== 'string') return false
+  const target = resolve(packageRoot, declared.replaceAll('*', capture))
+  return (
+    inside(target, packageRoot) &&
+    !inside(target, join(packageRoot, 'dist')) &&
+    /\.[cm]?[jt]sx?$/.test(target) &&
+    resolved === target
+  )
+}
+
 function readManifest(path: string): PackageManifest {
   return JSON.parse(readFileSync(path, 'utf8')) as PackageManifest
 }
@@ -143,7 +187,7 @@ function workspacePackageName(specifier: string): string | null {
 export function extractWorkspaceSpecifiers(source: string): string[] {
   const stripped = stripComments(source)
   const specifiers = new Set<string>()
-  const moduleName = '(@podium\/[A-Za-z0-9._/-]+)'
+  const moduleName = '(@podium/[A-Za-z0-9._/-]+)'
   const patterns = [
     new RegExp(
       `\\b(?:import|export)\\s+[^\x27\x22;]+?\\s+from\\s*[\x27\x22]${moduleName}[\x27\x22]`,
@@ -327,13 +371,13 @@ export function auditWorkspaceImports(
         try {
           const resolved = realpathSync(Bun.resolveSync(specifier, dirname(absoluteFile)))
           const expected = realpathSync(target.dir)
-          if (!inside(resolved, expected) || !inside(resolved, join(expected, 'src'))) {
+          if (!sourceResolutionMatches(resolved, expected, target.manifest, specifier)) {
             resolutionViolations.push({
               file,
               specifier,
               message:
                 `${file} resolves ${specifier} to ${resolved}; expected @podium/source ` +
-                `inside ${join(expected, 'src')}`,
+                `inside ${join(expected, 'src')} or its declared source export`,
             })
           }
         } catch (error) {
@@ -425,9 +469,7 @@ function extractModuleSpecifiers(source: string, file: string): string[] {
     const specifier = match[1]
     if (specifier) specifiers.add(specifier)
   }
-  for (const match of stripped.matchAll(
-    /\bmock\.module\s*\(\s*['"]([^'"]+)['"]/g,
-  )) {
+  for (const match of stripped.matchAll(/\bmock\.module\s*\(\s*['"]([^'"]+)['"]/g)) {
     const specifier = match[1]
     if (specifier) specifiers.add(specifier)
   }
