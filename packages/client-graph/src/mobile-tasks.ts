@@ -9,13 +9,21 @@ import {
 } from '@podium/client-core/values'
 import { companion, lazy } from '@podium/mobx-helpers'
 import { asIssueId, ISSUE_STATUS_LABELS, isFinished } from '@podium/model/browser'
-import { action, compareShallow, compareStructural, observable, observableRef } from 'mobx'
+import {
+  action,
+  compareShallow,
+  compareStructural,
+  observable,
+  observableRef,
+  reaction,
+} from 'mobx'
 import { boardRefreshing } from './issue-board-layout'
 import type { BoardListRow, BoardQuery } from './issue-board-schema'
 import { omitGone } from './lookup'
 import { MOBILE_TASK_STAGES, type MobileTasksOptions } from './mobile-screens-schema'
 import type { IssueModel, ModelOf } from './models'
 import type { MobxPool } from './pool'
+import { createQueryResult, mapQueryResult } from './query-result'
 import { LOADING, type Loaded } from './worklist/rollup'
 
 export type MobileTaskIssue = ModelOf['issue'] &
@@ -212,29 +220,81 @@ class BoardTask {
 
 /** One lane of the board: its own tasks and the rows drawn for them. */
 class BoardLane {
+  private readonly results: Record<IssuesOrdering, ReturnType<typeof createQueryResult<string>>>
+
   constructor(
     readonly stage: Stage,
     private readonly board: MobileTasksBoard,
-  ) {}
-
-  /** The lane's own tasks in board order; the proposals lane also holds every
-   * promoted proposal. */
-  @lazy({ equals: compareShallow }) get rootIds(): readonly string[] {
-    const roots = this.board.ordered(
-      this.board.rootIds.filter((id) => this.board.task(id).stage === this.stage),
-    )
-    if (this.stage !== 'proposed' || !this.board.promotedIds.length) return roots
-    // The old phone promoted proposals in descending sequence order before the
-    // stable board order, so equal created/updated dates keep that order.
-    const promoted = [...this.board.promotedIds].sort((a, b) => {
-      const left = this.board.position(a)!,
-        right = this.board.position(b)!
-      return left.priority - right.priority || right.seq - left.seq
-    })
-    return this.board.ordered([...roots, ...promoted])
+  ) {
+    const result = (ordering: IssuesOrdering) =>
+      createQueryResult<string>({
+        name: `PhoneBoard.${stage}.${ordering}`,
+        ids: () => [...board.rootIds, ...(stage === 'proposed' ? board.promotedIds : [])],
+        has: (id) => board.roots.has(id) || (stage === 'proposed' && board.task(id).promoted),
+        read: (id) => {
+          try {
+            return board.task(id).stage === stage &&
+              (board.roots.has(id) || (stage === 'proposed' && board.task(id).promoted))
+              ? id
+              : undefined
+          } catch (error) {
+            if (error === LOADING) return LOADING
+            throw error
+          }
+        },
+        order: (id) => {
+          const row = board.position(id, ordering)
+          return JSON.stringify(
+            row
+              ? [
+                  row.priority,
+                  row.seq,
+                  ordering === 'created' ? row.createdAt : row.updatedAt,
+                  board.task(id).promoted,
+                ]
+              : [0, 0, '', false],
+          )
+        },
+        compareOrder: (a, b) => {
+          const left = JSON.parse(a) as [number, number, string, boolean]
+          const right = JSON.parse(b) as typeof left
+          return ordering === 'priority'
+            ? left[0] - right[0] || left[1] - right[1]
+            : right[2].localeCompare(left[2]) ||
+                Number(left[3]) - Number(right[3]) ||
+                (left[3] && right[3] ? right[1] - left[1] : 0)
+        },
+        subscribe: (changed) =>
+          reaction(
+            () => [board.rootIds, stage === 'proposed' ? board.promotedIds : undefined],
+            () => changed(undefined),
+            { equals: compareShallow },
+          ),
+      })
+    this.results = {
+      priority: result('priority'),
+      created: result('created'),
+      updated: result('updated'),
+    }
   }
 
-  @lazy({ equals: compareShallow }) get rows(): readonly BoardListRow[] {
+  /** Native demand-scoped results update the changed task's ordering path.
+   * A stage change does not filter and sort every root in every lane. */
+  @lazy get rootIds(): readonly string[] {
+    const ids = this.results[this.board.ordering].get()
+    if (ids === LOADING) throw LOADING
+    return ids ?? []
+  }
+
+  dispose(): void {
+    for (const result of Object.values(this.results)) result.dispose()
+  }
+
+  @lazy get rows(): readonly BoardListRow[] {
+    // Closed roots map lazily over the native result. The consumer chooses
+    // which row positions to paint; publishing a lane visits none of them.
+    if (this.board.expanded.length === 0)
+      return mapQueryResult(this.rootIds, (id) => this.board.task(id).row)
     const rows: BoardListRow[] = []
     const path = new Set<string>()
     const emit = (id: string) => {
@@ -513,6 +573,10 @@ export class MobileTasksBoard {
       if (error === LOADING) return LOADING
       throw error
     }
+  }
+
+  dispose(): void {
+    for (const lane of this.lanes) lane.dispose()
   }
 
   /** A separate question: board filters and folds never wake the banner. */
