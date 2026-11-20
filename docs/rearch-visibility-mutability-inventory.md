@@ -28,7 +28,7 @@ disappearance a scoped feed must be able to signal.
 
 ## What POD-1077 should read off this
 
-1. **50 of 88 classes have mutable visibility.** This is the majority of
+1. **51 of 89 classes have mutable visibility.** This is the majority of
    the matrix, which is the quantitative form of "the machinery is load-bearing
    from day one, not inert" (readiness header decision).
 2. **The `change-log` row is the one the whole inventory is for.** Its delivery
@@ -88,6 +88,7 @@ disappearance a scoped feed must be able to signal.
 | `pspec-component` | Project spec component (pspec v1) | owned-compute | `grant-see` `grant-use` `revoke` `transfer-owner` | PHASE 2 MUST HANDLE: like every per-machine fact, the whole spec tree appears or disappears with one machine grant — no per-component act changes who can see it. |
 | `harness-discovery-cache` | Harness discovery cache (`<stateDir>/discovery.db`) | owned-compute | `grant-see` `revoke` `transfer-owner` | PHASE 2 MUST HANDLE: appears and disappears with the machine grant, like every other per-machine fact. |
 | `harness-hook-settings` | Harness hook settings (`<stateDir>/hooks/`) | owned-compute | `grant-see` `grant-manage` `revoke` `transfer-owner` | PHASE 2 MUST HANDLE: follows the machine, and `manage` rather than `see` is the verb that matters — editing hooks changes what every agent on that host does. |
+| `managed-credentials` | Credentials (`credentials`, `credential_secrets`; formerly `accounts`) | secret | `grant-use` `grant-manage` `revoke` | A grant makes the record (never its value) appear in the grantee’s `credentials.list`; not replicated, so no feed signal is needed. |
 | `approval-requests` | Approval requests: the decision on an `approval` effect record (`decision`, the record `revision`) | personal | `share` `unshare` `revoke` | PHASE 2 MUST HANDLE: follows its target. |
 | `pending-interactions` | Pending interactions | personal | `share` `unshare` `revoke` | PHASE 2 MUST HANDLE: follows its session. |
 | `automations-and-runs` | Automations / runs | personal | `share` `unshare` `revoke` `account-disable` | PHASE 2 MUST HANDLE: and note that disabling the creator’s ACCOUNT must stop the automation — live intersection, not a stored capability. |
@@ -126,7 +127,6 @@ disappearance a scoped feed must be able to signal.
 | `preferences-personal-keys` | Preferences — PERSONAL keys (session defaults, sidebar, autoContinue, `telegramChatId`, ntfy topic, …) | per-user-state | — | Non-grantable by construction, so no verb can change who sees it. The only lifecycle event is the owner’s account being removed. |
 | `preferences-instance-keys` | Preferences — INSTANCE / deployment keys (instance-level settings, feature flags) | deployment-substrate | — | Tenant-visible from creation. Note the RATCHET: moving a class INTO deployment-substrate, or widening a grant verb set, requires an ADR 1 amendment (D9.3) — privacy is free, exposure is reviewed. |
 | `server-owned-secrets` | Server-owned secrets (`apiKeys.*`, `integrations.linearApiKey`, `notifications.telegramBotToken`) | secret | — | Never replicated, so replica visibility cannot change. What multi-user changes is WHO MAY ROTATE: management is ADMIN-GRADE once there is more than one human (D15) — "any authenticated principal may replace the org’s provider key" is a privilege escalation with a billing blast radius. |
-| `managed-credentials` | Managed credentials / accounts (`accounts`) | secret | — | Values never replicate; `manage` is admin-grade. |
 | `config-features` | Operator `config.features` (feature flags) | deployment-substrate | — | Tenant-visible from creation. |
 | `settings-audit-trail` | Settings audit trail (`settings_audit_events`) — who changed what, and who was refused | secret | — | Never replicated and not grantable, so no principal’s view of it can change. What multi-user changes is WHO MAY READ IT, which is admin-grade and is the open item below rather than a mutability event. |
 | `advisory-locks` | Advisory locks (`locks`, `lock_waiters`) | deployment-substrate | — | Tenant-visible from creation — that is the point of a coordination name. |
@@ -146,6 +146,7 @@ disappearance a scoped feed must be able to signal.
 | `per-user-client-session` | Per-user `client_session` (a device that resolves to a user) | per-user-state | — | Non-grantable by construction, so no verb can change who sees it. The only lifecycle event is the owner’s account being removed. |
 | `telegram-chat-binding` | Telegram chat binding (`chatId → UserId`) | per-user-state | — | Non-grantable by construction, so no verb can change who sees it. The only lifecycle event is the owner’s account being removed. |
 | `recap-watermark` | Recap watermark (`recap_watermarks`) — per-READER transcript cursor | per-user-state | — | Non-grantable by construction, so no verb can change who sees it. The only lifecycle event is the owner’s account being removed. |
+| `notices` | Recipient notice inbox (credential management design section 13) | per-user-state | — | Non-grantable by construction, so no verb can change who sees it. The only lifecycle event is the owner’s account being removed. |
 | `per-user-state-family` | Per-user state family (generic) | per-user-state | — | Non-grantable by construction, so no verb can change who sees it. The only lifecycle event is the owner’s account being removed. |
 
 ## What is deliberately NOT decided here
