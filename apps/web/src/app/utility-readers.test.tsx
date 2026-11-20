@@ -8,10 +8,12 @@ import type { SessionView } from '@podium/client-core/session-values'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import { createSubscriptionStore } from '@podium/client-core/test-support/local-store'
 import type { IssueNavigationModel } from '@podium/client-core/values'
+import { liveFixture } from '@podium/client-graph/live-fixture'
 import { MobxPool } from '@podium/client-graph/pool'
+import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import { asIssueId, asSessionId, asUserId, type TaskCostWire } from '@podium/model/browser'
 import { act, cleanup, render, renderHook } from '@testing-library/react'
-import type { ReactNode } from 'react'
+import { type ReactNode, useMemo, useSyncExternalStore } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { MessageLedgerView } from '@/features/messages/MessageLedgerView'
 import { UsageView } from '@/features/usage/UsageView'
@@ -34,6 +36,10 @@ vi.mock('../../../../packages/client-core/src/runtime-root/root', () => ({
 }))
 vi.mock('@/app/store-worklist-pool', () => ({
   useWorklistPool: () => fixture.pool,
+  useWorklistPoolProjection: <T,>(read: (pool: MobxPool) => T) => {
+    const projection = useMemo(() => createPoolProjection(fixture.pool!, read), [read])
+    return useSyncExternalStore(projection.subscribe, projection.getSnapshot)
+  },
 }))
 
 afterEach(() => {
@@ -150,12 +156,14 @@ function setup() {
   return { reads, Wrapper, prove }
 }
 
-it('UsageView acquires the existing runtime API without a snapshot subscription', async () => {
+it('UsageView consumes pushed account usage and requests its ledger without a snapshot subscription', async () => {
   const ctx = setup()
+  const live = liveFixture(fixture.pool!)
   const view = render(<UsageView onClose={() => {}} />, { wrapper: ctx.Wrapper })
+  act(() => live.usage({ hostname: 'synthetic', sampledAt: '2026-11-01T00:00:00Z', buckets: [] }))
   await ctx.prove()
   expect(view.getByTestId('usage-sheet').textContent).toContain('No token usage recorded yet.')
-  expect(ctx.reads.usage).toHaveBeenCalledTimes(1)
+  expect(ctx.reads.usage).not.toHaveBeenCalled()
   expect(ctx.reads.quota).toHaveBeenCalledExactlyOnceWith({})
   expect(ctx.reads.tasks).toHaveBeenCalledTimes(1)
 })

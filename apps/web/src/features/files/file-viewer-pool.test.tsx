@@ -13,10 +13,10 @@ import {
 import type { FileScope } from '@podium/client-core/values'
 import { MobxPool } from '@podium/client-graph'
 import { omitGone } from '@podium/client-graph/lookup'
-import { attachPreferenceSource, preferenceSource } from '@podium/client-graph/preference-source'
-import { LOADING } from '@podium/client-graph/worklist/rollup'
+import { attachPreferenceSource } from '@podium/client-graph/preference-source'
 import { asArtifactId, asIssueId, asSessionId, asUserId } from '@podium/model'
 import { act, cleanup, fireEvent, render, waitFor, within } from '@testing-library/react'
+import { observable, runInAction } from 'mobx'
 import { afterEach, expect, it, vi } from 'vitest'
 import { attachWorklistPool, useWorklistPool } from '@/app/store-worklist-pool'
 import {
@@ -76,12 +76,12 @@ const counts = () =>
     )
 
 it('compares all file modes through declared, batched preference rows, including corrupt and missing maps', async () => {
-  const values = new Map<string, string>(),
+  const values = observable.map<string, string>(),
     listeners = new Set<(keys: ReadonlySet<string>) => void>()
   const port = {
     get: (key: string) => values.get(key) ?? null,
     set: (key: string, value: string | null) => {
-      value === null ? values.delete(key) : values.set(key, value)
+      runInAction(() => (value === null ? values.delete(key) : values.set(key, value)))
       for (const wake of listeners) wake(new Set([key]))
     },
     subscribe: (wake: (keys: ReadonlySet<string>) => void) => {
@@ -92,7 +92,7 @@ it('compares all file modes through declared, batched preference rows, including
     },
     hydrate: async () => {},
     clear: (key: string) => {
-      values.delete(key)
+      runInAction(() => values.delete(key))
       for (const wake of listeners) wake(new Set([key]))
     },
   }
@@ -107,11 +107,15 @@ it('compares all file modes through declared, batched preference rows, including
   )
   try {
     attachPreferenceSource(pool, ui)
+    // The routed UI maps are the current owner, so absent saved values are
+    // answered as null on the first paint without a loading/fetch round trip.
     for (const key of FILE_VIEWER_PREFERENCE_KEYS)
-      expect(omitGone(pool.row('preference', key))).toBe(LOADING)
-    expect(checkFileViewerPreferences(pool, ui, tabs)).toMatchObject({ pending: 4, positions: 604 })
-    await Promise.resolve()
-    expect(preferenceSource(pool)?.counts ?? null).toMatchObject({ batches: 1, loaded: 4 })
+      expect(omitGone(pool.row('preference', key))).toMatchObject({ key, value: null })
+    expect(checkFileViewerPreferences(pool, ui, tabs)).toMatchObject({
+      differences: 0,
+      pending: 0,
+      positions: 604,
+    })
     for (const map of [
       null,
       '{corrupt',

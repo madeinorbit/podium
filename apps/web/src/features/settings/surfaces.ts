@@ -74,9 +74,6 @@ export const PAGE_SETTINGS_TIER = {
 } as const
 
 export const NOT_ON_THIS_SCREEN: Readonly<Record<string, string>> = {
-  'apiKeys.openrouter': 'Retired: migrated into personal credentials on Credentials.',
-  'apiKeys.anthropic': 'Retired: migrated into personal credentials on Credentials.',
-  'apiKeys.openai': 'Retired: migrated into personal credentials on Credentials.',
   ...Object.fromEntries(
     ['accountId', 'credentialId', 'model', 'effort', 'harness'].map((leaf) => [
       `roles.shipwright.${leaf}`,

@@ -64,10 +64,8 @@ it('uses the existing messages.reply endpoint and keeps the session draft throug
       pool,
       sessionId: asSessionId('seat'),
       runtime: {
-        access: {
-          trpc: { messages: { show: { query: show }, reply: { mutate } } },
-          replica: { row: () => undefined },
-        },
+        api: { messages: { show: { query: show }, reply: { mutate } } },
+        replica: { row: () => undefined },
       },
     } as never,
     false,
