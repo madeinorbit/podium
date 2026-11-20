@@ -1940,6 +1940,12 @@ type Input_files_write = ({
     path: string;
     sessionId: string;
 });
+type Input_harnessInstalls_action = {
+    action: "back" | "changes" | "check" | "home-info" | "install" | "pause" | "remove" | "remove-changes" | "remove-home" | "resume" | "take-settings";
+    confirmedConversations?: string[] | undefined;
+    harness: "claude-code" | "codex" | "cursor" | "grok" | "opencode" | "pi";
+    machineId: string;
+};
 type Input_interactions_answer = {
     answer?: undefined | z.objectInputType<{
         kind: z.ZodString;
@@ -5895,6 +5901,9 @@ type Output_machines_applyUpdate = {
                             version: string;
                         };
                         failingSince?: string | undefined;
+                        installing?: undefined | {
+                            version?: string | undefined;
+                        };
                         lastCheckAt?: string | undefined;
                         lastError?: undefined | {
                             at: string;
@@ -5904,6 +5913,7 @@ type Output_machines_applyUpdate = {
                         latest?: string | undefined;
                         paused: boolean;
                         previousVersion?: string | undefined;
+                        removingAt?: string | undefined;
                     };
                 };
                 installed: boolean | null;
@@ -5928,12 +5938,12 @@ type Output_machines_applyUpdate = {
                     };
                     state: "in" | "out" | "unknown";
                 }[];
-                missingPrerequisites?: undefined | {
-                    executable: string;
-                    message: string;
-                    neededFor: "passed-in-credential";
-                    package: string;
-                }[];
+                management?: undefined | {
+                    homeVariable?: string | undefined;
+                    installable: boolean;
+                    reason?: string | undefined;
+                    updateNotice?: string | undefined;
+                };
                 path?: string | undefined;
                 probeError?: undefined | {
                     reason: "timed-out";
@@ -7173,6 +7183,13 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
                 sha?: string;
             };
             output: OpResult;
+            meta: unknown;
+        }>;
+    };
+    "harnessInstalls": {
+        "action": TRPC.TRPCMutationProcedure<{
+            input: Input_harnessInstalls_action;
+            output: Protocol.HarnessActionResult;
             meta: unknown;
         }>;
     };
