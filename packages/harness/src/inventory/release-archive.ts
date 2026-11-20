@@ -89,6 +89,36 @@ export async function extractReleaseDirectory(
   }
 }
 
+/** Keep an archive with several root entries together in one fresh bundle. */
+export async function extractReleaseBundle(
+  archive: string,
+  format: ReleaseArchiveFormat,
+  dir: string,
+  bundle: string,
+): Promise<void> {
+  safeName(bundle)
+  if (bundle.includes('/')) invalid()
+  if ((await stat(archive)).size > MAX_ARCHIVE_BYTES) invalid()
+  const entries = await archiveEntries(await readFile(archive), format)
+  const names = new Set<string>()
+  for (const entry of entries) {
+    const name = entry.name.replace(/\/$/, '')
+    if (names.has(name)) invalid()
+    names.add(name)
+  }
+  if (!entries.some((entry) => !entry.directory)) invalid()
+  const root = join(dir, bundle)
+  await mkdir(root, { mode: 0o755 })
+  for (const entry of entries) {
+    const path = join(root, entry.name)
+    if (entry.directory) await mkdir(path, { recursive: true, mode: 0o755 })
+    else {
+      await mkdir(dirname(path), { recursive: true, mode: 0o755 })
+      await writeFile(path, entry.bytes, { flag: 'wx', mode: entry.executable ? 0o755 : 0o644 })
+    }
+  }
+}
+
 async function archiveEntries(
   archive: Buffer,
   format: ReleaseArchiveFormat,

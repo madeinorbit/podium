@@ -13,6 +13,7 @@ import type { AddressInfo } from 'node:net'
 import { join } from 'node:path'
 import type { BuiltinHarnessKind } from '@podium/model'
 import { claudeVendorFixture } from '../adapters/claude-code/install.test-support.js'
+import { codexVendorFixture } from '../adapters/codex/install.test-support.js'
 import { cursorVendorFixture } from '../adapters/cursor/install.test-support.js'
 import { grokVendorFixture } from '../adapters/grok/install.test-support.js'
 import { opencodeVendorFixture } from '../adapters/opencode/install.test-support.js'
@@ -227,6 +228,7 @@ export const fakeVendorFixture: VendorFixture = {
  */
 export const MANAGED_INSTALL_VENDOR_FIXTURES: Partial<Record<BuiltinHarnessKind, VendorFixture>> = {
   'claude-code': claudeVendorFixture,
+  codex: codexVendorFixture,
   cursor: cursorVendorFixture,
   grok: grokVendorFixture,
   opencode: opencodeVendorFixture,

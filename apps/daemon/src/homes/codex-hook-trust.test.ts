@@ -82,6 +82,38 @@ describe('CodexHookTrust', () => {
     expect(calls).toHaveLength(1)
   })
 
+  it('re-reads once after a managed version update and caches later launches and restarts', async () => {
+    const old = {
+      ...INSTALL_A,
+      executable: '/state/harnesses/codex/1-0.169.0/package/bin/codex',
+      provenance: 'managed' as const,
+    }
+    const updated = {
+      ...old,
+      executable: '/state/harnesses/codex/2-0.171.0/package/bin/codex',
+      version: 'codex-cli 0.171.0',
+      generation: 2,
+    }
+    let hash = 'sha256:old'
+    const first = trust(async () => ({ [KEY]: hash }))
+    expect(await first.cache.trustFor(old, FLAGS)).toEqual({ [KEY]: hash })
+    hash = 'sha256:new'
+    const launches = await Promise.all([
+      first.cache.trustFor(updated, FLAGS),
+      first.cache.trustFor(updated, FLAGS),
+    ])
+    expect(launches).toEqual([{ [KEY]: hash }, { [KEY]: hash }])
+    expect(await first.cache.trustFor(updated, FLAGS)).toEqual({ [KEY]: hash })
+    expect(first.calls).toEqual([old.version, updated.version])
+    expect(first.cleaned).toHaveLength(2)
+
+    const restarted = trust(async () => {
+      throw new Error('must use the persisted cache')
+    })
+    expect(await restarted.cache.trustFor(updated, FLAGS)).toEqual({ [KEY]: hash })
+    expect(restarted.calls).toEqual([])
+  })
+
   it('a failed or empty probe gives no trust and is asked again next time', async () => {
     let attempt = 0
     const { cache, calls, cleaned } = trust(async (): Promise<Record<string, string>> => {

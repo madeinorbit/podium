@@ -19,10 +19,67 @@ import {
 import piZipFixtures from '../adapters/pi/fixtures/archives.json'
 import { PI_FIXTURE_FILES, piTarFixture } from '../adapters/pi/install.test-support.js'
 import {
+  extractReleaseBundle,
   extractReleaseDirectory,
   extractReleaseFile,
   releaseArchiveMember,
 } from './release-archive.js'
+
+describe('Release archive bundles', () => {
+  it('keeps multiple archive roots in one fresh directory with executable helpers', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'podium-release-bundle-'))
+    try {
+      const archive = join(root, 'download')
+      writeFileSync(
+        archive,
+        piTarFixture({
+          'bin/codex': 'binary',
+          'codex-path/rg': 'helper',
+          'codex-package.json': '{}',
+        }),
+      )
+      await extractReleaseBundle(archive, 'tar.gz', root, 'package')
+      expect(readFileSync(join(root, 'package/codex-package.json'), 'utf8')).toBe('{}')
+      expect(readFileSync(join(root, 'package/codex-path/rg'), 'utf8')).toBe('helper')
+      expect(statSync(join(root, 'package/codex-path/rg')).mode & 0o111).toBe(0o111)
+      await expect(extractReleaseBundle(archive, 'tar.gz', root, 'package')).rejects.toThrow()
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('refuses links, traversal and duplicate names before writing the bundle', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'podium-release-bundle-'))
+    try {
+      const archive = join(root, 'download')
+      const member = (name: string, type = '0') =>
+        gunzipSync(opencodeTarFixture(name, 'bytes', type)).subarray(0, -1024)
+      for (const bad of [
+        member('../escape'),
+        member('/absolute'),
+        member('bin/link', '2'),
+        member('bin/hardlink', '1'),
+        member('bin/codex'),
+      ]) {
+        writeFileSync(
+          archive,
+          gzipSync(Buffer.concat([member('bin/codex'), bad, Buffer.alloc(1024)])),
+        )
+        await expect(extractReleaseBundle(archive, 'tar.gz', root, 'package')).rejects.toThrow(
+          'regular member',
+        )
+        expect(readdirSync(root)).toEqual(['download'])
+      }
+      writeFileSync(archive, piTarFixture({ 'bin/codex': 'binary' }))
+      symlinkSync(root, join(root, 'package'))
+      await expect(extractReleaseBundle(archive, 'tar.gz', root, 'package')).rejects.toThrow()
+      for (const name of ['../escape', '/absolute', 'nested/path'])
+        await expect(extractReleaseBundle(archive, 'tar.gz', root, name)).rejects.toThrow()
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+})
 
 describe('Release archive directories', () => {
   const longPath = `pi/${'long-directory/'.repeat(8)}resource.txt`

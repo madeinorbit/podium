@@ -29,7 +29,7 @@ import { CodexCredentialAbsenceGrace } from './credential-absence-grace.js'
 import { codexCredentials } from './credentials.js'
 import { codexDescriptor } from './descriptor.js'
 import { createCodexConversationProvider } from './discovery.js'
-import { codexInstall } from './install.js'
+import { codexInstall, codexManagedInstall } from './install.js'
 import { codexInstrumentation } from './instrumentation.js'
 import { createOwnedCodexRolloutResolver, hostProcessInspection } from './owned-rollout.js'
 import {
@@ -379,9 +379,7 @@ export const codexManifest: AgentManifest = {
   credentials: supported(codexCredentials),
   usage: supported(codexUsage),
   install: supported(codexInstall),
-  managedInstall: unsupported(
-    'Not yet ported to managed installs: the Codex harness task of the managed-installs phase writes it',
-  ),
+  managedInstall: supported(codexManagedInstall),
 
   posture: codexPosture,
   launch(opts) {

@@ -71,7 +71,9 @@ const RULE_FILE = ['rules', 'podium.rules'] as const
  *   `--approve-for-me`. A client gets no permission flag: Codex refuses any
  *   permission override on `resume --remote`.
  * - Quiet start: `check_for_update_on_startup=false` in terminal and client,
- *   the two launches that draw the update menu. The hook-review modal is
+ *   the two launches that draw the update menu, and in every mode for managed
+ *   installs. This hides the prompt; Codex's daemon copy and its updater keep
+ *   their defaults (managed installs §12.12). The hook-review modal is
  *   answered by per-launch trust for Podium's own handlers: the terminal's
  *   from its hook install, a client's from the engine it joins (the engine
  *   decides hook review, as it decides folder trust; POD-7028), both built in
@@ -86,7 +88,9 @@ export function codexPosture(launch: PostureLaunch, request: PostureRequest): Po
   const approval = approvalFor(request, unmet)
   const options = [
     ...(request.mode !== 'client' ? ['-c', trustOverride(trustedFolders(request))] : []),
-    ...(request.mode === 'terminal' || request.mode === 'client'
+    ...(request.context.installation.provenance === 'managed' ||
+    request.mode === 'terminal' ||
+    request.mode === 'client'
       ? ['-c', 'check_for_update_on_startup=false']
       : []),
     // The app-server's sandbox, moved here from `codexAppServerConfigArgs`.
