@@ -260,9 +260,10 @@ async function workingParent(port: number): Promise<boolean> {
 }
 
 describe('single-unit migration live kill matrix', () => {
-  it.each(
-    phases,
-  )('SIGKILL at %s leaves a live legacy topology or a working parent', async (phase) => {
+  it.each([
+    ...phases.map((phase) => ({ label: `SIGKILL at ${phase}`, phase })),
+    { label: 'An uninterrupted migration', phase: null },
+  ])('$label leaves a live legacy topology or a working parent', async ({ phase }) => {
     const root = await mkdtemp(join(tmpdir(), 'podium-topology-live-'))
     const runtimeDir = join(root, 'runtime')
     const configHome = join(root, 'config')
@@ -271,7 +272,7 @@ describe('single-unit migration live kill matrix', () => {
     const checkpointPath = join(root, 'checkpoint.json')
     const notifyPath = join(stateDir, 'run', 'fixture-notify.log')
     const port = await freePort()
-    const instanceId = `kill${phases.indexOf(phase)}`
+    const instanceId = phase === null ? 'killcomplete' : `kill${phases.indexOf(phase)}`
     const parentUnit = `podium-${instanceId}.service`
     const legacyUnits = [
       `podium-${instanceId}-server.service`,
@@ -323,26 +324,42 @@ describe('single-unit migration live kill matrix', () => {
         'all three legacy units active',
       )
 
-      migrator = spawn(BUN, ['--conditions=@podium/source', '--eval', migratorSource()], {
-        cwd: ROOT,
-        env: {
-          ...manager.env,
-          PODIUM_STATE_DIR: stateDir,
-          PODIUM_INSTANCE: instanceId,
-          FIXTURE_KILL_PHASE: phase,
-          FIXTURE_UNIT_DIR: unitDir,
-          FIXTURE_CHECKPOINT: checkpointPath,
-          FIXTURE_NOTIFY_LOG: notifyPath,
-          FIXTURE_PARENT_BODY: renderedParent,
-        },
-        stdio: ['ignore', 'pipe', 'pipe'],
-      })
+      const migrationEnv = manager.env
       let migrationOutput = ''
-      migrator.stdout?.on('data', (chunk) => (migrationOutput += String(chunk)))
-      migrator.stderr?.on('data', (chunk) => (migrationOutput += String(chunk)))
-
-      let checkpoint: { phase: string; unit?: string; remaining?: number } = { phase }
-      if (phase === 'external-during-parent-health-wait') {
+      const startMigration = (killPhase: string) => {
+        migrationOutput = ''
+        const child = spawn(BUN, ['--conditions=@podium/source', '--eval', migratorSource()], {
+          cwd: ROOT,
+          env: {
+            ...migrationEnv,
+            PODIUM_STATE_DIR: stateDir,
+            PODIUM_INSTANCE: instanceId,
+            FIXTURE_KILL_PHASE: killPhase,
+            FIXTURE_UNIT_DIR: unitDir,
+            FIXTURE_CHECKPOINT: checkpointPath,
+            FIXTURE_NOTIFY_LOG: notifyPath,
+            FIXTURE_PARENT_BODY: renderedParent,
+          },
+          stdio: ['ignore', 'pipe', 'pipe'],
+        })
+        child.stdout?.on('data', (chunk) => (migrationOutput += String(chunk)))
+        child.stderr?.on('data', (chunk) => (migrationOutput += String(chunk)))
+        return child
+      }
+      const completed = async () => {
+        await until(() => {
+          if (migrator?.exitCode === 0) return true
+          if (migrator?.exitCode !== null || migrator?.signalCode !== null)
+            throw new Error(`migration did not complete: ${migrationOutput}`)
+          return undefined
+        }, 'completed migration')
+      }
+      migrator = startMigration(phase ?? 'complete')
+      let checkpoint: { phase: string; unit?: string; remaining?: number } = {
+        phase: phase ?? 'complete',
+      }
+      if (phase === null) await completed()
+      else if (phase === 'external-during-parent-health-wait') {
         await until(() => {
           if (migrator?.exitCode !== null || migrator?.signalCode !== null) {
             throw new Error(`migrator exited before health wait: ${migrationOutput}`)
@@ -363,10 +380,11 @@ describe('single-unit migration live kill matrix', () => {
         }, phase)
         expect(checkpoint.phase).toBe(phase)
       }
-      await until(
-        () => (migrator?.signalCode === 'SIGKILL' ? true : undefined),
-        `migrator SIGKILL at ${phase}`,
-      )
+      if (phase !== null)
+        await until(
+          () => (migrator?.signalCode === 'SIGKILL' ? true : undefined),
+          `migrator SIGKILL at ${phase}`,
+        )
 
       if (
         phase === 'before-parent-write' ||
@@ -412,12 +430,31 @@ describe('single-unit migration live kill matrix', () => {
         expect(checkpoint.remaining).toBeGreaterThan(0)
       }
       if (phase === 'after-all-legacy-stopped-before-remove') {
-        expect(legacyUnits.map((unit) => unitState(manager!.env, unit))).toEqual([
-          'inactive',
-          'inactive',
-          'inactive',
-        ])
-        expect(legacyUnits.every((unit) => existsSync(join(unitDir, unit)))).toBe(true)
+        for (const unit of legacyUnits) {
+          const pid = ctl(manager.env, ['show', unit, '--property=MainPID', '--value'])
+          expect(pid, unit).toBe('0')
+          expect(ctlResult(manager.env, ['is-active', '--quiet', unit]).status, unit).not.toBe(0)
+          expect(readlinkSync(join(runtimeDir, 'systemd', 'user', unit)), unit).toBe('/dev/null')
+          expect(lstatSync(join(unitDir, unit)).isFile(), unit).toBe(true)
+          for (const operation of ['start', 'restart']) {
+            const refused = ctlResult(manager.env, [operation, unit])
+            expect(refused.status, `${operation} ${unit}`).not.toBe(0)
+            expect(refused.stderr, `${operation} ${unit}`).toMatch(/masked/)
+          }
+        }
+        expect(await workingParent(port)).toBe(true)
+        // Resume the actual killed command; no checkpoint matches completion.
+        migrator = startMigration('complete')
+        await completed()
+      }
+      if (phase === null || phase === 'after-all-legacy-stopped-before-remove') {
+        expect(legacyUnits.filter((unit) => existsSync(join(unitDir, unit)))).toEqual([])
+        const failed = ctl(manager.env, ['--failed', '--no-legend', '--plain', '--no-pager'])
+          .split('\n')
+          .filter((line) => legacyUnits.some((unit) => line.includes(unit)))
+        expect(failed, 'no retired not-found failed unit may survive removal').toEqual([])
+        expect(ctlResult(manager.env, ['is-system-running']).stdout.trim()).toBe('running')
+        expect(await workingParent(port)).toBe(true)
       }
     } finally {
       if (migrator && alive(migrator.pid)) migrator.kill('SIGKILL')
