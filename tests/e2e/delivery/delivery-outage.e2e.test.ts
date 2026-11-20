@@ -561,48 +561,24 @@ describe('message delivery under real failures', { retry: 0 }, () => {
     try {
       const session = only(world.sessionIds, 'session')
       const phone = world.device('phone')
-      // Longer than the cut, the retract's unanswered request (10 s) and the
-      // reconnect together: the daemon must still be holding the message when
-      // the retract reaches it. A turn ending during the cut would let it type
-      // the message first — a legitimate "too late", not this scenario.
-      world.setTurnMs(session, 45_000)
-      const busy = phone.send(session, 'keeps the agent busy')
-      await waitTyped(world, busy.id)
-      // A submitted line precedes its hook and observed turn. Establish the
-      // busy turn before admitting the row whose later retract we are testing.
-      await waitFor(
-        async () =>
-          world.hookAccepted(session, 'UserPromptSubmit') &&
-          (await world.session(session))?.agentState?.phase === 'working',
-        30_000,
-        'the first turn is observed working',
-        () => world.logs(),
-      )
-      const retracted = phone.send(session, 'retracted while the machine is away')
-      // Crossing the proxy is not an acknowledgement: cutting then can lose
-      // bytes the daemon has not read yet. Establish its actual held receipt.
-      const carried = await waitCarried(world, retracted.id)
-      await waitFor(
-        () =>
-          world.link.crossed({ dir: 'up', type: 'runtimeSendResult' }).some((frame) => {
-            const receipt = frame.body?.receipt as { outcome?: string; held?: string } | undefined
-            return (
-              frame.body?.requestId === carried.requestId &&
-              (receipt?.outcome === 'queued' ||
-                (receipt?.outcome === 'accepted' && receipt.held !== undefined))
-            )
-          }),
-        30_000,
-        `${retracted.id} acknowledged as held by the daemon`,
-        () => world.logs(),
-      )
-      expect(world.typedCount(retracted.id)).toBe(0)
+      // Ordinary chat steers a working agent and can begin typing before a
+      // retract. This case owns a transport cut BEFORE admission instead: the
+      // daemon has never seen the row, so its cancellation creates a tombstone.
       world.link.cut()
+      const retracted = phone.send(session, 'retracted while the machine is away')
+      await waitFor(
+        async () => (await world.rows()).some((row) => row.id === retracted.id),
+        30_000,
+        'the offline input is durably stored',
+        () => world.logs(),
+      )
+      expect(carrier(world, retracted.id)).toBeUndefined()
+      expect(world.typedCount(retracted.id)).toBe(0)
       await world.device('laptop').retract(session, retracted.id)
       const whileAway = (await world.rows()).find((row) => row.id === retracted.id)
-      expect(whileAway?.deliveryStatus).toBe('dispatched')
+      expect(['stored', 'dispatched']).toContain(whileAway?.deliveryStatus)
       world.link.restore()
-      // The daemon answered the retract while the busy turn still runs.
+      // The daemon, rather than a server-side status edit, settles the retract.
       await waitFor(
         async () =>
           (await world.rows()).find((row) => row.id === retracted.id)?.deliveryStatus ===
@@ -612,9 +588,30 @@ describe('message delivery under real failures', { retry: 0 }, () => {
         () => world.logs(),
       )
       expect(world.typedCount(retracted.id)).toBe(0)
+      const cancel = world.link
+        .crossed({ dir: 'down', type: 'runtimeInterruptRequest' })
+        .find((frame) => frame.body?.cancelRowId === retracted.id)
+      expect(cancel, 'the cancellation reached the daemon after reconnect').toBeDefined()
+      expect(
+        world.link
+          .crossed({ dir: 'up', type: 'runtimeLifecycleResult' })
+          .filter((frame) => frame.body?.requestId === cancel?.body?.requestId)
+          .map((frame) => frame.body?.result),
+      ).toContainEqual({ ok: true })
+      expect(
+        world.link.crossed({ dir: 'up', type: 'runtimeEvent' }).map((frame) => frame.body?.event),
+        "an unseen row gets the daemon's dropped tombstone",
+      ).toContainEqual(
+        expect.objectContaining({
+          t: 'delivery',
+          rowId: retracted.id,
+          outcome: 'dropped',
+        }),
+      )
+      const after = phone.send(session, 'sent after the offline retract')
       await judge(world, 'device-retract-offline', [
-        delivered(busy.id, session),
         { id: retracted.id, sessionId: session, expect: 'retracted', sender: 'phone' },
+        delivered(after.id, session),
       ])
     } catch (error) {
       const kinds = new Set([
