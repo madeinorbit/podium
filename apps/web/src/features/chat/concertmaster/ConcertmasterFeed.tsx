@@ -28,7 +28,7 @@ import { here } from '@podium/client-graph/lookup'
 import type { ConcertmasterEntryModel, SessionModel } from '@podium/client-graph/models'
 import { observer } from '@podium/client-graph/react'
 import type { SessionId } from '@podium/model/browser'
-import { concertmasterMessageIdOf } from '@podium/model/browser'
+import { concertmasterMessageIdOf, isConcertmasterResponseMessageId } from '@podium/model/browser'
 import type { SyncSubmitTransport } from '@podium/protocol'
 import { ArrowDownToLine } from 'lucide-react'
 import { type JSX, memo, useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
@@ -282,10 +282,12 @@ export const ConcertmasterFeed = observer(function ConcertmasterFeed({
     }
     return messages
   }, [ids, pool])
-  const pending = chat.view.pending.filter(
-    (bubble) =>
-      !recorded.has(bubble.id) && !(bubble.record !== undefined && recorded.has(bubble.record.id)),
-  )
+  // Nor is the message that carries a response to the agent: the conversation
+  // shows a response on its ask.
+  const pending = chat.view.pending.filter((bubble) => {
+    const ids = bubble.record === undefined ? [bubble.id] : [bubble.id, bubble.record.id]
+    return !ids.some((id) => recorded.has(id) || isConcertmasterResponseMessageId(id))
+  })
 
   const transport = chat.conversation.runtime.api as unknown as SyncSubmitTransport
   const respond = useCallback<RespondToAsk>(
