@@ -175,12 +175,12 @@ describe('pendingForSessionsProof (POD-7036)', () => {
   })
 
   it('de-duplicates both arms and keeps SQL delivery order, including tied ids', async () => {
-    for (const id of ['m_a', 'm-a', 'mA', 'ma']) {
+    for (const id of ['m_a', 'm-a', 'mA', 'ma', 'm\u{10000}', 'm\ue000']) {
       await message({ id, toId: A, deliveredTo: A, createdAt: at(2) })
     }
     await message({ id: 'newer', toId: A, createdAt: at(3) })
     await message({ id: 'older', toId: A, createdAt: at(1) })
-    const expected = ['older', 'm-a', 'mA', 'm_a', 'ma', 'newer']
+    const expected = ['older', 'm-a', 'mA', 'm_a', 'ma', 'm\ue000', 'm\u{10000}', 'newer']
     expect(await originalProof(A)).toEqual(expected)
     expect((await messages.pendingForSessionProof(A, NOW)).map((row) => row.id)).toEqual(expected)
     expect(

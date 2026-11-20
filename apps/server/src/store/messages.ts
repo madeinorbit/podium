@@ -1752,7 +1752,7 @@ export class MessagesRepository {
       // Match SQL DELIVERY_ORDER (binary text order), including ids tied on time.
       list.sort((a, b) => {
         if (a.createdAt !== b.createdAt) return a.createdAt < b.createdAt ? -1 : 1
-        return a.id < b.id ? -1 : a.id > b.id ? 1 : 0
+        return Buffer.compare(Buffer.from(a.id), Buffer.from(b.id))
       })
     }
     return out
