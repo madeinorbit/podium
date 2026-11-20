@@ -760,6 +760,7 @@
         "src/modules/machines/login-propagation.test.ts",
         "src/modules/machines/login-propagation.ts",
         "src/modules/machines/machine-read-parity.test.ts",
+        "src/modules/machines/queued-retract.test.ts",
         "src/modules/machines/record-facts.ts",
         "src/modules/machines/records.ts",
         "src/modules/machines/refused-send.ts",
