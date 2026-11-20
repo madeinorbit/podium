@@ -559,7 +559,8 @@ describe('record sources (POD-6920)', () => {
       keyof typeof ROW_RECORDS)[]
     // Declared after the oracle was frozen (POD-6881): it was never a hand-written row
     // builder to compare against; `store/notices.test.ts` and the isolation test cover it.
-    const AFTER_THE_ORACLE: readonly string[] = ['inboxNotice']
+    // `concertmasterEntry` too (POD-7211): its service test and the isolation test cover it.
+    const AFTER_THE_ORACLE: readonly string[] = ['inboxNotice', 'concertmasterEntry']
     /**
      * WHAT CREDENTIAL MANAGEMENT CHANGED SINCE THE ORACLE (POD-6857), each named, so
      * everything else stays byte-equal to it. The instance record gained the daemon
@@ -580,7 +581,10 @@ describe('record sources (POD-6920)', () => {
       session: 'the credential a session runs on, what it reported and the mismatch',
       userPreferences: "a person's credential defaults per harness",
       inboxNotice: 'declared after the oracle',
+      concertmasterEntry: 'declared after the oracle',
     }
+    /** The Concertmaster mark (POD-7211): a session column its capture trigger watches. */
+    const CONCERTMASTER_COLUMN_WATCHED = ' OR OLD."concertmaster" IS NOT NEW."concertmaster"'
     const withoutChangedShapes = (tokens: Record<string, string>) =>
       Object.fromEntries(
         Object.entries(tokens).filter(([kind]) => !(kind in SHAPES_CHANGED_SINCE_THE_ORACLE)),
@@ -726,10 +730,15 @@ describe('record sources (POD-6920)', () => {
       const triggers = captureTriggerStatements()
       expect(
         triggers
-          .filter((text) => !text.includes('"sync_capture__inboxNotice__'))
+          .filter(
+            (text) =>
+              !text.includes('"sync_capture__inboxNotice__') &&
+              !text.includes('"sync_capture__concertmasterEntry__'),
+          )
           .map((text) =>
             withoutWorkspaceTerms(text)
               .replace(CREDENTIAL_COLUMNS_WATCHED, '')
+              .replace(CONCERTMASTER_COLUMN_WATCHED, '')
               // The frozen oracle predates the server's optional install capability.
               // Its capture and worker visibility are proved in store/host-machine.test.ts.
               .replaceAll(
