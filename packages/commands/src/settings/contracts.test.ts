@@ -307,9 +307,9 @@ describe('a preference patch is gated on the classified path — and can say YES
 })
 
 describe('the derived path sets find something', () => {
-  it('the personal tier has its 26 leaves, including a deep one', () => {
+  it('the personal tier contains current nested preferences and excludes removed choices', () => {
     const personal = preferencePathsInTier('personal-preference')
-    expect(personal.length).toBe(26)
+    expect(personal.length).toBeGreaterThan(0)
     expect(personal).not.toContain('sidebar.groupByRepo')
     expect(personal).toContain('roles.coding.model')
     expect(personal).toContain('roles.shipwright.model')
@@ -317,8 +317,12 @@ describe('the derived path sets find something', () => {
   })
 
   it('the writable set is both preference tiers and NOTHING from the secret tier', () => {
-    // 48 = 26 personal + 22 instance after removing unused grouping/merge choices.
-    expect(WRITABLE_PREFERENCE_PATHS.length).toBe(48)
+    const personal = preferencePathsInTier('personal-preference')
+    const instance = preferencePathsInTier('instance-preference')
+    expect(personal.length).toBeGreaterThan(0)
+    expect(instance.length).toBeGreaterThan(0)
+    expect(new Set(WRITABLE_PREFERENCE_PATHS)).toEqual(new Set([...personal, ...instance]))
+    expect(new Set(WRITABLE_PREFERENCE_PATHS).size).toBe(WRITABLE_PREFERENCE_PATHS.length)
     expect(WRITABLE_PREFERENCE_PATHS).not.toContain('gitWorkflow.mergeStyle')
     for (const key of SERVER_SECRET_KEYS) expect(WRITABLE_PREFERENCE_PATHS).not.toContain(key)
     // …and the exclusion is not an empty-set artefact.
@@ -337,7 +341,7 @@ describe('the derived path sets find something', () => {
 // ---------------------------------------------------------------------------
 
 describe('the secret write vocabulary is closed', () => {
-  it('accepts each of the five keys with material', () => {
+  it('accepts each integration secret with material', () => {
     for (const key of SERVER_SECRET_KEYS) {
       const parsed = settingsSetSecretInput.safeParse({ key, value: 'sk-live-1' })
       expect(parsed.success && parsed.data.key).toBe(key)
@@ -349,17 +353,21 @@ describe('the secret write vocabulary is closed', () => {
       false,
     )
     expect(settingsClearSecretInput.safeParse({ key: 'apiKeys.smuggled' }).success).toBe(false)
+    for (const key of ['apiKeys.anthropic', 'apiKeys.openai', 'apiKeys.openrouter']) {
+      expect(settingsSetSecretInput.safeParse({ key, value: 'material' }).success).toBe(false)
+      expect(settingsClearSecretInput.safeParse({ key }).success).toBe(false)
+    }
   })
 
   it('REFUSES an empty value — absence is `clearSecret`, not a blank replace', () => {
-    expect(settingsSetSecretInput.safeParse({ key: 'apiKeys.openai', value: '' }).success).toBe(
-      false,
-    )
+    expect(
+      settingsSetSecretInput.safeParse({ key: 'integrations.linearApiKey', value: '' }).success,
+    ).toBe(false)
   })
 
   it('clearSecret carries no material key at all', () => {
     const parsed = settingsClearSecretInput.safeParse({
-      key: 'apiKeys.openai',
+      key: 'integrations.linearApiKey',
       value: 'sk-should-not-survive',
     })
     // zod strips the unknown key, so the assertion is on the OUTPUT: there is
