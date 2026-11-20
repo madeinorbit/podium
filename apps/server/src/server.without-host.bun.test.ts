@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test'
 import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { shellCommand } from '@podium/harness'
 import { createMaintenanceHttpClient } from '@podium/janitor'
 import { asMachineId, asUserId } from '@podium/model'
@@ -56,11 +57,13 @@ for (const engine of ['sqlite', 'pg'] as const) {
         DATABASE_URL_ENV,
         'PODIUM_MODE',
         'PODIUM_UPDATE_FEED_POLLING',
+        'PODIUM_DEV_SOURCE_ROOT',
       ])
         previous.set(key, process.env[key])
       process.env.PODIUM_STATE_DIR = root
       process.env.PODIUM_MODE = 'all-in-one'
       process.env.PODIUM_UPDATE_FEED_POLLING = 'off'
+      process.env.PODIUM_DEV_SOURCE_ROOT = fileURLToPath(new URL('../../../', import.meta.url))
       if (engine === 'pg') {
         pg = await bunPgTestDatabase()
         process.env[DATABASE_URL_ENV] = pg.url
@@ -212,7 +215,10 @@ for (const engine of ['sqlite', 'pg'] as const) {
     }, 60_000)
 
     it('refuses self-update through its existing precondition', async () => {
-      await expect(caller.updates.start()).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' })
+      await expect(caller.updates.start()).rejects.toMatchObject({
+        code: 'PRECONDITION_FAILED',
+        message: 'This server cannot run update operations.',
+      })
       expect(await caller.setup.channel()).toMatchObject({ updateScope: 'fleet-only' })
     })
 
@@ -220,12 +226,16 @@ for (const engine of ['sqlite', 'pg'] as const) {
       expect(await caller.updates.proposal()).toBeNull()
       await expect(
         caller.updates.approveProposal({ headSha: 'a'.repeat(40), version: '0.0.1' }),
-      ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' })
+      ).rejects.toMatchObject({
+        code: 'PRECONDITION_FAILED',
+        message: 'This server does not publish development releases.',
+      })
     })
 
     it('refuses payload repair without a named machine', async () => {
       await expect(caller.updates.repairPayload()).rejects.toMatchObject({
         code: 'PRECONDITION_FAILED',
+        message: 'This server has no host machine to repair. Name a machine to repair its payload.',
       })
     })
 
@@ -237,7 +247,10 @@ for (const engine of ['sqlite', 'pg'] as const) {
           bindHost: '0.0.0.0',
           confirmation: 'TRANSFER SERVER',
         }),
-      ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' })
+      ).rejects.toMatchObject({
+        code: 'PRECONDITION_FAILED',
+        message: 'Server move is unavailable on this server: it has no host machine.',
+      })
       expect(
         await server.registry.modules.serverTransfer.publicStatus([{ id: machineId }]),
       ).toMatchObject({
