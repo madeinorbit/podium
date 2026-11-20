@@ -36,6 +36,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { asMachineId } from '@podium/model'
 import type { UpdateStatusMessage } from '@podium/protocol'
+import { INSTANCE_UUID_PATTERN, readInstanceStateIdentity } from '@podium/runtime/instance'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { createTRPCClient, httpBatchLink } from '@trpc/client'
 import { runDrizzleMigrations } from '../apps/server/src/migrations'
@@ -527,6 +528,10 @@ exec ${shell(process.execPath)} --conditions=@podium/source ${shell(currentCli)}
       const pending = readPendingGrant(runtimeDir)
       expect(pending).toMatchObject({ targetVersion, previousVersion: '0.1.0' })
       expect(existsSync(join(runtimeDir, 'machine-update.json'))).toBe(false)
+      expect(readInstanceStateIdentity(daemon.stateDir)).toEqual({
+        version: 1,
+        instanceId: 'skew-enrolled',
+      })
       const restartedAt = Date.now()
       const candidate = await launchDaemon(
         currentCli,
@@ -573,6 +578,11 @@ exec ${shell(process.execPath)} --conditions=@podium/source ${shell(currentCli)}
         readFileSync(join(daemon.stateDir, 'candidate-daemon-boots'), 'utf8').trim().split('\n'),
       ).toHaveLength(1)
       expect(candidate.exitCode(), candidate.log()).toBeNull()
+      expect(readInstanceStateIdentity(daemon.stateDir)).toEqual({
+        version: 2,
+        instanceId: 'skew-enrolled',
+        instanceUuid: expect.stringMatching(INSTANCE_UUID_PATTERN),
+      })
       console.log(
         JSON.stringify({
           firstGrantConfirmed: pending!.grantId,
@@ -665,6 +675,9 @@ exec ${shell(process.execPath)} --conditions=@podium/source ${shell(currentCli)}
       'daemon.json',
       'machine.id',
       'supervisor.json',
+      'connectivity.json',
+      'machine.key',
+      'daemon.secret',
     ]
     const startupBytes = () =>
       startupFiles.map((name) => {
