@@ -770,6 +770,43 @@ const remainingGroup: Group = {
         await store.notices.resolveByKey(remaining.NOTICE_KEY, remaining.REMARKED_AT)
       },
     },
+    concertmaster: {
+      read: async ({ store }) => {
+        const pages = []
+        for await (const page of store.concertmaster.entryPages(1)) pages.push(page)
+        return {
+          byIds: await store.concertmaster.entriesByIds([
+            remaining.entryId(1),
+            remaining.entryId(2),
+          ]),
+          pages,
+          entry: await store.concertmaster.entry(remaining.entryId(1)),
+          ask: await store.concertmaster.ask(remaining.TARGET, 1),
+          asks: await store.concertmaster.asks(remaining.TARGET, 10),
+          tail: await store.concertmaster.tail(remaining.TARGET, 10),
+        }
+      },
+      write: async ({ store, tag }) => {
+        await store.concertmaster.rewriteAsk(remaining.entryId(2), {
+          title: `${tag}: reworded`,
+          detail: null,
+          options: null,
+        })
+        await store.concertmaster.settleAsk(remaining.entryId(2), {
+          status: 'answered',
+          answer: `${tag}: this one`,
+          settledAt: remaining.REMARKED_AT,
+          settledBy: 'user',
+        })
+        await store.concertmaster.addUserEntry({
+          id: remaining.entryId(3),
+          sessionId: remaining.TARGET,
+          body: `${tag}: hello`,
+          senderUserId: remaining.RECIPIENT,
+          createdAt: remaining.REMARKED_AT,
+        })
+      },
+    },
     operations: {
       read: async ({ store }) => ({
         history: await store.operations.history(),

@@ -25,7 +25,13 @@ export const MARKED_AT = '2026-11-17T09:00:00.000Z'
 export const REMARKED_AT = '2026-11-17T09:30:00.000Z'
 
 /** The workspace tables these repositories read and write. */
-export const TABLES = ['recap_watermarks', 'quota_windows', 'operations', 'notices'] as const
+export const TABLES = [
+  'recap_watermarks',
+  'quota_windows',
+  'operations',
+  'notices',
+  'concertmaster_entries',
+] as const
 
 /** One workspace's rows of every table, each in primary-key order, on either engine. */
 export async function rowsOf(store: SessionStore, tag: Tag): Promise<Record<string, unknown[]>> {
@@ -102,7 +108,24 @@ export const RECIPIENT = asUserId('user:alice')
 export const noticeId = (n: number): string => `ntc_${n}`
 export const NOTICE_KEY = 'credential-attention:cred_1'
 
+/** The same Concertmaster entry ids in both workspaces, in the same session (POD-7211). */
+export const entryId = (n: number): string => `2026-11-17T09:0${n}:00.000Z_e${n}`
+
 export async function seed(store: SessionStore, tag: Tag): Promise<void> {
+  // A message and an open ask of one conversation, the same ids in both workspaces.
+  await store.concertmaster.addSay({
+    id: entryId(1),
+    sessionId: TARGET,
+    body: `${tag}: started`,
+    createdAt: MARKED_AT,
+  })
+  await store.concertmaster.addAsk({
+    id: entryId(2),
+    sessionId: TARGET,
+    askKind: 'question',
+    title: `${tag}: which one?`,
+    createdAt: REMARKED_AT,
+  })
   // An open notice and a read mention, the same ids in both workspaces (POD-6881).
   await store.notices.open({
     id: noticeId(1),

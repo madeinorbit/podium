@@ -31,24 +31,6 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "apps/mobile/src/client/test-replica.ts",
-      "holder": "createMobileTestReplica/replica",
-      "rule": "reader-summary",
-      "tokens": "40ae078387534ca301464d77e1fd3cf3645a7dcfe9a81206343a3fb2813ebc8b",
-      "gate": [],
-      "origin": [
-        "6a38dd81c5dae2ff245d1a2187718e0367d4b389f2610fbbf87b1b2efaae894a"
-      ],
-      "fingerprint": "b90bd9bfa5ddb91ed32612f1eeb915ac25d45559004a07e2038819cc400d5f95",
-      "count": 1,
-      "classification": "bounded local work",
-      "owner": "POD-5801",
-      "trigger": "Opening a signed-in user's replica assembly, building a replica, or mounting one chat.",
-      "bound": "Constant work: the per-user chat history store is created once and handed on by reference; no transcript collection is read or iterated at this site.",
-      "reason": "The scan follows transcript-named ports (TranscriptStore, the replica's transcripts cache) through composition and erase wiring; nothing here enumerates messages. POD-6778: normalized panel records change fixture/bootstrap payloads and remove the panel body request; the collection bound and classification are unchanged. POD-6772: per-kind replacement and IndexedDB range wiring change this composition fingerprint; transcript access and its collection bound are unchanged. POD-7086: the facade gains the device's collection reads (markers and stubs) and the assembly hands it the kernel Replica's, which changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7087: the facade gains the one loader (`loader()`, and `stubRows` among the collection reads) and the assembly builds it beside the kernel Replica and pipes it the Replica's events, which changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7122: the Replica gains a `load-installed` event (the first download is in memory) that the facade, the loader and the sync progress read, which changes this composition fingerprint; the collection bound and classification are unchanged. POD-7159: the Replica gains its disk layer (disk reads, unload, the record-level disk load the loader batches, the unloaded event the facade reads), which changes this composition fingerprint; the collection bound and classification are unchanged. The credential epic merge with the workspace store (POD-6857) moved its tokens; the classification is unchanged.",
-      "guard": "assembly.test.ts \"chat history database (POD-5801)\" opens one database per user and erases it on sign-out; transcript-log.stored.test.ts drives the wired cache end to end."
-    },
-    {
       "file": "apps/mobile/src/client/test-support.tsx",
       "holder": "renderWithMobileStore",
       "rule": "helper-consumer",
@@ -7895,26 +7877,6 @@
     {
       "file": "apps/web/src/lib/kernelReplica.ts",
       "holder": "openKernelAssembly/assembly",
-      "rule": "helper-consumer",
-      "tokens": "e3d6449463a4d24ecd7b74bc251ecf1aac3d12c3ff164fa79742cc4fff81c839",
-      "gate": [
-        "exit:then:5e2a14e1fded6dcf5bd2bbeb0a38680fd681e01937e3beb0794cbfbe6fbfbbad"
-      ],
-      "origin": [
-        "6eaa0385ee25575a2b8641ff25b6cd72ef2fa78aca967cd7f17f5c096194a7f4"
-      ],
-      "fingerprint": "3a83cc30a1a0f2208a12620f89c698fac431696045148294a4699905665f3cd1",
-      "count": 1,
-      "classification": "bounded local work",
-      "owner": "POD-5801",
-      "trigger": "Opening a signed-in user's replica assembly, building a replica, or mounting one chat.",
-      "bound": "Constant work: the per-user chat history store is created once and handed on by reference; no transcript collection is read or iterated at this site.",
-      "reason": "The scan follows transcript-named ports (TranscriptStore, the replica's transcripts cache) through composition and erase wiring; nothing here enumerates messages. POD-6778: normalized panel records change fixture/bootstrap payloads and remove the panel body request; the collection bound and classification are unchanged. POD-6772: per-kind replacement and IndexedDB range wiring change this composition fingerprint; transcript access and its collection bound are unchanged. POD-6947: the feed sink's access-move listener (onAccessMoved) in the assembly's feed port changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7086: the facade gains the device's collection reads (markers and stubs) and the assembly hands it the kernel Replica's, which changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7087: the facade gains the one loader (`loader()`, and `stubRows` among the collection reads) and the assembly builds it beside the kernel Replica and pipes it the Replica's events, which changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7122: the Replica gains a `load-installed` event (the first download is in memory) that the facade, the loader and the sync progress read, which changes this composition fingerprint; the collection bound and classification are unchanged. POD-7165: the Replica's `batchEvents` composes the loader's burst around the facade's (each kind of change told once per burst), which changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7159: the Replica gains its disk layer (disk reads, unload, the record-level disk load the loader batches, the unloaded event the facade reads), which changes this composition fingerprint; the collection bound and classification are unchanged. POD-7161: the assembly hands the Replica the browser's memory signals (idle moments and the page going hidden), which changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7193: storage open/upgrade diagnostics add constant logging to replica composition; the forwarded transcript port and collection bound are unchanged. The credential epic merge with the workspace store (POD-6857) moved its tokens; the classification is unchanged.",
-      "guard": "assembly.test.ts \"chat history database (POD-5801)\" opens one database per user and erases it on sign-out; transcript-log.stored.test.ts drives the wired cache end to end."
-    },
-    {
-      "file": "apps/web/src/lib/kernelReplica.ts",
-      "holder": "openKernelAssembly/assembly",
       "rule": "reader-summary",
       "tokens": "cb5b136e9175feb447b012002bec71095ff1760921ba370939eef0fe537cc9b2",
       "gate": [
@@ -11304,24 +11266,6 @@
       "bound": "Frame/page entries plus affected insertion or trim suffix; prefix ranks shift without reading retained IDs. Replica cache output is capped at 200 items. Authoritative resets and explicitly demanded full snapshots still materialize their window.",
       "reason": "The source action maintains keyed raw items, relative ranks and facts. Stream, append, retained read and prepend counters are equal at 256/1024 retained items; native array shifts are outside those counters. Worker and phone shaping remain separate required work.",
       "guard": "conversation/transcript-log.incremental.test.ts measures ingress at 1x/4x and preserves immutable snapshots/cache behavior; transcript-log.test.ts, transcript-log.facts.test.ts and model-observation.test.ts preserve paging/reset/source facts/optimistic reconciliation."
-    },
-    {
-      "file": "packages/client-core/src/demo/demo-replica.ts",
-      "holder": "createDemoReplica",
-      "rule": "reader-summary",
-      "tokens": "3d20eec467fe79f07139a5c1801de5210aecdac046d309c3e4cf082975c05374",
-      "gate": [],
-      "origin": [
-        "6a38dd81c5dae2ff245d1a2187718e0367d4b389f2610fbbf87b1b2efaae894a"
-      ],
-      "fingerprint": "8d7731d0961d078b6db098835d274c9791cdf841912157789b866c5f8dd110b9",
-      "count": 1,
-      "classification": "bounded local work",
-      "owner": "POD-5801",
-      "trigger": "Opening a signed-in user's replica assembly, building a replica, or mounting one chat.",
-      "bound": "Constant work: the per-user chat history store is created once and handed on by reference; no transcript collection is read or iterated at this site.",
-      "reason": "The scan follows transcript-named ports (TranscriptStore, the replica's transcripts cache) through composition and erase wiring; nothing here enumerates messages. POD-6778: normalized panel records change fixture/bootstrap payloads and remove the panel body request; the collection bound and classification are unchanged. POD-6772: per-kind replacement and IndexedDB range wiring change this composition fingerprint; transcript access and its collection bound are unchanged. POD-7086: the facade gains the device's collection reads (markers and stubs) and the assembly hands it the kernel Replica's, which changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7087: the facade gains the one loader (`loader()`, and `stubRows` among the collection reads) and the assembly builds it beside the kernel Replica and pipes it the Replica's events, which changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7122: the Replica gains a `load-installed` event (the first download is in memory) that the facade, the loader and the sync progress read, which changes this composition fingerprint; the collection bound and classification are unchanged. POD-7159: the Replica gains its disk layer (disk reads, unload, the record-level disk load the loader batches, the unloaded event the facade reads), which changes this composition fingerprint; the collection bound and classification are unchanged. The credential epic merge with the workspace store (POD-6857) moved its tokens; the classification is unchanged.",
-      "guard": "assembly.test.ts \"chat history database (POD-5801)\" opens one database per user and erases it on sign-out; transcript-log.stored.test.ts drives the wired cache end to end."
     },
     {
       "file": "packages/client-core/src/conversation/transcript-log.ts",
@@ -39482,28 +39426,6 @@
       "guard": "refreshing.test.ts and both platform ScreenRefreshMark.test.tsx files cover complete cached answers, in-place replacement, and unrelated stale-tree isolation; record-freshness.test.ts covers shared holder freshness."
     },
     {
-      "file": "packages/client-core/src/replica-assembly/assembly.ts",
-      "holder": "openReplicaAssembly/facade",
-      "rule": "helper-consumer",
-      "tokens": "30d0fb00654c412b60800c4caa46d03ae985b323df0f1cde0df6c5a4bf32eefa",
-      "gate": [
-        "exit:then:2add58fa692a9dfe7737492b2446bf6c801473caeea929a8d748c72f5d0a6624",
-        "exit:then:99d6c8122697f27293f4373c3ae6b7dddc99d6a1bbe120cb0edfcfddec8ba89a",
-        "exit:then:d8cb67250ccc897f5c5185c0cb4eed967378f9583ec0a9e28c60d344c2e920f0"
-      ],
-      "origin": [
-        "a4d15dd05cff7e7b6d651c6208c8ed24cc3d278d5385d9e776ea242048950750"
-      ],
-      "fingerprint": "053029924f8d80cf4fd9a9f4dce3cee273fe54a19991c735df0fb17ff917304c",
-      "count": 1,
-      "classification": "bounded local work",
-      "owner": "POD-7193",
-      "trigger": "Opening a signed-in user's replica assembly, building a replica, or mounting one chat.",
-      "bound": "Constant composition: forwards cache, collection and transcript ports by reference without reading or enumerating transcript rows.",
-      "reason": "The scan follows transcript-named ports (TranscriptStore, the replica's transcripts cache) through composition and erase wiring; nothing here enumerates messages. POD-7193: storage open/upgrade diagnostics add constant logging to replica composition; the forwarded transcript port and collection bound are unchanged. The credential epic merge with the workspace store (POD-6857) moved its tokens; the classification is unchanged.",
-      "guard": "assembly.test.ts \"chat history database (POD-5801)\" opens one database per user and erases it on sign-out; transcript-log.stored.test.ts drives the wired cache end to end."
-    },
-    {
       "file": "apps/web/src/features/credentials/session/SessionCredentialChip.tsx",
       "holder": "SessionCredentialChip/SessionCredentialChip/onSwitch",
       "rule": "reader-summary",
@@ -40169,6 +40091,209 @@
       "bound": "Exactly the six MOBILE_TASK_STAGES lane owners; no task or session rows are enumerated.",
       "reason": "Releases each lane owner's demand-scoped query results. The lifecycle iterates the fixed stage vocabulary, independent of corpus size.",
       "guard": "MOBILE_TASK_STAGES declaration; board-screen-work and work-per-change regressions exercise 1x/4x view ownership."
+    },
+    {
+      "file": "apps/mobile/src/client/test-replica.ts",
+      "holder": "createMobileTestReplica/replica",
+      "rule": "reader-summary",
+      "tokens": "72e87a94b9570fddf3912ae9bfbbda7beb40a0c87a6d46b656afeda0389fecb7",
+      "gate": [],
+      "origin": [
+        "6a38dd81c5dae2ff245d1a2187718e0367d4b389f2610fbbf87b1b2efaae894a"
+      ],
+      "fingerprint": "cd43a93a408623dd8cf693b330c244b43975a687515103dc57cd19a3fb6e73d8",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5801",
+      "trigger": "Opening a signed-in user's replica assembly, building a replica, or mounting one chat.",
+      "bound": "Constant work: the per-user chat history store is created once and handed on by reference; no transcript collection is read or iterated at this site.",
+      "reason": "The scan follows transcript-named ports (TranscriptStore, the replica's transcripts cache) through composition and erase wiring; nothing here enumerates messages. POD-6778: normalized panel records change fixture/bootstrap payloads and remove the panel body request; the collection bound and classification are unchanged. POD-6772: per-kind replacement and IndexedDB range wiring change this composition fingerprint; transcript access and its collection bound are unchanged. POD-7086: the facade gains the device's collection reads (markers and stubs) and the assembly hands it the kernel Replica's, which changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7087: the facade gains the one loader (`loader()`, and `stubRows` among the collection reads) and the assembly builds it beside the kernel Replica and pipes it the Replica's events, which changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7122: the Replica gains a `load-installed` event (the first download is in memory) that the facade, the loader and the sync progress read, which changes this composition fingerprint; the collection bound and classification are unchanged. POD-7159: the Replica gains its disk layer (disk reads, unload, the record-level disk load the loader batches, the unloaded event the facade reads), which changes this composition fingerprint; the collection bound and classification are unchanged. The credential epic merge with the workspace store (POD-6857) moved its tokens; the classification is unchanged. POD-7211: the replica gains the concertmasterEntries collection (a Concertmaster's curated conversation), which changes this composition fingerprint; the collection bound and classification are unchanged.",
+      "guard": "assembly.test.ts \"chat history database (POD-5801)\" opens one database per user and erases it on sign-out; transcript-log.stored.test.ts drives the wired cache end to end."
+    },
+    {
+      "file": "apps/web/src/lib/kernelReplica.ts",
+      "holder": "openKernelAssembly/assembly",
+      "rule": "helper-consumer",
+      "tokens": "d60fc2bfc504ab287883cb0ab1120ca3dbc4efe1b645560773679bb20665249f",
+      "gate": [
+        "exit:then:5e2a14e1fded6dcf5bd2bbeb0a38680fd681e01937e3beb0794cbfbe6fbfbbad"
+      ],
+      "origin": [
+        "6eaa0385ee25575a2b8641ff25b6cd72ef2fa78aca967cd7f17f5c096194a7f4"
+      ],
+      "fingerprint": "7a5c67be9f4da2087e8d4eb35ccf6aa6bcfe3f34e6a7d5bdb7135d92c4a1cdbd",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5801",
+      "trigger": "Opening a signed-in user's replica assembly, building a replica, or mounting one chat.",
+      "bound": "Constant work: the per-user chat history store is created once and handed on by reference; no transcript collection is read or iterated at this site.",
+      "reason": "The scan follows transcript-named ports (TranscriptStore, the replica's transcripts cache) through composition and erase wiring; nothing here enumerates messages. POD-6778: normalized panel records change fixture/bootstrap payloads and remove the panel body request; the collection bound and classification are unchanged. POD-6772: per-kind replacement and IndexedDB range wiring change this composition fingerprint; transcript access and its collection bound are unchanged. POD-6947: the feed sink's access-move listener (onAccessMoved) in the assembly's feed port changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7086: the facade gains the device's collection reads (markers and stubs) and the assembly hands it the kernel Replica's, which changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7087: the facade gains the one loader (`loader()`, and `stubRows` among the collection reads) and the assembly builds it beside the kernel Replica and pipes it the Replica's events, which changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7122: the Replica gains a `load-installed` event (the first download is in memory) that the facade, the loader and the sync progress read, which changes this composition fingerprint; the collection bound and classification are unchanged. POD-7165: the Replica's `batchEvents` composes the loader's burst around the facade's (each kind of change told once per burst), which changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7159: the Replica gains its disk layer (disk reads, unload, the record-level disk load the loader batches, the unloaded event the facade reads), which changes this composition fingerprint; the collection bound and classification are unchanged. POD-7161: the assembly hands the Replica the browser's memory signals (idle moments and the page going hidden), which changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7193: storage open/upgrade diagnostics add constant logging to replica composition; the forwarded transcript port and collection bound are unchanged. The credential epic merge with the workspace store (POD-6857) moved its tokens; the classification is unchanged. POD-7211: the replica gains the concertmasterEntries collection (a Concertmaster's curated conversation), which changes this composition fingerprint; the collection bound and classification are unchanged.",
+      "guard": "assembly.test.ts \"chat history database (POD-5801)\" opens one database per user and erases it on sign-out; transcript-log.stored.test.ts drives the wired cache end to end."
+    },
+    {
+      "file": "packages/client-core/src/demo/demo-replica.ts",
+      "holder": "createDemoReplica",
+      "rule": "reader-summary",
+      "tokens": "35a58171d86d0b2e0c6053b7936799d3aeb9a6624484557b7277e4563a63cec1",
+      "gate": [],
+      "origin": [
+        "6a38dd81c5dae2ff245d1a2187718e0367d4b389f2610fbbf87b1b2efaae894a"
+      ],
+      "fingerprint": "9cad427ac6baa53ad8737d00cdeac1b8ad708bd158285c0c04c1b2de6272a7e5",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5801",
+      "trigger": "Opening a signed-in user's replica assembly, building a replica, or mounting one chat.",
+      "bound": "Constant work: the per-user chat history store is created once and handed on by reference; no transcript collection is read or iterated at this site.",
+      "reason": "The scan follows transcript-named ports (TranscriptStore, the replica's transcripts cache) through composition and erase wiring; nothing here enumerates messages. POD-6778: normalized panel records change fixture/bootstrap payloads and remove the panel body request; the collection bound and classification are unchanged. POD-6772: per-kind replacement and IndexedDB range wiring change this composition fingerprint; transcript access and its collection bound are unchanged. POD-7086: the facade gains the device's collection reads (markers and stubs) and the assembly hands it the kernel Replica's, which changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7087: the facade gains the one loader (`loader()`, and `stubRows` among the collection reads) and the assembly builds it beside the kernel Replica and pipes it the Replica's events, which changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7122: the Replica gains a `load-installed` event (the first download is in memory) that the facade, the loader and the sync progress read, which changes this composition fingerprint; the collection bound and classification are unchanged. POD-7159: the Replica gains its disk layer (disk reads, unload, the record-level disk load the loader batches, the unloaded event the facade reads), which changes this composition fingerprint; the collection bound and classification are unchanged. The credential epic merge with the workspace store (POD-6857) moved its tokens; the classification is unchanged. POD-7211: the replica gains the concertmasterEntries collection (a Concertmaster's curated conversation), which changes this composition fingerprint; the collection bound and classification are unchanged.",
+      "guard": "assembly.test.ts \"chat history database (POD-5801)\" opens one database per user and erases it on sign-out; transcript-log.stored.test.ts drives the wired cache end to end."
+    },
+    {
+      "file": "packages/client-core/src/replica-assembly/assembly.ts",
+      "holder": "openReplicaAssembly/facade",
+      "rule": "helper-consumer",
+      "tokens": "be153492c29c15cd073d47465d606d2479e3acfd8d40bca34bc0041f183465f1",
+      "gate": [
+        "exit:then:2add58fa692a9dfe7737492b2446bf6c801473caeea929a8d748c72f5d0a6624",
+        "exit:then:99d6c8122697f27293f4373c3ae6b7dddc99d6a1bbe120cb0edfcfddec8ba89a",
+        "exit:then:d8cb67250ccc897f5c5185c0cb4eed967378f9583ec0a9e28c60d344c2e920f0"
+      ],
+      "origin": [
+        "a4d15dd05cff7e7b6d651c6208c8ed24cc3d278d5385d9e776ea242048950750"
+      ],
+      "fingerprint": "a6a38e955cf45f01854ae03a85e5e69ec584727d4138932574c5c86b31538d33",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-7193",
+      "trigger": "Opening a signed-in user's replica assembly, building a replica, or mounting one chat.",
+      "bound": "Constant composition: forwards cache, collection and transcript ports by reference without reading or enumerating transcript rows.",
+      "reason": "The scan follows transcript-named ports (TranscriptStore, the replica's transcripts cache) through composition and erase wiring; nothing here enumerates messages. POD-7193: storage open/upgrade diagnostics add constant logging to replica composition; the forwarded transcript port and collection bound are unchanged. The credential epic merge with the workspace store (POD-6857) moved its tokens; the classification is unchanged. POD-7211: the replica gains the concertmasterEntries collection (a Concertmaster's curated conversation), which changes this composition fingerprint; the collection bound and classification are unchanged.",
+      "guard": "assembly.test.ts \"chat history database (POD-5801)\" opens one database per user and erases it on sign-out; transcript-log.stored.test.ts drives the wired cache end to end."
+    },
+    {
+      "file": "apps/web/src/app/RightDock.tsx",
+      "holder": "RightDock/RightDock/concertmasterSessionId",
+      "rule": "reader-summary",
+      "tokens": "f324156225a854a72df548e3e95414bfd8895b0130a23738d5fd517ded73f9b9",
+      "gate": [
+        "then:5bfb576f7b5f205dbe5fa7e5f4da409913dfb58eb9a29cc750b07693e1f376e7",
+        "then:44d5d1563deb9ffca38aa0aefe0969599385545be3a842a2be5aafb2db2e7fa3"
+      ],
+      "origin": [
+        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
+        "25dbf408a8d1f423c5d36d156eee8147255f8061fa080c5d02772c3886ceb24b",
+        "38ee8e4568daab4926b21807b42ed2fa803a25ca97778f587de71b0d1d05834e",
+        "5ac8c2052ffe18ceeedb0d32f307b6092b6a667bf768249b43c2dc76112824b6",
+        "b62af815f9048d102aca17f2695d460f40e618bcc845d7a0d3bc1c8b90140c10",
+        "edccbaf426dca942750619e6960d69f0c560ebdaf7c2beb6a07ceb8fdc008aaf"
+      ],
+      "fingerprint": "0759c4f65d396cb5cc5133f24424632c50fca9a40d17213bbdb678d09a445781",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-7211",
+      "trigger": "A change to a shown Concertmaster conversation's entries, or a reader of its chat or dock panel (RightDock/RightDock/concertmasterSessionId)",
+      "bound": "One Concertmaster session's curated conversation: a device holds a session's entries only while its chat or dock panel reads them (the concertmasterEntry.ofSession collection), and the rows are that session's messages and asks (POD-7211).",
+      "reason": "The curated chat and the Needs-you list read the resident concertmasterEntry rows and keep one session's; the table holds only the conversations on screen, so the work follows the shown conversation, not history or other sessions. Paging a very long conversation is a declared follow-up.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/app/RightDock.tsx",
+      "holder": "RightDock/RightDock/concertmasterSessionId",
+      "rule": "reader-summary",
+      "tokens": "44d5d1563deb9ffca38aa0aefe0969599385545be3a842a2be5aafb2db2e7fa3",
+      "gate": [
+        "then:5bfb576f7b5f205dbe5fa7e5f4da409913dfb58eb9a29cc750b07693e1f376e7",
+        "then:44d5d1563deb9ffca38aa0aefe0969599385545be3a842a2be5aafb2db2e7fa3"
+      ],
+      "origin": [
+        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
+        "25dbf408a8d1f423c5d36d156eee8147255f8061fa080c5d02772c3886ceb24b",
+        "38ee8e4568daab4926b21807b42ed2fa803a25ca97778f587de71b0d1d05834e",
+        "5ac8c2052ffe18ceeedb0d32f307b6092b6a667bf768249b43c2dc76112824b6",
+        "b62af815f9048d102aca17f2695d460f40e618bcc845d7a0d3bc1c8b90140c10",
+        "edccbaf426dca942750619e6960d69f0c560ebdaf7c2beb6a07ceb8fdc008aaf"
+      ],
+      "fingerprint": "de7b2e4854e0e779664f5a12c6b97898bc3872d974740fd1df2f43d57dee27ec",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-7211",
+      "trigger": "A change to a shown Concertmaster conversation's entries, or a reader of its chat or dock panel (RightDock/RightDock/concertmasterSessionId)",
+      "bound": "One Concertmaster session's curated conversation: a device holds a session's entries only while its chat or dock panel reads them (the concertmasterEntry.ofSession collection), and the rows are that session's messages and asks (POD-7211).",
+      "reason": "The curated chat and the Needs-you list read the resident concertmasterEntry rows and keep one session's; the table holds only the conversations on screen, so the work follows the shown conversation, not history or other sessions. Paging a very long conversation is a declared follow-up.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/features/chat/concertmaster/ConcertmasterFeed.tsx",
+      "holder": "ConcertmasterFeed/ConcertmasterFeed/held",
+      "rule": "reader-summary",
+      "tokens": "673ed384283be90e424852b5901061712a89d33e90e8efd7f586ae508d54db82",
+      "gate": [],
+      "origin": [
+        "72dd44bc660db7ea38e17fbe346b98a8e1b68b6b8098ade3b846bc01a7814fd7"
+      ],
+      "fingerprint": "6afbe88a0bcbf05976af7d8f57d6ba125893ba75ad19b20c30aef72d02a3cc85",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-7211",
+      "trigger": "A change to a shown Concertmaster conversation's entries, or a reader of its chat or dock panel (ConcertmasterFeed/ConcertmasterFeed/held)",
+      "bound": "One Concertmaster session's curated conversation: a device holds a session's entries only while its chat or dock panel reads them (the concertmasterEntry.ofSession collection), and the rows are that session's messages and asks (POD-7211).",
+      "reason": "The curated chat and the Needs-you list read the resident concertmasterEntry rows and keep one session's; the table holds only the conversations on screen, so the work follows the shown conversation, not history or other sessions. Paging a very long conversation is a declared follow-up.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/features/chat/concertmaster/ConcertmasterNeedsYou.tsx",
+      "holder": "ConcertmasterNeedsYou/ConcertmasterNeedsYou/held",
+      "rule": "reader-summary",
+      "tokens": "673ed384283be90e424852b5901061712a89d33e90e8efd7f586ae508d54db82",
+      "gate": [],
+      "origin": [
+        "72dd44bc660db7ea38e17fbe346b98a8e1b68b6b8098ade3b846bc01a7814fd7"
+      ],
+      "fingerprint": "369242d23947d6ef4c7c1a65b78fa2e197b1b64a4bbd42cfd60741a60fbd6048",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-7211",
+      "trigger": "A change to a shown Concertmaster conversation's entries, or a reader of its chat or dock panel (ConcertmasterNeedsYou/ConcertmasterNeedsYou/held)",
+      "bound": "One Concertmaster session's curated conversation: a device holds a session's entries only while its chat or dock panel reads them (the concertmasterEntry.ofSession collection), and the rows are that session's messages and asks (POD-7211).",
+      "reason": "The curated chat and the Needs-you list read the resident concertmasterEntry rows and keep one session's; the table holds only the conversations on screen, so the work follows the shown conversation, not history or other sessions. Paging a very long conversation is a declared follow-up.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-graph/src/concertmaster.ts",
+      "holder": "conversationReads/view:callback/rows/callback",
+      "rule": "enumerate:values",
+      "tokens": "d8a171f8e44f08081b2d16724c3f3e37ad21fc074113316668ae2b0a16a3b577",
+      "gate": [],
+      "origin": [
+        "4281c833c54e69c9f1b0f5e66225cd12a8b4b07929018f4283bf780f4049d133"
+      ],
+      "fingerprint": "6a2f8a9f04ba60c286ac71ea3aaa9cc0bc41d6964065b57cca976cdcbc15f8e2",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-7211",
+      "trigger": "A change to a shown Concertmaster conversation's entries, or a reader of its chat or dock panel (conversationReads/view:callback/rows/callback)",
+      "bound": "One Concertmaster session's curated conversation: a device holds a session's entries only while its chat or dock panel reads them (the concertmasterEntry.ofSession collection), and the rows are that session's messages and asks (POD-7211).",
+      "reason": "The curated chat and the Needs-you list read the resident concertmasterEntry rows and keep one session's; the table holds only the conversations on screen, so the work follows the shown conversation, not history or other sessions. Paging a very long conversation is a declared follow-up.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-graph/src/concertmaster.ts",
+      "holder": "conversationReads/view:callback/rows/callback",
+      "rule": "loop:for-of",
+      "tokens": "83bc38ca4268804abb6768b234a2bd88e483cd17baca239853cd6b4c0d40ff79",
+      "gate": [],
+      "origin": [
+        "4281c833c54e69c9f1b0f5e66225cd12a8b4b07929018f4283bf780f4049d133",
+        "79422aaacd6d7bb96d4fb3759e48cf1a4932d1c1bcf2faa1367918ed354a20e3"
+      ],
+      "fingerprint": "ff9d7d6868d0c5282a05a45e0d2145208e86ecb5d3ba4cf83fe105ced240cb2e",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-7211",
+      "trigger": "A change to a shown Concertmaster conversation's entries, or a reader of its chat or dock panel (conversationReads/view:callback/rows/callback)",
+      "bound": "One Concertmaster session's curated conversation: a device holds a session's entries only while its chat or dock panel reads them (the concertmasterEntry.ofSession collection), and the rows are that session's messages and asks (POD-7211).",
+      "reason": "The curated chat and the Needs-you list read the resident concertmasterEntry rows and keep one session's; the table holds only the conversations on screen, so the work follows the shown conversation, not history or other sessions. Paging a very long conversation is a declared follow-up.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     }
   ]
 }
