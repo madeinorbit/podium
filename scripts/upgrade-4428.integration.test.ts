@@ -1072,12 +1072,16 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
         }
         const collector = await attachCollector(newPort, sLogin, newCookie)
         try {
-          await waitFor(() => collector.text().length > 0, '(4) output frames flow', 60_000)
+          const probe = 'up4428-login-write-probe'
           const res = (await newApi.sessions.sendText.mutate({
             sessionId: sLogin,
-            text: 'up4428-login-write-probe',
+            text: probe,
           })) as any
           expect(res?.ok, '(4) write path accepts').toBe(true)
+          // The auth command may be waiting quietly for its browser callback;
+          // live-only attach owes no replay. Verify fresh terminal echo of our
+          // harmless input instead of waiting for old startup output.
+          await waitFor(() => collector.text().includes(probe), '(4) live input echoes', 60_000)
         } finally {
           collector.close()
         }

@@ -568,6 +568,16 @@ describe('message delivery under real failures', { retry: 0 }, () => {
       world.setTurnMs(session, 45_000)
       const busy = phone.send(session, 'keeps the agent busy')
       await waitTyped(world, busy.id)
+      // A submitted line precedes its hook and observed turn. Establish the
+      // busy turn before admitting the row whose later retract we are testing.
+      await waitFor(
+        async () =>
+          world.hookAccepted(session, 'UserPromptSubmit') &&
+          (await world.session(session))?.agentState?.phase === 'working',
+        30_000,
+        'the first turn is observed working',
+        () => world.logs(),
+      )
       const retracted = phone.send(session, 'retracted while the machine is away')
       // Crossing the proxy is not an acknowledgement: cutting then can lose
       // bytes the daemon has not read yet. Establish its actual held receipt.
@@ -616,6 +626,7 @@ describe('message delivery under real failures', { retry: 0 }, () => {
         'runtimeLifecycleResult',
         'runtimeDeliveryOutcome',
         'runtimeQueueDrainAbandoned',
+        'runtimeEvent',
       ])
       const frames = world.link.crossed().filter((frame) => kinds.has(frame.type))
       console.error(
@@ -631,6 +642,7 @@ describe('message delivery under real failures', { retry: 0 }, () => {
             receipt: body?.receipt,
             result: body?.result,
             outcome: body?.outcome,
+            event: body?.event,
           })),
           rows: await world.rows(),
           session: await world.session(only(world.sessionIds, 'session')),
