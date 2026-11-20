@@ -65,7 +65,11 @@ const agent: AgentInventory = {
               version: current,
               release: 3,
             },
-            previousVersion: kind === 'codex' ? '0.169.0' : '1.19.4',
+            previousVersion: {
+              codex: '0.169.0',
+              opencode: '1.19.4',
+              'claude-code': '2.1.305',
+            }[kind],
             paused: false,
             lastCheckAt: new Date(Date.now() - 2 * 3600000).toISOString(),
             ...(scene === 'installing' ? { installing: { version: '0.172.0' } } : {}),
