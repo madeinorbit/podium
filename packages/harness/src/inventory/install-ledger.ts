@@ -390,8 +390,9 @@ export class InstallLedger {
 
   /**
    * Publish a release: `number` becomes current and the old current becomes
-   * previous, in one transaction, and only while `lock` is held. Ends the
-   * failing run and clears the last install error.
+   * previous, in one transaction, and only while `lock` is held. The folder
+   * must already be in place with a valid receipt. Ends the failing run and
+   * clears the last install error.
    */
   publishRelease(kind: BuiltinHarnessKind, number: number, lock: InstallLock): ManagedInstall {
     return this.withLock(lock, () => {
@@ -400,6 +401,12 @@ export class InstallLedger {
       if (number >= row.nextNumber)
         throw new Error(
           `release ${number} of ${kind} was never allocated (next is ${row.nextNumber})`,
+        )
+      // Current only ever names a folder that is a release: renamed into place with a valid receipt.
+      const folder = this.releaseFolder(kind, number)
+      if (!folder?.receipt)
+        throw new Error(
+          `release ${number} of ${kind} is not a published folder: ${folder?.invalid ?? 'no such folder'}`,
         )
       this.sql(
         `UPDATE managed_install
@@ -468,6 +475,21 @@ export class InstallLedger {
 
   removeSessionInstall(sessionId: SessionId): void {
     this.sql('DELETE FROM session_install WHERE session_id = ?').run(sessionId)
+  }
+
+  /**
+   * Drop every session row not in `live`: the sessions whose harness process
+   * still runs. Returns the dropped session ids. One statement, so the set
+   * difference is computed by SQLite rather than by listing rows here.
+   */
+  retainSessionInstalls(live: Iterable<SessionId>): SessionId[] {
+    const ids = JSON.stringify([...new Set(live)])
+    const rows = this.sql(
+      `DELETE FROM session_install
+       WHERE session_id NOT IN (SELECT value FROM json_each(?))
+       RETURNING session_id`,
+    ).all(ids) as { session_id: string }[]
+    return rows.map((row) => row.session_id as SessionId).sort()
   }
 
   sessionInstall(sessionId: SessionId): SessionInstall | undefined {

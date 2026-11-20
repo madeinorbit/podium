@@ -4,7 +4,7 @@
  * programs share; a lost or damaged database is rebuilt from the release
  * folders; a newer schema is refused untouched.
  */
-import { spawnSync } from 'node:child_process'
+import { type ChildProcess, spawn, spawnSync } from 'node:child_process'
 import {
   existsSync,
   mkdirSync,
@@ -15,7 +15,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import type { SessionId } from '@podium/model'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -79,6 +79,18 @@ function makeRelease(
   return dir
 }
 
+/** Allocate a number, put the release folder in place, publish it: the install mechanism's steps 5 and 6. */
+function installNew(
+  ledger: InstallLedger,
+  kind: InstallReceipt['harness'],
+  version: string,
+  lock: InstallLock,
+) {
+  const number = ledger.allocateReleaseNumber(kind, lock)
+  makeRelease(kind, number, version)
+  return ledger.publishRelease(kind, number, lock)
+}
+
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), 'install-ledger-'))
   harnessesDir = join(root, 'harnesses')
@@ -110,6 +122,27 @@ describe('a fresh ledger', () => {
     db.close()
   })
 
+  it('lives in the state folder of its own instance, so two instances never share one', () => {
+    const saved = process.env.PODIUM_STATE_DIR
+    try {
+      process.env.PODIUM_STATE_DIR = join(root, 'instance-a')
+      const a = InstallLedger.open()
+      open.push(a)
+      process.env.PODIUM_STATE_DIR = join(root, 'instance-b')
+      const b = InstallLedger.open()
+      open.push(b)
+      expect(a.path).toBe(join(root, 'instance-a', 'harnesses', 'ledger.db'))
+      expect(b.path).toBe(join(root, 'instance-b', 'harnesses', 'ledger.db'))
+      a.requestInstall('codex', 'person')
+      expect(b.get('codex')).toBeUndefined()
+      expect(a.acquireInstallLock({ label: 'a', autoRenew: false }).acquired).toBe(true)
+      expect(b.acquireInstallLock({ label: 'b', autoRenew: false }).acquired).toBe(true)
+    } finally {
+      if (saved === undefined) delete process.env.PODIUM_STATE_DIR
+      else process.env.PODIUM_STATE_DIR = saved
+    }
+  })
+
   it('keeps its rows across a reopen', () => {
     const first = openLedger()
     first.requestInstall('codex', 'machine-setup')
@@ -139,22 +172,51 @@ describe('managed installs', () => {
     const ledger = openLedger()
     ledger.requestInstall('claude-code', 'person')
     const lock = lockOf(ledger)
-    const first = ledger.allocateReleaseNumber('claude-code', lock)
-    expect(ledger.publishRelease('claude-code', first, lock)).toMatchObject({
+    expect(installNew(ledger, 'claude-code', '2.1.300', lock)).toMatchObject({
       current: 1,
       previous: null,
     })
-    const second = ledger.allocateReleaseNumber('claude-code', lock)
-    expect(ledger.publishRelease('claude-code', second, lock)).toMatchObject({
+    expect(installNew(ledger, 'claude-code', '2.1.311', lock)).toMatchObject({
       current: 2,
       previous: 1,
     })
-    const third = ledger.allocateReleaseNumber('claude-code', lock)
-    expect(ledger.publishRelease('claude-code', third, lock)).toMatchObject({
+    expect(installNew(ledger, 'claude-code', '2.1.318', lock)).toMatchObject({
       current: 3,
       previous: 2,
       nextNumber: 4,
     })
+    expect(ledger.currentRelease('claude-code')?.receipt?.version).toBe('2.1.318')
+  })
+
+  it('a publish that fails inside its transaction leaves the earlier current and previous', () => {
+    const ledger = openLedger()
+    ledger.requestInstall('codex', 'person')
+    const lock = lockOf(ledger)
+    installNew(ledger, 'codex', '0.166.0', lock)
+    installNew(ledger, 'codex', '0.167.0', lock)
+    // Make the publishing UPDATE itself fail, after it has run, from a second connection.
+    const other = openDatabase(join(harnessesDir, 'ledger.db'))
+    other.exec(
+      `CREATE TRIGGER fail_publish AFTER UPDATE OF current ON managed_install
+       BEGIN SELECT RAISE(ABORT, 'disk gave out'); END`,
+    )
+    other.close()
+    const number = ledger.allocateReleaseNumber('codex', lock)
+    makeRelease('codex', number, '0.167.2')
+    expect(() => ledger.publishRelease('codex', number, lock)).toThrow('disk gave out')
+    expect(ledger.get('codex')).toMatchObject({ current: 2, previous: 1 })
+  })
+
+  it('refuses to publish a number whose folder is missing or has no valid receipt', () => {
+    const ledger = openLedger()
+    ledger.requestInstall('codex', 'person')
+    const lock = lockOf(ledger)
+    const missing = ledger.allocateReleaseNumber('codex', lock)
+    expect(() => ledger.publishRelease('codex', missing, lock)).toThrow('no such folder')
+    const unsigned = ledger.allocateReleaseNumber('codex', lock)
+    makeRelease('codex', unsigned, '0.167.2', false)
+    expect(() => ledger.publishRelease('codex', unsigned, lock)).toThrow('no readable receipt.json')
+    expect(ledger.get('codex')?.current).toBeNull()
   })
 
   it('refuses to publish a number that was never allocated or is already current', () => {
@@ -162,7 +224,7 @@ describe('managed installs', () => {
     ledger.requestInstall('codex', 'person')
     const lock = lockOf(ledger)
     expect(() => ledger.publishRelease('codex', 1, lock)).toThrow('never allocated')
-    ledger.publishRelease('codex', ledger.allocateReleaseNumber('codex', lock), lock)
+    installNew(ledger, 'codex', '0.167.2', lock)
     expect(() => ledger.publishRelease('codex', 1, lock)).toThrow('already current')
   })
 
@@ -233,7 +295,7 @@ describe('managed installs', () => {
     })
 
     const lock = lockOf(ledger)
-    ledger.publishRelease('codex', ledger.allocateReleaseNumber('codex', lock), lock)
+    installNew(ledger, 'codex', '0.167.2', lock)
     const published = ledger.get('codex')
     expect(published?.failingSince).toBeUndefined()
     expect(published?.lastInstallError).toBeUndefined()
@@ -301,6 +363,66 @@ describe('the install lock', () => {
     })
   })
 
+  it('refuses a second process while the holder lives, takes over once it is killed, and leaves no lock file', async () => {
+    mkdirSync(harnessesDir, { recursive: true })
+    const script = join(root, 'hold-lock.mjs')
+    writeFileSync(
+      script,
+      `import { InstallLedger } from ${JSON.stringify(resolve(import.meta.dirname, 'install-ledger.ts'))}
+const ledger = InstallLedger.open({ harnessesDir: process.argv[2] })
+const result = ledger.acquireInstallLock({ label: 'child installer' })
+console.log(JSON.stringify({ acquired: result.acquired }))
+setInterval(() => {}, 1000)
+`,
+    )
+    const child: ChildProcess = spawn(
+      process.execPath,
+      ['--conditions=@podium/source', script, harnessesDir],
+      { stdio: ['ignore', 'pipe', 'pipe'] },
+    )
+    try {
+      const line = await new Promise<string>((done, fail) => {
+        let out = ''
+        let err = ''
+        child.stdout?.on('data', (chunk) => {
+          out += String(chunk)
+          if (out.includes('\n')) done(out.trim())
+        })
+        child.stderr?.on('data', (chunk) => {
+          err += String(chunk)
+        })
+        child.on('exit', (code) => fail(new Error(`child exited ${code}: ${err}`)))
+      })
+      expect(JSON.parse(line)).toEqual({ acquired: true })
+
+      clock = Date.now()
+      const parent = openLedger({
+        pid: process.pid,
+        isProcessAlive: undefined,
+        hostname: undefined,
+        now: undefined,
+      })
+      const refused = parent.acquireInstallLock({ label: 'parent', autoRenew: false })
+      expect(refused).toMatchObject({
+        acquired: false,
+        holder: { pid: child.pid, label: 'child installer' },
+      })
+
+      const exited = new Promise((done) => child.once('exit', done))
+      child.kill('SIGKILL')
+      await exited
+      const taken = parent.acquireInstallLock({ label: 'parent', autoRenew: false })
+      expect(taken).toMatchObject({
+        acquired: true,
+        tookOver: { because: 'owner-gone', from: { pid: child.pid } },
+      })
+      const files = readdirSync(harnessesDir).filter((name) => !name.startsWith('ledger.db'))
+      expect(files).toEqual([])
+    } finally {
+      child.kill('SIGKILL')
+    }
+  }, 30_000)
+
   it('is not taken over from a live owner on another host before expiry', () => {
     const other = openLedger({ pid: 1, hostname: 'elsewhere' })
     lockOf(other)
@@ -363,6 +485,26 @@ describe('rejected releases, sessions and home edits', () => {
     ledger.removeSessionInstall(sessionId)
     expect(ledger.sessionInstall(sessionId)).toBeUndefined()
     expect(ledger.sessionInstalls()).toHaveLength(1)
+  })
+
+  it('drops every session row not in the live set', () => {
+    const ledger = openLedger()
+    for (const id of ['ses_a', 'ses_b', 'ses_c']) {
+      ledger.recordSessionInstall({
+        sessionId: id as SessionId,
+        kind: 'codex',
+        executable: '/usr/local/bin/codex',
+        version: '0.167.2',
+        provenance: 'external',
+        release: null,
+      })
+    }
+    expect(ledger.retainSessionInstalls(['ses_b' as SessionId, 'ses_gone' as SessionId])).toEqual([
+      'ses_a',
+      'ses_c',
+    ])
+    expect(ledger.sessionInstalls().map((row) => row.sessionId)).toEqual(['ses_b'])
+    expect(ledger.retainSessionInstalls([])).toEqual(['ses_b'])
   })
 
   it('keeps the value from before the first write when the same edit is recorded again', () => {
