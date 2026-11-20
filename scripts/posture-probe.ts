@@ -19,16 +19,29 @@
  * is what the probe is for.
  */
 // Relative imports: the root package does not depend on @podium/process.
+import { AGENT_MANIFESTS } from '../packages/harness/src/registry.js'
+import {
+  type BuiltinHarnessKind,
+  CLAUDE_CODE_HARNESS_KIND,
+  HarnessAgent,
+} from '../packages/model/src/entities/agent.js'
 import { defaultPtyBackend } from '../packages/pty/src/backends/index.js'
 import { createHeadlessScreen } from '../packages/pty/src/screen-model.js'
 
+/** Keep the tool's existing aliases while reading executable names from their owner. */
+function declaredBinary(kind: BuiltinHarnessKind): string {
+  const executable = AGENT_MANIFESTS[kind].inventory.executable.names[0]
+  if (!executable) throw new Error(`${kind} declares no executable`)
+  return executable
+}
+
 const BINARIES: Record<string, string> = {
-  claude: 'claude',
-  codex: 'codex',
-  opencode: 'opencode',
-  grok: 'grok',
-  pi: 'pi',
-  cursor: 'cursor-agent',
+  claude: declaredBinary(CLAUDE_CODE_HARNESS_KIND),
+  codex: declaredBinary(HarnessAgent.enum.codex),
+  opencode: declaredBinary(HarnessAgent.enum.opencode),
+  grok: declaredBinary(HarnessAgent.enum.grok),
+  pi: declaredBinary(HarnessAgent.enum.pi),
+  cursor: declaredBinary(HarnessAgent.enum.cursor),
 }
 
 interface Options {
