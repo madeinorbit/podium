@@ -599,9 +599,12 @@ async function attachCollector(
   cookie?: string,
 ): Promise<{
   text: () => string
+  geometry: () => { cols: number; rows: number } | undefined
+  resize: (cols: number, rows: number) => void
   close: () => void
 }> {
   let text = ''
+  let geometry: { cols: number; rows: number } | undefined
   // Setup-completed servers gate the client socket: attach with the login
   // cookie (bare sockets are refused with a non-101, as the first new-phase
   // run showed).
@@ -620,13 +623,31 @@ async function attachCollector(
       if (msg.type === 'outputFrame' && typeof msg.data === 'string') {
         text += Buffer.from(msg.data, 'base64').toString('utf8')
       }
+      if (msg.type === 'attached' || msg.type === 'geometry') geometry = msg.geometry
     } catch {}
   })
   ws.send(encode({ type: 'attach', sessionId } as any))
   // Peers without pictures serve live bytes on attach. Ask the preserved PTY
   // to repaint rather than treating replay of old login output as a contract.
   ws.send(encode({ type: 'redrawRequest', sessionId } as any))
-  return { text: () => text, close: () => ws.close() }
+  return {
+    text: () => text,
+    geometry: () => geometry,
+    resize: (cols, rows) => {
+      ws.send(encode({ type: 'viewState', visible: [sessionId], focused: sessionId } as any))
+      ws.send(
+        encode({
+          type: 'viewportRequest',
+          sessionId,
+          geometry: { cols, rows },
+          visible: true,
+          mode: 'native',
+          claimControl: true,
+        } as any),
+      )
+    },
+    close: () => ws.close(),
+  }
 }
 
 beforeAll(() => {
@@ -1058,7 +1079,7 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
       // harness's own auth flow (`claude auth login`), NOT a shell — so no
       // echo is possible by design ((3) covers echo semantics). What the
       // upgrade must preserve is the login shape (shell + loginHarness, no
-      // driver) with frames flowing both directions.
+      // driver) with the surviving PTY still responding to control requests.
       {
         const meta = await waitStatus(newApi, sLogin, 'live', 'upgraded (4) login shell')
         expect(meta?.agentKind, '(4) still a shell').toBe('shell')
@@ -1078,10 +1099,22 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
             text: probe,
           })) as any
           expect(res?.ok, '(4) write path accepts').toBe(true)
-          // The auth command may be waiting quietly for its browser callback;
-          // live-only attach owes no replay. Verify fresh terminal echo of our
-          // harmless input instead of waiting for old startup output.
-          await waitFor(() => collector.text().includes(probe), '(4) live input echoes', 60_000)
+          // A native auth command may stay silent awaiting its browser callback
+          // and need not echo input or Ctrl-L. The preserved host's reported
+          // kernel grid proves a real control round trip without completing login.
+          for (const geometry of [
+            { cols: 91, rows: 27 },
+            { cols: 80, rows: 24 },
+          ]) {
+            collector.resize(geometry.cols, geometry.rows)
+            await waitFor(
+              () =>
+                collector.geometry()?.cols === geometry.cols &&
+                collector.geometry()?.rows === geometry.rows,
+              `(4) preserved login PTY reports ${geometry.cols}x${geometry.rows}`,
+              30_000,
+            )
+          }
         } finally {
           collector.close()
         }
