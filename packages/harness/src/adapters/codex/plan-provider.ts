@@ -20,6 +20,23 @@ export const CHATGPT_PLAN_BASE_URL = 'https://api.openai.com/v1'
 /** The variable the plan's token is delivered in. */
 export const CHATGPT_PLAN_TOKEN_VARIABLE = 'ACCESS_TOKEN'
 
+/** The model-provider vocabulary recorded in a moved Codex thread. */
+export function codexModelProvider(credentialType: string | undefined): string {
+  return credentialType === 'openai.chatgpt-plan' ? CODEX_PLAN_PROVIDER_ID : 'openai'
+}
+
+/** A provider rewrite is a Codex file-format concern; other harnesses need no credential reads. */
+export async function codexModelProviderChange(
+  harness: string,
+  readTypes: () => Promise<{ from: string | undefined; to: string | undefined }>,
+): Promise<string | undefined> {
+  if (harness !== 'codex') return undefined
+  const types = await readTypes()
+  const from = codexModelProvider(types.from)
+  const to = codexModelProvider(types.to)
+  return from === to ? undefined : to
+}
+
 /**
  * `-c` overrides that select the provider. `baseUrl` exists for tests that
  * point Codex at a local fake endpoint; production uses OpenAI's.

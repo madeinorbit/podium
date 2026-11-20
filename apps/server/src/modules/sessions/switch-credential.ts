@@ -22,7 +22,7 @@
  */
 
 import type { SessionSwitchCredentialInput, SessionSwitchCredentialOutput } from '@podium/commands'
-import { CODEX_PLAN_PROVIDER_ID } from '@podium/harness/metadata'
+import { codexModelProviderChange } from '@podium/harness/metadata'
 import { createLogger } from '@podium/logger'
 import type {
   AgentKind,
@@ -118,15 +118,8 @@ export async function placeConversation(
   }
 }
 
-/**
- * Codex records the model provider a thread ran under and refuses to resume it
- * under one that is not configured (POD-6893 §3). A ChatGPT plan signed in to
- * Podium runs Codex under its own provider (epic Task 15); every other OpenAI
- * credential runs under `openai`.
- */
-export function codexModelProvider(credentialType: string | undefined): string {
-  return credentialType === 'openai.chatgpt-plan' ? CODEX_PLAN_PROVIDER_ID : 'openai'
-}
+// Keep the existing public helper at the server entrypoint; the vendor format lives in its adapter.
+export { codexModelProvider } from '@podium/harness/metadata'
 
 /** The home a delivery runs the harness in. */
 export const homeIdOfDelivery = (
@@ -345,17 +338,21 @@ export class CredentialSwitcher {
       session,
       { credentialId: pending.to, homeId: pending.toHomeId },
       pending.from,
-      session.agentKind === 'codex' ? await this.providerChange(pending) : undefined,
+      await this.providerChange(session.agentKind, pending),
     )
   }
 
   /** The provider a Codex thread must record, when the switch changes it. */
-  private async providerChange(pending: PendingSwitch): Promise<string | undefined> {
+  private async providerChange(
+    harness: AgentKind,
+    pending: PendingSwitch,
+  ): Promise<string | undefined> {
     const typeOf = async (id: CredentialId | null) =>
       id ? (await this.deps.store.credentials.get(id))?.type : undefined
-    const from = codexModelProvider(await typeOf(pending.from))
-    const to = codexModelProvider(await typeOf(pending.to))
-    return from === to ? undefined : to
+    return await codexModelProviderChange(harness, async () => ({
+      from: await typeOf(pending.from),
+      to: await typeOf(pending.to),
+    }))
   }
 
   /** Wait for a revived session to leave `starting`. */
