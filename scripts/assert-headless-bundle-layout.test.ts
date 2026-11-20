@@ -22,7 +22,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { delimiter, dirname, join, relative, sep } from 'node:path'
+import { basename, delimiter, dirname, join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
@@ -179,21 +179,38 @@ function pack(headlessParent: string): string {
   return tarball
 }
 
-function runGate(tarball: string): {
+function runGate(
+  tarball: string,
+  sourceCommit = TEST_SOURCE_SHA,
+): {
   status: number
   failLine: string
   output: string
+  inspected: string[]
 } {
+  // These layout tests pack known shell stubs. Make the external inspector an
+  // explicit fixture so reaching binary inspection does not depend on `file`
+  // being installed (or runnable) in a minimal build guest.
+  const tools = scratch()
+  const probe = join(tools, 'file-arguments.txt')
+  const inspector = join(tools, 'file')
+  writeFileSync(
+    inspector,
+    '#!/bin/sh\nprintf "%s\\n" "$@" > "$BUNDLE_LAYOUT_PROBE"\nprintf "%s\\n" "POSIX shell script, ASCII text executable"\n',
+  )
+  chmodSync(inspector, 0o755)
   const result = spawnSync(
     'bash',
-    [
-      'scripts/assert-headless-bundle.sh',
-      tarball,
-      'linux-x86_64',
-      '--source-commit',
-      TEST_SOURCE_SHA,
-    ],
-    { encoding: 'utf8', cwd: repoRoot },
+    ['scripts/assert-headless-bundle.sh', tarball, 'linux-x86_64', '--source-commit', sourceCommit],
+    {
+      encoding: 'utf8',
+      cwd: repoRoot,
+      env: {
+        ...process.env,
+        PATH: `${tools}${delimiter}${process.env.PATH ?? ''}`,
+        BUNDLE_LAYOUT_PROBE: probe,
+      },
+    },
   )
   const output = `${result.stdout ?? ''}${result.stderr ?? ''}`
   const failLine =
@@ -201,7 +218,10 @@ function runGate(tarball: string): {
       .split('\n')
       .find((line) => /^(FAIL|ABORT):/.test(line))
       ?.trim() ?? ''
-  return { status: result.status ?? 1, failLine, output }
+  const inspected = readdirSync(tools).includes('file-arguments.txt')
+    ? readFileSync(probe, 'utf8').trim().split('\n')
+    : []
+  return { status: result.status ?? 1, failLine, output, inspected }
 }
 
 describe('assert-headless-bundle production layout', () => {
@@ -485,13 +505,8 @@ describe('assert-headless-bundle production layout', () => {
     const root = scratch()
     writeProductionTree(join(root, 'headless'))
     const tarball = pack(root)
-    const result = spawnSync(
-      'bash',
-      ['scripts/assert-headless-bundle.sh', tarball, 'linux-x86_64', '--source-commit', 'fffffff'],
-      { encoding: 'utf8', cwd: repoRoot },
-    )
-    const output = `${result.stdout ?? ''}${result.stderr ?? ''}`
-    expect(result.status).not.toBe(0)
+    const { status, output } = runGate(tarball, 'fffffff')
+    expect(status, output).not.toBe(0)
     expect(output).toMatch(/build provenance source commit .* does not match release commit/)
   })
 
@@ -512,10 +527,13 @@ describe('assert-headless-bundle production layout', () => {
     const root = scratch()
     writeProductionTree(join(root, 'headless'))
     const tarball = pack(root)
-    const { status, failLine } = runGate(tarball)
-    expect(status).not.toBe(0)
-    expect(failLine).toMatch(/shipped podium-cli/)
+    const { status, failLine, output, inspected } = runGate(tarball)
+    expect(status, output).not.toBe(0)
+    expect(failLine, output).toMatch(/shipped podium-cli/)
     expect(failLine).not.toMatch(/tarball missing|NOTICE|systemd|build provenance|build stamp/)
+    const [flag, executable] = inspected
+    expect(flag).toBe('-b')
+    expect(basename(executable ?? '')).toBe('podium-cli')
   })
 })
 
