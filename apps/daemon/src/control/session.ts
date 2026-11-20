@@ -17,6 +17,7 @@ import {
   type LaunchSpec,
   noAgentTerms,
   parseHarnessVersion,
+  prepareClaudeHomeLaunch,
   withArgs,
 } from '@podium/harness'
 import type {
@@ -57,7 +58,6 @@ import { measureTask } from '@podium/runtime/task-attribution'
 import type { SessionBindingTransitionOutcome } from '../binding-store'
 import { noDurableBackendRefusal } from '../durable-backend'
 import { managementLoginCommandFor } from '../harness-management.js'
-import { trustClaudeFolder } from '../homes/share'
 import { countFrame } from '../loop-attribution'
 import type { Tier } from '../output-scheduler'
 import { decideReopenScreen } from '../reopen-policy'
@@ -94,14 +94,6 @@ import {
 } from '../session-harness-context.js'
 import type { ReattachControl, SpawnControl } from '../session-observers'
 import {
-  forgetSessionScreen,
-  sessionScreenFor,
-  terminalScreenFor,
-  trackSessionOutput,
-  trackSessionSize,
-} from '../session-screens'
-import { removeSessionUploads } from '../session-uploads'
-import {
   launchFoldersFor,
   launchPosturePart,
   nodePrepareLaunchPorts,
@@ -115,6 +107,14 @@ import {
   spawnPosture,
   storedSessionPosture,
 } from '../session-posture-store'
+import {
+  forgetSessionScreen,
+  sessionScreenFor,
+  terminalScreenFor,
+  trackSessionOutput,
+  trackSessionSize,
+} from '../session-screens'
+import { removeSessionUploads } from '../session-uploads'
 import { Terminal } from '../terminal/terminal.js'
 import { deliveryOverlay } from './access'
 import { type BindFacts, bindFrame, reportSize } from './applied-geometry'
@@ -804,7 +804,11 @@ export async function launchTerminalProcess(
         ? {
             posture: launchPosturePart(
               spec,
-              await launchFoldersFor({ settingsDir: ctx.settingsDir, sessionId, workdir: spec.workdir }),
+              await launchFoldersFor({
+                settingsDir: ctx.settingsDir,
+                sessionId,
+                workdir: spec.workdir,
+              }),
             ),
           }
         : {}),
@@ -828,12 +832,11 @@ export async function launchTerminalProcess(
     const childContext = loginContext ?? harnessContext
     // A Claude terminal in a Podium home asks to trust its folder before the
     // first turn; the person's own directory already knows their folders.
-    if (
-      childContext?.harnessHome &&
-      childContext.installation.kind === 'claude-code' &&
-      !loginContext
-    ) {
-      trustClaudeFolder(childContext.harnessHome.dir, spec.workdir)
+    if (childContext?.harnessHome && !loginContext) {
+      prepareClaudeHomeLaunch(
+        { harness: childContext.installation.kind, dir: childContext.harnessHome.dir },
+        { cwd: spec.workdir },
+      )
     }
     const cmd: LaunchSpec =
       loginCommand && loginContext
@@ -3020,7 +3023,10 @@ export function stopSessionProcess(
   opts: { retire?: boolean } = {},
 ): Promise<boolean> {
   let pending = pendingSessionStops.get(ctx)
-  if (!pending) pendingSessionStops.set(ctx, (pending = new Map()))
+  if (!pending) {
+    pending = new Map()
+    pendingSessionStops.set(ctx, pending)
+  }
   const previous = pending.get(msg.sessionId)
   // A timeout retry must observe the same retirement, not the now-empty
   // registry. Binding retirement may strengthen a park after it completes.
@@ -3509,15 +3515,14 @@ function bindingFailureMessage(outcome: SessionBindingTransitionOutcome): string
     case 'unchanged':
     case 'redundant':
       return undefined
-    case 'denied':
-      switch (outcome.reason) {
-        case 'machine-use-denied':
-          return 'you do not have access to this machine'
-        case 'not-found':
-          return 'session not found'
-        case 'not-claimant':
-          return 'session reattach claimed by another principal'
+    case 'denied': {
+      const reasons: Record<typeof outcome.reason, string> = {
+        'machine-use-denied': 'you do not have access to this machine',
+        'not-found': 'session not found',
+        'not-claimant': 'session reattach claimed by another principal',
       }
+      return reasons[outcome.reason]
+    }
     case 'unreachable':
       return 'target machine is unreachable'
     case 'rejected':

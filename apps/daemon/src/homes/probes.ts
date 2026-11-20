@@ -18,6 +18,7 @@ import {
   PROBEABLE_AGENTS,
   type ProbeableAgent,
   probeAgentModels,
+  probeClaudeHomeModels,
   probeClaudeModels,
   withHarnessHome,
   withHomeScope,
@@ -128,13 +129,15 @@ export async function homeModelProbe(
             home.harness as ProbeableAgent,
             withHarnessHome(context, { id: home.homeId, dir: home.dir }),
           )
-        } else if (home.harness === 'claude-code') {
-          models = await probeClaude(
+        } else {
+          models = await probeClaudeHomeModels(
+            home.harness,
             withHomeScope(
               home.harness,
               harnessAccount(home.harness, deps.account.home, deps.account.env),
               home.dir,
             ),
+            probeClaude,
           )
         }
       } catch {

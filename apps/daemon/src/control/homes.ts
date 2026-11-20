@@ -14,6 +14,7 @@ import { existsSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import {
+  claudeLoginFileRemovalError,
   credentialFileReader,
   declaredValue,
   manifestFor,
@@ -144,11 +145,8 @@ export async function removePropagatedLogin(
   const section = manifest ? declaredValue(manifest.credentials) : undefined
   const file = section?.files.find((candidate) => candidate.propagatable)
   if (!section || !file) return { outcome: 'failed', error: `${harness} has no login file` }
-  if (harness === 'claude-code' && process.platform === 'darwin') {
-    // On macOS the login propagation installed is in the Keychain, not a file:
-    // leaving the placement pending is honest, deleting a file would not be.
-    return { outcome: 'failed', error: 'a Claude Code login on macOS is not a file' }
-  }
+  const removalError = claudeLoginFileRemovalError(harness, process.platform)
+  if (removalError) return { outcome: 'failed', error: removalError }
   const home = resolveManagementCredentialHome(ctx) ?? homedir()
   const path = resolveCredentialFilePath(file, home, { realHome: true })
   let present: string | undefined

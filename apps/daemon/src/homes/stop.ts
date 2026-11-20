@@ -15,64 +15,21 @@
  */
 
 import { execFile } from 'node:child_process'
+import { type CodexHomeStopPorts, type RunningProcess, stopCodexHome } from '@podium/harness'
 import type { SessionId } from '@podium/model'
 import type { HarnessHome } from './registry'
 
-/** A process and its command line, as `ps` prints it. */
-export interface RunningProcess {
-  pid: number
-  args: string
-}
+export type { RunningProcess } from '@podium/harness'
 
-export interface HomeStopPorts {
+export interface HomeStopPorts extends CodexHomeStopPorts {
   /** The sessions that run in `homeId` now. */
   sessionsIn(homeId: string): SessionId[] | string[]
   stopSession(sessionId: SessionId | string): Promise<unknown>
-  /** The installed Codex the inventory verified, if any. */
-  codexExecutable(): string | undefined
-  /** The machine's command environment (PATH and the rest). */
-  commandEnv(): Readonly<Record<string, string>>
-  run(command: string, args: readonly string[], env: Record<string, string>): Promise<void>
-  listProcesses(): Promise<RunningProcess[]>
-  signal(pid: number, signal: 'SIGTERM' | 'SIGKILL'): void
-  sleep(ms: number): Promise<void>
 }
-
-/** How long a process started from the home gets to exit after SIGTERM. */
-const GRACE_MS = 5_000
-const POLL_MS = 250
 
 export async function stopHome(home: HarnessHome, ports: HomeStopPorts): Promise<void> {
   for (const sessionId of ports.sessionsIn(home.homeId)) await ports.stopSession(sessionId)
-  if (home.harness !== 'codex') return
-  const codex = ports.codexExecutable()
-  if (codex) {
-    try {
-      await ports.run(codex, ['app-server', 'daemon', 'stop'], {
-        ...ports.commandEnv(),
-        CODEX_HOME: home.dir,
-      })
-    } catch {
-      // An older Codex has no such command, or none was running: what still
-      // runs from the home is found below either way.
-    }
-  }
-  await killRunningFrom(home.dir, ports)
-}
-
-/** Stop every process whose executable lives under `dir`. */
-async function killRunningFrom(dir: string, ports: HomeStopPorts): Promise<void> {
-  const prefix = dir.endsWith('/') ? dir : `${dir}/`
-  const inside = async () =>
-    (await ports.listProcesses()).filter((process) => process.args.startsWith(prefix))
-  const first = await inside()
-  if (first.length === 0) return
-  for (const process of first) ports.signal(process.pid, 'SIGTERM')
-  for (let waited = 0; waited < GRACE_MS; waited += POLL_MS) {
-    if ((await inside()).length === 0) return
-    await ports.sleep(POLL_MS)
-  }
-  for (const process of await inside()) ports.signal(process.pid, 'SIGKILL')
+  await stopCodexHome(home, ports)
 }
 
 /** The real process ports: `ps` lists, `process.kill` signals. */

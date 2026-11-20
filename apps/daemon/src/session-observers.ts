@@ -22,6 +22,7 @@ import {
   harnessAdapterFor,
   initialAgentState,
   locateClaudeSessionFile,
+  observeWithCodexProcessLease,
   parseClaudeTranscriptSegmentId,
   reduceAgentState,
   transcriptColorReaderFor,
@@ -1616,48 +1617,15 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     // another harness's conventions as this session's status.
     const observe = declaredValue(adapter.observer)
     if (!observe) return
-    if (!session || adapter.kind !== 'codex') {
-      observations.set(sessionId, {
-        adapter,
-        observation: observe(input, hostFor(sessionId, adapter)),
-        account: input.account,
-      })
-      return
-    }
-    let live = true
-    const generation = {}
-    const offExit = session?.onExit?.(() => {
-      live = false
-    })
-    const offLease = session?.onLeaseLost?.(() => {
-      live = false
-    })
-    const observation = observe(
-      {
-        ...input,
-        ...(session
-          ? {
-              ownedProcess: () =>
-                live && session.pid > 0 && session.holdsWriterLease?.() === true
-                  ? { pid: session.pid, generation }
-                  : undefined,
-            }
-          : {}),
-      },
-      hostFor(sessionId, adapter),
-    )
     observations.set(sessionId, {
       adapter,
       account: input.account,
-      observation: {
-        ...observation,
-        stop() {
-          live = false
-          offExit?.()
-          offLease?.()
-          observation.stop()
-        },
-      },
+      observation: observeWithCodexProcessLease(
+        adapter.kind,
+        input,
+        (ownedInput) => observe(ownedInput, hostFor(sessionId, adapter)),
+        session,
+      ),
     })
   }
 

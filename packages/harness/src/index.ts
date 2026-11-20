@@ -26,6 +26,12 @@ export {
 } from './accept-correlation.js'
 export type { AgentManifest as HarnessAdapter } from './adapter.js'
 export * from './adapters/claude-code/credential-freshness.js'
+export {
+  claudeHomeSharing,
+  claudeLoginFileRemovalError,
+  prepareClaudeHomeLaunch,
+  probeClaudeHomeModels,
+} from './adapters/claude-code/home.js'
 export * from './adapters/claude-code/state-locate.js'
 // Per-harness state sections (POD-4520, spec §4.5): the providers, causal
 // observers, locate/binding helpers and fingerprints live in adapters/<h>/
@@ -34,12 +40,19 @@ export * from './adapters/claude-code/state-locate.js'
 export * from './adapters/claude-code/state-provider.js'
 export * from './adapters/codex/auth-identity.js'
 export * from './adapters/codex/credential-absence-grace.js'
+export {
+  type CodexHomeStopPorts,
+  codexHomeSharing,
+  type RunningProcess,
+  stopCodexHome,
+} from './adapters/codex/home.js'
 export { codexMcpArgs, codexTranscriptPlacement } from './adapters/codex/index.js'
 export {
   codexHookLaunchFlags,
   codexHookTrustFlag,
   codexSessionFlagHookHashes,
 } from './adapters/codex/instrumentation.js'
+export { observeWithCodexProcessLease } from './adapters/codex/owned-observation.js'
 export * from './adapters/codex/responses.js'
 export * from './adapters/codex/state-provider.js'
 export { codexPromptTextMatches } from './adapters/codex/transcript.js'
@@ -74,13 +87,13 @@ export * from './inventory/build-inventory.js'
 export * from './issue-system-pointer.js'
 export * from './jsonl-stream.js'
 export * from './launch.js'
+export * from './launch-terms.js'
 export * from './manifest.js'
 export * from './model-probe.js'
 export * from './opencode/db.js'
 export * from './pi/paths.js'
 export * from './posture.js'
 export * from './posture-types.js'
-export * from './launch-terms.js'
 export * from './registry.js'
 // Host-only sqlite source surface (POD-4520): the opencode cursor stamper the
 // daemon supplies to the opencode observer as an injected port, so the adapter
