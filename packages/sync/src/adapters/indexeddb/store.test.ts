@@ -255,7 +255,7 @@ describe('IndexedDbSyncStore', () => {
       await open(),
     ]
 
-    it.fails('device reload audit keeps a reshaped row after an older tab finishes a fetch', async () => {
+    it('device reload audit keeps a reshaped row after an older tab finishes a fetch', async () => {
       const server = new CollectionServer()
       server.kindTokens = { issueProjection: 'v1' }
       server.put('issueProjection', 'D2', issue('D2', { stage: 'done', closedReason: 'completed' }))

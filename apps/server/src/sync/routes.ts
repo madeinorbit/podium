@@ -13,6 +13,7 @@ import {
 import { z } from 'zod'
 import { workspaceBoundToRequest } from '../file-artifact-route'
 import { CollectionRequestError, resolveInstance } from './collection-fetch'
+import { UnavailableCollectionError } from './collection-shapes'
 import type { Hono } from 'hono'
 import { negotiateContentCoding, syncResponseHeaders, syncRefusal, observeSyncTransfer, logSyncTransfer, transferLog, type SyncTransferMetrics, type SyncDeltaPorts } from './route-support'
 
@@ -33,21 +34,26 @@ function clientTypeOf(request: Request): { ok: true; value?: ClientType } | { ok
   return parsed.success ? { ok: true, value: parsed.data } : { ok: false }
 }
 
-/** Every instance must name a declared collection correctly before a job is admitted. */
-function refusedInstance(instances: readonly CollectionInstance[]): string | undefined {
+type ParsedInstances = { ok: true; value: CollectionInstance[] } | { ok: false; error: string }
+
+/** A retired rule has no answer or completion marker. Other requests in the batch still run. */
+function publishedInstances(instances: readonly CollectionInstance[]): ParsedInstances {
+  const value: CollectionInstance[] = []
   for (const instance of instances) {
     try {
       resolveInstance(instance)
+      value.push(instance)
     } catch (error) {
-      if (error instanceof CollectionRequestError) return error.message
+      if (error instanceof UnavailableCollectionError) continue
+      if (error instanceof CollectionRequestError) return { ok: false, error: error.message }
       throw error
     }
   }
-  return undefined
+  return { ok: true, value }
 }
 
 /** The first download's `view` parameter: the visible view's instances, as JSON. */
-function parseView(url: URL): { ok: true; value: CollectionInstance[] } | { ok: false; error: string } {
+function parseView(url: URL): ParsedInstances {
   const values = url.searchParams.getAll('view')
   if (values.length === 0) return { ok: true, value: [] }
   if (values.length > 1) return { ok: false, error: 'view given twice' }
@@ -59,8 +65,7 @@ function parseView(url: URL): { ok: true; value: CollectionInstance[] } | { ok: 
   }
   const parsed = z.array(CollectionInstance).max(VIEW_MAX_INSTANCES).safeParse(raw)
   if (!parsed.success) return { ok: false, error: 'invalid view instances' }
-  const refused = refusedInstance(parsed.data)
-  return refused === undefined ? { ok: true, value: parsed.data } : { ok: false, error: refused }
+  return publishedInstances(parsed.data)
 }
 
 /** HTTP admission and opaque byte relay; both producers run in the sync worker. */
@@ -161,6 +166,8 @@ export function registerSyncRoutes(app: Hono, deps: SyncRouteDeps): void {
   app.get('/sync/delta', async (c) => {
     const principal = await deps.principal(c.req.raw)
     if (!principal) return syncRefusal('noFeedPrincipal', 'authenticated feed principal required')
+    const clientType = clientTypeOf(c.req.raw)
+    if (!clientType.ok) return c.json({ error: 'unknown client type' }, 400)
     const query = parseSyncDeltaQuery(new URL(c.req.url).searchParams)
     if (!query.success) return c.json({ error: 'invalid delta range' }, 400)
     const coding = negotiateContentCoding(c.req.raw.headers.get('accept-encoding'))
@@ -195,6 +202,7 @@ export function registerSyncRoutes(app: Hono, deps: SyncRouteDeps): void {
           from: query.data.from,
           to: query.data.to,
           pageRows: deps.pageRows ?? 500,
+          ...(clientType.value && { clientType: clientType.value }),
         },
         c.req.raw.signal,
       )
@@ -240,8 +248,8 @@ export function registerSyncRoutes(app: Hono, deps: SyncRouteDeps): void {
     }
     const request = CollectionFetchRequest.safeParse(body)
     if (!request.success) return c.json({ error: 'invalid collection request' }, 400)
-    const refused = refusedInstance(request.data.instances)
-    if (refused !== undefined) return c.json({ error: refused }, 400)
+    const instances = publishedInstances(request.data.instances)
+    if (!instances.ok) return c.json({ error: instances.error }, 400)
     const coding = negotiateContentCoding(c.req.raw.headers.get('accept-encoding'))
     if (coding === 'not-acceptable') return c.body(null, 406)
     const transferId = randomUUID()
@@ -265,7 +273,7 @@ export function registerSyncRoutes(app: Hono, deps: SyncRouteDeps): void {
           // The workspace the request is bound to, never one the body names
           // (POD-7118): the worker's reads are all that workspace's.
           workspaceId: workspaceBoundToRequest(c),
-          instances: request.data.instances,
+          instances: instances.value,
           ...(clientType.value && { clientType: clientType.value }),
         },
         c.req.raw.signal,

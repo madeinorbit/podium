@@ -1,4 +1,4 @@
-import { CLIENT_WIRE_VERSION } from '@podium/protocol'
+import { CLIENT_TYPE_HEADER, CLIENT_WIRE_VERSION } from '@podium/protocol'
 import { Hono } from 'hono'
 import { describe, expect, it, vi } from 'vitest'
 import { DEVICE_GRADE_PRINCIPAL } from '@podium/sync'
@@ -7,25 +7,27 @@ import { registerSyncRoutes, type SyncRouteDeps } from './routes'
 
 function fixture() {
   const bytes = new TextEncoder().encode('opaque worker bytes\n')
-  const delta = vi.fn<SyncWorkerClient['delta']>(() => ({
+  const transfer = (): ReturnType<SyncWorkerClient['delta']> => ({
     meta: Promise.resolve({ type: 'syncMeta', kindTokens: {}, formatVersion: 1, mode: 'delta', transferId: 't',
       feedId: 'f', epoch: 'e', fromSeq: 0, seq: 8, minAvailableSeq: 1, wireVersion: CLIENT_WIRE_VERSION, wireSchemaDigest: '0000000000000000' }),
     body: new ReadableStream({ start(controller) { controller.enqueue(bytes); controller.close() } }),
     completed: Promise.resolve({}),
-  }))
+  })
+  const delta = vi.fn<SyncWorkerClient['delta']>(transfer)
+  const collections = vi.fn<SyncWorkerClient['collections']>(transfer)
   const forbidden = vi.fn((): never => { throw new Error('main-thread data read') })
   const deps: SyncRouteDeps = {
     principal: vi.fn(async () => DEVICE_GRADE_PRINCIPAL),
     authority: { captureHead: forbidden, changesRange: forbidden },
     serving: { identity: async () => ({ feedId: 'f', epoch: 'e' }), retentionFloor: forbidden },
-    worker: () => ({ bootstrap: () => { throw new Error('wrong producer') }, delta }),
+    worker: () => ({ bootstrap: () => { throw new Error('wrong producer') }, delta, collections }),
     pageRows: 3,
   }
   const app = new Hono()
   registerSyncRoutes(app, deps)
   const request = (query = 'feedId=f&epoch=e&from=0', coding = 'identity') =>
     app.request(`/sync/delta?${query}`, { headers: { 'accept-encoding': coding } })
-  return { deps, delta, forbidden, request }
+  return { app, deps, delta, collections, forbidden, request }
 }
 
 describe('worker delta route', () => {
@@ -64,5 +66,36 @@ describe('worker delta route', () => {
     expect((await f.request(undefined, 'identity;q=0,*;q=0')).status).toBe(406)
     f.deps.principal = async () => undefined
     expect((await f.request()).status).toBe(403)
+  })
+})
+
+describe('worker collection admission', () => {
+  it('answers the published instances in a batch containing retired rules', async () => {
+    const f = fixture()
+    const current = { collection: 'session.live', part: 'main' }
+    const response = await f.app.request('/sync/collections', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', [CLIENT_TYPE_HEADER]: 'phone' },
+      body: JSON.stringify({
+        instances: [
+          { collection: 'session.retired', part: 'main' },
+          {
+            collection: 'session.ofIssue',
+            via: 'issueProjection.retired',
+            args: { issueId: 'A' },
+            part: 'main',
+          },
+          current,
+        ],
+      }),
+    })
+    expect(response.status).toBe(200)
+    expect(f.collections).toHaveBeenCalledWith(
+      expect.objectContaining({
+        clientType: 'phone',
+        instances: [current],
+      }),
+      expect.any(AbortSignal),
+    )
   })
 })

@@ -171,17 +171,13 @@ export type ComesWithOperation =
   | { readonly kind: 'held'; readonly member: string; readonly holder: string }
   | { readonly kind: 'complete'; readonly record: string; readonly vias: readonly string[] }
 
-export interface CacheMutation {
+export interface CacheMutation extends SnapshotVersions {
   /** Applied strictly in order. Adapters MUST NOT regroup or reorder. */
   readonly operations: readonly CacheOperation[]
   /** POD-7159 — comes-with changes for the disk index, after `instances`. */
   readonly comesWith?: readonly ComesWithOperation[]
   /** The cursor must never be ahead of the data it claims (ADR 2 D10). */
   readonly cursor?: Cursor
-  /** Shape tokens bound to `cursor`; absent keeps the stored tokens on the same feed. */
-  readonly kindTokens?: KindTokens
-  /** Device-side kind-reload repair completed, bound to the same feed as the tokens. */
-  readonly kindReloadVersion?: number
   /** Marker changes, applied after `operations`. */
   readonly instances?: readonly InstanceOperation[]
   /** The server's policy for this client (`syncMeta.policy`); null forgets it. */
@@ -198,6 +194,10 @@ export interface CacheMutation {
 export interface SnapshotVersions {
   readonly kindTokens?: KindTokens
   readonly kindReloadVersion?: number
+  /** Which advertised kinds the app retained when it certified these holdings. */
+  readonly retainedKinds?: readonly string[]
+  /** Fence for writers using a different replica generation on the same physical store. */
+  readonly cacheGeneration?: string
 }
 
 /**
@@ -217,6 +217,11 @@ export interface ReplicaCacheStore {
   readCursor(): Cursor | null
   readKindTokens(): KindTokens | undefined
   readKindReloadVersion(): number | undefined
+  readRetainedKinds(): readonly string[] | undefined
+  /** The store's app-dependent retention filter, if it has one. */
+  retainsEntity?(entity: string): boolean
+  /** Refresh a shared cache when its durable writes lost a generation check. */
+  refreshAfterCacheConflict?(): Promise<boolean>
   /**
    * Every stored marker, by instance key (`instanceKey`): what the device
    * holds on disk, in memory or not. `readDiskIndex().inMemory(key)` says
@@ -370,7 +375,7 @@ export interface AuthorityReadPort {
   changesRange(
     cursor: Cursor,
     signal?: AbortSignal,
-    onTarget?: (target: Cursor, kindTokens: KindTokens) => void,
+    onTarget?: (target: Cursor, kindTokens: KindTokens, policy?: CachePolicy) => void,
   ): Promise<AsyncIterable<DeltaFrame> | BootstrapRequired>
   /**
    * ADR 2 D6 / Amendment 1 D15 — the principal's slice, chunked and paced.

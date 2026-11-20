@@ -27,7 +27,7 @@ const queued: OutboxRecord = {
 }
 
 describe('IndexedDB optional entity retention', () => {
-  it.fails('device reload audit backfills a newly supported kind when only the browser app updates', async () => {
+  it('device reload audit backfills a newly supported kind when only the browser app updates', async () => {
     const factory = freshFactory()
     await expectNewlySupportedKindAfterUpgrade((retainEntity) =>
       IndexedDbSyncStore.open({

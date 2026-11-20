@@ -74,7 +74,6 @@ import {
   policyArgs,
   policyInstances,
   rangeReached,
-  resolveInstance,
   stubFieldsOf,
   stubOfValue,
 } from './holdings'
@@ -103,6 +102,7 @@ import {
 import { transitionRow } from './transition-table'
 import {
   type BootstrapChunk,
+  type CachePolicy,
   type ChangeEnvelope,
   type Cursor,
   type DeltaFrame,
@@ -312,6 +312,53 @@ const entityKey = (entity: string, entityId: string): string => `${entity}\u0000
 
 const KIND_RELOAD_VERSION = 1
 
+interface KindAdvertisement {
+  readonly tokens: KindTokens
+  readonly policy?: CachePolicy
+  readonly attempts?: number
+}
+
+const sameFeed = (a: Pick<Cursor, 'feedId' | 'epoch'>, b: Pick<Cursor, 'feedId' | 'epoch'>) =>
+  a.feedId === b.feedId && a.epoch === b.epoch
+
+function sameKindTokens(a: KindTokens, b: KindTokens): boolean {
+  return (
+    Object.keys(a).length === Object.keys(b).length &&
+    Object.keys(a).every((kind) => Object.hasOwn(b, kind) && a[kind] === b[kind])
+  )
+}
+
+function samePolicyCollections(a: CachePolicy, b: CachePolicy): boolean {
+  return (
+    a.clientType === b.clientType &&
+    a.recentDays === b.recentDays &&
+    JSON.stringify(a.steps) === JSON.stringify(b.steps)
+  )
+}
+
+function samePolicy(a: CachePolicy, b: CachePolicy): boolean {
+  return (
+    samePolicyCollections(a, b) &&
+    a.memoryBudgetMb === b.memoryBudgetMb &&
+    a.diskBudgetMb === b.diskBudgetMb &&
+    a.diskMaxIdleDays === b.diskMaxIdleDays
+  )
+}
+
+/** A different server projection or feed arrived before the load could certify its holdings. */
+class ReloadSourceChanged extends Error {
+  constructor(
+    readonly answer: BootstrapChunk,
+    readonly changedMidLoad = false,
+  ) {
+    super('reload answers disagree about the feed or projection')
+  }
+}
+
+function newCacheGeneration(): string {
+  return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`
+}
+
 /** A retired kind requires a full replacement; missing local tokens reload their kinds. */
 function changedKinds(
   installed: KindTokens | undefined,
@@ -375,7 +422,9 @@ export class Replica implements DeviceCollectionReads {
   /** A ladder failure awaiting its ONE report through `settled()` (POD-1162). */
   private failure: unknown | undefined
   private kindReloading = false
-  private pendingKindTokens: KindTokens | undefined
+  private kindReloadTask: Promise<void> | undefined
+  private pendingKindAdvertisement: KindAdvertisement | undefined
+  private startedLoad: number | undefined
   private pendingTransition = false
   /**
    * Every transition-table row this replica has taken, in order. Not telemetry:
@@ -646,28 +695,94 @@ export class Replica implements DeviceCollectionReads {
   }
 
   /** Called from both the connection advertisement and the HTTP delta header. */
-  observeKindTokens(offered: KindTokens): void {
-    if (this.cursorValue === null || this.state === 'bootstrapping') return
-    if (this.kindReloading) {
-      this.pendingKindTokens = offered
-      return
+  observeKindTokens(tokens: KindTokens, policy?: CachePolicy): void {
+    const previous = this.pendingKindAdvertisement
+    const knownPolicy =
+      policy ??
+      (previous !== undefined && sameKindTokens(previous.tokens, tokens)
+        ? previous.policy
+        : undefined)
+    this.pendingKindAdvertisement = {
+      tokens,
+      ...(knownPolicy === undefined ? {} : { policy: knownPolicy }),
     }
-    let installed: KindTokens | undefined
-    let repaired = false
+    this.checkKindAdvertisement()
+  }
+
+  private retainedKinds(tokens: KindTokens): string[] {
+    return Object.keys(tokens)
+      .filter((kind) => this.store.retainsEntity?.(kind) !== false)
+      .sort()
+  }
+
+  private checkKindAdvertisement(): void {
+    const offer = this.pendingKindAdvertisement
+    if (
+      offer === undefined ||
+      this.kindReloading ||
+      (this.state !== 'live' && this.state !== 'stale') ||
+      this.cursorValue === null
+    )
+      return
     try {
-      installed = this.store.readKindTokens()
-      repaired = (this.store.readKindReloadVersion() ?? 0) >= KIND_RELOAD_VERSION
+      const storedPolicy = this.store.readPolicy()
+      // A saved replica with no collection policy can pull the replacement
+      // directly. A normal reconnect offers its policy in the delta header.
+      if (this.state === 'stale' && storedPolicy !== null) return
+      this.pendingKindAdvertisement = undefined
+      const installed = this.store.readKindTokens()
+      const kinds = changedKinds(installed, offer.tokens)
+      if (
+        kinds === undefined ||
+        // Older servers only send policy with a full snapshot. A newly advertised
+        // kind can add a collection that the saved policy does not name.
+        (installed !== undefined &&
+          offer.policy === undefined &&
+          kinds.some(
+            (kind) => !Object.hasOwn(installed, kind) && this.store.retainsEntity?.(kind) !== false,
+          ))
+      ) {
+        this.rebootstrap('kind-shape')
+        return
+      }
+      const retained = this.retainedKinds(offer.tokens)
+      const priorRetention = this.store.readRetainedKinds()
+      const repaired =
+        (this.store.readKindReloadVersion() ?? 0) >= KIND_RELOAD_VERSION &&
+        priorRetention !== undefined
+      // LEGACY(remove-after: 2027-05): old receipts did not track app retention,
+      // and could certify a shape while some of its holdings were still missing.
+      for (const kind of retained)
+        if ((!repaired || !priorRetention.includes(kind)) && !kinds.includes(kind)) kinds.push(kind)
+      const policy = offer.policy
+      // A legacy replacement could already have forgotten a retired kind's
+      // token. Its remaining records still need to be reconciled once.
+      if (!repaired && policy !== undefined) {
+        const affected = new Set(kinds)
+        for (const [key] of this.store.readDiskIndex().records()) {
+          const { entity } = splitRowKey(key)
+          if (!Object.hasOwn(offer.tokens, entity)) affected.add(entity)
+        }
+        kinds.splice(0, kinds.length, ...affected)
+      }
+      const policyChanged =
+        policy !== undefined && (storedPolicy === null || !samePolicy(storedPolicy, policy))
+      const policyNeedsReload =
+        policyChanged && (storedPolicy === null || !samePolicyCollections(storedPolicy, policy))
+      if (
+        kinds.length === 0 &&
+        !policyNeedsReload &&
+        repaired &&
+        priorRetention.length === retained.length
+      ) {
+        if (policyChanged) this.store.applyAtomic({ operations: [], policy })
+        return
+      }
+      if (!this.reloadKinds(new Set(kinds), offer)) this.rebootstrap('kind-shape')
     } catch (error) {
       if (!(error instanceof ReplicaStoreCorruptError)) throw error
       this.onCorruption()
-      return
     }
-    const kinds = changedKinds(installed, offered)
-    // LEGACY(remove-after: 2027-05): older kind reloads could save current tokens over missing rows; re-confirm held collections once, without discarding the device copy.
-    if (kinds !== undefined && !repaired)
-      for (const kind of Object.keys(offered)) if (!kinds.includes(kind)) kinds.push(kind)
-    if (kinds?.length === 0) return
-    this.rebootstrap('kind-shape', kinds && new Set(kinds))
   }
 
   connect(): TransitionOutcome {
@@ -686,6 +801,7 @@ export class Replica implements DeviceCollectionReads {
     this.walkAbort.abort()
     this.walkAbort = new AbortController()
     this.walkGeneration += 1
+    this.pendingKindAdvertisement = undefined
     this.buffer = []
     this.counters.pendingGap = false
     if (this.cursorValue === null) return this.transitionTo('cold', 'D7-DISCONNECT-COLD')
@@ -1083,11 +1199,29 @@ export class Replica implements DeviceCollectionReads {
     this.emit({ type: 'heal', rung: 1, cause: 'gap' })
     this.run(async () => {
       if (generation !== this.walkGeneration) return
+      if (await this.store.refreshAfterCacheConflict?.()) {
+        if (generation !== this.walkGeneration) return
+        this.cursorValue = this.readCursorSafely()
+        // Reconcile views with the durable cache before replaying socket frames.
+        if (this.cursorValue !== null)
+          this.emit({
+            type: 'bootstrap-installed',
+            cause: 'resume',
+            snapshotSeq: this.cursorValue.seq,
+            entityCount: this.store.readEntities().length,
+            bufferedFramesApplied: 0,
+          })
+      }
+      if (generation !== this.walkGeneration) return
       const cursor = this.cursorValue
       if (cursor === null) {
         this.rebootstrap('cold-start')
         return
       }
+      let legacyHead = cursor.seq
+      if (this.store.readRetainedKinds() === undefined)
+        for (const [, entry] of this.store.readDiskIndex().records())
+          legacyHead = Math.max(legacyHead, entry.seq)
       let targetSeq: number | undefined
       let framesCommitted = 0
       const fromSeq = cursor.seq
@@ -1101,10 +1235,14 @@ export class Replica implements DeviceCollectionReads {
       }
       let range: Awaited<ReturnType<AuthorityReadPort['changesRange']>>
       try {
-        range = await this.authority.changesRange(cursor, signal, (target, kindTokens) => {
+        range = await this.authority.changesRange(cursor, signal, (target, kindTokens, policy) => {
           if (generation !== this.walkGeneration) return
           targetSeq = target.seq
-          this.observeKindTokens(kindTokens)
+          if (legacyHead > target.seq && target.seq >= cursor.seq && sameFeed(cursor, target)) {
+            this.rebootstrap('epoch-mismatch', true)
+            return
+          }
+          this.observeKindTokens(kindTokens, policy)
         })
       } catch {
         sourceFailed()
@@ -1112,8 +1250,13 @@ export class Replica implements DeviceCollectionReads {
       }
       if (generation !== this.walkGeneration) return
       if ('kind' in range) {
-        this.note('D7-2-COMPACTED')
-        this.rebootstrap('compacted')
+        if (range.reason === 'feed-identity-mismatch') {
+          this.note('D7-4-EPOCH')
+          this.rebootstrap('epoch-mismatch')
+        } else {
+          this.note('D7-2-COMPACTED')
+          this.rebootstrap('compacted')
+        }
         return
       }
       const iterator = range[Symbol.asyncIterator]()
@@ -1185,7 +1328,10 @@ export class Replica implements DeviceCollectionReads {
       // collection without a marker (POD-7048); otherwise fetch what a held
       // record comes with that an interrupted answer did not bring.
       if (this.store.readLoadingSince() !== null) this.rebootstrap('resume')
-      else this.requestMissingComesWith()
+      else {
+        this.checkKindAdvertisement()
+        this.requestMissingComesWith()
+      }
     })
   }
 
@@ -1269,10 +1415,7 @@ export class Replica implements DeviceCollectionReads {
    * stale-visible; POD-7086). Only the markers go at once: what the feed kept
    * complete is no longer known to be.
    */
-  private rebootstrap(cause: RebootstrapCause, kinds?: ReadonlySet<string>): void {
-    // A changed record shape reloads only the collections of those kinds,
-    // through the collection fetch, while the feed keeps applying (POD-7086).
-    if (cause === 'kind-shape' && kinds !== undefined && this.reloadKinds(kinds)) return
+  private rebootstrap(cause: RebootstrapCause, replaceHeld = false): void {
     // Bump first, then read: a superseded walk notices the mismatch and abandons
     // its staging rather than installing a slice the ladder has moved past.
     this.walkAbort.abort()
@@ -1316,7 +1459,7 @@ export class Replica implements DeviceCollectionReads {
         if (cause !== 'local-corruption' || !(error instanceof ReplicaStoreCorruptError))
           throw error
       }
-      await this.walk(cause, generation)
+      await this.walk(cause, generation, replaceHeld)
     })
   }
 
@@ -1349,12 +1492,19 @@ export class Replica implements DeviceCollectionReads {
     return dropped === instances.size ? [{ kind: 'dropAll' }] : ops
   }
 
-  private async walk(cause: RebootstrapCause, generation: number): Promise<void> {
+  private async walk(
+    cause: RebootstrapCause,
+    generation: number,
+    replaceHeld: boolean,
+  ): Promise<void> {
     let lastError = 'unknown'
+    let restartSnapshot = false
     for (let attempt = 1; attempt <= this.maxBootstrapAttempts; attempt += 1) {
       if (generation !== this.walkGeneration) return // superseded
       try {
-        const installed = await this.attemptWalk(cause, generation)
+        const resume = !restartSnapshot && (cause === 'resume' || this.startedLoad === generation)
+        restartSnapshot = false
+        const installed = await this.attemptWalk(cause, generation, resume, replaceHeld)
         if (installed || generation !== this.walkGeneration) return
         lastError = 'stream ended before the last chunk'
         this.note('D6-RESTART')
@@ -1378,6 +1528,7 @@ export class Replica implements DeviceCollectionReads {
           this.note('D6-RESTART')
           continue
         }
+        if (error instanceof ReloadSourceChanged) restartSnapshot = true
         lastError = error instanceof Error ? error.message : String(error)
         this.note('D6-RESTART')
       }
@@ -1410,14 +1561,22 @@ export class Replica implements DeviceCollectionReads {
    * attempt asks the collection fetch for only the policy's collections
    * without a marker.
    */
-  private async attemptWalk(cause: RebootstrapCause, generation: number): Promise<boolean> {
+  private async attemptWalk(
+    cause: RebootstrapCause,
+    generation: number,
+    resume: boolean,
+    replaceHeld: boolean,
+  ): Promise<boolean> {
     const signal = this.walkAbort.signal
-    const missing = this.resumeRequests()
+    const missing = resume ? this.resumeRequests() : undefined
     if (missing !== undefined && missing.length === 0) {
       await this.finishLoad(cause, undefined, generation, false, 0)
       return true
     }
     const full = missing === undefined
+    const checkpointTokens = full ? undefined : this.store.readKindTokens()
+    const checkpointPolicy = full ? null : this.store.readPolicy()
+    const priorOffer = this.pendingKindAdvertisement
     const source =
       missing === undefined
         ? this.authority.bootstrap(signal, this.viewRequests?.())
@@ -1447,7 +1606,14 @@ export class Replica implements DeviceCollectionReads {
       const chunk = mergeChunks(pending)
       pending.length = 0
       pendingRows = 0
-      entityCount += this.installChunk(chunk, { start: full && first, members }).length
+      const start = full && first
+      entityCount += this.installChunk(chunk, { start, replaceHeld, members }).length
+      if (start) {
+        this.startedLoad = generation
+        // The snapshot was requested after this observation. Later offers
+        // still need to be compared with the completed load.
+        if (this.pendingKindAdvertisement === priorOffer) this.pendingKindAdvertisement = undefined
+      }
       first = false
     }
     const chunks = source[Symbol.asyncIterator]()
@@ -1468,19 +1634,26 @@ export class Replica implements DeviceCollectionReads {
         const chunk = step.value
         if (generation !== this.walkGeneration) return false
         if (
-          head &&
-          (chunk.feedId !== head.feedId ||
-            chunk.epoch !== head.epoch ||
-            chunk.snapshotSeq !== head.snapshotSeq)
-        ) {
-          throw new Error('bootstrap chunks disagree about the snapshot point')
-        }
+          head !== undefined &&
+          (!sameFeed(chunk, head) ||
+            chunk.snapshotSeq !== head.snapshotSeq ||
+            !sameKindTokens(chunk.kindTokens, head.kindTokens))
+        )
+          throw new ReloadSourceChanged(chunk)
         head = chunk
         this.validateChunk(chunk)
         if (!full) {
           const cursor = this.cursorValue
-          if (cursor === null || cursor.feedId !== chunk.feedId || cursor.epoch !== chunk.epoch)
-            throw new Error('a resumed load answered for another feed')
+          if (
+            cursor === null ||
+            !sameFeed(cursor, chunk) ||
+            (checkpointTokens !== undefined &&
+              !sameKindTokens(checkpointTokens, chunk.kindTokens)) ||
+            (chunk.policy !== undefined &&
+              checkpointPolicy !== null &&
+              !samePolicy(chunk.policy, checkpointPolicy))
+          )
+            throw new ReloadSourceChanged(chunk)
         }
         pending.push(chunk)
         pendingRows += rowsOfChunk(chunk)
@@ -1495,8 +1668,11 @@ export class Replica implements DeviceCollectionReads {
       }
     } catch (error) {
       // The answer broke off: the chunks that arrived whole stay (POD-7086).
-      done = true
-      if (generation === this.walkGeneration && !(error instanceof ReplicaStoreCorruptError))
+      if (
+        generation === this.walkGeneration &&
+        !(error instanceof ReplicaStoreCorruptError) &&
+        !(error instanceof ReloadSourceChanged)
+      )
         install()
       throw error
     } finally {
@@ -1519,6 +1695,21 @@ export class Replica implements DeviceCollectionReads {
     if (this.store.readLoadingSince() === null) return undefined
     const policy = this.store.readPolicy()
     if (policy === null) return undefined
+    const offer = this.pendingKindAdvertisement
+    const tokens = this.store.readKindTokens()
+    const retained = this.store.readRetainedKinds()
+    if (
+      offer !== undefined &&
+      ((tokens !== undefined && !sameKindTokens(tokens, offer.tokens)) ||
+        (offer.policy !== undefined && !samePolicy(policy, offer.policy)))
+    )
+      return undefined
+    if (
+      tokens !== undefined &&
+      this.store.retainsEntity !== undefined &&
+      this.retainedKinds(tokens).some((kind) => !retained?.includes(kind))
+    )
+      return undefined
     return this.missingPolicyInstances()
   }
 
@@ -1622,7 +1813,9 @@ export class Replica implements DeviceCollectionReads {
     chunk: BootstrapChunk,
     options: {
       readonly start?: boolean
+      readonly replaceHeld?: boolean
       readonly reload?: KindReload
+      readonly staleMarkers?: Map<string, InstanceOperation>
       readonly signal?: AbortSignal
       /** What the answer named so far: the members of the instances it marks (POD-7159). */
       readonly members?: AnswerMembers
@@ -1636,23 +1829,41 @@ export class Replica implements DeviceCollectionReads {
         members.add(change.entity, change.entityId, change.payload)
     const snapshot: Cursor = { feedId: chunk.feedId, epoch: chunk.epoch, seq: chunk.snapshotSeq }
     const at = chunk.snapshotSeq
+    const previous = this.cursorValue
+    const replacesFeed =
+      start &&
+      previous !== null &&
+      (options.replaceHeld === true || !sameFeed(previous, snapshot) || at < previous.seq)
+    const previousTokens = start ? this.store.readKindTokens() : undefined
+    const retired = new Set(
+      Object.keys(previousTokens ?? {}).filter((kind) => !Object.hasOwn(chunk.kindTokens, kind)),
+    )
     const loadingSince = start ? at : this.store.readLoadingSince()
     const staged = new Map<string, EntityRecord | null>()
     const rowOf = (entity: string, entityId: string): EntityRecord | undefined => {
       const key = entityKey(entity, entityId)
+      if (replacesFeed) return staged.get(key) ?? undefined
       return staged.has(key) ? (staged.get(key) ?? undefined) : this.store.readRow(entity, entityId)
     }
-    const newer = (key: string): boolean => (this.seen?.get(key) ?? -1) > at
+    const newer = (key: string): boolean => !replacesFeed && (this.seen?.get(key) ?? -1) > at
     const operations: CacheOperation[] = []
     const events: ReplicaEvent[] = []
     const written: EntityRecord[] = []
     const disk = this.store.readDiskIndex()
+    if (!replacesFeed && retired.size > 0) {
+      for (const [key] of disk.records()) {
+        const row = splitRowKey(key)
+        if (!retired.has(row.entity)) continue
+        operations.push({ kind: 'remove', ...row })
+        events.push({ type: 'released', ...row })
+      }
+    }
     for (const change of chunk.changes) {
       const key = entityKey(change.entity, change.entityId)
       options.reload?.confirmed.add(key)
       if (newer(key)) continue
       const existing = rowOf(change.entity, change.entityId)
-      const reshaped = options.reload?.kinds.has(change.entity) === true
+      const reshaped = options.reload?.kinds.has(change.entity) === true || loadingSince !== null
       // A kind reload replaces the projection even at the same feed number:
       // code and shape changes need not write a source row or move the feed.
       // An ordinary fetch of a whole record needs no older or equal answer.
@@ -1668,7 +1879,8 @@ export class Replica implements DeviceCollectionReads {
       // POD-7160: a record whole on disk and not in memory, newer than the
       // answer, stays (newest wins); as of the same number the answer is the
       // same row, and memory takes it.
-      const onDisk = existing === undefined && !staged.has(key) ? disk.record(key) : undefined
+      const onDisk =
+        !replacesFeed && existing === undefined && !staged.has(key) ? disk.record(key) : undefined
       if (onDisk?.level === 'main' && onDisk.seq > at) continue
       const same =
         (onDisk?.level === 'main' && onDisk.seq === at) ||
@@ -1689,7 +1901,7 @@ export class Replica implements DeviceCollectionReads {
       if (reshaped)
         options.reload?.stubs.set(key, { ...upsertOf(change, change.payload, at), part: 'stub' })
       // POD-7159: a record whole on disk and not in memory is whole, as of its index number.
-      const onDisk = staged.has(key) ? undefined : disk.record(key)
+      const onDisk = replacesFeed || staged.has(key) ? undefined : disk.record(key)
       const existing: EntityRecord | undefined =
         rowOf(change.entity, change.entityId) ??
         (onDisk?.level === 'main'
@@ -1724,13 +1936,19 @@ export class Replica implements DeviceCollectionReads {
         events.push({ type: 'released', entity: change.entity, entityId: change.entityId })
       } else if (
         existing !== undefined &&
-        (reshaped ? at < rowAsOf(existing) : at <= this.currencyOf(existing, loadingSince))
+        (reshaped || loadingSince !== null
+          ? at < rowAsOf(existing)
+          : at <= this.currencyOf(existing, loadingSince))
       )
         continue
       const op: CacheOperation = {
         ...upsertOf(change, change.payload, at),
         part: 'stub',
-        ...(reshaped && existing !== undefined && rowAsOf(existing) === at ? { force: true } : {}),
+        ...((reshaped || loadingSince !== null) &&
+        existing !== undefined &&
+        rowAsOf(existing) === at
+          ? { force: true }
+          : {}),
       }
       operations.push(op)
       const row = recordFromOp(op)
@@ -1744,22 +1962,26 @@ export class Replica implements DeviceCollectionReads {
       this.keptWhole.clear()
       const states = this.store.readDiskIndex()
       const stale = [...this.store.readInstances().keys()].filter(
-        (key) => states.instance(key)?.stale === true,
+        (key) => !replacesFeed && states.instance(key)?.stale === true,
       )
       if (stale.length === 0) instances.push({ kind: 'dropAll' })
       else
-        for (const key of this.store.readInstances().keys())
-          if (states.instance(key)?.stale !== true) instances.push({ kind: 'drop', key })
+        for (const [key, instance] of this.store.readInstances())
+          if (
+            states.instance(key)?.stale !== true ||
+            retired.has(COLLECTIONS.get(instance.collection)?.of ?? '')
+          )
+            instances.push({ kind: 'drop', key })
     }
     const markRows: HeldRows = {
       readRow: (entity, entityId) => {
         const key = entityKey(entity, entityId)
-        return staged.has(key)
+        return staged.has(key) || replacesFeed
           ? (staged.get(key) ?? undefined)
           : this.ruleRows.readRow(entity, entityId)
       },
     }
-    const args = policyArgs(chunk.policy ?? this.store.readPolicy())
+    const args = policyArgs(options.reload?.policy ?? chunk.policy ?? this.store.readPolicy())
     for (const marker of chunk.complete ?? []) {
       const key = instanceKey(marker)
       const range = options.reload?.ranges.get(key)
@@ -1774,7 +1996,6 @@ export class Replica implements DeviceCollectionReads {
         !rangeReached(collection, marker.range, range)
       )
         continue
-      options.reload?.completed.add(key)
       // POD-7159: what a record comes with is not a marker of its own; the
       // answer's end records it on the holder (`completeComesWith`).
       if (marker.via !== undefined) {
@@ -1792,7 +2013,7 @@ export class Replica implements DeviceCollectionReads {
         (start || marker.range === undefined
           ? undefined
           : this.store.readInstances().get(key)?.total)
-      instances.push({
+      const mark: InstanceOperation = {
         kind: 'mark',
         instance: {
           key,
@@ -1809,7 +2030,10 @@ export class Replica implements DeviceCollectionReads {
         },
         ...(held === undefined ? {} : { members: held }),
         at: this.now(),
-      })
+      }
+      const deferred = options.reload?.markers ?? options.staleMarkers
+      if (deferred === undefined) instances.push(mark)
+      else deferred.set(key, mark)
     }
     const mutation: CacheMutation = {
       operations,
@@ -1818,20 +2042,30 @@ export class Replica implements DeviceCollectionReads {
         ? {
             cursor: snapshot,
             kindTokens: chunk.kindTokens,
+            retainedKinds: this.retainedKinds(chunk.kindTokens),
+            cacheGeneration: newCacheGeneration(),
             loadingSince: at,
             policy: chunk.policy ?? null,
           }
-        : chunk.policy === undefined
-          ? {}
-          : { policy: chunk.policy }),
+        : {}),
     }
-    if (operations.length === 0 && instances.length === 0 && !start && chunk.policy === undefined)
-      return written
+    if (operations.length === 0 && instances.length === 0 && !start) return written
     // What `isComplete` answers moves with a marker written, or with markers
     // a full load's first chunk drops.
     const markersMoved =
-      (chunk.complete?.length ?? 0) > 0 || (start && this.store.readInstances().size > 0)
-    this.store.applyAtomic(mutation)
+      (options.reload === undefined &&
+        options.staleMarkers === undefined &&
+        (chunk.complete?.length ?? 0) > 0) ||
+      (start && this.store.readInstances().size > 0)
+    if (replacesFeed) {
+      // Sequence numbers and holdings from another feed cannot certify rows
+      // in this snapshot. Swap when the first authoritative chunk arrives.
+      this.store.installSnapshot([], snapshot, [mutation])
+      this.exits.clear()
+      this.buffer = this.buffer.filter((frame) => sameFeed(frame, snapshot))
+      this.askedComesWith.clear()
+      this.comesWithAnswered.clear()
+    } else this.store.applyAtomic(mutation)
     if (start) this.cursorValue = snapshot
     this.batchEvents(() => {
       for (const event of events) this.emit(event)
@@ -1890,6 +2124,7 @@ export class Replica implements DeviceCollectionReads {
     if (this.state === 'live' && generation === this.walkGeneration) {
       await this.drainBuffer()
       if (this.state === 'live' && generation === this.walkGeneration) {
+        this.checkKindAdvertisement()
         this.requestMissingComesWith()
         this.wakeMemory()
       }
@@ -1983,7 +2218,12 @@ export class Replica implements DeviceCollectionReads {
               entityId: row.entityId,
             })),
             cursor: base,
-            ...(complete ? { kindReloadVersion: KIND_RELOAD_VERSION } : {}),
+            ...(complete
+              ? {
+                  kindReloadVersion: KIND_RELOAD_VERSION,
+                  retainedKinds: this.retainedKinds(this.store.readKindTokens() ?? {}),
+                }
+              : {}),
             ...(complete ? { loadingSince: null } : {}),
           },
           span,
@@ -2381,15 +2621,24 @@ export class Replica implements DeviceCollectionReads {
    * those the instances were asked for.
    */
   private completeComesWith(members: AnswerMembers): void {
-    if (members.comesWith.size === 0) return
+    const ops = this.comesWithOperations(members, this.store.readPolicy())
+    if (ops.length > 0) this.store.applyAtomic({ operations: [], comesWith: ops })
+  }
+
+  private comesWithOperations(
+    members: AnswerMembers,
+    policy: CachePolicy | null,
+    diskHolders?: ReadonlyMap<string, EntityRecord>,
+  ): ComesWithOperation[] {
+    if (members.comesWith.size === 0) return []
     const disk = this.store.readDiskIndex()
-    const args = policyArgs(this.store.readPolicy())
+    const args = policyArgs(policy)
     const now = this.now()
     const ops: ComesWithOperation[] = []
     const candidates = new Set<string>()
     for (const [key, spec] of members.comesWith) {
       const holder = comesWithHolderOf(spec)
-      if (holder !== undefined) {
+      if (holder !== undefined && disk.record(holder)?.level === 'main') {
         candidates.add(holder)
         let answered = this.comesWithAnswered.get(holder)
         if (answered === undefined) {
@@ -2407,9 +2656,10 @@ export class Replica implements DeviceCollectionReads {
     const index = this.heldIndex()
     for (const key of candidates) {
       const { entity, entityId } = splitRowKey(key)
-      const row = this.store.read(entity, entityId)
       const entry = disk.record(key)
-      if (row === undefined || entry === undefined) continue
+      if (entry?.level !== 'main') continue
+      const row = this.store.read(entity, entityId) ?? diskHolders?.get(key)
+      if (row === undefined || rowAsOf(row) !== entry.seq) continue
       const done = new Map<string, boolean>()
       const answered = this.comesWithAnswered.get(key)
       const memberOf = index.matching(entity, row.value, this.ruleRows, now)
@@ -2433,7 +2683,7 @@ export class Replica implements DeviceCollectionReads {
       const same = vias.length === entry.cw.length && vias.every((via) => entry.cw.includes(via))
       if (!same) ops.push({ kind: 'complete', record: key, vias })
     }
-    if (ops.length > 0) this.store.applyAtomic({ operations: [], comesWith: ops })
+    return ops
   }
 
   /**
@@ -2534,6 +2784,7 @@ export class Replica implements DeviceCollectionReads {
    * live.
    */
   private async reloadStale(requests: readonly InstanceRequest[]): Promise<void> {
+    if (this.kindReloadTask !== undefined) await this.kindReloadTask
     const wanted = requests.filter((request) => {
       const key = instanceKey(request)
       return this.instanceStale(request) && this.inMemoryMarker(key) !== undefined
@@ -2571,11 +2822,14 @@ export class Replica implements DeviceCollectionReads {
   private sweepStale(
     before: ReadonlyMap<string, readonly string[]>,
     named: ReadonlyMap<string, unknown>,
+    refreshed: ReadonlyMap<string, InstanceOperation>,
+    answer: AnswerMembers,
+    at: number,
   ): void {
     const disk = this.store.readDiskIndex()
     const markers = this.store.readInstances()
     const operations: CacheOperation[] = []
-    const instances: InstanceOperation[] = []
+    const instances: InstanceOperation[] = [...refreshed.values()]
     const events: ReplicaEvent[] = []
     const gone = new Set<string>()
     const heldElsewhere = (member: string, except: string): boolean =>
@@ -2583,40 +2837,64 @@ export class Replica implements DeviceCollectionReads {
         if (holder === except) return false
         if (isComesWithHolder(holder)) {
           const record = holder.slice(COMES_WITH_HOLDER.length)
-          return disk.record(record)?.level === 'main' && !this.staleOnly(record)
+          return (
+            !gone.has(record) && disk.record(record)?.level === 'main' && !this.staleOnly(record)
+          )
         }
-        return markers.has(holder) && disk.instance(holder)?.stale !== true
+        return (
+          markers.has(holder) && (refreshed.has(holder) || disk.instance(holder)?.stale !== true)
+        )
       }) === true
-    for (const [key, members] of before) {
-      const refused = markers.has(key) && disk.instance(key)?.stale === true
-      if (refused) instances.push({ kind: 'drop', key })
-      for (const member of members) {
-        if (gone.has(member) || (!refused && named.has(member))) continue
-        const entry = disk.record(member)
-        if (entry === undefined || entry.level !== 'main' || heldElsewhere(member, key)) continue
-        gone.add(member)
-        const { entity, entityId } = splitRowKey(member)
-        const stub = this.store.readStubTable(entity)?.stubOf(entityId)
-        if (stub !== undefined)
-          operations.push({
-            kind: 'upsert',
-            entity,
-            entityId,
-            value: stub,
-            provenance: { seq: entry.seq },
-            part: 'stub',
-            asOf: entry.seq,
-            force: true,
-          })
-        else operations.push({ kind: 'remove', entity, entityId })
-        events.push({ type: 'released', entity, entityId })
-      }
+    const release = (member: string, except: string): void => {
+      const entry = disk.record(member)
+      if (
+        gone.has(member) ||
+        entry?.level !== 'main' ||
+        entry.seq > at ||
+        (this.seen?.get(member) ?? -1) > at ||
+        heldElsewhere(member, except)
+      )
+        return
+      gone.add(member)
+      const { entity, entityId } = splitRowKey(member)
+      const stub = this.store.readStubTable(entity)?.stubOf(entityId)
+      if (stub !== undefined)
+        operations.push({
+          kind: 'upsert',
+          entity,
+          entityId,
+          value: stub,
+          provenance: { seq: entry.seq },
+          part: 'stub',
+          asOf: entry.seq,
+          force: true,
+        })
+      else operations.push({ kind: 'remove', entity, entityId })
+      events.push({ type: 'released', entity, entityId })
     }
-    if (operations.length === 0 && instances.length === 0) return
-    this.store.applyAtomic({
-      operations,
-      ...(instances.length === 0 ? {} : { instances }),
-    })
+    for (const [key, members] of before) {
+      const refused = !refreshed.has(key)
+      if (refused) instances.push({ kind: 'drop', key })
+      for (const member of members) if (refused || !named.has(member)) release(member, key)
+    }
+    // An empty companion answer still covers its holder's former members.
+    // A holder a different current instance owns may have other vias.
+    for (const spec of answer.comesWith.values()) {
+      const holder = comesWithHolderOf(spec)
+      if (holder === undefined || !this.staleOnly(holder)) continue
+      const kind = COLLECTIONS.get(spec.collection)?.of
+      const via = comesWithHolderKey(holder)
+      for (const member of disk.membersOf(via))
+        if (splitRowKey(member).entity === kind && !named.has(member)) release(member, via)
+    }
+    // Once a holder leaves, its companions must still have an independent holder.
+    for (const holder of gone) {
+      const via = comesWithHolderKey(holder)
+      for (const member of disk.membersOf(via)) if (!named.has(member)) release(member, via)
+    }
+    const comesWith = this.comesWithOperations(answer, this.store.readPolicy())
+    if (operations.length === 0 && instances.length === 0 && comesWith.length === 0) return
+    this.store.applyAtomic({ operations, instances, comesWith })
     for (const event of events) this.emit(event)
     if (instances.length > 0) this.emit({ type: 'markers' })
   }
@@ -3130,6 +3408,9 @@ export class Replica implements DeviceCollectionReads {
 
   /** The server's answer to instances (the old `load`): written to disk and memory together. */
   private async loadFromServer(requests: readonly InstanceRequest[]): Promise<void> {
+    // A fetch that starts after invalidation uses the completed reload's basis.
+    // Already running fetches are allowed to finish before the plan is made.
+    if (this.kindReloadTask !== undefined) await this.kindReloadTask
     const signal = this.fetchAbort.signal
     // POD-7169: an instance another fetch is answering now resolves with that
     // answer, not at once without one: the loader reads a load that resolved
@@ -3165,6 +3446,7 @@ export class Replica implements DeviceCollectionReads {
     this.seen ??= new Map()
     this.fetchCount += 1
     const signal = this.fetchAbort.signal
+    const startingTokens = this.store.readKindTokens()
     const written: EntityRecord[] = []
     /** Every record the answer named, written or already current on the device. */
     const named = new Map<string, { readonly entity: string; readonly entityId: string }>()
@@ -3195,6 +3477,18 @@ export class Replica implements DeviceCollectionReads {
           pending.length = 0
           pendingRows = 0
           const write = (): void => {
+            if (signal.aborted) return
+            // An ordinary answer which was in flight across a local reload
+            // must still describe the projection on which it is installing.
+            const tokens = this.store.readKindTokens()
+            if (
+              reload === undefined &&
+              tokens !== undefined &&
+              startingTokens !== undefined &&
+              !sameKindTokens(tokens, startingTokens) &&
+              !sameKindTokens(tokens, chunk.kindTokens)
+            )
+              throw new ReloadSourceChanged(chunk)
             written.push(
               ...this.installChunk(chunk, {
                 signal,
@@ -3218,6 +3512,7 @@ export class Replica implements DeviceCollectionReads {
           const batch = fresh.slice(at, at + FETCH_MAX_INSTANCES)
           const chunks = collections(batch, signal)[Symbol.asyncIterator]()
           let ended = false
+          let header: BootstrapChunk | undefined
           try {
             for (;;) {
               const next = chunks.next()
@@ -3232,8 +3527,40 @@ export class Replica implements DeviceCollectionReads {
               if (signal.aborted) return
               this.validateChunk(chunk)
               const cursor = this.cursorValue
-              if (cursor === null || cursor.feedId !== chunk.feedId || cursor.epoch !== chunk.epoch)
-                throw new Error('a collection answer is for another feed')
+              if (cursor === null || !sameFeed(cursor, chunk)) throw new ReloadSourceChanged(chunk)
+              if (
+                header !== undefined &&
+                (chunk.snapshotSeq !== header.snapshotSeq ||
+                  !sameKindTokens(chunk.kindTokens, header.kindTokens))
+              )
+                throw new ReloadSourceChanged(chunk, true)
+              const policy = reload?.policy ?? this.store.readPolicy()
+              if (
+                chunk.policy !== undefined &&
+                policy !== null &&
+                !samePolicy(chunk.policy, policy)
+              )
+                throw new ReloadSourceChanged(chunk, true)
+              if (reload !== undefined) {
+                if (
+                  reloadedAt !== undefined &&
+                  !sameKindTokens(reloadedAt.kindTokens, chunk.kindTokens)
+                )
+                  throw new ReloadSourceChanged(chunk, true)
+                if (
+                  [...reload.kinds].some(
+                    (kind) => chunk.kindTokens[kind] !== reload.offer.tokens[kind],
+                  )
+                )
+                  throw new ReloadSourceChanged(chunk)
+              } else if (
+                insideLoad &&
+                startingTokens !== undefined &&
+                !sameKindTokens(startingTokens, chunk.kindTokens)
+              ) {
+                throw new ReloadSourceChanged(chunk)
+              }
+              header ??= chunk
               if (reloadedAt === undefined || chunk.snapshotSeq < reloadedAt.snapshotSeq)
                 reloadedAt = chunk
               if (!insideLoad)
@@ -3281,13 +3608,15 @@ export class Replica implements DeviceCollectionReads {
             if (stale !== undefined && pending.length > 0)
               whole.push(mergeChunks(pending.splice(0)))
             await install()
-            if (reload !== undefined && !ended && !signal.aborted)
-              throw new Error('kind reload ended before the last chunk')
+            if (!ended && !signal.aborted) {
+              if (reload !== undefined) throw new Error('kind reload ended before the last chunk')
+              if (stale !== undefined) throw new Error('stale reload ended before the last chunk')
+            }
           } catch (error) {
             // The answer broke off: the chunks that arrived whole stay (POD-7086).
             // A stale reload keeps the instance as it was instead.
             whole.length = 0
-            if (!signal.aborted) await install()
+            if (!signal.aborted && !(error instanceof ReloadSourceChanged)) await install()
             throw error
           } finally {
             pending.length = 0
@@ -3301,9 +3630,11 @@ export class Replica implements DeviceCollectionReads {
           await this.takeInstallTurn()
           await this.serial(() =>
             this.batchEvents(() => {
+              if (signal.aborted) return
+              const staleMarkers = new Map<string, InstanceOperation>()
               for (const chunk of whole)
-                written.push(...this.installChunk(chunk, { signal, members }))
-              this.sweepStale(stale, named)
+                written.push(...this.installChunk(chunk, { signal, members, staleMarkers }))
+              this.sweepStale(stale, named, staleMarkers, members, reloadedAt?.snapshotSeq ?? -1)
             }),
           )
         }
@@ -3311,11 +3642,18 @@ export class Replica implements DeviceCollectionReads {
         // rows off the screen that a later batch is about to confirm.
         // What the answer's records come with, on their holders (POD-7159).
         if (!signal.aborted) {
-          if (insideLoad) this.completeComesWith(members)
-          else await this.serial(() => this.completeComesWith(members))
+          if (reload !== undefined) {
+            const answer = reloadedAt
+            if (answer === undefined) throw new Error('kind reload ended without a snapshot')
+            await this.serial(() => {
+              if (!signal.aborted) this.certifyKindReload(reload, members, answer)
+            })
+          } else if (insideLoad) this.completeComesWith(members)
+          else if (stale === undefined)
+            await this.serial(() => {
+              if (!signal.aborted) this.completeComesWith(members)
+            })
         }
-        if (reload !== undefined && reloadedAt !== undefined && !signal.aborted)
-          await this.serial(() => this.sweepKinds(reload, reloadedAt as BootstrapChunk))
       } finally {
         for (const request of fresh) {
           const key = instanceKey(request)
@@ -3350,7 +3688,14 @@ export class Replica implements DeviceCollectionReads {
     })()
     const tracked = task.catch((error) => {
       if (error instanceof ReplicaStoreCorruptError) this.onCorruption()
-      else if (this.failure === undefined && !signal.aborted) this.failure = error
+      else if (
+        reload === undefined &&
+        !insideLoad &&
+        !(error instanceof ReloadSourceChanged) &&
+        this.failure === undefined &&
+        !signal.aborted
+      )
+        this.failure = error
     })
     for (const request of fresh) {
       const key = instanceKey(request)
@@ -3369,106 +3714,179 @@ export class Replica implements DeviceCollectionReads {
    * those kinds through the fetch, the old rows readable meanwhile. Returns
    * false when only a full load can do it (no policy, or no fetch route).
    */
-  private reloadKinds(kinds: ReadonlySet<string>): boolean {
-    if (this.authority.collections === undefined || this.store.readPolicy() === null) return false
+  private reloadKinds(kinds: Set<string>, offer: KindAdvertisement): boolean {
+    const previousPolicy = this.store.readPolicy()
+    const policy = offer.policy ?? previousPolicy
+    if (this.authority.collections === undefined || previousPolicy === null || policy === null)
+      return false
     if (this.cursorValue === null || this.state === 'bootstrapping') return false
-    const args = policyArgs(this.store.readPolicy())
-    const marked = [...this.store.readInstances().values()].filter((instance) => {
-      const of = resolveInstance(instance, args)?.of
-      return of !== undefined && kinds.has(of)
-    })
-    const policy = policyInstances(this.store.readPolicy()).filter((spec) => {
-      const of = resolveInstance(spec, args)?.of
-      return of !== undefined && kinds.has(of)
-    })
-    const requests = new Map<string, InstanceRequest>()
-    for (const instance of [...policy, ...marked]) {
-      const { collection, part, args: instanceArgs, via } = instance
-      requests.set(instanceKey(instance), {
-        collection,
-        part,
-        ...(instanceArgs === undefined ? {} : { args: instanceArgs }),
-        ...(via === undefined ? {} : { via }),
-      })
+
+    const currentPolicy = new Map(policyInstances(policy).map((spec) => [instanceKey(spec), spec]))
+    const withdrawn = new Set<string>()
+    for (const spec of policyInstances(previousPolicy)) {
+      const key = instanceKey(spec)
+      if (!currentPolicy.has(key)) {
+        withdrawn.add(key)
+        const kind = COLLECTIONS.get(spec.collection)?.of
+        if (kind !== undefined) kinds.add(kind)
+      }
     }
-    this.emit({ type: 'heal', rung: 2, cause: 'kind-shape', partial: true })
-    this.counters.bootstraps += 1
+    const previousKeys = new Set(policyInstances(previousPolicy).map(instanceKey))
+    for (const [key, spec] of currentPolicy) {
+      if (!previousKeys.has(key) || previousPolicy.recentDays !== policy.recentDays) {
+        const kind = COLLECTIONS.get(spec.collection)?.of
+        if (kind !== undefined) kinds.add(kind)
+      }
+    }
+    const retainedKinds = new Set(
+      [...kinds].filter((kind) => this.store.retainsEntity?.(kind) !== false),
+    )
+    const applies = (instance: InstanceSpec): boolean =>
+      retainedKinds.has(COLLECTIONS.get(instance.collection)?.of ?? '')
+    const marked = (): InstanceRecord[] => {
+      const disk = this.store.readDiskIndex()
+      return [...this.store.readInstances().values()].filter(
+        (marker) =>
+          applies(marker) &&
+          (disk.instance(marker.key)?.indexed !== false ||
+            !disk.instance(marker.key)?.stale ||
+            disk.membersOf(marker.key).size === 0),
+      )
+    }
+    const stale = (markers: readonly InstanceRecord[]): InstanceOperation[] =>
+      markers.map(({ key }) => ({ kind: 'stale', key }))
     this.kindReloading = true
     const generation = this.walkGeneration
     const signal = this.fetchAbort.signal
-    const reload: KindReload = {
-      kinds,
-      confirmed: new Set(),
-      stubs: new Map(),
-      instances: new Set(marked.map((instance) => instance.key)),
-      completed: new Set(),
-      ranges: new Map(
-        marked.flatMap((instance) =>
-          instance.range === undefined ? [] : [[instance.key, instance.range] as const],
-        ),
-      ),
-      totals: new Map(),
-    }
-    const task = this.kindReloadCompanions(kinds)
-      .then((companions) =>
-        this.serial(() => {
-          if (signal.aborted || generation !== this.walkGeneration) return
-          // Comes-with collections are recorded on their holders, rather than
-          // in readInstances. They must be reloaded even if their complete bits
-          // survived an older, faulty reload that removed the companion rows.
-          const invalidated = new Map<string, Set<string>>()
-          for (const spec of companions) {
-            requests.set(instanceKey(spec), spec)
-            const holder = comesWithHolderOf(spec)
-            if (holder === undefined || spec.via === undefined) continue
-            const vias = invalidated.get(holder) ?? new Set<string>()
-            vias.add(spec.via)
-            invalidated.set(holder, vias)
-            this.comesWithAnswered.delete(holder)
-          }
-          const comesWith: ComesWithOperation[] = []
-          for (const [record, vias] of invalidated) {
-            const entry = this.store.readDiskIndex().record(record)
-            if (entry !== undefined)
-              comesWith.push({
-                kind: 'complete',
-                record,
-                vias: entry.cw.filter((via) => !vias.has(via)),
-              })
-          }
-          this.store.applyAtomic({
-            operations: [],
-            // Keep collection identities durably: after an interrupted reload
-            // they must still be requested, including cached, non-policy trees.
-            instances: marked.map((instance) => ({ kind: 'stale' as const, key: instance.key })),
-            comesWith,
-          })
-          this.emit({ type: 'markers' })
-        }),
-      )
-      .then(async () => {
-        // An ordinary fetch already answering the same instance does not
-        // stand in for the changed-shape answer this reload needs.
-        await Promise.allSettled([...this.inFlightAnswers.values()])
-        if (signal.aborted || generation !== this.walkGeneration) return
-        await this.fetchInstances([...requests.values()], reload)
+    const current = (): boolean => !signal.aborted && generation === this.walkGeneration
+
+    const task = (async () => {
+      const start = marked()
+      const policyRequests = [...currentPolicy.values()].filter(applies)
+      // Withdraw completeness while retaining the old identities and page ranges.
+      // The generation fence also invalidates writes from other tabs' old mirrors.
+      await this.serial(() => {
+        if (!current()) return
+        const cursor = this.cursorValue as Cursor
+        this.store.applyAtomic({
+          operations: [],
+          instances: stale(start),
+          cacheGeneration: newCacheGeneration(),
+          cursor,
+        })
+        if (start.length > 0) this.emit({ type: 'markers' })
       })
+      if (!current()) return
+      // A tree can become complete while the reload is starting. Plan from
+      // the holdings after the existing fetches (and any disk reads) finish.
+      await Promise.allSettled([...this.inFlightAnswers.values()])
+      if (!current()) return
+      const companions = await this.kindReloadCompanions(retainedKinds, policy)
+      if (!current()) return
+
+      const requests = new Map<string, InstanceRequest>()
+      let reload: KindReload | undefined
+      await this.serial(() => {
+        if (!current()) return
+        const owned = marked()
+        for (const instance of [...policyRequests, ...owned]) {
+          const key = instanceKey(instance)
+          if (withdrawn.has(key) && !this.holds.has(key)) continue
+          const { collection, part, args, via } = instance
+          requests.set(key, {
+            collection,
+            part,
+            ...(args === undefined ? {} : { args }),
+            ...(via === undefined ? {} : { via }),
+          })
+        }
+        const disk = this.store.readDiskIndex()
+        const invalidated = new Map<string, Set<string>>()
+        for (const { spec, holder } of companions.requests.values()) {
+          if (disk.record(holder)?.level !== 'main') continue
+          requests.set(instanceKey(spec), spec)
+          if (comesWithHolderOf(spec) === undefined || spec.via === undefined) continue
+          const vias = invalidated.get(holder) ?? new Set<string>()
+          vias.add(spec.via)
+          invalidated.set(holder, vias)
+          this.comesWithAnswered.delete(holder)
+        }
+        const comesWith: ComesWithOperation[] = []
+        for (const [record, vias] of invalidated) {
+          const entry = disk.record(record)
+          if (entry !== undefined)
+            comesWith.push({
+              kind: 'complete',
+              record,
+              vias: entry.cw.filter((via) => !vias.has(via)),
+            })
+        }
+        reload = {
+          offer,
+          kinds,
+          policy,
+          holders: companions.holders,
+          confirmed: new Set(),
+          stubs: new Map(),
+          instances: new Set([...withdrawn, ...owned.map((instance) => instance.key)]),
+          markers: new Map(),
+          ranges: new Map(
+            owned.flatMap((instance) =>
+              instance.range === undefined ? [] : [[instance.key, instance.range] as const],
+            ),
+          ),
+          totals: new Map(),
+          required: new Set(policyRequests.map(instanceKey)),
+        }
+        if (requests.size === 0) {
+          this.certifyKindReload(reload)
+          return
+        }
+        this.store.applyAtomic({ operations: [], instances: stale(owned), comesWith })
+        this.emit({ type: 'markers' })
+      })
+      if (!current() || reload === undefined || requests.size === 0) return
+      this.emit({ type: 'heal', rung: 2, cause: 'kind-shape', partial: true })
+      this.counters.bootstraps += 1
+      await this.fetchInstances([...requests.values()], reload)
+    })()
       .catch((error) => {
+        if (!current()) return
         if (error instanceof ReplicaStoreCorruptError) this.onCorruption()
-        else if (this.failure === undefined && !signal.aborted) this.failure = error
+        else if (error instanceof ReloadSourceChanged) {
+          const cursor = this.cursorValue
+          if (cursor !== null && !sameFeed(cursor, error.answer)) this.rebootstrap('epoch-mismatch')
+          else if ((offer.attempts ?? 0) + 1 < this.maxBootstrapAttempts) {
+            this.pendingKindAdvertisement ??= {
+              ...(error.changedMidLoad
+                ? {
+                    tokens: error.answer.kindTokens,
+                    ...(error.answer.policy === undefined ? {} : { policy: error.answer.policy }),
+                  }
+                : offer),
+              attempts: (offer.attempts ?? 0) + 1,
+            }
+          } else if (this.failure === undefined) this.failure = error
+        } else if (this.failure === undefined) this.failure = error
       })
       .finally(() => {
         this.kindReloading = false
-        const pending = this.pendingKindTokens
-        this.pendingKindTokens = undefined
-        if (pending !== undefined) this.observeKindTokens(pending)
+        this.kindReloadTask = undefined
+        this.checkKindAdvertisement()
       })
+    this.kindReloadTask = task
     this.fetching = Promise.all([this.fetching, task]).then(() => undefined)
     return true
   }
 
   /** Declared companions of whole records, including holders currently only on disk. */
-  private async kindReloadCompanions(kinds: ReadonlySet<string>): Promise<InstanceSpec[]> {
+  private async kindReloadCompanions(
+    kinds: ReadonlySet<string>,
+    policy: CachePolicy,
+  ): Promise<{
+    readonly holders: Map<string, EntityRecord>
+    readonly requests: Map<string, { readonly spec: InstanceSpec; readonly holder: string }>
+  }> {
     const holderKinds = new Set<string>()
     for (const record of RECORDS) {
       const companions = [
@@ -3480,7 +3898,8 @@ export class Replica implements DeviceCollectionReads {
     }
     const rows: EntityRecord[] = []
     const onDisk: string[] = []
-    for (const [key, entry] of this.store.readDiskIndex().records()) {
+    const disk = this.store.readDiskIndex()
+    for (const [key, entry] of disk.records()) {
       const { entity, entityId } = splitRowKey(key)
       if (entry.level !== 'main' || !holderKinds.has(entity)) continue
       const row = this.store.read(entity, entityId)
@@ -3488,55 +3907,96 @@ export class Replica implements DeviceCollectionReads {
       else rows.push(row)
     }
     if (onDisk.length > 0) rows.push(...(await this.store.readDiskRows(onDisk)))
-    const specs = new Map<string, InstanceSpec>()
-    const index = this.heldIndex()
-    const args = policyArgs(this.store.readPolicy())
+    const requests = new Map<string, { spec: InstanceSpec; holder: string }>()
+    const holders = new Map<string, EntityRecord>()
+    const index = new HeldIndex(
+      this.store.readInstances(),
+      policyArgs(policy),
+      this.inFlight.values(),
+    )
     const now = this.now()
-    for (const row of rows) {
-      const memberOf = index.matching(row.entity, row.value, this.ruleRows, now)
-      for (const spec of comesWithOf(row.entity, row.value, memberOf, now)) {
-        const of = resolveInstance(spec, args)?.of
-        if (of !== undefined && kinds.has(of)) specs.set(instanceKey(spec), spec)
+    for (const read of rows) {
+      const { entity, entityId } = read
+      const key = entityKey(entity, entityId)
+      const entry = disk.record(key)
+      const row = this.store.read(entity, entityId) ?? read
+      if (entry?.level !== 'main' || rowAsOf(row) !== entry.seq) continue
+      holders.set(key, row)
+      const memberOf = index.matching(entity, row.value, this.ruleRows, now)
+      for (const spec of comesWithOf(entity, row.value, memberOf, now)) {
+        const of = COLLECTIONS.get(spec.collection)?.of
+        if (of !== undefined && kinds.has(of))
+          requests.set(instanceKey(spec), { spec, holder: key })
       }
     }
-    return [...specs.values()]
+    return { holders, requests }
   }
 
-  /** After a kind reload: rows of those kinds its answer did not confirm leave; an issue keeps its stub. */
-  private sweepKinds(reload: KindReload, answer: BootstrapChunk): void {
-    const at = answer.snapshotSeq
+  /** Commit the markers, comes-with coverage, sweep and tokens of one completed reload together. */
+  private certifyKindReload(
+    reload: KindReload,
+    members?: AnswerMembers,
+    answer?: BootstrapChunk,
+  ): void {
+    const cursor = this.cursorValue
+    if (cursor === null) return
+    if ([...reload.required].some((key) => !reload.markers.has(key)))
+      throw new Error('kind reload did not complete a policy collection')
+    const at = answer?.snapshotSeq ?? cursor.seq
     const operations: CacheOperation[] = []
     const events: ReplicaEvent[] = []
-    // POD-7159: over every row on the device, in memory or only on disk.
-    for (const [key, entry] of this.store.readDiskIndex().records()) {
+    const disk = this.store.readDiskIndex()
+    const markers = this.store.readInstances()
+    for (const [key, entry] of disk.records()) {
       const row = splitRowKey(key)
       if (!reload.kinds.has(row.entity) || entry.seq > at || reload.confirmed.has(key)) continue
+      // A collection that became complete after the plan owns its own answer.
+      if (
+        entry.holders.some(
+          (holder) =>
+            !reload.instances.has(holder) &&
+            markers.has(holder) &&
+            disk.instance(holder)?.stale !== true,
+        )
+      )
+        continue
       const stub = reload.stubs.get(key)
       if (entry.level === 'stub' && stub !== undefined) continue
-      if (stub !== undefined) {
-        operations.push({ ...stub, force: true })
-        events.push({ type: 'released', entity: row.entity, entityId: row.entityId })
-        continue
-      }
-      operations.push({ kind: 'remove', entity: row.entity, entityId: row.entityId })
-      events.push({ type: 'released', entity: row.entity, entityId: row.entityId })
+      if (stub !== undefined) operations.push({ ...stub, force: true })
+      else operations.push({ kind: 'remove', ...row })
+      events.push({ type: 'released', ...row })
     }
-    const cursor = this.cursorValue
+    const installed = this.store.readKindTokens() ?? {}
+    const answered = answer?.kindTokens ?? reload.offer.tokens
+    // Answers also advertise kinds outside the request. Their tokens must
+    // wait for their own reload (or an explicit finding of no holdings).
+    const kindTokens = Object.fromEntries([
+      ...Object.entries(installed),
+      ...Object.entries(answered).filter(([kind]) => reload.kinds.has(kind)),
+    ])
+    const instances: InstanceOperation[] = [
+      ...reload.markers.values(),
+      ...[...reload.instances]
+        .filter((key) => !reload.markers.has(key))
+        .map((key) => ({ kind: 'drop' as const, key })),
+    ]
+    const comesWith =
+      members === undefined ? [] : this.comesWithOperations(members, reload.policy, reload.holders)
     this.store.applyAtomic({
       operations,
-      instances: [...reload.instances]
-        .filter((key) => !reload.completed.has(key))
-        .map((key) => ({ kind: 'drop' as const, key })),
-      ...(cursor === null
-        ? {}
-        : {
-            cursor,
-            kindTokens: answer.kindTokens,
-            kindReloadVersion: KIND_RELOAD_VERSION,
-          }),
+      instances,
+      comesWith,
+      cursor,
+      policy: reload.policy,
+      kindTokens,
+      kindReloadVersion: KIND_RELOAD_VERSION,
+      retainedKinds: this.retainedKinds(kindTokens),
     })
+    if (answer !== undefined && !sameKindTokens(kindTokens, answered))
+      this.pendingKindAdvertisement ??= { tokens: answered, policy: reload.policy }
     this.batchEvents(() => {
       for (const event of events) this.emit(event)
+      if (instances.length > 0 || comesWith.length > 0) this.emit({ type: 'markers' })
     })
   }
 
@@ -3878,13 +4338,17 @@ interface FeedDecision {
 
 /** A kind reload in flight: its kinds, and the stubs its answer brought for whole records. */
 interface KindReload {
+  readonly offer: KindAdvertisement
   readonly kinds: ReadonlySet<string>
+  readonly policy: CachePolicy
+  readonly holders: ReadonlyMap<string, EntityRecord>
   readonly confirmed: Set<string>
   readonly stubs: Map<string, CacheOperation & { readonly kind: 'upsert' }>
   readonly instances: ReadonlySet<string>
-  readonly completed: Set<string>
+  readonly markers: Map<string, InstanceOperation>
   readonly ranges: ReadonlyMap<string, InstanceRange>
   readonly totals: Map<string, number>
+  readonly required: ReadonlySet<string>
 }
 
 /** An upsert of one change's record, current as of `asOf`. ADR 2 D8: provenance BESIDE the value. */

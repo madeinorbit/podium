@@ -423,7 +423,8 @@ export class HttpDeltaSource {
               throw new SyncCorruptContentError('requested-cursor-mismatch')
             }
             const target = { feedId: record.feedId, epoch: record.epoch, seq: record.seq }
-            onTarget?.(target, record.kindTokens)
+            if (record.policy === undefined) onTarget?.(target, record.kindTokens)
+            else onTarget?.(target, record.kindTokens, record.policy)
             // Preserve the retention certificate for an equal-endpoint range.
             if (record.seq === cursor.seq)
               yield {

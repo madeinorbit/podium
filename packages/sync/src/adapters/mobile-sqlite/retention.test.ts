@@ -47,7 +47,7 @@ const queued: OutboxRecord = {
 }
 
 describe('native SQLite optional entity retention', () => {
-  it.fails('device reload audit backfills a newly supported kind when only the phone app updates', async () => {
+  it('device reload audit backfills a newly supported kind when only the phone app updates', async () => {
     const factory = freshFactory()
     await expectNewlySupportedKindAfterUpgrade((retainEntity) =>
       open({

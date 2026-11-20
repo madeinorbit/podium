@@ -1649,6 +1649,15 @@ class SqliteCacheStore implements ReplicaCacheStore {
     return this.store.metaOf(this.principal).cursor?.kindReloadVersion
   }
 
+  readRetainedKinds(): readonly string[] | undefined {
+    this.store.guardReadable()
+    return this.store.metaOf(this.principal).cursor?.retainedKinds
+  }
+
+  retainsEntity(entity: string): boolean {
+    return this.store.retainsEntity(entity)
+  }
+
   readInstances(): ReadonlyMap<string, InstanceRecord> {
     this.store.guardReadable()
     return this.store.metaOf(this.principal).instances
@@ -1787,10 +1796,7 @@ class SqliteCacheStore implements ReplicaCacheStore {
       this.stageMeta(draft, {
         operations: [],
         cursor,
-        ...(versions.kindTokens === undefined ? {} : { kindTokens: versions.kindTokens }),
-        ...(versions.kindReloadVersion === undefined
-          ? {}
-          : { kindReloadVersion: versions.kindReloadVersion }),
+        ...versions,
       })
       for (const mutation of buffered) {
         this.applyOperations(draft, next, mutation)
