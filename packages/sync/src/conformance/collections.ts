@@ -1197,6 +1197,30 @@ export function describeCollectionStore(instantiation: SyncInstantiation): void 
           expect(opened.cache.readRow(ISSUE, 'A9')).toBeUndefined()
         })
 
+        it.fails('removes a retired kind on a replacement snapshot at the same feed sequence', async () => {
+          const server = deviceServer()
+          const { cache, replica } = await boot(instantiation, server)
+          const accessId = `${PRINCIPAL}\nM1`
+          expect(cache.read('machineAccess', accessId)).toBeDefined()
+          const retiredAt = server.cursorAt()
+          const tokens = { ...server.kindTokens }
+          delete tokens.machineAccess
+          server.kindTokens = tokens
+          server.policy = {
+            ...server.policy,
+            steps: server.policy.steps.map((step) => ({
+              ...step,
+              collections: step.collections.filter((id) => id !== 'machineAccess.all'),
+            })),
+          }
+          replica.observeKindTokens(server.kindTokens)
+          await replica.settled()
+
+          expect(cache.readCursor()).toEqual(retiredAt)
+          expect(cache.readKindTokens()).toEqual(server.kindTokens)
+          expect(cache.read('machineAccess', accessId)).toBeUndefined()
+        })
+
         it.fails('abandons an unfinished first download when its saved epoch has changed', async () => {
           const server = deviceServer()
           const storage = await instantiation.open()
