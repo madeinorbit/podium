@@ -33,7 +33,8 @@ it('shares observed owner registration without rereading the identity source at 
       expect(pool.queries.ids(question)).toEqual(['a'])
     })
     const sourceReads = vi.spyOn(pool.deviceIndex(), 'readerIds')
-    let projected: readonly string[] = []
+    // Assert both readiness and contents below, after the measured window.
+    let projected: unknown
     try {
       const result = await measureWork(
         async () => {
