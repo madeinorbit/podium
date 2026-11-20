@@ -199,7 +199,7 @@ const result = ledger.acquireInstallLock({ label: 'podium machine setup', autoRe
 const number = ledger.allocateReleaseNumber('codex', result.lock)
 const dir = join(process.argv[2], 'codex', releaseFolderName(number, '0.167.2'))
 mkdirSync(dir, { recursive: true })
-writeFileSync(join(dir, 'codex'), '#!/bin/sh\n', { mode: 0o755 })
+writeFileSync(join(dir, 'codex'), '', { mode: 0o755 })
 writeInstallReceipt(dir, {
   format: 1,
   harness: 'codex',
