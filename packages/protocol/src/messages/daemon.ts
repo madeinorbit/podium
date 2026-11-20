@@ -102,6 +102,7 @@ import {
 import {
   TranscriptDeltaMessage,
   TranscriptMirrorResultMessage,
+  TranscriptPathsResultMessage,
   TranscriptReadResultMessage,
 } from './transcript'
 import { DevArtifactProbeResultMessage, UpdateStatusMessage } from './update'
@@ -305,6 +306,8 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   /** Reply to `conversationPrepareRequest` (credential management §9, epic
    *  Task 11), appended at the END for index stability. */
   ConversationPrepareResultMessage,
+  /** Reply to the capability-gated transcript presence batch. Appended for index stability. */
+  TranscriptPathsResultMessage,
 ])
 export type DaemonMessage = z.infer<typeof DaemonMessage>
 

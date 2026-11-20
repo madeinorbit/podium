@@ -17,6 +17,7 @@ import {
   CAP_TERMINAL_OUTPUT_BINARY_V1,
   CAP_TERMINAL_PICTURE_V1,
   CAP_TOPICS_V1,
+  CAP_TRANSCRIPT_PATHS,
   createHandshakeDialer,
   DAEMON_PTY_OUTPUT_MAX_SOURCE_FRAMES,
   DAEMON_WIRE_VERSION,
@@ -1147,6 +1148,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
         CAP_TOPICS_V1,
         CAP_CHECKOUT_CHANGED_V1,
         CAP_MACHINE_PROCESSES_V1,
+        CAP_TRANSCRIPT_PATHS,
       ],
       ...(reportUpdateIdentity ? { build: deps.build } : {}),
       claims: {

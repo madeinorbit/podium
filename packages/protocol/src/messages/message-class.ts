@@ -222,6 +222,7 @@ export const CONTROL_PLANE_CLASS = {
   sessionResumeRefAck: 'control.command',
   sessionResumeRefConflict: 'control.command',
   transcriptMirrorRead: 'bulk.bulk',
+  transcriptPathsRequest: 'control.command',
   sessionPriority: 'control.command',
   // POD-4524: the server's attach-TUI warm-park verdict. A command: it asks the
   // daemon to close one session's client terminal, and a lost one is simply a
@@ -393,6 +394,7 @@ export const DAEMON_PLANE_CLASS = {
   dirOpResult: 'control.command',
   githubCliResult: 'control.command',
   transcriptMirrorResult: 'bulk.bulk',
+  transcriptPathsResult: 'control.command',
   hostMetrics: 'stream.live',
   memoryBreakdownResult: 'control.command',
   reclaimDiskEstimateResult: 'control.command',

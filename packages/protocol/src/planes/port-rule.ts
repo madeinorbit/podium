@@ -118,6 +118,8 @@ export const HOST_EDGE_FRAMES = [
   'transcriptReadResult',
   'transcriptMirrorRead',
   'transcriptMirrorResult',
+  'transcriptPathsRequest',
+  'transcriptPathsResult',
 ] as const
 export type HostEdgeFrame = (typeof HOST_EDGE_FRAMES)[number]
 

@@ -118,6 +118,26 @@ export const TranscriptMirrorResultMessage = z.object({
 })
 export type TranscriptMirrorResultMessage = z.infer<typeof TranscriptMirrorResultMessage>
 
+/** Batched metadata check for registry paths on the machine that owns them.
+ * An older or unavailable daemon leaves the server crediting them as recorded. */
+export const CAP_TRANSCRIPT_PATHS = 'transcript.paths.v1'
+
+export const TranscriptPathsRequestMessage = z.object({
+  type: z.literal('transcriptPathsRequest'),
+  requestId: z.string(),
+  /** Server-asserted paths from conversation registry evidence; no file bytes are read. */
+  paths: z.array(z.string()),
+})
+export type TranscriptPathsRequestMessage = z.infer<typeof TranscriptPathsRequestMessage>
+
+export const TranscriptPathsResultMessage = z.object({
+  type: z.literal('transcriptPathsResult'),
+  requestId: z.string(),
+  /** Only paths confirmed absent. Unreadable paths remain conservatively recorded. */
+  missingPaths: z.array(z.string()),
+})
+export type TranscriptPathsResultMessage = z.infer<typeof TranscriptPathsResultMessage>
+
 // ---------------------------------------------------------------------------
 // The turn preview — the in-progress half of a turn (POD-2293)
 // ---------------------------------------------------------------------------

@@ -1,4 +1,4 @@
-import { open } from 'node:fs/promises'
+import { open, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -236,12 +236,44 @@ export async function readTranscriptMirror(
   }
 }
 
-export const transcriptHandlers: Pick<ControlHandlers, 'transcriptRead' | 'transcriptMirrorRead'> =
-  {
-    transcriptRead: (ctx, msg) => {
-      void readTranscript(ctx, msg)
-    },
-    transcriptMirrorRead: (ctx, msg) => {
-      void readTranscriptMirror(ctx, msg)
-    },
-  }
+/** Stat only registry paths, with at most 16 filesystem operations in flight.
+ * Only ENOENT/ENOTDIR prove absence; permissions and I/O errors leave the path
+ * recorded so an uncertain answer cannot become a permanent-looking gap. */
+export async function checkTranscriptPaths(
+  ctx: Pick<DaemonContext, 'send'>,
+  msg: Extract<ControlMessage, { type: 'transcriptPathsRequest' }>,
+): Promise<void> {
+  const paths = [...new Set(msg.paths)]
+  const missingPaths: string[] = []
+  let next = 0
+  await Promise.all(
+    Array.from({ length: Math.min(16, paths.length) }, async () => {
+      while (next < paths.length) {
+        const path = paths[next++]
+        if (path === undefined) break
+        try {
+          await stat(path)
+        } catch (error) {
+          const code = (error as NodeJS.ErrnoException).code
+          if (code === 'ENOENT' || code === 'ENOTDIR') missingPaths.push(path)
+        }
+      }
+    }),
+  )
+  ctx.send({ type: 'transcriptPathsResult', requestId: msg.requestId, missingPaths })
+}
+
+export const transcriptHandlers: Pick<
+  ControlHandlers,
+  'transcriptRead' | 'transcriptMirrorRead' | 'transcriptPathsRequest'
+> = {
+  transcriptRead: (ctx, msg) => {
+    void readTranscript(ctx, msg)
+  },
+  transcriptMirrorRead: (ctx, msg) => {
+    void readTranscriptMirror(ctx, msg)
+  },
+  transcriptPathsRequest: (ctx, msg) => {
+    void checkTranscriptPaths(ctx, msg)
+  },
+}

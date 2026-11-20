@@ -14,9 +14,9 @@ import { readIssues } from '../issues/issue-reader'
  * half of that answer into durable rows — the same shape `quota.summary` uses,
  * where the write is a fold of what was just read.
  *
- * The harvest fold is the only writer, and every read below is a DB read that
- * touches no transcript. That is what "never block a render" means here: the
- * task-detail path cannot walk the disk, because it has no code that could.
+ * The harvest fold is the only writer. Cost figures are DB reads; cold states
+ * also ask each machine's daemon for transcript presence, with a short deadline
+ * and memo. The task-detail path never reads transcript content or server disk.
  *
  * THE CLAIM STOPS THERE. Adding no second walk is not the same as making the
  * first one safe: the harvest still runs on the daemon's event loop, and this
@@ -39,7 +39,6 @@ import { readIssues } from '../issues/issue-reader'
  * stops being true.
  */
 
-import { existsSync } from 'node:fs'
 import { mergeBuckets } from '@podium/harness/inventory'
 import { harnessTranscriptSiblingPaths } from '@podium/harness/metadata'
 import type { UserId } from '@podium/model'
@@ -68,6 +67,7 @@ import { formatIssueRef } from '@podium/protocol'
 import type { SessionStore } from '../../store'
 import type { TranscriptCostRecord } from '../../store/transcript-costs'
 import type { SessionRow } from '../../store/types'
+import type { DaemonRpcService } from '../machines/rpc'
 import { cohortOfOwnTotals } from './comparison-cohort'
 
 /**
@@ -93,8 +93,29 @@ const MAX_PARENT_HOPS = 4
 
 const EMPTY_TOTALS: CostTotalsWire = { models: [], messages: 0, sessionCount: 0 }
 
+const TRANSCRIPT_PRESENCE_TTL_MS = 15_000
+const TRANSCRIPT_PRESENCE_LIMIT = 4_096
+
 export class CostService {
-  constructor(private readonly store: SessionStore) {}
+  /** Live filesystem observations, not stored rows. Key: (machine, path), scoped
+   * to this workspace's service. At most 4096 entries, oldest evicted first;
+   * each expires after 15s because pruning/creation happens outside DB writes.
+   * Pending promises also share checks across concurrent focus/turn refreshes. */
+  private readonly transcriptPresence = new Map<
+    string,
+    {
+      recorded: Promise<boolean>
+      expiresAt: number
+    }
+  >()
+
+  constructor(
+    private readonly store: SessionStore,
+    private readonly rpc?: Pick<
+      DaemonRpcService,
+      'canCheckTranscriptPaths' | 'missingTranscriptPaths'
+    >,
+  ) {}
 
   /**
    * Fold one machine's harvest into the durable rows.
@@ -326,7 +347,9 @@ export class CostService {
       costs.filter((c) => c.messages > 0 && c.sessionId).map((c) => c.sessionId as string),
     )
     const readSessions = new Set(costs.filter((c) => c.sessionId).map((c) => c.sessionId as string))
-    const recordedPaths = await this.recordedTranscriptPaths(sessions)
+    const recordedPaths = await this.recordedTranscriptPaths(
+      sessions.filter((s) => !readSessions.has(s.id)),
+    )
     let pendingSessionCount = 0
     for (const session of sessions) {
       if (readSessions.has(session.id)) continue
@@ -490,7 +513,7 @@ export class CostService {
   }
 
   /**
-   * Which of these sessions point at a transcript THAT IS STILL ON DISK.
+   * Which sessions still have a transcript on their owning machine.
    *
    * A registry row naming a path is not evidence the file exists: transcripts
    * are pruned, and the row outlives them. Measured, 165 of the 488 transcripts
@@ -498,12 +521,14 @@ export class CostService {
    * `pending` — "we have not got to it yet" — when the truth is `not-recorded`,
    * a file nothing will ever read. That is the difference between a slot that
    * will fill and one that never will, which is exactly what these states are
-   * for, so the check is a stat and not a row lookup.
+   * for, so the owning daemon checks presence rather than trusting a row.
    *
-   * ONLY THIS MACHINE'S FILES CAN BE STATTED. A session on another host has a
-   * path this process cannot see, so it is credited as recorded rather than
-   * declared missing: claiming a remote transcript is gone because we cannot
-   * reach it would be the same lie in the other direction.
+   * Every machine follows the same rule: one batch of distinct uncached paths
+   * to its online, capable daemon, with a one-second deadline. Offline, older,
+   * timed-out or unreadable daemons/paths are credited as recorded: inability
+   * to check is not proof of absence. No paths means no daemon call. Observations
+   * are memoised per machine/path for 15 seconds on this service (4096 entries),
+   * since focus, turn-end and stage refreshes can repeat the same read.
    */
   private async recordedTranscriptPaths(sessions: readonly SessionRow[]): Promise<Set<string>> {
     const out = new Set<string>()
@@ -515,32 +540,50 @@ export class CostService {
       else byMachine.set(session.machineId, [session.resumeValue])
     }
     const paths = new Map<string, string>()
+    const checks = new Map<string, Promise<boolean>>()
+    const now = Date.now()
     for (const [machine, nativeIds] of byMachine) {
+      const canCheck = this.rpc?.canCheckTranscriptPaths(machine) === true
+      const uncached = new Set<string>()
       for (const [nativeId, path] of await this.store.conversations.registry.pathsByNativeIds(
         machine,
         nativeIds,
       )) {
+        if (!path) continue
         paths.set(transcriptKey(machine, nativeId), path)
+        const key = transcriptKey(machine, path)
+        if (!canCheck) {
+          checks.set(key, Promise.resolve(true))
+          continue
+        }
+        const cached = this.transcriptPresence.get(key)
+        if (cached && cached.expiresAt > now) checks.set(key, cached.recorded)
+        else uncached.add(path)
+      }
+      if (uncached.size === 0) continue
+      const checked = (
+        this.rpc?.missingTranscriptPaths(machine, [...uncached]) ?? Promise.resolve([])
+      ).then(
+        (missing) => new Set(missing),
+        () => new Set<string>(),
+      )
+      for (const path of uncached) {
+        const key = transcriptKey(machine, path)
+        const recorded = checked.then((missing) => !missing.has(path))
+        checks.set(key, recorded)
+        this.transcriptPresence.delete(key)
+        this.transcriptPresence.set(key, { recorded, expiresAt: now + TRANSCRIPT_PRESENCE_TTL_MS })
+        if (this.transcriptPresence.size > TRANSCRIPT_PRESENCE_LIMIT) {
+          const oldest = this.transcriptPresence.keys().next().value
+          if (oldest !== undefined) this.transcriptPresence.delete(oldest)
+        }
       }
     }
-    const local = this.store.hostMachineId
-    // One stat per DISTINCT path, memoised across the sessions of one task —
-    // a resumed conversation names the same file from several session rows.
-    const onDisk = new Map<string, boolean>()
     for (const session of sessions) {
       if (!session.resumeValue || !session.machineId) continue
       const path = paths.get(transcriptKey(session.machineId, session.resumeValue))
       if (!path) continue
-      if (session.machineId !== local) {
-        out.add(session.id)
-        continue
-      }
-      let exists = onDisk.get(path)
-      if (exists === undefined) {
-        exists = existsSync(path)
-        onDisk.set(path, exists)
-      }
-      if (exists) out.add(session.id)
+      if (await checks.get(transcriptKey(session.machineId, path))) out.add(session.id)
     }
     return out
   }

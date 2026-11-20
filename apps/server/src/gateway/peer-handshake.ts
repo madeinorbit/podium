@@ -27,6 +27,7 @@ import {
   CAP_TERMINAL_OUTPUT_BINARY_V1,
   CAP_TERMINAL_PICTURE_V1,
   CAP_TOPICS_V1,
+  CAP_TRANSCRIPT_PATHS,
   type CapabilityRef,
   createDefaultAuthRegistry,
   createHandshakeAcceptor,
@@ -143,6 +144,7 @@ const createResolvedDaemonAcceptor = (deps: ResolvedDaemonAcceptorDeps): Handsha
       CAP_TOPICS_V1,
       CAP_CHECKOUT_CHANGED_V1,
       CAP_MACHINE_PROCESSES_V1,
+      CAP_TRANSCRIPT_PATHS,
     ],
     transport: {
       endpoint: '/daemon',

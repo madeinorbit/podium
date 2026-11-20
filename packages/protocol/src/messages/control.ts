@@ -100,7 +100,11 @@ import {
   SpawnMessage,
   StealWriterMessage,
 } from './terminal'
-import { TranscriptMirrorReadMessage, TranscriptReadRequestMessage } from './transcript'
+import {
+  TranscriptMirrorReadMessage,
+  TranscriptPathsRequestMessage,
+  TranscriptReadRequestMessage,
+} from './transcript'
 import { DevArtifactProbeRequestMessage, UpdateGrantMessage } from './update'
 import {
   WorkspaceCleanRequestMessage,
@@ -229,6 +233,8 @@ export const ControlMessage = z.discriminatedUnion('type', [
    *  §9, epic Task 11). Appended at the END for index stability; sent only to
    *  a daemon that accepted `CAP_CONVERSATION_PREPARE`. */
   ConversationPrepareRequestMessage,
+  /** Batched transcript presence, sent only with CAP_TRANSCRIPT_PATHS. Appended for index stability. */
+  TranscriptPathsRequestMessage,
 ])
 export type ControlMessage = z.infer<typeof ControlMessage>
 

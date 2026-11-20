@@ -123,6 +123,7 @@ import { AutomationScheduler } from './modules/automations/scheduler'
 import { AutomationsService } from './modules/automations/service'
 import { EventBus, type EventMap } from './modules/bus'
 import { CheckoutsService } from './modules/checkouts/service'
+import { CostService } from './modules/cost/service'
 import type { AttachAccessDeps } from './modules/credentials/attach-access'
 import {
   type ChatgptPlanService,
@@ -543,6 +544,7 @@ export interface RegistryModules {
    */
   updateFleetBridge?: { onFleetChanged(): Promise<void> }
   rpc: DaemonRpcService
+  costs: CostService
   /** Credential verification, attention, expiry, renewal and removal (§7, §8; Task 13). */
   credentialHealth: CredentialHealth
   /** `sessions.switchCredential` (§9; Task 11). */
@@ -1715,6 +1717,7 @@ export class SessionRegistry {
       defaultMachine: async () => await machines.defaultMachine(),
       resolveMachine: async (requested, cwd) => await machines.resolveMachine(requested, cwd),
       hasDaemon: (machineId) => machines.hasDaemon(machineId),
+      daemonSupports: (machineId, capability) => machines.daemonSupports(machineId, capability),
       machineName: async (id) => await machines.machineName(id),
       machineNames: async (ids) => await machines.machineNames(ids),
       onlineMachineIds: () => machines.onlineMachineIds(),
@@ -5120,6 +5123,7 @@ export class SessionRegistry {
       updatesReconciler: reconciler,
       updateFleetBridge,
       rpc,
+      costs: new CostService(this.store, rpc),
       credentialHealth,
       credentialSwitch,
       chatgptPlan,
