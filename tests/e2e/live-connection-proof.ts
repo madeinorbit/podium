@@ -11,6 +11,7 @@ import {
   resolveRootPackage,
 } from '../../apps/mobile/resolve-package'
 import { makeIssue } from '../../apps/web/src/lib/test-issue'
+import { standardDecorators } from '../../scripts/vite-standard-decorators'
 
 type ProofState = {
   app: string
@@ -31,52 +32,58 @@ const fixtureClaim = 'fixture-claim-00000000000000000000'
 export async function liveConnectionProof() {
   const root = resolve(import.meta.dirname, '../../apps/mobile')
   const bundle = await build({
-      configFile: false,
-      root,
-      logLevel: 'warn',
-      define: { __DEV__: 'false', 'process.env.NODE_ENV': '"production"' },
-      resolve: {
-        extensions: ['.web.tsx', '.web.ts', '.web.js', '.tsx', '.ts', '.jsx', '.js', '.json'],
-        conditions: ['@podium/source', 'browser', 'module', 'import'],
-        alias: [
-          { find: /^react-native$/, replacement: resolveMobilePackage('react-native-web') },
-          { find: /^react$/, replacement: resolveRootPackage('react') },
-          { find: /^react-dom$/, replacement: resolveRootPackage('react-dom') },
-          { find: /^react-dom\/client$/, replacement: resolveRootFile('react-dom/client') },
-          {
-            find: /^react-native-svg$/,
-            replacement: resolveMobileFile('react-native-svg/lib/module/ReactNativeSVG.web.js'),
-          },
-          ...[
-            ['expo-blur', 'stub-expo-blur.tsx'],
-            ['expo-haptics', 'stub-expo-haptics.ts'],
-          ].map(([find, file]) => ({ find: new RegExp(`^${find}$`), replacement: resolve(root, 'harness', file!) })),
-          {
-            find: /^react-native-safe-area-context$/,
-            replacement: resolve(import.meta.dirname, 'live-connection-safe-area.ts'),
-          },
-          {
-            find: /^expo-symbols$/,
-            replacement: resolve(import.meta.dirname, 'live-connection-symbols.ts'),
-          },
-          { find: /^\.\/BottomSheet$/, replacement: resolve(root, 'harness/stub-bottom-sheet.tsx') },
-          { find: '@', replacement: resolve(root, '../web/src') },
-          {
-            find: /^\.\/ServerProfileGate$/,
-            replacement: resolve(root, 'src/client/server-profile-context.ts'),
-          },
-          {
-            find: /^expo\/fetch$/,
-            replacement: resolve(root, 'node_modules/expo/src/winter/fetch/fetch.web.ts'),
-          },
-        ],
-      },
-      build: {
-        write: false,
-        minify: false,
-        rollupOptions: { input: resolve(root, 'live-connection-harness.html') },
-      },
-    })
+    configFile: false,
+    // This source fixture needs the same standard-decorator lowering as the shipped app.
+    plugins: [standardDecorators()],
+    worker: { plugins: () => [standardDecorators()] },
+    root,
+    logLevel: 'warn',
+    define: { __DEV__: 'false', 'process.env.NODE_ENV': '"production"' },
+    resolve: {
+      extensions: ['.web.tsx', '.web.ts', '.web.js', '.tsx', '.ts', '.jsx', '.js', '.json'],
+      conditions: ['@podium/source', 'browser', 'module', 'import'],
+      alias: [
+        { find: /^react-native$/, replacement: resolveMobilePackage('react-native-web') },
+        { find: /^react$/, replacement: resolveRootPackage('react') },
+        { find: /^react-dom$/, replacement: resolveRootPackage('react-dom') },
+        { find: /^react-dom\/client$/, replacement: resolveRootFile('react-dom/client') },
+        {
+          find: /^react-native-svg$/,
+          replacement: resolveMobileFile('react-native-svg/lib/module/ReactNativeSVG.web.js'),
+        },
+        ...[
+          ['expo-blur', 'stub-expo-blur.tsx'],
+          ['expo-haptics', 'stub-expo-haptics.ts'],
+        ].map(([find, file]) => ({
+          find: new RegExp(`^${find}$`),
+          replacement: resolve(root, 'harness', file!),
+        })),
+        {
+          find: /^react-native-safe-area-context$/,
+          replacement: resolve(import.meta.dirname, 'live-connection-safe-area.ts'),
+        },
+        {
+          find: /^expo-symbols$/,
+          replacement: resolve(import.meta.dirname, 'live-connection-symbols.ts'),
+        },
+        { find: /^\.\/BottomSheet$/, replacement: resolve(root, 'harness/stub-bottom-sheet.tsx') },
+        { find: '@', replacement: resolve(root, '../web/src') },
+        {
+          find: /^\.\/ServerProfileGate$/,
+          replacement: resolve(root, 'src/client/server-profile-context.ts'),
+        },
+        {
+          find: /^expo\/fetch$/,
+          replacement: resolve(root, 'node_modules/expo/src/winter/fetch/fetch.web.ts'),
+        },
+      ],
+    },
+    build: {
+      write: false,
+      minify: false,
+      rollupOptions: { input: resolve(root, 'live-connection-harness.html') },
+    },
+  })
   const outputs = Array.isArray(bundle)
     ? bundle.flatMap((b) => b.output)
     : 'output' in bundle
@@ -207,7 +214,8 @@ export async function liveConnectionProof() {
             console.error(`connection fixture ${app}: ${error.message}`)
           })
           page.on('console', (message) => {
-            if (message.type() === 'error') console.error(`connection fixture ${app}: ${message.text()}`)
+            if (message.type() === 'error')
+              console.error(`connection fixture ${app}: ${message.text()}`)
           })
         }
         await first.goto(`${origin}/?app=${app}&tab=one#pane`)
@@ -232,40 +240,40 @@ export async function liveConnectionProof() {
           description: { value: '' },
         })
         sequence = 1
-        sockets
-          .get('one')!
-          .send(
-            JSON.stringify({
-              type: 'feedDelta',
-              feedId: 'fixture-feed',
-              epoch: 'fixture-epoch',
-              fromSeq: 0,
-              seq: 1,
-              minAvailableSeq: 0,
-              changes: [
-                {
-                  seq: 1,
-                  entity: 'issueProjection',
-                  entityId: 'fixture-issue',
-                  op: 'upsert',
-                  value: row,
-                },
-              ],
-            }),
-          )
+        sockets.get('one')!.send(
+          JSON.stringify({
+            type: 'feedDelta',
+            feedId: 'fixture-feed',
+            epoch: 'fixture-epoch',
+            fromSeq: 0,
+            seq: 1,
+            minAvailableSeq: 0,
+            changes: [
+              {
+                seq: 1,
+                entity: 'issueProjection',
+                entityId: 'fixture-issue',
+                op: 'upsert',
+                value: row,
+              },
+            ],
+          }),
+        )
         for (const page of [first, second])
-          await page.waitForFunction(
-            () =>
-              (window as FixtureWindow).connectionProof
-                .state()
-                .rows.includes('Relayed from the first tab'),
-            undefined,
-            { timeout: 15_000 },
-          ).catch(async (error) => {
-            throw new Error(
-              `${app} relay: ${error.message}; states=${JSON.stringify(await Promise.all([snapshot(first), snapshot(second)]))}; errors=${errors.join('; ')}`,
+          await page
+            .waitForFunction(
+              () =>
+                (window as FixtureWindow).connectionProof
+                  .state()
+                  .rows.includes('Relayed from the first tab'),
+              undefined,
+              { timeout: 15_000 },
             )
-          })
+            .catch(async (error) => {
+              throw new Error(
+                `${app} relay: ${error.message}; states=${JSON.stringify(await Promise.all([snapshot(first), snapshot(second)]))}; errors=${errors.join('; ')}`,
+              )
+            })
         const before = await Promise.all([snapshot(first), snapshot(second)])
         step('row relayed to both tabs')
         const port = authority.port
@@ -305,25 +313,27 @@ export async function liveConnectionProof() {
           await mkdir(proofDir, { recursive: true })
           await second.screenshot({ path: resolve(proofDir, `${app}-connection.png`) })
         }
-        sockets
-          .get('one')!
-          .send(
-            JSON.stringify({
-              type: 'serverRelocation',
-              publicUrl: `http://127.0.0.1:${promoted.port}`,
-              transferId: '00000000-0000-4000-8000-000000000001',
-              claimToken: fixtureClaim,
-            }),
-          )
+        sockets.get('one')!.send(
+          JSON.stringify({
+            type: 'serverRelocation',
+            publicUrl: `http://127.0.0.1:${promoted.port}`,
+            transferId: '00000000-0000-4000-8000-000000000001',
+            claimToken: fixtureClaim,
+          }),
+        )
         step('relocation sent')
-        await first.waitForURL(
-          (url) =>
-            url.origin === `http://127.0.0.1:${promoted.port}` &&
-            url.pathname === '/auth/server-transfer-claim',
-          { timeout: 10_000 },
-        ).catch((error) => {
-          throw new Error(`${app} relocation at ${first.url()}: ${error.message}; ${errors.join('; ')}`)
-        })
+        await first
+          .waitForURL(
+            (url) =>
+              url.origin === `http://127.0.0.1:${promoted.port}` &&
+              url.pathname === '/auth/server-transfer-claim',
+            { timeout: 10_000 },
+          )
+          .catch((error) => {
+            throw new Error(
+              `${app} relocation at ${first.url()}: ${error.message}; ${errors.join('; ')}`,
+            )
+          })
         const destination = new URL(first.url())
         results.push({
           app,
