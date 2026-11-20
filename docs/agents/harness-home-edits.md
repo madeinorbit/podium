@@ -28,6 +28,9 @@ Two callers use the hook, and both are uninstalling Podium from the machine:
   command only when every outcome is `restored` (or with `--force`). On a server
   or all-in-one instance the state folder holds the workspace database and is
   kept unless `--delete-workspace-data` is given too.
+  It refuses, with no override, while the desktop app runs the instance
+  (`<state>/desktop-supervised`, kept by the run registry): the person
+  uninstalls the app instead.
 - The machine menu's "Uninstall Podium" (`machines.uninstall`, a
   `machine.uninstall` effect record) sends `machineUninstallRequest` to the
   daemon (`apps/daemon/src/control/uninstall.ts`). The daemon runs the hook,

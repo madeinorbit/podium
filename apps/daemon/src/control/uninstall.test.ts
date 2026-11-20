@@ -77,7 +77,7 @@ describe('handleMachineUninstall', () => {
       request(),
       deps({ env: { PODIUM_DESKTOP_SUPERVISED: '1' }, undoAll }),
     )
-    expect(desktop).toMatchObject({ ok: false, error: expect.stringContaining('Podium app') })
+    expect(desktop).toMatchObject({ ok: false, error: expect.stringContaining('desktop app') })
     const server = await handleMachineUninstall(
       request(),
       deps({ mode: () => 'all-in-one', undoAll }),

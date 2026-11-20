@@ -96,6 +96,19 @@ describe('runUninstall', () => {
     expect(p.lines.at(-1)).toBe('Podium is uninstalled from this machine.')
   })
 
+  it('refuses on a machine the desktop app runs, even with --yes --force, and touches nothing', async () => {
+    const { target } = fixture({ desktopSupervised: true })
+    const p = ports([])
+    expect(await runUninstall({ ...OPTIONS, force: true }, target, p)).toBeUndefined()
+    expect(p.steps).toEqual([])
+    expect(p.lines).toEqual([expect.stringContaining('Quit the app and uninstall it instead')])
+    const json = ports([])
+    await runUninstall({ ...OPTIONS, json: true }, target, json)
+    expect(JSON.parse(json.lines[0] ?? '')).toEqual({
+      refused: expect.stringContaining('desktop app'),
+    })
+  })
+
   it('changes nothing when the person says no', async () => {
     const { target } = fixture()
     const p = ports([], { confirm: async () => false })

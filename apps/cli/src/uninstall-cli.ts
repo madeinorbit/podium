@@ -82,7 +82,15 @@ export interface UninstallTarget {
   installDir: string | undefined
   /** The command in `~/.local/bin` the installer wrote, when it points at {@link installDir}. */
   commandPath: string | undefined
+  /**
+   * The desktop app runs this instance and would start it again: uninstall is
+   * refused, with no `--force` override, and the person uninstalls the app instead.
+   */
+  desktopSupervised?: boolean
 }
+
+export const DESKTOP_REFUSAL =
+  'The Podium desktop app runs Podium on this machine. Quit the app and uninstall it instead; podium uninstall does not remove it.'
 
 export interface UninstallPorts {
   confirm(question: string): Promise<boolean>
@@ -124,6 +132,10 @@ export async function runUninstall(
 ): Promise<UninstallReport | undefined> {
   const say = (line: string) => {
     if (!options.json) ports.out(line)
+  }
+  if (target.desktopSupervised) {
+    ports.out(options.json ? JSON.stringify({ refused: DESKTOP_REFUSAL }) : DESKTOP_REFUSAL)
+    return undefined
   }
   const serverData = SERVER_MODES.has(target.mode ?? '')
   if (!options.yes) {
@@ -375,7 +387,9 @@ export async function uninstallCommand(
   const instanceId = resolveInstanceId()
   const config = loadConfig()
   const installDir = installedBundleDir(instanceId, deps.compiled)
+  const { desktopSupervisesInstance } = await import('@podium/runtime/run-registry')
   const target: UninstallTarget = {
+    desktopSupervised: desktopSupervisesInstance(),
     instanceId,
     machineName: hostname(),
     mode: resolveSetting('mode', config).value,

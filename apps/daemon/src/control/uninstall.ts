@@ -139,7 +139,9 @@ export async function handleMachineUninstall(
     error,
   })
   if (deps.env.PODIUM_DESKTOP_SUPERVISED === '1')
-    return refuse('The Podium app runs Podium on this machine. Uninstall the app there instead.')
+    return refuse(
+      'The Podium desktop app runs Podium on this machine. Quit the app and uninstall it there instead.',
+    )
   const mode = deps.mode()
   if (mode === 'server' || mode === 'all-in-one')
     return refuse('This machine runs the server. Run podium uninstall on it instead.')
