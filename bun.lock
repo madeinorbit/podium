@@ -187,6 +187,7 @@
         "@libsql/client": "^0.18.0",
         "@podium/api-types": "workspace:*",
         "@podium/client-core": "workspace:*",
+        "@podium/process": "workspace:*",
         "@types/ws": "^8.5.13",
         "@xterm/addon-fit": "^0.10.0",
         "drizzle-kit": "1.0.0-rc.4",

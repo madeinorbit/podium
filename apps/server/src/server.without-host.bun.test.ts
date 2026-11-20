@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { shellCommand } from '@podium/harness'
 import { createMaintenanceHttpClient } from '@podium/janitor'
 import { asMachineId, asUserId } from '@podium/model'
+import { directPtyDurableForTests } from '@podium/process/durable'
 import {
   MAINTENANCE_PROTOCOL_VERSION,
   MAINTENANCE_SCHEMA_VERSION,
@@ -14,7 +15,6 @@ import {
   stewardPollRunKey,
   wireSchemaDigest,
 } from '@podium/protocol'
-import { directPtyDurableForTests } from '../../../packages/pty/src/durable'
 import { type DaemonHandle, startDaemon } from '../../daemon/src/daemon'
 import { userCommandPrincipal } from './command-principal'
 import { createMemberOfRequest } from './identity/member-of-request'
