@@ -8,11 +8,13 @@
 import type { AgentRuntimeState, SessionId } from '@podium/model'
 import type { AgentObservation } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
+import { SessionBroadcastCoordinator } from './modules/sessions/publication/broadcast'
 import { SessionRegistry } from './relay'
 import type { SessionStore } from './store'
 import { attachHostDaemon } from './test-support/host-daemon'
 import { openTestStore } from './test-support/open-test-store'
 import {
+  expectArmed,
   expectConstantStatements,
   type PinnedCounts,
   quietShipping,
@@ -475,22 +477,55 @@ describe('daemon frames: pinned statement counts at 5 and 200', () => {
 // whatever the size. A binding event has two readers (the observer-generation
 // check in the daemon lifecycle and the binding gate), so it reads twice.
 describe('daemon frames that read an observation checkpoint: pinned at 5 and 200', () => {
+  const exit = pin(
+    'agentExit',
+    async (f) => {
+      // Count the complete frame at its explicit coalesced publication edge.
+      // Automatic broadcasts may read the exiting session before its operation
+      // releases residency on a remote engine and afterwards on a local one.
+      // The latter restores the row plus five satellites; that timing is not
+      // this pin's dimension. route still fully drains and counts publication.
+      const automatic = vi
+        .spyOn(SessionBroadcastCoordinator.prototype, 'broadcast')
+        .mockImplementation(() => {})
+      try {
+        await route(f, {
+          type: 'agentExit',
+          sessionId: f.ids[0],
+          code: 0,
+          observerGeneration: 1,
+        })
+      } finally {
+        automatic.mockRestore()
+      }
+    },
+    async (f) => {
+      const id = f.ids[0]!
+      expect(await f.store.sessions.getSession(id)).toMatchObject({ status: 'exited', exitCode: 0 })
+      expect(f.reg.modules.sessions.sessions.has(id)).toBe(false)
+      expect(await f.store.observationCheckpoints.get(id)).toMatchObject({
+        observationGeneration: 1,
+      })
+    },
+  )
+
   it('agentExit of the fenced observer', async () => {
-    const counts = await expectConstantStatements(
-      pin(
-        'agentExit',
-        async (f) =>
-          await route(f, {
-            type: 'agentExit',
-            sessionId: f.ids[0],
-            code: 0,
-            observerGeneration: 1,
-          }),
-      ),
-      // POD-6920: derived change capture (no build before the write; one drain after it): 42 -> 37.
-      37,
-    )
+    // POD-6920: derived change capture (no build before the write; one drain after it): 42 -> 37.
+    const counts = await expectConstantStatements(exit, 37)
     expectGrantReads(counts, 0)
+  })
+
+  it('agentExit pin is armed', async () => {
+    await expectArmed(exit, 37, (f) => {
+      const original = f.reg.gateway.routeDaemonFrame.bind(f.reg.gateway)
+      const planted = vi
+        .spyOn(f.reg.gateway, 'routeDaemonFrame')
+        .mockImplementation(async (...args) => {
+          for (const id of f.ids) await f.store.sessions.getSession(id)
+          return await original(...args)
+        })
+      return () => planted.mockRestore()
+    })
   })
 
   it('agentObservationRebind onto a new provider thread', async () => {
