@@ -130,6 +130,21 @@ export function fromExpoSqlite(db: ExpoSqliteDatabaseLike): SqlDatabaseLike {
   }
 }
 
+/** SQLite's whole-file format error, as exposed by Bun, Node, or a native bridge. */
+export function isNotDatabaseError(error: unknown): boolean {
+  if (error === null || typeof error !== 'object') return false
+  const { code, errcode, message } = error as {
+    code?: unknown
+    errcode?: unknown
+    message?: unknown
+  }
+  return (
+    code === 'SQLITE_NOTADB' ||
+    errcode === 26 || // SQLITE_NOTADB
+    (typeof message === 'string' && /\bfile is not a database\b/i.test(message))
+  )
+}
+
 /**
  * ADR 6 D4.4 — is this the device saying "no space", or something else?
  *

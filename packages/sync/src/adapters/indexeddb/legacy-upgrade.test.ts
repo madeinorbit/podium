@@ -1,6 +1,6 @@
 import { actorUser, asMutationId, asUserId } from '@podium/model'
 import { IDBKeyRange } from 'fake-indexeddb'
-import { expect, it } from 'vitest'
+import { expect, it, vi } from 'vitest'
 import { CollectionServer, issue, WORLD_NOW } from '../../conformance/collection-server'
 import type { OutboxRecord } from '../../outbox/records'
 import { Replica } from '../../replica/replica'
@@ -13,7 +13,7 @@ import {
   REPLICA_DB_NAME,
   REPLICA_SCHEMA_VERSION,
 } from './schema'
-import { IndexedDbSyncStore } from './store'
+import { type DurabilityDegradation, IndexedDbSyncStore } from './store'
 import { freshFactory, readDurable } from './test-support'
 
 const CURSOR = { feedId: 'feed', epoch: 'epoch', seq: 7, kindTokens: {} }
@@ -80,6 +80,50 @@ async function oldStore(version: number): Promise<IdbFactoryLike> {
   }
   return factory
 }
+
+it('retries an aborted version-change transaction with the outbox intact', async () => {
+  const factory = await oldStore(1)
+  const open = factory.open.bind(factory)
+  const deleteDatabase = vi.spyOn(factory, 'deleteDatabase')
+  vi.spyOn(factory, 'open').mockImplementationOnce((name, version) => {
+    const request = open(name, version)
+    const events = request as typeof request & {
+      addEventListener(type: 'upgradeneeded', listener: () => void): void
+    }
+    events.addEventListener('upgradeneeded', () => {
+      const tx = request.transaction
+      if (tx === null) return
+      // Let the upgrade handler create the index store before aborting.
+      tx.objectStore(META_STORE).getAll().onsuccess = () => tx.abort()
+    })
+    return request
+  })
+  const degradations: DurabilityDegradation[] = []
+  const onDegraded = (degradation: DurabilityDegradation) => degradations.push(degradation)
+  const interrupted = await IndexedDbSyncStore.open({ factory, onDegraded })
+  expect(interrupted.durability()).toBe('unavailable')
+  expect(degradations).toEqual([
+    expect.objectContaining({
+      cause: 'unavailable',
+      error: expect.objectContaining({ name: 'AbortError' }),
+    }),
+  ])
+  expect(deleteDatabase).not.toHaveBeenCalled()
+  interrupted.close()
+
+  const saved = await requestAsPromise(factory.open(REPLICA_DB_NAME, 1))
+  expect(saved.objectStoreNames.contains(INDEX_STORE)).toBe(false)
+  saved.close()
+
+  const recovered = await IndexedDbSyncStore.open({ factory, onDegraded })
+  try {
+    expect(recovered.durability()).toBe('durable')
+    expect(await recovered.viewFor('legacy').outbox.read()).toEqual([QUEUED])
+    expect(await recovered.viewFor('compatible').outbox.read()).toEqual([QUEUED])
+  } finally {
+    recovered.close()
+  }
+})
 
 for (const version of [1, 2])
   for (const ranges of [false, true])

@@ -173,7 +173,7 @@ import {
   readSchemaVersion,
   type StoredOutboxRecord,
 } from './schema'
-import { isQuotaError, type SqlDatabaseLike, type SqlValue } from './sql'
+import { isNotDatabaseError, isQuotaError, type SqlDatabaseLike, type SqlValue } from './sql'
 
 /** The mirror's composite key. The separator is written as an ESCAPE and never as a
  *  literal NUL: a raw 0x00 makes the file binary, so `grep -n` and agent search
@@ -366,7 +366,7 @@ class SqlSpan implements OwnedSyncSpan {
  */
 export class SqliteSyncStore {
   private mode: DurabilityMode = 'durable'
-  /** Flipped by the corruption injector and by a hydrate that could not decode. */
+  /** Flipped by the corruption injector. */
   private corrupt = false
   // POD-7115: a stub is kept only in its record type's stub table.
   // POD-7159: the resident set, not a copy of the disk.
@@ -388,83 +388,58 @@ export class SqliteSyncStore {
   cacheCommits = 0
 
   private constructor(
-    private db: SqlDatabaseLike,
+    private readonly db: SqlDatabaseLike,
     private readonly options: SqliteStoreOptions,
   ) {}
 
   /**
    * Open, version-check and hydrate.
    *
-   * D4.5 — a store that cannot be opened or decoded is CLEARED and the client cold
-   * starts. Boot never wedges and nothing throws past this boundary: a poisoned
-   * store that threw here would take the whole app down on launch, which is strictly
-   * worse than re-bootstrapping from the Authority. On mobile that matters more than
-   * on web, because the user cannot open devtools and clear it themselves.
+   * A failed upgrade leaves the file available for the next launch to retry.
+   * Only SQLite's whole-file format error permits replacing the file (D4.5).
    */
   static async open(options: SqliteStoreOptions): Promise<SqliteSyncStore> {
-    let db: SqlDatabaseLike
     try {
-      db = options.openDatabaseAsync ? await options.openDatabaseAsync() : options.openDatabase()
+      return await SqliteSyncStore.openFile(options)
     } catch (error) {
-      // The file exists and is not a database this driver will open at all.
-      const recovered = await recoverFile(options, error)
-      if (recovered.kind === 'unavailable') {
-        const store = new SqliteSyncStore(unavailableDatabase(), options)
-        store.degrade('unavailable', 'unavailable', recovered.error)
-        return store
-      }
-      const store = new SqliteSyncStore(recovered.db, options)
-      store.initializeFresh()
-      options.onDegraded({ mode: 'degraded-memory', cause: 'corrupt', error })
-      store.mode = 'durable'
-      return store
-    }
-
-    const store = new SqliteSyncStore(db, options)
-    try {
-      const version = readSchemaVersion(db)
-      if (version === null) {
-        // A brand-new file, or one this adapter has never written. Nothing to lose.
-        store.initializeFresh()
-      } else if (version < REPLICA_SCHEMA_VERSION) {
-        // FORWARD-ONLY (D5.1): an older layout is migrated in place, so the
-        // user's unsent writes survive the upgrade.
-        migrateSchema(db, version)
-      } else if (version !== REPLICA_SCHEMA_VERSION) {
-        // A higher version was written by a build that knew more than this one:
-        // D6's upgrade-or-rebootstrap posture rather than reading a layout it
-        // does not understand.
-        throw new SchemaVersionMismatch(version)
-      }
-      await store.hydrate()
-      // POD-419: material written by an EARLIER build is removed before this
-      // store answers its first read. See `../secret-scrub.ts` for why this runs
-      // on every open rather than in a version-gated arm — and note that the
-      // version arm above would not have caught it anyway: an upgrade that
-      // rebootstraps drops the rows, but a store already AT this version never
-      // enters it.
-      store.scrubSecrets()
-      return store
-    } catch (error) {
-      // Version mismatch, decode failure, or an unreadable table: clear the whole
-      // replica database and proceed as a cold client (D4.5). The outbox is lost with
-      // it, which is why this path is LOUD rather than silent.
+      if (!isNotDatabaseError(error)) return SqliteSyncStore.unavailable(options, error)
+      let recovered: SqliteSyncStore
       try {
-        store.clearAll()
-      } catch {
-        const recovered = await recoverFile(options, error)
-        if (recovered.kind === 'unavailable') {
-          const unavailable = new SqliteSyncStore(unavailableDatabase(), options)
-          unavailable.degrade('unavailable', 'unavailable', recovered.error)
-          return unavailable
-        }
-        store.db = recovered.db
-        store.initializeFresh()
+        if (options.deleteDatabaseAsync) await options.deleteDatabaseAsync()
+        else options.deleteDatabase()
+        recovered = await SqliteSyncStore.openFile(options)
+      } catch (fatal) {
+        return SqliteSyncStore.unavailable(options, fatal)
       }
       options.onDegraded({ mode: 'degraded-memory', cause: 'corrupt', error })
-      store.mode = 'durable'
-      return store
+      return recovered
     }
+  }
+
+  private static async openFile(options: SqliteStoreOptions): Promise<SqliteSyncStore> {
+    const db = options.openDatabaseAsync
+      ? await options.openDatabaseAsync()
+      : options.openDatabase()
+    const store = new SqliteSyncStore(db, options)
+    let mismatch: SchemaVersionMismatch | undefined
+    try {
+      mismatch = store.prepareSchema()
+      await store.hydrate()
+      // POD-419: scrub material written by earlier builds on every open.
+      store.scrubSecrets()
+    } catch (error) {
+      store.close()
+      throw error
+    }
+    if (mismatch !== undefined)
+      options.onDegraded({ mode: 'degraded-memory', cause: 'corrupt', error: mismatch })
+    return store
+  }
+
+  private static unavailable(options: SqliteStoreOptions, error: unknown): SqliteSyncStore {
+    const store = new SqliteSyncStore(unavailableDatabase(), options)
+    store.degrade('unavailable', 'unavailable', error)
+    return store
   }
 
   /** ADR 6 D4 — surfaced, never silent. */
@@ -1033,14 +1008,33 @@ export class SqliteSyncStore {
     this.options.onDegraded({ mode, cause, error })
   }
 
-  private initializeFresh(): void {
-    applySchema(this.db)
-    this.writeIndexFlag()
-    this.entities.clear()
-    this.metas.clear()
-    this.indexes.clear()
-    this.outboxRows.clear()
-    this.nextOrdinal = 0
+  private prepareSchema(): SchemaVersionMismatch | undefined {
+    if (readSchemaVersion(this.db) === REPLICA_SCHEMA_VERSION) return
+    this.db.exec('BEGIN IMMEDIATE')
+    try {
+      // Another opener may have upgraded the file while this one waited for the lock.
+      const version = readSchemaVersion(this.db)
+      let mismatch: SchemaVersionMismatch | undefined
+      if (version !== null && version > REPLICA_SCHEMA_VERSION) {
+        mismatch = new SchemaVersionMismatch(version)
+        dropSchema(this.db)
+      }
+      if (version === null || mismatch !== undefined) {
+        applySchema(this.db)
+        this.writeIndexFlag()
+      } else if (version < REPLICA_SCHEMA_VERSION) {
+        migrateSchema(this.db, version)
+      }
+      this.db.exec('COMMIT')
+      return mismatch
+    } catch (error) {
+      try {
+        this.db.exec('ROLLBACK')
+      } catch {
+        // Closing a dead connection rolls back its transaction.
+      }
+      throw error
+    }
   }
 
   /** An empty store's index is built: the flag says so. */
@@ -1542,29 +1536,6 @@ export class SqliteSyncStore {
       this.outboxRows.set(row.principal, slice)
       this.nextOrdinal = Math.max(this.nextOrdinal, row.ordinal + 1)
     }
-  }
-
-  private clearAll(): void {
-    this.db.exec('BEGIN IMMEDIATE')
-    try {
-      dropSchema(this.db)
-      applySchema(this.db)
-      this.writeIndexFlag()
-      this.db.exec('COMMIT')
-    } catch (error) {
-      try {
-        this.db.exec('ROLLBACK')
-      } catch {
-        // See `commitDraft`: a dead connection needs no rollback.
-      }
-      throw error
-    }
-    this.entities.clear()
-    this.metas.clear()
-    this.indexes.clear()
-    this.outboxRows.clear()
-    this.nextOrdinal = 0
-    this.stubsInIndex = false
   }
 
   // ── mirror accessors used by the views ───────────────────────────────────
@@ -2131,23 +2102,6 @@ const upsertEntityOp = (principal: string, row: EntityRecord): SqlOp => ({
     row.asOf ?? null,
   ],
 })
-
-/** Delete the file and open a fresh one; report whether that was possible at all. */
-async function recoverFile(
-  options: SqliteStoreOptions,
-  cause: unknown,
-): Promise<{ kind: 'db'; db: SqlDatabaseLike } | { kind: 'unavailable'; error: unknown }> {
-  try {
-    if (options.deleteDatabaseAsync) await options.deleteDatabaseAsync()
-    else options.deleteDatabase()
-    const db = options.openDatabaseAsync
-      ? await options.openDatabaseAsync()
-      : options.openDatabase()
-    return { kind: 'db', db }
-  } catch (fatal) {
-    return { kind: 'unavailable', error: fatal ?? cause }
-  }
-}
 
 /** The stand-in for "there is no usable SQLite here" — every call throws, nothing is durable. */
 function unavailableDatabase(): SqlDatabaseLike {

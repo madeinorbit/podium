@@ -533,7 +533,7 @@ class CacheGenerationConflict extends Error {}
 export class IndexedDbSyncStore {
   private cacheConflict = false
   private mode: DurabilityMode = 'durable'
-  /** Flipped by the corruption injector and by a hydrate that could not decode. */
+  /** Flipped by the corruption injector. */
   private corrupt = false
   // POD-7115: a stub is kept only in its record type's stub table.
   // POD-7159: the resident set, not a copy of the disk.
@@ -580,10 +580,8 @@ export class IndexedDbSyncStore {
   /**
    * Open, migrate and hydrate.
    *
-   * D4.5 — a store that cannot be opened or decoded is CLEARED and the client cold
-   * starts. Boot never wedges and nothing throws past this boundary: a poisoned
-   * store that threw here would take the whole app down, which is strictly worse
-   * than re-bootstrapping from the Authority.
+   * An aborted version-change transaction rolls back with the old version
+   * and outbox intact. The next open can retry it.
    */
   static async open(options: IndexedDbStoreOptions): Promise<IndexedDbSyncStore> {
     const name = options.databaseName ?? REPLICA_DB_NAME
@@ -591,23 +589,15 @@ export class IndexedDbSyncStore {
     try {
       db = await openDatabase(options.factory, name, options.openTimeoutMs, options)
     } catch (error) {
-      // A timeout is not corruption. Deleting the replica because Safari held
-      // the lock would throw away a recoverable store and force a world-sized
-      // bootstrap onto the same UI thread the timeout was meant to protect.
-      if (error instanceof IndexedDbOpenTimeoutError) {
-        const store = new IndexedDbSyncStore(unavailableDatabase(), options)
-        store.degrade('unavailable', 'unavailable', error)
-        return store
-      }
-      // Includes `VersionError` — a store written by a NEWER build than this one.
-      // D5.1 is forward-only, so the only honest move is to drop it and cold start.
-      await deleteDatabase(options.factory, name)
+      // VersionError is the forward-only schema refusal (D5.1). An upgrade
+      // abort or a blocked open leaves an existing database to retry.
+      if ((error as { name?: unknown } | null)?.name !== 'VersionError')
+        return IndexedDbSyncStore.unavailable(options, error)
       try {
+        await deleteDatabase(options.factory, name)
         db = await openDatabase(options.factory, name, options.openTimeoutMs, options)
       } catch (fatal) {
-        const store = new IndexedDbSyncStore(unavailableDatabase(), options)
-        store.degrade('unavailable', 'unavailable', fatal)
-        return store
+        return IndexedDbSyncStore.unavailable(options, fatal)
       }
       options.onDegraded({ mode: 'degraded-memory', cause: 'corrupt', error })
     }
@@ -622,22 +612,17 @@ export class IndexedDbSyncStore {
       // property that can be violated again.
       await store.scrubSecrets()
     } catch (error) {
-      // Decode failure or unreadable region: clear the whole replica DB and proceed
-      // as a cold client (D4.5). The outbox is lost with it, which is why this path
-      // is LOUD rather than silent.
-      if (error instanceof IndexedDbReconnectError) {
-        store.degrade('unavailable', 'unavailable', error)
-        return store
-      }
-      try {
-        await store.clearAll()
-      } catch (fatal) {
-        store.degrade('unavailable', 'unavailable', fatal)
-        return store
-      }
-      options.onDegraded({ mode: 'degraded-memory', cause: 'corrupt', error })
-      store.mode = 'durable'
+      // First open can also rebuild the disk index in normal transactions.
+      // Leave durable rows in place when any of that work fails.
+      store.close()
+      return IndexedDbSyncStore.unavailable(options, error)
     }
+    return store
+  }
+
+  private static unavailable(options: IndexedDbStoreOptions, error: unknown): IndexedDbSyncStore {
+    const store = new IndexedDbSyncStore(unavailableDatabase(), options)
+    store.degrade('unavailable', 'unavailable', error)
     return store
   }
 
@@ -2005,24 +1990,6 @@ export class IndexedDbSyncStore {
       if (slice) slice[index] = { ...stored, record: rewrite.value }
     }
     this.options.onSecretsScrubbed?.(report)
-  }
-
-  private async clearAll(): Promise<void> {
-    const tx = await this.transaction([...ALL_STORES], 'readwrite')
-    const completion = transactionCompletion(tx)
-    for (const name of ALL_STORES) tx.objectStore(name).clear()
-    // An empty store's index is built: the flag says so.
-    tx.objectStore(INDEX_STORE).put({
-      principal: STORE_PRINCIPAL,
-      key: INDEX_BUILT_META_KEY,
-      v: INDEX_FORMAT,
-    } satisfies StoredIndexRow)
-    await completion
-    this.entities.clear()
-    this.metas.clear()
-    this.indexes.clear()
-    this.outboxRows.clear()
-    this.stubsInIndex = false
   }
 
   // ── mirror accessors used by the views ───────────────────────────────────
