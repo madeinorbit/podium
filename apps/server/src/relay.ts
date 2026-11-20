@@ -219,7 +219,12 @@ import { DELIVERY_RETRY_BACKSTOP_MS } from './modules/messages/scheduler'
 import { MessageDeliveryService } from './modules/messages/service'
 import { makeSpawnOnWake } from './modules/messages/spawn'
 import type { MessageWriter } from './modules/messages/writer'
-import { bindNoticeService, NoticeService } from './modules/notices/emit'
+import {
+  bindNoticeService,
+  emitNotice,
+  NoticeService,
+  resolveNotices,
+} from './modules/notices/emit'
 import { CommentMentions } from './modules/notices/mentions'
 import { makeNoticeFeedCapture } from './modules/notices/records'
 import {
@@ -1081,6 +1086,18 @@ export class SessionRegistry {
         )
       },
       onInventoryRecorded: async () => await seedSuperagentDefaults?.(),
+      // Managed-install notices (managed installs §8) go through the inbox the
+      // server binds at boot (POD-6881); a notice is the server's own write.
+      installNotices: {
+        machine: async (machineId) => {
+          const record = await this.store.machines.getMachine(machineId)
+          if (!record) return undefined
+          return { name: record.name, custodian: await this.store.machines.custodian(machineId) }
+        },
+        emit: async (notice) => await asSystemWrite(async () => await emitNotice(notice)),
+        resolve: async (key) => await asSystemWrite(async () => await resolveNotices(key)),
+        now: () => this.now(),
+      },
     })
     this.machineRecordsDeps = (): MachineRecordsDeps & {
       reach: NonNullable<MachineRecordsDeps['reach']>

@@ -9278,11 +9278,12 @@
       "parseAdded": {
         "mention": true,
         "credentialAttention": true,
-        "credentialShared": false
+        "credentialShared": false,
+        "harnessInstalls": true
       },
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"mention\":true,\"credentialAttention\":true,\"credentialShared\":false}"
+      "encoded": "{\"mention\":true,\"credentialAttention\":true,\"credentialShared\":false,\"harnessInstalls\":true}"
     },
     {
       "schema": "NoticePushPreferences",
@@ -9290,12 +9291,13 @@
       "wire": {
         "mention": true,
         "credentialAttention": true,
-        "credentialShared": true
+        "credentialShared": true,
+        "harnessInstalls": true
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"mention\":true,\"credentialAttention\":true,\"credentialShared\":true}"
+      "encoded": "{\"mention\":true,\"credentialAttention\":true,\"credentialShared\":true,\"harnessInstalls\":true}"
     },
     {
       "schema": "NoticeWire",
@@ -9345,12 +9347,13 @@
         "notices": {
           "mention": true,
           "credentialAttention": true,
-          "credentialShared": false
+          "credentialShared": false,
+          "harnessInstalls": true
         }
       },
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"web\":true,\"ntfyTopic\":\"\",\"telegramChatId\":\"\",\"notices\":{\"mention\":true,\"credentialAttention\":true,\"credentialShared\":false}}"
+      "encoded": "{\"web\":true,\"ntfyTopic\":\"\",\"telegramChatId\":\"\",\"notices\":{\"mention\":true,\"credentialAttention\":true,\"credentialShared\":false,\"harnessInstalls\":true}}"
     },
     {
       "schema": "NotificationRouting",
@@ -9362,13 +9365,14 @@
         "notices": {
           "mention": true,
           "credentialAttention": true,
-          "credentialShared": true
+          "credentialShared": true,
+          "harnessInstalls": true
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"web\":true,\"ntfyTopic\":\"ntfyTopic\",\"telegramChatId\":\"telegramChatId\",\"notices\":{\"mention\":true,\"credentialAttention\":true,\"credentialShared\":true}}"
+      "encoded": "{\"web\":true,\"ntfyTopic\":\"ntfyTopic\",\"telegramChatId\":\"telegramChatId\",\"notices\":{\"mention\":true,\"credentialAttention\":true,\"credentialShared\":true,\"harnessInstalls\":true}}"
     },
     {
       "schema": "NotificationSecrets",
@@ -9519,14 +9523,15 @@
           "notices": {
             "mention": true,
             "credentialAttention": true,
-            "credentialShared": false
+            "credentialShared": false,
+            "harnessInstalls": true
           }
         },
         "credentialDefaults": {}
       },
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"userId\":\"userId\",\"roles\":{\"coding\":{\"accountId\":\"\",\"model\":\"auto\",\"effort\":\"auto\",\"subagentModel\":\"auto\",\"startScreen\":\"native\",\"seedCliTheme\":true},\"superagent\":{\"accountId\":\"\",\"model\":\"auto\",\"effort\":\"auto\"},\"background\":{\"accountId\":\"\",\"model\":\"google/gemini-2.5-flash\",\"effort\":\"auto\"},\"shipwright\":{\"accountId\":\"\",\"model\":\"auto\",\"effort\":\"auto\"}},\"sidebar\":{\"repoSort\":\"lastUsed\",\"repoOrder\":[]},\"autoContinue\":{\"enabled\":false,\"promptDismissed\":false},\"notifications\":{\"web\":true,\"ntfyTopic\":\"\",\"telegramChatId\":\"\",\"notices\":{\"mention\":true,\"credentialAttention\":true,\"credentialShared\":false}},\"credentialDefaults\":{}}"
+      "encoded": "{\"userId\":\"userId\",\"roles\":{\"coding\":{\"accountId\":\"\",\"model\":\"auto\",\"effort\":\"auto\",\"subagentModel\":\"auto\",\"startScreen\":\"native\",\"seedCliTheme\":true},\"superagent\":{\"accountId\":\"\",\"model\":\"auto\",\"effort\":\"auto\"},\"background\":{\"accountId\":\"\",\"model\":\"google/gemini-2.5-flash\",\"effort\":\"auto\"},\"shipwright\":{\"accountId\":\"\",\"model\":\"auto\",\"effort\":\"auto\"}},\"sidebar\":{\"repoSort\":\"lastUsed\",\"repoOrder\":[]},\"autoContinue\":{\"enabled\":false,\"promptDismissed\":false},\"notifications\":{\"web\":true,\"ntfyTopic\":\"\",\"telegramChatId\":\"\",\"notices\":{\"mention\":true,\"credentialAttention\":true,\"credentialShared\":false,\"harnessInstalls\":true}},\"credentialDefaults\":{}}"
     },
     {
       "schema": "PersonalPreferences",
@@ -9581,7 +9586,8 @@
           "notices": {
             "mention": true,
             "credentialAttention": true,
-            "credentialShared": true
+            "credentialShared": true,
+            "harnessInstalls": true
           }
         },
         "credentialDefaults": {
@@ -9591,7 +9597,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"userId\":\"userId\",\"roles\":{\"coding\":{\"accountId\":\"roles.coding.accountId\",\"credentialId\":\"roles.coding.credentialId\",\"model\":\"roles.coding.model\",\"effort\":\"roles.coding.effort\",\"harness\":\"claude-code\",\"subagentModel\":\"roles.coding.subagentModel\",\"startScreen\":\"native\",\"seedCliTheme\":true},\"superagent\":{\"accountId\":\"roles.superagent.accountId\",\"credentialId\":\"roles.superagent.credentialId\",\"model\":\"roles.superagent.model\",\"effort\":\"roles.superagent.effort\",\"harness\":\"claude-code\"},\"background\":{\"accountId\":\"roles.background.accountId\",\"credentialId\":\"roles.background.credentialId\",\"model\":\"roles.background.model\",\"effort\":\"roles.background.effort\",\"harness\":\"claude-code\"},\"shipwright\":{\"accountId\":\"roles.shipwright.accountId\",\"credentialId\":\"roles.shipwright.credentialId\",\"model\":\"roles.shipwright.model\",\"effort\":\"roles.shipwright.effort\",\"harness\":\"claude-code\"}},\"sidebar\":{\"repoSort\":\"alphabetical\",\"repoOrder\":[\"sidebar.repoOrder[0]\"]},\"autoContinue\":{\"enabled\":true,\"promptDismissed\":true},\"notifications\":{\"web\":true,\"ntfyTopic\":\"notifications.ntfyTopic\",\"telegramChatId\":\"notifications.telegramChatId\",\"notices\":{\"mention\":true,\"credentialAttention\":true,\"credentialShared\":true}},\"credentialDefaults\":{\"claude-code\":\"credentialDefaults.claude-code\"}}"
+      "encoded": "{\"userId\":\"userId\",\"roles\":{\"coding\":{\"accountId\":\"roles.coding.accountId\",\"credentialId\":\"roles.coding.credentialId\",\"model\":\"roles.coding.model\",\"effort\":\"roles.coding.effort\",\"harness\":\"claude-code\",\"subagentModel\":\"roles.coding.subagentModel\",\"startScreen\":\"native\",\"seedCliTheme\":true},\"superagent\":{\"accountId\":\"roles.superagent.accountId\",\"credentialId\":\"roles.superagent.credentialId\",\"model\":\"roles.superagent.model\",\"effort\":\"roles.superagent.effort\",\"harness\":\"claude-code\"},\"background\":{\"accountId\":\"roles.background.accountId\",\"credentialId\":\"roles.background.credentialId\",\"model\":\"roles.background.model\",\"effort\":\"roles.background.effort\",\"harness\":\"claude-code\"},\"shipwright\":{\"accountId\":\"roles.shipwright.accountId\",\"credentialId\":\"roles.shipwright.credentialId\",\"model\":\"roles.shipwright.model\",\"effort\":\"roles.shipwright.effort\",\"harness\":\"claude-code\"}},\"sidebar\":{\"repoSort\":\"alphabetical\",\"repoOrder\":[\"sidebar.repoOrder[0]\"]},\"autoContinue\":{\"enabled\":true,\"promptDismissed\":true},\"notifications\":{\"web\":true,\"ntfyTopic\":\"notifications.ntfyTopic\",\"telegramChatId\":\"notifications.telegramChatId\",\"notices\":{\"mention\":true,\"credentialAttention\":true,\"credentialShared\":true,\"harnessInstalls\":true}},\"credentialDefaults\":{\"claude-code\":\"credentialDefaults.claude-code\"}}"
     },
     {
       "schema": "PersonalPreferenceState",
@@ -19536,6 +19542,7 @@
         "notifications.notices.mention": true,
         "notifications.notices.credentialAttention": true,
         "notifications.notices.credentialShared": true,
+        "notifications.notices.harnessInstalls": true,
         "credentialDefaults": {
           "claude-code": "credentialDefaults.claude-code"
         }
@@ -19543,7 +19550,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"userId\":\"userId\",\"roles.coding.accountId\":\"roles.coding.accountId\",\"roles.coding.credentialId\":\"roles.coding.credentialId\",\"roles.coding.model\":\"roles.coding.model\",\"roles.coding.effort\":\"roles.coding.effort\",\"roles.coding.harness\":\"claude-code\",\"roles.coding.subagentModel\":\"roles.coding.subagentModel\",\"roles.coding.startScreen\":\"native\",\"roles.coding.seedCliTheme\":true,\"roles.superagent.accountId\":\"roles.superagent.accountId\",\"roles.superagent.credentialId\":\"roles.superagent.credentialId\",\"roles.superagent.model\":\"roles.superagent.model\",\"roles.superagent.effort\":\"roles.superagent.effort\",\"roles.superagent.harness\":\"claude-code\",\"roles.background.accountId\":\"roles.background.accountId\",\"roles.background.credentialId\":\"roles.background.credentialId\",\"roles.background.model\":\"roles.background.model\",\"roles.background.effort\":\"roles.background.effort\",\"roles.background.harness\":\"claude-code\",\"roles.shipwright.accountId\":\"roles.shipwright.accountId\",\"roles.shipwright.credentialId\":\"roles.shipwright.credentialId\",\"roles.shipwright.model\":\"roles.shipwright.model\",\"roles.shipwright.effort\":\"roles.shipwright.effort\",\"roles.shipwright.harness\":\"claude-code\",\"sidebar.repoSort\":\"alphabetical\",\"sidebar.repoOrder\":[\"sidebar.repoOrder[0]\"],\"autoContinue.enabled\":true,\"autoContinue.promptDismissed\":true,\"notifications.web\":true,\"notifications.ntfyTopic\":\"notifications.ntfyTopic\",\"notifications.telegramChatId\":\"notifications.telegramChatId\",\"notifications.notices.mention\":true,\"notifications.notices.credentialAttention\":true,\"notifications.notices.credentialShared\":true,\"credentialDefaults\":{\"claude-code\":\"credentialDefaults.claude-code\"}}"
+      "encoded": "{\"userId\":\"userId\",\"roles.coding.accountId\":\"roles.coding.accountId\",\"roles.coding.credentialId\":\"roles.coding.credentialId\",\"roles.coding.model\":\"roles.coding.model\",\"roles.coding.effort\":\"roles.coding.effort\",\"roles.coding.harness\":\"claude-code\",\"roles.coding.subagentModel\":\"roles.coding.subagentModel\",\"roles.coding.startScreen\":\"native\",\"roles.coding.seedCliTheme\":true,\"roles.superagent.accountId\":\"roles.superagent.accountId\",\"roles.superagent.credentialId\":\"roles.superagent.credentialId\",\"roles.superagent.model\":\"roles.superagent.model\",\"roles.superagent.effort\":\"roles.superagent.effort\",\"roles.superagent.harness\":\"claude-code\",\"roles.background.accountId\":\"roles.background.accountId\",\"roles.background.credentialId\":\"roles.background.credentialId\",\"roles.background.model\":\"roles.background.model\",\"roles.background.effort\":\"roles.background.effort\",\"roles.background.harness\":\"claude-code\",\"roles.shipwright.accountId\":\"roles.shipwright.accountId\",\"roles.shipwright.credentialId\":\"roles.shipwright.credentialId\",\"roles.shipwright.model\":\"roles.shipwright.model\",\"roles.shipwright.effort\":\"roles.shipwright.effort\",\"roles.shipwright.harness\":\"claude-code\",\"sidebar.repoSort\":\"alphabetical\",\"sidebar.repoOrder\":[\"sidebar.repoOrder[0]\"],\"autoContinue.enabled\":true,\"autoContinue.promptDismissed\":true,\"notifications.web\":true,\"notifications.ntfyTopic\":\"notifications.ntfyTopic\",\"notifications.telegramChatId\":\"notifications.telegramChatId\",\"notifications.notices.mention\":true,\"notifications.notices.credentialAttention\":true,\"notifications.notices.credentialShared\":true,\"notifications.notices.harnessInstalls\":true,\"credentialDefaults\":{\"claude-code\":\"credentialDefaults.claude-code\"}}"
     },
     {
       "schema": "UserRole",

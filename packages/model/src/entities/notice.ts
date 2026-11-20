@@ -17,13 +17,25 @@ import { z } from 'zod'
 import { asUserId, type UserId, UserIdField } from '../ids'
 import { type EntityKind, joinKeyParts, splitKeyParts } from '../ids/keys'
 
-export const NOTICE_KINDS = ['mention', 'credential-attention', 'credential-shared'] as const
+export const NOTICE_KINDS = [
+  'mention',
+  'credential-attention',
+  'credential-shared',
+  /** A Podium-installed harness's updates have failed for three days (managed installs §8). */
+  'harness-install-failing',
+  /** A machine's install ledger was lost or damaged and rebuilt (managed installs §7). */
+  'harness-ledger-rebuilt',
+] as const
 export type NoticeKind = (typeof NOTICE_KINDS)[number]
 
 export const isNoticeKind = (v: string): v is NoticeKind =>
   (NOTICE_KINDS as readonly string[]).includes(v)
 
-const EVENT_KINDS: ReadonlySet<NoticeKind> = new Set(['mention', 'credential-shared'])
+const EVENT_KINDS: ReadonlySet<NoticeKind> = new Set([
+  'mention',
+  'credential-shared',
+  'harness-ledger-rebuilt',
+])
 
 /** An event happened once and nothing clears it; a condition clears itself. */
 export const isEventNoticeKind = (kind: NoticeKind): boolean => EVENT_KINDS.has(kind)

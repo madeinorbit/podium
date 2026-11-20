@@ -189,7 +189,12 @@ describe('the composed blob still parses exactly as before', () => {
         telegramBotToken: '',
         telegramChatId: '',
         // POD-6881: which notice kinds are pushed.
-        notices: { mention: true, credentialAttention: true, credentialShared: false },
+        notices: {
+          mention: true,
+          credentialAttention: true,
+          credentialShared: false,
+          harnessInstalls: true,
+        },
       },
       sidebar: { repoSort: 'lastUsed', repoOrder: [] },
       gitWorkflow: { defaultParentBranch: '', autoRebaseBeforeMerge: true },

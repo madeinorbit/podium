@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { gateHarnessVersion, HARNESS_VERSION_POLICIES } from '@podium/harness/browser'
-import { createLogger } from '@podium/logger'
+import { createLogger, describeError } from '@podium/logger'
 import type { DaemonReadiness, SessionId } from '@podium/model'
 import {
   type AccountId,
@@ -83,6 +83,11 @@ import {
   machineTransition,
   sha256,
 } from './enrollment'
+import {
+  type InstallNoticeDeps,
+  raiseInstallNotices,
+  reportsManagedInstalls,
+} from './install-notices'
 import { storedMachineRecordFacts } from './record-facts'
 import { RefusedSendError } from './refused-send'
 import { supersedeMachine } from './supersession'
@@ -384,6 +389,11 @@ export interface MachinesDeps {
   bus?: EventBus
   /** Awaited derived-state work that must complete before inventory observers run. */
   onInventoryRecorded?(): Promise<void>
+  /**
+   * Notices about Podium-installed harnesses (managed installs §8): updates
+   * failing for three days, a rebuilt install ledger. Absent: none are raised.
+   */
+  installNotices?: InstallNoticeDeps
   /** Compare records around a compound machine transition. */
   compareMachineRecords?: CompareMachineRecords
   /** A machine's live condition moved (`machine.condition`). */
@@ -2195,15 +2205,63 @@ export class MachinesService {
     // Repeated inventory still settles waiters and persists the source, but
     // only a changed report notifies login readers. The source write compares its records.
     // Sessions join machine display facts on the client (POD-4974 S6).
-    const unchanged = this.lastInventoryJsonByMachine.get(machineId) === inventoryJson
+    const previousJson = this.lastInventoryJsonByMachine.get(machineId)
+    const unchanged = previousJson === inventoryJson
+    const installNotices = unchanged
+      ? undefined
+      : await this.installNoticeInputs(machineId, previousJson, inventoryJson)
     this.lastInventoryJsonByMachine.set(machineId, inventoryJson)
     this.harnessDescriptorsByMachine.set(machineId, descriptors)
     await this.deps.store.machines.setMachineInventory(machineId, inventoryJson)
     this.inventoryPending.delete(machineId)
     this.settleInventoryWaiters(machineId)
     await this.deps.onInventoryRecorded?.()
+    if (installNotices) await this.raiseInstallNotices(machineId, installNotices)
     if (unchanged) return
     if (this.deps.bus) this.deps.bus.emit('machine.metadataChanged', { machineId, inventory: true })
+  }
+
+  /**
+   * The two reports a changed inventory's install notices compare, or nothing
+   * when neither says anything about Podium-installed harnesses. The report
+   * before is this process's last one, or the stored one after a restart (read
+   * before the new one replaces it), so a restart raises nothing twice.
+   */
+  private async installNoticeInputs(
+    machineId: MachineId,
+    previousJson: string | undefined,
+    inventoryJson: string,
+  ): Promise<{ previous: Inventory | undefined; next: Inventory } | undefined> {
+    if (!this.deps.installNotices) return undefined
+    try {
+      const next = JSON.parse(inventoryJson) as Inventory
+      const previous =
+        previousJson !== undefined
+          ? (JSON.parse(previousJson) as Inventory)
+          : (await this.deps.store.machines.getMachine(machineId))?.inventory
+      if (!reportsManagedInstalls(next) && !reportsManagedInstalls(previous)) return undefined
+      return { previous, next }
+    } catch (error) {
+      log.warn('install notices: could not read the inventory reports', {
+        machineId,
+        error: describeError(error),
+      })
+      return undefined
+    }
+  }
+
+  /** Never fails the inventory write: a notice that could not be raised is logged. */
+  private async raiseInstallNotices(
+    machineId: MachineId,
+    reports: { previous: Inventory | undefined; next: Inventory },
+  ): Promise<void> {
+    const deps = this.deps.installNotices
+    if (!deps) return
+    try {
+      await raiseInstallNotices(deps, machineId, reports.previous, reports.next)
+    } catch (error) {
+      log.warn('install notices: could not raise', { machineId, error: describeError(error) })
+    }
   }
 
   /** Persist the compatibility local participant's build while no supervisor owns it. */

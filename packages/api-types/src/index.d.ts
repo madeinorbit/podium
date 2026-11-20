@@ -385,20 +385,24 @@ declare const PodiumSettings: z.ZodObject<{
             mention: z.ZodDefault<z.ZodBoolean>;
             credentialAttention: z.ZodDefault<z.ZodBoolean>;
             credentialShared: z.ZodDefault<z.ZodBoolean>;
+            harnessInstalls: z.ZodDefault<z.ZodBoolean>;
         }, "strip", z.ZodTypeAny, {
             mention: boolean;
             credentialAttention: boolean;
             credentialShared: boolean;
+            harnessInstalls: boolean;
         }, {
             mention?: boolean | undefined;
             credentialAttention?: boolean | undefined;
             credentialShared?: boolean | undefined;
+            harnessInstalls?: boolean | undefined;
         }>>;
     }, "strip", z.ZodTypeAny, {
         notices: {
             mention: boolean;
             credentialAttention: boolean;
             credentialShared: boolean;
+            harnessInstalls: boolean;
         };
         web: boolean;
         ntfyTopic: string;
@@ -409,6 +413,7 @@ declare const PodiumSettings: z.ZodObject<{
             mention?: boolean | undefined;
             credentialAttention?: boolean | undefined;
             credentialShared?: boolean | undefined;
+            harnessInstalls?: boolean | undefined;
         } | undefined;
         web?: boolean | undefined;
         ntfyTopic?: string | undefined;
@@ -582,6 +587,7 @@ declare const PodiumSettings: z.ZodObject<{
             mention: boolean;
             credentialAttention: boolean;
             credentialShared: boolean;
+            harnessInstalls: boolean;
         };
         web: boolean;
         ntfyTopic: string;
@@ -678,6 +684,7 @@ declare const PodiumSettings: z.ZodObject<{
             mention?: boolean | undefined;
             credentialAttention?: boolean | undefined;
             credentialShared?: boolean | undefined;
+            harnessInstalls?: boolean | undefined;
         } | undefined;
         web?: boolean | undefined;
         ntfyTopic?: string | undefined;
@@ -1551,14 +1558,14 @@ declare const TunnelHealthReport: z.ZodObject<{
     lastError: z.ZodNullable<z.ZodString>;
 }, "strip", z.ZodTypeAny, {
     state: "starting" | "stopped" | "working" | "restarting" | "unhealthy";
-    url: string | null;
     lastError: string | null;
+    url: string | null;
     lastOkAt: number | null;
     failedSince: number | null;
 }, {
     state: "starting" | "stopped" | "working" | "restarting" | "unhealthy";
-    url: string | null;
     lastError: string | null;
+    url: string | null;
     lastOkAt: number | null;
     failedSince: number | null;
 }>;
@@ -5868,6 +5875,37 @@ type Output_machines_applyUpdate = {
         installKind?: null | string | undefined;
         inventory?: undefined | {
             agents: {
+                install?: undefined | {
+                    external?: undefined | {
+                        path: string;
+                        version?: string | undefined;
+                    };
+                    ledgerRebuilt?: undefined | {
+                        at: string;
+                        reason: "damaged" | "missing";
+                    };
+                    managed?: undefined | {
+                        active?: undefined | {
+                            path: string;
+                            release: number;
+                            version?: string | undefined;
+                        };
+                        currentFailed?: undefined | {
+                            release: number;
+                            version: string;
+                        };
+                        failingSince?: string | undefined;
+                        lastCheckAt?: string | undefined;
+                        lastError?: undefined | {
+                            at: string;
+                            message: string;
+                            version?: string | undefined;
+                        };
+                        latest?: string | undefined;
+                        paused: boolean;
+                        previousVersion?: string | undefined;
+                    };
+                };
                 installed: boolean | null;
                 kind: "claude-code" | "codex" | "cursor" | "grok" | "opencode" | "pi";
                 login: {

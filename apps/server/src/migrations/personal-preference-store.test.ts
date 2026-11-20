@@ -103,6 +103,8 @@ const POST_MIGRATION_PERSONAL_KEYS = [
   'notifications.notices.mention',
   'notifications.notices.credentialAttention',
   'notifications.notices.credentialShared',
+  // POD-7281: push for Podium-installed harnesses that stopped updating.
+  'notifications.notices.harnessInstalls',
 ] as const
 
 /** Lifted by the frozen SQL but since removed from the live shape. A stored row

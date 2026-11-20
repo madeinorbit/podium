@@ -100,14 +100,15 @@ describe('settingsLeafPaths — the instrument, probed first', () => {
 
 describe('the classification is TOTAL over the split shapes', () => {
   it('classifies every leaf of every tier, and the count is non-trivial', () => {
-    // A cardinality a broken walk cannot reach: 34 personal + 23 instance + 2 secret.
+    // A cardinality a broken walk cannot reach: 35 personal + 23 instance + 2 secret.
     // The redesign removed sidebar.groupByRepo and gitWorkflow.mergeStyle;
     // daemonLink.trustedNetworks (credential management §8) added one instance leaf,
     // credentialDefaults (§9) one personal leaf, and RoleBackend.credentialId one per
     // role (coding, superagent, background, shipwright). Notice preferences added
-    // three personal leaves; provider API keys now belong to managed credentials.
-    expect(SETTINGS_CLASSIFICATION.length).toBe(59)
-    expect(settingsPathsInTier('personal-preference').length).toBe(34)
+    // three personal leaves, and managed installs (POD-7281) a fourth; provider API
+    // keys now belong to managed credentials.
+    expect(SETTINGS_CLASSIFICATION.length).toBe(60)
+    expect(settingsPathsInTier('personal-preference').length).toBe(35)
     expect(settingsPathsInTier('instance-preference').length).toBe(23)
     expect(settingsPathsInTier('server-secret').length).toBe(2)
     expect(classifySettingsPath('sidebar.groupByRepo')).toBeUndefined()
@@ -143,6 +144,7 @@ describe('the classification is TOTAL over the split shapes', () => {
     expect(notif.map((c) => `${c.path}=${c.tier}`).sort()).toEqual([
       'notifications.notices.credentialAttention=personal-preference',
       'notifications.notices.credentialShared=personal-preference',
+      'notifications.notices.harnessInstalls=personal-preference',
       'notifications.notices.mention=personal-preference',
       'notifications.ntfyTopic=personal-preference',
       'notifications.telegramBotToken=server-secret',
