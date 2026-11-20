@@ -196,7 +196,10 @@ renews in its folder. Most credentials are not that:
 So Podium's side has one home per harness,
 `<state>/homes/podium/<harness>/`, and every passed-in credential runs in it.
 Conversations and settings stay in one place, and changing a session's
-credential copies nothing. Passing in is also the only form that works on a
+credential copies nothing. The Podium home is prepared for a launch the way
+credential management prepares its homes (`prepareHomeLaunch`: onboarding
+done, the session's folder trusted), so the first turn is never a setup
+screen. Passing in is also the only form that works on a
 short-lived machine: nobody signs in on a machine that lives for an hour.
 
 A vendor sign-in on Podium's side still gets its own folder, as credential
@@ -254,6 +257,11 @@ homes, stays as built.
 3. When a managed install is made on a machine that already has sign-in
    folders, their links are pointed at the Podium home. They are plain links,
    so this replaces them and nothing else.
+4. A session that already ran in the person's folder on a passed-in
+   credential moves to the Podium home when a managed install appears. Its
+   next process continues the conversation through credential management's
+   existing copy into the target home (the same path as switching a session's
+   credential).
 
 ### 4.7 Harnesses with no folder variable
 
@@ -262,6 +270,15 @@ move. Grok, OpenCode, Pi and Cursor have no measured variable yet. Until one
 is measured, a managed install of those is offered only on a machine where the
 person has no install of their own, so there is no second side to protect. The
 spike measures a variable for each (section 13).
+
+Such a managed install runs in the harness's default folder, because nothing
+can move it. If the person later installs their own copy, both binaries share
+that folder. Podium does not resolve that silently: the harness row shows both
+installs sharing one folder and offers to remove Podium's copy.
+
+The rule is one check on the install action and on machine setup, for every
+harness: no folder variable and an install of the person's own present means
+the install is refused with this reason.
 
 ## 5. Installing and updating
 
@@ -622,6 +639,8 @@ interface ManagedInstall {
     | { at: string; ok: true; latest: string }
     | { at: string; ok: false; error: string }
   lastInstallError?: { at: string; version: string; error: string }
+  /** First failure of the current run of failed checks or installs; cleared on success. */
+  failingSince?: string
 }
 
 /** Versions Podium will not install again, and why. */
@@ -694,7 +713,9 @@ The inventory report gains, per harness, one optional `install` object beside
 the optional `logins` list credential management added: for each of the two
 installs its version, and for the managed one its previous version, the
 vendor's newest version as last seen, the time of the last check, whether
-updates are paused, and the last error. An older server or daemon ignores it.
+updates are paused, the last error, since when it has been failing, and
+whether the ledger was rebuilt. The daemon reports; the server raises the
+notices. An older server or daemon ignores it.
 
 Requests to the daemon follow the pattern homes set (`messages/homes.ts`,
 `control/homes.ts`): a capability the daemon offers (`harness.installs.v1`), so
@@ -710,6 +731,7 @@ On a machine's harness list:
 | The person's own, too old | "2.1.100 · your install · too old for Podium" | Install a current version |
 | Managed | "2.1.311 · managed by Podium · checked 2 h ago" | Check now, Go back to 2.1.305, Pause updates, Take my settings, Remove |
 | Both | both lines | the actions of each |
+| Both, sharing one folder (no folder variable, 4.7) | both lines and "sharing one folder" | Remove Podium's copy |
 | Managed, installing | "Installing 2.1.318…" | none |
 
 Podium says nothing when an update succeeds. It raises one notice per harness
@@ -835,7 +857,8 @@ removal.
     is one, once and on request.** Permissions, trust and hooks are never
     copied (4.5).
 11. **A harness with no folder variable is managed only where the person has no
-    install of their own**, until a variable is measured (4.7).
+    install of their own**, until a variable is measured. If the person installs
+    their own copy later, the row says so and offers to remove Podium's (4.7).
 12. **Posture's and credential access's per-session files stay files.** Only
     the install record, which is queried across sessions, is a table (6.2).
 13. **Home edits are recorded only in the person's folder, and undone only on
@@ -905,6 +928,11 @@ To be split into tasks once the design is agreed. Proposed tasks, in order:
 12. **Acceptance run** in the VPS lab (section 10).
 
 Tasks 2 to 4 have no visible effect and can land first. Task 1 gates task 6.
+
+Filed as POD-7265 to POD-7285 under POD-6865: four phases (Install foundation,
+Harness installs, Updates and controls, Managed installs acceptance), with task
+6 split into one task per harness and tasks 7 and 9 merged into the updater
+task.
 
 **Base.** Posture is on `dev/mw` and credential management lands there next.
 This phase is built on `dev/mw` once credential management has landed: tasks
