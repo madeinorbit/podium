@@ -1,7 +1,12 @@
 import type { SessionStore } from '../store'
 import { inWorkspace, legacyWorkspaceQueries, preparedFamily } from '../store/executor/sync-drizzle'
 
-type StorageTable = 'vaultKey' | 'credentials' | 'credentialSecrets' | 'settingsAuditEvents'
+type StorageTable =
+  | 'vaultKey'
+  | 'credentials'
+  | 'credentialSecrets'
+  | 'settingsAuditEvents'
+  | 'notices'
 const rows = preparedFamily((db, tables, table: StorageTable) =>
   db.select().from(tables[table]).where(inWorkspace(tables[table])).prepare(),
 )

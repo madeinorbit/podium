@@ -92,10 +92,7 @@
     "apps/server/src/store/session-asks-user.test.ts": "Tests the SQLite triggers and view that keep sessions.asks_user (migration 20261117220206_session-asks-user, POD-7104); the Postgres chain has no triggers and nothing writes the column there until POD-7123, so the collection fetch reads the asking clauses on Postgres (collections.workspace.test.ts, collection-sql.test.ts on both engines).",
     "apps/server/src/sync/first-download.history.test.ts": "Measures the first download's SQLite plans and statement counts at history x1 and x10 on a file store, under SQLite's ANALYZE (POD-7085); the Postgres plans of the same shapes are query-plan-audit.pg.test.ts's (POD-7118)."
   },
-  "pending": [
-    "apps/server/src/store/notices.test.ts",
-    "apps/server/src/store/server-secrets-vault.test.ts"
-  ],
+  "pending": [],
   "beyondStoreShard": {
     "apps/server/src/router.setup.test.ts": "A lean-gate boot-wiring file: the server router's construction and required wiring over a store, held on both engines (POD-6994). The gate's other three boot-wiring files open no store.",
     "apps/server/src/sync/record-sources.test.ts": "The record source declarations both engines' change capture is generated from (POD-6982); its four cases that probe SQLite's capture triggers run on SQLite only, the rest on both (POD-6994).",

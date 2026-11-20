@@ -5,18 +5,16 @@
  */
 
 import { asUserId, type UserId } from '@podium/model'
-import type { SqlDatabase } from '@podium/runtime/sqlite'
-import { beforeEach, describe, expect, it } from 'vitest'
-import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
-import { openMigratedTestDatabase } from '../test-support/migrated-database'
-import { stageASeam } from '../test-support/stage-a-seam'
-import { workspaceQueries } from './executor/sync-drizzle'
-import { type NewNotice, type NoticeRow, NoticesRepository } from './notices'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import type { SessionStore } from '../store'
+import { credentialStorageRows } from '../test-support/credential-storage-rows'
+import { openTestStore } from '../test-support/open-test-store'
+import type { NewNotice, NoticeRow, NoticesRepository } from './notices'
 
 const ALICE: UserId = asUserId('mem_alice')
 const BOB: UserId = asUserId('mem_bob')
 
-let db: SqlDatabase
+let store: SessionStore
 let notices: NoticesRepository
 let captured: NoticeRow[][]
 let seq = 0
@@ -40,14 +38,14 @@ function notice(over: Partial<NewNotice> = {}): NewNotice {
   }
 }
 
-function rowCount(): number {
-  return (db.prepare('SELECT COUNT(*) AS n FROM notices').get() as { n: number }).n
+async function rowCount(): Promise<number> {
+  return (await credentialStorageRows(store, 'notices')).length
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   seq = 0
-  db = openMigratedTestDatabase()
-  notices = new NoticesRepository(workspaceQueries(stageASeam(db), SELF_HOSTED_WORKSPACE_ID))
+  store = await openTestStore(':memory:')
+  notices = store.notices
   captured = []
   // The change-log commit every write runs as (POD-6920), here recording the
   // rows each write returned; a write that changed nothing returns none.
@@ -58,6 +56,8 @@ beforeEach(() => {
     return result
   })
 })
+
+afterEach(async () => await store.close())
 
 describe('NoticesRepository', () => {
   it('keeps one open notice per person and key', async () => {
@@ -70,7 +70,7 @@ describe('NoticesRepository', () => {
     expect(second.created).toBe(false)
     expect(second.notice.id).toBe(first.notice.id)
     expect(second.notice.title).toBe(first.notice.title)
-    expect(rowCount()).toBe(1)
+    expect(await rowCount()).toBe(1)
     expect(captured).toHaveLength(1)
   })
 
@@ -78,7 +78,7 @@ describe('NoticesRepository', () => {
     await notices.open(notice({ dedupeKey: 'k' }))
     const bobs = await notices.open(notice({ dedupeKey: 'k', recipientUserId: BOB }))
     expect(bobs.created).toBe(true)
-    expect(rowCount()).toBe(2)
+    expect(await rowCount()).toBe(2)
   })
 
   it('resolves every open notice of a key, then opens a new one for the next emit', async () => {
@@ -93,7 +93,7 @@ describe('NoticesRepository', () => {
 
     const again = await notices.open(notice({ dedupeKey: 'k' }))
     expect(again.created).toBe(true)
-    expect(rowCount()).toBe(3)
+    expect(await rowCount()).toBe(3)
     expect(await notices.countUnread(ALICE)).toBe(1)
   })
 
@@ -178,6 +178,6 @@ describe('NoticesRepository', () => {
       throw new Error('feed down')
     })
     await expect(notices.open(notice())).rejects.toThrow('feed down')
-    expect(rowCount()).toBe(0)
+    expect(await rowCount()).toBe(0)
   })
 })
