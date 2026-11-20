@@ -11,6 +11,7 @@ import {
   CAP_DAEMON_GEOMETRY_APPLIED,
   CAP_HARNESS_HOMES,
   CAP_HARNESS_HOMES_GROK,
+  CAP_HARNESS_INSTALLS,
   CAP_MACHINE_PROCESSES_V1,
   CAP_OAUTH_LOOPBACK,
   CAP_SESSION_ACCESS,
@@ -1136,6 +1137,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
         CAP_HARNESS_HOMES,
         // Managed installs §4.7: this daemon also keeps Grok homes (GROK_HOME).
         CAP_HARNESS_HOMES_GROK,
+        CAP_HARNESS_INSTALLS,
         // Credential management §9: this daemon places a conversation for
         // another credential's home before a resume (`conversationPrepareRequest`).
         CAP_CONVERSATION_PREPARE,

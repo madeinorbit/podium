@@ -6,8 +6,11 @@ import { type HomeEditUndoOutcome, nodeHomeEditPorts, undoHomeEdits } from './ha
 const log = createLogger('daemon:home-edits')
 
 /** "Show what Podium changed here", optionally limited to one harness. */
-export function listHomeEditRecords(harness?: HomeEditRecord['harness']): StoredHomeEdit[] {
-  const ledger = InstallLedger.open()
+export function listHomeEditRecords(
+  harness?: HomeEditRecord['harness'],
+  harnessesDir?: string,
+): StoredHomeEdit[] {
+  const ledger = InstallLedger.open(harnessesDir ? { harnessesDir } : {})
   try {
     return ledger.homeEdits(harness)
   } finally {
@@ -18,8 +21,9 @@ export function listHomeEditRecords(harness?: HomeEditRecord['harness']): Stored
 /** "Remove Podium's changes" for one harness, called by the install requests. */
 export async function removeHomeEditRecords(
   harness: HomeEditRecord['harness'],
+  harnessesDir?: string,
 ): Promise<HomeEditUndoOutcome[]> {
-  return undoRecords(harness)
+  return undoRecords(harness, harnessesDir)
 }
 
 /** Machine-uninstall hook. Call before removing the instance's state and ledger. */
@@ -27,8 +31,11 @@ export async function undoAllHomeEditRecords(): Promise<HomeEditUndoOutcome[]> {
   return undoRecords()
 }
 
-async function undoRecords(harness?: HomeEditRecord['harness']): Promise<HomeEditUndoOutcome[]> {
-  const ledger = InstallLedger.open()
+async function undoRecords(
+  harness?: HomeEditRecord['harness'],
+  harnessesDir?: string,
+): Promise<HomeEditUndoOutcome[]> {
+  const ledger = InstallLedger.open(harnessesDir ? { harnessesDir } : {})
   try {
     return await undoHomeEdits(
       ledger,

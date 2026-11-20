@@ -26,10 +26,12 @@ import {
 } from '../manifest.js'
 import {
   AGENT_MANIFESTS,
+  harnessHomeVariable,
   harnessLoginReadEnv,
   unmetHideFromCommandsPrerequisites,
 } from '../registry.js'
 import { AGENT_VERSION_PROBE_TIMEOUT_MS } from '../version-probe.js'
+import { managedInstallRefusal } from './requested-install.js'
 
 const log = createLogger('harness:inventory')
 const execFileAsync = promisify(execFile)
@@ -99,6 +101,7 @@ export interface ManagedHarnessRecord {
   readonly previous?: ManagedReleaseCandidate
   /** The current release's number and version when its folder is no release. */
   readonly currentMissing?: { readonly release: number; readonly version?: string }
+  readonly removingAt?: string
   readonly paused: boolean
   readonly lastCheck?:
     | { readonly at: string; readonly ok: true; readonly latest: string }
@@ -217,6 +220,7 @@ async function probeManaged(
   environment: CommandEnvironment,
   exec: ProbeExec,
 ): Promise<{ executable?: ResolvedHarnessExecutable; currentFailed?: ManagedReleaseCandidate }> {
+  if (record.removingAt) return {}
   let currentFailed: ManagedReleaseCandidate | undefined
   for (const [role, candidate] of [
     ['current', record.current],
@@ -297,6 +301,7 @@ function installWire(
       ...(record.lastCheck?.ok ? { latest: record.lastCheck.latest } : {}),
       ...(record.lastCheck ? { lastCheckAt: record.lastCheck.at } : {}),
       paused: record.paused,
+      ...(record.removingAt ? { removingAt: record.removingAt } : {}),
       ...(lastError ? { lastError } : {}),
       ...(record.failingSince ? { failingSince: record.failingSince } : {}),
     },
@@ -583,13 +588,28 @@ export async function buildResolvedInventory(
   return Object.freeze({
     inventory: {
       ...inventoryPlatformFields(hostPlatform),
-      agents: agentResults.map((result) =>
+      agents: agentResults.map((result) => {
+        const agent = result.inventory
+        const manifest = AGENT_MANIFESTS[agent.kind]
+        const own = result.executable ? true : agent.installed === null ? null : false
+        const refusal = managedInstallRefusal(agent.kind, own)
+        const section = manifest.managedInstall
+        const reason = section.state === 'unsupported' ? section.reason : refusal
+        const homeVariable = harnessHomeVariable(agent.kind)
+        const row = {
+          ...agent,
+          management: {
+            installable: !reason,
+            ...(reason ? { reason } : {}),
+            ...(homeVariable ? { homeVariable } : {}),
+          },
+        }
         // Argv-only under an injected exec, as candidatePaths (POD-2826): the
         // test host's own PATH says nothing about the machine described.
-        legacyInjectedExec
-          ? result.inventory
-          : withMissingPrerequisites(result.inventory, hostPlatform, commandEnvironment),
-      ),
+        return legacyInjectedExec
+          ? row
+          : withMissingPrerequisites(row, hostPlatform, commandEnvironment)
+      }),
       tools,
     },
     executables,

@@ -205,6 +205,9 @@ export async function reportInventory(
                 env: snapshot.commandEnvironment.env,
               })
             : snapshot.inventory),
+          ...(ctx.harnessInstalls
+            ? { agents: ctx.harnessInstalls.inventory(snapshot.inventory).agents }
+            : {}),
           runtimeDrivers: runtimeDriverInventory(snapshot.inventory, drivableAlternatives),
         },
         // Served descriptors (POD-4475): adapter DATA plus this machine's

@@ -32,6 +32,7 @@ import { useContentBottomInset } from '../hooks/useContentBottomInset'
 import { useBuildStamp } from '../lib/build-stamp'
 import { useAgeNow } from '../lib/clock-hooks'
 import { color, font, leading, radius, sans, space } from '../theme/theme'
+import { PhoneMachineHarnesses } from './MachineHarnesses'
 import { SettingsOpening } from './settings-opening'
 import {
   type SettingsMachineStatus,
@@ -465,7 +466,12 @@ const ConnectedDeviceRow = observer(function ConnectedDeviceRow({
 
 function SettingsMachineRow({ id }: { id: string }) {
   const machine = useSettingsMachineStatus(id)
-  return machine ? <MachineStatusRow machine={machine} /> : null
+  return machine ? (
+    <View>
+      <MachineStatusRow machine={machine} />
+      <PhoneMachineHarnesses machineId={id} />
+    </View>
+  ) : null
 }
 
 function MachineStatusRow({ machine }: { machine: SettingsMachineStatus }) {

@@ -72,6 +72,7 @@ export interface DaemonContext {
   harnessRuntime?: DaemonHarnessRuntime
   /** Update checks, pause and go back for Podium-installed harnesses (managed installs §5.5). */
   harnessUpdater?: HarnessUpdater
+  harnessInstalls?: import('../installs/service').HarnessInstalls
   /** Where per-session hook settings files are written. */
   settingsDir: string
   /** Discovery homeDir override (tests / isolated HOME); undefined = real home. */

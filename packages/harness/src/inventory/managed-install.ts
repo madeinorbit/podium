@@ -504,8 +504,8 @@ export function sweepReleaseFolders(
   if (!lock.held()) throw new InstallLockLostError()
   const row = ledger.get(kind)
   const keep = new Set<number>()
-  if (row?.current != null) keep.add(row.current)
-  if (row?.previous != null) keep.add(row.previous)
+  if (!row?.removingAt && row?.current != null) keep.add(row.current)
+  if (!row?.removingAt && row?.previous != null) keep.add(row.previous)
   for (const session of ledger.sessionInstalls(kind))
     if (session.release != null) keep.add(session.release)
   const kindDir = join(ledger.harnessesDir, kind)
@@ -637,6 +637,8 @@ export async function installRelease(
     options.ledger ??
     InstallLedger.open(options.harnessesDir ? { harnessesDir: options.harnessesDir } : {})
   try {
+    if (ledger.get(kind)?.removingAt)
+      throw new Error(`${kind} is still being removed; wait for its running sessions to exit.`)
     if (!ledger.get(kind)) ledger.requestInstall(kind, options.requestedBy ?? 'person')
     const acquired = ledger.acquireInstallLock({ label: options.lockLabel ?? `install ${kind}` })
     if (!acquired.acquired) return { outcome: 'busy', kind, holder: acquired.holder }

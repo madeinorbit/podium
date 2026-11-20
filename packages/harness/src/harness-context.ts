@@ -377,7 +377,11 @@ export function harnessChildEnv(
   layers: HarnessChildEnvLayers,
 ): HarnessChildEnv {
   const kind = context.installation.kind
-  if (context.installation.provenance === 'managed' && !context.harnessHome) {
+  if (
+    context.installation.provenance === 'managed' &&
+    harnessHomeVariable(kind) &&
+    !context.harnessHome
+  ) {
     // Managed installs M9: a binary Podium installed never runs in the
     // person's own harness folder.
     throw new Error(

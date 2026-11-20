@@ -68,6 +68,7 @@ export const RELAY_ALLOWED: Readonly<Record<string, ReadonlySet<string> | null>>
   // would hand over every row on every machine, unscoped. The reprobe is the bounded
   // recovery write: it reaches only an online machine with this caller's live use grant.
   machines: new Set(['list', 'listWithRepos', 'reprobe']),
+  harnessInstalls: new Set(['action']),
   // Unified messaging (#237) [spec:SP-34d7]: podium mail, cross-harness child
   // spawn/bounded await, and the stop-hook's single-reminder query. Sender and
   // parent identity are stamped from the capability; MessageGate owns target-

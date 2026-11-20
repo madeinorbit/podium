@@ -2,6 +2,7 @@ import { createLogger } from '@podium/logger'
 import type {
   AgentKind,
   AgentQuotaWire,
+  BuiltinHarnessKind,
   ConversationDiagnosticWire,
   ConversationDiscoveryWire,
   DirectoryListingWire,
@@ -67,7 +68,12 @@ import type {
   WorkspaceExportResultMessage,
   WorkspaceImportResultMessage,
 } from '@podium/protocol'
-import { SERVER_TRANSFER_MAX_CHUNK_BYTES } from '@podium/protocol'
+import {
+  CAP_HARNESS_INSTALLS,
+  type HarnessActionResult,
+  type HarnessInstallAction,
+  SERVER_TRANSFER_MAX_CHUNK_BYTES,
+} from '@podium/protocol'
 import type {
   ControlMessage,
   DaemonMessage,
@@ -226,6 +232,7 @@ interface DaemonRpcDeps {
   serverPlacement?: ServerPlacement
   defaultMachine(): MachineId | Promise<MachineId>
   resolveMachine(requested: string | undefined, cwd: string): string | Promise<string>
+  daemonSupports?(machineId: MachineId, capability: string): boolean
   hasDaemon(machineId: MachineId): boolean
   machineName(id: MachineId): string | Promise<string>
   /** {@link machineName} for many machines in one read; every asked id gets an entry. */
@@ -301,6 +308,15 @@ const OAUTH_LOOPBACK_ACK_TIMEOUT_MS = 15_000
 const OAUTH_LOOPBACK_GRACE_MS = 30_000
 // Harness homes (credential management §10) and the removal of a login file
 // propagation copied (§8 cleanup), on a daemon that offered harness.homes.v1.
+const HARNESS_INSTALL = daemonRequestKind<HarnessActionResult>('hi0')
+const HARNESS_CHECK = daemonRequestKind<HarnessActionResult>('hi1')
+const HARNESS_BACK = daemonRequestKind<HarnessActionResult>('hi2')
+const HARNESS_PAUSE = daemonRequestKind<HarnessActionResult>('hi3')
+const HARNESS_RESUME = daemonRequestKind<HarnessActionResult>('hi4')
+const HARNESS_TAKESETTINGS = daemonRequestKind<HarnessActionResult>('hi5')
+const HARNESS_REMOVECHANGES = daemonRequestKind<HarnessActionResult>('hi6')
+const HARNESS_CHANGES = daemonRequestKind<HarnessActionResult>('hi7')
+const HARNESS_REMOVE = daemonRequestKind<HarnessActionResult>('hi8')
 const HOME_ENSURE = daemonRequestKind<Payload<HomeEnsureResultMessage>>('hn')
 const HOME_REMOVE = daemonRequestKind<Payload<HomeRemoveResultMessage>>('hd')
 const CREDENTIAL_REMOVE = daemonRequestKind<Payload<CredentialRemoveResultMessage>>('cx')
@@ -459,6 +475,24 @@ const RPC_REPLY_SETTLERS: { [K in SettledFrameType]: ReplySettler<K> } = {
     void broker.settle(CREDENTIAL_INSTALL, msg.requestId, machineId, payloadOf(msg)),
   oauthLoopbackResult: (broker, machineId, msg) =>
     void broker.settle(OAUTH_LOOPBACK, msg.requestId, machineId, payloadOf(msg)),
+  harnessInstallResult: (broker, machineId, msg) =>
+    void broker.settle(HARNESS_INSTALL, msg.requestId, machineId, payloadOf(msg)),
+  harnessCheckResult: (broker, machineId, msg) =>
+    void broker.settle(HARNESS_CHECK, msg.requestId, machineId, payloadOf(msg)),
+  harnessBackResult: (broker, machineId, msg) =>
+    void broker.settle(HARNESS_BACK, msg.requestId, machineId, payloadOf(msg)),
+  harnessPauseResult: (broker, machineId, msg) =>
+    void broker.settle(HARNESS_PAUSE, msg.requestId, machineId, payloadOf(msg)),
+  harnessResumeResult: (broker, machineId, msg) =>
+    void broker.settle(HARNESS_RESUME, msg.requestId, machineId, payloadOf(msg)),
+  harnessTakeSettingsResult: (broker, machineId, msg) =>
+    void broker.settle(HARNESS_TAKESETTINGS, msg.requestId, machineId, payloadOf(msg)),
+  harnessRemoveChangesResult: (broker, machineId, msg) =>
+    void broker.settle(HARNESS_REMOVECHANGES, msg.requestId, machineId, payloadOf(msg)),
+  harnessChangesResult: (broker, machineId, msg) =>
+    void broker.settle(HARNESS_CHANGES, msg.requestId, machineId, payloadOf(msg)),
+  harnessRemoveResult: (broker, machineId, msg) =>
+    void broker.settle(HARNESS_REMOVE, msg.requestId, machineId, payloadOf(msg)),
   homeEnsureResult: (broker, machineId, msg) =>
     void broker.settle(HOME_ENSURE, msg.requestId, machineId, payloadOf(msg)),
   homeRemoveResult: (broker, machineId, msg) =>
@@ -1304,6 +1338,117 @@ export class DaemonRpcService {
       }),
       machineId,
     )
+  }
+
+  /** Capability-gated machine action. The daemon owns every install/version decision. */
+  async harnessAction(
+    action: HarnessInstallAction,
+    harness: BuiltinHarnessKind,
+    machineId: MachineId,
+  ): Promise<HarnessActionResult> {
+    if (!this.deps.daemonSupports?.(machineId, CAP_HARNESS_INSTALLS))
+      return { ok: false, error: 'Update Podium on this machine to manage harness installs.' }
+    switch (action) {
+      case 'install':
+        return await this.request(
+          HARNESS_INSTALL,
+          1800000,
+          () => ({
+            ok: false,
+            error: 'The machine did not answer in time. Check its harness state before retrying.',
+          }),
+          (requestId) => ({ type: 'harnessInstallRequest', requestId, harness }),
+          machineId,
+        )
+      case 'check':
+        return await this.request(
+          HARNESS_CHECK,
+          1800000,
+          () => ({
+            ok: false,
+            error: 'The machine did not answer in time. Check its harness state before retrying.',
+          }),
+          (requestId) => ({ type: 'harnessCheckRequest', requestId, harness }),
+          machineId,
+        )
+      case 'back':
+        return await this.request(
+          HARNESS_BACK,
+          120000,
+          () => ({
+            ok: false,
+            error: 'The machine did not answer in time. Check its harness state before retrying.',
+          }),
+          (requestId) => ({ type: 'harnessBackRequest', requestId, harness }),
+          machineId,
+        )
+      case 'pause':
+        return await this.request(
+          HARNESS_PAUSE,
+          120000,
+          () => ({
+            ok: false,
+            error: 'The machine did not answer in time. Check its harness state before retrying.',
+          }),
+          (requestId) => ({ type: 'harnessPauseRequest', requestId, harness }),
+          machineId,
+        )
+      case 'resume':
+        return await this.request(
+          HARNESS_RESUME,
+          120000,
+          () => ({
+            ok: false,
+            error: 'The machine did not answer in time. Check its harness state before retrying.',
+          }),
+          (requestId) => ({ type: 'harnessResumeRequest', requestId, harness }),
+          machineId,
+        )
+      case 'take-settings':
+        return await this.request(
+          HARNESS_TAKESETTINGS,
+          120000,
+          () => ({
+            ok: false,
+            error: 'The machine did not answer in time. Check its harness state before retrying.',
+          }),
+          (requestId) => ({ type: 'harnessTakeSettingsRequest', requestId, harness }),
+          machineId,
+        )
+      case 'remove-changes':
+        return await this.request(
+          HARNESS_REMOVECHANGES,
+          120000,
+          () => ({
+            ok: false,
+            error: 'The machine did not answer in time. Check its harness state before retrying.',
+          }),
+          (requestId) => ({ type: 'harnessRemoveChangesRequest', requestId, harness }),
+          machineId,
+        )
+      case 'changes':
+        return await this.request(
+          HARNESS_CHANGES,
+          120000,
+          () => ({
+            ok: false,
+            error: 'The machine did not answer in time. Check its harness state before retrying.',
+          }),
+          (requestId) => ({ type: 'harnessChangesRequest', requestId, harness }),
+          machineId,
+        )
+      case 'remove':
+        return await this.request(
+          HARNESS_REMOVE,
+          120000,
+          () => ({
+            ok: false,
+            error: 'The machine did not answer in time. Check its harness state before retrying.',
+          }),
+          (requestId) => ({ type: 'harnessRemoveRequest', requestId, harness }),
+          machineId,
+        )
+    }
   }
 
   /** Make sure the home for a credential and harness exists on one daemon. */

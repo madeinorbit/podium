@@ -25,6 +25,7 @@ import { join } from 'node:path'
 import type { HarnessInstallation } from '@podium/harness'
 import {
   defaultHarnessesDir,
+  finishPendingRemovals,
   InstallLedger,
   LEDGER_FILE,
   type SessionInstall,
@@ -100,21 +101,32 @@ export function ledgerSessionInstalls(
   }
   return {
     record(sessionId, installation) {
-      withLedger('record the session install', { sessionId }, (ledger) =>
-        ledger.recordSessionInstall(sessionInstallRow(sessionId, installation)),
-      )
+      if (installation.provenance === 'managed') {
+        const ledger = InstallLedger.open({ harnessesDir })
+        try {
+          ledger.recordSessionInstall(sessionInstallRow(sessionId, installation))
+        } finally {
+          ledger.close()
+        }
+      } else {
+        withLedger('record the session install', { sessionId }, (ledger) =>
+          ledger.recordSessionInstall(sessionInstallRow(sessionId, installation)),
+        )
+      }
     },
     remove(sessionId) {
       if (!ledgerExists()) return
       withLedger('remove the session install', { sessionId }, (ledger) =>
         ledger.removeSessionInstall(sessionId),
       )
+      finishPendingRemovals(harnessesDir)
     },
     drop(sessionIds) {
       if (sessionIds.length === 0 || !ledgerExists()) return
       withLedger('drop session installs', { sessionIds }, (ledger) => {
         for (const sessionId of sessionIds) ledger.removeSessionInstall(sessionId)
       })
+      finishPendingRemovals(harnessesDir)
     },
     get(sessionId) {
       if (!ledgerExists()) return undefined

@@ -126,6 +126,7 @@ export const RELAY_ARMS: Readonly<Record<string, RelayArm>> = {
   'sessions.handoff': entry('effects.create'),
   'machines.list': READ,
   'machines.listWithRepos': READ,
+  'harnessInstalls.action': { kind: 'adapter', via: 'plain' },
   'machines.reprobe': {
     kind: 'not-synced',
     reason:

@@ -1739,6 +1739,7 @@ export class SessionRegistry {
       defaultMachine: async () => await machines.defaultMachine(),
       resolveMachine: async (requested, cwd) => await machines.resolveMachine(requested, cwd),
       hasDaemon: (machineId) => machines.hasDaemon(machineId),
+      daemonSupports: (machineId, cap) => machines.daemonSupports(machineId, cap),
       machineName: async (id) => await machines.machineName(id),
       machineNames: async (ids) => await machines.machineNames(ids),
       onlineMachineIds: () => machines.onlineMachineIds(),

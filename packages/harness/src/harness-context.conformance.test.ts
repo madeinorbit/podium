@@ -62,7 +62,6 @@ import type { HeadlessTurnSpec } from './driver/families/headless/types.js'
 import { testLaunchPosture } from './driver/testing/harness-context.js'
 import { harnessChildEnv, harnessContext, harnessDriverContext } from './harness-context.js'
 import type { HarnessContext } from './harness-context-types.js'
-import { installTargetFor, runInstallTarget } from './inventory/install.js'
 import { agentLaunchCommand } from './launch.js'
 import { agentLaunchTerms } from './launch-terms.js'
 import {
@@ -514,27 +513,9 @@ const CASES: Record<string, Case> = {
     const scans = await transcripts.scan({ sinceMs: 0, account: h.context })
     for (const scan of scans) expect(scan.path.startsWith(h.world.accountHome)).toBe(true)
   },
-  install: (h) => {
-    const bin = join(h.world.root, `install-bin-${h.kind}`)
-    mkdirSync(bin, { recursive: true })
-    const ran: string[] = []
-    runInstallTarget(installTargetFor(h.kind), bin, {
-      fetch: (_url, out) => writeFileSync(out, '#!/bin/sh\n'),
-      run: (cmd) => {
-        ran.push(cmd)
-        return ''
-      },
-      runTool: (tool) => {
-        ran.push(`tool:${tool}`)
-        return ''
-      },
-      env: h.context.env as NodeJS.ProcessEnv,
-      arch: 'x64',
-      isMusl: () => false,
-    })
-    // The verify runs the produced binary by absolute path; every installer
-    // shell goes through the OS-tool port. Nothing is run by bare name.
-    for (const cmd of ran) expect(cmd.startsWith('/') || cmd.startsWith('tool:'), cmd).toBe(true)
+  install: () => {
+    // Legacy adapter data has no runner. Managed releases are exercised by
+    // inventory/managed-install.conformance.test.ts, in their isolated folder.
   },
   exec: (h) => {
     const exec = declaredValue(h.manifest.exec)!

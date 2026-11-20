@@ -32,7 +32,7 @@ import type { JsonValue, PostureRequirement } from '../posture-types.js'
 import { type InstallReceipt, listReleaseFolders, type ReleaseFolder } from './install-receipt.js'
 
 /** The schema this build writes. A database recording a higher number is refused. */
-export const INSTALL_LEDGER_SCHEMA_VERSION = 1
+export const INSTALL_LEDGER_SCHEMA_VERSION = 2
 
 export const LEDGER_FILE = 'ledger.db'
 
@@ -53,6 +53,8 @@ export function defaultInstallLedgerPath(): string {
 export interface ManagedInstall {
   kind: BuiltinHarnessKind
   /** The number the next release folder gets. */
+  /** A person requested removal; never selected for a new process. */
+  removingAt?: string
   nextNumber: number
   /** A release folder's number. */
   current: number | null
@@ -332,6 +334,29 @@ export class InstallLedger {
     return this.require(kind)
   }
 
+  /** Stop selecting this install before deleting any release. Holds the install lock. */
+  requestRemoval(kind: BuiltinHarnessKind, lock: InstallLock): void {
+    if (!lock.held()) throw new InstallLockLostError()
+    this.sql(
+      'UPDATE managed_install SET removing_at = COALESCE(removing_at, ?), paused = 1 WHERE kind = ?',
+    ).run(this.isoNow(), kind)
+  }
+
+  /** Finish only after the release folders have gone and no managed process uses them. */
+  finishRemoval(kind: BuiltinHarnessKind, lock: InstallLock): boolean {
+    if (!lock.held()) throw new InstallLockLostError()
+    return this.writeAtomically(() => {
+      if (
+        !this.get(kind)?.removingAt ||
+        this.sessionInstalls(kind).some((row) => row.provenance === 'managed')
+      )
+        return false
+      this.sql('DELETE FROM rejected_release WHERE kind = ?').run(kind)
+      this.sql('DELETE FROM managed_install WHERE kind = ?').run(kind)
+      return true
+    })
+  }
+
   setPaused(kind: BuiltinHarnessKind, paused: boolean): void {
     this.updateExisting(
       kind,
@@ -518,12 +543,18 @@ export class InstallLedger {
   // Session installs
 
   recordSessionInstall(row: SessionInstall): void {
-    this.sql(
-      `INSERT INTO session_install (session_id, kind, executable, version, provenance, release)
+    this.writeAtomically(() => {
+      if (row.provenance === 'managed' && (!this.get(row.kind) || this.get(row.kind)?.removingAt))
+        throw new Error(
+          `Podium's install of ${row.kind} is being removed; start again after removal.`,
+        )
+      this.sql(
+        `INSERT INTO session_install (session_id, kind, executable, version, provenance, release)
          VALUES (?, ?, ?, ?, ?, ?)
          ON CONFLICT(session_id) DO UPDATE SET kind = excluded.kind, executable = excluded.executable,
            version = excluded.version, provenance = excluded.provenance, release = excluded.release`,
-    ).run(row.sessionId, row.kind, row.executable, row.version, row.provenance, row.release)
+      ).run(row.sessionId, row.kind, row.executable, row.version, row.provenance, row.release)
+    })
   }
 
   removeSessionInstall(sessionId: SessionId): void {
@@ -863,7 +894,8 @@ const SCHEMA = `
     requested_at TEXT NOT NULL,
     last_check TEXT,
     last_install_error TEXT,
-    failing_since TEXT
+    failing_since TEXT,
+    removing_at TEXT
   );
   CREATE TABLE rejected_release (
     kind TEXT NOT NULL,
@@ -913,12 +945,14 @@ interface ManagedInstallRow {
   last_check: string | null
   last_install_error: string | null
   failing_since: string | null
+  removing_at: string | null
 }
 
 function decodeManagedInstall(row: ManagedInstallRow): ManagedInstall {
   return {
     kind: row.kind,
     nextNumber: row.next_number,
+    ...(row.removing_at ? { removingAt: row.removing_at } : {}),
     current: row.current,
     previous: row.previous,
     paused: row.paused !== 0,
@@ -1076,7 +1110,20 @@ function probeLedger(path: string): Probe {
       db.close()
       throw new InstallLedgerTooNewError(path, found)
     }
-    // Versions below this build's would migrate here; 1 is the first.
+    if (found < 2) {
+      db.exec('BEGIN IMMEDIATE')
+      try {
+        // Re-read under the writer lock: the CLI and daemon can open together.
+        const columns = queryOnce(db, 'PRAGMA table_info(managed_install)') as { name: string }[]
+        if (!columns.some((column) => column.name === 'removing_at'))
+          db.exec('ALTER TABLE managed_install ADD COLUMN removing_at TEXT')
+        db.exec("UPDATE meta SET value = '2' WHERE key = 'schema_version'")
+        db.exec('COMMIT')
+      } catch (error) {
+        db.exec('ROLLBACK')
+        throw error
+      }
+    }
     const missing = TABLES.filter((name) => !tables.has(name))
     if (missing.length > 0) {
       db.close()

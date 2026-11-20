@@ -174,7 +174,7 @@ export async function checkForUpdate(
     options.ledger ??
     InstallLedger.open(options.harnessesDir ? { harnessesDir: options.harnessesDir } : {})
   try {
-    if (!ledger.get(kind)) return { outcome: 'not-managed', kind }
+    if (!ledger.get(kind) || ledger.get(kind)?.removingAt) return { outcome: 'not-managed', kind }
     const commandEnv = options.commandEnv ?? (await createCommandEnvironment()).env
     const env = Object.freeze(managedInstallEnv(commandEnv))
     const check = managedCheckPorts(env, options)
@@ -197,7 +197,7 @@ export async function checkForUpdate(
 
     // Read the row after the vendor answered: a pause or a go back may have landed meanwhile.
     const row = ledger.get(kind)
-    if (!row) return { outcome: 'not-managed', kind }
+    if (!row || row.removingAt) return { outcome: 'not-managed', kind }
     const decision = decideUpdate({
       latest,
       ...(options.currentFailed !== undefined && options.currentFailed === row.current
@@ -292,7 +292,7 @@ export function setUpdatesPaused(
     options.ledger ??
     InstallLedger.open(options.harnessesDir ? { harnessesDir: options.harnessesDir } : {})
   try {
-    if (!ledger.get(kind)) return { outcome: 'not-managed', kind }
+    if (!ledger.get(kind) || ledger.get(kind)?.removingAt) return { outcome: 'not-managed', kind }
     ledger.setPaused(kind, paused)
     return { outcome: 'set', kind, paused }
   } finally {
@@ -340,7 +340,7 @@ export async function goBackRelease(
     options.ledger ??
     InstallLedger.open(options.harnessesDir ? { harnessesDir: options.harnessesDir } : {})
   try {
-    if (!ledger.get(kind)) return { outcome: 'not-managed', kind }
+    if (!ledger.get(kind) || ledger.get(kind)?.removingAt) return { outcome: 'not-managed', kind }
     const acquired = ledger.acquireInstallLock({ label: options.lockLabel ?? `go back ${kind}` })
     if (!acquired.acquired) return { outcome: 'busy', kind, holder: acquired.holder }
     let moved: ReturnType<InstallLedger['revertToPrevious']>

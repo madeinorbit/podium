@@ -51,6 +51,17 @@ import {
   ReclaimDiskEstimateResultMessage,
   UsageResultMessage,
 } from './host'
+import {
+  HarnessBackResultMessage,
+  HarnessChangesResultMessage,
+  HarnessCheckResultMessage,
+  HarnessInstallResultMessage,
+  HarnessPauseResultMessage,
+  HarnessRemoveChangesResultMessage,
+  HarnessRemoveResultMessage,
+  HarnessResumeResultMessage,
+  HarnessTakeSettingsResultMessage,
+} from './installs'
 import { InventoryReportMessage, ModelProbeResultMessage } from './inventory'
 import { AgentRelayRequestMessage } from './issues'
 import { NativeBindingReceipt } from './native-binding'
@@ -305,6 +316,15 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   /** Reply to `conversationPrepareRequest` (credential management §9, epic
    *  Task 11), appended at the END for index stability. */
   ConversationPrepareResultMessage,
+  HarnessInstallResultMessage,
+  HarnessCheckResultMessage,
+  HarnessBackResultMessage,
+  HarnessPauseResultMessage,
+  HarnessResumeResultMessage,
+  HarnessTakeSettingsResultMessage,
+  HarnessRemoveChangesResultMessage,
+  HarnessChangesResultMessage,
+  HarnessRemoveResultMessage,
 ])
 export type DaemonMessage = z.infer<typeof DaemonMessage>
 

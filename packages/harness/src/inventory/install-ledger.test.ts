@@ -654,7 +654,7 @@ describe('schema version', () => {
     const before = readFileSync(path)
     expect(() => openLedger()).toThrow(InstallLedgerTooNewError)
     expect(() => openLedger()).toThrow(
-      /newer version of Podium .*schema 2; this build reads up to 1/,
+      /newer version of Podium .*schema 3; this build reads up to 2/,
     )
     expect(readFileSync(path).equals(before)).toBe(true)
     expect(readdirSync(harnessesDir).filter((name) => name.startsWith('ledger.db'))).toEqual([

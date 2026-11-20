@@ -66,7 +66,7 @@ export type HarnessManagementContext = Pick<
   | 'usageMemo'
   | 'harnessLoginState'
 > &
-  Partial<Pick<DaemonContext, 'homes' | 'homeQuota'>> & {
+  Partial<Pick<DaemonContext, 'homes' | 'homeQuota' | 'harnessInstalls'>> & {
     /**
      * Inventory fallback only. The legacy prober (`agentRuntime.inventory()`) is a
      * management read — install/version/login per harness — not a live handle. Only

@@ -11,13 +11,14 @@ import { formatDisplayedVersion, machineVersionSkew } from '@/lib/machine-versio
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 import { useServerAppVersion } from '@/lib/version-skew'
 import { MachineCustody } from './machine-custody'
+import { MachineHarnesses } from './machine-harnesses'
 import { useEnableHosting } from './machine-hosting'
 import { MachineCustodianName, MachineStatus } from './machine-list'
 import { MachineProjects } from './machine-projects'
 import { MachineRemove } from './machine-remove'
 import { SettingsMachine } from './machine-view'
 import { useSettingsMachine } from './readers'
-import { harnessAgentLabel, Row, Section, TextRow } from './sections/shared'
+import { Row, Section, TextRow } from './sections/shared'
 import { useSettingsFrame } from './settings-frame'
 import { useSettingsClient } from './stable-access'
 
@@ -211,36 +212,8 @@ const MachineDetailRecord = observer(function MachineDetailRecord({
             </Button>
           )}
         </Row>
-        <Row
-          label="Agents installed"
-          description="The agent versions last reported by this machine."
-        >
-          {machine.harnessVersions === undefined ? (
-            <span className="settings-prose">Not reported</span>
-          ) : machine.harnessVersions.length === 0 ? (
-            <span className="settings-prose">None reported</span>
-          ) : (
-            <ul className="settings-prose space-y-1" aria-label="Agents installed">
-              {machine.harnessVersions.map((agent) => (
-                <li
-                  key={`${agent.harness}:${agent.version}`}
-                  title={`First seen ${agent.firstSeen}`}
-                >
-                  {harnessAgentLabel(agent.harness)} <code>{agent.version}</code>
-                  {agent.unverified && (
-                    <span
-                      className="ml-1 text-warning"
-                      title={`Verified through ${agent.verifiedThrough}`}
-                    >
-                      unverified
-                    </span>
-                  )}
-                </li>
-              ))}
-            </ul>
-          )}
-        </Row>
       </Section>
+      <MachineHarnesses machine={machine} client={trpc} />
       {machine.unowned !== true && !machine.revokedAt && (
         <MachineCustody machineId={machine.id} transferable={view.canManage} trpc={trpc} />
       )}

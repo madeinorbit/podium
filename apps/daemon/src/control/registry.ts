@@ -3,6 +3,7 @@ import { createLogger } from '@podium/logger'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { resolveManagementCredentialHome } from '../harness-management.js'
 import { conversationHandlers } from '../homes/conversation'
+import { installHandlers } from '../installs/control'
 import { runtimeHandlers } from '../runtime/handlers'
 import { serverTransferHandlers } from '../server-transfer'
 import { approvalHandlers } from './approvals'
@@ -145,6 +146,7 @@ export const CONTROL_HANDLERS: ControlHandlers = {
   ...approvalHandlers,
   ...credentialHandlers,
   ...homeHandlers,
+  ...installHandlers,
   ...conversationHandlers,
   ...inventoryHandlers,
   ...logHandlers,

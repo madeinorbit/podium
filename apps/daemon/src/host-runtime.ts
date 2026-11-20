@@ -167,6 +167,7 @@ import { HomeRegistry, homeDiscoveryRoots } from './homes/registry'
 import { homeExecutable, stopHome, systemProcessPorts } from './homes/stop'
 import { createHostDiskSampler, sampleHostLoad, sampleHostMemory } from './host-metrics'
 import { loadIdentity } from './identity'
+import { HarnessInstalls } from './installs/service'
 import { HarnessUpdater } from './installs/updater'
 import type { DaemonInstanceBootstrap } from './instance-bootstrap'
 import { dumpLoopTotals, reportLongTick, startLoopAttribution } from './loop-attribution'
@@ -1298,6 +1299,18 @@ export async function createDaemonHostRuntime(args: {
     },
   })
   ctx.podiumHomes = podiumHomes
+  if (harnessRuntime && harnessUpdater)
+    ctx.harnessInstalls = new HarnessInstalls({
+      runtime: harnessRuntime,
+      updater: harnessUpdater,
+      podiumHomes,
+      harnessesDir,
+      report: () => {
+        void reportInventory(ctx, { rebuild: true }).catch((err: unknown) =>
+          log.warn('install inventory failed', { err }),
+        )
+      },
+    })
   // A wave that settled before the service existed: catch up on it now.
   const settledAtStart = harnessRuntime?.settled()
   if (settledAtStart?.managed && settledAtStart.managed.size > 0) {

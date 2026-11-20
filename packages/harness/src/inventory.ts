@@ -44,8 +44,6 @@ export {
   installPortableCredential,
   readPortableCredential,
 } from './inventory/credentials.js'
-export type { InstallRequestPorts, InstallTarget } from './inventory/install.js'
-export { installableTargets, installTargetFor, runInstallTarget } from './inventory/install.js'
 export type {
   AcquireInstallLockOptions,
   AcquireInstallLockResult,
@@ -110,6 +108,11 @@ export {
   vendorOriginsFromEnv,
 } from './inventory/managed-install.js'
 export { managedInstallsReader, readManagedInstalls } from './inventory/managed-installs.js'
+export {
+  finishPendingRemovals,
+  type RemoveManagedResult,
+  removeManagedInstall,
+} from './inventory/managed-remove.js'
 export type {
   CheckForUpdateOptions,
   CheckForUpdateResult,
@@ -130,6 +133,7 @@ export {
 } from './inventory/managed-update.js'
 export type { ReleaseArchiveFormat } from './inventory/release-archive.js'
 export { extractReleaseFile, releaseArchiveMember } from './inventory/release-archive.js'
+export { managedInstallRefusal, requestManagedInstall } from './inventory/requested-install.js'
 export type { AccountReadScope, QuotaFetcher } from './inventory/usage.js'
 export {
   makeQuotaFetcher,

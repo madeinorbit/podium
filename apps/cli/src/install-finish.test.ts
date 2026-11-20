@@ -310,7 +310,7 @@ describe('runInstallFinish', () => {
     const d2 = deps()
     const { io: io2 } = scriptedIO([])
     await runInstallFinish(io2, opts({ interactive: false, agents: ['codex'] }), d2)
-    expect(d2.installAgents).toHaveBeenCalledWith(io2, ['codex'], join(dir, 'bin'))
+    expect(d2.installAgents).toHaveBeenCalledWith(io2, ['codex'])
   })
 
   it('pairs BEFORE installing agents, so a slow download cannot expire the code', async () => {

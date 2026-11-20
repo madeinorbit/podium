@@ -48,6 +48,7 @@ import * as harness from '../messages/harness'
 import * as headless from '../messages/headless'
 import * as homes from '../messages/homes'
 import * as host from '../messages/host'
+import * as installs from '../messages/installs'
 import * as inventory from '../messages/inventory'
 import * as issues from '../messages/issues'
 import * as localLink from '../messages/local-link'
@@ -95,6 +96,7 @@ const MODULES: ReadonlyArray<readonly [family: string, module: Record<string, un
   ['harness', harness],
   ['headless', headless],
   ['homes', homes],
+  ['installs', installs],
   ['conversation', conversation],
   ['host', host],
   ['inventory', inventory],

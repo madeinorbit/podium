@@ -48,6 +48,17 @@ import {
   ReclaimDiskEstimateRequestMessage,
   UsageRequestMessage,
 } from './host'
+import {
+  HarnessBackRequestMessage,
+  HarnessChangesRequestMessage,
+  HarnessCheckRequestMessage,
+  HarnessInstallRequestMessage,
+  HarnessPauseRequestMessage,
+  HarnessRemoveChangesRequestMessage,
+  HarnessRemoveRequestMessage,
+  HarnessResumeRequestMessage,
+  HarnessTakeSettingsRequestMessage,
+} from './installs'
 import { InventoryRequestMessage, ModelProbeRequestMessage } from './inventory'
 import { AgentRelayResultMessage } from './issues'
 import { OauthLoopbackCancelMessage, OauthLoopbackRequestMessage } from './oauth-loopback'
@@ -229,6 +240,15 @@ export const ControlMessage = z.discriminatedUnion('type', [
    *  §9, epic Task 11). Appended at the END for index stability; sent only to
    *  a daemon that accepted `CAP_CONVERSATION_PREPARE`. */
   ConversationPrepareRequestMessage,
+  HarnessInstallRequestMessage,
+  HarnessCheckRequestMessage,
+  HarnessBackRequestMessage,
+  HarnessPauseRequestMessage,
+  HarnessResumeRequestMessage,
+  HarnessTakeSettingsRequestMessage,
+  HarnessRemoveChangesRequestMessage,
+  HarnessChangesRequestMessage,
+  HarnessRemoveRequestMessage,
 ])
 export type ControlMessage = z.infer<typeof ControlMessage>
 

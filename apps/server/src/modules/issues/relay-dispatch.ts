@@ -248,6 +248,10 @@ export function makeAgentRelayDispatch(
      * resolves names over whichever transport it has). The repo join is a
      * SECOND proc rather than a wider `list`.
      */
+    if (router === 'harnessInstalls') {
+      const written = await relayPlainWrite(writeCall)
+      if (written !== NOT_A_RELAY_WRITE) return written
+    }
     if (router === 'machines' && proc === 'list') {
       return await Promise.resolve(await visibleMachinesFor(modules(), capability))
     }

@@ -82,6 +82,10 @@ export const AgentInstallWire = z.object({
       latest: z.string().optional(),
       /** When the vendor was last asked. */
       lastCheckAt: z.string().optional(),
+      /** A requested installation is filling a new release. */
+      installing: z.object({ version: z.string().optional() }).optional(),
+      /** Removal waits for the last running session; homes are kept. */
+      removingAt: z.string().optional(),
       /** A person paused updates. */
       paused: z.boolean(),
       /** The last failed check or install. */
@@ -155,6 +159,14 @@ export const AgentInventory = z.object({
         message: z.string().min(1),
       }),
     )
+    .optional(),
+  /** Adapter admission for an explicit install on this machine. */
+  management: z
+    .object({
+      installable: z.boolean(),
+      reason: z.string().optional(),
+      homeVariable: z.string().optional(),
+    })
     .optional(),
 })
 export type AgentInventory = z.infer<typeof AgentInventory>

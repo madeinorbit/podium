@@ -23,6 +23,7 @@ import type {
 } from './build-inventory.js'
 import { InstallLedger, type InstallLedgerOptions, LEDGER_FILE } from './install-ledger.js'
 import type { ReleaseFolder } from './install-receipt.js'
+import { finishPendingRemovals } from './managed-remove.js'
 
 const NOTHING_MANAGED: ManagedInstallsRead = Object.freeze({ harnesses: new Map() })
 
@@ -36,6 +37,7 @@ export function readManagedInstalls(
   options: Omit<InstallLedgerOptions, 'harnessesDir'> = {},
 ): ManagedInstallsRead {
   if (!holdsAnything(harnessesDir)) return NOTHING_MANAGED
+  finishPendingRemovals(harnessesDir)
   const ledger = InstallLedger.open({ ...options, harnessesDir })
   try {
     const harnesses = new Map<ManagedHarnessRecord['kind'], ManagedHarnessRecord>()
@@ -58,6 +60,7 @@ export function readManagedInstalls(
             }
           : {}),
         paused: row.paused,
+        ...(row.removingAt ? { removingAt: row.removingAt } : {}),
         ...(row.lastCheck ? { lastCheck: row.lastCheck } : {}),
         ...(row.lastInstallError ? { lastInstallError: row.lastInstallError } : {}),
         ...(row.failingSince ? { failingSince: row.failingSince } : {}),
