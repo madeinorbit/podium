@@ -1942,24 +1942,6 @@
       "guard": "Exact fingerprint and multiplicity only; POD-5866 opening tests prove release, and speed:structural compares work with the pilot baseline. This entry is not a collection-work fix."
     },
     {
-      "file": "apps/web/src/app/automation-readers.tsx",
-      "holder": "useSpecsRepositories/view",
-      "rule": "reader-summary",
-      "tokens": "deb5fa5fb591685ae7357daecc5a6e329b644fa83785bc6c102e7846d35bcce7",
-      "gate": [],
-      "origin": [
-        "6e471a1dbf091e151a8806ef1d25cf9a9d565ccdddc41697efb49425a9c110e4"
-      ],
-      "fingerprint": "b8c37da1ed83f89feab6646f60ddc1028c86bd36204e2cb8326212b4628b0d6d",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5866",
-      "trigger": "Invocation of useAutomationList/view",
-      "bound": "Opening ownership bounds lifetime, not collection cardinality; the existing collection path still requires a named-demand or cardinality bound.",
-      "reason": "Per-opening context and query ownership expose the existing reader-summary collection path. This lifetime change does not claim to repair its collection work. POD-7196: the same reader now reaches the structural worktree selector, retaining root queries across unrelated repository metadata. Its collection-work debt remains unchanged.",
-      "guard": "Exact fingerprint and multiplicity only; POD-5866 opening tests prove release, and speed:structural compares work with the pilot baseline. This entry is not a collection-work fix."
-    },
-    {
       "file": "apps/web/src/app/command-launch-data.ts",
       "holder": "useCommandPaletteSnapshot",
       "rule": "reader-summary",
