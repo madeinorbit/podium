@@ -35,9 +35,9 @@ import { HomeRegistry } from './registry'
 import { signOutOfHome } from './sign-out'
 import { homeExecutable, stopHome } from './stop'
 
-/** A home for a credential Podium passes in (the Podium home of §4.3; its own
- *  `homes/podium/<harness>` layout arrives with the next task) and a vendor
- *  sign-in folder. Both are homes Podium made. */
+/** Two homes Podium made for credentials, as the inventory task left them. The
+ *  Podium home proper (`homes/podium/<harness>`, a passed-in credential on a
+ *  machine with a managed install) is covered in `podium-home.test.ts`. */
 const PASSED_IN = 'cred_eeeeeeee-0000-4000-8000-0000000000c1'
 const SIGNED_IN = 'cred_ffffffff-0000-4000-8000-0000000000c2'
 

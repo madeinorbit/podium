@@ -15,7 +15,7 @@ import {
   INFERENCE_ROUTES,
 } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import { codexPlanProviderArgs } from './adapters/codex/plan-provider.js'
+import { codexApiKeyProviderArgs, codexPlanProviderArgs } from './adapters/codex/plan-provider.js'
 import { BUNDLED_DESCRIPTORS } from './browser.js'
 import { buildBundledDescriptors, buildServedDescriptors } from './descriptors.js'
 import { declaredValue } from './manifest.js'
@@ -90,7 +90,12 @@ describe('harnessAccepts', () => {
 
   it('Codex accepts the key, its own login, and the ChatGPT plan on its server driver only', () => {
     expect(harnessAccepts('codex')).toEqual([
-      { type: 'openai.api-key', deliver: { kind: 'env', variable: 'OPENAI_API_KEY' } },
+      {
+        type: 'openai.api-key',
+        deliver: { kind: 'env', variable: 'OPENAI_API_KEY' },
+        // Only in the Podium home, which holds no Codex login (POD-7271).
+        homeStartArgs: codexApiKeyProviderArgs(),
+      },
       { type: 'openai.chatgpt-login', deliver: { kind: 'home' } },
       {
         type: 'openai.chatgpt-plan',
@@ -113,6 +118,7 @@ describe('harnessAccepts', () => {
   it('start arguments stay off the wire descriptor', () => {
     const codex = buildBundledDescriptors().find((descriptor) => descriptor.kind === 'codex')
     expect(JSON.stringify(codex?.accepts)).not.toContain('startArgs')
+    expect(JSON.stringify(codex?.accepts)).not.toContain('homeStartArgs')
   })
 
   it('names only drivers the adapter declares', () => {
@@ -169,7 +175,9 @@ describe('accepts on the descriptor wire', () => {
       for (const descriptor of set) {
         // The wire carries every line, without the start arguments: those are
         // read by the daemon off its own manifest.
-        const wire = harnessAccepts(descriptor.kind).map(({ startArgs: _local, ...line }) => line)
+        const wire = harnessAccepts(descriptor.kind).map(
+          ({ startArgs: _local, homeStartArgs: _home, ...line }) => line,
+        )
         expect(descriptor.accepts, descriptor.kind).toEqual(wire)
       }
     }
