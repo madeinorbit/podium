@@ -3,9 +3,9 @@ import type { NotificationSession, SessionPhaseChange } from '@podium/client-cor
 import type { UiStore } from '@podium/client-core/ui'
 import { createDemandAtoms, lazy } from '@podium/mobx-helpers'
 import {
-  type CredentialView,
   asSessionId,
   type CheckoutWire,
+  type CredentialView,
   type GitRepositoryWire,
   type LayoutWire,
   type MemberView,
@@ -114,7 +114,7 @@ import { headerIds, reseed } from './enumerate'
 import { headerEntities } from './header-entities'
 import { type HeaderEntity, isHeaderEntity } from './header-schema'
 import { referenceViewIfPresent } from './issue-reference'
-import { here, isGone, type Lookup, NOT_VISIBLE, omitGone } from './lookup'
+import { here, isGone, type Lookup, NOT_VISIBLE, omitGone, REMOVED } from './lookup'
 import {
   type EntityModel,
   type IssueModel,
@@ -764,6 +764,9 @@ export class MobxPool {
     if (!Object.hasOwn(this.tables, entity))
       return this.sources.read(entity as SourceEntity, id) ?? NOT_VISIBLE
     const core = entity as EntityName
+    // Exit evidence arrives before a deferred row publication. A resident
+    // payload must not keep a formally removed record readable in that gap.
+    if (this.residency?.removed(core, id)) return REMOVED
     if (core === 'repo') {
       // The stable repo facade observes fields independently. Row presence
       // stays addressed; the map value atom belongs to the prefix field.
@@ -829,6 +832,7 @@ export class MobxPool {
    * answers like any lookup (LOADING and one batched load, or gone).
    */
   stub(id: string): Lookup<IssueStub> {
+    if (this.residency?.removed('issue', id)) return REMOVED
     const resident = this.tables.issue.get(id) as Readonly<Record<string, unknown>> | undefined
     if (resident !== undefined) return pickStub(id, resident)
     const stub = this.collections.stubOf(id)
