@@ -206,6 +206,35 @@ describe('POD-376 · wire v2 feed into the kernel replica (live server)', () => 
     return { keys: keys.sort(), seq }
   }
 
+  async function expectAuthoritySlice(observed: LiveClient[]): Promise<void> {
+    const deadline = Date.now() + 8000
+    let positions: { authority: number; replicas: Array<number | undefined> } | undefined
+    while (Date.now() < deadline) {
+      const slice = await authoritySlice()
+      expect(slice.keys.length).toBeGreaterThan(0)
+      await until(() => observed.every((client) => (client.replica.cursor?.seq ?? -1) >= slice.seq))
+      await Promise.all(observed.map((client) => client.replica.settled()))
+      positions = {
+        authority: slice.seq,
+        replicas: observed.map((client) => client.replica.cursor?.seq),
+      }
+      // A live delta can overtake this HTTP snapshot. Compare at the SAME
+      // authority position; if a client advanced, obtain the newer snapshot.
+      // A row mismatch at an equal position is a real failure, never polled away.
+      if (positions.replicas.some((seq) => seq !== slice.seq)) continue
+      for (const client of observed) {
+        expect(
+          client.keys(),
+          JSON.stringify({ positions, feedChanges: client.feedChanges }),
+        ).toEqual(slice.keys)
+      }
+      return
+    }
+    throw new Error(
+      `authority and replicas did not reach a shared position: ${JSON.stringify(positions)}`,
+    )
+  }
+
   it('a current peer pulls its HTTP bootstrap and installs the authority slice', async () => {
     await trpc.issues.create.mutate({ repoPath: '/repo', title: 'first', startNow: false })
 
@@ -222,11 +251,7 @@ describe('POD-376 · wire v2 feed into the kernel replica (live server)', () => 
     expect(client.replica.cursor?.feedId).toBeTruthy()
     expect(client.replica.cursor?.epoch).toBeTruthy()
 
-    const slice = await authoritySlice()
-    expect(slice.keys.length).toBeGreaterThan(0)
-    await until(() => (client.replica.cursor?.seq ?? -1) >= slice.seq)
-    await client.replica.settled()
-    expect(client.keys(), JSON.stringify({ feedChanges: client.feedChanges })).toEqual(slice.keys)
+    await expectAuthoritySlice([client])
   })
 
   it('a live write reaches a connected v2 replica as a delta', async () => {
@@ -245,10 +270,7 @@ describe('POD-376 · wire v2 feed into the kernel replica (live server)', () => 
 
     expect(client.framesSeen).toContain('feedDelta')
     expect(client.feedChanges).toContain(`issueUserState:${issueUserStateRowId(owner, created.id)}`)
-    const slice = await authoritySlice()
-    await until(() => (client.replica.cursor?.seq ?? -1) >= slice.seq)
-    await client.replica.settled()
-    expect(client.keys(), JSON.stringify({ feedChanges: client.feedChanges })).toEqual(slice.keys)
+    await expectAuthoritySlice([client])
   })
 
   it('offline write window → reconnect → both clients converge on the authority slice', async () => {
@@ -270,28 +292,26 @@ describe('POD-376 · wire v2 feed into the kernel replica (live server)', () => 
     expect(a.keys()).toEqual(heldWhileOffline)
 
     // The world moves without A.
-    await trpc.issues.create.mutate({
+    const created = await trpc.issues.create.mutate({
       repoPath: '/repo',
       title: 'while a was away',
       startNow: false,
     })
-    await until(() => b.keys().length > heldWhileOffline.length, 8000)
+    const createdStateKey = `issueUserState:${issueUserStateRowId(owner, created.id)}`
+    await until(() => b.keys().includes(createdStateKey), 8000)
+    expect(a.keys()).not.toContain(createdStateKey)
 
     // A COMES BACK. It resumes from its persisted cursor rather than re-reading
     // the world — which is the point of persisting a real cursor at all.
     await a.goOnline()
-    await until(() => a.keys().length === b.keys().length, 8000)
+    await until(() => [a, b].every((client) => client.keys().includes(createdStateKey)), 8000)
     await a.replica.settled()
     await b.replica.settled()
 
-    const slice = await authoritySlice()
     // CONVERGENCE, AGAINST THE AUTHORITY AND NOT ONLY AGAINST EACH OTHER. Two
     // clients agreeing on the wrong slice is not convergence, and a two-way diff
     // cannot tell the difference.
-    await until(() => [a, b].every((client) => (client.replica.cursor?.seq ?? -1) >= slice.seq))
-    await Promise.all([a.replica.settled(), b.replica.settled()])
-    expect(a.keys(), JSON.stringify({ feedChanges: a.feedChanges })).toEqual(slice.keys)
-    expect(b.keys(), JSON.stringify({ feedChanges: b.feedChanges })).toEqual(slice.keys)
+    await expectAuthoritySlice([a, b])
     expect(a.replica.posture).not.toBe('cold')
   })
 
