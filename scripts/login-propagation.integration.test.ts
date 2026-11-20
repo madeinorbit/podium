@@ -276,6 +276,10 @@ describe('real daemon-to-daemon login propagation', () => {
           agentKind: 'claude-code',
           principalUserId: ownerUserId,
           force: true,
+          // Explicitly refresh the reported account: ordinary propagation is
+          // already satisfied by that stale inventory. The daemon must still
+          // refuse to replace the newer native file that appeared meanwhile.
+          refresh: true,
         }),
       ).resolves.toMatchObject({ status: 'failed' })
       expect(readFileSync(targetCredentialPath, 'utf8')).toBe(localCredential)

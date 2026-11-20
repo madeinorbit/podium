@@ -93,7 +93,7 @@ describe('desktop-supervised local stack', () => {
 
     const inherited = { ...process.env }
     delete inherited.PODIUM_AGENT_RELAY
-    const child = spawn('bun', ['--conditions=@podium/source', CLI, '--takeover'], {
+    const child = spawn('bun', ['--conditions=@podium/source', CLI, 'parent', '--takeover'], {
       cwd: ROOT,
       env: {
         ...inherited,
