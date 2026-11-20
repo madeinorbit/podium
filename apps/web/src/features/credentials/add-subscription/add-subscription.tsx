@@ -10,6 +10,7 @@
  * States: choose → waiting for sign-in → signed in as a named account, or failed.
  */
 
+import { BUNDLED_DESCRIPTORS } from '@podium/harness/browser'
 import { type FormEvent, useEffect, useId, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -19,20 +20,30 @@ import { type CredentialDeps, errorText } from '../credentials-deps'
 const POLL_MS = 2_000
 
 /** The two subscriptions a person signs in to in an agent program. */
-export const SUBSCRIPTION_KINDS = [
-  {
-    type: 'anthropic.claude-login',
-    title: 'Claude subscription',
-    program: 'Claude Code',
-    hint: 'In the terminal, open the link Claude Code shows and sign in with the account you want to add. Then paste the code the page gives you into the terminal.',
-  },
-  {
-    type: 'openai.chatgpt-login',
-    title: 'ChatGPT subscription',
-    program: 'Codex',
-    hint: 'In the terminal, open the link Codex shows and enter the one-time code it prints. If ChatGPT asks you to allow device codes, turn that on under Settings › Security first, then enter the code.',
-  },
-] as const
+export const SUBSCRIPTION_KINDS = (
+  [
+    {
+      type: 'anthropic.claude-login',
+      title: 'Claude subscription',
+      hint: 'In the terminal, open the link Claude Code shows and sign in with the account you want to add. Then paste the code the page gives you into the terminal.',
+    },
+    {
+      type: 'openai.chatgpt-login',
+      title: 'ChatGPT subscription',
+      hint: 'In the terminal, open the link Codex shows and enter the one-time code it prints. If ChatGPT asks you to allow device codes, turn that on under Settings › Security first, then enter the code.',
+    },
+  ] as const
+).map((choice) => {
+  // Home-login acceptance and the program label share one canonical descriptor.
+  // This is a fixed bundled metadata set, independent of any user's records.
+  const descriptor = BUNDLED_DESCRIPTORS.find((entry) =>
+    entry.accepts?.some(
+      (accepted) => accepted.type === choice.type && accepted.deliver.kind === 'home',
+    ),
+  )
+  if (!descriptor) throw new Error(`No home-login program descriptor for ${choice.type}`)
+  return { ...choice, program: descriptor.label }
+})
 
 export type SubscriptionType = (typeof SUBSCRIPTION_KINDS)[number]['type']
 
