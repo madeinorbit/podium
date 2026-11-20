@@ -35,7 +35,10 @@ function setup(supports = true, ok = true) {
         ok,
         ...(ok ? { outcome: 'confirmed' } : { error: 'vendor refused the request' }),
       })
-      queueMicrotask(() => rpc.settleDaemonReply(id, reply))
+      if (!('requestId' in reply)) throw new Error('expected an RPC reply')
+      queueMicrotask(() =>
+        rpc.settleDaemonReply(id, reply as Parameters<DaemonRpcService['settleDaemonReply']>[1]),
+      )
     },
   })
   rpc = new DaemonRpcService({

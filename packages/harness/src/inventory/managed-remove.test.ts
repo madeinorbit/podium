@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asSessionId } from '@podium/model'
+import { openDatabase } from '@podium/runtime/sqlite'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { InstallLedger } from './install-ledger'
 import { writeInstallReceipt } from './install-receipt'
@@ -89,4 +90,26 @@ describe('managed removal', () => {
     expect(existsSync(release)).toBe(false)
     expect(readManagedInstalls(dir).harnesses.size).toBe(0)
   })
+})
+
+it('migrates the first ledger schema without losing an explicit request', () => {
+  const ledger = InstallLedger.open({ harnessesDir: dir })
+  ledger.requestInstall('codex', 'machine-setup')
+  const path = ledger.path
+  ledger.close()
+  const legacy = openDatabase(path)
+  try {
+    legacy.exec('ALTER TABLE managed_install DROP COLUMN removing_at')
+    legacy.exec("UPDATE meta SET value = '1' WHERE key = 'schema_version'")
+  } finally {
+    legacy.close()
+  }
+  const upgraded = InstallLedger.open({ harnessesDir: dir })
+  try {
+    expect(upgraded.get('codex')?.requested.by).toBe('machine-setup')
+    expect(upgraded.get('codex')?.removingAt).toBeUndefined()
+    expect(upgraded.rebuilt()).toBeUndefined()
+  } finally {
+    upgraded.close()
+  }
 })

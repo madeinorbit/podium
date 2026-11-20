@@ -12,7 +12,9 @@
  */
 
 import type { CredentialId, CredentialView, EffectiveAuth } from '@podium/model'
-import { typeSpecOf } from '../credential-facts'
+import { CREDENTIAL_TYPES, isCredentialTypeId } from '@podium/model'
+
+const typeSpecOf = (type: string) => (isCredentialTypeId(type) ? CREDENTIAL_TYPES[type] : undefined)
 
 export type CredentialKind = 'subscription' | 'api-key' | 'token' | 'own-login'
 

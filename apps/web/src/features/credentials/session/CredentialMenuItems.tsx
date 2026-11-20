@@ -4,12 +4,16 @@
  * needs attention disabled with why), then the harness's own login, always.
  */
 
+import {
+  type CredentialChoice,
+  credentialKind,
+  KIND_WORDS,
+} from '@podium/client-graph/session-credential-facts'
 import type { CredentialId } from '@podium/model'
 import { Check } from 'lucide-react'
 import type { JSX } from 'react'
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu'
 import { identityText } from '../credential-facts'
-import { type CredentialChoice, credentialKind, KIND_WORDS } from './session-credential-facts'
 
 export const OWN_LOGIN_HINT = 'Whatever it is signed in to on the machine'
 
@@ -19,7 +23,6 @@ function Row({
   checked,
   disabled,
   onSelect,
-  ownLogin = true,
 }: {
   label: string
   hint: string | undefined

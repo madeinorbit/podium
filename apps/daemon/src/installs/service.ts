@@ -82,10 +82,10 @@ export class HarnessInstalls {
           if (this.installing.has(harness))
             return { ok: false, error: 'This harness is already being installed.' }
           this.installing.add(harness)
-          this.options.report()
           try {
             // A fresh wave also notices a personal copy installed since the last report.
             const snapshot = await this.options.runtime.refresh()
+            this.options.report()
             const own = snapshot.executables.has(harness)
               ? true
               : snapshot.inventory.agents.find((agent) => agent.kind === harness)?.installed ===
@@ -156,6 +156,10 @@ export class HarnessInstalls {
         case 'remove': {
           const result = removeManagedInstall(harness, harnessesDir)
           return result.outcome === 'busy' ? failure(result) : { ok: true, ...result }
+        }
+        default: {
+          const unhandled: never = action
+          throw new Error(`Unknown harness action: ${unhandled}`)
         }
       }
     } catch (error) {

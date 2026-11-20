@@ -1,0 +1,2191 @@
+{
+  "family": "installs",
+  "note": "Golden wire fixtures (POD-360). Generated — regenerate with `bun run fixtures:wire:update`. `wire` is what a peer sends; `parseAdded` is what the schema defaults in; `parseChanged` must stay empty (parse is value-transparent); `encoded` pins the serialized bytes.",
+  "cases": [
+    {
+      "schema": "HarnessActionResult",
+      "variant": "minimal",
+      "wire": {
+        "ok": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"ok\":true}"
+    },
+    {
+      "schema": "HarnessActionResult",
+      "variant": "full/arm0",
+      "wire": {
+        "ok": true,
+        "error": "error",
+        "outcome": "outcome",
+        "version": "version",
+        "pendingSessions": 1,
+        "changes": [
+          {
+            "id": 1,
+            "harness": "claude-code",
+            "file": "changes[0].file",
+            "edit": {
+              "kind": "json-key",
+              "path": ["changes[0].edit.path[0]"],
+              "value": {
+                "unknownFixture": "changes[0].edit.value"
+              }
+            },
+            "prior": {
+              "absent": true
+            },
+            "serves": "changes[0].serves",
+            "appliedAt": "changes[0].appliedAt",
+            "status": "restored",
+            "reason": "changes[0].reason"
+          }
+        ],
+        "conversations": [
+          {
+            "id": "conversations[0].id",
+            "title": "conversations[0].title"
+          }
+        ],
+        "homeExists": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"ok\":true,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":1,\"changes\":[{\"id\":1,\"harness\":\"claude-code\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"json-key\",\"path\":[\"changes[0].edit.path[0]\"],\"value\":{\"unknownFixture\":\"changes[0].edit.value\"}},\"prior\":{\"absent\":true},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"restored\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":true}"
+    },
+    {
+      "schema": "HarnessActionResult",
+      "variant": "full/arm1",
+      "wire": {
+        "ok": false,
+        "error": "error",
+        "outcome": "outcome",
+        "version": "version",
+        "pendingSessions": 2,
+        "changes": [
+          {
+            "id": 2,
+            "harness": "codex",
+            "file": "changes[0].file",
+            "edit": {
+              "kind": "toml-array-entry",
+              "path": ["changes[0].edit.path[0]"],
+              "value": "changes[0].edit.value"
+            },
+            "prior": {
+              "value": {
+                "unknownFixture": "changes[0].prior.value"
+              }
+            },
+            "serves": "changes[0].serves",
+            "appliedAt": "changes[0].appliedAt",
+            "status": "changed",
+            "reason": "changes[0].reason"
+          }
+        ],
+        "conversations": [
+          {
+            "id": "conversations[0].id",
+            "title": "conversations[0].title"
+          }
+        ],
+        "homeExists": false
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"ok\":false,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":2,\"changes\":[{\"id\":2,\"harness\":\"codex\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"toml-array-entry\",\"path\":[\"changes[0].edit.path[0]\"],\"value\":\"changes[0].edit.value\"},\"prior\":{\"value\":{\"unknownFixture\":\"changes[0].prior.value\"}},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"changed\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":false}"
+    },
+    {
+      "schema": "HarnessActionResult",
+      "variant": "full/arm2",
+      "wire": {
+        "ok": true,
+        "error": "error",
+        "outcome": "outcome",
+        "version": "version",
+        "pendingSessions": 3,
+        "changes": [
+          {
+            "id": 3,
+            "harness": "grok",
+            "file": "changes[0].file",
+            "edit": {
+              "kind": "owned-file",
+              "sha256": "changes[0].edit.sha256"
+            },
+            "prior": {
+              "contents": "changes[0].prior.contents"
+            },
+            "serves": "changes[0].serves",
+            "appliedAt": "changes[0].appliedAt",
+            "status": "failed",
+            "reason": "changes[0].reason"
+          }
+        ],
+        "conversations": [
+          {
+            "id": "conversations[0].id",
+            "title": "conversations[0].title"
+          }
+        ],
+        "homeExists": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {
+        "changes[0].prior.contents": "changes[0].prior.contents"
+      },
+      "encoded": "{\"ok\":true,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":3,\"changes\":[{\"id\":3,\"harness\":\"grok\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"owned-file\",\"sha256\":\"changes[0].edit.sha256\"},\"prior\":{},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"failed\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":true}"
+    },
+    {
+      "schema": "HarnessBackRequestMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "harnessBackRequest",
+        "requestId": "requestId",
+        "harness": "claude-code"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"harnessBackRequest\",\"requestId\":\"requestId\",\"harness\":\"claude-code\"}"
+    },
+    {
+      "schema": "HarnessBackRequestMessage",
+      "variant": "full",
+      "wire": {
+        "type": "harnessBackRequest",
+        "requestId": "requestId",
+        "harness": "claude-code"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"harnessBackRequest\",\"requestId\":\"requestId\",\"harness\":\"claude-code\"}"
+    },
+    {
+      "schema": "HarnessBackResultMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "harnessBackResult",
+        "requestId": "requestId",
+        "ok": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"harnessBackResult\",\"requestId\":\"requestId\",\"ok\":true}"
+    },
+    {
+      "schema": "HarnessBackResultMessage",
+      "variant": "full/arm0",
+      "wire": {
+        "type": "harnessBackResult",
+        "requestId": "requestId",
+        "ok": true,
+        "error": "error",
+        "outcome": "outcome",
+        "version": "version",
+        "pendingSessions": 1,
+        "changes": [
+          {
+            "id": 1,
+            "harness": "claude-code",
+            "file": "changes[0].file",
+            "edit": {
+              "kind": "json-key",
+              "path": ["changes[0].edit.path[0]"],
+              "value": {
+                "unknownFixture": "changes[0].edit.value"
+              }
+            },
+            "prior": {
+              "absent": true
+            },
+            "serves": "changes[0].serves",
+            "appliedAt": "changes[0].appliedAt",
+            "status": "restored",
+            "reason": "changes[0].reason"
+          }
+        ],
+        "conversations": [
+          {
+            "id": "conversations[0].id",
+            "title": "conversations[0].title"
+          }
+        ],
+        "homeExists": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"harnessBackResult\",\"requestId\":\"requestId\",\"ok\":true,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":1,\"changes\":[{\"id\":1,\"harness\":\"claude-code\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"json-key\",\"path\":[\"changes[0].edit.path[0]\"],\"value\":{\"unknownFixture\":\"changes[0].edit.value\"}},\"prior\":{\"absent\":true},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"restored\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":true}"
+    },
+    {
+      "schema": "HarnessBackResultMessage",
+      "variant": "full/arm1",
+      "wire": {
+        "type": "harnessBackResult",
+        "requestId": "requestId",
+        "ok": false,
+        "error": "error",
+        "outcome": "outcome",
+        "version": "version",
+        "pendingSessions": 2,
+        "changes": [
+          {
+            "id": 2,
+            "harness": "codex",
+            "file": "changes[0].file",
+            "edit": {
+              "kind": "toml-array-entry",
+              "path": ["changes[0].edit.path[0]"],
+              "value": "changes[0].edit.value"
+            },
+            "prior": {
+              "value": {
+                "unknownFixture": "changes[0].prior.value"
+              }
+            },
+            "serves": "changes[0].serves",
+            "appliedAt": "changes[0].appliedAt",
+            "status": "changed",
+            "reason": "changes[0].reason"
+          }
+        ],
+        "conversations": [
+          {
+            "id": "conversations[0].id",
+            "title": "conversations[0].title"
+          }
+        ],
+        "homeExists": false
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"harnessBackResult\",\"requestId\":\"requestId\",\"ok\":false,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":2,\"changes\":[{\"id\":2,\"harness\":\"codex\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"toml-array-entry\",\"path\":[\"changes[0].edit.path[0]\"],\"value\":\"changes[0].edit.value\"},\"prior\":{\"value\":{\"unknownFixture\":\"changes[0].prior.value\"}},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"changed\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":false}"
+    },
+    {
+      "schema": "HarnessBackResultMessage",
+      "variant": "full/arm2",
+      "wire": {
+        "type": "harnessBackResult",
+        "requestId": "requestId",
+        "ok": true,
+        "error": "error",
+        "outcome": "outcome",
+        "version": "version",
+        "pendingSessions": 3,
+        "changes": [
+          {
+            "id": 3,
+            "harness": "grok",
+            "file": "changes[0].file",
+            "edit": {
+              "kind": "owned-file",
+              "sha256": "changes[0].edit.sha256"
+            },
+            "prior": {
+              "contents": "changes[0].prior.contents"
+            },
+            "serves": "changes[0].serves",
+            "appliedAt": "changes[0].appliedAt",
+            "status": "failed",
+            "reason": "changes[0].reason"
+          }
+        ],
+        "conversations": [
+          {
+            "id": "conversations[0].id",
+            "title": "conversations[0].title"
+          }
+        ],
+        "homeExists": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {
+        "changes[0].prior.contents": "changes[0].prior.contents"
+      },
+      "encoded": "{\"type\":\"harnessBackResult\",\"requestId\":\"requestId\",\"ok\":true,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":3,\"changes\":[{\"id\":3,\"harness\":\"grok\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"owned-file\",\"sha256\":\"changes[0].edit.sha256\"},\"prior\":{},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"failed\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":true}"
+    },
+    {
+      "schema": "HarnessChangesRequestMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "harnessChangesRequest",
+        "requestId": "requestId",
+        "harness": "claude-code"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"harnessChangesRequest\",\"requestId\":\"requestId\",\"harness\":\"claude-code\"}"
+    },
+    {
+      "schema": "HarnessChangesRequestMessage",
+      "variant": "full",
+      "wire": {
+        "type": "harnessChangesRequest",
+        "requestId": "requestId",
+        "harness": "claude-code"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"harnessChangesRequest\",\"requestId\":\"requestId\",\"harness\":\"claude-code\"}"
+    },
+    {
+      "schema": "HarnessChangesResultMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "harnessChangesResult",
+        "requestId": "requestId",
+        "ok": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"harnessChangesResult\",\"requestId\":\"requestId\",\"ok\":true}"
+    },
+    {
+      "schema": "HarnessChangesResultMessage",
+      "variant": "full/arm0",
+      "wire": {
+        "type": "harnessChangesResult",
+        "requestId": "requestId",
+        "ok": true,
+        "error": "error",
+        "outcome": "outcome",
+        "version": "version",
+        "pendingSessions": 1,
+        "changes": [
+          {
+            "id": 1,
+            "harness": "claude-code",
+            "file": "changes[0].file",
+            "edit": {
+              "kind": "json-key",
+              "path": ["changes[0].edit.path[0]"],
+              "value": {
+                "unknownFixture": "changes[0].edit.value"
+              }
+            },
+            "prior": {
+              "absent": true
+            },
+            "serves": "changes[0].serves",
+            "appliedAt": "changes[0].appliedAt",
+            "status": "restored",
+            "reason": "changes[0].reason"
+          }
+        ],
+        "conversations": [
+          {
+            "id": "conversations[0].id",
+            "title": "conversations[0].title"
+          }
+        ],
+        "homeExists": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"harnessChangesResult\",\"requestId\":\"requestId\",\"ok\":true,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":1,\"changes\":[{\"id\":1,\"harness\":\"claude-code\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"json-key\",\"path\":[\"changes[0].edit.path[0]\"],\"value\":{\"unknownFixture\":\"changes[0].edit.value\"}},\"prior\":{\"absent\":true},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"restored\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":true}"
+    },
+    {
+      "schema": "HarnessChangesResultMessage",
+      "variant": "full/arm1",
+      "wire": {
+        "type": "harnessChangesResult",
+        "requestId": "requestId",
+        "ok": false,
+        "error": "error",
+        "outcome": "outcome",
+        "version": "version",
+        "pendingSessions": 2,
+        "changes": [
+          {
+            "id": 2,
+            "harness": "codex",
+            "file": "changes[0].file",
+            "edit": {
+              "kind": "toml-array-entry",
+              "path": ["changes[0].edit.path[0]"],
+              "value": "changes[0].edit.value"
+            },
+            "prior": {
+              "value": {
+                "unknownFixture": "changes[0].prior.value"
+              }
+            },
+            "serves": "changes[0].serves",
+            "appliedAt": "changes[0].appliedAt",
+            "status": "changed",
+            "reason": "changes[0].reason"
+          }
+        ],
+        "conversations": [
+          {
+            "id": "conversations[0].id",
+            "title": "conversations[0].title"
+          }
+        ],
+        "homeExists": false
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"harnessChangesResult\",\"requestId\":\"requestId\",\"ok\":false,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":2,\"changes\":[{\"id\":2,\"harness\":\"codex\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"toml-array-entry\",\"path\":[\"changes[0].edit.path[0]\"],\"value\":\"changes[0].edit.value\"},\"prior\":{\"value\":{\"unknownFixture\":\"changes[0].prior.value\"}},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"changed\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":false}"
+    },
+    {
+      "schema": "HarnessChangesResultMessage",
+      "variant": "full/arm2",
+      "wire": {
+        "type": "harnessChangesResult",
+        "requestId": "requestId",
+        "ok": true,
+        "error": "error",
+        "outcome": "outcome",
+        "version": "version",
+        "pendingSessions": 3,
+        "changes": [
+          {
+            "id": 3,
+            "harness": "grok",
+            "file": "changes[0].file",
+            "edit": {
+              "kind": "owned-file",
+              "sha256": "changes[0].edit.sha256"
+            },
+            "prior": {
+              "contents": "changes[0].prior.contents"
+            },
+            "serves": "changes[0].serves",
+            "appliedAt": "changes[0].appliedAt",
+            "status": "failed",
+            "reason": "changes[0].reason"
+          }
+        ],
+        "conversations": [
+          {
+            "id": "conversations[0].id",
+            "title": "conversations[0].title"
+          }
+        ],
+        "homeExists": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {
+        "changes[0].prior.contents": "changes[0].prior.contents"
+      },
+      "encoded": "{\"type\":\"harnessChangesResult\",\"requestId\":\"requestId\",\"ok\":true,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":3,\"changes\":[{\"id\":3,\"harness\":\"grok\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"owned-file\",\"sha256\":\"changes[0].edit.sha256\"},\"prior\":{},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"failed\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":true}"
+    },
+    {
+      "schema": "HarnessCheckRequestMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "harnessCheckRequest",
+        "requestId": "requestId",
+        "harness": "claude-code"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"harnessCheckRequest\",\"requestId\":\"requestId\",\"harness\":\"claude-code\"}"
+    },
+    {
+      "schema": "HarnessCheckRequestMessage",
+      "variant": "full",
+      "wire": {
+        "type": "harnessCheckRequest",
+        "requestId": "requestId",
+        "harness": "claude-code"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"harnessCheckRequest\",\"requestId\":\"requestId\",\"harness\":\"claude-code\"}"
+    },
+    {
+      "schema": "HarnessCheckResultMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "harnessCheckResult",
+        "requestId": "requestId",
+        "ok": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"harnessCheckResult\",\"requestId\":\"requestId\",\"ok\":true}"
+    },
+    {
+      "schema": "HarnessCheckResultMessage",
+      "variant": "full/arm0",
+      "wire": {
+        "type": "harnessCheckResult",
+        "requestId": "requestId",
+        "ok": true,
+        "error": "error",
+        "outcome": "outcome",
+        "version": "version",
+        "pendingSessions": 1,
+        "changes": [
+          {
+            "id": 1,
+            "harness": "claude-code",
+            "file": "changes[0].file",
+            "edit": {
+              "kind": "json-key",
+              "path": ["changes[0].edit.path[0]"],
+              "value": {
+                "unknownFixture": "changes[0].edit.value"
+              }
+            },
+            "prior": {
+              "absent": true
+            },
+            "serves": "changes[0].serves",
+            "appliedAt": "changes[0].appliedAt",
+            "status": "restored",
+            "reason": "changes[0].reason"
+          }
+        ],
+        "conversations": [
+          {
+            "id": "conversations[0].id",
+            "title": "conversations[0].title"
+          }
+        ],
+        "homeExists": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"harnessCheckResult\",\"requestId\":\"requestId\",\"ok\":true,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":1,\"changes\":[{\"id\":1,\"harness\":\"claude-code\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"json-key\",\"path\":[\"changes[0].edit.path[0]\"],\"value\":{\"unknownFixture\":\"changes[0].edit.value\"}},\"prior\":{\"absent\":true},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"restored\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":true}"
+    },
+    {
+      "schema": "HarnessCheckResultMessage",
+      "variant": "full/arm1",
+      "wire": {
+        "type": "harnessCheckResult",
+        "requestId": "requestId",
+        "ok": false,
+        "error": "error",
+        "outcome": "outcome",
+        "version": "version",
+        "pendingSessions": 2,
+        "changes": [
+          {
+            "id": 2,
+            "harness": "codex",
+            "file": "changes[0].file",
+            "edit": {
+              "kind": "toml-array-entry",
+              "path": ["changes[0].edit.path[0]"],
+              "value": "changes[0].edit.value"
+            },
+            "prior": {
+              "value": {
+                "unknownFixture": "changes[0].prior.value"
+              }
+            },
+            "serves": "changes[0].serves",
+            "appliedAt": "changes[0].appliedAt",
+            "status": "changed",
+            "reason": "changes[0].reason"
+          }
+        ],
+        "conversations": [
+          {
+            "id": "conversations[0].id",
+            "title": "conversations[0].title"
+          }
+        ],
+        "homeExists": false
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"harnessCheckResult\",\"requestId\":\"requestId\",\"ok\":false,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":2,\"changes\":[{\"id\":2,\"harness\":\"codex\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"toml-array-entry\",\"path\":[\"changes[0].edit.path[0]\"],\"value\":\"changes[0].edit.value\"},\"prior\":{\"value\":{\"unknownFixture\":\"changes[0].prior.value\"}},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"changed\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":false}"
+    },
+    {
+      "schema": "HarnessCheckResultMessage",
+      "variant": "full/arm2",
+      "wire": {
+        "type": "harnessCheckResult",
+        "requestId": "requestId",
+        "ok": true,
+        "error": "error",
+        "outcome": "outcome",
+        "version": "version",
+        "pendingSessions": 3,
+        "changes": [
+          {
+            "id": 3,
+            "harness": "grok",
+            "file": "changes[0].file",
+            "edit": {
+              "kind": "owned-file",
+              "sha256": "changes[0].edit.sha256"
+            },
+            "prior": {
+              "contents": "changes[0].prior.contents"
+            },
+            "serves": "changes[0].serves",
+            "appliedAt": "changes[0].appliedAt",
+            "status": "failed",
+            "reason": "changes[0].reason"
+          }
+        ],
+        "conversations": [
+          {
+            "id": "conversations[0].id",
+            "title": "conversations[0].title"
+          }
+        ],
+        "homeExists": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {
+        "changes[0].prior.contents": "changes[0].prior.contents"
+      },
+      "encoded": "{\"type\":\"harnessCheckResult\",\"requestId\":\"requestId\",\"ok\":true,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":3,\"changes\":[{\"id\":3,\"harness\":\"grok\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"owned-file\",\"sha256\":\"changes[0].edit.sha256\"},\"prior\":{},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"failed\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":true}"
+    },
+    {
+      "schema": "HarnessHomeChange",
+      "variant": "minimal",
+      "wire": {
+        "id": 1,
+        "harness": "claude-code",
+        "file": "file",
+        "edit": {
+          "kind": "json-key",
+          "path": [],
+          "value": {
+            "unknownFixture": "edit.value"
+          }
+        },
+        "prior": {
+          "absent": true
+        },
+        "serves": "serves",
+        "appliedAt": "appliedAt"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":1,\"harness\":\"claude-code\",\"file\":\"file\",\"edit\":{\"kind\":\"json-key\",\"path\":[],\"value\":{\"unknownFixture\":\"edit.value\"}},\"prior\":{\"absent\":true},\"serves\":\"serves\",\"appliedAt\":\"appliedAt\"}"
+    },
+    {
+      "schema": "HarnessHomeChange",
+      "variant": "full/arm0",
+      "wire": {
+        "id": 1,
+        "harness": "claude-code",
+        "file": "file",
+        "edit": {
+          "kind": "json-key",
+          "path": ["edit.path[0]"],
+          "value": {
+            "unknownFixture": "edit.value"
+          }
+        },
+        "prior": {
+          "absent": true
+        },
+        "serves": "serves",
+        "appliedAt": "appliedAt",
+        "status": "restored",
+        "reason": "reason"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":1,\"harness\":\"claude-code\",\"file\":\"file\",\"edit\":{\"kind\":\"json-key\",\"path\":[\"edit.path[0]\"],\"value\":{\"unknownFixture\":\"edit.value\"}},\"prior\":{\"absent\":true},\"serves\":\"serves\",\"appliedAt\":\"appliedAt\",\"status\":\"restored\",\"reason\":\"reason\"}"
+    },
+    {
+      "schema": "HarnessHomeChange",
+      "variant": "full/arm1",
+      "wire": {
+        "id": 2,
+        "harness": "codex",
+        "file": "file",
+        "edit": {
+          "kind": "toml-array-entry",
+          "path": ["edit.path[0]"],
+          "value": "edit.value"
+        },
+        "prior": {
+          "value": {
+            "unknownFixture": "prior.value"
+          }
+        },
+        "serves": "serves",
+        "appliedAt": "appliedAt",
+        "status": "changed",
+        "reason": "reason"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":2,\"harness\":\"codex\",\"file\":\"file\",\"edit\":{\"kind\":\"toml-array-entry\",\"path\":[\"edit.path[0]\"],\"value\":\"edit.value\"},\"prior\":{\"value\":{\"unknownFixture\":\"prior.value\"}},\"serves\":\"serves\",\"appliedAt\":\"appliedAt\",\"status\":\"changed\",\"reason\":\"reason\"}"
+    },
+    {
+      "schema": "HarnessHomeChange",
+      "variant": "full/arm2",
+      "wire": {
+        "id": 3,
+        "harness": "grok",
+        "file": "file",
+        "edit": {
+          "kind": "owned-file",
+          "sha256": "edit.sha256"
+        },
+        "prior": {
+          "contents": "prior.contents"
+        },
+        "serves": "serves",
+        "appliedAt": "appliedAt",
+        "status": "failed",
+        "reason": "reason"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {
+        "prior.contents": "prior.contents"
+      },
+      "encoded": "{\"id\":3,\"harness\":\"grok\",\"file\":\"file\",\"edit\":{\"kind\":\"owned-file\",\"sha256\":\"edit.sha256\"},\"prior\":{},\"serves\":\"serves\",\"appliedAt\":\"appliedAt\",\"status\":\"failed\",\"reason\":\"reason\"}"
+    },
+    {
+      "schema": "HarnessHomeInfoRequestMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "harnessHomeInfoRequest",
+        "requestId": "requestId",
+        "harness": "claude-code"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"harnessHomeInfoRequest\",\"requestId\":\"requestId\",\"harness\":\"claude-code\"}"
+    },
+    {
+      "schema": "HarnessHomeInfoRequestMessage",
+      "variant": "full",
+      "wire": {
+        "type": "harnessHomeInfoRequest",
+        "requestId": "requestId",
+        "harness": "claude-code"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"harnessHomeInfoRequest\",\"requestId\":\"requestId\",\"harness\":\"claude-code\"}"
+    },
+    {
+      "schema": "HarnessHomeInfoResultMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "harnessHomeInfoResult",
+        "requestId": "requestId",
+        "ok": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"harnessHomeInfoResult\",\"requestId\":\"requestId\",\"ok\":true}"
+    },
+    {
+      "schema": "HarnessHomeInfoResultMessage",
+      "variant": "full/arm0",
+      "wire": {
+        "type": "harnessHomeInfoResult",
+        "requestId": "requestId",
+        "ok": true,
+        "error": "error",
+        "outcome": "outcome",
+        "version": "version",
+        "pendingSessions": 1,
+        "changes": [
+          {
+            "id": 1,
+            "harness": "claude-code",
+            "file": "changes[0].file",
+            "edit": {
+              "kind": "json-key",
+              "path": ["changes[0].edit.path[0]"],
+              "value": {
+                "unknownFixture": "changes[0].edit.value"
+              }
+            },
+            "prior": {
+              "absent": true
+            },
+            "serves": "changes[0].serves",
+            "appliedAt": "changes[0].appliedAt",
+            "status": "restored",
+            "reason": "changes[0].reason"
+          }
+        ],
+        "conversations": [
+          {
+            "id": "conversations[0].id",
+            "title": "conversations[0].title"
+          }
+        ],
+        "homeExists": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"harnessHomeInfoResult\",\"requestId\":\"requestId\",\"ok\":true,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":1,\"changes\":[{\"id\":1,\"harness\":\"claude-code\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"json-key\",\"path\":[\"changes[0].edit.path[0]\"],\"value\":{\"unknownFixture\":\"changes[0].edit.value\"}},\"prior\":{\"absent\":true},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"restored\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":true}"
+    },
+    {
+      "schema": "HarnessHomeInfoResultMessage",
+      "variant": "full/arm1",
+      "wire": {
+        "type": "harnessHomeInfoResult",
+        "requestId": "requestId",
+        "ok": false,
+        "error": "error",
+        "outcome": "outcome",
+        "version": "version",
+        "pendingSessions": 2,
+        "changes": [
+          {
+            "id": 2,
+            "harness": "codex",
+            "file": "changes[0].file",
+            "edit": {
+              "kind": "toml-array-entry",
+              "path": ["changes[0].edit.path[0]"],
+              "value": "changes[0].edit.value"
+            },
+            "prior": {
+              "value": {
+                "unknownFixture": "changes[0].prior.value"
+              }
+            },
+            "serves": "changes[0].serves",
+            "appliedAt": "changes[0].appliedAt",
+            "status": "changed",
+            "reason": "changes[0].reason"
+          }
+        ],
+        "conversations": [
+          {
+            "id": "conversations[0].id",
+            "title": "conversations[0].title"
+          }
+        ],
+        "homeExists": false
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"harnessHomeInfoResult\",\"requestId\":\"requestId\",\"ok\":false,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":2,\"changes\":[{\"id\":2,\"harness\":\"codex\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"toml-array-entry\",\"path\":[\"changes[0].edit.path[0]\"],\"value\":\"changes[0].edit.value\"},\"prior\":{\"value\":{\"unknownFixture\":\"changes[0].prior.value\"}},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"changed\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":false}"
+    },
+    {
+      "schema": "HarnessHomeInfoResultMessage",
+      "variant": "full/arm2",
+      "wire": {
+        "type": "harnessHomeInfoResult",
+        "requestId": "requestId",
+        "ok": true,
+        "error": "error",
+        "outcome": "outcome",
+        "version": "version",
+        "pendingSessions": 3,
+        "changes": [
+          {
+            "id": 3,
+            "harness": "grok",
+            "file": "changes[0].file",
+            "edit": {
+              "kind": "owned-file",
+              "sha256": "changes[0].edit.sha256"
+            },
+            "prior": {
+              "contents": "changes[0].prior.contents"
+            },
+            "serves": "changes[0].serves",
+            "appliedAt": "changes[0].appliedAt",
+            "status": "failed",
+            "reason": "changes[0].reason"
+          }
+        ],
+        "conversations": [
+          {
+            "id": "conversations[0].id",
+            "title": "conversations[0].title"
+          }
+        ],
+        "homeExists": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {
+        "changes[0].prior.contents": "changes[0].prior.contents"
+      },
+      "encoded": "{\"type\":\"harnessHomeInfoResult\",\"requestId\":\"requestId\",\"ok\":true,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":3,\"changes\":[{\"id\":3,\"harness\":\"grok\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"owned-file\",\"sha256\":\"changes[0].edit.sha256\"},\"prior\":{},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"failed\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":true}"
+    },
+    {
+      "schema": "HarnessHomeRemoveRequestMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "harnessHomeRemoveRequest",
+        "requestId": "requestId",
+        "harness": "claude-code",
+        "confirmedConversations": []
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"harnessHomeRemoveRequest\",\"requestId\":\"requestId\",\"harness\":\"claude-code\",\"confirmedConversations\":[]}"
+    },
+    {
+      "schema": "HarnessHomeRemoveRequestMessage",
+      "variant": "full",
+      "wire": {
+        "type": "harnessHomeRemoveRequest",
+        "requestId": "requestId",
+        "harness": "claude-code",
+        "confirmedConversations": ["confirmedConversations[0]"]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"harnessHomeRemoveRequest\",\"requestId\":\"requestId\",\"harness\":\"claude-code\",\"confirmedConversations\":[\"confirmedConversations[0]\"]}"
+    },
+    {
+      "schema": "HarnessHomeRemoveResultMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "harnessHomeRemoveResult",
+        "requestId": "requestId",
+        "ok": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"harnessHomeRemoveResult\",\"requestId\":\"requestId\",\"ok\":true}"
+    },
+    {
+      "schema": "HarnessHomeRemoveResultMessage",
+      "variant": "full/arm0",
+      "wire": {
+        "type": "harnessHomeRemoveResult",
+        "requestId": "requestId",
+        "ok": true,
+        "error": "error",
+        "outcome": "outcome",
+        "version": "version",
+        "pendingSessions": 1,
+        "changes": [
+          {
+            "id": 1,
+            "harness": "claude-code",
+            "file": "changes[0].file",
+            "edit": {
+              "kind": "json-key",
+              "path": ["changes[0].edit.path[0]"],
+              "value": {
+                "unknownFixture": "changes[0].edit.value"
+              }
+            },
+            "prior": {
+              "absent": true
+            },
+            "serves": "changes[0].serves",
+            "appliedAt": "changes[0].appliedAt",
+            "status": "restored",
+            "reason": "changes[0].reason"
+          }
+        ],
+        "conversations": [
+          {
+            "id": "conversations[0].id",
+            "title": "conversations[0].title"
+          }
+        ],
+        "homeExists": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"harnessHomeRemoveResult\",\"requestId\":\"requestId\",\"ok\":true,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":1,\"changes\":[{\"id\":1,\"harness\":\"claude-code\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"json-key\",\"path\":[\"changes[0].edit.path[0]\"],\"value\":{\"unknownFixture\":\"changes[0].edit.value\"}},\"prior\":{\"absent\":true},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"restored\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":true}"
+    },
+    {
+      "schema": "HarnessHomeRemoveResultMessage",
+      "variant": "full/arm1",
+      "wire": {
+        "type": "harnessHomeRemoveResult",
+        "requestId": "requestId",
+        "ok": false,
+        "error": "error",
+        "outcome": "outcome",
+        "version": "version",
+        "pendingSessions": 2,
+        "changes": [
+          {
+            "id": 2,
+            "harness": "codex",
+            "file": "changes[0].file",
+            "edit": {
+              "kind": "toml-array-entry",
+              "path": ["changes[0].edit.path[0]"],
+              "value": "changes[0].edit.value"
+            },
+            "prior": {
+              "value": {
+                "unknownFixture": "changes[0].prior.value"
+              }
+            },
+            "serves": "changes[0].serves",
+            "appliedAt": "changes[0].appliedAt",
+            "status": "changed",
+            "reason": "changes[0].reason"
+          }
+        ],
+        "conversations": [
+          {
+            "id": "conversations[0].id",
+            "title": "conversations[0].title"
+          }
+        ],
+        "homeExists": false
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"harnessHomeRemoveResult\",\"requestId\":\"requestId\",\"ok\":false,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":2,\"changes\":[{\"id\":2,\"harness\":\"codex\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"toml-array-entry\",\"path\":[\"changes[0].edit.path[0]\"],\"value\":\"changes[0].edit.value\"},\"prior\":{\"value\":{\"unknownFixture\":\"changes[0].prior.value\"}},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"changed\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":false}"
+    },
+    {
+      "schema": "HarnessHomeRemoveResultMessage",
+      "variant": "full/arm2",
+      "wire": {
+        "type": "harnessHomeRemoveResult",
+        "requestId": "requestId",
+        "ok": true,
+        "error": "error",
+        "outcome": "outcome",
+        "version": "version",
+        "pendingSessions": 3,
+        "changes": [
+          {
+            "id": 3,
+            "harness": "grok",
+            "file": "changes[0].file",
+            "edit": {
+              "kind": "owned-file",
+              "sha256": "changes[0].edit.sha256"
+            },
+            "prior": {
+              "contents": "changes[0].prior.contents"
+            },
+            "serves": "changes[0].serves",
+            "appliedAt": "changes[0].appliedAt",
+            "status": "failed",
+            "reason": "changes[0].reason"
+          }
+        ],
+        "conversations": [
+          {
+            "id": "conversations[0].id",
+            "title": "conversations[0].title"
+          }
+        ],
+        "homeExists": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {
+        "changes[0].prior.contents": "changes[0].prior.contents"
+      },
+      "encoded": "{\"type\":\"harnessHomeRemoveResult\",\"requestId\":\"requestId\",\"ok\":true,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":3,\"changes\":[{\"id\":3,\"harness\":\"grok\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"owned-file\",\"sha256\":\"changes[0].edit.sha256\"},\"prior\":{},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"failed\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":true}"
+    },
+    {
+      "schema": "HarnessInstallAction",
+      "variant": "minimal",
+      "wire": "install",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"install\""
+    },
+    {
+      "schema": "HarnessInstallAction",
+      "variant": "full",
+      "wire": "install",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"install\""
+    },
+    {
+      "schema": "HarnessInstallRequestMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "harnessInstallRequest",
+        "requestId": "requestId",
+        "harness": "claude-code"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"harnessInstallRequest\",\"requestId\":\"requestId\",\"harness\":\"claude-code\"}"
+    },
+    {
+      "schema": "HarnessInstallRequestMessage",
+      "variant": "full",
+      "wire": {
+        "type": "harnessInstallRequest",
+        "requestId": "requestId",
+        "harness": "claude-code"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"harnessInstallRequest\",\"requestId\":\"requestId\",\"harness\":\"claude-code\"}"
+    },
+    {
+      "schema": "HarnessInstallResultMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "harnessInstallResult",
+        "requestId": "requestId",
+        "ok": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"harnessInstallResult\",\"requestId\":\"requestId\",\"ok\":true}"
+    },
+    {
+      "schema": "HarnessInstallResultMessage",
+      "variant": "full/arm0",
+      "wire": {
+        "type": "harnessInstallResult",
+        "requestId": "requestId",
+        "ok": true,
+        "error": "error",
+        "outcome": "outcome",
+        "version": "version",
+        "pendingSessions": 1,
+        "changes": [
+          {
+            "id": 1,
+            "harness": "claude-code",
+            "file": "changes[0].file",
+            "edit": {
+              "kind": "json-key",
+              "path": ["changes[0].edit.path[0]"],
+              "value": {
+                "unknownFixture": "changes[0].edit.value"
+              }
+            },
+            "prior": {
+              "absent": true
+            },
+            "serves": "changes[0].serves",
+            "appliedAt": "changes[0].appliedAt",
+            "status": "restored",
+            "reason": "changes[0].reason"
+          }
+        ],
+        "conversations": [
+          {
+            "id": "conversations[0].id",
+            "title": "conversations[0].title"
+          }
+        ],
+        "homeExists": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"harnessInstallResult\",\"requestId\":\"requestId\",\"ok\":true,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":1,\"changes\":[{\"id\":1,\"harness\":\"claude-code\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"json-key\",\"path\":[\"changes[0].edit.path[0]\"],\"value\":{\"unknownFixture\":\"changes[0].edit.value\"}},\"prior\":{\"absent\":true},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"restored\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":true}"
+    },
+    {
+      "schema": "HarnessInstallResultMessage",
+      "variant": "full/arm1",
+      "wire": {
+        "type": "harnessInstallResult",
+        "requestId": "requestId",
+        "ok": false,
+        "error": "error",
+        "outcome": "outcome",
+        "version": "version",
+        "pendingSessions": 2,
+        "changes": [
+          {
+            "id": 2,
+            "harness": "codex",
+            "file": "changes[0].file",
+            "edit": {
+              "kind": "toml-array-entry",
+              "path": ["changes[0].edit.path[0]"],
+              "value": "changes[0].edit.value"
+            },
+            "prior": {
+              "value": {
+                "unknownFixture": "changes[0].prior.value"
+              }
+            },
+            "serves": "changes[0].serves",
+            "appliedAt": "changes[0].appliedAt",
+            "status": "changed",
+            "reason": "changes[0].reason"
+          }
+        ],
+        "conversations": [
+          {
+            "id": "conversations[0].id",
+            "title": "conversations[0].title"
+          }
+        ],
+        "homeExists": false
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"harnessInstallResult\",\"requestId\":\"requestId\",\"ok\":false,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":2,\"changes\":[{\"id\":2,\"harness\":\"codex\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"toml-array-entry\",\"path\":[\"changes[0].edit.path[0]\"],\"value\":\"changes[0].edit.value\"},\"prior\":{\"value\":{\"unknownFixture\":\"changes[0].prior.value\"}},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"changed\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":false}"
+    },
+    {
+      "schema": "HarnessInstallResultMessage",
+      "variant": "full/arm2",
+      "wire": {
+        "type": "harnessInstallResult",
+        "requestId": "requestId",
+        "ok": true,
+        "error": "error",
+        "outcome": "outcome",
+        "version": "version",
+        "pendingSessions": 3,
+        "changes": [
+          {
+            "id": 3,
+            "harness": "grok",
+            "file": "changes[0].file",
+            "edit": {
+              "kind": "owned-file",
+              "sha256": "changes[0].edit.sha256"
+            },
+            "prior": {
+              "contents": "changes[0].prior.contents"
+            },
+            "serves": "changes[0].serves",
+            "appliedAt": "changes[0].appliedAt",
+            "status": "failed",
+            "reason": "changes[0].reason"
+          }
+        ],
+        "conversations": [
+          {
+            "id": "conversations[0].id",
+            "title": "conversations[0].title"
+          }
+        ],
+        "homeExists": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {
+        "changes[0].prior.contents": "changes[0].prior.contents"
+      },
+      "encoded": "{\"type\":\"harnessInstallResult\",\"requestId\":\"requestId\",\"ok\":true,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":3,\"changes\":[{\"id\":3,\"harness\":\"grok\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"owned-file\",\"sha256\":\"changes[0].edit.sha256\"},\"prior\":{},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"failed\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":true}"
+    },
+    {
+      "schema": "HarnessPauseRequestMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "harnessPauseRequest",
+        "requestId": "requestId",
+        "harness": "claude-code"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"harnessPauseRequest\",\"requestId\":\"requestId\",\"harness\":\"claude-code\"}"
+    },
+    {
+      "schema": "HarnessPauseRequestMessage",
+      "variant": "full",
+      "wire": {
+        "type": "harnessPauseRequest",
+        "requestId": "requestId",
+        "harness": "claude-code"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"harnessPauseRequest\",\"requestId\":\"requestId\",\"harness\":\"claude-code\"}"
+    },
+    {
+      "schema": "HarnessPauseResultMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "harnessPauseResult",
+        "requestId": "requestId",
+        "ok": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"harnessPauseResult\",\"requestId\":\"requestId\",\"ok\":true}"
+    },
+    {
+      "schema": "HarnessPauseResultMessage",
+      "variant": "full/arm0",
+      "wire": {
+        "type": "harnessPauseResult",
+        "requestId": "requestId",
+        "ok": true,
+        "error": "error",
+        "outcome": "outcome",
+        "version": "version",
+        "pendingSessions": 1,
+        "changes": [
+          {
+            "id": 1,
+            "harness": "claude-code",
+            "file": "changes[0].file",
+            "edit": {
+              "kind": "json-key",
+              "path": ["changes[0].edit.path[0]"],
+              "value": {
+                "unknownFixture": "changes[0].edit.value"
+              }
+            },
+            "prior": {
+              "absent": true
+            },
+            "serves": "changes[0].serves",
+            "appliedAt": "changes[0].appliedAt",
+            "status": "restored",
+            "reason": "changes[0].reason"
+          }
+        ],
+        "conversations": [
+          {
+            "id": "conversations[0].id",
+            "title": "conversations[0].title"
+          }
+        ],
+        "homeExists": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"harnessPauseResult\",\"requestId\":\"requestId\",\"ok\":true,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":1,\"changes\":[{\"id\":1,\"harness\":\"claude-code\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"json-key\",\"path\":[\"changes[0].edit.path[0]\"],\"value\":{\"unknownFixture\":\"changes[0].edit.value\"}},\"prior\":{\"absent\":true},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"restored\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":true}"
+    },
+    {
+      "schema": "HarnessPauseResultMessage",
+      "variant": "full/arm1",
+      "wire": {
+        "type": "harnessPauseResult",
+        "requestId": "requestId",
+        "ok": false,
+        "error": "error",
+        "outcome": "outcome",
+        "version": "version",
+        "pendingSessions": 2,
+        "changes": [
+          {
+            "id": 2,
+            "harness": "codex",
+            "file": "changes[0].file",
+            "edit": {
+              "kind": "toml-array-entry",
+              "path": ["changes[0].edit.path[0]"],
+              "value": "changes[0].edit.value"
+            },
+            "prior": {
+              "value": {
+                "unknownFixture": "changes[0].prior.value"
+              }
+            },
+            "serves": "changes[0].serves",
+            "appliedAt": "changes[0].appliedAt",
+            "status": "changed",
+            "reason": "changes[0].reason"
+          }
+        ],
+        "conversations": [
+          {
+            "id": "conversations[0].id",
+            "title": "conversations[0].title"
+          }
+        ],
+        "homeExists": false
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"harnessPauseResult\",\"requestId\":\"requestId\",\"ok\":false,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":2,\"changes\":[{\"id\":2,\"harness\":\"codex\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"toml-array-entry\",\"path\":[\"changes[0].edit.path[0]\"],\"value\":\"changes[0].edit.value\"},\"prior\":{\"value\":{\"unknownFixture\":\"changes[0].prior.value\"}},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"changed\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":false}"
+    },
+    {
+      "schema": "HarnessPauseResultMessage",
+      "variant": "full/arm2",
+      "wire": {
+        "type": "harnessPauseResult",
+        "requestId": "requestId",
+        "ok": true,
+        "error": "error",
+        "outcome": "outcome",
+        "version": "version",
+        "pendingSessions": 3,
+        "changes": [
+          {
+            "id": 3,
+            "harness": "grok",
+            "file": "changes[0].file",
+            "edit": {
+              "kind": "owned-file",
+              "sha256": "changes[0].edit.sha256"
+            },
+            "prior": {
+              "contents": "changes[0].prior.contents"
+            },
+            "serves": "changes[0].serves",
+            "appliedAt": "changes[0].appliedAt",
+            "status": "failed",
+            "reason": "changes[0].reason"
+          }
+        ],
+        "conversations": [
+          {
+            "id": "conversations[0].id",
+            "title": "conversations[0].title"
+          }
+        ],
+        "homeExists": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {
+        "changes[0].prior.contents": "changes[0].prior.contents"
+      },
+      "encoded": "{\"type\":\"harnessPauseResult\",\"requestId\":\"requestId\",\"ok\":true,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":3,\"changes\":[{\"id\":3,\"harness\":\"grok\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"owned-file\",\"sha256\":\"changes[0].edit.sha256\"},\"prior\":{},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"failed\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":true}"
+    },
+    {
+      "schema": "HarnessRemoveChangesRequestMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "harnessRemoveChangesRequest",
+        "requestId": "requestId",
+        "harness": "claude-code"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"harnessRemoveChangesRequest\",\"requestId\":\"requestId\",\"harness\":\"claude-code\"}"
+    },
+    {
+      "schema": "HarnessRemoveChangesRequestMessage",
+      "variant": "full",
+      "wire": {
+        "type": "harnessRemoveChangesRequest",
+        "requestId": "requestId",
+        "harness": "claude-code"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"harnessRemoveChangesRequest\",\"requestId\":\"requestId\",\"harness\":\"claude-code\"}"
+    },
+    {
+      "schema": "HarnessRemoveChangesResultMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "harnessRemoveChangesResult",
+        "requestId": "requestId",
+        "ok": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"harnessRemoveChangesResult\",\"requestId\":\"requestId\",\"ok\":true}"
+    },
+    {
+      "schema": "HarnessRemoveChangesResultMessage",
+      "variant": "full/arm0",
+      "wire": {
+        "type": "harnessRemoveChangesResult",
+        "requestId": "requestId",
+        "ok": true,
+        "error": "error",
+        "outcome": "outcome",
+        "version": "version",
+        "pendingSessions": 1,
+        "changes": [
+          {
+            "id": 1,
+            "harness": "claude-code",
+            "file": "changes[0].file",
+            "edit": {
+              "kind": "json-key",
+              "path": ["changes[0].edit.path[0]"],
+              "value": {
+                "unknownFixture": "changes[0].edit.value"
+              }
+            },
+            "prior": {
+              "absent": true
+            },
+            "serves": "changes[0].serves",
+            "appliedAt": "changes[0].appliedAt",
+            "status": "restored",
+            "reason": "changes[0].reason"
+          }
+        ],
+        "conversations": [
+          {
+            "id": "conversations[0].id",
+            "title": "conversations[0].title"
+          }
+        ],
+        "homeExists": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"harnessRemoveChangesResult\",\"requestId\":\"requestId\",\"ok\":true,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":1,\"changes\":[{\"id\":1,\"harness\":\"claude-code\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"json-key\",\"path\":[\"changes[0].edit.path[0]\"],\"value\":{\"unknownFixture\":\"changes[0].edit.value\"}},\"prior\":{\"absent\":true},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"restored\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":true}"
+    },
+    {
+      "schema": "HarnessRemoveChangesResultMessage",
+      "variant": "full/arm1",
+      "wire": {
+        "type": "harnessRemoveChangesResult",
+        "requestId": "requestId",
+        "ok": false,
+        "error": "error",
+        "outcome": "outcome",
+        "version": "version",
+        "pendingSessions": 2,
+        "changes": [
+          {
+            "id": 2,
+            "harness": "codex",
+            "file": "changes[0].file",
+            "edit": {
+              "kind": "toml-array-entry",
+              "path": ["changes[0].edit.path[0]"],
+              "value": "changes[0].edit.value"
+            },
+            "prior": {
+              "value": {
+                "unknownFixture": "changes[0].prior.value"
+              }
+            },
+            "serves": "changes[0].serves",
+            "appliedAt": "changes[0].appliedAt",
+            "status": "changed",
+            "reason": "changes[0].reason"
+          }
+        ],
+        "conversations": [
+          {
+            "id": "conversations[0].id",
+            "title": "conversations[0].title"
+          }
+        ],
+        "homeExists": false
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"harnessRemoveChangesResult\",\"requestId\":\"requestId\",\"ok\":false,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":2,\"changes\":[{\"id\":2,\"harness\":\"codex\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"toml-array-entry\",\"path\":[\"changes[0].edit.path[0]\"],\"value\":\"changes[0].edit.value\"},\"prior\":{\"value\":{\"unknownFixture\":\"changes[0].prior.value\"}},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"changed\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":false}"
+    },
+    {
+      "schema": "HarnessRemoveChangesResultMessage",
+      "variant": "full/arm2",
+      "wire": {
+        "type": "harnessRemoveChangesResult",
+        "requestId": "requestId",
+        "ok": true,
+        "error": "error",
+        "outcome": "outcome",
+        "version": "version",
+        "pendingSessions": 3,
+        "changes": [
+          {
+            "id": 3,
+            "harness": "grok",
+            "file": "changes[0].file",
+            "edit": {
+              "kind": "owned-file",
+              "sha256": "changes[0].edit.sha256"
+            },
+            "prior": {
+              "contents": "changes[0].prior.contents"
+            },
+            "serves": "changes[0].serves",
+            "appliedAt": "changes[0].appliedAt",
+            "status": "failed",
+            "reason": "changes[0].reason"
+          }
+        ],
+        "conversations": [
+          {
+            "id": "conversations[0].id",
+            "title": "conversations[0].title"
+          }
+        ],
+        "homeExists": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {
+        "changes[0].prior.contents": "changes[0].prior.contents"
+      },
+      "encoded": "{\"type\":\"harnessRemoveChangesResult\",\"requestId\":\"requestId\",\"ok\":true,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":3,\"changes\":[{\"id\":3,\"harness\":\"grok\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"owned-file\",\"sha256\":\"changes[0].edit.sha256\"},\"prior\":{},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"failed\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":true}"
+    },
+    {
+      "schema": "HarnessRemoveRequestMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "harnessRemoveRequest",
+        "requestId": "requestId",
+        "harness": "claude-code"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"harnessRemoveRequest\",\"requestId\":\"requestId\",\"harness\":\"claude-code\"}"
+    },
+    {
+      "schema": "HarnessRemoveRequestMessage",
+      "variant": "full",
+      "wire": {
+        "type": "harnessRemoveRequest",
+        "requestId": "requestId",
+        "harness": "claude-code"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"harnessRemoveRequest\",\"requestId\":\"requestId\",\"harness\":\"claude-code\"}"
+    },
+    {
+      "schema": "HarnessRemoveResultMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "harnessRemoveResult",
+        "requestId": "requestId",
+        "ok": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"harnessRemoveResult\",\"requestId\":\"requestId\",\"ok\":true}"
+    },
+    {
+      "schema": "HarnessRemoveResultMessage",
+      "variant": "full/arm0",
+      "wire": {
+        "type": "harnessRemoveResult",
+        "requestId": "requestId",
+        "ok": true,
+        "error": "error",
+        "outcome": "outcome",
+        "version": "version",
+        "pendingSessions": 1,
+        "changes": [
+          {
+            "id": 1,
+            "harness": "claude-code",
+            "file": "changes[0].file",
+            "edit": {
+              "kind": "json-key",
+              "path": ["changes[0].edit.path[0]"],
+              "value": {
+                "unknownFixture": "changes[0].edit.value"
+              }
+            },
+            "prior": {
+              "absent": true
+            },
+            "serves": "changes[0].serves",
+            "appliedAt": "changes[0].appliedAt",
+            "status": "restored",
+            "reason": "changes[0].reason"
+          }
+        ],
+        "conversations": [
+          {
+            "id": "conversations[0].id",
+            "title": "conversations[0].title"
+          }
+        ],
+        "homeExists": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"harnessRemoveResult\",\"requestId\":\"requestId\",\"ok\":true,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":1,\"changes\":[{\"id\":1,\"harness\":\"claude-code\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"json-key\",\"path\":[\"changes[0].edit.path[0]\"],\"value\":{\"unknownFixture\":\"changes[0].edit.value\"}},\"prior\":{\"absent\":true},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"restored\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":true}"
+    },
+    {
+      "schema": "HarnessRemoveResultMessage",
+      "variant": "full/arm1",
+      "wire": {
+        "type": "harnessRemoveResult",
+        "requestId": "requestId",
+        "ok": false,
+        "error": "error",
+        "outcome": "outcome",
+        "version": "version",
+        "pendingSessions": 2,
+        "changes": [
+          {
+            "id": 2,
+            "harness": "codex",
+            "file": "changes[0].file",
+            "edit": {
+              "kind": "toml-array-entry",
+              "path": ["changes[0].edit.path[0]"],
+              "value": "changes[0].edit.value"
+            },
+            "prior": {
+              "value": {
+                "unknownFixture": "changes[0].prior.value"
+              }
+            },
+            "serves": "changes[0].serves",
+            "appliedAt": "changes[0].appliedAt",
+            "status": "changed",
+            "reason": "changes[0].reason"
+          }
+        ],
+        "conversations": [
+          {
+            "id": "conversations[0].id",
+            "title": "conversations[0].title"
+          }
+        ],
+        "homeExists": false
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"harnessRemoveResult\",\"requestId\":\"requestId\",\"ok\":false,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":2,\"changes\":[{\"id\":2,\"harness\":\"codex\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"toml-array-entry\",\"path\":[\"changes[0].edit.path[0]\"],\"value\":\"changes[0].edit.value\"},\"prior\":{\"value\":{\"unknownFixture\":\"changes[0].prior.value\"}},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"changed\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":false}"
+    },
+    {
+      "schema": "HarnessRemoveResultMessage",
+      "variant": "full/arm2",
+      "wire": {
+        "type": "harnessRemoveResult",
+        "requestId": "requestId",
+        "ok": true,
+        "error": "error",
+        "outcome": "outcome",
+        "version": "version",
+        "pendingSessions": 3,
+        "changes": [
+          {
+            "id": 3,
+            "harness": "grok",
+            "file": "changes[0].file",
+            "edit": {
+              "kind": "owned-file",
+              "sha256": "changes[0].edit.sha256"
+            },
+            "prior": {
+              "contents": "changes[0].prior.contents"
+            },
+            "serves": "changes[0].serves",
+            "appliedAt": "changes[0].appliedAt",
+            "status": "failed",
+            "reason": "changes[0].reason"
+          }
+        ],
+        "conversations": [
+          {
+            "id": "conversations[0].id",
+            "title": "conversations[0].title"
+          }
+        ],
+        "homeExists": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {
+        "changes[0].prior.contents": "changes[0].prior.contents"
+      },
+      "encoded": "{\"type\":\"harnessRemoveResult\",\"requestId\":\"requestId\",\"ok\":true,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":3,\"changes\":[{\"id\":3,\"harness\":\"grok\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"owned-file\",\"sha256\":\"changes[0].edit.sha256\"},\"prior\":{},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"failed\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":true}"
+    },
+    {
+      "schema": "HarnessResumeRequestMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "harnessResumeRequest",
+        "requestId": "requestId",
+        "harness": "claude-code"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"harnessResumeRequest\",\"requestId\":\"requestId\",\"harness\":\"claude-code\"}"
+    },
+    {
+      "schema": "HarnessResumeRequestMessage",
+      "variant": "full",
+      "wire": {
+        "type": "harnessResumeRequest",
+        "requestId": "requestId",
+        "harness": "claude-code"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"harnessResumeRequest\",\"requestId\":\"requestId\",\"harness\":\"claude-code\"}"
+    },
+    {
+      "schema": "HarnessResumeResultMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "harnessResumeResult",
+        "requestId": "requestId",
+        "ok": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"harnessResumeResult\",\"requestId\":\"requestId\",\"ok\":true}"
+    },
+    {
+      "schema": "HarnessResumeResultMessage",
+      "variant": "full/arm0",
+      "wire": {
+        "type": "harnessResumeResult",
+        "requestId": "requestId",
+        "ok": true,
+        "error": "error",
+        "outcome": "outcome",
+        "version": "version",
+        "pendingSessions": 1,
+        "changes": [
+          {
+            "id": 1,
+            "harness": "claude-code",
+            "file": "changes[0].file",
+            "edit": {
+              "kind": "json-key",
+              "path": ["changes[0].edit.path[0]"],
+              "value": {
+                "unknownFixture": "changes[0].edit.value"
+              }
+            },
+            "prior": {
+              "absent": true
+            },
+            "serves": "changes[0].serves",
+            "appliedAt": "changes[0].appliedAt",
+            "status": "restored",
+            "reason": "changes[0].reason"
+          }
+        ],
+        "conversations": [
+          {
+            "id": "conversations[0].id",
+            "title": "conversations[0].title"
+          }
+        ],
+        "homeExists": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"harnessResumeResult\",\"requestId\":\"requestId\",\"ok\":true,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":1,\"changes\":[{\"id\":1,\"harness\":\"claude-code\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"json-key\",\"path\":[\"changes[0].edit.path[0]\"],\"value\":{\"unknownFixture\":\"changes[0].edit.value\"}},\"prior\":{\"absent\":true},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"restored\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":true}"
+    },
+    {
+      "schema": "HarnessResumeResultMessage",
+      "variant": "full/arm1",
+      "wire": {
+        "type": "harnessResumeResult",
+        "requestId": "requestId",
+        "ok": false,
+        "error": "error",
+        "outcome": "outcome",
+        "version": "version",
+        "pendingSessions": 2,
+        "changes": [
+          {
+            "id": 2,
+            "harness": "codex",
+            "file": "changes[0].file",
+            "edit": {
+              "kind": "toml-array-entry",
+              "path": ["changes[0].edit.path[0]"],
+              "value": "changes[0].edit.value"
+            },
+            "prior": {
+              "value": {
+                "unknownFixture": "changes[0].prior.value"
+              }
+            },
+            "serves": "changes[0].serves",
+            "appliedAt": "changes[0].appliedAt",
+            "status": "changed",
+            "reason": "changes[0].reason"
+          }
+        ],
+        "conversations": [
+          {
+            "id": "conversations[0].id",
+            "title": "conversations[0].title"
+          }
+        ],
+        "homeExists": false
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"harnessResumeResult\",\"requestId\":\"requestId\",\"ok\":false,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":2,\"changes\":[{\"id\":2,\"harness\":\"codex\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"toml-array-entry\",\"path\":[\"changes[0].edit.path[0]\"],\"value\":\"changes[0].edit.value\"},\"prior\":{\"value\":{\"unknownFixture\":\"changes[0].prior.value\"}},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"changed\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":false}"
+    },
+    {
+      "schema": "HarnessResumeResultMessage",
+      "variant": "full/arm2",
+      "wire": {
+        "type": "harnessResumeResult",
+        "requestId": "requestId",
+        "ok": true,
+        "error": "error",
+        "outcome": "outcome",
+        "version": "version",
+        "pendingSessions": 3,
+        "changes": [
+          {
+            "id": 3,
+            "harness": "grok",
+            "file": "changes[0].file",
+            "edit": {
+              "kind": "owned-file",
+              "sha256": "changes[0].edit.sha256"
+            },
+            "prior": {
+              "contents": "changes[0].prior.contents"
+            },
+            "serves": "changes[0].serves",
+            "appliedAt": "changes[0].appliedAt",
+            "status": "failed",
+            "reason": "changes[0].reason"
+          }
+        ],
+        "conversations": [
+          {
+            "id": "conversations[0].id",
+            "title": "conversations[0].title"
+          }
+        ],
+        "homeExists": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {
+        "changes[0].prior.contents": "changes[0].prior.contents"
+      },
+      "encoded": "{\"type\":\"harnessResumeResult\",\"requestId\":\"requestId\",\"ok\":true,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":3,\"changes\":[{\"id\":3,\"harness\":\"grok\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"owned-file\",\"sha256\":\"changes[0].edit.sha256\"},\"prior\":{},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"failed\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":true}"
+    },
+    {
+      "schema": "HarnessTakeSettingsRequestMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "harnessTakeSettingsRequest",
+        "requestId": "requestId",
+        "harness": "claude-code"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"harnessTakeSettingsRequest\",\"requestId\":\"requestId\",\"harness\":\"claude-code\"}"
+    },
+    {
+      "schema": "HarnessTakeSettingsRequestMessage",
+      "variant": "full",
+      "wire": {
+        "type": "harnessTakeSettingsRequest",
+        "requestId": "requestId",
+        "harness": "claude-code"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"harnessTakeSettingsRequest\",\"requestId\":\"requestId\",\"harness\":\"claude-code\"}"
+    },
+    {
+      "schema": "HarnessTakeSettingsResultMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "harnessTakeSettingsResult",
+        "requestId": "requestId",
+        "ok": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"harnessTakeSettingsResult\",\"requestId\":\"requestId\",\"ok\":true}"
+    },
+    {
+      "schema": "HarnessTakeSettingsResultMessage",
+      "variant": "full/arm0",
+      "wire": {
+        "type": "harnessTakeSettingsResult",
+        "requestId": "requestId",
+        "ok": true,
+        "error": "error",
+        "outcome": "outcome",
+        "version": "version",
+        "pendingSessions": 1,
+        "changes": [
+          {
+            "id": 1,
+            "harness": "claude-code",
+            "file": "changes[0].file",
+            "edit": {
+              "kind": "json-key",
+              "path": ["changes[0].edit.path[0]"],
+              "value": {
+                "unknownFixture": "changes[0].edit.value"
+              }
+            },
+            "prior": {
+              "absent": true
+            },
+            "serves": "changes[0].serves",
+            "appliedAt": "changes[0].appliedAt",
+            "status": "restored",
+            "reason": "changes[0].reason"
+          }
+        ],
+        "conversations": [
+          {
+            "id": "conversations[0].id",
+            "title": "conversations[0].title"
+          }
+        ],
+        "homeExists": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"harnessTakeSettingsResult\",\"requestId\":\"requestId\",\"ok\":true,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":1,\"changes\":[{\"id\":1,\"harness\":\"claude-code\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"json-key\",\"path\":[\"changes[0].edit.path[0]\"],\"value\":{\"unknownFixture\":\"changes[0].edit.value\"}},\"prior\":{\"absent\":true},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"restored\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":true}"
+    },
+    {
+      "schema": "HarnessTakeSettingsResultMessage",
+      "variant": "full/arm1",
+      "wire": {
+        "type": "harnessTakeSettingsResult",
+        "requestId": "requestId",
+        "ok": false,
+        "error": "error",
+        "outcome": "outcome",
+        "version": "version",
+        "pendingSessions": 2,
+        "changes": [
+          {
+            "id": 2,
+            "harness": "codex",
+            "file": "changes[0].file",
+            "edit": {
+              "kind": "toml-array-entry",
+              "path": ["changes[0].edit.path[0]"],
+              "value": "changes[0].edit.value"
+            },
+            "prior": {
+              "value": {
+                "unknownFixture": "changes[0].prior.value"
+              }
+            },
+            "serves": "changes[0].serves",
+            "appliedAt": "changes[0].appliedAt",
+            "status": "changed",
+            "reason": "changes[0].reason"
+          }
+        ],
+        "conversations": [
+          {
+            "id": "conversations[0].id",
+            "title": "conversations[0].title"
+          }
+        ],
+        "homeExists": false
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"harnessTakeSettingsResult\",\"requestId\":\"requestId\",\"ok\":false,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":2,\"changes\":[{\"id\":2,\"harness\":\"codex\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"toml-array-entry\",\"path\":[\"changes[0].edit.path[0]\"],\"value\":\"changes[0].edit.value\"},\"prior\":{\"value\":{\"unknownFixture\":\"changes[0].prior.value\"}},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"changed\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":false}"
+    },
+    {
+      "schema": "HarnessTakeSettingsResultMessage",
+      "variant": "full/arm2",
+      "wire": {
+        "type": "harnessTakeSettingsResult",
+        "requestId": "requestId",
+        "ok": true,
+        "error": "error",
+        "outcome": "outcome",
+        "version": "version",
+        "pendingSessions": 3,
+        "changes": [
+          {
+            "id": 3,
+            "harness": "grok",
+            "file": "changes[0].file",
+            "edit": {
+              "kind": "owned-file",
+              "sha256": "changes[0].edit.sha256"
+            },
+            "prior": {
+              "contents": "changes[0].prior.contents"
+            },
+            "serves": "changes[0].serves",
+            "appliedAt": "changes[0].appliedAt",
+            "status": "failed",
+            "reason": "changes[0].reason"
+          }
+        ],
+        "conversations": [
+          {
+            "id": "conversations[0].id",
+            "title": "conversations[0].title"
+          }
+        ],
+        "homeExists": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {
+        "changes[0].prior.contents": "changes[0].prior.contents"
+      },
+      "encoded": "{\"type\":\"harnessTakeSettingsResult\",\"requestId\":\"requestId\",\"ok\":true,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":3,\"changes\":[{\"id\":3,\"harness\":\"grok\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"owned-file\",\"sha256\":\"changes[0].edit.sha256\"},\"prior\":{},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"failed\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":true}"
+    },
+    {
+      "schema": "InstallHarness",
+      "variant": "minimal",
+      "wire": "claude-code",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"claude-code\""
+    },
+    {
+      "schema": "InstallHarness",
+      "variant": "full",
+      "wire": "claude-code",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"claude-code\""
+    }
+  ]
+}

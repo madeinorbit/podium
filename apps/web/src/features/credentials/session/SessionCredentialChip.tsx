@@ -11,6 +11,13 @@
 
 import { useRequestClient, useUi } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
+import {
+  type AcceptLine,
+  type CustodianOf,
+  KIND_WORDS,
+  sessionCredentialChoices,
+  sessionCredentialLine,
+} from '@podium/client-graph/session-credential-facts'
 import type { SessionSwitchCredentialOutput } from '@podium/commands'
 import { type CredentialId, type CredentialView, isTurnOpen, type SessionId } from '@podium/model'
 import { KeyRound } from 'lucide-react'
@@ -37,13 +44,6 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
 import { CredentialMenuItems } from './CredentialMenuItems'
-import {
-  type AcceptLine,
-  type CustodianOf,
-  KIND_WORDS,
-  sessionCredentialChoices,
-  sessionCredentialLine,
-} from './session-credential-facts'
 import { switchOutcome } from './switch-outcome'
 import {
   useHarnessAccepts,

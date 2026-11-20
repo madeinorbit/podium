@@ -1,6 +1,7 @@
 import { useCommands, useRequestClient, useUi } from '@podium/client-core/react'
 import type { SessionModel } from '@podium/client-graph'
 import type { MachineHarness } from '@podium/client-graph/machine-harness'
+import { sessionCredentialChoices } from '@podium/client-graph/session-credential-facts'
 import type { CredentialId, IssueId, SessionId } from '@podium/model'
 import { observer } from 'mobx-react-lite'
 import { useState } from 'react'
@@ -14,7 +15,6 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { CredentialMenuItems } from '@/features/credentials/session/CredentialMenuItems'
 import { useOpenCredentials } from '@/features/credentials/session/SessionCredentialNotice'
-import { sessionCredentialChoices } from '@/features/credentials/session/session-credential-facts'
 import {
   useHarnessAccepts,
   useSessionCredentials,

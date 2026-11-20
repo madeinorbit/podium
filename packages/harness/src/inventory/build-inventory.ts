@@ -101,6 +101,7 @@ export interface ManagedHarnessRecord {
   readonly previous?: ManagedReleaseCandidate
   /** The current release's number and version when its folder is no release. */
   readonly currentMissing?: { readonly release: number; readonly version?: string }
+  readonly installing?: { readonly version?: string }
   readonly removingAt?: string
   readonly paused: boolean
   readonly lastCheck?:
@@ -301,6 +302,7 @@ function installWire(
       ...(record.lastCheck?.ok ? { latest: record.lastCheck.latest } : {}),
       ...(record.lastCheck ? { lastCheckAt: record.lastCheck.at } : {}),
       paused: record.paused,
+      ...(record.installing ? { installing: record.installing } : {}),
       ...(record.removingAt ? { removingAt: record.removingAt } : {}),
       ...(lastError ? { lastError } : {}),
       ...(record.failingSince ? { failingSince: record.failingSince } : {}),

@@ -9,6 +9,7 @@
  */
 
 import { useUi } from '@podium/client-core/react'
+import type { AcceptLine, CustodianOf } from '@podium/client-graph/session-credential-facts'
 import type { CredentialMismatch, CredentialView, EffectiveAuth } from '@podium/model'
 import { TriangleAlert } from 'lucide-react'
 import { observer } from 'mobx-react-lite'
@@ -21,7 +22,6 @@ import {
   SwitchCredentialMenu,
   useSwitchCredential,
 } from './SessionCredentialChip'
-import type { AcceptLine, CustodianOf } from './session-credential-facts'
 import { useHarnessAccepts, useSessionCredentials } from './use-session-credentials'
 
 export type NoticeSession = ChipSession & { credentialMismatch?: CredentialMismatch }

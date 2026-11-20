@@ -92,5 +92,9 @@ it('opens a mention at its comment, a session, a credential, and nothing for an 
     kind: 'credential',
     credentialId: 'cred_1',
   })
+  expect(noticeDestination({ subjectKind: 'machine', subjectId: 'machine-1' })).toEqual({
+    kind: 'machine',
+    machineId: 'machine-1',
+  })
   expect(noticeDestination({ subjectKind: 'later-kind', subjectId: 'x' })).toEqual({ kind: 'none' })
 })

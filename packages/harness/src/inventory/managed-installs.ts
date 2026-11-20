@@ -41,6 +41,7 @@ export function readManagedInstalls(
   const ledger = InstallLedger.open({ ...options, harnessesDir })
   try {
     const harnesses = new Map<ManagedHarnessRecord['kind'], ManagedHarnessRecord>()
+    const holder = ledger.installLockHolder()
     for (const row of ledger.list()) {
       const current = row.current == null ? undefined : ledger.releaseFolder(row.kind, row.current)
       const previous =
@@ -60,6 +61,12 @@ export function readManagedInstalls(
             }
           : {}),
         paused: row.paused,
+        ...(!row.removingAt &&
+        holder &&
+        (holder.label.startsWith(`install ${row.kind}`) ||
+          holder.label.startsWith(`update ${row.kind}`))
+          ? { installing: { ...(row.lastCheck?.ok ? { version: row.lastCheck.latest } : {}) } }
+          : {}),
         ...(row.removingAt ? { removingAt: row.removingAt } : {}),
         ...(row.lastCheck ? { lastCheck: row.lastCheck } : {}),
         ...(row.lastInstallError ? { lastInstallError: row.lastInstallError } : {}),
