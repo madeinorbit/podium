@@ -18,14 +18,16 @@
  * - A failed edit is an outcome, not an error: the caller reports it as an
  *   unmet requirement and the session still starts.
  *
- * There is no ledger and no undo: the edits are re-derived at every launch.
+ * Applied edits in a person's home keep their prior value in the install
+ * ledger. Edits in Podium homes disappear with the home and need no record.
  */
-import { randomBytes } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import {
   chmod,
   link,
   mkdir,
   readFile,
+  readlink,
   realpath,
   rename,
   rm,
@@ -33,14 +35,21 @@ import {
   writeFile,
 } from 'node:fs/promises'
 import { basename, dirname, join, resolve } from 'node:path'
-import type { HomeEdit } from '@podium/harness'
-import { planTomlArrayEntry, tomlArrayHolds } from './harness-home-toml.js'
+import type { HomeEdit, JsonValue } from '@podium/harness'
+import type { HomeEditRecord, StoredHomeEdit } from '@podium/harness/inventory'
+import {
+  planTomlArrayEntry,
+  planTomlArrayEntryRemoval,
+  tomlArrayHolds,
+} from './harness-home-toml.js'
 
 export type HomeEditOutcome =
   | { edit: HomeEdit; status: 'already' | 'applied' }
   | { edit: HomeEdit; status: 'failed'; reason: string }
 
 export interface HomeEditPorts {
+  /** Follow links, including the existing parents of a file not created yet. */
+  realPath?(path: string): Promise<string>
   /** The file's text, or `undefined` when it does not exist. Other errors throw. */
   readFile(path: string): Promise<string | undefined>
   /** Write beside the file and rename over it, creating its folder when missing. */
@@ -53,6 +62,24 @@ export interface HomeEditPorts {
   createFileExclusive(path: string, contents: string): Promise<boolean>
   log(message: string, fields: Record<string, unknown>): void
 }
+
+export interface HomeEditRecorder {
+  harness: HomeEditRecord['harness']
+  record(record: HomeEditRecord): void | Promise<void>
+}
+
+export interface HomeEditLedger {
+  homeEdits(harness?: HomeEditRecord['harness']): StoredHomeEdit[]
+  removeHomeEdit(id: number): void
+}
+
+export interface HomeEditUndoPorts extends HomeEditPorts {
+  removeFile(path: string): Promise<void>
+}
+
+export type HomeEditUndoOutcome =
+  | { record: StoredHomeEdit; status: 'restored' }
+  | { record: StoredHomeEdit; status: 'changed' | 'failed'; reason: string }
 
 /** Attempts per edit: the first, and one retry when another program won. */
 const ATTEMPTS = 2
@@ -79,19 +106,54 @@ function serialized<T>(path: string, run: () => Promise<T>): Promise<T> {
 export async function applyHomeEdits(
   edits: readonly HomeEdit[],
   ports: HomeEditPorts,
+  recorder?: HomeEditRecorder,
 ): Promise<HomeEditOutcome[]> {
   const outcomes: HomeEditOutcome[] = []
   for (const edit of edits) {
-    outcomes.push(await serialized(edit.file, () => applyOne(edit, ports)))
+    try {
+      if (recorder && !ports.realPath) throw new Error('home edit recording needs a real path')
+      const file = (await ports.realPath?.(edit.file)) ?? edit.file
+      const result = await serialized(file, () => applyOne({ ...edit, file }, ports, recorder))
+      outcomes.push({ ...result, edit })
+    } catch (err) {
+      outcomes.push({
+        edit,
+        status: 'failed',
+        reason: `could not edit ${edit.file}: ${errorMessage(err)}`,
+      })
+    }
   }
   return outcomes
 }
 
-async function applyOne(edit: HomeEdit, ports: HomeEditPorts): Promise<HomeEditOutcome> {
+async function applyOne(
+  edit: HomeEdit,
+  ports: HomeEditPorts,
+  recorder?: HomeEditRecorder,
+): Promise<HomeEditOutcome> {
   try {
+    let prior: HomeEditRecord['prior'] | undefined
+    const beforeWrite = (body: string | undefined) => {
+      prior ??= priorValue(edit, body)
+    }
     const result =
-      edit.kind === 'owned-file' ? await applyOwnedFile(edit, ports) : await applyKeyed(edit, ports)
+      edit.kind === 'owned-file'
+        ? await applyOwnedFile(edit, ports, beforeWrite)
+        : await applyKeyed(edit, ports, beforeWrite)
     if (result.status === 'applied') {
+      if (recorder && prior) {
+        await recorder.record({
+          harness: recorder.harness,
+          file: edit.file,
+          edit:
+            edit.kind === 'owned-file'
+              ? { kind: edit.kind, sha256: sha256(edit.contents) }
+              : { kind: edit.kind, path: [...edit.path], value: edit.value },
+          prior,
+          serves: edit.serves,
+          appliedAt: new Date().toISOString(),
+        })
+      }
       ports.log('harness home edit applied', {
         kind: edit.kind,
         file: edit.file,
@@ -109,11 +171,17 @@ type JsonKeyEdit = Extract<HomeEdit, { kind: 'json-key' }>
 type TomlArrayEntryEdit = Extract<HomeEdit, { kind: 'toml-array-entry' }>
 type OwnedFileEdit = Extract<HomeEdit, { kind: 'owned-file' }>
 
-async function applyOwnedFile(edit: OwnedFileEdit, ports: HomeEditPorts): Promise<HomeEditOutcome> {
+async function applyOwnedFile(
+  edit: OwnedFileEdit,
+  ports: HomeEditPorts,
+  beforeWrite: (body: string | undefined) => void,
+): Promise<HomeEditOutcome> {
   for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
-    if ((await ports.readFile(edit.file)) === edit.contents) {
+    const body = await ports.readFile(edit.file)
+    if (body === edit.contents) {
       return { edit, status: attempt === 0 ? 'already' : 'applied' }
     }
+    beforeWrite(body)
     await ports.writeFileAtomic(edit.file, edit.contents)
     if ((await ports.readFile(edit.file)) === edit.contents) return { edit, status: 'applied' }
   }
@@ -152,6 +220,7 @@ function keyedFormat(edit: JsonKeyEdit | TomlArrayEntryEdit): KeyedFormat {
 async function applyKeyed(
   edit: JsonKeyEdit | TomlArrayEntryEdit,
   ports: HomeEditPorts,
+  beforeWrite: (body: string | undefined) => void,
 ): Promise<HomeEditOutcome> {
   if (edit.path.length === 0) {
     return {
@@ -180,6 +249,7 @@ async function applyKeyed(
         return { edit, status: 'failed', reason: `could not plan a new ${edit.file}` }
       }
       if (await ports.createFileExclusive(edit.file, created.next)) {
+        beforeWrite(undefined)
         wrote = true
         const after = await ports.readFile(edit.file)
         if (after !== undefined && format.holds(after)) return { edit, status: 'applied' }
@@ -192,6 +262,7 @@ async function applyKeyed(
     // Write only over the very file the edit was planned from: a body that
     // changed since is newer than our copy, and the next attempt starts from it.
     if ((await ports.readFile(edit.file)) !== body) continue
+    beforeWrite(body)
     await ports.writeFileAtomic(edit.file, planned.next)
     wrote = true
     const after = await ports.readFile(edit.file)
@@ -289,6 +360,102 @@ function jsonEqual(a: unknown, b: unknown): boolean {
   return false
 }
 
+function sha256(contents: string): string {
+  return createHash('sha256').update(contents).digest('hex')
+}
+
+function jsonKeyValue(body: string, path: readonly string[]): unknown {
+  let node: unknown = JSON.parse(body)
+  for (const key of path) {
+    if (!isObject(node)) return undefined
+    node = ownValue(node, key)
+  }
+  return node
+}
+
+function priorValue(edit: HomeEdit, body: string | undefined): HomeEditRecord['prior'] {
+  if (edit.kind === 'owned-file') {
+    return body === undefined ? { absent: true } : { contents: body }
+  }
+  if (body === undefined || edit.kind === 'toml-array-entry') return { absent: true }
+  const value = jsonKeyValue(body, edit.path)
+  return value === undefined ? { absent: true } : { value: value as JsonValue }
+}
+
+/** List and undo share the ledger's records; conflicts stay recorded for review/retry. */
+export async function undoHomeEdits(
+  ledger: HomeEditLedger,
+  ports: HomeEditUndoPorts,
+  harness?: HomeEditRecord['harness'],
+): Promise<HomeEditUndoOutcome[]> {
+  const outcomes: HomeEditUndoOutcome[] = []
+  for (const record of ledger.homeEdits(harness)) {
+    outcomes.push(
+      await serialized(record.file, async () => {
+        try {
+          // The record names the file originally written, not a dotfile link
+          // that may since have been pointed at a different file.
+          if (ports.realPath && (await ports.realPath(record.file)) !== record.file) {
+            return {
+              record,
+              status: 'changed',
+              reason: 'the recorded path now points elsewhere; left it untouched',
+            }
+          }
+          for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
+            const body = await ports.readFile(record.file)
+            const planned = planUndo(record, body)
+            if ('reason' in planned) return { record, status: 'changed', reason: planned.reason }
+            if ((await ports.readFile(record.file)) !== body) continue
+            if (planned.next === undefined) await ports.removeFile(record.file)
+            else await ports.writeFileAtomic(record.file, planned.next)
+            if ((await ports.readFile(record.file)) === planned.next) {
+              ledger.removeHomeEdit(record.id)
+              return { record, status: 'restored' }
+            }
+          }
+          return { record, status: 'failed', reason: anotherWriter(record.file) }
+        } catch (err) {
+          return { record, status: 'failed', reason: errorMessage(err) }
+        }
+      }),
+    )
+  }
+  return outcomes
+}
+
+function planUndo(
+  record: HomeEditRecord,
+  body: string | undefined,
+): { next: string | undefined } | { reason: string } {
+  const changed = { reason: 'the file no longer holds Podium’s value; left it untouched' }
+  const { edit, prior } = record
+  if (body === undefined) return changed
+  if (edit.kind === 'owned-file') {
+    if (sha256(body) !== edit.sha256) return changed
+    if ('absent' in prior) return { next: undefined }
+    if ('contents' in prior) return { next: prior.contents }
+    throw new Error('an owned-file record needs prior contents or absence')
+  }
+  if (edit.kind === 'toml-array-entry') {
+    if (!tomlArrayHolds(body, edit.path, edit.value)) return changed
+    return planTomlArrayEntryRemoval(body, edit.path, edit.value)
+  }
+  if (
+    edit.path.length === 0 ||
+    !holdsValue(body, { ...edit, file: record.file, serves: record.serves })
+  )
+    return changed
+  const root: unknown = JSON.parse(body)
+  let node = root as Record<string, unknown>
+  for (const key of edit.path.slice(0, -1)) node = ownValue(node, key) as Record<string, unknown>
+  const leaf = edit.path[edit.path.length - 1] as string
+  if ('absent' in prior) delete node[leaf]
+  else if ('value' in prior) setOwn(node, leaf, prior.value)
+  else throw new Error('a json-key record needs a prior value or absence')
+  return { next: serializeLike(body, root) }
+}
+
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
 }
@@ -298,8 +465,14 @@ function errorMessage(err: unknown): string {
  * is renamed over it; a symlinked target (a dotfile manager's link) is written
  * through to the file it points at, and an existing file keeps its mode.
  */
-export function nodeHomeEditPorts(log: HomeEditPorts['log']): HomeEditPorts {
+export function nodeHomeEditPorts(log: HomeEditPorts['log']): HomeEditUndoPorts & {
+  realPath(path: string): Promise<string>
+} {
   return {
+    realPath: realHomeEditPath,
+    async removeFile(path) {
+      await rm(path)
+    },
     async readFile(path) {
       try {
         return await readFile(path, 'utf8')
@@ -355,5 +528,25 @@ export function nodeHomeEditPorts(log: HomeEditPorts['log']): HomeEditPorts {
       }
     },
     log,
+  }
+}
+
+/** Resolve existing links even when the target file or its last parents are absent. */
+async function realHomeEditPath(path: string): Promise<string> {
+  const absolute = resolve(path)
+  try {
+    return await realpath(absolute)
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err
+    const linked = await readlink(absolute).catch((linkError: NodeJS.ErrnoException) => {
+      if (linkError.code === 'ENOENT' || linkError.code === 'EINVAL') return undefined
+      throw linkError
+    })
+    if (linked !== undefined) return realHomeEditPath(resolve(dirname(absolute), linked))
+    // realpath on a missing leaf loses symlinked parent information. Resolve
+    // upwards until an existing ancestor supplies it.
+    const parent = dirname(absolute)
+    if (parent === absolute) throw err
+    return join(await realHomeEditPath(parent), basename(absolute))
   }
 }

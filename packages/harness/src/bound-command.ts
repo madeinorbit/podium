@@ -15,6 +15,8 @@
  * {@link shellCommand} brands it separately, and only the PTY spawn takes
  * either kind.
  */
+
+import type { BuiltinHarnessKind } from '@podium/protocol'
 import type { HarnessContext } from './harness-context-types.js'
 import type { LaunchFile } from './manifest.js'
 import { applyTerms } from './posture.js'
@@ -47,6 +49,8 @@ export type BoundCommand<I extends HarnessArgv = HarnessArgv> = Omit<
   readonly env: Record<string, string>
   readonly files: LaunchFile[]
   readonly terms: AppliedTerms
+  /** Ownership of the home the posture edits. Carried through engine launches. */
+  readonly homeEditScope?: { harness: BuiltinHarnessKind; personal: boolean }
   readonly [boundCommandBrand]: true
 }
 
@@ -93,6 +97,14 @@ export function harnessCommand<I extends HarnessArgv>(
     env: { ...launch.env },
     files: launch.files.map((file) => ({ ...file })),
     terms: applied,
+    ...('request' in terms && applied.homeEdits.length > 0
+      ? {
+          homeEditScope: {
+            harness: terms.request.context.installation.kind,
+            personal: terms.request.context.harnessHome === undefined,
+          },
+        }
+      : {}),
   } as unknown as BoundCommand<I>
 }
 

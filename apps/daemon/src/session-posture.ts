@@ -30,9 +30,15 @@ import type {
   UnmetRequirement,
 } from '@podium/harness'
 import type { SessionSpec } from '@podium/harness/driver/host'
+import { InstallLedger } from '@podium/harness/inventory'
 import { createLogger } from '@podium/logger'
 import type { SessionId } from '@podium/model'
-import { applyHomeEdits, type HomeEditPorts, nodeHomeEditPorts } from './harness-home-edits.js'
+import {
+  applyHomeEdits,
+  type HomeEditPorts,
+  type HomeEditRecorder,
+  nodeHomeEditPorts,
+} from './harness-home-edits.js'
 import { sessionUploadsDir } from './session-uploads.js'
 import { gitWorktree } from './worktree-resolve.js'
 
@@ -161,6 +167,8 @@ export interface PrepareLaunchPorts {
   writeLaunchFile(file: LaunchFile): Promise<void>
   /** The home-edit mechanism's file access. */
   homeEdits: HomeEditPorts
+  /** Persist a changed personal-home value; opened only when a write was applied. */
+  recordHomeEdit?: HomeEditRecorder['record']
   log(message: string, fields: Record<string, unknown>): void
 }
 
@@ -175,6 +183,14 @@ export function nodePrepareLaunchPorts(context: Record<string, unknown> = {}): P
       await writeFile(file.path, file.contents, { mode: 0o600 })
     },
     homeEdits: nodeHomeEditPorts(info),
+    recordHomeEdit(record) {
+      const ledger = InstallLedger.open()
+      try {
+        ledger.recordHomeEdit(record)
+      } finally {
+        ledger.close()
+      }
+    },
     log: info,
   }
 }
@@ -190,11 +206,18 @@ export function nodePrepareLaunchPorts(context: Record<string, unknown> = {}): P
  * that file.
  */
 export async function prepareLaunch(
-  command: Pick<BoundCommand, 'files' | 'terms'>,
+  command: Pick<BoundCommand, 'files' | 'terms' | 'homeEditScope'>,
   ports: PrepareLaunchPorts,
 ): Promise<AppliedTerms> {
   for (const file of command.files) await ports.writeLaunchFile(file)
-  const outcomes = await applyHomeEdits(command.terms.homeEdits, ports.homeEdits)
+  const scope = command.homeEditScope
+  const outcomes = await applyHomeEdits(
+    command.terms.homeEdits,
+    ports.homeEdits,
+    scope?.personal && ports.recordHomeEdit
+      ? { harness: scope.harness, record: ports.recordHomeEdit }
+      : undefined,
+  )
   const failed: UnmetRequirement[] = []
   for (const outcome of outcomes) {
     if (outcome.status !== 'failed') continue

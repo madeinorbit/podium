@@ -82,6 +82,51 @@ export function tomlArrayHolds(body: string, path: readonly string[], value: str
   )
 }
 
+/** Remove one matching string and its separator. All other text stays byte for byte. */
+export function planTomlArrayEntryRemoval(
+  body: string,
+  path: readonly string[],
+  value: string,
+): TomlPlan {
+  const scanned = scanOrReason(body)
+  if ('reason' in scanned) return scanned
+  const target = scanned.statements.find((s) => s.kind === 'pair' && samePath(s.path, path))
+  if (target?.kind !== 'pair' || target.value.kind !== 'array') {
+    return { reason: `${dottedKey(path)} is no longer an array; left the file untouched` }
+  }
+  const array = target.value
+  const index = array.items.findIndex((entry) => entry.text === value)
+  const item = array.items[index]
+  if (!item) return { next: undefined }
+  const next = array.items[index + 1]
+  const previous = array.items[index - 1]
+  // A comma belongs to the removed item when it has a successor or a
+  // trailing comma. Otherwise take its predecessor's separator. Look only
+  // between item spans, skipping comments so a comma in one is never used.
+  const after = next !== undefined || array.trailingComma !== undefined
+  const from = after ? item.end : previous?.end
+  const to = after ? (next?.start ?? array.close) : item.start
+  let comma: number | undefined
+  if (from !== undefined) {
+    for (let pos = from; pos < to; pos++) {
+      if (body[pos] === '#') {
+        const end = body.indexOf('\n', pos)
+        pos = end < 0 ? to : end
+      } else if (body[pos] === ',') {
+        comma = pos
+        break
+      }
+    }
+  }
+  const spans = [{ start: item.start, end: item.end }]
+  if (comma !== undefined) spans.push({ start: comma, end: comma + 1 })
+  let result = body
+  for (const span of spans.sort((a, b) => b.start - a.start)) {
+    result = result.slice(0, span.start) + result.slice(span.end)
+  }
+  return { next: result }
+}
+
 /**
  * A TOML basic string. `"` and `\` are escaped, and so is every control
  * character TOML does not allow raw; everything else stays as it is.
