@@ -120,6 +120,9 @@ export const opencodeManifest: AgentManifest = {
   credentials: opencodeCredentials,
   usage: opencodeUsage,
   install: opencodeInstall,
+  managedInstall: unsupported(
+    'Not yet ported to managed installs: Podium has no unattended OpenCode installer to build on',
+  ),
 
   posture: opencodePosture,
   launch(opts) {

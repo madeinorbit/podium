@@ -87,6 +87,9 @@ export const cursorManifest: AgentManifest = {
   credentials: cursorCredentials,
   usage: cursorUsage,
   install: cursorInstall,
+  managedInstall: unsupported(
+    'Not yet ported to managed installs: Podium has no unattended Cursor installer to build on',
+  ),
 
   posture: cursorPosture,
   launch(opts) {

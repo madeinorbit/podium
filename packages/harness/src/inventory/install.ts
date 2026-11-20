@@ -16,7 +16,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { isAbsolute, join } from 'node:path'
 import { type HostTools, hostTools } from '../host-tools.js'
-import { declaredValue, type HarnessInstallPorts } from '../manifest.js'
+import { declaredValue, type HarnessInstallScriptPorts } from '../manifest.js'
 import { AGENT_MANIFESTS, manifestFor } from '../registry.js'
 
 export interface InstallRequestPorts {
@@ -24,8 +24,8 @@ export interface InstallRequestPorts {
   fetch?: (url: string, out: string) => void
   /** Run a command, returning its combined output; throws with that output on failure. */
   run?: (cmd: string, args: string[], env: NodeJS.ProcessEnv) => string
-  /** Run an OS tool (an installer's shell) by name; see {@link HarnessInstallPorts.runTool}. */
-  runTool?: HarnessInstallPorts['runTool']
+  /** Run an OS tool (an installer's shell) by name; see {@link HarnessInstallScriptPorts.runTool}. */
+  runTool?: HarnessInstallScriptPorts['runTool']
   env?: NodeJS.ProcessEnv
   arch?: string
   /** Whether this box's libc is musl — Claude ships a separate build for it. */
@@ -77,11 +77,11 @@ function defaultIsMusl(tools: HostTools): () => boolean {
 }
 
 /** An installer's shell (`sh`, `bash`) by absolute path, through the port. */
-function defaultRunTool(tools: HostTools): HarnessInstallPorts['runTool'] {
+function defaultRunTool(tools: HostTools): HarnessInstallScriptPorts['runTool'] {
   return (tool, args, env) => tools.execFileSync(tool, args, { env })
 }
 
-function resolvePorts(request: InstallRequestPorts = {}): HarnessInstallPorts {
+function resolvePorts(request: InstallRequestPorts = {}): HarnessInstallScriptPorts {
   const env = request.env ?? process.env
   const tools = hostTools(env)
   return {

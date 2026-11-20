@@ -368,6 +368,9 @@ export const codexManifest: AgentManifest = {
   credentials: supported(codexCredentials),
   usage: supported(codexUsage),
   install: supported(codexInstall),
+  managedInstall: unsupported(
+    'Not yet ported to managed installs: the Codex harness task of the managed-installs phase writes it',
+  ),
 
   posture: codexPosture,
   launch(opts) {

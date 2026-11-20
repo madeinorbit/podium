@@ -227,6 +227,9 @@ export const piManifest: AgentManifest = {
   credentials: piCredentials,
   usage: piUsage,
   install: piInstall,
+  managedInstall: unsupported(
+    'Not yet ported to managed installs: Podium has no unattended Pi installer to build on',
+  ),
 
   posture: piPosture,
   launch(opts) {

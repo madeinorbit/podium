@@ -6,9 +6,9 @@
  * `--version` verification around it are the generic mechanism
  * (`inventory/install.ts`) and stay harness-free.
  */
-import type { HarnessInstall } from '../../manifest.js'
+import type { HarnessInstallScript } from '../../manifest.js'
 
-export const grokInstall: HarnessInstall = {
+export const grokInstall: HarnessInstallScript = {
   binary: 'grok',
   url: (env) => env.PODIUM_GROK_INSTALL_URL ?? 'https://x.ai/cli/install.sh',
   runInstaller(scriptPath, binDir, ports) {

@@ -167,6 +167,9 @@ export const grokManifest: AgentManifest = {
   credentials: supported(grokCredentials),
   usage: supported(grokUsage),
   install: supported(grokInstall),
+  managedInstall: unsupported(
+    'Not yet ported to managed installs: the Grok harness task of the managed-installs phase writes it',
+  ),
 
   posture: grokPosture,
   launch(opts) {

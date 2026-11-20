@@ -77,6 +77,33 @@ export {
   releaseFolderName,
   writeInstallReceipt,
 } from './inventory/install-receipt.js'
+export type {
+  HousekeepOptions,
+  HousekeepResult,
+  InstallReleaseOptions,
+  InstallReleaseResult,
+  InstallStep,
+  ManagedInstallHostOptions,
+  ManagedInstallTarget,
+  VendorOrigins,
+  VersionProbeResult,
+} from './inventory/managed-install.js'
+export {
+  applyVendorOrigins,
+  housekeepReleases,
+  installerEnvFor,
+  installRelease,
+  managedCheckPorts,
+  managedInstallEnv,
+  managedInstallPorts,
+  managedInstallTargetFor,
+  managedInstallTargets,
+  printsVersion,
+  probeExecutable,
+  sweepReleaseFolders,
+  VENDOR_ORIGINS_ENV,
+  vendorOriginsFromEnv,
+} from './inventory/managed-install.js'
 export type { AccountReadScope, QuotaFetcher } from './inventory/usage.js'
 export {
   makeQuotaFetcher,

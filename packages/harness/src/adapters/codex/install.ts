@@ -6,9 +6,9 @@
  * `--version` verification around it are the generic mechanism
  * (`inventory/install.ts`) and stay harness-free.
  */
-import type { HarnessInstall } from '../../manifest.js'
+import type { HarnessInstallScript } from '../../manifest.js'
 
-export const codexInstall: HarnessInstall = {
+export const codexInstall: HarnessInstallScript = {
   binary: 'codex',
   url: (env) => env.PODIUM_CODEX_INSTALL_URL ?? 'https://chatgpt.com/codex/install.sh',
   runInstaller(scriptPath, binDir, ports) {

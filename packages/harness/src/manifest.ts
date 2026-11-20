@@ -652,7 +652,7 @@ export interface HarnessUsage {
  * — and the CLI through it — runs installs against fakes in tests and never
  * shells out by accident.
  */
-export interface HarnessInstallPorts {
+export interface HarnessInstallScriptPorts {
   /** Download a URL to a path. Never forwards a GitHub auth token — these are vendor hosts. */
   fetch(url: string, out: string): void
   /** Run a program by ABSOLUTE path (the installed binary's `--version`),
@@ -681,8 +681,12 @@ export interface HarnessInstallPorts {
  * and declaring them as data would build a shell interpreter. The temp-dir
  * lifecycle, the fetch, and the `--version` verification around it are the
  * generic mechanism (`inventory/install.ts`) and stay harness-free.
+ *
+ * Today's `--agents` path: it writes into `~/.local/bin` and forgets. Replaced
+ * by {@link HarnessInstall} (`managedInstall`); the requests task moves the CLI
+ * onto that and deletes this section (docs/design/harness-managed-installs.md §11).
  */
-export interface HarnessInstall {
+export interface HarnessInstallScript {
   /** Binary this install produces directly under the target bin dir. */
   binary: string
   /** Vendor installer URL — after this harness's own env override. */
@@ -691,7 +695,112 @@ export interface HarnessInstall {
    * Run the fetched installer script. Must leave `binary` behind under
    * `binDir`; throw with the vendor's own output on failure.
    */
-  runInstaller(scriptPath: string, binDir: string, ports: HarnessInstallPorts): void
+  runInstaller(scriptPath: string, binDir: string, ports: HarnessInstallScriptPorts): void
+}
+
+// ---------------------------------------------------------------------------
+// Managed install — one release into a folder Podium picks (POD-6865,
+// docs/design/harness-managed-installs.md §5.3).
+// ---------------------------------------------------------------------------
+
+/** One vendor release, as the vendor names it. */
+export interface HarnessRelease {
+  version: string
+}
+
+/** What proved a download. */
+export type ReleaseIntegrityProof =
+  | { kind: 'sha256'; digest: string; publishedAt: string }
+  | { kind: 'none'; reason: string }
+
+/** What an adapter's `install` put into its folder. */
+export interface InstalledRelease {
+  /** The executable, relative to the folder `install` was given. */
+  executable: string
+  /** What proved the download. */
+  integrity: ReleaseIntegrityProof
+  /** The vendor URL the release came from, as the vendor names it (before any test redirect). */
+  source: string
+}
+
+/**
+ * The host operations a managed install may use. All asynchronous: a daemon
+ * must not freeze for the length of a 360 MB download.
+ *
+ * VENDOR HOSTS ARE MOVABLE. An adapter names its vendor's real URLs and fetches
+ * them through `fetch`/`fetchText`, which apply the mechanism's vendor-origin
+ * map; a URL handed to a vendor tool goes through `vendorUrl` first. Tests point
+ * the map at a local fake vendor host and the acceptance run at a stand-in
+ * vendor host (`PODIUM_HARNESS_VENDOR_ORIGINS`). An adapter never reads a base
+ * URL from `env`: that is the machine's environment, not Podium's.
+ */
+export interface HarnessCheckPorts {
+  /** Download a vendor URL to a path. No auth header is ever sent. Throws on a non-2xx answer. */
+  fetch(url: string, out: string): Promise<void>
+  /** A small vendor document (a version pointer, a manifest) as text. */
+  fetchText(url: string): Promise<string>
+  /** `url` as this run reaches it: the vendor-origin map applied. */
+  vendorUrl(url: string): string
+  /** Run a program by ABSOLUTE path; resolves with stdout, rejects with its output. */
+  run(cmd: string, args: readonly string[], env: Readonly<Record<string, string>>): Promise<string>
+  /** Run an OS tool (an installer's shell) resolved in `env`, never on the daemon's PATH. */
+  runTool(
+    tool: 'sh' | 'bash',
+    args: readonly string[],
+    env: Readonly<Record<string, string>>,
+  ): Promise<string>
+  platform: NodeJS.Platform
+  arch: string
+  /** Whether this box's libc is musl. */
+  isMusl(): Promise<boolean>
+  /**
+   * The machine command environment with every variable any manifest names in
+   * `foreignCredentialEnv` removed. Never the daemon's own `process.env`.
+   */
+  env: Readonly<Record<string, string>>
+  /** Operator-visible progress note. The mechanism never prints. */
+  note?(message: string): void
+}
+
+export interface HarnessInstallPorts extends HarnessCheckPorts {
+  /**
+   * An empty folder inside the release folder. A vendor installer runs with
+   * `installerEnv`, whose `HOME` is this folder, so its profile edits and
+   * config writes land inside the release and nowhere else.
+   */
+  home: string
+  /**
+   * `env` with `HOME` (and `USERPROFILE`, `APPDATA`, `LOCALAPPDATA` on Windows)
+   * set to `home`, and every harness folder variable and XDG folder variable
+   * removed so they all derive from that `HOME`.
+   */
+  installerEnv: Readonly<Record<string, string>>
+}
+
+/**
+ * How Podium installs and updates this harness itself (§5.3). The mechanism
+ * (`inventory/managed-install.ts`) runs the same steps for every harness: lock,
+ * staging folder, this `install`, outside checks, receipt, rename, publish.
+ *
+ * Declared `supported` only when all three hold: a release can be placed
+ * completely inside a folder Podium picks; the harness's own updater changes
+ * nothing outside Podium's folders; and `--version` prints the release's version.
+ */
+export interface HarnessInstall {
+  /**
+   * The newest release on the vendor's stable channel for this platform.
+   * One small request. Never a pre-release.
+   */
+  latest(ports: HarnessCheckPorts): Promise<HarnessRelease>
+  /**
+   * Put `release` into the empty folder `dir`, and write nowhere else.
+   * Throws with the vendor's own output on failure.
+   */
+  install(
+    release: HarnessRelease,
+    dir: string,
+    ports: HarnessInstallPorts,
+  ): Promise<InstalledRelease>
 }
 
 // ---------------------------------------------------------------------------
@@ -1823,7 +1932,13 @@ export interface AgentManifest {
    * How to install this harness's CLI on a fresh machine. Unsupported ⇒ no
    * verified unattended installer; the CLI refuses with the reason.
    */
-  install: Declared<HarnessInstall>
+  install: Declared<HarnessInstallScript>
+  /**
+   * How Podium installs a release of this harness into its own folder and keeps
+   * it current (managed installs, §5.3). Unsupported ⇒ Podium uses only the
+   * person's own install of this harness.
+   */
+  managedInstall: Declared<HarnessInstall>
   /** Interactive spawn command (fresh vs resume, model/effort flags, argv prompt). */
   launch(opts: HarnessLaunchOptions): LaunchArgv
   /**

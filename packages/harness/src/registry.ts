@@ -786,6 +786,7 @@ const TOP_LEVEL_SECTIONS: Record<DeclaredKeys<AgentManifest>, string> = {
   credentials: 'credentials',
   usage: 'usage',
   install: 'install',
+  managedInstall: 'managedInstall',
   exec: 'exec',
   headless: 'headless',
   state: 'state',

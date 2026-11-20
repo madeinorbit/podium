@@ -205,6 +205,9 @@ export const claudeCodeManifest: AgentManifest = {
   credentials: supported(claudeCredentials),
   usage: supported(claudeUsage),
   install: supported(claudeCodeInstall),
+  managedInstall: unsupported(
+    'Not yet ported to managed installs: the Claude Code harness task of the managed-installs phase writes it',
+  ),
 
   posture: claudeCodePosture,
   launch(opts) {

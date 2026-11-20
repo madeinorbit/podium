@@ -10,9 +10,9 @@ import { createHash } from 'node:crypto'
 import { chmodSync, copyFileSync, mkdtempSync, readFileSync, renameSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { HarnessInstall, HarnessInstallPorts } from '../../manifest.js'
+import type { HarnessInstallScript, HarnessInstallScriptPorts } from '../../manifest.js'
 
-export const claudeCodeInstall: HarnessInstall = {
+export const claudeCodeInstall: HarnessInstallScript = {
   binary: 'claude',
   url: (env) => env.PODIUM_CLAUDE_INSTALL_URL ?? 'https://claude.ai/install.sh',
   runInstaller(scriptPath, binDir, ports) {
@@ -37,7 +37,7 @@ export const claudeCodeInstall: HarnessInstall = {
  */
 export function installClaudeStandalone(
   binDir: string,
-  ports: Pick<HarnessInstallPorts, 'fetch' | 'env' | 'arch' | 'isMusl'>,
+  ports: Pick<HarnessInstallScriptPorts, 'fetch' | 'env' | 'arch' | 'isMusl'>,
 ): void {
   const env = ports.env
   const arch = ports.arch

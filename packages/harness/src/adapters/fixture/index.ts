@@ -124,6 +124,7 @@ export const fixtureManifest: AgentManifest = {
   install: unsupported(
     'The fixture CLI is not distributed — tests point PATH at a double, there is no installer to run',
   ),
+  managedInstall: unsupported('The fixture CLI is a test double with no vendor release to install'),
 
   posture: fixturePosture,
   launch(opts) {
