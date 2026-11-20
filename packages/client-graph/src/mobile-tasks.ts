@@ -281,6 +281,12 @@ class BoardLane {
   /** Native demand-scoped results update the changed task's ordering path.
    * A stage change does not filter and sort every root in every lane. */
   @lazy get rootIds(): readonly string[] {
+    // Sources attach lazily after the phone publishes its pool. Read membership
+    // under this derivation before the query's untracked seed: a thrown LOADING
+    // there cannot install its subscription or wake this lane on attachment.
+    const roots = this.board.rootIds
+    const promoted = this.stage === 'proposed' ? this.board.promotedIds : undefined
+    if (roots.length === 0 && !promoted?.length) return []
     const ids = this.results[this.board.ordering].get()
     if (ids === LOADING) throw LOADING
     return ids ?? []
