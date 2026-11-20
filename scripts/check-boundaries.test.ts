@@ -30,8 +30,6 @@ import {
   checkRepositoryDbCapture,
   checkSessionBindingFieldAccess,
   checkSqlRawLiteral,
-  SQL_COMPILER_SITES,
-  sqlCompilerSiteProblems,
   checkStoreBoundaryLedger,
   checkStoreRawHandles,
   checkTerminalObjectsDriver,
@@ -51,7 +49,9 @@ import {
   loadFamilyAdapterMap,
   loadHarnessOwnAdapterCtx,
   loadModelExportNames,
+  SQL_COMPILER_SITES,
   STAGE_A_UNCONVERTED,
+  sqlCompilerSiteProblems,
   type Violation,
 } from './check-boundaries'
 import {
@@ -2012,6 +2012,56 @@ describe('harness-vendor-boundary (POD-4467)', () => {
       expect(checkHarnessVendorLiterals('apps/server/src/x.ts', source, LITERALS), source).toEqual(
         [],
       )
+    }
+  })
+
+  it('classifies only the exact sync cursor syntax, retaining nearby harness checks', () => {
+    const sites = [
+      {
+        file: 'packages/sync/src/replica/cache-state.ts',
+        source: "export const CURSOR_META_KEY = 'cursor'",
+        refused: "export const HARNESS_KIND = 'cursor'",
+      },
+      {
+        file: 'apps/server/src/store/janitor-reads.ts',
+        source: "const stewardCursorOf = prepared((db, t) => eq(t.stewardState.key, 'cursor'))",
+        refused: "const stewardCursorOf = prepared((db, t) => eq(t.sessions.agentKind, 'cursor'))",
+      },
+      {
+        file: 'packages/sync/src/adapters/sqlite/sync-repository.ts',
+        source: "const changesAfter = prepared((db, t) => param(t.changes.seq, 'cursor'))",
+        refused: "const changesAfter = prepared((db, t) => param(t.sessions.agentKind, 'cursor'))",
+      },
+      {
+        file: 'packages/sync/src/replica/loader.ts',
+        source:
+          "class CollectionLoader { onEvent(event: ReplicaEvent) { switch(event.type) { case 'cursor': return } } }",
+        refused:
+          "class CollectionLoader { onEvent(event: HarnessEvent) { switch(event.type) { case 'cursor': return } } }",
+      },
+      {
+        file: 'packages/client-core/src/replica-assembly/assembly.ts',
+        source:
+          "new KernelReplica({ onEvent: (event) => { if (event.type === 'cursor') confirm(event.cursor) } })",
+        refused:
+          "new HarnessRegistry({ onEvent: (event) => { if (event.type === 'cursor') select(event.cursor) } })",
+      },
+    ]
+    for (const { file, source, refused } of sites) {
+      expect(checkHarnessVendorLiterals(file, source, LITERALS), file).toEqual([])
+      expect(
+        checkHarnessVendorLiterals(file, `${source}; if (harness === 'cursor') select()`, LITERALS),
+        file,
+      ).toHaveLength(1)
+      expect(checkHarnessVendorLiterals(file, refused, LITERALS), file).toHaveLength(1)
+      expect(
+        checkHarnessVendorLiterals(file.replace('.ts', '-neighbor.ts'), source, LITERALS),
+        file,
+      ).toHaveLength(1)
+      expect(
+        checkHarnessVendorLiterals(file, readFileSync(join(REPO_ROOT, file), 'utf8'), LITERALS),
+        file,
+      ).toEqual([])
     }
   })
 

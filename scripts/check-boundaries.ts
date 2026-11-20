@@ -618,6 +618,124 @@ export function isHarnessFixturePath(file: string): boolean {
   )
 }
 
+/** Sync's cursor vocabulary is unrelated to the Cursor harness. Classify syntax, never a whole file. */
+function syncCursorLiteralPositions(file: string, source: string): ReadonlySet<number> {
+  const homes = new Set([
+    'apps/server/src/store/janitor-reads.ts',
+    'packages/sync/src/replica/cache-state.ts',
+    'packages/sync/src/adapters/sqlite/sync-repository.ts',
+    'packages/sync/src/replica/loader.ts',
+    'packages/client-core/src/replica-assembly/assembly.ts',
+  ])
+  const allowed = new Set<number>()
+  if (!homes.has(file)) return allowed
+  const parsed = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true)
+  const path = (node: ts.Node | undefined): string | undefined => {
+    if (node && ts.isIdentifier(node)) return node.text
+    if (node && ts.isPropertyAccessExpression(node)) {
+      const root = path(node.expression)
+      return root === undefined ? undefined : `${root}.${node.name.text}`
+    }
+    return undefined
+  }
+  const variableOf = (node: ts.Node): string | undefined => {
+    for (let parent = node.parent; parent; parent = parent.parent)
+      if (ts.isVariableDeclaration(parent) && ts.isIdentifier(parent.name)) return parent.name.text
+    return undefined
+  }
+  const classify = (node: ts.StringLiteralLike): boolean => {
+    const parent = node.parent
+    if (file === 'packages/sync/src/replica/cache-state.ts') {
+      if (
+        !ts.isVariableDeclaration(parent) ||
+        path(parent.name) !== 'CURSOR_META_KEY' ||
+        parent.initializer !== node
+      )
+        return false
+      const declarations = parent.parent
+      const statement = declarations.parent
+      return (
+        ts.isVariableDeclarationList(declarations) &&
+        (declarations.flags & ts.NodeFlags.Const) !== 0 &&
+        ts.isVariableStatement(statement) &&
+        statement.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword) ===
+          true
+      )
+    }
+    if (
+      file === 'apps/server/src/store/janitor-reads.ts' ||
+      file === 'packages/sync/src/adapters/sqlite/sync-repository.ts'
+    ) {
+      if (
+        !ts.isCallExpression(parent) ||
+        parent.arguments.length !== 2 ||
+        parent.arguments[1] !== node
+      )
+        return false
+      return file === 'apps/server/src/store/janitor-reads.ts'
+        ? path(parent.expression) === 'eq' &&
+            path(parent.arguments[0]) === 't.stewardState.key' &&
+            variableOf(node) === 'stewardCursorOf'
+        : path(parent.expression) === 'param' &&
+            path(parent.arguments[0]) === 't.changes.seq' &&
+            variableOf(node) === 'changesAfter'
+    }
+    if (file === 'packages/sync/src/replica/loader.ts') {
+      if (!ts.isCaseClause(parent) || !ts.isCaseBlock(parent.parent)) return false
+      const branch = parent.parent.parent
+      if (!ts.isSwitchStatement(branch) || path(branch.expression) !== 'event.type') return false
+      for (let owner: ts.Node | undefined = branch.parent; owner; owner = owner.parent) {
+        if (!ts.isMethodDeclaration(owner)) continue
+        const parameter = owner.parameters[0]
+        return (
+          path(owner.name) === 'onEvent' &&
+          owner.parameters.length === 1 &&
+          parameter !== undefined &&
+          path(parameter.name) === 'event' &&
+          parameter.type?.getText(parsed) === 'ReplicaEvent' &&
+          ts.isClassDeclaration(owner.parent) &&
+          owner.parent.name?.text === 'CollectionLoader'
+        )
+      }
+      return false
+    }
+    if (
+      !ts.isBinaryExpression(parent) ||
+      parent.right !== node ||
+      parent.operatorToken.kind !== ts.SyntaxKind.EqualsEqualsEqualsToken ||
+      path(parent.left) !== 'event.type'
+    )
+      return false
+    for (let owner: ts.Node | undefined = parent.parent; owner; owner = owner.parent) {
+      if (!ts.isArrowFunction(owner)) continue
+      const property = owner.parent
+      if (
+        !ts.isPropertyAssignment(property) ||
+        path(property.name) !== 'onEvent' ||
+        owner.parameters.length !== 1 ||
+        path(owner.parameters[0]?.name) !== 'event'
+      )
+        return false
+      const options = property.parent
+      const kernel = options.parent
+      return (
+        ts.isObjectLiteralExpression(options) &&
+        ts.isNewExpression(kernel) &&
+        path(kernel.expression) === 'KernelReplica' &&
+        kernel.arguments?.[0] === options
+      )
+    }
+    return false
+  }
+  const visit = (node: ts.Node): void => {
+    if (ts.isStringLiteralLike(node) && node.text === 'cursor' && classify(node))
+      allowed.add(node.getStart(parsed))
+    ts.forEachChild(node, visit)
+  }
+  visit(parsed)
+  return allowed
+}
+
 /**
  * Flag harness literals as quoted string literals outside the two homes.
  *
@@ -646,11 +764,13 @@ export function checkHarnessVendorLiterals(
     .map((l) => l.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
     .join('|')
   const re = new RegExp(`(['"\`])(${alternation})\\1`, 'g')
+  const syncCursorPositions = syncCursorLiteralPositions(file, stripped)
   const violations: Violation[] = []
   for (const m of stripped.matchAll(re)) {
     const quote = m[1] ?? ''
     const literal = m[2] ?? ''
     if (!literal) continue
+    if (literal === 'cursor' && syncCursorPositions.has(m.index)) continue
     void quote
     const line = stripped.slice(0, m.index).split('\n').length
     violations.push({
