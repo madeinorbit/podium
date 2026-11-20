@@ -1,5 +1,5 @@
 import type { SessionId } from '@podium/model'
-import { compareStructural, reaction } from 'mobx'
+import { actionBound, compareStructural, reaction } from 'mobx'
 import type { NavigationProvider } from '../../navigation-provider'
 import type { SessionView } from '../../session-values'
 import {
@@ -133,7 +133,7 @@ export class TabPruningService {
     this.stop()
     this.lifetime.dispose()
   }
-  pruneWorkspaces(): void {
+  @actionBound pruneWorkspaces(): void {
     if (this.ports.ready?.() === false) return
     const st = pruningState(this.ports.state())
     const referenced = referencedTabIds(st)

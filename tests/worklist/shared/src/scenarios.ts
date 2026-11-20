@@ -878,6 +878,16 @@ export async function startEngineOnCorpus(
       issues: () => referenceState(engine, { screen: false }).issueProjections,
       sessions: () => referenceState(engine, { screen: false }).sessions,
       markers: () => referenceState(engine, { screen: false }).issueUserStates,
+      // Reference publications are plain records. Their invalidations come
+      // from the replica, rather than an empty MobX watch over those arrays.
+      follow: (changed) => {
+        const stops = (['sessions', 'issueProjections', 'issueUserStates'] as const).map((kind) =>
+          engine.replica.subscribeRows(kind, changed),
+        )
+        return () => {
+          for (const stop of stops) stop()
+        }
+      },
     })
     const attachWriter = engine.attachPoolWriter
     Object.assign(engine, {

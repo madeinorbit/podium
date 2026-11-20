@@ -4,7 +4,7 @@ import {
   machinePathsEqual,
   type SessionId,
 } from '@podium/model'
-import { actionBound, observable, reaction } from 'mobx'
+import { actionBound, observable, reaction, runInAction } from 'mobx'
 import type { NavigationProvider, NavigationTopologySession } from '../../navigation-provider'
 import type { NoticeSink } from '../../notices'
 import {
@@ -178,26 +178,28 @@ export class FollowService {
     this.queued = true
     const current = this.lifetime.guard()
     queueMicrotask(() =>
-      queueMicrotask(() => {
-        if (!current()) return
-        this.queued = false
-        if (this.ports.state().navigation !== provider) {
-          this.queueWake(this.ports.state().navigation)
-          return
-        }
-        if (this.pendingTopology) {
-          const followed = this.worktreeFollow([...this.moves.values()])
-          if (followed) this.moves.clear()
-          if (followed && this.worktreeFallback() && this.sessionIssueFollow()) {
-            this.setPendingTopology(false)
-            this.pendingFallback = false
+      queueMicrotask(() =>
+        runInAction(() => {
+          if (!current()) return
+          this.queued = false
+          if (this.ports.state().navigation !== provider) {
+            this.queueWake(this.ports.state().navigation)
+            return
           }
-        }
-        if (!this.pendingTopology && this.pendingFallback && this.worktreeFallback())
-          this.pendingFallback = false
-        this.ports.retryPending?.()
-        this.refreshWatch()
-      }),
+          if (this.pendingTopology) {
+            const followed = this.worktreeFollow([...this.moves.values()])
+            if (followed) this.moves.clear()
+            if (followed && this.worktreeFallback() && this.sessionIssueFollow()) {
+              this.setPendingTopology(false)
+              this.pendingFallback = false
+            }
+          }
+          if (!this.pendingTopology && this.pendingFallback && this.worktreeFallback())
+            this.pendingFallback = false
+          this.ports.retryPending?.()
+          this.refreshWatch()
+        }),
+      ),
     )
   }
   stop(): void {

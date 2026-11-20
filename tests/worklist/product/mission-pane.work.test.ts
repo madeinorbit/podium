@@ -108,7 +108,7 @@ it('prepares display fields only for visible rows at 1x and 4x', async () => {
   for (const scale of [1, 4]) {
     const { pool } = fixture(scale)
     const pane = missionPaneReader(pool, VISIBLE)
-    const reader = missionView(pool)
+    const reader = pane.open('root').reader
     const title = vi.spyOn(reader, 'title')
     const presentation = vi.spyOn(reader, 'presentation')
     let value: ReturnType<typeof click> = LOADING
