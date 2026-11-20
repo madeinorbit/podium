@@ -42,6 +42,41 @@ export {
 } from './inventory/credentials.js'
 export type { InstallRequestPorts, InstallTarget } from './inventory/install.js'
 export { installableTargets, installTargetFor, runInstallTarget } from './inventory/install.js'
+export type {
+  AcquireInstallLockOptions,
+  AcquireInstallLockResult,
+  HomeEditRecord,
+  InstallLedgerOptions,
+  InstallLock,
+  InstallLockHolder,
+  LedgerRebuild,
+  ManagedInstall,
+  RejectedRelease,
+  SessionInstall,
+  StoredHomeEdit,
+} from './inventory/install-ledger.js'
+export {
+  DEFAULT_INSTALL_LEASE_MS,
+  defaultHarnessesDir,
+  defaultInstallLedgerPath,
+  INSTALL_LEDGER_SCHEMA_VERSION,
+  InstallLedger,
+  InstallLedgerTooNewError,
+  InstallLockLostError,
+  LEDGER_FILE,
+} from './inventory/install-ledger.js'
+export type { ReadReceiptResult, ReleaseFolder } from './inventory/install-receipt.js'
+export {
+  InstallReceipt,
+  listReleaseFolders,
+  parseReleaseFolderName,
+  RECEIPT_FILE,
+  RECEIPT_FORMAT,
+  ReleaseIntegrity,
+  readInstallReceipt,
+  releaseFolderName,
+  writeInstallReceipt,
+} from './inventory/install-receipt.js'
 export type { AccountReadScope, QuotaFetcher } from './inventory/usage.js'
 export {
   makeQuotaFetcher,
