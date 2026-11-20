@@ -22,11 +22,7 @@
  */
 
 import { expect } from 'vitest'
-import {
-  currentOperation,
-  type OperationScope,
-  withOwnOperation,
-} from '../store/executor/operation-scope'
+import { type OperationScope, observeOperations } from '../store/executor/operation-scope'
 import {
   probeStatements,
   type StatementObservation,
@@ -36,14 +32,18 @@ import { type TestStoreEngine, testStoreEngine } from './pg-test-database'
 
 /** Finish the operation's retained bus/commit work, not a fixed number of ticks. */
 export async function settledOperation<T>(run: () => T | Promise<T>): Promise<T> {
-  let operation: OperationScope | undefined
+  const operations = new Set<OperationScope>()
   try {
-    return await withOwnOperation(() => {
-      operation = currentOperation()
-      return run()
-    })
+    return await observeOperations(run, (operation) => operations.add(operation))
   } finally {
-    await operation?.whenSettled()
+    // A held reaction can start its own operation. Await those too, preserving
+    // their real memo lifetimes rather than wrapping ingress in an extra scope.
+    let completed = 0
+    while (completed < operations.size) {
+      const pending = [...operations].slice(completed)
+      completed = operations.size
+      await Promise.all(pending.map((operation) => operation.whenSettled()))
+    }
   }
 }
 

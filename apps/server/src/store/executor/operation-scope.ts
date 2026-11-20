@@ -68,7 +68,14 @@ interface OpenOperation extends OperationScope {
 
 let nextOperationId = 1
 const storage = new AsyncLocalStorage<OpenOperation>()
+const observers = new AsyncLocalStorage<(operation: OperationScope) => void>()
 const ending = new WeakMap<OpenOperation, ReturnType<typeof setTimeout>>()
+
+/** Observe operations started by this work, without opening or extending one.
+ *  Completion probes can await their handles after the real ingress returns. */
+export function observeOperations<T>(run: () => T, opened: (operation: OperationScope) => void): T {
+  return observers.run(opened, run)
+}
 
 /**
  * Keep the current operation open until `work` settles: for a dispatcher that
@@ -126,6 +133,7 @@ function openOperation(): OpenOperation {
       return created
     },
   }
+  observers.getStore()?.(operation)
   return operation
 }
 

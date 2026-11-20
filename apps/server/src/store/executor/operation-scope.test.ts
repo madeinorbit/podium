@@ -3,6 +3,8 @@ import {
   currentOperation,
   holdOperation,
   OPERATION_HOLD_LIMIT_MS,
+  type OperationScope,
+  observeOperations,
   operationSlot,
   withOperation,
   withOwnOperation,
@@ -57,6 +59,39 @@ describe('withOperation', () => {
     ).rejects.toThrow('async')
     expect(held).toBeDefined()
     expect(currentOperation()).toBeUndefined()
+  })
+})
+
+describe('observeOperations', () => {
+  it('sees real operations and later owned reactions without creating an outer memo scope', async () => {
+    const opened: OperationScope[] = []
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    await observeOperations(
+      () => {
+        expect(currentOperation()).toBeUndefined()
+        return withOperation(async () => {
+          const outer = currentOperation()
+          holdOperation(
+            gate.then(() =>
+              withOwnOperation(() => {
+                expect(currentOperation()).not.toBe(outer)
+              }),
+            ),
+          )
+        })
+      },
+      (operation) => opened.push(operation),
+    )
+    expect(opened).toHaveLength(1)
+    release()
+    await opened[0]!.whenSettled()
+    expect(opened).toHaveLength(2)
+    await opened[1]!.whenSettled()
+    withOperation(() => {})
+    expect(opened).toHaveLength(2)
   })
 })
 
