@@ -90,7 +90,7 @@ describe('assistant target machine home', () => {
     expect(h.spawns()).toEqual([])
     expect(
       (await h.registry.sessionStore.superagent.getSuperagentThread('global'))?.podiumSessionId,
-    ).toBeNull()
+    ).toBeFalsy()
   })
 
   it('rejects an offline destination with a stored home and never queues a new spawn', async () => {
@@ -141,5 +141,36 @@ describe('assistant target machine home', () => {
     })
     await h.start()
     expect(h.spawns()).toEqual([expect.objectContaining({ cwd: '/Users/new-user' })])
+  })
+
+  it('pins the chosen machine when another machine reports a repo at the same home path', async () => {
+    const homePath = '/Users/u'
+    const h = await harness(homePath)
+    const other = asMachineId('second-machine')
+    await h.registry.sessionStore.machines.upsertMachine({
+      id: other,
+      name: 'Second laptop',
+      hostname: 'second-machine',
+      tokenHash: 'test',
+      ownerUserId: firstAdminMemberId(),
+      assignment: { server: false, agentExecution: true },
+    })
+    await h.registry.gateway.attachDaemon(other, () => {})
+    await h.registry.gateway.routeDaemonFrame(other, {
+      type: 'inventoryReport',
+      machineId: other,
+      inventory: { ...h.inventory, homePath },
+    })
+    await h.registry.sessionStore.repos.addRepo(homePath, other)
+    expect(await h.registry.modules.machines.defaultMachine()).toBe(h.machineId)
+    expect(await h.registry.modules.machines.resolveMachine(undefined, homePath)).toBe(other)
+    const { podiumSessionId } = await h.start()
+    expect(await h.registry.sessionStore.sessions.getSession(podiumSessionId)).toMatchObject({
+      machineId: h.machineId,
+      cwd: homePath,
+    })
+    expect(h.spawns()).toEqual([
+      expect.objectContaining({ sessionId: podiumSessionId, cwd: homePath }),
+    ])
   })
 })

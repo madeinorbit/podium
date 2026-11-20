@@ -1128,13 +1128,13 @@ export class SuperagentService {
       ...thread,
       agentKind: agent,
     })
-    const { cwd } = await this.threadCwd({ ...thread, podiumSessionId: sessionId }, agent)
     // REFUSE FAST ON AN OFFLINE MACHINE (POD-4806, POD-4750 shape). Spawning
     // onto a machine with no daemon only queues a spawn the daemon later
     // refuses — and the turn then fails with an internal error while the
     // user's message is already gone from the queue. Name the machine and
     // say to retry, before anything durable moves.
     await this.requireOnlineSession(sessionId)
+    const { cwd } = await this.threadCwd({ ...thread, podiumSessionId: sessionId }, agent)
     // First HARNESS turn = no harness session yet. A legacy thread (buffered
     // messages, no harness session) re-primes through the seed the same way.
     const firstTurn = !thread.harnessSessionId

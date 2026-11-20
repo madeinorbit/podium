@@ -75,6 +75,24 @@ type BindReq = Extract<ControlMessage, { type: 'reattach' }> & { resumeValue?: s
 type TurnAck = Extract<ControlMessage, { type: 'headlessTurnAck' }>
 type SpawnMsg = Extract<ControlMessage, { type: 'spawn' }>
 
+async function reportInventory(registry: SessionRegistry) {
+  await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+    type: 'inventoryReport',
+    machineId: registry.sessionStore.hostMachineId,
+    inventory: {
+      os: 'linux',
+      arch: 'x64',
+      homePath: '/home/u',
+      agents: BUILTIN_HARNESS_KINDS.map((kind) => ({
+        kind,
+        installed: true,
+        login: { state: 'in' as const },
+      })),
+      tools: [],
+    },
+  })
+}
+
 async function harness() {
   const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
   registries.push(registry)
@@ -245,21 +263,7 @@ async function harness() {
   })
   // Awaited: the report seeds the superagent's default harness (POD-1313), and
   // a real daemon's report lands long before anyone's first turn.
-  await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
-    type: 'inventoryReport',
-    machineId: registry.sessionStore.hostMachineId,
-    inventory: {
-      os: 'linux',
-      arch: 'x64',
-      homePath: '/home/u',
-      agents: BUILTIN_HARNESS_KINDS.map((kind) => ({
-        kind,
-        installed: true,
-        login: { state: 'in' as const },
-      })),
-      tools: [],
-    },
-  })
+  await reportInventory(registry)
   const repos = new RepoRegistry(registry, registry.sessionStore)
   vi.spyOn(registry.modules.rpc, 'scanRepos').mockResolvedValue({
     repositories: [],
@@ -2295,6 +2299,7 @@ describe('boot reconciliation for headless sessions', () => {
         })
       }
     })
+    await reportInventory(reborn)
     const repos = new RepoRegistry(reborn, store)
     const superagent = await SuperagentService.create(reborn.modules, repos, store)
     await superagent.setMcpEndpoint('http://127.0.0.1:1878/mcp', 'fresh-token')
@@ -2356,6 +2361,7 @@ describe('boot reconciliation for headless sessions', () => {
         })
       }
     })
+    await reportInventory(reborn)
     const repos = new RepoRegistry(reborn, store)
     const superagent = await SuperagentService.create(reborn.modules, repos, store)
     await superagent.setMcpEndpoint('http://127.0.0.1:1878/mcp', 'fresh-token')
@@ -2481,6 +2487,7 @@ describe('boot reconciliation for headless sessions', () => {
         return
       }
     })
+    await reportInventory(reborn)
     const repos = new RepoRegistry(reborn, store)
     const superagent = await SuperagentService.create(reborn.modules, repos, store)
     await superagent.setMcpEndpoint('http://127.0.0.1:1878/mcp', 'fresh-token')
