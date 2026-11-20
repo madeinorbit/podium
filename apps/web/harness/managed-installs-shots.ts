@@ -65,7 +65,11 @@ try {
       const errors: string[] = []
       page.on('pageerror', (error) => errors.push(error.message))
       await page.goto(`http://127.0.0.1:55658/harness/managed-installs.html?state=${state}`)
-      await page.locator(`[data-harness-state="${state}"]`).waitFor()
+      try {
+        await page.locator(`[data-harness-state="${state}"]`).waitFor()
+      } catch (error) {
+        throw new Error(`${state}: ${String(error)}\n${errors.join('\n')}\n${logs}`)
+      }
       await page.evaluate(() => document.fonts.ready)
       await page.screenshot({ path: join(out, `${state}.png`), fullPage: true })
       if (errors.length) throw new Error(errors.join('\n'))
