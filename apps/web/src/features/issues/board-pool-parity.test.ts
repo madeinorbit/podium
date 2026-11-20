@@ -1,6 +1,9 @@
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import type { ReferenceState } from '../../../../../tests/worklist/diagnostics/reference-state'
-import { dedupeSessions } from '../../../../../tests/worklist/diagnostics/reference-state'
+import {
+  dedupeSessions,
+  setReferenceClock,
+} from '../../../../../tests/worklist/diagnostics/reference-state'
 
 type Store = ReferenceState<import('@/app/trpc').Trpc>
 
@@ -129,21 +132,7 @@ function expectBoard(pool: MobxPool, options: BoardOptions, truth: Truth) {
       scope: pool.queries.issueScope(row.id),
       parentScope: row.parentId ? pool.queries.issueScope(row.parentId) : undefined,
     }))
-  const extra = value.active
-    .filter((id) => !byId.has(id))
-    .slice(0, 6)
-    .map((id) => ({
-      id,
-      expected: {
-        blocked: truth.rows.get(id)?.blocked,
-        deferred: truth.rows.get(id)?.deferred,
-        stage: truth.rows.get(id)?.stage,
-        closedReason: truth.rows.get(id)?.closedReason,
-        deferUntil: truth.rows.get(id)?.deferUntil,
-      },
-      actual: pool.row('issue', id),
-    }))
-  expect([...value.active].sort(), JSON.stringify({ options, missing, extra })).toEqual(ids(active))
+  expect([...value.active].sort(), JSON.stringify({ options, missing })).toEqual(ids(active))
   const roots = active.filter(
     (row) => !row.parentId || row.parentId === row.id || !byId.has(row.parentId),
   )
@@ -330,6 +319,7 @@ it('covers board model fields, filters, columns, nested positions and progress f
     ui: { get: () => null, subscribe: () => () => {} },
   })
   // This frozen-value fixture only reads server truth; it owns no mutations.
+  setReferenceClock(runtime, () => FIXED_NOW)
   const handle = createReadOnlyRuntimePool(runtime as never)
   await handle.pool.sources.ensure(ISSUE_BOARD_SOURCE_KEY, ISSUE_BOARD_ENTITIES, () =>
     createIssueBoardSource(handle.pool, runtime),
