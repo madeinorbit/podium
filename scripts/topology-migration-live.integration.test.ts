@@ -173,6 +173,8 @@ async function startManager(runtimeDir: string, configHome: string): Promise<Pri
   delete env.PODIUM_AGENT_RELAY
   delete env.NOTIFY_SOCKET
   delete env.DBUS_SESSION_BUS_ADDRESS
+  // The private OS manager must not load the runner's toolchain-only libraries.
+  delete env.LD_LIBRARY_PATH
   const manager = spawn(
     'systemd',
     ['--user', '--unit=default.target', '--log-target=console', '--log-level=warning'],
@@ -258,7 +260,9 @@ async function workingParent(port: number): Promise<boolean> {
 }
 
 describe('single-unit migration live kill matrix', () => {
-  it.each(phases)('SIGKILL at %s leaves a live legacy topology or a working parent', async (phase) => {
+  it.each(
+    phases,
+  )('SIGKILL at %s leaves a live legacy topology or a working parent', async (phase) => {
     const root = await mkdtemp(join(tmpdir(), 'podium-topology-live-'))
     const runtimeDir = join(root, 'runtime')
     const configHome = join(root, 'config')
@@ -374,8 +378,10 @@ describe('single-unit migration live kill matrix', () => {
           'active',
           'active',
         ])
-        if (phase === 'before-parent-write') expect(existsSync(join(unitDir, parentUnit))).toBe(false)
-        if (phase === 'after-parent-write') expect(unitState(manager.env, parentUnit)).toBe('inactive')
+        if (phase === 'before-parent-write')
+          expect(existsSync(join(unitDir, parentUnit))).toBe(false)
+        if (phase === 'after-parent-write')
+          expect(unitState(manager.env, parentUnit)).toBe('inactive')
         if (phase === 'after-parent-enable') {
           expect(enableState(manager.env, parentUnit)).toBe('enabled')
           expect(unitState(manager.env, parentUnit)).toBe('inactive')
