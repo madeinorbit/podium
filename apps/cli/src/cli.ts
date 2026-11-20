@@ -46,7 +46,7 @@ import {
   selectInstance,
   stateDir,
 } from '@podium/runtime/config'
-import { ensureInstanceStateIdentity, instanceServiceName } from '@podium/runtime/instance'
+import { claimInstanceStateRoot, instanceServiceName } from '@podium/runtime/instance'
 import { readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
 import {
   claimSupervisorGeneration,
@@ -1151,6 +1151,8 @@ export interface DaemonStartOptions {
   machineId?: MachineId
   pairCode?: string
   name?: string
+  /** Finish legacy startup writes only after the daemon is admitted. */
+  onAdmitted?: () => void
   /** Production daemons install the global codex hook instrumentation at boot. */
   installCodexHooks?: boolean
   /** Production daemons install env-gated Grok Build lifecycle hooks at boot. */
@@ -1270,9 +1272,10 @@ type InProcessPlan = Extract<LaunchPlan, { kind: 'in-process' }>
 async function runInProcess(
   plan: InProcessPlan,
   loadHost: () => Promise<HostModules>,
+  onDaemonAdmitted?: () => void,
 ): Promise<void> {
   const { port, roles, modePlan } = plan
-  ensureInstanceStateIdentity({ instanceId: resolveInstanceId() }) // [spec:SP-15aa] claim before run-registry writes
+  claimInstanceStateRoot({ instanceId: resolveInstanceId() }) // [spec:SP-15aa] claim before run-registry writes
   if (plan.claimRole === 'daemon' && plan.takeover) {
     const { liveRecord } = await import('@podium/runtime/run-registry')
     const coordinatorOwnsSuccessor = await yieldToDetachedDaemonSuccessor({
@@ -1468,6 +1471,7 @@ async function runInProcess(
     const remoteDaemon = modePlan.mode === 'daemon'
     daemonHandle = await startDaemon({
       ...daemonOptions,
+      ...(onDaemonAdmitted ? { onAdmitted: onDaemonAdmitted } : {}),
       ...(remoteDaemon
         ? {
             onBlocked: async ({ type, reason }: { type: string; reason: string }) => {
@@ -1579,8 +1583,17 @@ export async function main(
   // In particular, a packaged `podium-<instance> channel ...` invocation configures
   // detached file logging before dispatch; if logging creates logs/ first, the channel
   // write sees a non-empty unmarked named root and correctly refuses to adopt it.
+  let deferLegacyConfig = false
   try {
-    ensureInstanceStateIdentity({ instanceId: selection.instanceId })
+    const claimed = claimInstanceStateRoot({ instanceId: selection.instanceId })
+    if (claimed.version === 1) {
+      const initialPlan = resolvePlan(loadConfig(), argv, process.env, Boolean(process.stdin.isTTY))
+      deferLegacyConfig =
+        (initialPlan.kind === 'in-process' &&
+          initialPlan.roles.daemon &&
+          !initialPlan.roles.server) ||
+        (initialPlan.kind === 'parent' && initialPlan.includeDaemon && !initialPlan.includeServer)
+    }
   } catch (error) {
     console.error(`podium: ${(error as Error).message}`)
     process.exitCode = 2
@@ -1616,10 +1629,18 @@ export async function main(
   // `loadConfig` migrates in memory regardless. The write is an optimisation and
   // a courtesy to anyone reading config.json by hand, not a correctness step.
   const { migrateConfigFile } = await import('@podium/runtime/config')
-  const migrations = migrateConfigFile()
-  if (migrations.length > 0) {
-    console.error(`[podium] config upgraded: ${migrations.join('; ')}`)
+  let startupConfigCommitted = false
+  let pendingDaemonConfig: PodiumConfig | undefined
+  const commitStartupConfig = (): void => {
+    if (startupConfigCommitted) return
+    const migrations = migrateConfigFile()
+    if (migrations.length > 0) {
+      console.error(`[podium] config upgraded: ${migrations.join('; ')}`)
+    }
+    if (pendingDaemonConfig) saveConfig(pendingDaemonConfig)
+    startupConfigCommitted = true
   }
+  if (!deferLegacyConfig) commitStartupConfig()
 
   if (shouldInferLocalSetupDefault(runtime, process.env, argv)) {
     const { applyLocalSetupDefault } = await import('@podium/runtime/setup')
@@ -1666,7 +1687,8 @@ export async function main(
       serverUrl: plan.modePlan.serverUrl,
       ...(plan.modePlan.pairCode ? { pairCode: plan.modePlan.pairCode } : {}),
     }
-    saveConfig(config)
+    if (deferLegacyConfig) pendingDaemonConfig = config
+    else saveConfig(config)
     plan = {
       kind: 'parent',
       port: plan.port,
@@ -1864,7 +1886,7 @@ export async function main(
       return
     }
     case 'parent': {
-      ensureInstanceStateIdentity({ instanceId: resolveInstanceId() })
+      claimInstanceStateRoot({ instanceId: resolveInstanceId() })
       const parentLogging = configureProcessLogging({ role: 'parent' })
       const { liveRecord, registerProcess } = await import('@podium/runtime/run-registry')
       const { ParentProcess, PARENT_SUCCESSOR_ENV } = await import('@podium/runtime/parent-process')
@@ -2088,7 +2110,7 @@ export async function main(
       const machineServerUrl = (): string => {
         // Remote endpoint commits may happen in the daemon while the parent remains live.
         // Resolve again on every dial, including after the old coordinator retires.
-        const current = loadConfig()
+        const current = deferLegacyConfig && !startupConfigCommitted ? config : loadConfig()
         const endpoint = runningAssignment.server ? localServerWsUrl(plan.port) : current.serverUrl
         if (!endpoint) throw new Error('machine supervisor has no coordinating server URL')
         return endpoint
@@ -2187,7 +2209,17 @@ export async function main(
         },
       })
       supervisorConnection.start()
-      if (!supervisorState.token && config.pairCode && !children.includes('server')) {
+      if (deferLegacyConfig) {
+        // A legacy remote runtime must be admitted before its configuration is
+        // upgraded or children start. A refused candidate remains restartable
+        // by the retained release with its original startup files.
+        if (!(await supervisorConnection.waitUntilConnected())) {
+          const { DAEMON_BLOCKED_EXIT_CODE } = await import('@podium/runtime/connectivity')
+          await supervisorConnection.close()
+          process.exit(DAEMON_BLOCKED_EXIT_CODE)
+        }
+        commitStartupConfig()
+      } else if (!supervisorState.token && config.pairCode && !children.includes('server')) {
         await supervisorConnection.waitUntilConnected()
       }
       console.log(`podium parent up — supervising ${children.join(' + ')} on :${plan.port}`)
@@ -2470,6 +2502,6 @@ export async function main(
       return
     }
     case 'in-process':
-      return runInProcess(plan, loadHost)
+      return runInProcess(plan, loadHost, deferLegacyConfig ? commitStartupConfig : undefined)
   }
 }

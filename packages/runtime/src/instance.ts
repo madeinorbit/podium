@@ -500,7 +500,12 @@ function serializeMarker(marker: InstanceStateIdentityV2): string {
  * window deterministically. Six racing processes reproduce it about one run in
  * three, which is not a gate.
  */
-export function mintUuidIntoMarker(dir: string, existing: InstanceStateIdentityV1): string {
+export function mintUuidIntoMarker(
+  dir: string,
+  existing: InstanceStateIdentityV1,
+  proposedUuid?: string,
+): string {
+  const proposed = proposedUuid === undefined ? undefined : validateInstanceUuid(proposedUuid)
   const path = instanceIdentityPath(dir)
   const mintPath = `${path}.mint`
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -547,7 +552,7 @@ export function mintUuidIntoMarker(dir: string, existing: InstanceStateIdentityV
       const marker: InstanceStateIdentityV2 = {
         version: 2,
         instanceId: existing.instanceId,
-        instanceUuid: mintInstanceUuid(),
+        instanceUuid: proposed ?? mintInstanceUuid(),
       }
       writeFileSync(handle, serializeMarker(marker))
       closeSync(handle)
@@ -613,6 +618,55 @@ function sleepSync(ms: number): void {
 const MINT_SLEEP: Int32Array | undefined =
   typeof SharedArrayBuffer === 'function' ? new Int32Array(new SharedArrayBuffer(4)) : undefined
 
+type InstanceStateClaimOptions = { instanceId?: string; dir?: string; env?: InstanceEnv }
+
+/** Claim the selected root without upgrading an existing release's marker.
+ * A daemon whose admission is refused must leave that release restartable. */
+export function claimInstanceStateRoot(
+  opts: InstanceStateClaimOptions = {},
+): InstanceStateIdentity {
+  const env = opts.env ?? process.env
+  const id = validateInstanceId(opts.instanceId ?? resolveInstanceId(env))
+  const dir = opts.dir ?? instanceStateDir(id, env)
+  const existing = readInstanceStateIdentity(dir)
+  if (existing) {
+    assertInstanceStateIdentity(id, dir)
+    return existing
+  }
+  return ensureInstanceStateIdentity(opts)
+}
+
+/** Prepare ownership in memory; publish a legacy UUID only after admission.
+ * Existing root/singleton guards fence daemon starts. An unrelated writer can
+ * still win the mint: refuse before dispatching work with a losing UUID. */
+export function prepareInstanceStateIdentity(opts: InstanceStateClaimOptions = {}): {
+  identity: InstanceStateIdentityV2
+  commit(): void
+} {
+  const marker = claimInstanceStateRoot(opts)
+  if (marker.version === 2) return { identity: marker, commit() {} }
+  const env = opts.env ?? process.env
+  const dir = opts.dir ?? instanceStateDir(marker.instanceId, env)
+  const identity: InstanceStateIdentityV2 = {
+    version: 2,
+    instanceId: marker.instanceId,
+    instanceUuid: mintInstanceUuid(),
+  }
+  let committed = false
+  return {
+    identity,
+    commit() {
+      if (committed) return
+      assertInstanceStateIdentity(marker.instanceId, dir)
+      const winner = mintUuidIntoMarker(dir, marker, identity.instanceUuid)
+      if (winner !== identity.instanceUuid) {
+        throw new Error('instance ownership changed during daemon admission; restart the daemon')
+      }
+      committed = true
+    },
+  }
+}
+
 /**
  * Claim a state root before a server/daemon/config write. A named instance will
  * not silently adopt a non-empty unmarked directory; PODIUM_ADOPT_STATE=1 is the
@@ -623,7 +677,7 @@ const MINT_SLEEP: Int32Array | undefined =
  * exist, so a version-1 marker is upgraded here rather than anywhere else.
  */
 export function ensureInstanceStateIdentity(
-  opts: { instanceId?: string; dir?: string; env?: InstanceEnv } = {},
+  opts: InstanceStateClaimOptions = {},
 ): InstanceStateIdentityV2 {
   const env = opts.env ?? process.env
   const id = validateInstanceId(opts.instanceId ?? resolveInstanceId(env))

@@ -55,6 +55,8 @@ export interface DaemonOptions {
   pairCode?: string
   name?: string
   onBlocked?: (info: { type: string; reason: string }) => void
+  /** Publish startup migrations only after the server admits this daemon. */
+  onAdmitted?: () => void
   identityDir?: string
   /** Where Podium's harness homes live (credential management §10); default
    *  `<stateDir>/homes`. Tests point it at a scratch directory. */

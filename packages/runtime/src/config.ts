@@ -172,8 +172,8 @@ import { withConfigWriteLock } from './config-write-lock'
 import { fsyncPath } from './fsync'
 import {
   assertInstanceStateIdentity,
+  claimInstanceStateRoot,
   defaultInstancePorts,
-  ensureInstanceStateIdentity,
   instanceStateDir,
   resolveInstanceId,
 } from './instance'
@@ -1058,7 +1058,7 @@ export function saveConfig(config: PodiumConfig, path = configPath()): void {
   // re-migrated. Callers do not pass it — a caller that had to remember would
   // eventually forget, and the forgotten case is silent.
   const parsed = PodiumConfig.parse({ ...config, configVersion: CURRENT_CONFIG_VERSION })
-  ensureInstanceStateIdentity({ dir: dirname(path) })
+  claimInstanceStateRoot({ dir: dirname(path) })
   if (
     (parsed.mode === 'daemon' || parsed.mode === 'client' || parsed.mode === 'supervisor') &&
     !parsed.serverUrl

@@ -68,7 +68,8 @@ export interface DaemonHandle {
  * each live in their owning modules; this function only wires their ports.
  */
 export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
-  if (process.env.PODIUM_REHEARSAL === '1') throw new Error('Daemon execution disabled during upgrade rehearsal')
+  if (process.env.PODIUM_REHEARSAL === '1')
+    throw new Error('Daemon execution disabled during upgrade rehearsal')
   const parentOwnsMachinePresence = process.env[SUPERVISOR_MACHINE_ID_ENV] !== undefined
   if (parentOwnsMachinePresence) {
     const { pairCode: _legacyPairCode, ...parentOptions } = opts
@@ -198,7 +199,13 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     throw error
   })
   connection = createDaemonConnection({
-    options,
+    options: {
+      ...options,
+      onAdmitted: () => {
+        instance.commitIdentity()
+        options.onAdmitted?.()
+      },
+    },
     build,
     reportUpdateIdentity: !parentOwnsMachinePresence,
     machineId: asMachineId(host.machineId),
@@ -212,7 +219,13 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     onConnected: host.connected,
     onLinkLost: host.linkLost,
     bindingSessionIds: host.bindingSessionIds,
-    onTerminal: host.close,
+    onTerminal: async () => {
+      try {
+        await host.close()
+      } finally {
+        instance.releaseGuards()
+      }
+    },
     restartAfterUpdate: options.restartAfterUpdate,
   })
   const startedAt = Date.now()

@@ -1,14 +1,16 @@
 import { spawn } from 'node:child_process'
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
+  claimInstanceStateRoot,
   ensureInstanceStateIdentity,
   INSTANCE_MARKER_VERSION,
   instanceIdentityPath,
   instanceUuidShort,
   mintUuidIntoMarker,
+  prepareInstanceStateIdentity,
   readInstanceStateIdentity,
   rekeyInstanceStateIdentity,
   validateInstanceUuid,
@@ -43,6 +45,43 @@ const readMarkerRaw = (dir: string): Record<string, unknown> =>
   JSON.parse(readFileSync(instanceIdentityPath(dir), 'utf8')) as Record<string, unknown>
 
 describe('instance uuid marker', () => {
+  it('keeps a legacy claim byte-for-byte until admission commits its prepared UUID once', () => {
+    const dir = temp()
+    const bytes = '{"version":1,"instanceId":"blue"}\n'
+    writeFileSync(instanceIdentityPath(dir), bytes)
+    expect(claimInstanceStateRoot({ instanceId: 'blue', dir })).toEqual({
+      version: 1,
+      instanceId: 'blue',
+    })
+    const prepared = prepareInstanceStateIdentity({ instanceId: 'blue', dir })
+    expect(validateInstanceUuid(prepared.identity.instanceUuid)).toBe(
+      prepared.identity.instanceUuid,
+    )
+    expect(readFileSync(instanceIdentityPath(dir), 'utf8')).toBe(bytes)
+    expect(existsSync(`${instanceIdentityPath(dir)}.mint`)).toBe(false)
+    prepared.commit()
+    expect(readInstanceStateIdentity(dir)).toEqual(prepared.identity)
+    const inode = statSync(instanceIdentityPath(dir)).ino
+    prepared.commit()
+    expect(statSync(instanceIdentityPath(dir)).ino).toBe(inode)
+    expect(existsSync(`${instanceIdentityPath(dir)}.mint`)).toBe(false)
+  })
+
+  it('refuses a prepared loser without overwriting the admitted UUID', () => {
+    const dir = temp()
+    writeMarker(dir, { version: 1, instanceId: 'blue' })
+    const first = prepareInstanceStateIdentity({ instanceId: 'blue', dir })
+    const second = prepareInstanceStateIdentity({ instanceId: 'blue', dir })
+    expect(second.identity.instanceUuid).not.toBe(first.identity.instanceUuid)
+    first.commit()
+    const bytes = readFileSync(instanceIdentityPath(dir), 'utf8')
+    const inode = statSync(instanceIdentityPath(dir)).ino
+    expect(() => second.commit()).toThrow(/ownership changed during daemon admission/)
+    expect(readFileSync(instanceIdentityPath(dir), 'utf8')).toBe(bytes)
+    expect(statSync(instanceIdentityPath(dir)).ino).toBe(inode)
+    expect(existsSync(`${instanceIdentityPath(dir)}.mint`)).toBe(false)
+  })
+
   it('mints a uuid for a brand new root and reads it back', () => {
     const dir = temp()
     const marker = ensureInstanceStateIdentity({ instanceId: 'default', dir })

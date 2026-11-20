@@ -258,7 +258,7 @@ async function launchDaemon(
   // independently of the server so an unrelated online host cannot satisfy us.
   // A fresh current join has no imported legacy daemon identity. Seeding one
   // would correctly trigger missing-key recovery instead of fresh enrollment.
-  if (!(cwd === ROOT && pairCode))
+  if (!(cwd === ROOT && pairCode) && !existsSync(join(stateDir, 'daemon.json')))
     writeFileSync(join(stateDir, 'daemon.json'), JSON.stringify({ ...identity, machineId }), {
       mode: 0o600,
     })
@@ -659,6 +659,19 @@ exec ${shell(process.execPath)} --conditions=@podium/source ${shell(currentCli)}
         (await server.api.machines.list.query()).find((m) => m.id === prior.machineId && !m.online),
       'old daemon disconnect before candidate reconnect',
     )
+    const startupFiles = [
+      'instance.json',
+      'config.json',
+      'daemon.json',
+      'machine.id',
+      'supervisor.json',
+    ]
+    const startupBytes = () =>
+      startupFiles.map((name) => {
+        const path = join(prior.stateDir, name)
+        return [name, existsSync(path) ? readFileSync(path, 'base64') : null]
+      })
+    const beforeRefusal = startupBytes()
     const daemon = await launchDaemon(
       currentCli,
       ROOT,
@@ -680,6 +693,10 @@ exec ${shell(process.execPath)} --conditions=@podium/source ${shell(currentCli)}
       (await server.api.machines.list.query()).find((m) => m.id === daemon.machineId)?.online,
     ).toBe(false)
     await daemon.stop()
+    // A refused candidate preserves every file the retained release reads at
+    // startup. Its runtime logs/locks/outboxes may remain: the real restart
+    // below must still serve with those observations present.
+    expect(startupBytes()).toEqual(beforeRefusal)
     const restored = await launchDaemon(
       oldDaemonCli,
       OLD_DAEMON,

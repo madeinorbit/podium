@@ -842,38 +842,47 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     legacyBindingOwners?: Readonly<Record<string, string>>,
     bindingConfirmations?: BindingConfirmations,
   ): void => {
+    const rotation =
+      !issuedToken &&
+      updatePubkey !== undefined &&
+      identity.updatePubkey !== undefined &&
+      updatePubkey !== identity.updatePubkey
+        ? { from: identity.updatePubkey, to: updatePubkey }
+        : undefined
+    if (
+      rotation &&
+      !acceptsUpdateKeyRotation(rotation.from, rotation.to, updateKeyRotations ?? [])
+    ) {
+      terminal(
+        'blocked',
+        'server-update-key',
+        'the publisher update key was replaced after this machine enrolled, and no valid ' +
+          'old-key-signed rotation reaches it. The existing pin was kept. After verifying ' +
+          updateKeyFingerprint(rotation.to) +
+          ' out of band with the publisher, recover on this machine with: ' +
+          'podium update-key trust ' +
+          rotation.to,
+        active,
+      )
+      return
+    }
+    // Admission and the update-key pin must both be valid before publishing
+    // startup migrations or credentials. A losing ownership claim dispatches
+    // no application work and leaves the winner's identity intact.
+    try {
+      options.onAdmitted?.()
+    } catch (error) {
+      terminal('blocked', 'instance-identity', String(error), active)
+      return
+    }
     if (issuedToken) {
       persistPairing(issuedToken, updatePubkey)
-    } else if (updatePubkey !== undefined) {
-      // No pin at all — learn it. This is the bootstrap handshake's first contact,
-      // and equally a daemon that paired before the pin existed: an ABSENT pin
-      // cannot be a CHANGED key, and blocking one bricks every daemon enrolled
-      // before this guard shipped. The connection is already authenticated to the
-      // configured server, so pinning here is no weaker than pinning at pairing.
-      if (identity.updatePubkey === undefined) {
-        persistBootstrapPin(updatePubkey)
-      } else if (updatePubkey !== identity.updatePubkey) {
-        if (
-          acceptsUpdateKeyRotation(identity.updatePubkey, updatePubkey, updateKeyRotations ?? [])
-        ) {
-          persistBootstrapPin(updatePubkey)
-          log.info('accepted signed server update-key rotation', {
-            fingerprint: updateKeyFingerprint(updatePubkey),
-          })
-        } else {
-          terminal(
-            'blocked',
-            'server-update-key',
-            'the publisher update key was replaced after this machine enrolled, and no valid ' +
-              'old-key-signed rotation reaches it. The existing pin was kept. After verifying ' +
-              updateKeyFingerprint(updatePubkey) +
-              ' out of band with the publisher, recover on this machine with: ' +
-              'podium update-key trust ' +
-              updatePubkey,
-            active,
-          )
-          return
-        }
+    } else if (updatePubkey !== undefined && updatePubkey !== identity.updatePubkey) {
+      persistBootstrapPin(updatePubkey)
+      if (rotation) {
+        log.info('accepted signed server update-key rotation', {
+          fingerprint: updateKeyFingerprint(updatePubkey),
+        })
       }
     }
     const from = state
@@ -1019,6 +1028,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     active: SocketLike | undefined,
     isBinary = false,
   ): void => {
+    if (closing) return
     if (isBinary) {
       if (dialer.state !== 'established' || !acceptedCaps.has(CAP_TERMINAL_INPUT_BINARY_V1)) {
         closeForInvalidBinary(

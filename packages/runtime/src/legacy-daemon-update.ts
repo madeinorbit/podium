@@ -4,12 +4,12 @@ import { spawn } from 'node:child_process'
 import { closeSync, existsSync, fsyncSync, openSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { UpdateStatusMessage } from '@podium/protocol'
-import { ensureInstanceStateIdentity } from './instance'
+import { readDaemonHealth } from './daemon-health'
+import { prepareInstanceStateIdentity } from './instance'
 import { acquireStateRootLock } from './instance-guard'
 import { recordLegacyMachineRollback } from './machine-update'
-import { readDaemonHealth } from './daemon-health'
 import { restoreOldBundle } from './update-install'
-import { readPendingGrant, writePendingGrant, type PendingGrant } from './update-pending'
+import { type PendingGrant, readPendingGrant, writePendingGrant } from './update-pending'
 
 export const LEGACY_BOOT_LIMIT = 3
 export const LEGACY_HEALTH_WINDOW_MS = 60_000
@@ -169,7 +169,9 @@ export interface LegacyDaemonGuardOptions {
 
 export async function runLegacyDaemonGuard(options: LegacyDaemonGuardOptions): Promise<number> {
   const runtimeDir = join(options.stateDir, 'runtime')
-  const identity = ensureInstanceStateIdentity({
+  // The candidate owns acceptance and the UUID commit. Its guard must not
+  // upgrade the known-good release's marker before the candidate is admitted.
+  const { identity } = prepareInstanceStateIdentity({
     dir: options.stateDir,
     env: options.env ?? process.env,
   })
