@@ -1722,6 +1722,8 @@ export class MessagesRepository {
     const unique = [...new Set(sessionIds)]
     const out = new Map<SessionId, MessageRow[]>(unique.map((id) => [id, []]))
     const pendingStatuses = new Set<string>(MESSAGE_PENDING)
+    // A row can name sessions in different chunks; attribute it once across the read.
+    const seen = new Set<string>()
     for (let at = 0; at < unique.length; at += 500) {
       const chunk = unique.slice(at, at + 500)
       const size = inListSize(chunk.length)
@@ -1729,7 +1731,6 @@ export class MessagesRepository {
         ...inListValues(chunk, size, 'ids'),
         now,
       })
-      const seen = new Set<string>()
       for (const row of rows) {
         if (seen.has(row.id)) continue
         seen.add(row.id)
