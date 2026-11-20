@@ -313,11 +313,7 @@ export class SessionLifecycle {
   private readonly activityPublication!: SessionActivityPublication
   // Single timer that persists only sessions whose activity counters advanced
   // since the last tick — the repository queues their IDs at the mutation seam.
-  private readonly activityFlushTimer = setInterval(() => {
-    void this.flushActivity().catch((error) => {
-      log.error('failed to flush session activity', { error })
-    })
-  }, 12_000)
+  private readonly activityFlushTimer: ReturnType<typeof setInterval> | undefined
   /**
    * The server's own account for a session write (`sessions.lifecycle`, ADR 12
    * D9, POD-6601): for the server's own callers that act on a session outside
@@ -327,6 +323,14 @@ export class SessionLifecycle {
     return this.deps.writers.lifecycle
   }
   constructor(private readonly deps: SessionLifecycleDeps) {
+    this.activityFlushTimer =
+      deps.startActivityFlush === false
+        ? undefined
+        : setInterval(() => {
+            void this.flushActivity().catch((error) => {
+              log.error('failed to flush session activity', { error })
+            })
+          }, 12_000)
     // ORDER UNCHANGED — body lives in session-wiring.ts as a verbatim move.
     // scripts/server-construction-order.ts walks that interior (POD-1411).
     wireSessionLifecycle(this, deps)

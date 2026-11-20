@@ -78,6 +78,8 @@ export interface SessionRestorePlan {
 }
 
 export interface SessionLifecycleDeps {
+  /** Periodic activity persistence; fenced recovery/rehearsal graphs flush explicitly. */
+  startActivityFlush?: boolean
   /** Deployment-qualified durable namespace, injected by the composition root. */
   durableLabelFor(sessionId: SessionId): string
   store: SessionStore

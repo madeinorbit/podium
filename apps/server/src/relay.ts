@@ -2105,6 +2105,7 @@ export class SessionRegistry {
       >
     >('session issue workflows')
     const sessionsSvc = new SessionLifecycle({
+      startActivityFlush: !backgroundDisabled,
       issueToken: async (credentialId, to) => {
         if (!issueSessionToken) throw new Error('the ChatGPT plan keeper is not wired yet')
         return await issueSessionToken(credentialId, to)

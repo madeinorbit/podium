@@ -7,7 +7,7 @@
  */
 import type { AgentRuntimeState, SessionId } from '@podium/model'
 import type { AgentObservation } from '@podium/protocol'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
 import type { SessionStore } from './store'
 import { attachHostDaemon } from './test-support/host-daemon'
@@ -223,6 +223,25 @@ const pin = (
 })
 
 describe('daemon frames: pinned statement counts at 5 and 200', () => {
+  it('fences periodic activity writes while retaining explicit persistence', async () => {
+    const f = await fixture(5)
+    const flush = vi.spyOn(f.reg.modules.sessions, 'flushActivity')
+    try {
+      await route(f, { type: 'agentFrame', sessionId: f.ids[0], seq: 0, data: 'QQ==' })
+      vi.useFakeTimers()
+      await vi.advanceTimersByTimeAsync(12_000)
+      vi.useRealTimers()
+      expect(flush).not.toHaveBeenCalled()
+      await f.reg.modules.sessions.flushActivity()
+      expect((await f.store.sessions.getSession(f.ids[0]!))?.outputCount).toBeGreaterThan(0)
+    } finally {
+      vi.useRealTimers()
+      flush.mockRestore()
+      await f.reg.dispose()
+      await f.store.close()
+    }
+  })
+
   it('agentFrame (terminal output) touches no table; activity is flushed later', async () => {
     const counts = await expectConstantStatements(
       pin(

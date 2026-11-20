@@ -11,7 +11,7 @@
  * inside a closure are deferred and stay legal.
  *
  * Private fields written through a single any-cast. Dispose: none here
- * (activityFlushTimer stays a field initializer on SessionLifecycle).
+ * (activityFlushTimer is installed by SessionLifecycle before wiring).
  */
 
 import { type AgentStateEvent, initialAgentState, reduceAgentState } from '@podium/harness/metadata'
@@ -129,7 +129,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
   bag.bus = deps.bus
   bag.machines = machines
   bag.rpc = deps.rpc
-  bag.activityFlushTimer.unref?.()
+  bag.activityFlushTimer?.unref?.()
   bag.funnel = deps.funnel
   bag.concurrencyHistory = new AgentConcurrencyHistory({
     sessions: () => bag.sessions.values(),
