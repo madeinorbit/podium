@@ -96,7 +96,7 @@ const allOpen = prepared((db, t) =>
     .select(NOTICE_COLUMNS(t))
     .from(t.notices)
     .where(inWorkspace(t.notices, isNull(t.notices.resolvedAt)))
-    .orderBy(t.notices.resolvedAt, t.notices.id)
+    .orderBy(sql`${t.notices.resolvedAt} asc nulls last`, t.notices.id)
     .prepare(),
 )
 
@@ -164,7 +164,11 @@ const openOfRecipient = prepared((db, t) =>
     .select(NOTICE_COLUMNS(t))
     .from(t.notices)
     .where(inWorkspace(t.notices, recipientIs(t), isNull(t.notices.resolvedAt)))
-    .orderBy(desc(t.notices.resolvedAt), desc(t.notices.createdAt), desc(t.notices.id))
+    .orderBy(
+      sql`${t.notices.resolvedAt} desc nulls first`,
+      desc(t.notices.createdAt),
+      desc(t.notices.id),
+    )
     .limit(sql.placeholder('limit'))
     .prepare(),
 )
@@ -181,7 +185,11 @@ const openOfRecipientBefore = prepared((db, t) =>
         sql`(${t.notices.createdAt}, ${t.notices.id}) < (${sql.placeholder('beforeAt')}, ${sql.placeholder('beforeId')})`,
       ),
     )
-    .orderBy(desc(t.notices.resolvedAt), desc(t.notices.createdAt), desc(t.notices.id))
+    .orderBy(
+      sql`${t.notices.resolvedAt} desc nulls first`,
+      desc(t.notices.createdAt),
+      desc(t.notices.id),
+    )
     .limit(sql.placeholder('limit'))
     .prepare(),
 )
@@ -258,7 +266,11 @@ const resolveReadEventsPastCap = prepared((db, t) =>
                   inArray(t.notices.kind, EVENT_KINDS),
                 ),
               )
-              .orderBy(desc(t.notices.resolvedAt), desc(t.notices.createdAt), desc(t.notices.id))
+              .orderBy(
+                sql`${t.notices.resolvedAt} desc nulls first`,
+                desc(t.notices.createdAt),
+                desc(t.notices.id),
+              )
               .limit(CAP_BATCH)
               .offset(sql.placeholder('keep')),
           ),
