@@ -190,6 +190,27 @@ CREATE TABLE "client_sessions" (
 	CONSTRAINT "client_sessions_pk" PRIMARY KEY("workspace_id","token_hash")
 );
 --> statement-breakpoint
+CREATE TABLE "concertmaster_entries" (
+	"id" text COLLATE "C",
+	"session_id" text COLLATE "C" NOT NULL,
+	"kind" text COLLATE "C" NOT NULL,
+	"body" text COLLATE "C" NOT NULL,
+	"created_at" timestamp(3) with time zone NOT NULL,
+	"artifacts_json" json,
+	"sender_user_id" text COLLATE "C",
+	"attachments_json" json,
+	"number" bigint,
+	"ask_kind" text COLLATE "C",
+	"detail" text COLLATE "C",
+	"options_json" json,
+	"status" text COLLATE "C",
+	"answer" text COLLATE "C",
+	"settled_at" timestamp(3) with time zone,
+	"settled_by" text COLLATE "C",
+	"workspace_id" text COLLATE "C",
+	CONSTRAINT "concertmaster_entries_pk" PRIMARY KEY("workspace_id","id")
+);
+--> statement-breakpoint
 CREATE TABLE "conversation_identities" (
 	"podium_id" text COLLATE "C",
 	"parent_podium_id" text COLLATE "C",
@@ -1283,6 +1304,7 @@ CREATE TABLE "sessions" (
 	"desired_by_user" text COLLATE "C",
 	"desired_by_agent" text COLLATE "C",
 	"asks_user" boolean DEFAULT false NOT NULL,
+	"concertmaster" boolean DEFAULT false NOT NULL,
 	"workspace_id" text COLLATE "C",
 	CONSTRAINT "sessions_pk" PRIMARY KEY("workspace_id","id"),
 	CONSTRAINT "sessions_stop_reason_check" CHECK (stop_reason IS NULL OR stop_reason IN ('self', 'parent', 'forced', 'exited')),
@@ -1970,6 +1992,8 @@ CREATE UNIQUE INDEX "idx_client_sessions_session_id" ON "client_sessions" ("work
 CREATE INDEX "idx_client_sessions_user" ON "client_sessions" ("workspace_id","user_id");--> statement-breakpoint
 CREATE INDEX "idx_client_sessions_expires" ON "client_sessions" ("workspace_id","expires_at");--> statement-breakpoint
 CREATE INDEX "idx_client_sessions_label" ON "client_sessions" ("workspace_id","label");--> statement-breakpoint
+CREATE INDEX "idx_concertmaster_entries_session" ON "concertmaster_entries" ("workspace_id","session_id","id");--> statement-breakpoint
+CREATE UNIQUE INDEX "concertmaster_entries_ask_number" ON "concertmaster_entries" ("workspace_id","session_id","number");--> statement-breakpoint
 CREATE INDEX "conversation_segment_incarnations_native" ON "conversation_segment_incarnations" ("workspace_id","machine_id","native_id","sequence");--> statement-breakpoint
 CREATE INDEX "conversation_segments_podium" ON "conversation_segments" ("workspace_id","podium_id","seq_in_conv");--> statement-breakpoint
 CREATE INDEX "conversation_segments_path" ON "conversation_segments" ("workspace_id","path");--> statement-breakpoint

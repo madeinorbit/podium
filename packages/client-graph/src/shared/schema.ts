@@ -98,6 +98,7 @@ export type ModelSchemaName =
   | 'ReadPositionWire'
   | 'SuperagentThreadWire'
   | 'NoticeWire'
+  | 'ConcertmasterEntryWire'
   | 'AgentProfileWire'
   | 'WorkflowWire'
   | 'WorkflowRevisionWire'
@@ -178,7 +179,7 @@ export interface FieldSpec {
 // Relations
 // ---------------------------------------------------------------------------
 
-export type EntityName = 'issueBrief' | 'issueDescription' | 'issuePanelTodo' | 'issuePanelArtifact' | 'issuePanelDeferred' | 'issuePanelState' | 'credential' | 'member' | 'device' | 'repository' | 'issue' | 'session' | 'worktree' | 'repo' | 'machine' | 'automation' | 'automationRun' | 'messageRecord' | 'pendingInteraction' | 'effect' | 'pin' | 'userLayout' | 'tabOrder' | 'userPreferences' | 'userReadPosition' | 'superagentThread' | 'inboxNotice' | 'agentProfile' | 'workflow' | 'workflowRevision' | 'workflowBinding' | 'workflowRun' | 'subscription' | 'instancePreferences'
+export type EntityName = 'issueBrief' | 'issueDescription' | 'issuePanelTodo' | 'issuePanelArtifact' | 'issuePanelDeferred' | 'issuePanelState' | 'credential' | 'member' | 'device' | 'repository' | 'issue' | 'session' | 'worktree' | 'repo' | 'machine' | 'automation' | 'automationRun' | 'messageRecord' | 'pendingInteraction' | 'effect' | 'pin' | 'userLayout' | 'tabOrder' | 'userPreferences' | 'userReadPosition' | 'superagentThread' | 'inboxNotice' | 'concertmasterEntry' | 'agentProfile' | 'workflow' | 'workflowRevision' | 'workflowBinding' | 'workflowRun' | 'subscription' | 'instancePreferences'
 
 /**
  * Four kinds, and no more.
@@ -793,6 +794,7 @@ const DECLARED = defineSchema({
       agentKind: { type: 'string', optional: true, nullable: true, source: meta() },
       harnessHandoff: { type: 'boolean', optional: true, source: meta(), note: 'Manifest capability used by the task menu handoff relation.' },
       headless: { type: 'boolean', optional: true, source: meta(), note: 'Structural membership filter on both session relations.' },
+      concertmaster: { type: 'boolean', optional: true, source: meta(), note: 'The Concertmaster mark (POD-7211): with the feature on, its pane shows the curated chat.' },
       status: { type: 'string', optional: true, nullable: true, source: meta() },
       archived: { type: 'boolean', optional: true, source: meta(), note: 'Read-side filter (L1b), NOT a membership filter: the unread rollup must see the same seats (arms/hand/indexes.ts:26).' },
       lastActiveAt: { type: 'isoDate', source: meta() },
@@ -1205,6 +1207,35 @@ const DECLARED = defineSchema({
       body: { type: 'string', note: 'A line of text under the title; never a secret.' },
       createdAt: { type: 'isoDate', note: 'When it was raised; the inbox lists newest first.' },
       readAt: { type: 'isoDate', note: 'When I read it; absent while unread.' },
+    },
+  ),
+  /**
+   * A CONCERTMASTER'S CURATED CONVERSATION (POD-7211): one row per entry, keyed
+   * by its feed id (`concertmasterEntryRowId`, which names the session). The
+   * rows of one session are held while its chat or its dock panel is shown
+   * (the `concertmasterEntry.ofSession` collection).
+   */
+  concertmasterEntry: perUser(
+    'ConcertmasterEntryWire',
+    'replica:concertmasterEntries',
+    "One entry of a Concertmaster session's curated conversation: a message the agent sent, one its person sent, or an ask.",
+    {
+      entryId: { type: 'id', note: 'Its own id, which `concertmaster.respond` takes; ids of one session sort in conversation order.' },
+      sessionId: { type: 'id', note: 'The Concertmaster session it was said in.' },
+      kind: { type: 'string', note: '`say`, `user` or `ask`; open, so a newer kind still lists.' },
+      body: { type: 'string', note: 'The message text (Markdown for `say`), or an ask’s one-line title.' },
+      createdAt: { type: 'isoDate', note: 'When it was said; the conversation reads oldest first.' },
+      artifacts: { type: 'object', note: '`say`: issue artifacts shown with the message, by attachment name.' },
+      senderUserId: { type: 'id', note: '`user`: who sent it.' },
+      attachments: { type: 'object', note: '`user`: what they attached.' },
+      number: { type: 'number', note: '`ask`: its number in this conversation, the handle the agent names it by.' },
+      askKind: { type: 'string', note: '`ask`: `question`, `decision` or `todo`.' },
+      detail: { type: 'string', note: '`ask`: supporting text under the title.' },
+      options: { type: 'object', note: '`ask`: the choices offered.' },
+      status: { type: 'string', note: '`ask`: `open` until settled, then `answered`, `done`, `dismissed` or `retracted`.' },
+      answer: { type: 'string', note: '`ask`: what it was settled with.' },
+      settledAt: { type: 'isoDate', note: '`ask`: when it was settled.' },
+      settledBy: { type: 'string', note: '`ask`: `user` or `agent`.' },
     },
   ),
   /**

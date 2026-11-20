@@ -3,7 +3,7 @@ import type { IssueBriefWire, IssueDescriptionWire, IssuePanelTodoWire, IssuePan
 import type { LayoutWire } from '@podium/model'
 import { type IssueNavigationModel, issuePendingDecision, missionTaskBucket, type MissionTaskBucket } from '@podium/client-core/values'
 import { type LiveStore, lastValue } from '@podium/client-core/live'
-import type { EffectError, EffectRecordWire, EffectStatus, InstancePreferences, IssueGitState, IssuePanel, IssuePanelArtifact, IssueProjection, NoticeWire, PersonalPreferences, PinKind, PinWire, ReadPositionWire, SuperagentThreadWire, TabOrderWire } from '@podium/model'
+import type { ConcertmasterEntryWire, EffectError, EffectRecordWire, EffectStatus, InstancePreferences, IssueGitState, IssuePanel, IssuePanelArtifact, IssueProjection, NoticeWire, PersonalPreferences, PinKind, PinWire, ReadPositionWire, SuperagentThreadWire, TabOrderWire } from '@podium/model'
 import { type PodiumSettings, resolveRole } from '@podium/runtime'
 import { here, isGone, type Lookup, omitGone } from './lookup'
 import type { MessageModel, PendingInteractionModel } from './message-models'
@@ -1548,6 +1548,27 @@ export class InboxNoticeModel extends EntityModel {
 export interface InboxNoticeModel extends Readonly<NoticeWire> {}
 
 /**
+ * ONE ENTRY OF A CONCERTMASTER'S CURATED CONVERSATION (POD-7211): a message
+ * the agent sent (`say`), one its person sent (`user`), or an ask. The curated
+ * chat and the Concertmaster dock panel read it here; an ask settled anywhere
+ * moves these fields on its own.
+ */
+export class ConcertmasterEntryModel extends EntityModel {
+  constructor(id: string, host: ModelHost) {
+    super('concertmasterEntry', id, host)
+  }
+  /** An ask of any standing. */
+  @lazy get isAsk(): boolean {
+    return this.kind === 'ask'
+  }
+  /** An ask that still needs its person: what the "needs you" list holds. */
+  @lazy get open(): boolean {
+    return this.kind === 'ask' && this.status === 'open'
+  }
+}
+export interface ConcertmasterEntryModel extends Readonly<ConcertmasterEntryWire> {}
+
+/**
  * THE INSTANCE SETTINGS (POD-6677): one synced record for the whole instance,
  * every member's, resolved with defaults by the row source from its flat leaf
  * fields. Screens read it here, never `settings.get`; an admin's change on any
@@ -1660,6 +1681,7 @@ export type ModelOf = {
   userReadPosition: UserReadPositionModel
   superagentThread: SuperagentThreadModel
   inboxNotice: InboxNoticeModel
+  concertmasterEntry: ConcertmasterEntryModel
   agentProfile: AgentProfileModel
   workflow: WorkflowModel
   workflowRevision: WorkflowRevisionModel
@@ -1685,6 +1707,7 @@ export const MODEL_CLASSES: Readonly<Partial<Record<EntityName, ModelClass>>> = 
   userReadPosition: UserReadPositionModel,
   superagentThread: SuperagentThreadModel,
   inboxNotice: InboxNoticeModel,
+  concertmasterEntry: ConcertmasterEntryModel,
   instancePreferences: InstancePreferencesModel,
 }
 

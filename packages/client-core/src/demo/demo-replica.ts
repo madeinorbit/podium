@@ -213,6 +213,7 @@ const DEMO_SLICE_KINDS = [
   'machineAccess',
   'checkouts',
   'inboxNotices',
+  'concertmasterEntries',
 ] as const
 
 /**

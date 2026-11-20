@@ -5,6 +5,7 @@ import type {
   AutomationRunWire,
   AutomationWire,
   CheckoutWire,
+  ConcertmasterEntryWire,
   ConversationRecordWire,
   EffectRecordWire,
   InstancePreferencesWire,
@@ -163,6 +164,9 @@ export interface ReplicaRows {
   checkouts: CheckoutWire
   /** My open notices (POD-6881), keyed `noticeRowId`. */
   inboxNotices: NoticeWire
+  /** The curated conversations of the Concertmaster sessions this device
+   *  shows (POD-7211), keyed `concertmasterEntryRowId`. */
+  concertmasterEntries: ConcertmasterEntryWire
 }
 export type ReplicaKind = keyof ReplicaRows
 
@@ -212,6 +216,7 @@ export interface ReplicaHydrateResult {
   machineAccess: MachineAccessWire[]
   checkouts: CheckoutWire[]
   inboxNotices: NoticeWire[]
+  concertmasterEntries: ConcertmasterEntryWire[]
   /** Last persisted oplog cursor, or null when never synced (cold client). */
   cursor: number | null
   /** The same cursor as the ADR 2 D1 TRIPLE — `COLD_CURSOR` when never synced.
