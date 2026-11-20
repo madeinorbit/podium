@@ -60,7 +60,11 @@ describe('Release archive bundles', () => {
       expect(readFileSync(join(root, 'package/plain.txt'), 'utf8')).toBe(
         'next entry has no override',
       )
-      expect(readdirSync(join(root, 'package'))).toEqual(['bin', 'codex-resources', 'plain.txt'])
+      expect(readdirSync(join(root, 'package')).sort()).toEqual([
+        'bin',
+        'codex-resources',
+        'plain.txt',
+      ])
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
