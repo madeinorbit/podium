@@ -1,6 +1,8 @@
 {
   "$schema": "https://turbo.build/schema.json",
-  "extends": ["//"],
+  "extends": [
+    "//"
+  ],
   "tasks": {
     "test": {
       "dependsOn": [
@@ -282,7 +284,9 @@
         "vitest.config.ts",
         "vitest.shard.ts"
       ],
-      "outputs": [".test-shard-reports/contracts.json"]
+      "outputs": [
+        ".test-shard-reports/contracts.json"
+      ]
     },
     "test:store": {
       "dependsOn": [],
@@ -1537,7 +1541,9 @@
         "vitest.config.ts",
         "vitest.shard.ts"
       ],
-      "outputs": [".test-shard-reports/store.json"]
+      "outputs": [
+        ".test-shard-reports/store.json"
+      ]
     },
     "test:services": {
       "dependsOn": [],
@@ -2552,7 +2558,9 @@
         "vitest.config.ts",
         "vitest.shard.ts"
       ],
-      "outputs": [".test-shard-reports/services.json"]
+      "outputs": [
+        ".test-shard-reports/services.json"
+      ]
     },
     "test:boundary": {
       "dependsOn": [],
@@ -3641,7 +3649,9 @@
         "vitest.config.ts",
         "vitest.shard.ts"
       ],
-      "outputs": [".test-shard-reports/boundary.json"]
+      "outputs": [
+        ".test-shard-reports/boundary.json"
+      ]
     },
     "test:normalized-wire": {
       "dependsOn": [],
@@ -4315,7 +4325,9 @@
         "vitest.config.ts",
         "vitest.shard.ts"
       ],
-      "outputs": [".test-shard-reports/normalized-wire.json"]
+      "outputs": [
+        ".test-shard-reports/normalized-wire.json"
+      ]
     }
   }
 }

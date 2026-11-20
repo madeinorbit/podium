@@ -1,3 +1,8 @@
+import {
+  gateHarnessVersion,
+  HARNESS_VERSION_POLICIES,
+  type HarnessVersionPolicy,
+} from '@podium/harness/browser'
 import { type HarnessActionResult, HarnessInstallAction, InstallHarness } from '@podium/protocol'
 /**
  * `podium machine` — answer "what can I run on?" from an agent session.
@@ -323,6 +328,13 @@ export async function runMachineCli(
       results.push({ harness: kind, ...result })
     }
     const ok = results.every((result) => result.ok)
+    if (!ok)
+      throw new MachineCliError(
+        results
+          .filter((result) => !result.ok)
+          .map((result) => `${result.harness}: ${result.error ?? result.outcome ?? 'failed'}`)
+          .join('\n'),
+      )
     if (json)
       return JSON.stringify({
         command: `machine installs ${verb}`,
@@ -469,11 +481,20 @@ function installDescription(agent: AgentInventory): string {
     agent.install?.external ??
     (!managed && agent.installed ? { version: agent.version } : undefined)
   const lines = [`${agent.kind}:`]
-  if (own) lines.push(`  ${own.version ?? 'Version unknown'} · your install`)
+  const policy = (HARNESS_VERSION_POLICIES as Record<string, HarnessVersionPolicy>)[agent.kind]
+  const tooOld = own?.version && policy && gateHarnessVersion(policy, own.version) === 'too-old'
+  if (own)
+    lines.push(
+      `  ${own.version ?? 'Version unknown'} · your install${tooOld ? ' · too old for Podium' : ''}`,
+    )
   if (managed)
     lines.push(
       `  ${managed.active?.version ?? 'No usable release'} · managed by Podium${managed.paused ? ' · updates paused' : ''}${managed.lastCheckAt ? ` · checked ${managed.lastCheckAt}` : ''}`,
     )
+  if (managed?.previousVersion) lines.push(`  Can go back to ${managed.previousVersion}`)
+  if (managed?.latest) lines.push(`  Latest stable seen: ${managed.latest}`)
+  if (agent.install?.ledgerRebuilt)
+    lines.push('  Podium rebuilt its install ledger from the release folders.')
   if (managed?.installing) lines.push(`  Installing ${managed.installing.version ?? ''}…`)
   if (managed?.removingAt) lines.push('  Removal waits for running sessions; homes kept.')
   if (managed && own && agent.management && !agent.management.homeVariable)

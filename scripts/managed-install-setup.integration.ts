@@ -77,7 +77,7 @@ try {
 for name in .bashrc .bash_profile .profile .zshrc; do
   if test -f "$1/$name"; then sha256sum "$1/$name"; else printf 'absent %s\\n' "$name"; fi
 done
-if test -d "$1/.local/bin"; then find "$1/.local/bin" -type f -exec sha256sum {} + | sort; else printf 'no personal bin\\n'; fi`
+if test -d "$1/.local/bin"; then find "$1/.local/bin" -printf '%y %P %l\\n' | sort; find "$1/.local/bin" -type f -exec sha256sum {} + | sort; else printf 'no personal bin\\n'; fi`
   const before = inside(['bash', '-c', snapshotScript, 'snapshot', home], true)
   inside(['bun', '--version'])
   inside(['bun', 'run', 'setup:worktree'])

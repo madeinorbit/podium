@@ -1,5 +1,6 @@
 import {
   defaultHarnessesDir,
+  readManagedInstalls,
   removeManagedInstall,
   requestManagedInstall,
 } from '@podium/harness/inventory'
@@ -129,6 +130,8 @@ export class HarnessInstalls {
             : failure(result)
         }
         case 'take-settings': {
+          if (!readManagedInstalls(harnessesDir).harnesses.has(harness))
+            return { ok: false, error: 'Install this harness for Podium before taking settings.' }
           const home = HomeHarness.safeParse(harness)
           if (!home.success || !this.options.podiumHomes)
             return {

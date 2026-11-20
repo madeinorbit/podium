@@ -366,6 +366,17 @@ describe('explicit machine supersession', () => {
 })
 
 describe('machine installs verbs', () => {
+  it('surfaces a failed daemon action as a CLI failure', async () => {
+    const client = {
+      ...fakeClient([ludovico]),
+      harnessInstalls: {
+        action: { mutate: async () => ({ ok: false, error: 'vendor unavailable' }) },
+      },
+    }
+    await expect(
+      runMachineCli(['installs', 'install', 'ludovico', 'codex', '--json'], client),
+    ).rejects.toThrow('vendor unavailable')
+  })
   it('lists the reported state with and without JSON', async () => {
     const client = fakeClient([ludovico])
     expect(await runMachineCli(['installs', 'list', 'ludovico'], client)).toContain('your install')

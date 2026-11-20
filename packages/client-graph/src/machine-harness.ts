@@ -100,7 +100,7 @@ export class MachineHarness {
       actions.push('check')
       if (this.managed.previousVersion) actions.push('back')
       actions.push(this.managed.paused ? 'resume' : 'pause')
-      if (this.inventory?.management?.homeVariable && this.hasOwn) actions.push('take-settings')
+      if (this.inventory?.management?.homeVariable) actions.push('take-settings')
       actions.push('remove')
     }
     if (this.hasOwn) actions.push('changes', 'remove-changes')
