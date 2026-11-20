@@ -243,7 +243,7 @@ describe('codexPosture', () => {
       mode === 'terminal' || mode === 'client' ? 1 : 0,
     )
     expect(after.launch.env).toEqual(before.launch.env)
-    expect(after.homeEdits).toEqual(before.homeEdits)
+    expect(after.applied.homeEdits).toEqual(before.homeEdits)
     expect(after.launch.args).not.toContain('--no-daemon')
     expect(after.launch.args).not.toContain('--stdio')
     expect(after.launch.args.join(' ')).not.toContain('autoUpdateEnabled')
