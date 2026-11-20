@@ -49,6 +49,9 @@ export function openNotice(notice: InboxNoticeModel, actions: Actions): void {
     case 'session':
       actions.navigateToSession(to.sessionId)
       return
+    case 'machine':
+      actions.openMachineSettings(to.machineId)
+      return
     case 'credential':
       actions.setView('settings')
       return

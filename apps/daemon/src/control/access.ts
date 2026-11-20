@@ -61,7 +61,8 @@ const DEFAULT_HOME = 'default'
 /** What the home rule reads of the machine (managed installs §4.2). */
 export interface MachineHomeFacts {
   /** Whether the machine has a managed install of `kind` now. */
-  managedInstall(kind: HomeHarness): boolean
+  managedInstall(kind: import('@podium/model').BuiltinHarnessKind): boolean
+  externalInstall?(kind: import('@podium/model').BuiltinHarnessKind): boolean
 }
 
 /** A credential passed in, with a managed install there: the Podium home (§4.3). */

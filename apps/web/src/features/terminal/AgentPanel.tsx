@@ -1067,6 +1067,7 @@ export const AgentPanel = observer(function AgentPanel({
                 sessionId={sessionId}
                 exitCode={session.exitCode}
                 spawnFailure={session.spawnFailure}
+                firstPrompt={optimisticFirstPrompt}
                 isShell={session.agentKind === 'shell'}
                 resumable={session.resumable === true}
                 {...(session.neverBound ? { neverBound: true as const } : {})}
@@ -1095,6 +1096,7 @@ export const AgentPanel = observer(function AgentPanel({
             sessionId={sessionId}
             exitCode={session.exitCode}
             spawnFailure={session.spawnFailure}
+            firstPrompt={optimisticFirstPrompt}
             isShell={session.agentKind === 'shell'}
             resumable={session.resumable === true}
             {...(session.neverBound ? { neverBound: true as const } : {})}

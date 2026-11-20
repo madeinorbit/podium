@@ -1,8 +1,6 @@
 {
   "$schema": "https://turbo.build/schema.json",
-  "extends": [
-    "//"
-  ],
+  "extends": ["//"],
   "tasks": {
     "test": {
       "dependsOn": [
@@ -284,9 +282,7 @@
         "vitest.config.ts",
         "vitest.shard.ts"
       ],
-      "outputs": [
-        ".test-shard-reports/contracts.json"
-      ]
+      "outputs": [".test-shard-reports/contracts.json"]
     },
     "test:store": {
       "dependsOn": [],
@@ -757,6 +753,7 @@
         "src/modules/machines/diagnostics.ts",
         "src/modules/machines/enrollment.ts",
         "src/modules/machines/facts.test.ts",
+        "src/modules/machines/install-actions.ts",
         "src/modules/machines/install-notices.test.ts",
         "src/modules/machines/install-notices.ts",
         "src/modules/machines/login-propagation.test.ts",
@@ -768,6 +765,7 @@
         "src/modules/machines/refused-send.ts",
         "src/modules/machines/rpc.codex.test.ts",
         "src/modules/machines/rpc.history.test.ts",
+        "src/modules/machines/rpc.installs.test.ts",
         "src/modules/machines/rpc.ts",
         "src/modules/machines/secret-send.test.ts",
         "src/modules/machines/service.ts",
@@ -1539,9 +1537,7 @@
         "vitest.config.ts",
         "vitest.shard.ts"
       ],
-      "outputs": [
-        ".test-shard-reports/store.json"
-      ]
+      "outputs": [".test-shard-reports/store.json"]
     },
     "test:services": {
       "dependsOn": [],
@@ -1919,7 +1915,9 @@
         "src/modules/machines/condition-topic.ts",
         "src/modules/machines/diagnostics.ts",
         "src/modules/machines/enrollment.ts",
+        "src/modules/machines/install-actions.ts",
         "src/modules/machines/install-notices.ts",
+        "src/modules/machines/install-trpc.ts",
         "src/modules/machines/login-propagation.ts",
         "src/modules/machines/record-facts.ts",
         "src/modules/machines/records.statement-count.test.ts",
@@ -2554,9 +2552,7 @@
         "vitest.config.ts",
         "vitest.shard.ts"
       ],
-      "outputs": [
-        ".test-shard-reports/services.json"
-      ]
+      "outputs": [".test-shard-reports/services.json"]
     },
     "test:boundary": {
       "dependsOn": [],
@@ -2959,7 +2955,9 @@
         "src/modules/machines/condition-topic.ts",
         "src/modules/machines/diagnostics.ts",
         "src/modules/machines/enrollment.ts",
+        "src/modules/machines/install-actions.ts",
         "src/modules/machines/install-notices.ts",
+        "src/modules/machines/install-trpc.ts",
         "src/modules/machines/login-propagation.ts",
         "src/modules/machines/record-facts.ts",
         "src/modules/machines/records.ts",
@@ -3643,9 +3641,7 @@
         "vitest.config.ts",
         "vitest.shard.ts"
       ],
-      "outputs": [
-        ".test-shard-reports/boundary.json"
-      ]
+      "outputs": [".test-shard-reports/boundary.json"]
     },
     "test:normalized-wire": {
       "dependsOn": [],
@@ -3905,6 +3901,7 @@
         "src/modules/machines/condition-topic.ts",
         "src/modules/machines/diagnostics.ts",
         "src/modules/machines/enrollment.ts",
+        "src/modules/machines/install-actions.ts",
         "src/modules/machines/install-notices.ts",
         "src/modules/machines/login-propagation.ts",
         "src/modules/machines/record-facts.ts",
@@ -4318,9 +4315,7 @@
         "vitest.config.ts",
         "vitest.shard.ts"
       ],
-      "outputs": [
-        ".test-shard-reports/normalized-wire.json"
-      ]
+      "outputs": [".test-shard-reports/normalized-wire.json"]
     }
   }
 }

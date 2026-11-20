@@ -7,6 +7,7 @@ export const harnessInstallActionInput = z.object({
   machineId: MachineIdField,
   harness: InstallHarness,
   action: HarnessInstallAction,
+  confirmedConversations: z.array(z.string()).optional(),
 })
 
 /** Online machine controls: the daemon reports facts through inventory, never a server write. */

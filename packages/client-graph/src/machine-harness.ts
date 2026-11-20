@@ -104,10 +104,15 @@ export class MachineHarness {
       actions.push('remove')
     }
     if (this.hasOwn) actions.push('changes', 'remove-changes')
+    if (this.inventory?.management?.homeVariable) actions.push('home-info')
     return actions
   }
   actionLabel(action: HarnessInstallAction): string {
     switch (action) {
+      case 'home-info':
+        return 'Podium home…'
+      case 'remove-home':
+        return 'Delete Podium home'
       case 'install':
         return this.tooOld
           ? 'Install a current version'

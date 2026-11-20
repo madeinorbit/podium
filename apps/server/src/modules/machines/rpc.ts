@@ -317,6 +317,8 @@ const HARNESS_TAKESETTINGS = daemonRequestKind<HarnessActionResult>('hi5')
 const HARNESS_REMOVECHANGES = daemonRequestKind<HarnessActionResult>('hi6')
 const HARNESS_CHANGES = daemonRequestKind<HarnessActionResult>('hi7')
 const HARNESS_REMOVE = daemonRequestKind<HarnessActionResult>('hi8')
+const HARNESS_HOMEINFO = daemonRequestKind<HarnessActionResult>('hih')
+const HARNESS_HOMEREMOVE = daemonRequestKind<HarnessActionResult>('hix')
 const HOME_ENSURE = daemonRequestKind<Payload<HomeEnsureResultMessage>>('hn')
 const HOME_REMOVE = daemonRequestKind<Payload<HomeRemoveResultMessage>>('hd')
 const CREDENTIAL_REMOVE = daemonRequestKind<Payload<CredentialRemoveResultMessage>>('cx')
@@ -493,6 +495,10 @@ const RPC_REPLY_SETTLERS: { [K in SettledFrameType]: ReplySettler<K> } = {
     void broker.settle(HARNESS_CHANGES, msg.requestId, machineId, payloadOf(msg)),
   harnessRemoveResult: (broker, machineId, msg) =>
     void broker.settle(HARNESS_REMOVE, msg.requestId, machineId, payloadOf(msg)),
+  harnessHomeInfoResult: (broker, machineId, msg) =>
+    void broker.settle(HARNESS_HOMEINFO, msg.requestId, machineId, payloadOf(msg)),
+  harnessHomeRemoveResult: (broker, machineId, msg) =>
+    void broker.settle(HARNESS_HOMEREMOVE, msg.requestId, machineId, payloadOf(msg)),
   homeEnsureResult: (broker, machineId, msg) =>
     void broker.settle(HOME_ENSURE, msg.requestId, machineId, payloadOf(msg)),
   homeRemoveResult: (broker, machineId, msg) =>
@@ -1345,10 +1351,38 @@ export class DaemonRpcService {
     action: HarnessInstallAction,
     harness: BuiltinHarnessKind,
     machineId: MachineId,
+    confirmedConversations?: string[],
   ): Promise<HarnessActionResult> {
     if (!this.deps.daemonSupports?.(machineId, CAP_HARNESS_INSTALLS))
       return { ok: false, error: 'Update Podium on this machine to manage harness installs.' }
     switch (action) {
+      case 'home-info':
+        return await this.request(
+          HARNESS_HOMEINFO,
+          120000,
+          () => ({ ok: false, error: 'The machine did not answer.' }),
+          (requestId) => ({ type: 'harnessHomeInfoRequest', requestId, harness }),
+          machineId,
+        )
+      case 'remove-home':
+        if (!confirmedConversations)
+          return {
+            ok: false,
+            error: 'Inspect the home and confirm its conversations before deleting it.',
+          }
+        return await this.request(
+          HARNESS_HOMEREMOVE,
+          120000,
+          () => ({ ok: false, error: 'The machine did not answer.' }),
+          (requestId) => ({
+            type: 'harnessHomeRemoveRequest',
+            requestId,
+            harness,
+            confirmedConversations,
+          }),
+          machineId,
+        )
+
       case 'install':
         return await this.request(
           HARNESS_INSTALL,

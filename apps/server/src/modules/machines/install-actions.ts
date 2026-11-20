@@ -30,10 +30,15 @@ export async function runHarnessAction(
     })
   if (!modules.machines.hasDaemon(input.machineId))
     throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'This machine is offline.' })
-  return await modules.rpc.harnessAction(input.action, input.harness, input.machineId)
+  return await modules.rpc.harnessAction(
+    input.action,
+    input.harness,
+    input.machineId,
+    input.confirmedConversations,
+  )
 }
 
-interface InstallState {
+export interface InstallState {
   modules: Pick<RegistryModules, 'machines' | 'rpc'>
   principal: CommandPrincipal | undefined
 }

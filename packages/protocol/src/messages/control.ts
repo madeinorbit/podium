@@ -52,6 +52,8 @@ import {
   HarnessBackRequestMessage,
   HarnessChangesRequestMessage,
   HarnessCheckRequestMessage,
+  HarnessHomeInfoRequestMessage,
+  HarnessHomeRemoveRequestMessage,
   HarnessInstallRequestMessage,
   HarnessPauseRequestMessage,
   HarnessRemoveChangesRequestMessage,
@@ -249,6 +251,8 @@ export const ControlMessage = z.discriminatedUnion('type', [
   HarnessRemoveChangesRequestMessage,
   HarnessChangesRequestMessage,
   HarnessRemoveRequestMessage,
+  HarnessHomeInfoRequestMessage,
+  HarnessHomeRemoveRequestMessage,
 ])
 export type ControlMessage = z.infer<typeof ControlMessage>
 

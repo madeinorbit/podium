@@ -236,6 +236,8 @@ const DISPATCH: Dispatcher = {
   oauthLoopbackResult: toRpc,
   oauthLoopbackCallback: toRpc,
   homeEnsureResult: toRpc,
+  harnessHomeInfoResult: toRpc,
+  harnessHomeRemoveResult: toRpc,
   harnessInstallResult: toRpc,
   harnessCheckResult: toRpc,
   harnessBackResult: toRpc,

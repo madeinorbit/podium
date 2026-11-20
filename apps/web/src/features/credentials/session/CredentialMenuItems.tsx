@@ -19,6 +19,7 @@ function Row({
   checked,
   disabled,
   onSelect,
+  ownLogin = true,
 }: {
   label: string
   hint: string | undefined
@@ -45,7 +46,9 @@ export function CredentialMenuItems({
   choices,
   selected,
   onSelect,
+  ownLogin = true,
 }: {
+  ownLogin?: boolean
   choices: readonly CredentialChoice[]
   /** The current value: an id, `null` for the own login, `undefined` for none shown. */
   selected: CredentialId | null | undefined
@@ -69,12 +72,14 @@ export function CredentialMenuItems({
           />
         )
       })}
-      <Row
-        label={KIND_WORDS['own-login']}
-        hint={OWN_LOGIN_HINT}
-        checked={selected === null}
-        onSelect={() => onSelect(null)}
-      />
+      {ownLogin && (
+        <Row
+          label={KIND_WORDS['own-login']}
+          hint={OWN_LOGIN_HINT}
+          checked={selected === null}
+          onSelect={() => onSelect(null)}
+        />
+      )}
     </>
   )
 }

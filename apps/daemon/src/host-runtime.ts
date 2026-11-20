@@ -1304,6 +1304,7 @@ export async function createDaemonHostRuntime(args: {
       runtime: harnessRuntime,
       updater: harnessUpdater,
       podiumHomes,
+      homes,
       harnessesDir,
       report: () => {
         void reportInventory(ctx, { rebuild: true }).catch((err: unknown) =>

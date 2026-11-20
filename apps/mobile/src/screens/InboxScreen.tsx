@@ -43,7 +43,7 @@ const InboxNoticeRow = observer(function InboxNoticeRow({ id }: { id: string }) 
     const to = noticeDestination(notice)
     if (to.kind === 'issue') router.push(`/issue/${encodeURIComponent(to.issueId)}`)
     else if (to.kind === 'session') router.push(sessionHref(to.sessionId as SessionId, '/inbox'))
-    else if (to.kind === 'credential') router.push('/settings')
+    else if (to.kind === 'credential' || to.kind === 'machine') router.push('/settings')
   }
   return (
     <Pressable

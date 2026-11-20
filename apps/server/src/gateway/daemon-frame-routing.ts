@@ -146,6 +146,8 @@ export const DAEMON_FRAME_PORTS = {
   oauthLoopbackResult: ['rpc'],
   oauthLoopbackCallback: ['rpc'],
   homeEnsureResult: ['rpc'],
+  harnessHomeInfoResult: ['rpc'],
+  harnessHomeRemoveResult: ['rpc'],
   harnessInstallResult: ['rpc'],
   harnessCheckResult: ['rpc'],
   harnessBackResult: ['rpc'],

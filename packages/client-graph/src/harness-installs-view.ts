@@ -6,9 +6,10 @@ export interface HarnessInstallClient {
   harnessInstalls: {
     action: {
       mutate(input: {
-        machineId: string
+        machineId: MachineHarness['machine']['id']
         harness: MachineHarness['kind']
         action: HarnessInstallAction
+        confirmedConversations?: string[]
       }): Promise<HarnessActionResult>
     }
   }
@@ -20,12 +21,14 @@ export class HarnessInstallAnswer extends RequestAnswer<HarnessActionResult> {
     client: HarnessInstallClient,
     row: MachineHarness,
     action: HarnessInstallAction,
+    confirmedConversations?: string[],
   ): Promise<void> {
     await this.load(async () => {
       const result = await client.harnessInstalls.action.mutate({
         machineId: row.machine.id,
         harness: row.kind,
         action,
+        ...(confirmedConversations ? { confirmedConversations } : {}),
       })
       return result
     }, true)

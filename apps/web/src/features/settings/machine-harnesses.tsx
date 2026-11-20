@@ -91,11 +91,7 @@ export const MachineHarnessRow = observer(function MachineHarnessRow({
             </p>
           )}
         </div>
-        <div
-          className="flex max-w-full flex-wrap gap-1"
-          role="group"
-          aria-label={`${row.label} actions`}
-        >
+        <fieldset className="flex max-w-full flex-wrap gap-1" aria-label={`${row.label} actions`}>
           {row.actions.map((action) => (
             <Button
               key={action}
@@ -113,7 +109,7 @@ export const MachineHarnessRow = observer(function MachineHarnessRow({
               {row.actionLabel(action)}
             </Button>
           ))}
-        </div>
+        </fieldset>
       </div>
       {confirmRemove && (
         <div className="mt-3 rounded-md border border-border p-3 text-sm">
@@ -157,7 +153,7 @@ export const MachineHarnessRow = observer(function MachineHarnessRow({
         </p>
       ) : null}
       {answer.answer?.changes && (
-        <div className="settings-prose mt-3 space-y-2" role="region" aria-label="Podium’s changes">
+        <section className="settings-prose mt-3 space-y-2" aria-label="Podium’s changes">
           {answer.answer.changes.length === 0 ? (
             <p>No Podium changes are recorded in your own {row.label} folder.</p>
           ) : (
@@ -181,7 +177,55 @@ export const MachineHarnessRow = observer(function MachineHarnessRow({
               </div>
             ))
           )}
-        </div>
+        </section>
+      )}
+      {answer.answer?.conversations && (
+        <section
+          className="mt-3 rounded-md border border-border p-3 text-sm"
+          aria-label="Podium home"
+        >
+          <p>
+            {answer.answer.homeExists
+              ? 'The Podium home holds these conversations:'
+              : 'There is no Podium home on this machine.'}
+          </p>
+          {answer.answer.conversations.length ? (
+            <ul className="my-2 list-inside list-disc">
+              {answer.answer.conversations.map((conversation) => (
+                <li key={conversation.id}>
+                  {conversation.title}{' '}
+                  <span className="text-xs text-muted-foreground">({conversation.id})</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            answer.answer.homeExists && <p>No stored conversations.</p>
+          )}
+          {answer.answer.homeExists && (
+            <Button
+              className="mt-2"
+              size="xs"
+              variant="outline"
+              disabled={answer.loading}
+              onClick={() => {
+                const conversations = answer.answer?.conversations ?? []
+                if (
+                  window.confirm(
+                    `Delete the Podium home of ${row.label}? This deletes these conversations: ${conversations.length ? conversations.map((item) => item.title).join(', ') : '(none)'}. Your sign-in folders stay.`,
+                  )
+                )
+                  void answer.run(
+                    client,
+                    row,
+                    'remove-home',
+                    conversations.map((item) => item.id),
+                  )
+              }}
+            >
+              Delete Podium home
+            </Button>
+          )}
+        </section>
       )}
     </div>
   )

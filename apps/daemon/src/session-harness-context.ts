@@ -25,12 +25,18 @@ import {
   harnessContext,
   harnessContextOn,
   harnessDriverContext,
+  harnessHomeVariable,
   harnessLoginReadEnv,
   harnessRoots,
   withHarnessHome,
 } from '@podium/harness'
 import { createLogger } from '@podium/logger'
-import type { AgentKind, BuiltinHarnessKind, SessionId } from '@podium/model'
+import {
+  type AgentKind,
+  type BuiltinHarnessKind,
+  isBuiltinHarnessKind,
+  type SessionId,
+} from '@podium/model'
 import { HomeHarness, parseHomeId, parsePodiumHomeId } from '@podium/protocol'
 import type { MachineHomeFacts } from './control/access'
 import type { DaemonContext } from './control/context'
@@ -53,9 +59,13 @@ export class HomeNotOnMachineError extends Error {
 
 /** What a snapshot says of the machine's managed installs (managed installs §4.2). */
 export function snapshotHomeFacts(
-  snapshot: Pick<HarnessExecutableSnapshot, 'managed'>,
+  snapshot: Pick<HarnessExecutableSnapshot, 'managed'> &
+    Partial<Pick<HarnessExecutableSnapshot, 'executables'>>,
 ): MachineHomeFacts {
-  return { managedInstall: (kind) => snapshot.managed?.has(kind) ?? false }
+  return {
+    managedInstall: (kind) => snapshot.managed?.has(kind) ?? false,
+    externalInstall: (kind) => snapshot.executables?.has(kind) ?? false,
+  }
 }
 
 /**
@@ -65,7 +75,10 @@ export function snapshotHomeFacts(
  */
 function settledHomeFacts(ctx: HomeSource): MachineHomeFacts {
   const settled = ctx.harnessRuntime?.settled?.()
-  return { managedInstall: (kind) => settled?.managed?.has(kind) ?? false }
+  return {
+    managedInstall: (kind) => settled?.managed?.has(kind) ?? false,
+    externalInstall: (kind) => settled?.executables.has(kind) ?? false,
+  }
 }
 
 /**
@@ -124,7 +137,7 @@ export function inSessionHome(
   machine: MachineHomeFacts = settledHomeFacts(ctx),
 ): HarnessContext {
   const home = sessionHomeFor(ctx, sessionId, kind, machine)
-  if (!home) return build('person')
+  if (!home) return build(defaultFolderSide(ctx, sessionId, kind, machine))
   const context = build('podium')
   const shareFrom = isPodiumHome(home) ? undefined : shareSourceFor(ctx, home, context, machine)
   const access = sessionId ? ctx.access?.current(sessionId) : undefined
@@ -164,7 +177,23 @@ export function sessionHomeSide(
   kind: AgentKind,
   machine?: MachineHomeFacts,
 ): HarnessHomeSide {
-  return sessionHomeFor(ctx, sessionId, kind, machine) ? 'podium' : 'person'
+  return sessionHomeFor(ctx, sessionId, kind, machine)
+    ? 'podium'
+    : defaultFolderSide(ctx, sessionId, kind, machine ?? settledHomeFacts(ctx))
+}
+
+/** Section 4.7: without a directory variable an admitted install uses the default folder.
+ * If a personal copy appeared later, its own login still selects its own binary. */
+function defaultFolderSide(
+  ctx: HomeSource,
+  sessionId: SessionId | undefined,
+  kind: AgentKind,
+  machine: MachineHomeFacts,
+): HarnessHomeSide {
+  if (!isBuiltinHarnessKind(kind) || harnessHomeVariable(kind) || !machine.managedInstall(kind))
+    return 'person'
+  const passedIn = sessionId && ctx.access?.current(sessionId)?.delivery.kind === 'env'
+  return passedIn || !machine.externalInstall?.(kind) ? 'podium' : 'person'
 }
 
 /** Where Claude Code keeps its state file for the harness's own directory. */

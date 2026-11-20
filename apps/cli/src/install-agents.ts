@@ -30,7 +30,7 @@ export async function installAgents(
   const results: AgentInstallResult[] = []
   for (const raw of ids) {
     if (!isBuiltinHarnessKind(raw)) continue
-    const name = manifestFor(raw)?.displayName ?? raw
+    const name = manifestFor(raw)?.descriptor.label ?? raw
     const spin = io.spinner()
     spin.start(`Installing ${name} for Podium`)
     try {

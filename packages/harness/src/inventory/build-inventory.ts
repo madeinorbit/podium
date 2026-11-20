@@ -594,7 +594,7 @@ export async function buildResolvedInventory(
         const own = result.executable ? true : agent.installed === null ? null : false
         const refusal = managedInstallRefusal(agent.kind, own)
         const section = manifest.managedInstall
-        const reason = section.state === 'unsupported' ? section.reason : refusal
+        const reason = !section.supported ? section.reason : refusal
         const homeVariable = harnessHomeVariable(agent.kind)
         const row = {
           ...agent,

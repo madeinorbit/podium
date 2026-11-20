@@ -1,9 +1,9 @@
 /** Managed harness controls. The machine owns every decision and reports the result. */
-import { BUILTIN_HARNESS_KINDS } from '@podium/model'
+import { HarnessAgent } from '@podium/model'
 import { z } from 'zod'
 
 export const CAP_HARNESS_INSTALLS = 'harness.installs.v1'
-export const InstallHarness = z.enum(BUILTIN_HARNESS_KINDS)
+export const InstallHarness = HarnessAgent
 export const HarnessInstallAction = z.enum([
   'install',
   'check',
@@ -14,6 +14,8 @@ export const HarnessInstallAction = z.enum([
   'remove-changes',
   'changes',
   'remove',
+  'home-info',
+  'remove-home',
 ])
 export type HarnessInstallAction = z.infer<typeof HarnessInstallAction>
 
@@ -23,13 +25,13 @@ export const HarnessHomeChange = z.object({
   harness: InstallHarness,
   file: z.string(),
   edit: z.discriminatedUnion('kind', [
-    z.object({ kind: z.literal('json-key'), path: z.array(z.string()), value: z.json() }),
+    z.object({ kind: z.literal('json-key'), path: z.array(z.string()), value: z.unknown() }),
     z.object({ kind: z.literal('toml-array-entry'), path: z.array(z.string()), value: z.string() }),
     z.object({ kind: z.literal('owned-file'), sha256: z.string() }),
   ]),
   prior: z.union([
     z.object({ absent: z.literal(true) }),
-    z.object({ value: z.json() }),
+    z.object({ value: z.unknown() }),
     z.object({ contents: z.string() }),
   ]),
   serves: z.string(),
@@ -49,6 +51,8 @@ const result = {
   /** Releases remain pinned until the last running process exits. Homes are kept. */
   pendingSessions: z.number().int().nonnegative().optional(),
   changes: z.array(HarnessHomeChange).optional(),
+  conversations: z.array(z.object({ id: z.string(), title: z.string() })).optional(),
+  homeExists: z.boolean().optional(),
 }
 
 export const HarnessInstallRequestMessage = z.object({
@@ -145,3 +149,26 @@ export type HarnessRemoveResultMessage = z.infer<typeof HarnessRemoveResultMessa
 /** Shared HTTP/CLI answer; each wire action still has its own result message. */
 export const HarnessActionResult = z.object(result).omit({ requestId: true })
 export type HarnessActionResult = z.infer<typeof HarnessActionResult>
+
+/** A separate destructive action: the confirmation names the conversations inspected first. */
+export const HarnessHomeInfoRequestMessage = z.object({
+  type: z.literal('harnessHomeInfoRequest'),
+  ...request,
+})
+export type HarnessHomeInfoRequestMessage = z.infer<typeof HarnessHomeInfoRequestMessage>
+export const HarnessHomeInfoResultMessage = z.object({
+  type: z.literal('harnessHomeInfoResult'),
+  ...result,
+})
+export type HarnessHomeInfoResultMessage = z.infer<typeof HarnessHomeInfoResultMessage>
+export const HarnessHomeRemoveRequestMessage = z.object({
+  type: z.literal('harnessHomeRemoveRequest'),
+  ...request,
+  confirmedConversations: z.array(z.string()),
+})
+export type HarnessHomeRemoveRequestMessage = z.infer<typeof HarnessHomeRemoveRequestMessage>
+export const HarnessHomeRemoveResultMessage = z.object({
+  type: z.literal('harnessHomeRemoveResult'),
+  ...result,
+})
+export type HarnessHomeRemoveResultMessage = z.infer<typeof HarnessHomeRemoveResultMessage>

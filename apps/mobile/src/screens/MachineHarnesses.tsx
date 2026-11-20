@@ -132,6 +132,51 @@ const PhoneHarnessRow = observer(function PhoneHarnessRow({ row }: { row: Machin
           conversations are kept.
         </Text>
       ) : null}
+      {answer.answer?.conversations && (
+        <View style={{ gap: space.xs }}>
+          <Text style={{ color: color.text }}>
+            {answer.answer.homeExists
+              ? 'Conversations in the Podium home:'
+              : 'There is no Podium home.'}
+          </Text>
+          {answer.answer.conversations.map((item) => (
+            <Text key={item.id} style={{ color: color.textDim }}>
+              {item.title} ({item.id})
+            </Text>
+          ))}
+          {answer.answer.homeExists && (
+            <Pressable
+              accessibilityRole="button"
+              disabled={answer.loading}
+              style={{ minHeight: 44, justifyContent: 'center' }}
+              onPress={() => {
+                const conversations = answer.answer?.conversations ?? []
+                Alert.alert(
+                  `Delete the Podium home of ${row.label}?`,
+                  `This deletes these conversations: ${conversations.length ? conversations.map((item) => item.title).join(', ') : '(none)'}. Sign-in folders stay.`,
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    {
+                      text: 'Delete home',
+                      style: 'destructive',
+                      onPress: () => {
+                        void answer.run(
+                          client,
+                          row,
+                          'remove-home',
+                          conversations.map((item) => item.id),
+                        )
+                      },
+                    },
+                  ],
+                )
+              }}
+            >
+              <Text style={{ color: color.accent }}>Delete Podium home</Text>
+            </Pressable>
+          )}
+        </View>
+      )}
       {answer.answer?.changes?.length === 0 && (
         <Text style={{ color: color.textDim }}>No Podium changes recorded.</Text>
       )}

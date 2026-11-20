@@ -4,9 +4,11 @@ import type { ControlHandlers, DaemonContext } from '../control/context'
 
 async function run(
   ctx: DaemonContext,
-  msg: { requestId: string; harness: BuiltinHarnessKind },
+  msg: { requestId: string; harness: BuiltinHarnessKind; confirmedConversations?: string[] },
   action: HarnessInstallAction,
   type:
+    | 'harnessHomeInfoResult'
+    | 'harnessHomeRemoveResult'
     | 'harnessInstallResult'
     | 'harnessCheckResult'
     | 'harnessBackResult'
@@ -18,13 +20,15 @@ async function run(
     | 'harnessRemoveResult',
 ) {
   const result = ctx.harnessInstalls
-    ? await ctx.harnessInstalls.run(action, msg.harness)
+    ? await ctx.harnessInstalls.run(action, msg.harness, msg.confirmedConversations)
     : { ok: false, error: 'This machine cannot manage harness installs. Update its Podium daemon.' }
   ctx.send({ type, requestId: msg.requestId, ...result })
 }
 
 export const installHandlers: Pick<
   ControlHandlers,
+  | 'harnessHomeInfoRequest'
+  | 'harnessHomeRemoveRequest'
   | 'harnessInstallRequest'
   | 'harnessCheckRequest'
   | 'harnessBackRequest'
@@ -35,6 +39,12 @@ export const installHandlers: Pick<
   | 'harnessChangesRequest'
   | 'harnessRemoveRequest'
 > = {
+  harnessHomeInfoRequest: (ctx, msg) => {
+    void run(ctx, msg, 'home-info', 'harnessHomeInfoResult')
+  },
+  harnessHomeRemoveRequest: (ctx, msg) => {
+    void run(ctx, msg, 'remove-home', 'harnessHomeRemoveResult')
+  },
   harnessInstallRequest: (ctx, msg) => {
     void run(ctx, msg, 'install', 'harnessInstallResult')
   },

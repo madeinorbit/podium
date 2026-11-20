@@ -1,6 +1,7 @@
+import { useUi } from '@podium/client-core/react'
 import { observer } from '@podium/client-graph/react'
 import { Plus } from 'lucide-react'
-import { useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
 import { Button } from '@/components/ui/button'
 import { useMemberRoster } from '@/lib/member-roster'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
@@ -18,6 +19,7 @@ import { useSettingsClient } from './stable-access'
 
 /** The machine list stays mounted behind pane takeovers, preserving native hosting state. */
 export const MachinesPanel = observer(function MachinesPanel() {
+  const ui = useUi()
   const machines = useSettingsMachines()
   const { trpc } = useSettingsClient()
   const { openTakeover } = useSettingsFrame()
@@ -29,6 +31,13 @@ export const MachinesPanel = observer(function MachinesPanel() {
   const hosting = useEnableHosting(trpc)
   const thisMachineId = nativeDesktopBridge()?.machineId
   const alreadyPaired = machines.some((machine) => machine.id === thisMachineId)
+
+  useEffect(() => {
+    const machine = machines.find((row) => row.id === ui.settingsMachineId)
+    if (!machine) return
+    openTakeover({ title: machine.name, content: <MachineDetail machineId={machine.id} /> })
+    ui.openMachineSettings(null)
+  }, [machines, openTakeover, ui, ui.settingsMachineId])
 
   return (
     <>

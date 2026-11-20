@@ -9,12 +9,15 @@ import { HomeHarness } from '@podium/protocol'
 import type { DaemonHarnessRuntime } from '../harness-runtime'
 import { listHomeEditRecords, removeHomeEditRecords } from '../home-edit-service'
 import type { PodiumHomes } from '../homes/podium-home'
+import type { HomeRegistry } from '../homes/registry'
+import { inspectPodiumHome, removePodiumHome } from './home'
 import type { HarnessUpdater } from './updater'
 
 export interface HarnessInstallsOptions {
   runtime: Pick<DaemonHarnessRuntime, 'refresh'>
   updater: Pick<HarnessUpdater, 'checkNow' | 'goBack' | 'setPaused'>
   podiumHomes?: Pick<PodiumHomes, 'takeMySettings' | 'reconcile'>
+  homes?: Pick<HomeRegistry, 'get' | 'remove'>
   harnessesDir?: string
   report(): void
   /** Test seam; production always uses the shared section 4.7 admission. */
@@ -55,10 +58,26 @@ export class HarnessInstalls {
   async run(
     action: HarnessInstallAction,
     harness: BuiltinHarnessKind,
+    confirmedConversations?: string[],
   ): Promise<HarnessActionResult> {
     const harnessesDir = this.options.harnessesDir ?? defaultHarnessesDir()
     try {
       switch (action) {
+        case 'home-info':
+        case 'remove-home': {
+          const home = HomeHarness.safeParse(harness)
+          if (!home.success || !this.options.homes)
+            return { ok: false, error: 'This harness has no separate Podium home.' }
+          if (action === 'home-info')
+            return { ok: true, ...(await inspectPodiumHome(this.options.homes, home.data)) }
+          await removePodiumHome(
+            this.options.homes,
+            home.data,
+            harnessesDir,
+            confirmedConversations,
+          )
+          return { ok: true, outcome: 'home-removed', homeExists: false }
+        }
         case 'install': {
           if (this.installing.has(harness))
             return { ok: false, error: 'This harness is already being installed.' }
@@ -127,10 +146,10 @@ export class HarnessInstalls {
           const undone = await removeHomeEditRecords(harness, harnessesDir)
           return {
             ok: !undone.some((item) => item.status === 'failed'),
-            changes: undone.map(({ record, status, reason }) => ({
-              ...record,
-              status,
-              ...(reason ? { reason } : {}),
+            changes: undone.map((item) => ({
+              ...item.record,
+              status: item.status,
+              ...('reason' in item ? { reason: item.reason } : {}),
             })),
           }
         }

@@ -146,7 +146,7 @@ export class HomeRegistry {
    */
   async remove(
     homeId: string,
-    options: { podiumHomeConfirmed?: boolean } = {},
+    options: { podiumHomeConfirmed?: boolean; beforeDelete?: () => Promise<void> } = {},
   ): Promise<{ removed: boolean; freedBytes: number }> {
     if (homeId === DEFAULT_HOME_ID) {
       throw new Error('The default home is the harness’s own directory; Podium never removes it.')
@@ -164,6 +164,7 @@ export class HomeRegistry {
     const home = this.get(homeId)
     if (!home) return { removed: false, freedBytes: 0 }
     await this.options.beforeRemove?.(home)
+    await options.beforeDelete?.()
     const freedBytes = sizeOf(home.dir)
     await rm(home.dir, { recursive: true, force: true })
     const credentialDir = join(this.options.root, home.credentialId)
