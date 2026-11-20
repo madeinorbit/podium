@@ -52,6 +52,7 @@ import type { ClientConn } from '../../gateway/client-registry'
 import type { SessionInputGatewayPort } from '../../gateway/daemon-ports'
 import { driverIdIsServerFamily, type HarnessInterrupt } from '../../harness-manifest'
 import { spawnPromptMessageId } from '../../message-ids'
+import { holdOperation } from '../../store/executor/operation-scope'
 import { injectionPayload } from './paste'
 import type { ConfigureOutcome } from './runtime-gateway'
 import type { Session, SessionDurableState } from './session'
@@ -1967,9 +1968,12 @@ export class SessionInbox {
     // they have no driver, and chat-to-shell types into the PTY the operator
     // is watching.
     if (session.agentKind !== 'shell') {
-      void this.forwardContractRows(session, opts?.justBound === true).catch((error) => {
-        log.warn('contract admission failed', { sessionId, err: error })
-      })
+      const forwarding = this.forwardContractRows(session, opts?.justBound === true).catch(
+        (error) => {
+          log.warn('contract admission failed', { sessionId, err: error })
+        },
+      )
+      holdOperation(forwarding)
       return
     }
     await this.forwardShellRows(session)
