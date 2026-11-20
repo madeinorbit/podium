@@ -520,6 +520,66 @@ describe('housekeeping (§5.5)', () => {
 })
 
 describe('ports: environment and vendor hosts', () => {
+  it.each([
+    '--version',
+    '--about',
+  ])('contains %s startup writes and removes probe state before publishing', async (writingProbe) => {
+    const machine = {
+      ...commandEnv(),
+      CODEX_HOME: join(root, 'person-codex'),
+      XDG_CONFIG_HOME: join(root, 'person-config'),
+      OPENAI_API_KEY: 'foreign-key',
+      MACHINE_SENTINEL: 'kept',
+    }
+    for (const path of [machine.HOME, machine.CODEX_HOME, machine.XDG_CONFIG_HOME]) {
+      mkdirSync(path, { recursive: true })
+      writeFileSync(join(path, 'sentinel'), 'personal state\n')
+    }
+    const before = [machine.HOME, machine.CODEX_HOME, machine.XDG_CONFIG_HOME].map(treeDigest)
+    const target = fakeTarget()
+    let identityOutput = ''
+    let staging = ''
+    const result = await install({
+      commandEnv: machine,
+      target: {
+        ...target,
+        install: {
+          latest: target.install.latest,
+          async install(release, dir, ports) {
+            staging = dir
+            const installed = await target.install.install(release, dir, ports)
+            writeFileSync(
+              join(dir, installed.executable),
+              [
+                '#!/bin/sh',
+                `if [ "$1" = "${writingProbe}" ]; then echo probe-write > "$HOME/probe-side-effect"; fi`,
+                'printf "HOME=%s\\nCODEX_HOME=%s\\nXDG_CONFIG_HOME=%s\\nOPENAI_API_KEY=%s\\nMACHINE_SENTINEL=%s\\n" "$HOME" "$CODEX_HOME" "$XDG_CONFIG_HOME" "$OPENAI_API_KEY" "$MACHINE_SENTINEL"',
+                'echo "fake-harness 1.0.0"',
+                '',
+              ].join('\n'),
+            )
+            return installed
+          },
+        },
+        identityProbe: {
+          args: ['--about'],
+          accepts(output) {
+            identityOutput = output
+            return output.includes('fake-harness')
+          },
+        },
+      },
+    })
+    expect(result.outcome).toBe('installed')
+    expect([machine.HOME, machine.CODEX_HOME, machine.XDG_CONFIG_HOME].map(treeDigest)).toEqual(
+      before,
+    )
+    expect(identityOutput).toContain(`HOME=${join(staging, '.probe-home')}\n`)
+    expect(identityOutput).toContain('CODEX_HOME=\nXDG_CONFIG_HOME=\nOPENAI_API_KEY=\n')
+    expect(identityOutput).toContain('MACHINE_SENTINEL=kept\n')
+    if (result.outcome === 'installed') expect(readdirSync(result.dir)).not.toContain('.probe-home')
+  })
+
   it('hands the adapter no foreign credential from any manifest, and nothing from the daemon process', async () => {
     const credentials = Object.values(AGENT_MANIFESTS).flatMap(
       (m) => m.inventory.foreignCredentialEnv,

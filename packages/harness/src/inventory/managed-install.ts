@@ -9,7 +9,8 @@
  *   2. make `<state>/harnesses/<kind>/.staging-<random>/`;
  *   3. call the adapter's `install(release, staging, ports)`;
  *   4. check the result from outside the adapter: the executable is inside the
- *      staging folder, `--version` runs in the machine command environment and
+ *      staging folder, `--version` runs with the machine command PATH in a
+ *      temporary home inside staging and
  *      prints the release asked for, the version is not below the harness's
  *      minimum, and the identity probe accepts it where one is declared;
  *   5. flush the folder, write `receipt.json`, rename to `<number>-<version>/`;
@@ -723,16 +724,22 @@ async function installLocked(
 
   // Step 4: checks from outside the adapter.
   let executable: string
+  const probeHome = join(staging, '.probe-home')
+  const probeEnv = installerEnvFor(env, probeHome, check.platform)
   try {
     await options.beforeStep?.('verify', at)
     const found = executableInside(staging, installed.executable)
     if ('error' in found) return fail('verify', found.error, false)
     executable = found.path
+    // Even --version can create harness state (Codex's arg0 helper links).
+    // A managed binary must never run in the person's harness folder, and
+    // probe state must not become part of the immutable published release.
+    mkdirSync(probeHome)
   } catch (error) {
     return fail('verify', errorText(error), false)
   }
   const timeoutMs = options.probeTimeoutMs ?? AGENT_VERSION_PROBE_TIMEOUT_MS
-  const probe = await probeExecutable(executable, target.versionArgs, env, timeoutMs)
+  const probe = await probeExecutable(executable, target.versionArgs, probeEnv, timeoutMs)
   if (!probe.ok)
     return fail(
       'verify',
@@ -748,7 +755,12 @@ async function installLocked(
   if (target.versionPolicy && gateHarnessVersion(target.versionPolicy, probe.output) === 'too-old')
     return fail('verify', `${kind} ${version} is below the minimum Podium supports`, true)
   if (target.identityProbe) {
-    const identity = await probeExecutable(executable, target.identityProbe.args, env, timeoutMs)
+    const identity = await probeExecutable(
+      executable,
+      target.identityProbe.args,
+      probeEnv,
+      timeoutMs,
+    )
     if (!identity.ok)
       return fail(
         'verify',
@@ -767,6 +779,7 @@ async function installLocked(
   let number: number
   let dir: string
   try {
+    rmSync(probeHome, { recursive: true, force: true })
     await options.beforeStep?.('receipt', at)
     fsyncTree(staging)
     writeInstallReceipt(staging, {
