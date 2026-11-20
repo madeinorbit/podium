@@ -879,7 +879,8 @@ export function unmaskSystemdUnits(units: string[], deps: RuntimeUnitDeps = {}):
   }
   // Also clear an ordinary runtime mask left by an older migrator. Neither
   // operation removes a caller's non-mask definition or its .d drop-ins.
-  ;(deps.run ?? run)('systemctl', ['--user', 'unmask', ...units])
+  // Limit systemctl to runtime state so persistent operator masks survive.
+  ;(deps.run ?? run)('systemctl', ['--user', '--runtime', 'unmask', ...units])
 }
 
 export function startSystemdUnits(units: string[]): void {

@@ -317,7 +317,7 @@ describe('migration systemd operations', () => {
         expect(commands).toEqual([
           { cmd: 'systemctl', args: ['--user', 'daemon-reload'] },
           { cmd: 'systemctl', args: ['--user', 'daemon-reload'] },
-          { cmd: 'systemctl', args: ['--user', 'unmask', unit] },
+          { cmd: 'systemctl', args: ['--user', '--runtime', 'unmask', unit] },
         ])
       } finally {
         rmSync(root, { recursive: true, force: true })
@@ -390,7 +390,7 @@ describe('migration systemd operations', () => {
             args: ['--user', 'disable', '--now', unit],
           })),
           ...units.map((unit) => ({ cmd: 'systemctl', args: ['--user', 'reset-failed', unit] })),
-          { cmd: 'systemctl', args: ['--user', 'unmask', ...units] },
+          { cmd: 'systemctl', args: ['--user', '--runtime', 'unmask', ...units] },
           { cmd: 'systemctl', args: ['--user', 'daemon-reload'] },
           ...units.map((unit) => ({ cmd: 'systemctl', args: ['--user', 'reset-failed', unit] })),
         ])
