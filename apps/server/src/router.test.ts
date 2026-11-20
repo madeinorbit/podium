@@ -438,6 +438,7 @@ describe('repos router', () => {
 
   it('discovery.scanFolder scans the chosen folder to a bounded depth', async () => {
     const { call, registry, daemon } = await repoCaller()
+    vi.mocked(registry.modules.rpc.scanRepos).mockRestore()
     const p = call.discovery.scanFolder({ path: '/some/dir' })
     // scanFolder has a Zod input, so its handler runs a tick later than the
     // input-less procedures; a macrotask flushes the validation + handler first.

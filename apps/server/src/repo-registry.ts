@@ -3,6 +3,7 @@ import { isAbsoluteMachinePath, isMachinePathWithinRoot, machinePathsEqual } fro
 import type { IssueWriter } from './modules/issues/service/types'
 import type { SessionRegistry } from './relay'
 import { normalizeRepoPath, type SessionStore } from './store'
+import { afterCommit } from './store/executor/executor'
 
 /** The longest repo root among `roots` that contains `path` (cwd → repo inference).
  *  A root `r` contains `path` iff `path === r` or `path` starts with `r + '/'`,
@@ -284,7 +285,7 @@ export class RepoRegistry {
   private async checkoutsMoved(machineId: MachineId): Promise<void> {
     const checkouts = this.sessionReg.modules.checkouts
     await checkouts.registrationsChanged(machineId)
-    checkouts.rescanSoon(machineId)
+    afterCommit(() => checkouts.rescanSoon(machineId), 'scan registered repository')
   }
 
   /**

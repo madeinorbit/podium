@@ -249,7 +249,10 @@ describe('the fleet writes are on the sync write entry point', () => {
     const path = '/abs/origin-before-write'
     const originUrl = 'https://example.test/team/project.git'
     const asked: boolean[] = []
-    vi.spyOn(o.reg.modules.checkouts, 'rescanSoon').mockImplementation(() => {})
+    const rescanned: boolean[] = []
+    vi.spyOn(o.reg.modules.checkouts, 'rescanSoon').mockImplementation(() => {
+      rescanned.push(spanOpen())
+    })
     const scan = vi.spyOn(o.reg.modules.rpc, 'scanRepos').mockImplementation(async (roots) => {
       asked.push(spanOpen())
       return {
@@ -262,6 +265,7 @@ describe('the fleet writes are on the sync write entry point', () => {
     const reply = await submit(o, envelope(command, input, `m-origin-${command}`))
     expect(reply.outcome).toBe('applied')
     expect(asked).toEqual([false])
+    expect(rescanned).toEqual([false])
     expect(scan).toHaveBeenCalledWith([path], { includeHome: false, maxDepth: 0 }, machineId)
     expect(insert).toHaveBeenCalledWith(path, machineId, originUrl, undefined)
     expect(
