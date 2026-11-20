@@ -259,7 +259,11 @@ describe('IndexedDbSyncStore', () => {
       const server = new CollectionServer()
       server.kindTokens = { issueProjection: 'v1' }
       server.put('issueProjection', 'D2', issue('D2', { stage: 'done', closedReason: 'completed' }))
-      const tree = { collection: 'issueProjection.tree', part: 'main', args: { root: 'D2' } } as const
+      const tree = {
+        collection: 'issueProjection.tree',
+        part: 'main',
+        args: { root: 'D2' },
+      } as const
       const tabA = await open()
       const cacheA = tabA.viewFor(PRINCIPAL).cache
       const a = new Replica({ store: cacheA, authority: server, now: () => WORLD_NOW })
