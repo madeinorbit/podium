@@ -73,14 +73,13 @@ function publish(ledger: InstallLedger, kind: InstallReceipt['harness'], version
  */
 function execBy(versions: Record<string, string>): ProbeExec & { calls: string[][] } {
   const calls: string[][] = []
-  const exec = (async (argv) => {
+  const exec: ProbeExec = async (argv) => {
     calls.push([...argv])
     const version = versions[argv[0] as string]
     if (version === undefined) throw new Error(`ENOENT: ${argv[0]}`)
     return version
-  }) as ProbeExec & { calls: string[][] }
-  exec.calls = calls
-  return exec
+  }
+  return Object.assign(exec, { calls })
 }
 
 function build(exec: ProbeExec) {
