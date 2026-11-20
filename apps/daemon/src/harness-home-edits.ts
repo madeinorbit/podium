@@ -148,7 +148,9 @@ async function applyOne(
           edit:
             edit.kind === 'owned-file'
               ? { kind: edit.kind, sha256: sha256(edit.contents) }
-              : { kind: edit.kind, path: [...edit.path], value: edit.value },
+              : edit.kind === 'json-key'
+                ? { kind: edit.kind, path: [...edit.path], value: edit.value }
+                : { kind: edit.kind, path: [...edit.path], value: edit.value },
           prior,
           serves: edit.serves,
           appliedAt: new Date().toISOString(),
@@ -391,7 +393,7 @@ export async function undoHomeEdits(
   const outcomes: HomeEditUndoOutcome[] = []
   for (const record of ledger.homeEdits(harness)) {
     outcomes.push(
-      await serialized(record.file, async () => {
+      await serialized<HomeEditUndoOutcome>(record.file, async () => {
         try {
           // The record names the file originally written, not a dotfile link
           // that may since have been pointed at a different file.
