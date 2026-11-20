@@ -6,7 +6,7 @@
 // on a real daemon.
 import { asSessionId, asThreadId, BUILTIN_HARNESS_KINDS, firstAdminMemberId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SuperagentService, TURN_FAILED_MARKER } from './modules/superagent'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
@@ -190,7 +190,8 @@ describe('superagent offline machine (POD-4806)', () => {
       text: 'first',
     })
     // Complete the first turn so the thread is idle but still bound.
-    expect(h.turnReqs).toHaveLength(1)
+    // The durable message is admitted before its asynchronous dispatch.
+    await vi.waitFor(() => expect(h.turnReqs).toHaveLength(1))
     await h.resolveTurn(h.turnReqs[0]!)
     await h.waitForIdle()
     // Take the machine offline: the bound session's host has no daemon now.
@@ -236,6 +237,7 @@ describe('superagent offline machine (POD-4806)', () => {
     // Fail the dispatched turn at the harness (provider error while online).
     // The prompt reached the harness, so the transcript carries it: persisting
     // the user row again would show it twice after a reload (POD-4806 review).
+    await vi.waitFor(() => expect(h.turnReqs).toHaveLength(1))
     const req = h.turnReqs[0]!
     const epoch = 1
     await h.registry.gateway.routeDaemonFrame(h.host, {

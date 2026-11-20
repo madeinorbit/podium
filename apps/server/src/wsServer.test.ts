@@ -1,4 +1,4 @@
-import { encode } from '@podium/protocol'
+import { CAP_SYNC_HTTP_V1, CLIENT_WIRE_VERSION, encode } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import {
   CLIENT_PLANE_LIVENESS,
@@ -74,9 +74,12 @@ describe('native websocket upgrade compatibility', () => {
     const registry = {} as unknown as Parameters<typeof attachWebSockets>[0]
     const handle = attachWebSockets(registry, {}, { timers })
     const upgrade = vi.fn(() => true)
+    const endpoint = new URL('http://127.0.0.1/client')
+    endpoint.searchParams.set('v', String(CLIENT_WIRE_VERSION))
+    endpoint.searchParams.set('cap', CAP_SYNC_HTTP_V1)
 
     expect(
-      await handle.handleRequest(new Request('http://127.0.0.1/client'), {
+      await handle.handleRequest(new Request(endpoint), {
         upgrade,
       } as unknown as Parameters<typeof handle.handleRequest>[1]),
     ).toBeUndefined()
@@ -408,7 +411,7 @@ describe('plane liveness policy', () => {
       const { scheduled, timers } = fakeTimers()
       const handle = attachWebSockets(unusedRegistry, {}, { timers })
       expect(scheduled.map((s) => s.ms)).toEqual([15_000, 10_000])
-      void await handle.close()
+      void (await handle.close())
     })
 
     it('close() stops BOTH sweeps', async () => {
@@ -416,7 +419,7 @@ describe('plane liveness policy', () => {
       // down, and (before `unref`) would hold the process open.
       const { scheduled, timers } = fakeTimers()
       const handle = attachWebSockets(unusedRegistry, {}, { timers })
-      void await handle.close()
+      void (await handle.close())
       expect(scheduled.map((s) => s.cleared)).toEqual([true, true])
     })
   })

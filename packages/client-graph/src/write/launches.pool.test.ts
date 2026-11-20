@@ -103,23 +103,27 @@ function runtime(boot: { effects?: Row[]; queued?: OutboxEntry[] } = {}) {
         }
       },
     },
-    outbox: {
-      pending: () => queue,
-      awaiting: () => [],
-      deadLetters: () => [],
-      subscribe(listener: (size: number) => void) {
-        outboxListeners.add(listener)
-        return () => {
-          outboxListeners.delete(listener)
-        }
-      },
-      enqueue: async (
-        kind: string,
-        input: unknown,
-        opts: { mutationId: string; queuedAt: number },
-      ) => {
-        queue = [...queue, { kind, input, ...opts } as OutboxEntry]
-        publishOutbox()
+    services: {
+      outbox: {
+        queue: {
+          pending: () => queue,
+          awaiting: () => [],
+          deadLetters: () => [],
+          subscribe(listener: (size: number) => void) {
+            outboxListeners.add(listener)
+            return () => {
+              outboxListeners.delete(listener)
+            }
+          },
+          enqueue: async (
+            kind: string,
+            input: unknown,
+            opts: { mutationId: string; queuedAt: number },
+          ) => {
+            queue = [...queue, { kind, input, ...opts } as OutboxEntry]
+            publishOutbox()
+          },
+        },
       },
     },
     subscribeOutboxOutcomes: () => () => {},

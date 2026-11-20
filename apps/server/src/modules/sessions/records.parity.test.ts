@@ -203,6 +203,9 @@ describe('measured driver facts across session publication paths', () => {
   it('replaces a binding report and clears it when the next bind reports no driver', async () => {
     const store = await openTestStore(':memory:')
     const reg = await boot(store)
+    // Historical projection is an owned background task, not a boot barrier.
+    // Compare the quiescent records after its leases and writes have drained.
+    await reg.modules.sessions.runtimeGateway.replayBoardProjection()
     await attachHostDaemon(reg)
     const sessions = reg.modules.sessions
     const { sessionId } = await sessions.createSession({
@@ -267,6 +270,7 @@ describe('durable session records: the database answers as the session does', ()
     // input activity in memory; the activity flush writes it to the row within
     // seconds on a running server. Compare after it, as a reader would.
     await reg.modules.sessions.flushActivity()
+    reg.modules.sessions.residency.sweep()
     const map = reg.modules.sessions.sessions
     const ids = (await store.sessions.loadSessions()).map((row) => row.id)
     const records = await reg.modules.sessions.records.read(ids)

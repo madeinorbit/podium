@@ -207,13 +207,13 @@ describe('the tail stands in a slot of constant height', () => {
     expect(line().querySelector('.tl-current')?.textContent).toBe('bun run test')
     // The fold's clock covers the whole stretch, including the earlier call
     // and the agent mail. The accessible tail still names the current wait.
-    expect(line().querySelector('.tl-timer')?.textContent).toBe(mixed ? '2:42' : '1:59')
+    expect(line().querySelector('.tl-timer')?.textContent).toBe(mixed ? '2m 42s' : '1m 59s')
     expect(line().dataset.state).toBe('live')
     expect(host.querySelectorAll('.tl-timer')).toHaveLength(1)
     expect(host.querySelectorAll('.pod-mark')).toHaveLength(1)
 
     act(() => vi.advanceTimersByTime(1000))
-    expect(line().querySelector('.tl-timer')?.textContent).toBe(mixed ? '2:43' : '2:00')
+    expect(line().querySelector('.tl-timer')?.textContent).toBe(mixed ? '2m 43s' : '2m 00s')
     expect(slot()).toBe(standing)
 
     act(() => line().querySelector<HTMLButtonElement>('[data-transcript-run-toggle]')!.click())
@@ -232,7 +232,7 @@ describe('the tail stands in a slot of constant height', () => {
     ])
     expect(line().dataset.state).toBe('done')
     expect(line().querySelector('.tl-span')?.textContent).toMatch(
-      mixed ? /^\d{2}:\d{2}–\d{2}:\d{2}$/ : /^2:00$/,
+      mixed ? /^\d{2}:\d{2}–\d{2}:\d{2}$/ : /^2m 00s$/,
     )
     expect(line().querySelector('.tl-timer')).toBeNull()
     expect(inlineStatus()).toBeNull()

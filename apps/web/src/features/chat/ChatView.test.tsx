@@ -246,6 +246,9 @@ beforeEach(() => {
   // The chat reads its sent messages' records and the outbox off the store
   // handle (POD-4764); the outbox here is the real one the sends drain from.
   resetFakeStore()
+  // The UI port survives the conversations. Publish the fixture's default
+  // through it so a previous preference-off case cannot leave a cached read.
+  fakeStoreHandle.ui.setDevicePref('podium.chat.stickyPrompts', 'true')
   setFakeStore({ chatSendsFor: chatSend.chatSendsFor })
   container = document.createElement('div')
   document.body.appendChild(container)
@@ -696,6 +699,7 @@ This is agent mail, not the operator's latest prompt.
     // viewport. Give this DOM-order fixture a visible viewport and an actually
     // scrolled-off prompt, then deliver its position notification.
     const prompt = scroller.querySelector<HTMLElement>('[data-operator-prompt="true"]')!
+    expect(prompt.dataset.pinnable).toBe('true')
     Object.defineProperties(scroller, {
       clientHeight: { configurable: true, value: 600 },
       scrollHeight: { configurable: true, value: 900 },
