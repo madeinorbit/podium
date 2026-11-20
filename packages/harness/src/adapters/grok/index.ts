@@ -24,7 +24,7 @@ import { grokCatalog } from './catalog.js'
 import { grokCredentials, hasValidGrokCredential } from './credentials.js'
 import { grokDescriptor } from './descriptor.js'
 import { createGrokConversationProvider } from './discovery.js'
-import { grokInstall } from './install.js'
+import { grokInstall, grokManagedInstall } from './install.js'
 import { grokInstrumentation, grokSessionPaths } from './instrumentation.js'
 import { grokPosture } from './posture.js'
 import { locateGrokTranscript } from './state-locate.js'
@@ -167,9 +167,7 @@ export const grokManifest: AgentManifest = {
   credentials: supported(grokCredentials),
   usage: supported(grokUsage),
   install: supported(grokInstall),
-  managedInstall: unsupported(
-    'Not yet ported to managed installs: the Grok harness task of the managed-installs phase writes it',
-  ),
+  managedInstall: supported(grokManagedInstall),
 
   posture: grokPosture,
   launch(opts) {

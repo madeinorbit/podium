@@ -80,6 +80,35 @@ const ENGINE_ALLOW_EDIT = {
 } as const
 
 describe('grokPosture', () => {
+  describe.each(LAUNCH_MODES)('%s managed updater control', (mode) => {
+    it('disables the updater for managed releases and preserves the other launch terms', () => {
+      const base = request(mode, SUPERVISED)
+      const launch = {
+        ...BUILDER[mode],
+        env: { ...BUILDER[mode].env, KEEP: 'value', GROK_DISABLE_AUTOUPDATER: '0' },
+      }
+      const external = grokPosture(launch, base)
+      const managed = grokPosture(launch, {
+        ...base,
+        context: testHarnessContext({ kind: 'grok', version: '1.0.89', provenance: 'managed' }),
+      })
+      expect(managed).toEqual({
+        ...external,
+        launch: {
+          ...external.launch,
+          env: { ...launch.env, GROK_DISABLE_AUTOUPDATER: '1' },
+        },
+      })
+      expect(launch.env.GROK_DISABLE_AUTOUPDATER).toBe('0')
+    })
+
+    it("leaves an external installation's update policy unchanged", () => {
+      const out = grokPosture(BUILDER[mode], request(mode, SUPERVISED))
+      expect(out.launch.env).toEqual(BUILDER[mode].env)
+      expect(out.launch.env).not.toHaveProperty('GROK_DISABLE_AUTOUPDATER')
+    })
+  })
+
   it('terminal / supervised: --permission-mode default and the allow rules, before the prompt boundary', () => {
     const out = grokPosture(BUILDER.terminal, request('terminal', SUPERVISED))
     expect(out.launch).toEqual({

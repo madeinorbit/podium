@@ -12,6 +12,7 @@ import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { join } from 'node:path'
 import type { BuiltinHarnessKind } from '@podium/model'
+import { grokVendorFixture } from '../adapters/grok/install.test-support.js'
 import type { HarnessInstall, HarnessInstallPorts } from '../manifest.js'
 import type { HarnessVersionPolicy } from '../version-policy.js'
 import type { ManagedInstallTarget, VendorOrigins } from './managed-install.js'
@@ -220,5 +221,6 @@ export const fakeVendorFixture: VendorFixture = {
  * harness task that ports an adapter adds its vendor here; the conformance test
  * fails, naming the harness, until it does.
  */
-export const MANAGED_INSTALL_VENDOR_FIXTURES: Partial<Record<BuiltinHarnessKind, VendorFixture>> =
-  {}
+export const MANAGED_INSTALL_VENDOR_FIXTURES: Partial<Record<BuiltinHarnessKind, VendorFixture>> = {
+  grok: grokVendorFixture,
+}
