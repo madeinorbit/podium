@@ -89,8 +89,9 @@ describe('the component fact', () => {
     expect(machines.find((m) => m.id === laptop)?.components).toEqual(['daemon'])
   })
 
-  it('is additive: a coordinator that also runs a daemon keeps both', async () => {
+  it('an explicit agent assignment adds daemon capability and attachment preserves it', async () => {
     const { registry, coordinator } = await fleet()
+    await registry.sessionStore.machines.addMachineComponent(coordinator, 'daemon')
     await registry.gateway.attachDaemon(coordinator, () => {})
     const machine = (await registry.modules.machines.listMachines()).find(
       (m) => m.id === coordinator,
@@ -107,12 +108,12 @@ describe('the component fact', () => {
 describe('repo actions refuse a machine that runs no daemon', () => {
   it('repos.add refuses the coordinator, and says why', async () => {
     const { call, coordinator } = await fleet()
-    await expect(
-      call.repos.add({ path: '/home/mgw/src/thing', machineId: coordinator }),
-    ).rejects.toThrow(/runs no Podium daemon/)
+    await expect(call.repos.add({ path: '/work/project', machineId: coordinator })).rejects.toThrow(
+      /runs no Podium daemon/,
+    )
     try {
       await call.repos.add({
-        path: '/home/mgw/src/thing',
+        path: '/work/project',
         machineId: coordinator,
       })
       expect.unreachable('repos.add accepted the server-only coordinator')
@@ -123,8 +124,8 @@ describe('repo actions refuse a machine that runs no daemon', () => {
 
   it('repos.add still accepts a machine that runs a daemon, ONLINE OR NOT', async () => {
     const { call, laptop, registry, dropLaptopDaemon } = await fleet()
-    await call.repos.add({ path: '/home/mgw/src/thing', machineId: laptop })
-    expect(await registry.sessionStore.repos.listRepoPaths(laptop)).toContain('/home/mgw/src/thing')
+    await call.repos.add({ path: '/work/project', machineId: laptop })
+    expect(await registry.sessionStore.repos.listRepoPaths(laptop)).toContain('/work/project')
     // The gate that matters is DURABLE, not live: dropping the socket must not
     // retract a repo host, or "offline" and "incapable" have been collapsed again.
     dropLaptopDaemon()
@@ -154,11 +155,11 @@ describe('repo actions refuse a machine that runs no daemon', () => {
 describe('issue homing refuses a machine that can never hold the worktree', () => {
   it('issues.create refuses to home an issue on the coordinator', async () => {
     const { registry, coordinator, repos } = await fleet()
-    await repos.add(repos.serverWriter, '/home/mgw/src/thing', asMachineId('laptop'))
+    await repos.add(repos.serverWriter, '/work/project', asMachineId('laptop'))
     await expect(
       registry.modules.issues.crud.create(registry.modules.issues.reports.store.serverWriter, {
         title: 'homed wrongly',
-        repoPath: '/home/mgw/src/thing',
+        repoPath: '/work/project',
         machineId: coordinator,
         startNow: false,
       }),

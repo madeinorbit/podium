@@ -15,6 +15,7 @@ import type { Capability } from './issue-authz'
 import { SessionRegistry } from './relay'
 import { appRouter } from './router'
 import { OPERATOR } from './test-support/capabilities'
+import { attachHostDaemon } from './test-support/host-daemon'
 
 const ctx = (registry: SessionRegistry, rawCapability: Capability) => {
   const capability: Capability =
@@ -335,6 +336,9 @@ describe('proposed lane bypass paths are closed (B1-B4)', () => {
   it('M5: the proposal subtree is inert — sub-creates are neutered, start and attach reject', async () => {
     const { reg, proposal, proposalWorker } = await setup()
     try {
+      // Reach the proposal guard with a genuinely assigned execution target.
+      await reg.sessionStore.machines.addMachineComponent(reg.sessionStore.hostMachineId, 'daemon')
+      await attachHostDaemon(reg)
       const sub = await proposalWorker.issues.create({
         repoPath: '/r',
         title: 'decomposition under proposal',

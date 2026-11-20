@@ -77,12 +77,20 @@ describe('machines router', () => {
     await expect(renameMachine(call, 'm1', 'x'.repeat(81))).rejects.toThrow()
   })
 
-  it('machines.revoke removes the machine from the list', async () => {
+  it('machines.revoke retains the owned recovery row with execution denied', async () => {
     const { call } = await machineCaller()
     const before = await call.machines.list()
     expect(before.find((m) => m.id === 'm1')).toBeDefined()
     const after = await call.machines.revoke({ id: 'm1' })
-    expect(after.find((m) => m.id === 'm1')).toBeUndefined()
+    const revoked = after.find((m) => m.id === 'm1')
+    expect(revoked).toMatchObject({
+      owned: true,
+      use: 'denied',
+      serviceAssignment: { server: false, agentExecution: false },
+    })
+    expect(revoked?.revokedAt).toBeTruthy()
+    expect(revoked?.online).toBe(false)
+    expect(revoked?.transferable).toBe(false)
   })
 
   it('machines.pairingCode returns a non-empty code string', async () => {

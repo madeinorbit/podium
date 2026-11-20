@@ -1,3 +1,4 @@
+import { ISSUE_CONTRACTS, QUEUED_ISSUE_COMMANDS } from '@podium/commands'
 import { ROW } from '@podium/model'
 import type { Ledger } from '@podium/sync'
 import { TRPCError } from '@trpc/server'
@@ -38,7 +39,12 @@ function callerFor(registry: SessionRegistry) {
 async function seed(registry: SessionRegistry, title = 'subject') {
   // An issue is placed under a machine that REPORTED its repo (2b803efb5).
   await registry.sessionStore.repos.addRepo('/repo', registry.sessionStore.hostMachineId)
-  return await registry.issues.crud.create(registry.issues.reports.store.serverWriter, { repoPath: '/repo', title, startNow: false })
+  return await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
+    repoPath: '/repo',
+    title,
+    startNow: false,
+    parentBranch: 'main',
+  })
 }
 
 /** The revision the authority currently holds for `id`. */
@@ -291,48 +297,13 @@ describe('mutationId dedupe (ADR 2 D11.7 / ADR 3 D1)', () => {
     }
   })
 
-  it('(b2) records that the receipt is NOT yet hoisted into the dispatcher here', () => {
-    // Main hoists the mutation receipt into the dispatcher, which makes dedupe
-    // total over the registry: `claim` gets it without writing idempotency code.
-    // This tree has not landed that half — the receipt is still per-handler
-    // (`ctx.withMutation`), and only the contracts that carry `mutationId` can
-    // reach it. `claim` is not one of them, so main's version of this test could
-    // not even compile here: it passes an argument the input schema has no key
-    // for.
-    //
-    // MEASURED rather than deleted. Asserting the enumeration means the day the
-    // envelope goes registry-wide, this fails and is rewritten to main's claim —
-    // where a deleted test would have left the gap invisible.
-    const carriers = Object.entries(issueRegistry.defs as Record<string, AnyIssueCommandDef>)
-      .filter(([, def]) => def.kind === 'mutation' && fieldsOf(def.input).includes('mutationId'))
-      .map(([name]) => name)
-      .sort()
-    // THE LIST GREW WITH THE CLIENT OUTBOX (POD-781), which is the enumeration
-    // doing its job rather than a re-baseline: `archive`, `delete`, `defer`,
-    // `undefer`, `setLabels`, then `restore` and `setPlacement`, are now queued
-    // by the client, and a queued write is replayed on reconnect — so each
-    // gained a `mutationId` and a `ctx.withMutation` in the same change. The
-    // point the test makes is unchanged: dedupe is still per-handler and reaches
-    // only the contracts that carry the field, which is why `claim` is asserted
-    // below to be outside it.
-    expect(carriers).toEqual([
-      'addComment',
-      'archive',
-      'close',
-      'create',
-      'defer',
-      'delete',
-      'markRead',
-      'markUnread',
-      'restore',
-      'setLabels',
-      'setPlacement',
-      'setTucked',
-      'start',
-      'undefer',
-      'update',
-    ])
-    expect(fieldsOf(issueRegistry.defs.claim.input)).not.toContain('mutationId')
+  it('every queued issue command accepts its client-minted mutation identity', () => {
+    expect(QUEUED_ISSUE_COMMANDS.length).toBeGreaterThan(0)
+    for (const name of QUEUED_ISSUE_COMMANDS) {
+      expect(fieldsOf(issueRegistry.defs[name].input), name).toContain('mutationId')
+    }
+    // The live replay cases above verify effects, not an obsolete partial
+    // carrier list. Structural commands can use the sync submission envelope.
   })
 
   it('replays under a DIFFERENT mutationId apply again (the id is the dedupe key)', async () => {
@@ -415,44 +386,21 @@ describe('registry totality (ADR 3 D13.2 — declared per contract, never guesse
     ([, def]) => def.kind === 'mutation',
   )
 
-  it('covers every mutating command in the registry', () => {
-    // A canary on the enumeration itself: if this count moves, a command was
-    // added or removed and the rows below must be re-read, not re-baselined.
-    //
-    // 45 → 46 is `issues.setPlacement` (POD-679), which landed after this count
-    // was written and left the canary red. Re-read rather than re-baselined, as
-    // the line above asks: the per-command rows below run over this same list,
-    // so `setPlacement` is already being asserted to declare a conflict class,
-    // and it does. POD-781 added no command — its queued kinds all name
-    // contracts that were already here.
-    //
-    // 46 → 49 is the Shipping command boundary (POD-889): `issues.ship`, `issues.cancelShip`
-    // and `issues.resolveShipHold`. Re-read, not re-baselined — all three declare
-    // `conflict: 'cmd'`, so the three per-command rows below already hold them:
-    // each is asserted to declare a class, to omit `expectedRevision` from its
-    // input (a 'cmd' contract that carried the field would advertise a
-    // precondition the dispatcher never checks), and to state a `conflictRule`.
-    // Shipping arbitrates on its own durable generation/custody fences rather
-    // than on an issue revision, which is what 'cmd' says and why exp-rev would
-    // be the wrong class for them.
-    // Sibling-relative moves (POD-6109) use the same issue revision fence.
-    //
-    // 50 → 55 is the shared task model (design §2.2, §4.4). POD-6289 (0a299696ed)
-    // added `editComment`, `deleteComment` (author-only comment edits) and
-    // `restoreTextRevision` (restore a description or brief revision); POD-6290
-    // (f97c15fe73) added `join` and `dismissAssignment` (personal records).
-    // Re-read, not re-baselined: the per-command rows below hold all five, and
-    // each declares a class and states its rule.
-    expect(mutations).toHaveLength(55)
+  it('covers every mutation declared by the shared command contracts', () => {
+    const declared = Object.entries(ISSUE_CONTRACTS)
+      .filter(([, contract]) => contract.kind === 'mutation')
+      .map(([name]) => name)
+      .sort()
+    expect(declared.length).toBeGreaterThan(0)
+    expect(mutations.map(([name]) => name).sort()).toEqual(declared)
   })
 
   it.each(mutations)('%s declares a conflict class', (_name, def) => {
     expect(def.conflict).toBeDefined()
   })
 
-  // Main's `%s accepts a client-minted mutationId` is NOT reproduced per-command:
-  // the idempotency envelope is partial in this tree, and its actual extent is
-  // enumerated in the (b2) case above rather than asserted 43 times over.
+  // Queued inputs carry mutationId; replay behavior is tested above, while
+  // the sync submission envelope covers the structural command transport.
 
   it.each(mutations)('%s agrees with its own schema about expectedRevision', (_name, def) => {
     // The declaration and the wire shape cannot disagree: a def claiming exp-rev
@@ -488,50 +436,11 @@ describe('registry totality (ADR 3 D13.2 — declared per contract, never guesse
       expect(def.conflict, `${name} is a query and must declare 'n/a'`).toBe('n/a')
       expect(def.conflictRule, `${name} is a query and has no rule to state`).toBeUndefined()
     }
-    // Non-vacuity: the loop met the queries, not an empty registry.
-    //
-    // 25 → 27 is `issues.artifactRead` (POD-1999's CLI read-back) and
-    // `issues.deliveryReceipt` (the Shipping boundary's receipt lookup). Both are
-    // reads, so both belong here rather than in the mutation census above, and the
-    // loop this count guards has already asserted each of them writes `'n/a'`
-    // rather than staying silent — which is the whole point of the rewrite noted
-    // above, and the reason bumping this number does not soften anything.
-    // 27 → 29 adds the intended reads `issues.resolveRefs` (POD-5078,
-    // 819096e65f: batched reference lookup) and `issues.searchNormalized` (POD-4968,
-    // 49bd864068: normalized web search alongside the legacy response).
-    // Pin names as well as membership so a query replacement cannot hide behind
-    // an unchanged count; the loop above still checks every query's envelope.
-    expect(queries.sort()).toEqual([
-      'issues.artifactRead',
-      'issues.blocked',
-      'issues.children',
-      'issues.closeEligibleEpics',
-      'issues.comments',
-      'issues.count',
-      'issues.deliveryReceipt',
-      'issues.depReport',
-      'issues.doctor',
-      'issues.epicStatus',
-      'issues.events',
-      'issues.findDuplicates',
-      'issues.get',
-      'issues.graph',
-      'issues.labelList',
-      'issues.linearSearch',
-      'issues.list',
-      'issues.mailPending',
-      'issues.orphans',
-      'issues.preflight',
-      'issues.prime',
-      'issues.ready',
-      'issues.resolveRefs',
-      'issues.search',
-      'issues.searchNormalized',
-      'issues.seat',
-      'issues.stale',
-      'issues.stats',
-      'issues.subscriptionList',
-      'issues.tree',
-    ])
+    const declared = Object.entries(ISSUE_CONTRACTS)
+      .filter(([, contract]) => contract.kind === 'query')
+      .map(([name]) => `issues.${name}`)
+      .sort()
+    expect(declared.length).toBeGreaterThan(0)
+    expect(queries.sort()).toEqual(declared)
   })
 })

@@ -14,6 +14,7 @@ import { resolvePrincipal } from './command-principal'
 import { SessionRegistry } from './relay'
 import { appRouter } from './router'
 import { OPERATOR } from './test-support/capabilities'
+import { attachHostDaemon } from './test-support/host-daemon'
 
 // Step 0's boundary is the actual fetch adapter and the shipped client's
 // classifier/submit adapter. No browser, pool, or second partition policy.
@@ -35,6 +36,7 @@ describe('definitive issue refusals (POD-5429)', () => {
       repoPath: '/repo',
       title: 'subject',
       startNow: false,
+      parentBranch: 'main',
     })
     if (issue.revision === undefined)
       throw new Error('a seeded issue must carry its server revision')
@@ -152,6 +154,13 @@ describe('definitive issue refusals (POD-5429)', () => {
     'addSession',
     'addShell',
   ] as const)('refuses %s while shipping owns the issue', async (command) => {
+    if (['start', 'addSession', 'addShell'].includes(command)) {
+      await registry.sessionStore.machines.addMachineComponent(
+        registry.sessionStore.hostMachineId,
+        'daemon',
+      )
+      await attachHostDaemon(registry)
+    }
     const issue = await seed()
     const row = await registry.issues.crud.store.draftOrThrow(issue.id)
     row.stage = 'shipping'
@@ -190,6 +199,13 @@ describe('definitive issue refusals (POD-5429)', () => {
   })
 
   it('types the internal shipping worktree guard', async () => {
+    if (['start', 'addSession', 'addShell'].includes(command)) {
+      await registry.sessionStore.machines.addMachineComponent(
+        registry.sessionStore.hostMachineId,
+        'daemon',
+      )
+      await attachHostDaemon(registry)
+    }
     const issue = await seed()
     const row = await registry.issues.crud.store.draftOrThrow(issue.id)
     row.stage = 'shipping'
@@ -340,11 +356,18 @@ describe('definitive issue refusals (POD-5429)', () => {
     await refuse(
       'panelApply',
       { id: issue.id, op: 'artifact-remove' },
-      'artifact-remove requires an index',
+      'artifact-remove requires an index or itemId',
     )
   })
 
   it('refuses shipping rehome before reading the destination or mutating ownership', async () => {
+    if (['start', 'addSession', 'addShell'].includes(command)) {
+      await registry.sessionStore.machines.addMachineComponent(
+        registry.sessionStore.hostMachineId,
+        'daemon',
+      )
+      await attachHostDaemon(registry)
+    }
     const issue = await seed()
     const row = await registry.issues.crud.store.draftOrThrow(issue.id)
     row.stage = 'shipping'
@@ -609,6 +632,9 @@ it('the issue refusal audit admits only declared genuine bare-error sites', () =
       'prepareSoftDelete(',
       'prepareRestore(',
     ],
+    // Missing entries in the deck's already-joined maps are an internal graph
+    // invariant, never a user precondition (POD-7196 construction audit repair).
+    'service/deck.ts': ['issue deck invariant: missing '],
     'service/attention.ts': ['attachSession unavailable:'],
     'service/workflow.ts': ['ensured.output', 'worktree add failed:'],
     'registry.ts': ['mail sending is not wired on this server'],
