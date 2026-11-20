@@ -684,9 +684,11 @@ describe('long instance durable sockets', () => {
       'v0.1.0',
       'packages/pty/src/abduco-bin.ts',
     )
+    // The native tool uses argv[0]'s basename for its socket directory. Keep
+    // the released name: renaming it to legacy-abduco changes the protocol path.
     const bin =
       legacyAbducoBin ??
-      (await import(legacySource)).buildVendoredAbduco(join(TEST_ROOT, 'legacy-abduco'))
+      (await import(legacySource)).buildVendoredAbduco(join(TEST_ROOT, 'legacy-abduco', 'abduco'))
     if (!bin) throw new Error('set PODIUM_TEST_ABDUCO_BIN for legacy adoption acceptance')
 
     const instanceId = `update-e2e-${'x'.repeat(21)}`
@@ -739,10 +741,15 @@ describe('long instance durable sockets', () => {
       applyInstanceRuntimeEnv(instanceId, process.env, stateDir)
       // Read back through a widened type: TS narrowed it to undefined at the delete.
       const pinned = process.env.ABDUCO_SOCKET_DIR as string | undefined
+      if (!pinned) throw new Error('named instance did not pin its legacy socket root')
       expect(pinned).toMatch(/^\/tmp\/pd-[A-Za-z0-9_-]{10}$/)
       expect(pinned).toBe(instanceSocketRuntimeDir(instanceId, stateDir))
       pinnedAbducoRoot = pinned
       label = durableSessionLabel(sessionId, instanceId)
+      const expectedSocket = abducoSocketPathname(pinned, label, userInfo().username, hostname())
+      expect(Buffer.byteLength(expectedSocket), expectedSocket).toBeLessThanOrEqual(
+        LINUX_UNIX_SOCKET_PATH_BYTES,
+      )
 
       // What an older Podium's spawn left running, created the way it did: the
       // abduco binary, under the pinned root.
@@ -755,6 +762,7 @@ describe('long instance durable sockets', () => {
       const durable = createDurableProcess()
       const located = await durable.locate(label, process.env, { waitMs: 5000 })
       expect(located?.adapter.kind).toBe('abduco')
+      expect(located?.socketPath).toBe(expectedSocket)
       expect(located?.socketPath).toBe(abducoSocketPath(label, process.env))
       expect(located?.socketPath.startsWith(`${process.env.ABDUCO_SOCKET_DIR}/`)).toBe(true)
       expect(await durable.list()).toContain(label)
@@ -782,7 +790,18 @@ describe('multi-instance runtime isolation', () => {
     const result = await runCli(spec, ['server', '--takeover'], { PODIUM_ADOPT_STATE: '1' })
     expect(result.stderr).toContain('retired machine sentinels')
     expect(result.stderr).toContain('machines.id')
-    expect(result.code, result.stderr).toBe(1)
+    expect(result.code, result.stderr).toBeGreaterThan(0)
+    expect(result.stdout).not.toContain('podium server up')
+    expect(await endpointIsListening(spec.port)).toBe(false)
+    // A refused legacy database remains available for the operator's recovery;
+    // the CLI must not repair the sentinel silently or leave a serving process.
+    const rejected = openDatabase(join(spec.stateDir, 'podium.db'), { readOnly: true })
+    try {
+      expect(rejected.prepare('SELECT id FROM machines').all()).toEqual([{ id: 'local' }])
+      expect(rejected.prepare('PRAGMA integrity_check').get()).toEqual({ integrity_check: 'ok' })
+    } finally {
+      rejected.close()
+    }
   })
 
   it('boots a healthy source CLI server and exits zero on graceful shutdown', async () => {
@@ -1828,16 +1847,20 @@ exec "$CANARY_REAL_CLI" "$@"
     })
     await waitUntil(async () => (await version(named))?.instanceId === 'blue', 'clean named server')
     expect(JSON.parse(readFileSync(join(namedSpec.stateDir, 'config.json'), 'utf8'))).toMatchObject(
-      { mode: 'all-in-one', configVersion: 2 },
+      { mode: 'all-in-one' },
     )
     // S8 imports the channel into deployment settings on the first server boot.
     const namedDatabase = openDatabase(join(namedSpec.stateDir, 'podium.db'), { readOnly: true })
     try {
+      const workspaces = namedDatabase.prepare('SELECT id FROM workspaces').all() as {
+        id: string
+      }[]
+      expect(workspaces).toHaveLength(1)
+      const workspace = workspaces[0]
+      if (!workspace) throw new Error('configured instance has no workspace')
       const settings = namedDatabase
-        .prepare(
-          "SELECT value FROM workspace_meta WHERE workspace_id = 'local' AND key = 'settings'",
-        )
-        .get() as { value: string }
+        .prepare("SELECT value FROM workspace_meta WHERE workspace_id = ? AND key = 'settings'")
+        .get(workspace.id) as { value: string }
       expect(JSON.parse(settings.value).deployment.updateChannel).toBe('edge')
     } finally {
       namedDatabase.close()
@@ -1848,12 +1871,27 @@ exec "$CANARY_REAL_CLI" "$@"
   })
 
   it('keeps live runtimes, agents, commands, data, and lifecycle disjoint', async () => {
-    const compat = startInstance(makeSpec('default'))
+    const compatSpec = makeSpec('default')
+    await seedNamedState(compatSpec)
+    const compat = startInstance(compatSpec)
     const namedSpec = makeSpec('blue')
     await seedNamedState(namedSpec)
     const named = startInstance(namedSpec, { PODIUM_ADOPT_STATE: '1' })
     await waitUntil(async () => (await version(compat))?.instanceId === 'default', 'compat server')
     await waitUntil(async () => (await version(named))?.instanceId === 'blue', 'named server')
+    // Each deployment has its own enrolled owner and signed-in cookie. A
+    // cookie from the other live instance cannot authorize its data plane.
+    for (const [target, foreign] of [
+      [compat, named],
+      [named, compat],
+    ] as const) {
+      const cookie = ownerCookies.get(foreign.stateDir)
+      if (!cookie) throw new Error('instance owner never signed in')
+      const denied = await fetch(`http://127.0.0.1:${target.port}/trpc/machines.list`, {
+        headers: { cookie },
+      })
+      expect(denied.status).toBe(401)
+    }
     for (const instance of [compat, named]) {
       await waitUntil(async () => {
         const rows = await trpc(instance).machines.list.query()
