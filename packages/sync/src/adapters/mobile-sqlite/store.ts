@@ -366,7 +366,7 @@ class SqlSpan implements OwnedSyncSpan {
  */
 export class SqliteSyncStore {
   private mode: DurabilityMode = 'durable'
-  /** Flipped by the corruption injector. */
+  /** Flipped by the corruption injector and by a hydrate that could not decode. */
   private corrupt = false
   // POD-7115: a stub is kept only in its record type's stub table.
   // POD-7159: the resident set, not a copy of the disk.
@@ -388,7 +388,7 @@ export class SqliteSyncStore {
   cacheCommits = 0
 
   private constructor(
-    private readonly db: SqlDatabaseLike,
+    private db: SqlDatabaseLike,
     private readonly options: SqliteStoreOptions,
   ) {}
 
