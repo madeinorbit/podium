@@ -13,7 +13,7 @@
           // Retire the old multi-preset preference. Podium now has one theme.
           localStorage.removeItem('podium.theme.preset')
           var m = localStorage.getItem('podium.theme.mode')
-          var mode = m === 'light' || m === 'dark' || m === 'system' ? m : 'dark'
+          var mode = m === 'light' || m === 'dark' || m === 'system' ? m : 'system'
           var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
           var isDark = mode === 'system' ? prefersDark : mode === 'dark'
           var el = document.documentElement
