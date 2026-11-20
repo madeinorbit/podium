@@ -214,7 +214,8 @@ function assertPhoneWork(one: WorkCounts, four: WorkCounts) {
     for (const reader of readers) {
       // POD-5561 owns the shared title/ref pass. Per-reader counts keep a row
       // scan visible even when both readers visit the same catalog identities.
-      if (kind === 'elementsBy' && reader === 'IssueBoard.textIds') continue
+      // This same shared search pass moved from textIds to textSearch.
+      if (kind === 'elementsBy' && reader === 'IssueBoard.textSearch') continue
       expect(four[kind]?.[reader] ?? 0, `${kind} ${reader}`).toBeLessThanOrEqual(
         one[kind]?.[reader] ?? 0,
       )
