@@ -98,6 +98,9 @@
     "apps/server/src/sync/record-sources.test.ts": "The record source declarations both engines' change capture is generated from (POD-6982); its four cases that probe SQLite's capture triggers run on SQLite only, the rest on both (POD-6994).",
     "apps/server/src/sync-feed.statement-count.test.ts": "The sync feed's statement pins (hello, bootstrap and delta, in process and on the sync worker), the same counts on both engines (POD-6989, POD-6991, POD-6994).",
     "apps/server/src/session-create.statement-count.test.ts": "The session create statement pins (in process and tRPC sessions.create, POD-6983). The in-process pins hold the same counts on both engines; the three tRPC pins run on SQLite only, with the reason in the file (POD-6994).",
-    "apps/server/src/sync/record-builders.parity.test.ts": "Record builders against the change log they capture, with the capture oracle on: every commit's capture is held against what a row trigger saw (POD-6982, POD-6994)."
+    "apps/server/src/sync/record-builders.parity.test.ts": "Record builders against the change log they capture, with the capture oracle on: every commit's capture is held against what a row trigger saw (POD-6982, POD-6994).",
+    "apps/server/src/daemon-frames.statement-count.test.ts": "Daemon frame behavior and fixed statement costs must hold on both store engines, including their armed per-row growth controls.",
+    "apps/server/src/daemon-frames.metadata.statement-count.test.ts": "Daemon frame behavior and fixed statement costs must hold on both store engines, including their armed per-row growth controls.",
+    "apps/server/src/daemon-frames.results.statement-count.test.ts": "Daemon frame behavior and fixed statement costs must hold on both store engines, including their armed per-row growth controls."
   }
 }
