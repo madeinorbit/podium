@@ -218,6 +218,29 @@ describe('real daemon-to-daemon login propagation', () => {
         throw new Error(`${String(error)}: ${JSON.stringify(facts)}`)
       })
 
+      const donor = await store.machines.getMachine(DONOR_ID)
+      const fingerprint = donor?.inventory?.agents.find((agent) => agent.kind === 'claude-code')
+        ?.login.identity?.fingerprint
+      expect(fingerprint, 'the donor reports its native login identity').toBeTruthy()
+      const trigger = {
+        targetMachineId: TARGET_ID,
+        agentKind: 'claude-code' as const,
+        principalUserId: ownerUserId,
+      }
+      await expect(
+        server.registry.modules.loginPropagation.propagate(trigger),
+      ).resolves.toMatchObject({
+        status: 'skipped',
+        reason: 'no login is ticked for use on all your machines',
+      })
+      await store.nativeLogins.setOptIn(
+        ownerUserId,
+        'claude-code',
+        fingerprint!,
+        true,
+        new Date().toISOString(),
+      )
+
       await expect(
         server.registry.modules.loginPropagation.propagate({
           targetMachineId: TARGET_ID,

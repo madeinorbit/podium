@@ -175,6 +175,8 @@ it('observes only painted prefix presence across creation, deletion, rename and 
     paint.mockClear()
     for (const fresh of [false, true]) {
       f.replace([repo(), issue(`replacement-${fresh}`)], fresh)
+      expect(f.pool.tables.repo.get('target-repo')).toMatchObject({ prefix: 'POD' })
+      expect(f.pool.deviceIndex().forkIssueIdentities().repoPrefix('target-repo')).toBe('POD')
       expect(prefixPaint()).toEqual([false, true])
       f.publish({ type: 'update', rows: [repo('target-repo', 'NEW')] })
       expect(prefixPaint()).toEqual([true, false])

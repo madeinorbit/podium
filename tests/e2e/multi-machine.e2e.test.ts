@@ -192,7 +192,12 @@ describe('e2e: two-daemon pairing + routing', () => {
       expect(meta).toBeDefined()
       expect(meta?.machineId).toBe(daemon2Id)
       expect(meta?.machineId).not.toBe(daemon1Id)
-      expect(meta?.machineName).toBe(machine2Name)
+      // Session wire records carry the machine identity; its name is joined
+      // from the separately scoped machine record.
+      expect(await srv.registry.sessionStore.machines.getMachine(meta!.machineId)).toMatchObject({
+        id: daemon2Id,
+        name: machine2Name,
+      })
     } finally {
       await daemon1.close({ reapSessions: true })
       await daemon2.close({ reapSessions: true })

@@ -166,13 +166,11 @@ describe('e2e: daemon -> server -> client', () => {
             (s) => s.sessionId === sessionId,
           )
         await waitFor(async () => ((await getSess())?.epoch ?? 0) >= 1)
-        // The takeover forwards client2's box; the server's copy moves when the
-        // daemon reports the size the pty now has (POD-4771), not on the claim.
-        await waitFor(async () => {
-          const session = await getSess()
-          return session?.geometry.cols === 100 && session?.geometry.rows === 30
-        })
+        // The child observes the real PTY resize. This direct-PTY fixture
+        // has no kernel-size reporting port, so the server must keep its last
+        // reported grid instead of claiming that an ask was acknowledged.
         await waitFor(() => c2.text.includes('cols=100 rows=30'))
+        expect((await getSess())?.geometry).toEqual({ cols: 80, rows: 24 })
       } finally {
         client2.close()
       }

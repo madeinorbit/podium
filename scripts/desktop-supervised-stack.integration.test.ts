@@ -139,6 +139,7 @@ describe('desktop-supervised local stack', () => {
       '<title>mobile</title>',
     )
 
+    let lastFacts: unknown
     const observed = await waitFor(async () => {
       const dbPath = join(stateDir, 'podium.db')
       await readFile(dbPath)
@@ -163,6 +164,7 @@ describe('desktop-supervised local stack', () => {
               service_report_json: string
             }
           | undefined
+        lastFacts = { lease, machine }
         return lease && machine?.presence_source === 'supervisor' && machine.service_report_json
           ? { lease, machine }
           : undefined
@@ -170,7 +172,9 @@ describe('desktop-supervised local stack', () => {
         db.close()
       }
     }, 'the janitor lease and daemon build report').catch((error) => {
-      throw new Error(`${String(error)}\nchild output:\n${output.slice(-16000)}`)
+      throw new Error(
+        `${String(error)}\nlast facts: ${JSON.stringify(lastFacts)}\nchild output:\n${output.slice(-16000)}`,
+      )
     })
 
     expect(observed.lease.generation_id).toMatch(/^janitor_/)
