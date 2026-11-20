@@ -582,6 +582,10 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       },
     },
     daemon: {
+      canSendInput: (sessionId) => {
+        const session: Session | undefined = bag.sessions.get(sessionId)
+        return session?.terminal.hasBoundPty === true && machines.hasDaemon(session.machineId)
+      },
       sendInput: (machineId, input) => bag.toPtyInput(machineId, input),
     },
     authorization: {

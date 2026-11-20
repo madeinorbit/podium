@@ -102,7 +102,7 @@ function harness(stage: (attachment: RuntimeAttachmentRef) => StageAnswer) {
       requestRetract: async () => {},
       clearRetract: async () => {},
     },
-    daemon: { sendInput: vi.fn() },
+    daemon: { canSendInput: () => true, sendInput: vi.fn() },
     authorization: {
       authorizeAtDrain: async () => ({ ok: true }) as const,
       applied: vi.fn(async () => {}),

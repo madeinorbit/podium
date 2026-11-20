@@ -85,6 +85,7 @@ function harness(
     /** What `Session.setRequestedModel` reports back — false = the session was
      *  already on the requested value. */
     requestedModelChanged?: boolean
+    canSendInput?: () => boolean
     /** The ledger's answer to "how does the program hold this message"
      *  (POD-4886); omitted = the port is absent. */
     held?: (input: { sourceMessageId: string }) => Promise<'memory' | 'durable' | undefined>
@@ -268,7 +269,10 @@ function harness(
       },
       sessionsWithPending: async () => [...new Set(rows.map((row) => row.sessionId))],
     },
-    daemon: { sendInput: (_machineId, message) => sent.push(message) },
+    daemon: {
+      canSendInput: options.canSendInput ?? (() => true),
+      sendInput: (_machineId, message) => sent.push(message),
+    },
     authorization: {
       authorizeAtDrain:
         options.authorizeAtDrain ??
@@ -588,6 +592,22 @@ describe('SessionInbox persistence completion', () => {
       }),
     ).rejects.toBe(error)
     expect(h.broadcast).not.toHaveBeenCalled()
+  })
+
+  it('keeps a shell row durable if its transport disappears during authorization', async () => {
+    let connected = true
+    const h = harness({
+      agentKind: 'shell',
+      canSendInput: () => connected,
+      authorizeAtDrain: async () => {
+        connected = false
+        return { ok: true }
+      },
+    })
+    await h.inbox.queueText({ writer: messageTestWriter(), sessionId: SID, text: 'do not lose me' })
+    expect(h.sent).toEqual([])
+    expect(h.rows.map((row) => row.text)).toEqual(['do not lose me'])
+    expect(h.applied).not.toHaveBeenCalled()
   })
 
   it('restores the draft before notifying a shell failure, keeping the row queued', async () => {

@@ -36,7 +36,7 @@ describe('SessionInbox.sweepQueuedInputs single-flight (POD-3258)', () => {
           return [asSessionId('session-a'), asSessionId('session-b')]
         },
       },
-      daemon: { sendInput: () => {} },
+      daemon: { canSendInput: () => true, sendInput: () => {} },
       authorization: {
         authorizeAtDrain: async () => ({ ok: true }) as const,
         applied: vi.fn(async () => {}),

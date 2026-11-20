@@ -812,7 +812,11 @@ export class SessionInbox {
     if (session.agentState?.phase === 'needs_user') return { ok: false }
     // Ordering, not readiness: a live send past a non-empty durable queue would
     // land ahead of older rows still waiting to drain.
-    if (this.isDraining(input.sessionId) || (await this.deps.queue.count(input.sessionId)) > 0) {
+    if (
+      !this.deps.daemon.canSendInput(input.sessionId) ||
+      this.isDraining(input.sessionId) ||
+      (await this.deps.queue.count(input.sessionId)) > 0
+    ) {
       return await this.queueText(input)
     }
     // Complete metadata admission before entering the synchronous byte path.
@@ -831,6 +835,7 @@ export class SessionInbox {
     const currentRefusal = archivedSessionSendReason(session)
     if (currentRefusal) return { ok: false, reason: currentRefusal }
     if (!(await this.mayHandOn(input))) return { ok: false, reason: MESSAGE_ENDED_REASON }
+    if (!this.deps.daemon.canSendInput(input.sessionId)) return await this.queueText(input)
     this.sendShellText(session, input)
     return { ok: true }
   }
@@ -1975,9 +1980,11 @@ export class SessionInbox {
    *
    * Shells have no driver and no transcript witness — bytes onto the PTY the
    * operator is watching ARE the delivery, exactly as a controller keystroke.
-   * No readiness wait, no confirmation poll, no retry: a row its owner may no
-   * longer accept is removed with a refusal, everything else is sent once and
-   * settled. Single-flight per session so concurrent re-arms cannot double-send.
+   * The daemon connection and PTY bind must exist before bytes can land.
+   * Disconnected input stays durable until reconnect/bind re-arms this drain.
+   * A row its owner may no longer accept is removed with a refusal; accepted
+   * rows are sent once and settled, with no agent-activity gate or confirmation
+   * poll. Single-flight per session so concurrent re-arms cannot double-send.
    */
   private async forwardShellRows(session: Session): Promise<void> {
     const sessionId = session.sessionId
@@ -1993,6 +2000,7 @@ export class SessionInbox {
     try {
       for (;;) {
         if (!isCurrent()) return
+        if (!this.deps.daemon.canSendInput(sessionId)) return
         if (session.status !== 'live' && session.status !== 'starting') return
         const blockedReason = archivedSessionSendReason(session)
         const rows = await this.deps.queue.list(sessionId)
@@ -2033,6 +2041,7 @@ export class SessionInbox {
           })
           continue
         }
+        if (!this.deps.daemon.canSendInput(sessionId)) return
         this.sendShellText(session, {
           sessionId,
           text: head.text,

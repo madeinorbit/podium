@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -40,6 +41,7 @@ describe('outbox write path e2e (live server)', () => {
   })
 
   it('replayed resumeAndSend returns the recorded result and leaves exactly ONE queued message', async () => {
+    const mutationId = `msg_${randomUUID()}`
     const cwd = mkdtempSync(join(tmpdir(), 'podium-outbox-e2e-cwd-'))
     tmpDirs.push(cwd)
     await attachHostDaemon(server.registry, () => {}, { repos: [cwd, '/repo'] })
@@ -53,7 +55,7 @@ describe('outbox write path e2e (live server)', () => {
     const first = await trpc.sessions.resumeAndSend.mutate({
       sessionId,
       text: 'queued while offline',
-      mutationId: 'msg_00000000-0000-4000-8000-0000000e2e01',
+      mutationId,
     })
     // Parked/unbound session → durably queued to its boot queue; the honest
     // disposition rides the result (#834) and is recorded/replayed with it.
@@ -63,7 +65,7 @@ describe('outbox write path e2e (live server)', () => {
     const replay = await trpc.sessions.resumeAndSend.mutate({
       sessionId,
       text: 'queued while offline',
-      mutationId: 'msg_00000000-0000-4000-8000-0000000e2e01',
+      mutationId,
     })
     expect(replay).toEqual(first)
 
@@ -80,6 +82,46 @@ describe('outbox write path e2e (live server)', () => {
       expect.objectContaining({ body: 'queued while offline', deliveryStatus: 'stored' }),
     ])
     expect(new Set(queued.map((message) => message.id)).size).toBe(1)
+
+    // Reconnecting the machine is not evidence that this PTY exists yet.
+    const sent: import('@podium/protocol/daemon').ControlMessage[] = []
+    await attachHostDaemon(server.registry, (message) => {
+      sent.push(message)
+    })
+    expect(sent.filter((message) => message.type === 'input')).toEqual([])
+    const stillQueued = await server.registry.sessionStore.messages.listMessagesFor({
+      kind: 'session',
+      id: sessionId,
+    })
+    expect(stillQueued).toEqual([
+      expect.objectContaining({ body: 'queued while offline', deliveryStatus: 'stored' }),
+    ])
+
+    await server.registry.gateway.routeDaemonFrame(server.registry.sessionStore.hostMachineId, {
+      type: 'bind',
+      sessionId,
+      cmd: 'sh',
+      cwd,
+      agentKind: 'shell',
+      geometry: { cols: 80, rows: 24 },
+    })
+    const inputs = () => sent.filter((message) => message.type === 'input')
+    expect(inputs()).toHaveLength(2)
+    const delivered = await server.registry.sessionStore.messages.listMessagesFor({
+      kind: 'session',
+      id: sessionId,
+    })
+    expect(delivered).toEqual([
+      expect.objectContaining({ id: queued[0]!.id, deliveryStatus: 'confirmed' }),
+    ])
+    expect(
+      await trpc.sessions.resumeAndSend.mutate({
+        sessionId,
+        text: 'queued while offline',
+        mutationId,
+      }),
+    ).toEqual(first)
+    expect(inputs()).toHaveLength(2)
   })
 
   it('replayed issues.create returns the original issue; issues.list shows ONE issue', async () => {

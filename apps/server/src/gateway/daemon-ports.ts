@@ -20,7 +20,12 @@
  * from a machine other than the one the request was sent to (POD-1175).
  */
 
-import type { ConversationDiagnosticWire, ConversationDiscoveryWire, MachineId } from '@podium/model'
+import type {
+  ConversationDiagnosticWire,
+  ConversationDiscoveryWire,
+  MachineId,
+  SessionId,
+} from '@podium/model'
 import type { DaemonPtyInputBatch, DaemonPtyOutputBatch, MachinePrincipal } from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import type { RpcDaemonFrame, SessionsDaemonFrame } from './daemon-frame-routing'
@@ -48,6 +53,8 @@ export type DaemonControlPeer = ControlSend | DaemonControlTransport
  * D8/D16; POD-394).
  */
 export interface SessionInputGatewayPort {
+  /** The daemon connection and this session's PTY bind both exist now. */
+  canSendInput(sessionId: SessionId): boolean
   sendInput(machineId: MachineId, input: DaemonPtyInputBatch): void
 }
 

@@ -574,7 +574,10 @@ export class SessionTerminal {
     return this.runtimeTranscript
   }
 
-  applyRuntimeDelta(items: TranscriptItem[], opts: { reset?: boolean; tail?: string } = {}): boolean {
+  applyRuntimeDelta(
+    items: TranscriptItem[],
+    opts: { reset?: boolean; tail?: string } = {},
+  ): boolean {
     this.runtimeTranscript = mergeTranscriptItems(opts.reset ? [] : this.runtimeTranscript, items)
     return this.applyDelta(items, opts)
   }
@@ -997,6 +1000,11 @@ export class SessionTerminal {
     if (geometry) this.applyDaemonGeometry(geometry)
     this.reconcile()
     this.serveOwed()
+  }
+
+  /** A bind was received on the current link and that PTY has not exited. */
+  get hasBoundPty(): boolean {
+    return this.pictures !== undefined && !this.exited
   }
 
   /**

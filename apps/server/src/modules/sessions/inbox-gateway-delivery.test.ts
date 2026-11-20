@@ -164,7 +164,10 @@ function harness(
       },
       sessionsWithPending: async () => [...new Set(rows.map((row) => row.sessionId))],
     },
-    daemon: { sendInput: (_machineId: unknown, message: unknown) => sent.push(message) },
+    daemon: {
+      canSendInput: () => true,
+      sendInput: (_machineId: unknown, message: unknown) => sent.push(message),
+    },
     authorization: {
       authorizeAtDrain: async () => ({ ok: true }) as const,
       applied: async (input: unknown) => {
