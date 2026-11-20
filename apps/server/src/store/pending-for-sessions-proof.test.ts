@@ -237,7 +237,8 @@ describe('pendingForSessionsProof (POD-7036)', () => {
     for (const history of [1, 10_000]) {
       await storeSql(store).run(sql`
         WITH RECURSIVE n(value) AS (
-          SELECT ${history === 1 ? 1 : 2} UNION ALL SELECT value + 1 FROM n WHERE value < ${history}
+          SELECT CAST(${history === 1 ? 1 : 2} AS INTEGER)
+          UNION ALL SELECT value + 1 FROM n WHERE value < ${history}
         ) INSERT INTO messages (
           workspace_id, id, thread_id, from_kind, to_kind, to_id, kind, urgency,
           lifecycle, body, created_at, delivery_status, delivered_to, expects_response
