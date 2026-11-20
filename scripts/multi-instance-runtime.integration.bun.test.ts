@@ -1886,7 +1886,18 @@ exec "$CANARY_REAL_CLI" "$@"
     }
     const stopped = await runCli(named, ['stop'])
     expect(stopped.code, stopped.stderr).toBe(0)
-    await waitUntil(() => named.child.exitCode !== null, 'cold named parent cleanup')
+    await waitUntil(
+      () => named.child.exitCode !== null || named.child.signalCode !== null,
+      'cold named parent cleanup',
+      15_000,
+    )
+    expect(await version(named)).toBeUndefined()
+    expect(await endpointIsListening(named.hookPort)).toBe(false)
+    expect(await endpointIsListening(named.relayPort)).toBe(false)
+    console.log('cold-launch cleanup', {
+      exitCode: named.child.exitCode,
+      signalCode: named.child.signalCode,
+    })
   }, 60_000)
 
   it('keeps live runtimes, agents, commands, data, and lifecycle disjoint', async () => {
