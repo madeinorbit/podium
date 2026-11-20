@@ -2029,6 +2029,7 @@ export function checkSessionBindingFieldAccess(file: string, source: string): Vi
 const STORE_BOUNDARY_ROOTS: readonly string[] = [
   'apps/server/src/store/',
   'packages/sync/src/adapters/sqlite/',
+  'packages/sync/src/adapters/pg/',
 ]
 
 /** The one FILE outside those directories that is a repository (spec §6 rule 2). */
@@ -2244,6 +2245,15 @@ const DRIZZLE_IMPORT_ROOTS: readonly string[] = [
   // both the server's SQLite store and the cloud's Postgres (POD-6744).
   'packages/identity/src/',
 ]
+
+/** Sync's schema/query compilers are persistence; their routers and siblings are not. */
+const DRIZZLE_PERSISTENCE_FILES = new Set([
+  'apps/server/src/sync/collection-sql.ts',
+  'apps/server/src/sync/row-records.ts',
+  'apps/server/src/sync/record-sources.ts',
+  'apps/server/src/sync/workspace-capture.ts',
+  'apps/server/src/sync/capture-pg.ts',
+])
 
 /**
  * STAGE A's CONVERSION LEDGER — the repository files that still hold a raw
@@ -3057,6 +3067,7 @@ export function checkDrizzleImportHome(file: string, source: string): Violation[
   if (!file.startsWith('apps/') && !file.startsWith('packages/')) return []
   if (STORE_BOUNDARY_FILES.has(file)) return []
   if (DRIZZLE_IMPORT_ROOTS.some((root) => file.startsWith(root))) return []
+  if (DRIZZLE_PERSISTENCE_FILES.has(file)) return []
   const violations: Violation[] = []
   const marked = decisionMarkedLines(source)
   const lines = stripComments(source).split('\n')
@@ -3160,11 +3171,329 @@ const CONSTANT_IDENTIFIER_STATEMENTS: ReadonlyMap<string, { token: string; deriv
     ],
   ])
 
+/** A schema/dialect compiler site, bounded by owner, exact argument and occurrence count. */
+export interface SqlCompilerSite {
+  readonly file: string
+  readonly owner: string
+  readonly argument: string
+  readonly count: number
+  readonly derivedBy: string
+  readonly reason: string
+}
+
+/** Reviewed compiler expressions only; values and neighboring raw calls are still refused. */
+export const SQL_COMPILER_SITES: readonly SqlCompilerSite[] = [
+  {
+    file: 'apps/server/src/migrations/pg/pg-only-tables.ts',
+    owner: 'transcriptText',
+    argument: 'searchVectorOf(`left("content", ${TRANSCRIPT_SEARCH_CHARACTERS})`)',
+    count: 1,
+    derivedBy: 'apps/server/src/migrations/pg/schema-parity.test.ts',
+    reason: 'The generated search vector is derived from the schema and fixed search-text bound.',
+  },
+  {
+    file: 'apps/server/src/sync/capture-pg.ts',
+    owner: 'assemble',
+    argument: "tail.map((cte) => `, ${cte}`).join('')",
+    count: 1,
+    derivedBy: 'apps/server/src/sync/capture-pg.test.ts',
+    reason:
+      'The capture compiler uses quoted schema identifiers and fixed CTE names; caller data stays in Drizzle parameters.',
+  },
+  {
+    file: 'apps/server/src/sync/capture-pg.ts',
+    owner: 'assemble',
+    argument: 'WRITE_CTE',
+    count: 1,
+    derivedBy: 'apps/server/src/sync/capture-pg.test.ts',
+    reason:
+      'The capture compiler uses quoted schema identifiers and fixed CTE names; caller data stays in Drizzle parameters.',
+  },
+  {
+    file: 'apps/server/src/sync/capture-pg.ts',
+    owner: 'updateForm',
+    argument: 'OLD_CTE',
+    count: 2,
+    derivedBy: 'apps/server/src/sync/capture-pg.test.ts',
+    reason:
+      'The capture compiler uses quoted schema identifiers and fixed CTE names; caller data stays in Drizzle parameters.',
+  },
+  {
+    file: 'apps/server/src/sync/capture-pg.ts',
+    owner: 'updateForm',
+    argument: 'oldColumns',
+    count: 1,
+    derivedBy: 'apps/server/src/sync/capture-pg.test.ts',
+    reason:
+      'The capture compiler uses quoted schema identifiers and fixed CTE names; caller data stays in Drizzle parameters.',
+  },
+  {
+    file: 'apps/server/src/sync/capture-pg.ts',
+    owner: 'updateForm',
+    argument: 'name',
+    count: 2,
+    derivedBy: 'apps/server/src/sync/capture-pg.test.ts',
+    reason:
+      'The capture compiler uses quoted schema identifiers and fixed CTE names; caller data stays in Drizzle parameters.',
+  },
+  {
+    file: 'apps/server/src/sync/capture-pg.ts',
+    owner: 'updateForm',
+    argument: 'WRITE_CTE',
+    count: 1,
+    derivedBy: 'apps/server/src/sync/capture-pg.test.ts',
+    reason:
+      'The capture compiler uses quoted schema identifiers and fixed CTE names; caller data stays in Drizzle parameters.',
+  },
+  {
+    file: 'apps/server/src/sync/capture-pg.ts',
+    owner: 'updateForm',
+    argument: 'join',
+    count: 1,
+    derivedBy: 'apps/server/src/sync/capture-pg.test.ts',
+    reason:
+      'The capture compiler uses quoted schema identifiers and fixed CTE names; caller data stays in Drizzle parameters.',
+  },
+  {
+    file: 'apps/server/src/sync/capture-pg.ts',
+    owner: 'updateForm',
+    argument: 'returning',
+    count: 1,
+    derivedBy: 'apps/server/src/sync/capture-pg.test.ts',
+    reason:
+      'The capture compiler uses quoted schema identifiers and fixed CTE names; caller data stays in Drizzle parameters.',
+  },
+  {
+    file: 'apps/server/src/sync/capture-pg.ts',
+    owner: 'insertForm',
+    argument: 'WRITE_CTE',
+    count: 1,
+    derivedBy: 'apps/server/src/sync/capture-pg.test.ts',
+    reason:
+      'The capture compiler uses quoted schema identifiers and fixed CTE names; caller data stays in Drizzle parameters.',
+  },
+  {
+    file: 'apps/server/src/sync/capture-pg.ts',
+    owner: 'insertForm',
+    argument: 'returning',
+    count: 1,
+    derivedBy: 'apps/server/src/sync/capture-pg.test.ts',
+    reason:
+      'The capture compiler uses quoted schema identifiers and fixed CTE names; caller data stays in Drizzle parameters.',
+  },
+  {
+    file: 'apps/server/src/sync/capture-pg.ts',
+    owner: 'deleteForm',
+    argument: 'WRITE_CTE',
+    count: 1,
+    derivedBy: 'apps/server/src/sync/capture-pg.test.ts',
+    reason:
+      'The capture compiler uses quoted schema identifiers and fixed CTE names; caller data stays in Drizzle parameters.',
+  },
+  {
+    file: 'apps/server/src/sync/capture-pg.ts',
+    owner: 'deleteForm',
+    argument: 'returning',
+    count: 1,
+    derivedBy: 'apps/server/src/sync/capture-pg.test.ts',
+    reason:
+      'The capture compiler uses quoted schema identifiers and fixed CTE names; caller data stays in Drizzle parameters.',
+  },
+  {
+    file: 'apps/server/src/store/events.ts',
+    owner: 'SQLITE_PAYLOAD',
+    argument: "`'$.${path.join('.')}'`",
+    count: 1,
+    derivedBy: 'apps/server/src/store/events-golden.test.ts',
+    reason:
+      'Finite runtime-event field paths compile to the engine expression; event payload values remain bound.',
+  },
+  {
+    file: 'apps/server/src/store/events.ts',
+    owner: 'SQLITE_PAYLOAD',
+    argument: "`'$.${field}'`",
+    count: 2,
+    derivedBy: 'apps/server/src/store/events-golden.test.ts',
+    reason:
+      'Finite runtime-event field paths compile to the engine expression; event payload values remain bound.',
+  },
+  {
+    file: 'apps/server/src/store/events.ts',
+    owner: 'PG_PAYLOAD',
+    argument: "`'{${path.join(',')}}'`",
+    count: 1,
+    derivedBy: 'apps/server/src/store/events-golden.test.ts',
+    reason:
+      'Finite runtime-event field paths compile to the engine expression; event payload values remain bound.',
+  },
+  {
+    file: 'apps/server/src/store/events.ts',
+    owner: 'PG_PAYLOAD',
+    argument: "`'${field}'`",
+    count: 3,
+    derivedBy: 'apps/server/src/store/events-golden.test.ts',
+    reason:
+      'Finite runtime-event field paths compile to the engine expression; event payload values remain bound.',
+  },
+  {
+    file: 'apps/server/src/store/executor/pg-drizzle.ts',
+    owner: 'StorePgDatabase.raw',
+    argument: 'query',
+    count: 1,
+    derivedBy: 'apps/server/src/store/executor/pg-driver.test.ts',
+    reason:
+      'The private Drizzle adapter compiles a trusted statement string; bound values are handed to the query client separately.',
+  },
+  {
+    file: 'apps/server/src/store/append-only.ts',
+    owner: 'refusalTerm',
+    argument: 'literal(text)',
+    count: 1,
+    derivedBy: 'apps/server/src/store/shipping-guards.test.ts',
+    reason:
+      'The write-fence compiler uses the finite schema guard declarations and quotes its refusal text.',
+  },
+  {
+    file: 'apps/server/src/store/append-only.ts',
+    owner: 'updateCases',
+    argument: "`${row('workspace_id')} IS NOT NULL`",
+    count: 1,
+    derivedBy: 'apps/server/src/store/shipping-guards.test.ts',
+    reason:
+      'The write-fence compiler uses the finite schema guard declarations and quotes its refusal text.',
+  },
+  {
+    file: 'apps/server/src/store/append-only.ts',
+    owner: 'updateCases',
+    argument: 'rule.fence.refuses(row)',
+    count: 1,
+    derivedBy: 'apps/server/src/store/shipping-guards.test.ts',
+    reason:
+      'The write-fence compiler uses the finite schema guard declarations and quotes its refusal text.',
+  },
+  {
+    file: 'apps/server/src/store/append-only.ts',
+    owner: 'writeGuard',
+    argument: 'fence.refuses(rowOf(shape.table))',
+    count: 1,
+    derivedBy: 'apps/server/src/store/shipping-guards.test.ts',
+    reason:
+      'The write-fence compiler uses the finite schema guard declarations and quotes its refusal text.',
+  },
+  {
+    file: 'apps/server/src/store/shipping.ts',
+    owner: 'insertedRow',
+    argument: 'type',
+    count: 1,
+    derivedBy: 'apps/server/src/store/shipping.workspace.test.ts',
+    reason:
+      'The cast type comes only from the addressed static schema column; the inserted value is a bound parameter.',
+  },
+  {
+    file: 'apps/server/src/store/conversations/search-pg.ts',
+    owner: 'conversationMatches',
+    argument: 'conversationSearchVector((name) => `c."${name}"`)',
+    count: 1,
+    derivedBy: 'apps/server/src/store/conversations/search-contract.test.ts',
+    reason:
+      'The search expression is the schema-owned vector over fixed conversation columns; search terms stay bound.',
+  },
+]
+
+const sqlArgumentKey = (argument: string): string =>
+  stripComments(argument).replace(/\s+/g, ' ').trim()
+const sqlCompilerKey = (owner: string, argument: string): string =>
+  `${owner}\0${sqlArgumentKey(argument)}`
+
+/** Find the actual declaring function/method, or outer variable for a data declaration. */
+function sqlCompilerOwner(call: ts.Node, source: ts.SourceFile): string {
+  let variable = ''
+  for (let node: ts.Node | undefined = call.parent; node; node = node.parent) {
+    if (ts.isFunctionDeclaration(node) && node.name) return node.name.text
+    if (ts.isMethodDeclaration(node)) {
+      const parent = node.parent
+      const klass = ts.isClassDeclaration(parent) ? parent.name?.text : undefined
+      return klass ? `${klass}.${node.name.getText(source)}` : node.name.getText(source)
+    }
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name)) variable = node.name.text
+  }
+  return variable
+}
+
+function sqlCompilerCalls(
+  file: string,
+  source: string,
+): Array<{ owner: string; argument: string; line: number }> {
+  const parsed = ts.createSourceFile(
+    file,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    file.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+  )
+  const calls: Array<{ owner: string; argument: string; line: number }> = []
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isCallExpression(node) &&
+      node.arguments.length === 1 &&
+      ts.isPropertyAccessExpression(node.expression) &&
+      ts.isIdentifier(node.expression.expression) &&
+      node.expression.expression.text === 'sql' &&
+      node.expression.name.text === 'raw'
+    ) {
+      calls.push({
+        owner: sqlCompilerOwner(node, parsed),
+        argument: node.arguments[0]!.getText(parsed),
+        line: parsed.getLineAndCharacterOfPosition(node.getStart(parsed)).line + 1,
+      })
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(parsed)
+  return calls
+}
+
+/** A removed site cannot leave capacity behind for a later compiler expression. */
+export function sqlCompilerSiteProblems(file: string, source: string): string[] {
+  const sites = SQL_COMPILER_SITES.filter((site) => site.file === file)
+  if (sites.length === 0) return []
+  const calls = sqlCompilerCalls(file, source)
+  return sites.flatMap((site) => {
+    const actual = calls.filter(
+      (call) =>
+        sqlCompilerKey(call.owner, call.argument) === sqlCompilerKey(site.owner, site.argument),
+    ).length
+    return actual === site.count
+      ? []
+      : [`${site.owner}: expected ${site.count}, found ${actual}: ${site.argument}`]
+  })
+}
+
+function sqlCompilerAllowances(file: string, source: string): Map<string, number> {
+  const sites = SQL_COMPILER_SITES.filter((site) => site.file === file)
+  const remaining = new Map(
+    sites.map((site) => [sqlCompilerKey(site.owner, site.argument), site.count]),
+  )
+  const allowed = new Map<string, number>()
+  if (sites.length === 0) return allowed
+  for (const call of sqlCompilerCalls(file, source)) {
+    const site = sqlCompilerKey(call.owner, call.argument)
+    const count = remaining.get(site) ?? 0
+    if (count === 0) continue
+    remaining.set(site, count - 1)
+    const key = `${call.line}\0${sqlArgumentKey(call.argument)}`
+    allowed.set(key, (allowed.get(key) ?? 0) + 1)
+  }
+  return allowed
+}
+
 export function checkSqlRawLiteral(file: string, source: string): Violation[] {
   // Superset pre-filter, same reason as rule 14.
   if (!SQL_RAW_CALL.test(source)) return []
   if (!file.startsWith('apps/') && !file.startsWith('packages/')) return []
   if (SEARCH_INDEX_PORT.has(file)) return []
+  if (isTestFile(file)) return []
+  const compiler = sqlCompilerAllowances(file, source)
   const violations: Violation[] = []
   const marked = decisionMarkedLines(source)
   const code = stripComments(source)
@@ -3186,11 +3515,15 @@ export function checkSqlRawLiteral(file: string, source: string): Violation[] {
       constant !== undefined &&
       ((sourceLines[line - 1] ?? '').includes(constant.token) ||
         (/^\s*\/\//.test(previous) && previous.includes(constant.token)))
+    const compilerKey = `${line}\0${sqlArgumentKey(argument ?? '')}`
+    const compilerRemaining = compiler.get(compilerKey) ?? 0
+    if (compilerRemaining > 0) compiler.set(compilerKey, compilerRemaining - 1)
     if (
       argument !== null &&
       !SQL_RAW_STRING_LITERAL.test(argument.trim()) &&
       !marked.has(line) &&
-      !tokenOnLine
+      !tokenOnLine &&
+      compilerRemaining === 0
     ) {
       violations.push({
         file,

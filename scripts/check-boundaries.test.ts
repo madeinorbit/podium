@@ -30,6 +30,8 @@ import {
   checkRepositoryDbCapture,
   checkSessionBindingFieldAccess,
   checkSqlRawLiteral,
+  SQL_COMPILER_SITES,
+  sqlCompilerSiteProblems,
   checkStoreBoundaryLedger,
   checkStoreRawHandles,
   checkTerminalObjectsDriver,
@@ -2886,5 +2888,67 @@ describe('parallel-nested-scope (POD-6625)', () => {
   it('is wired through checkFile so lint:boundaries cannot skip it', () => {
     const vs = checkFile(FILE, 'await Promise.all(xs.map(async () => await writer.commit(op)))')
     expect(vs.some((v) => v.rule === 'parallel-nested-scope')).toBe(true)
+  })
+})
+
+describe('schema-derived raw SQL compiler sites', () => {
+  const file = 'apps/server/src/sync/capture-pg.ts'
+  it('accepts one exact enrolled expression in its declaring compiler', () => {
+    expect(checkSqlRawLiteral(file, 'function assemble() { return sql.raw(WRITE_CTE) }')).toEqual(
+      [],
+    )
+  })
+  it('refuses arbitrary values, concatenation, neighboring owners and unlisted files', () => {
+    for (const source of [
+      'function assemble() { return sql.raw(userInput) }',
+      "function assemble() { return sql.raw('prefix' + userInput) }",
+      'function neighbor() { return sql.raw(WRITE_CTE) }',
+      'function assemble() { return sql.raw(WRITE_CTE); sql.raw(WRITE_CTE) }',
+    ])
+      expect(checkSqlRawLiteral(file, source).length, source).toBeGreaterThan(0)
+    expect(
+      checkSqlRawLiteral(
+        'apps/server/src/store/unlisted.ts',
+        'function assemble() { return sql.raw(WRITE_CTE) }',
+      ),
+    ).toHaveLength(1)
+  })
+  it('keeps every enrollment exact and backed by its deriving test', () => {
+    const root = fileURLToPath(new URL('..', import.meta.url))
+    for (const file of new Set(SQL_COMPILER_SITES.map((site) => site.file))) {
+      expect(sqlCompilerSiteProblems(file, readFileSync(join(root, file), 'utf8')), file).toEqual(
+        [],
+      )
+    }
+    for (const site of SQL_COMPILER_SITES) {
+      expect(site.reason.trim().length, site.file).toBeGreaterThan(0)
+      expect(site.count, site.file).toBeGreaterThan(0)
+      expect(() => readFileSync(join(root, site.derivedBy), 'utf8'), site.derivedBy).not.toThrow()
+    }
+    expect(sqlCompilerSiteProblems(file, '').length).toBeGreaterThan(0)
+  })
+})
+
+describe('declared sync persistence homes', () => {
+  it('recognizes the Postgres adapter and exact server schema compilers', () => {
+    for (const file of [
+      'packages/sync/src/adapters/pg/dialect.ts',
+      'packages/sync/src/adapters/pg/schema.ts',
+      'apps/server/src/sync/collection-sql.ts',
+      'apps/server/src/sync/row-records.ts',
+      'apps/server/src/sync/record-sources.ts',
+      'apps/server/src/sync/workspace-capture.ts',
+      'apps/server/src/sync/capture-pg.ts',
+    ])
+      expect(checkDrizzleImportHome(file, "import { sql } from 'drizzle-orm'"), file).toEqual([])
+  })
+  it('still refuses a neighboring router and a name that only starts with a compiler path', () => {
+    for (const file of [
+      'apps/server/src/sync/router.ts',
+      'apps/server/src/sync/capture-pg.ts.extra.ts',
+    ])
+      expect(checkDrizzleImportHome(file, "import { sql } from 'drizzle-orm'"), file).toHaveLength(
+        1,
+      )
   })
 })

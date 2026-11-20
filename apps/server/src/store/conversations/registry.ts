@@ -152,7 +152,7 @@ const adoptParent = prepared((db, t) =>
 
 /** `IS NOT` as a comparison of two values that may be NULL: Postgres spells it `IS DISTINCT FROM`. */
 const isNot = (db: StoreDrizzle): SQL =>
-  sql.raw(dialectOf(db) === 'pg' ? 'IS DISTINCT FROM' : 'IS NOT')
+  dialectOf(db) === 'pg' ? sql`IS DISTINCT FROM` : sql`IS NOT`
 
 // The trailing predicate is what keeps a re-discovery of an UNCHANGED
 // segment free. Every sweep re-offers the whole corpus, so this matched
@@ -242,8 +242,8 @@ const offered = (db: StoreDrizzle, field: string, type?: 'bigint') =>
   dialectOf(db) !== 'pg'
     ? sql`value ->> ${`$.${field}`}`
     : type === undefined
-      ? sql.raw(`(value ->> '${field}')`)
-      : sql.raw(`CAST(value ->> '${field}' AS ${type})`)
+      ? sql`(value ->> ${field})`
+      : sql`CAST(value ->> ${field} AS bigint)`
 
 /** {@link offered}, compared with a column: in byte order on Postgres. */
 const offeredKey = (db: StoreDrizzle, field: string) =>

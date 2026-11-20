@@ -97,7 +97,7 @@ const HEADLINE_OPTIONS =
  * without being marked; a snippet is display, and may differ from SQLite's (OD4).
  */
 export const transcriptHeadline = (): SQL =>
-  sql`ts_headline('simple', left(f.content, ${sql.raw(String(TRANSCRIPT_SEARCH_CHARACTERS))}), q, ${sql.raw(`'${HEADLINE_OPTIONS}'`)})`
+  sql`ts_headline('simple', left(f.content, ${TRANSCRIPT_SEARCH_CHARACTERS}), q, ${HEADLINE_OPTIONS})`
 
 /**
  * THE POSTGRES ARM OF A SQLITE-ONLY SEARCH STATEMENT: the statement on SQLite, the check below on Postgres. SQLite's search is made at boot and
@@ -111,5 +111,5 @@ export const transcriptHeadline = (): SQL =>
  * turns search off on that engine, as a build without FTS5 turns it off on SQLite.
  */
 export function onSqliteOnly(db: StoreDrizzle, relation: string, statement: SQL): SQL {
-  return dialectOf(db) === 'pg' ? sql.raw(`SELECT '${relation}'::regclass`) : statement
+  return dialectOf(db) === 'pg' ? sql`SELECT ${relation}::regclass` : statement
 }

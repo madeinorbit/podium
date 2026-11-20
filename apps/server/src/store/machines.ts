@@ -312,6 +312,7 @@ const legacySentinelScan = prepared((db) => {
   // Each arm's probe holds its table to the workspace, in the probe's own scope.
   const arms = MACHINE_ID_SITES.map((site) => {
     const [table, column] = site.split('.')
+    // CONSTANT-IDENTIFIER STATEMENT POD-3404: the schema-derived arms, at their raw sites.
     return sql`${sql.raw(`SELECT '${site}' AS site WHERE EXISTS (SELECT 1 FROM "${table}" WHERE "${table}".workspace_id = `)}${WORKSPACE}${sql.raw(` AND "${column}" IN (${sentinels}))`)}`
   })
   const statement = sql.join(arms, sql.raw('\nUNION ALL\n'))
