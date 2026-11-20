@@ -180,28 +180,12 @@ async function openSource(): Promise<{ source: SessionStore; owner: UserId }> {
 /** Move the server from `source` to the target daemon through the real service. */
 async function moveServer(source: SessionStore) {
   const { serverTransferHandlers } = await import('../../apps/daemon/src/server-transfer')
-  // The feed identity a running server mints at start; a bare store has none yet.
-  {
-    const db = openDatabase(join(sourceRoot, 'podium.db'))
-    try {
-      db.prepare(
-        'INSERT OR IGNORE INTO feed_identity (singleton, feed_id, epoch, minted_at) VALUES (1, ?, ?, ?)',
-      ).run('feed-transfer-test', 'epoch-transfer-test', Date.now())
-    } finally {
-      db.close()
-    }
-  }
-  const readFeed = () => {
-    const db = openDatabase(join(sourceRoot, 'podium.db'), { readOnly: true })
-    try {
-      const row = db
-        .prepare('SELECT feed_id, epoch FROM feed_identity WHERE singleton = 1')
-        .get() as { feed_id: string; epoch: string } | undefined
-      if (!row) throw new Error('the source database has no feed identity')
-      return { feedId: row.feed_id, feedEpoch: row.epoch }
-    } finally {
-      db.close()
-    }
+  // A bare store is provisioned with this workspace's own feed identity.
+  // Use its scoped repository, just as the running server does.
+  const readFeed = async () => {
+    const identity = await source.sync.readFeedIdentity()
+    if (!identity) throw new Error('the source workspace has no feed identity')
+    return { feedId: identity.feedId, feedEpoch: identity.epoch }
   }
   const target = () => ({
     exists: true,

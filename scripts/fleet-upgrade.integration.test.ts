@@ -55,7 +55,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { MachineId } from '@podium/model'
+import { firstAdminMemberId, type MachineId } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
 import { noJanitorWorkerForTests } from '../apps/server/src/janitor-host'
 import { type ServerHandle, startServer } from '../apps/server/src/server'
@@ -234,8 +234,12 @@ class Coordinator {
     return this.handle.registry.modules.machines
   }
 
-  pairCode(): string {
-    return this.machines.mintPairingCode()
+  async pairCode(): Promise<string> {
+    const ownerUserId = await firstAdminMemberId(this.handle.registry.sessionStore)
+    return this.machines.mintPairingCode({
+      ownerUserId,
+      ownerAuthzGeneration: await this.machines.ownerAuthzGeneration(ownerUserId),
+    })
   }
 
   async rows(): Promise<MachineRow[]> {
@@ -707,7 +711,7 @@ describe('upgrade proof: the old stable and mixed fleets (real instances)', () =
     // the fence, pairing with the coordinator for the first time.
     const beforeUpgrade = await startFleetParent(coordinator, {
       legacy: true,
-      pairCode: coordinator.pairCode(),
+      pairCode: await coordinator.pairCode(),
       version: '0.1.0',
     })
     await beforeUpgrade.attached
@@ -790,15 +794,15 @@ describe('upgrade proof: the old stable and mixed fleets (real instances)', () =
 
     const unstamped = await startFleetParent(coordinator, {
       legacy: true,
-      pairCode: coordinator.pairCode(),
+      pairCode: await coordinator.pairCode(),
       version: '0.1.0',
     })
     const stampedOne = await startFleetParent(coordinator, {
-      pairCode: coordinator.pairCode(),
+      pairCode: await coordinator.pairCode(),
       version: '0.2.0',
     })
     const stampedTwo = await startFleetParent(coordinator, {
-      pairCode: coordinator.pairCode(),
+      pairCode: await coordinator.pairCode(),
       version: '0.2.0',
     })
     for (const machine of [unstamped, stampedOne, stampedTwo]) await machine.attached
@@ -935,7 +939,7 @@ describe('upgrade proof: the old stable and mixed fleets (real instances)', () =
   it('ARM C — a self-update handover settles on the successor and the row never regresses', async () => {
     const coordinator = await Coordinator.start()
     const machine = await startFleetParent(coordinator, {
-      pairCode: coordinator.pairCode(),
+      pairCode: await coordinator.pairCode(),
       version: '1.0.0',
     })
     await machine.attached
@@ -1037,7 +1041,7 @@ describe('upgrade proof: the old stable and mixed fleets (real instances)', () =
   it('ARM E — a same-version handover advances the incarnation the coordinator holds, though the version cannot', async () => {
     const coordinator = await Coordinator.start()
     const machine = await startFleetParent(coordinator, {
-      pairCode: coordinator.pairCode(),
+      pairCode: await coordinator.pairCode(),
       version: '1.0.0',
     })
     await machine.attached
@@ -1116,7 +1120,7 @@ describe('upgrade proof: the old stable and mixed fleets (real instances)', () =
   it('ARM D — a killed successor hands the machine back, and the outgoing parent reattaches', async () => {
     const coordinator = await Coordinator.start()
     const machine = await startFleetParent(coordinator, {
-      pairCode: coordinator.pairCode(),
+      pairCode: await coordinator.pairCode(),
       version: '1.0.0',
       env: { FIXTURE_HANDOVER_TIMEOUT_MS: '8000' },
     })
