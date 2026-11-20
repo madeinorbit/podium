@@ -45,9 +45,12 @@ describe('the Linear and Telegram secrets in the vault', () => {
     if (testStoreEngine() === 'pg') {
       const sql = connectPgTest(await testStoreLocation(dbPath), 1)
       try {
-        return await sql`SELECT key, value, updated_at FROM workspace_secrets WHERE workspace_id = ${SELF_HOSTED_WORKSPACE_ID}`
+        return await sql.unsafe<{ key: string; value: string; updated_at: string }>(
+          'SELECT key, value, updated_at FROM workspace_secrets WHERE workspace_id = $1',
+          [SELF_HOSTED_WORKSPACE_ID],
+        )
       } finally {
-        await sql.end()
+        await sql.close()
       }
     }
     const db = openDatabase(dbPath)
