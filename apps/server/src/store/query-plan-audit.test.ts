@@ -989,6 +989,26 @@ describe('POD-6148 — every repository query is served by an index', () => {
     }
   })
 
+  it('seeks pending proofs even with no planner statistics (POD-7263)', () => {
+    const { keyed } = keyedDefinitions(trackedSources(SOURCE), SOURCE)
+    const proofs = keyed.filter(
+      (entry) => entry.key === 'apps/server/src/store/messages.ts:pendingForSessionsProof',
+    )
+    database.exec('DELETE FROM sqlite_stat1')
+    database.exec('ANALYZE sqlite_schema')
+    try {
+      const { audited } = auditDefinitions(proofs)
+      expect(audited.map((entry) => entry.shape)).toEqual(SIZES)
+      for (const entry of audited) {
+        expect(entry.findings, describeEntry(entry)).toEqual([])
+        expect(entry.plan.join(' | ')).toContain('idx_messages_recipient_')
+        expect(entry.plan.join(' | ')).toContain('idx_messages_delivered_to_time')
+      }
+    } finally {
+      modelLowSelectivity(database)
+    }
+  })
+
   it('reads the open chat through its partial index (POD-6173)', () => {
     const { keyed } = keyedDefinitions(trackedSources(SOURCE), SOURCE)
     const { audited } = auditDefinitions(keyed)
