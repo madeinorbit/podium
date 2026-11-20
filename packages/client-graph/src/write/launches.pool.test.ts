@@ -125,12 +125,13 @@ function runtime(boot: { effects?: Row[]; queued?: OutboxEntry[] } = {}) {
     },
     subscribeOutboxOutcomes: () => () => {},
     attachPoolWriter: () => () => {},
-    spawnNotices: { error: (message: string) => errors.push(message), info: () => {} },
+    notices: { error: (message: string) => errors.push(message), info: () => {} },
   }
   const handle = createRuntimeWorklistPool(fixtureRoot(rt) as unknown as WorklistRuntime)
   return {
     pool: handle.pool,
     errors,
+    launchPainted: () => handle.transactions.launchPainted(SESSION),
     /** One replica batch: the rows change, then every subscriber hears it, synchronously. */
     batch(changes: { kind: ReplicaKind; id: string; value: Row | undefined }[]) {
       for (const { kind, id, value } of changes) {
@@ -174,7 +175,15 @@ describe('a start paints from the pool effect model (POD-6411)', () => {
     try {
       await published()
       runInAction(() => {
-        expect(session(rt.pool)?.storedField('status')).toBe('starting')
+        expect(
+          session(rt.pool)?.storedField('status'),
+          JSON.stringify({
+            effects: [...rt.pool.tables.effect.keys()],
+            painted: rt.launchPainted(),
+            sessions: [...rt.pool.tables.session.keys()],
+            errors: rt.errors,
+          }),
+        ).toBe('starting')
         // The one copy: the paint's record is the pool's own effect model.
         const starts = startEffects(rt.pool)
         expect(starts).toEqual([here(rt.pool.model('effect', EFFECT))])

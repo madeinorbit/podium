@@ -4,13 +4,13 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { UpdateGrantMessage, UpdateStatusMessage } from '@podium/protocol'
 import { writeDaemonHealth } from '@podium/runtime/daemon-health'
-import { writeRecord } from '@podium/runtime/run-registry'
-import { MachineUpdateExecutor, type MachineUpdateAdapter } from '@podium/runtime/machine-update'
+import { type MachineUpdateAdapter, MachineUpdateExecutor } from '@podium/runtime/machine-update'
 import {
   ParentProcess,
   type ParentProcessDeps,
   type SpawnChildFn,
 } from '@podium/runtime/parent-process'
+import { writeRecord } from '@podium/runtime/run-registry'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { startParentWithUpdateConfirmation } from './parent-boot-confirmation'
 
@@ -112,9 +112,9 @@ async function boot(overrides: Partial<ParentProcessDeps> = {}, digest = 'target
     children: ['daemon'],
     runningIdentity: { version: '2.0.0', digest },
     spawn: ((_cmd, args) =>
-      new Child(args[0] === 'server' ? 'server' : 'daemon') as unknown as ReturnType<
-        SpawnChildFn
-      >) as SpawnChildFn,
+      new Child(
+        args[0] === 'server' ? 'server' : 'daemon',
+      ) as unknown as ReturnType<SpawnChildFn>) as SpawnChildFn,
     probeHealth: async () => ({
       serverRunning: false,
       serverVersion: null,
@@ -267,6 +267,9 @@ describe('production startup confirmation after delayed parent health', () => {
     for (let i = 0; i < 5; i++) await Promise.resolve()
     expect(heldProbes).toBe(1)
     await b.parent.stop()
+    // Startup may extend systemd's deadline while health is still pending.
+    // Nothing, especially READY, may be sent by the late probe after stop.
+    const notificationsAtStop = [...b.notify.mock.calls]
     release()
     await vi.advanceTimersByTimeAsync(500)
     expect(b.parent.isBootHealthy()).toBe(false)
@@ -274,7 +277,8 @@ describe('production startup confirmation after delayed parent health', () => {
     expect(b.updates.snapshot()?.phase).toBe('restarting')
     expect(b.claimRole).not.toHaveBeenCalled()
     expect(b.finalizePendingGrant).not.toHaveBeenCalled()
-    expect(b.notify).not.toHaveBeenCalled()
+    expect(b.notify.mock.calls).toEqual(notificationsAtStop)
+    expect(b.notify).not.toHaveBeenCalledWith('READY=1')
     expect(existsSync(join(b.dir, 'run/supervisor-ready.json'))).toBe(false)
   })
 

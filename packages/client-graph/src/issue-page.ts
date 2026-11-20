@@ -543,7 +543,7 @@ export function createIssuePageViews(pool: MobxPool) {
     destination,
     memberSessions,
     attachedSessions,
-    closeFacts: (id: string) => readIssueCloseFacts(pool, id),
+    closeFacts: (id: string) => memo(`close:${id}`, () => readIssueCloseFacts(pool, id)),
     dispose() {
       disposed = true
       cache.clear()

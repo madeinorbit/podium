@@ -138,6 +138,8 @@ describe('keyed adapter inputs (POD-5433)', () => {
   for (const scale of [1, 4] as const) {
     it(`a repo change re-links only the sessions under a moved path (${scale}x)`, async () => {
       const f = await fixture(scale)
+      // Registration is inert until the optional launcher is actually opened.
+      f.command.read('commandCatalog', 'catalog')
       const change = vi.spyOn(
         CommandLaunchSource.prototype as unknown as { change(entity: string): void },
         'change',

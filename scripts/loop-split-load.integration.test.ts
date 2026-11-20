@@ -5,6 +5,7 @@ import { fixtureWriteScope } from '@podium/sync/testing'
 import { describe, expect, it } from 'vitest'
 import { SessionRegistry } from '../apps/server/src/relay'
 import type { IssueRow } from '../apps/server/src/store'
+import { attachHostDaemon } from '../apps/server/src/test-support/host-daemon'
 import { openTestStore } from '../apps/server/src/test-support/open-test-store'
 
 const SESSION_COUNT = 588
@@ -87,6 +88,7 @@ describe('loop split representative load [spec:SP-c29e]', () => {
         await store.issues.upsertIssue(fixtureWriteScope(), issueRow(seq))
     })
     const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    await attachHostDaemon(registry)
     const sessionIds: SessionId[] = []
     let loop: ReturnType<typeof startLoopMetrics> | undefined
     try {
