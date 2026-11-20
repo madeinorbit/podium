@@ -18,8 +18,9 @@ management from `issue/6857-inference-credential-management` at `2aeb38768f`.
 
 Evidence tags: **script** = read in the vendor's own installer, fetched
 2026-11-13; **disk** = seen on the development machine; **live** = run there;
-**doc** = vendor documentation or Podium's harness reference; **unmeasured** =
-not yet checked, listed for the spike in section 13.
+**doc** = vendor documentation or Podium's harness reference. **Lab** observations
+are from the POD-7267 report and hash listings, recorded 2026-11-20 on disposable
+Ubuntu 24.04.5 x86-64 boxes.
 
 ## 1. The design on one page
 
@@ -106,10 +107,9 @@ Two more facts about what a harness writes into its home:
 
 - Claude Code records how it was installed and whether it updates itself
   (`installMethod`, `autoUpdates`) in its state file when it exits (**live**).
-- From 0.169, the first `codex app-server` in a Codex home copies Codex into
-  that home (`<home>/packages/app-server-daemon/`, about 400 MB) and leaves a
-  daemon there with its own update loop (**live**, measured for credential
-  management, POD-6893).
+- From 0.169, Codex can copy its package into
+  `<home>/packages/app-server-daemon/` and run a daemon with its own updater.
+  Section 6.3 records which launches use that copy (**lab**).
 
 ### Releases are frequent and large
 
@@ -265,20 +265,18 @@ homes, stays as built.
 
 ### 4.7 Harnesses with no folder variable
 
-Homes exist for Claude Code and Codex, the two whose folder a variable can
-move. Grok, OpenCode, Pi and Cursor have no measured variable yet. Until one
-is measured, a managed install of those is offered only on a machine where the
-person has no install of their own, so there is no second side to protect. The
-spike measures a variable for each (section 13).
+Podium homes exist for Claude Code and Codex today. The spike also found
+`GROK_HOME` and `PI_CODING_AGENT_DIR`. OpenCode's XDG directory variables work
+together, and Cursor's dedicated variables leave some writes in the person's
+home. Section 9 records the measured paths.
 
-Such a managed install runs in the harness's default folder, because nothing
-can move it. If the person later installs their own copy, both binaries share
-that folder. Podium does not resolve that silently: the harness row shows both
-installs sharing one folder and offers to remove Podium's copy.
+Until an adapter uses the measured overrides for its harness, Podium can
+manage it only on a machine where the person has no install of their own.
+The install action and machine setup both enforce this rule.
 
-The rule is one check on the install action and on machine setup, for every
-harness: no folder variable and an install of the person's own present means
-the install is refused with this reason.
+A managed install that runs with the default home shares that home if the
+person installs their own copy later. The harness row shows both installs
+sharing one folder and offers to remove Podium's copy.
 
 ## 5. Installing and updating
 
@@ -563,32 +561,40 @@ rebuilt context names the current install even when the process is older.
 
 ### 6.3 The vendor's own updater
 
-Posture already receives the session's context. When
-`context.installation.provenance` is `managed`, the adapter's posture section
-adds that harness's updater switch to the launch, in every launch mode.
+For a managed installation, posture supplies the update control for the launch
+mode. The six published Linux releases started from paths outside the vendor
+install trees. Codex, Pi and Cursor ran with the other files in their published
+packages alongside the entry point. The observed writes below come from the
+bounded lab runs in POD-7267.
 
-| Harness | Switch | Evidence |
+| Harness | Update control | Measured behavior |
 |---|---|---|
-| Claude Code | `DISABLE_AUTOUPDATER=1` | **doc**; the name is in the installed binary (**disk**). Effect from a managed folder: **unmeasured**. |
-| Codex | `-c check_for_update_on_startup=false` | removes the notice and the menu (**live**; posture sets it today for terminal and client launches). Two background updaters remain. The standalone build updates itself (the `auto-update-version` file, **script**); whether that runs for a binary outside `$CODEX_HOME/packages/standalone`: **unmeasured**. And the app-server daemon keeps its own copy of Codex in the home, with its own update loop (**live**); a switch for it: **unmeasured**. |
-| Grok | `GROK_DISABLE_AUTOUPDATER`, or `auto_update = false` under `[cli]` | both in Grok's installed documentation (**disk**); effect **unmeasured**. |
-| OpenCode | `OPENCODE_DISABLE_AUTOUPDATE=1` | already used by Podium's OpenCode engine. |
-| Pi | none known to be needed: Pi shows a notice and updates on `pi update`. `PI_SKIP_VERSION_CHECK=1` hides the notice. | notice **live**; that it never updates by itself: **unmeasured**. |
-| Cursor | unknown | **unmeasured**. Its installer keeps versions under `~/.local/share/cursor-agent` and links in `~/.local/bin` (**script**), so an updater left on would write there. |
+| Claude Code 2.1.311 | `DISABLE_AUTOUPDATER=1` | A turn with `CLAUDE_CONFIG_DIR` set wrote settings, backups and conversation state in that folder and used temporary files. The vendor-installed binary, the test user's Claude home, caches and shell profiles were byte-identical. |
+| Codex 0.169.0 and 0.171.0 | `-c check_for_update_on_startup=false` for startup UI. `updater.autoUpdateEnabled: false` in `$CODEX_HOME/app-server-daemon/settings.json` for the copied daemon. | The startup flag leaves the daemon updater active. Direct stdio ran the published executable. The copied daemon updated itself and restarted. The daemon setting kept the copy and suppressed the loop. An arbitrary-path release refused `codex update` even with a valid `packages/standalone/auto-update-version` in the selected home. |
+| Grok 1.0.89 | `GROK_DISABLE_AUTOUPDATER=1`, or `[cli] auto_update = false` in `config.toml` | The switched launch wrote config, logs and the session index under `GROK_HOME`. The older 1.0.77 runs with the environment switch, the config switch and defaults left the release bytes unchanged during the observation. The default control did not produce a replacement release. |
+| OpenCode 1.19.6 | `OPENCODE_DISABLE_AUTOUPDATE=1` | The loopback turn wrote its database, cache, logs, config and state under the supplied XDG roots. It also created `~/.opencode/.gitignore` and temporary files. Both executables stayed byte-identical. |
+| Pi 1.6.0 | `PI_SKIP_VERSION_CHECK=1` | The flag skips the version request. A loopback turn wrote the model store and transcript under `PI_CODING_AGENT_DIR`. The release and vendor install stayed byte-identical. Pi's explicit updater is `pi update`. |
+| Cursor 2026.11.19-f005e9d | `--disable-auto-update` on agent launch, or `"channel":"static"` in `cli-config.json` | The released CLI accepts the hidden flag and its updater guard recognizes both controls. Normal startup still writes the compile cache and `~/.cursor/agent-cli-state.json`. An explicit update of the July build installed the November release under `~/.local/share/cursor-agent/versions/`, repointed the `agent` and `cursor-agent` links and wrote a `cursor` shim under `~/.local/bin`. |
 
-For the person's own install nothing changes: Podium does not decide its update
-policy and only stops update menus from blocking a session.
+For the person's own install, posture takes care of update menus while the
+person retains their update policy.
 
-**Codex's copy in the home.** A managed Codex runs only in Podium homes, so
-the copy always stays inside Podium's state folder and M2 holds. Which binary
-then serves the session, and whether the copy can be switched off, decides how
-much "managed" means for Codex. It is first on the spike list.
+**Codex's copy in the home.** On both versions, `codex app-server` over stdio
+served a complete turn from the invoking release and created no daemon
+package. On 0.171.0, explicit `codex app-server --stdio` gave the same result.
+The terminal flag `codex --no-daemon` selected the embedded server. Explicit
+`codex app-server daemon bootstrap` instead copied the package into
+`$CODEX_HOME/packages/app-server-daemon/`. The socket peer's
+`/proc/<pid>/exe` pointed into the copied release. With default updater
+settings, the 0.169.0 daemon selected 0.171.0 and restarted at the five-minute
+scheduled check. A launch-scoped update notice flag does not affect that loop.
+A shared daemon also keeps the environment it was started with, which matters
+when Podium passes credentials at launch. [Codex daemon lifecycle for 0.171.0](https://github.com/openai/codex/blob/rust-v0.171.0/codex-rs/app-server-daemon/README.md)
 
 **One cost per Codex update.** In a home Podium made, Codex gets Podium's hooks
 as launch flags with a trust hash, read once per Codex version from a throwaway
-`codex app-server` and cached (`homes/codex-hook-trust.ts`). A managed update is
-a new version, so the first launch after each Codex update pays that read
-once. Nothing needs to change.
+`codex app-server` and cached (`homes/codex-hook-trust.ts`). The first launch
+after a Podium update pays for that read.
 
 ### 6.4 Posture's edits to a home
 
@@ -748,16 +754,29 @@ that names the conversations stored there.
 
 ## 9. What each harness needs
 
-Cells marked unmeasured are filled by the spike before any adapter work starts.
+These are the stable release and archive observations on 2026-11-20. The
+POD-7267 report has the exact fetch commands, hashes and launch results.
 
-| Harness | Newest stable release | File and integrity | Kept inside Podium's folder by | Managed in this phase |
-|---|---|---|---|---|
-| **Claude Code** | `downloads.claude.ai/claude-code-releases/stable` (**live**) | `<version>/<platform>/claude`, SHA-256 in `manifest.json` (**script**); Windows platform name **unmeasured** | direct download | yes |
-| **Codex** | `releases.openai.com/codex`, GitHub Releases as fallback (**script**) | a package archive, SHA-256 in `codex-package_SHA256SUMS` (**script**) | direct download, or the installer with `CODEX_RELEASE`, `CODEX_INSTALL_DIR` and a contained home | yes |
-| **Grok** | `x.ai/cli/stable` (**script**) | `grok-<version>-<platform>`; the installer checks no checksum, only that the binary runs (**script**) | direct download | yes, with integrity `none` recorded; only where the person has no own install (4.7) |
-| **OpenCode** | newest GitHub release of `anomalyco/opencode` (**script**) | a release archive; the installer checks no checksum (**script**) | direct download | yes, once the release list and archive layout are measured; 4.7 applies |
-| **Pi** | `pi.dev/api/installer/releases` (**script**) | standalone binaries with `SHA256SUMS` (**doc**) | direct download; its installer may install Node and is avoided | yes, once measured; 4.7 applies |
-| **Cursor** | only inside the installer script, which names one version (**script**); reading it from there is fragile | a package archive, no checksum seen (**script**) | direct download | yes for installing; its updater is **unmeasured**; 4.7 applies |
+| Harness | Stable pointer | File and integrity | Home and managed install implications |
+|---|---|---|---|
+| **Claude Code** | `downloads.claude.ai/claude-code-releases/stable` → 2.1.311 | `<version>/<platform>/claude` and `manifest.json` SHA-256. Windows entries are `win32-x64/claude.exe` and `win32-arm64/claude.exe`. | Direct download. `CLAUDE_CONFIG_DIR` contains state and sessions. |
+| **Codex** | `releases.openai.com/codex/channels/latest` → 0.171.0, with [GitHub Releases](https://github.com/openai/codex/releases/latest) as installer fallback | `codex-package-<target>.tar.gz` or `.tar.zst`, with `bin/codex` plus helpers and resources. SHA-256 in `codex-package_SHA256SUMS`. | Keep the complete release package. `CODEX_HOME` contains session state and any daemon copy. See 6.3 for the version pin. |
+| **Grok** | `x.ai/cli/stable` → 1.0.89 | `grok-<version>-<platform>`, direct binary. The installer checks the binary runs. No published checksum was found in the installer or at the asset's `.sha256` URL. | `GROK_HOME` directs `auth.json`, config, logs and session storage into the same folder. A live login refresh was outside the lab's available credentials. |
+| **OpenCode** | [GitHub releases/latest](https://api.github.com/repos/anomalyco/opencode/releases/latest) → v1.19.6 | `opencode-linux-x64.tar.gz` opens to a top-level `opencode`. The GitHub API asset `digest` matches the archive SHA-256. | One override for all state was not found. `OPENCODE_CONFIG_DIR` is config only. Together the XDG config, data, state and cache variables redirected the session database and file-backed key. The personal `~/.opencode/.gitignore` write remained. |
+| **Pi** | `pi.dev/api/installer/releases/latest` → 1.6.0, also present in [GitHub Releases](https://github.com/earendil-works/pi/releases/tag/v1.6.0) | `pi-linux-x64.tar.gz` contains `pi/pi` and its assets. GitHub publishes `SHA256SUMS` and per-asset digests. The installer API separately publishes npm package integrity. | Direct download of the complete standalone bundle. `PI_CODING_AGENT_DIR` moves `auth.json`, settings, model state and sessions. |
+| **Cursor** | `DashboardService/GetCliDownloadUrl` at `api2.cursor.sh`, with `channel=prod`, returned 2026.11.19-f005e9d and its download prefix. | `linux/x64/agent-cli-package.tar.gz` strips one `dist-package/` directory. Keep the launcher, Node and its assets together. The adjacent `agent-cli-package.tar.gz.sha256` matched the archive. | No single variable found. `CURSOR_CONFIG_DIR` moved config, `CURSOR_DATA_DIR` directed project storage, and Linux file auth uses XDG config. Agent CLI state still used `~/.cursor` with both dedicated variables. See 4.7. |
+
+With an empty Podium home, Claude Code accepted the API-key header and the
+`CLAUDE_CODE_OAUTH_TOKEN` bearer header on completed loopback turns. Its
+terminal showed the theme picker and workspace trust. An environment API key
+also triggered a separate approval prompt after the setup and trust fields
+were seeded. The terminal started at the prompt after the key approval was
+also seeded in `customApiKeyResponses.approved`. Codex 0.171.0 with the bare
+`OPENAI_API_KEY` showed its sign-in
+menu. A custom model provider with `env_key="OPENAI_API_KEY"` completed the
+loopback turn with a bearer header. Provider acceptance of live credentials
+and isolation against vendor subscription logins remain open because the lab
+had no disposable vendor sign-ins or valid keys.
 
 ## 10. How robust it is
 
@@ -866,17 +885,19 @@ removal.
 14. **All six harnesses are targets.** Claude Code, Codex and Grok first, then
     OpenCode, Pi and Cursor (section 9).
 
-### Open, waiting on a measurement
+### Open for operator review
 
-1. **Codex's own copy in the home** (6.3). If Codex from 0.169 serves sessions
-   from the copy it keeps in the home and updates that copy itself, Podium's
-   managed Codex decides only which version starts, not which version runs.
-   The choice then: accept that for Codex and say so on the harness row, or
-   find the switch.
-2. **A harness whose own updater cannot be stopped.** Cursor is the likely
-   case. If its updater keeps writing new versions into the person's home, the
-   choice is: manage it anyway and say so on the harness row, or install it
-   once and leave updates to Cursor.
+1. **Codex's own copy in the home** (6.3). Default daemon bootstrap served
+   from its copied release and updated it. The daemon setting suppresses the
+   loop. Direct stdio and terminal `--no-daemon` keep Podium's version pin.
+   Choose between using the copied daemon and disclosing it on the harness
+   row, or selecting the direct launch modes.
+2. **A harness whose own updater cannot be stopped** (6.3). Cursor's
+   2026.11.19 release recognizes `--disable-auto-update` and the static
+   channel. Ordinary state writes still matter for home isolation. If an
+   eligible vendor release has no working update control, the choice remains
+   to manage it and disclose the vendor update behavior, or install it once
+   and give that vendor ownership of updates.
 
 ### Not in this phase
 
