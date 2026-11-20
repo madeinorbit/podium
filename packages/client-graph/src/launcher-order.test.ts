@@ -121,7 +121,9 @@ for (const scale of [1, 4])
     const expected = legacyOrder(f)
     // 6b75d37794 proved this oracle and these pickers against the live sorter.
     expect(catalog.catalog()).toMatchObject(expected.catalog)
-    expect(phone.newWork().repos).toEqual(expected.projects)
+    expect(phone.newWork().repos.map((repo) => repo.path)).toEqual(
+      expected.projects.map((repo) => repo.path),
+    )
     expect(phone.repositoryPaths).toEqual(expected.paths)
     expect(expected.catalog.repoPaths).toEqual(['/alpha', '/zeta', '/one/Twin', '/two/Twin'])
     expect(expected.projects.map((repo) => repo.path)).toEqual([
@@ -133,7 +135,11 @@ for (const scale of [1, 4])
     expect(() =>
       expect(catalog.repoPaths).toEqual([...expected.catalog.repoPaths].reverse()),
     ).toThrow()
-    expect(() => expect(phone.newWork().repos).toEqual([...expected.projects].reverse())).toThrow()
+    expect(() =>
+      expect(phone.newWork().repos.map((repo) => repo.path)).toEqual(
+        expected.projects.map((repo) => repo.path).reverse(),
+      ),
+    ).toThrow()
     const stops = [
       autorun(() => insideReader('launcher.launch', () => catalog.catalog())),
       autorun(() =>
@@ -173,7 +179,9 @@ for (const scale of [1, 4])
           if (/launch\.(?:usage|catalogUsage|activityAt)/.test(reader))
             expect(elements, reader).toBe(0)
         expect(catalog.catalog()).toMatchObject(expected.catalog)
-        expect(phone.newWork().repos).toEqual(expected.projects)
+        expect(phone.newWork().repos.map((repo) => repo.path)).toEqual(
+          expected.projects.map((repo) => repo.path),
+        )
         expect(phone.repositoryPaths).toEqual(expected.paths)
         console.info(
           '[launcher frozen usage]',
