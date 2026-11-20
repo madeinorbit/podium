@@ -998,7 +998,10 @@ export class ReaderQueries {
   private routeQuery(route: string, id: string): void {
     for (const key of this.queryRoutes.get(route) ?? []) {
       let ids = this.dirtyQueries.get(key)
-      if (!ids) this.dirtyQueries.set(key, (ids = new Set()))
+      if (!ids) {
+        ids = new Set()
+        this.dirtyQueries.set(key, ids)
+      }
       ids.add(id)
     }
   }
@@ -1029,7 +1032,10 @@ export class ReaderQueries {
     }
     for (const route of routes) {
       let keys = this.queryRoutes.get(route)
-      if (!keys) this.queryRoutes.set(route, (keys = new Set()))
+      if (!keys) {
+        keys = new Set()
+        this.queryRoutes.set(route, keys)
+      }
       keys.add(key)
     }
   }
