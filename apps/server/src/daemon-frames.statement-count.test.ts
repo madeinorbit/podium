@@ -8,7 +8,6 @@
 import type { AgentRuntimeState, SessionId } from '@podium/model'
 import type { AgentObservation } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
-import { SessionBroadcastCoordinator } from './modules/sessions/publication/broadcast'
 import { SessionRegistry } from './relay'
 import type { SessionStore } from './store'
 import { attachHostDaemon } from './test-support/host-daemon'
@@ -479,26 +478,13 @@ describe('daemon frames: pinned statement counts at 5 and 200', () => {
 describe('daemon frames that read an observation checkpoint: pinned at 5 and 200', () => {
   const exit = pin(
     'agentExit',
-    async (f) => {
-      // Count the complete frame at its explicit coalesced publication edge.
-      // Automatic broadcasts may read the exiting session before its operation
-      // releases residency on a remote engine and afterwards on a local one.
-      // The latter restores the row plus five satellites; that timing is not
-      // this pin's dimension. route still fully drains and counts publication.
-      const automatic = vi
-        .spyOn(SessionBroadcastCoordinator.prototype, 'broadcast')
-        .mockImplementation(() => {})
-      try {
-        await route(f, {
-          type: 'agentExit',
-          sessionId: f.ids[0],
-          code: 0,
-          observerGeneration: 1,
-        })
-      } finally {
-        automatic.mockRestore()
-      }
-    },
+    async (f) =>
+      await route(f, {
+        type: 'agentExit',
+        sessionId: f.ids[0],
+        code: 0,
+        observerGeneration: 1,
+      }),
     async (f) => {
       const id = f.ids[0]!
       expect(await f.store.sessions.getSession(id)).toMatchObject({ status: 'exited', exitCode: 0 })
@@ -509,14 +495,50 @@ describe('daemon frames that read an observation checkpoint: pinned at 5 and 200
     },
   )
 
+  it('awaits the activity observer before completing an exit frame', async () => {
+    const f = await fixture(5)
+    const gate = Promise.withResolvers<void>()
+    const activity = vi
+      .spyOn(f.reg.issues.gitWorkflow, 'onSessionActivity')
+      .mockImplementation(async () => await gate.promise)
+    let completed = false
+    const frame = f.reg.gateway
+      .routeDaemonFrame(f.reg.sessionStore.hostMachineId, {
+        type: 'agentExit',
+        sessionId: f.ids[0]!,
+        code: 0,
+        observerGeneration: 1,
+      })
+      .then(() => {
+        completed = true
+      })
+    try {
+      await vi.waitFor(() => expect(activity).toHaveBeenCalledExactlyOnceWith(f.ids[0]))
+      expect(completed).toBe(false)
+      expect(await f.store.sessions.getSession(f.ids[0]!)).toMatchObject({
+        status: 'exited',
+        exitCode: 0,
+      })
+    } finally {
+      gate.resolve()
+      await frame
+      activity.mockRestore()
+      await settle(f.reg)
+      await f.reg.dispose()
+      await f.store.close()
+    }
+  })
+
   it('agentExit of the fenced observer', async () => {
-    // POD-6920: derived change capture (no build before the write; one drain after it): 42 -> 37.
-    const counts = await expectConstantStatements(exit, 37)
+    // Awaiting the activity reaction preserves its producer's session lease:
+    // SQLite no longer restores the exited row plus its five satellites after
+    // the lease retires (37 -> 31). Postgres already read the resident session.
+    const counts = await expectConstantStatements(exit, 31)
     expectGrantReads(counts, 0)
   })
 
   it('agentExit pin is armed', async () => {
-    await expectArmed(exit, 37, (f) => {
+    await expectArmed(exit, 31, (f) => {
       const original = f.reg.gateway.routeDaemonFrame.bind(f.reg.gateway)
       const planted = vi
         .spyOn(f.reg.gateway, 'routeDaemonFrame')

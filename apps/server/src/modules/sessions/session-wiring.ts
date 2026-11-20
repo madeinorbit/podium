@@ -1291,8 +1291,11 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     persistDraft: (session, draft, additionalWrite) =>
       bag.repository.persistDraft(bag.deps.writers.daemon, session, draft, additionalWrite),
     broadcastSessions: () => bag.broadcastSessions(),
+    // These producers await activity after their durable write. Keep that
+    // completion contract while routing the observer through the bus: releasing
+    // the session first races its record read against residency retirement.
     onSessionActivity: (sessionId) =>
-      bag.bus.emit('issue.sessionDerived', { kind: 'activity', sessionId }),
+      bag.bus.emitSettled('issue.sessionDerived', { kind: 'activity', sessionId }),
     onSessionAttention: (sessionId) =>
       bag.bus.emit('issue.sessionDerived', { kind: 'attention', sessionId }),
     onSessionTurnEnd: (sessionId) =>
