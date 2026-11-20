@@ -22,7 +22,7 @@ export const MachineHarnesses = observer(function MachineHarnesses({
     <section aria-label="Harnesses" className="mt-6">
       <h3 className="text-sm font-medium">Harnesses</h3>
       <p className="settings-prose mt-1 mb-3">
-        Podium keeps its installs current. Your own installs stay under your control.
+        Each row shows who installed the harness and who handles its updates.
       </p>
       <div className="divide-y divide-border rounded-lg border border-border px-4">
         {machine.harnessInstalls.map((row) => (

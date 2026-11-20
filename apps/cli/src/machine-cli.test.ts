@@ -372,6 +372,7 @@ describe('machine installs verbs', () => {
       inventory: {
         os: 'linux',
         arch: 'x64',
+        tools: [],
         ...ludovico.inventory,
         agents: [
           {
