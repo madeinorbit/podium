@@ -10,6 +10,7 @@ import type { BindingStore } from '../binding-store'
 import type { BrowserOpenManager } from '../browser-open'
 import type { ComposerSyncEngine } from '../composer-sync'
 import type { DaemonHarnessRuntime } from '../harness-runtime.js'
+import type { HarnessUpdater } from '../installs/updater'
 import type { OutputScheduler } from '../output-scheduler'
 import type { PortableStateFence } from '../portable-state-fence'
 import type { DaemonMachineRuntime } from '../runtime/machine-runtime'
@@ -69,6 +70,8 @@ export interface DaemonContext {
   launch: typeof agentLaunchCommand
   /** Generation-bound executable inventory and launch service. */
   harnessRuntime?: DaemonHarnessRuntime
+  /** Update checks, pause and go back for Podium-installed harnesses (managed installs §5.5). */
+  harnessUpdater?: HarnessUpdater
   /** Where per-session hook settings files are written. */
   settingsDir: string
   /** Discovery homeDir override (tests / isolated HOME); undefined = real home. */

@@ -167,6 +167,7 @@ import { HomeRegistry, homeDiscoveryRoots } from './homes/registry'
 import { homeExecutable, stopHome, systemProcessPorts } from './homes/stop'
 import { createHostDiskSampler, sampleHostLoad, sampleHostMemory } from './host-metrics'
 import { loadIdentity } from './identity'
+import { HarnessUpdater } from './installs/updater'
 import type { DaemonInstanceBootstrap } from './instance-bootstrap'
 import { dumpLoopTotals, reportLongTick, startLoopAttribution } from './loop-attribution'
 import {
@@ -534,6 +535,22 @@ export async function createDaemonHostRuntime(args: {
             .catch((err: unknown) => log.warn('the Podium home could not be made ready', { err }))
         },
       })
+  /**
+   * UPDATE CHECKS (managed installs §5.5): a timer shortly after start, then
+   * every six hours. Never awaited by the connection path. Each round reports
+   * the inventory again, once the context exists.
+   */
+  const harnessUpdater = harnessRuntime
+    ? new HarnessUpdater({
+        harnessesDir,
+        commandEnv: async () => (await harnessRuntime.current()).commandEnvironment.env,
+        currentFailed: async (kind) =>
+          harnessRuntime.settled()?.inventory.agents.find((agent) => agent.kind === kind)?.install
+            ?.managed?.currentFailed?.release,
+        report: () =>
+          context ? reportInventory(context, { reprobe: true }) : harnessRuntime.reprobe(),
+      })
+    : undefined
   /**
    * WHICH INSTALL EACH SESSION RUNS (managed installs §6.2), in the same
    * ledger. The rows a previous daemon left are read now, before this one
@@ -1208,6 +1225,7 @@ export async function createDaemonHostRuntime(args: {
     ...(durable ? { durable } : {}),
     launch,
     ...(harnessRuntime ? { harnessRuntime } : {}),
+    ...(harnessUpdater ? { harnessUpdater } : {}),
     settingsDir: instance.settingsDir,
     ...(accountHome ? { accountHome } : {}),
     // Inventory publishes this detector's result; selection reads the same fact
@@ -1922,6 +1940,7 @@ export async function createDaemonHostRuntime(args: {
   // Closes the cycle the `let context` declaration above describes. Nothing that
   // binds a session may move above this line — see that comment.
   context = ctx
+  if (opts.harnessUpdates !== false) harnessUpdater?.start()
 
   let pendingAuthReprobe: Promise<void> | undefined
   requestAuthRefresh = (_sessionId) => {
@@ -2200,6 +2219,7 @@ export async function createDaemonHostRuntime(args: {
     dropLoopAccounting = undefined
     loopMinuteSink?.close()
     stopInventoryRefresh?.()
+    harnessUpdater?.stop()
     workerClient.stop()
     outputScheduler.stop()
     const durableReaps: Promise<unknown>[] = []

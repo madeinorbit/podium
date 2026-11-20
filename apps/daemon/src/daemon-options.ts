@@ -65,6 +65,10 @@ export interface DaemonOptions {
    *  (managed installs §5.2); default `<stateDir>/harnesses`. Tests point it
    *  at a scratch directory. */
   harnessesDir?: string
+  /** Background update checks for Podium-installed harnesses (managed installs
+   *  §5.5). Default on wherever the daemon probes a real inventory; `false`
+   *  turns the schedule off (Check now still works). */
+  harnessUpdates?: boolean
   /** Parent supplied the credential; daemon must never persist or rotate it. */
   identityReadOnly?: boolean
   machineId?: MachineId
