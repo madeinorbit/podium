@@ -681,7 +681,12 @@ export const DURABLE_STORES: readonly DurableStore[] = [
     store: '<harness-home>/shared-config',
     kind: 'filesystem',
     row: 'harness-hook-settings',
-    writeSites: ['apps/daemon/src/homes/share.ts'],
+    writeSites: [
+      'apps/daemon/src/homes/share.ts',
+      // Claude's extracted adapter writes the same onboarding, trust and MCP
+      // settings while preserving the selected home's signed-in identity.
+      'packages/harness/src/adapters/claude-code/home.ts',
+    ],
   },
   {
     store: '<outside-state>/vault.key',
