@@ -143,9 +143,10 @@ export async function openServerIdentity(
     hosts: { kind: 'self-hosted' },
     // The operator's own choice about their own machine; a second active
     // member ends the rule whatever this says (section 5.5).
-    sameMachine: {
-      waived: () => store.hostMachine !== null && store.settings.resolve('authOpenMode').value,
-    },
+    sameMachine:
+      store.hostMachine === null
+        ? null
+        : { waived: () => store.settings.resolve('authOpenMode').value },
     passwordHashing: {
       hash: hashPassword,
       verify: ({ password, hash }) => verifyPasswordHash(password, hash),

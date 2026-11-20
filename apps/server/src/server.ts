@@ -987,9 +987,9 @@ export async function startServer(
   }
   const setupStarted = performance.now()
   if (!recoveryOnly) {
-    const supervisorSetup = loadSupervisorState(stateDir())
-    const setupRequest = supervisorSetup.setupEnrollment
-    if (hostMachine && setupRequest && !supervisorSetup.enrolledPublicKey) {
+    const supervisorSetup = hostMachine ? loadSupervisorState(stateDir()) : undefined
+    const setupRequest = supervisorSetup?.setupEnrollment
+    if (hostMachine && setupRequest && !supervisorSetup?.enrolledPublicKey) {
       const stagedHash = readLegacyInstancePasswordHash()
       const passwordHash =
         stagedHash ??
