@@ -28,6 +28,7 @@ import { ChatComposer } from './ChatComposer'
 import { ChatRail } from './ChatRail'
 import { isChatInteractable } from './chat-interactable'
 import { handleChatMdClick } from './chat-md-click'
+import { ConcertmasterFeed } from './concertmaster/ConcertmasterFeed'
 import { ImageLightbox } from './ImageLightbox'
 import { IssueChipLiveness } from './IssueChipLiveness'
 import { PinnedBrief } from './PinnedBrief'
@@ -357,6 +358,7 @@ const ConversationChatView = observer(function ConversationChatView({
    * replica whose `pendingInteraction` collection has not arrived is a partial
    * world, not an error.
    */
+  const curated = chat.view.curated
   const quoteDraftRef = useRef<((quote: QuoteInput) => void) | null>(null)
   const [issueLivenessRoot, setIssueLivenessRoot] = useState<HTMLDivElement | null>(null)
   const quoteIntoDraft = useCallback((quote: QuoteInput) => {
@@ -453,7 +455,7 @@ const ConversationChatView = observer(function ConversationChatView({
             any DOM-order reader (text scrape, screen reader, tab order) met the
             scrolled-off prompt AGAIN at the bottom, just before the composer's
             live region — the desktop-only repeat the phone never showed. */}
-        {!compact && (
+        {!compact && !curated && (
           <PinnedBrief
             brief={chat.scroll.pinnedBrief}
             scrollerRef={chat.scrollerRef}
@@ -465,20 +467,26 @@ const ConversationChatView = observer(function ConversationChatView({
           />
         )}
         <Suspense fallback={null}>
-          <ConversationTranscript
-            chat={chat}
-            sessionId={sessionId}
-            onQuote={quoteIntoDraft}
-            outcome={outcome}
-            resumeTimedOut={resumeTimedOut}
-          />
+          {curated ? (
+            // A Concertmaster (POD-7211): its curated conversation takes the
+            // transcript's place, with no reading rail, find or pinned brief.
+            <ConcertmasterFeed chat={chat} sessionId={sessionId} compact={compact} />
+          ) : (
+            <ConversationTranscript
+              chat={chat}
+              sessionId={sessionId}
+              onQuote={quoteIntoDraft}
+              outcome={outcome}
+              resumeTimedOut={resumeTimedOut}
+            />
+          )}
         </Suspense>
         {/* The reading rail. Its map covers the RENDERED window (visibleRows), so
             its bands line up with the scrollable content. For a very long
             transcript that means it reflects the loaded/visible tail, not the
             entire on-disk history; scrolling up to page in older items extends
             what it covers. */}
-        {!compact && (
+        {!compact && !curated && (
           <ReadingRail
             chat={chat}
             findOpen={find.open}
@@ -487,8 +495,10 @@ const ConversationChatView = observer(function ConversationChatView({
         )}
         {/* Find floats OVER the feed rather than displacing it, so entering and
             leaving the mode never reflows what you were reading. */}
-        {!compact && find.open && <FindBar key={find.seq} chat={chat} onClose={closeFind} />}
-        {!chat.scroll.atBottom && (
+        {!compact && !curated && find.open && (
+          <FindBar key={find.seq} chat={chat} onClose={closeFind} />
+        )}
+        {!curated && !chat.scroll.atBottom && (
           <button
             data-pressable
             type="button"

@@ -87,6 +87,7 @@ async function fixture() {
       markRead: vi.fn(),
       markUnread: vi.fn(),
       setWorkState: vi.fn(),
+      setConcertmaster: vi.fn(),
       setArchived: vi.fn(),
       clearAllSnoozes: vi.fn(),
       suppressNativeDraft: vi.fn(),

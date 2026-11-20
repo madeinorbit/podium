@@ -1,11 +1,15 @@
+import { isConcertmasterSession } from '@podium/client-graph/concertmaster'
+import { here } from '@podium/client-graph/lookup'
 import { observer } from '@podium/client-graph/react'
 import { LOADING, type Loaded } from '@podium/client-graph/worklist/rollup'
+import type { SyncSubmitTransport } from '@podium/protocol'
 import {
   CircleDot,
   FolderTree,
   GitBranch,
   type LucideIcon,
   Mail,
+  Music2,
   Sparkles,
   SquareTerminal,
   X,
@@ -14,6 +18,7 @@ import type { ComponentProps, JSX } from 'react'
 import { Suspense, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { WaitingForServer } from '@/components/WaitingForServer'
+import { ConcertmasterNeedsYou } from '@/features/chat/concertmaster/ConcertmasterNeedsYou'
 import { PerspectiveRoad } from '@/features/shipping/PerspectiveRoad'
 import type { ShippingPanelCommands } from '@/features/shipping/ShippingPanel'
 import { throughRestarts } from '@/lib/chunk-recovery'
@@ -21,6 +26,7 @@ import { lazy } from '@/lib/lazy-surface'
 import { DockHeaderSlotProvider } from './DockHeaderSlot'
 import { useShellActions, useShellDock } from './shell-data'
 import type { RightPanelTab } from './shell-state'
+import { useWorklistPool } from './store-worklist-pool'
 
 const WorktreeFileTree = lazy(() =>
   throughRestarts(() => import('@/features/files/WorktreeFileTree')).then((module) => ({
@@ -114,6 +120,17 @@ export const RightDock = observer(function RightDock({
   // The dock's routing fields, each read where a panel shows it.
   const dock = useShellDock()
   const active = shown(dock?.active) ?? null
+  // A CONCERTMASTER'S PANEL (POD-7211). While the session on screen is a
+  // Concertmaster, the Task tab is its panel: what it needs from you first,
+  // then the task it works on, in one scroll. Same tab, same place; the task's
+  // own details are all still there.
+  const pool = useWorklistPool()
+  const concertmasterSessionId =
+    tab === 'issue' && active?.sessionId
+      ? isConcertmasterSession(pool, here(pool.model('session', active.sessionId)))
+        ? active.sessionId
+        : null
+      : null
   const shippingCommands = useMemo<ShippingPanelCommands>(
     () => ({
       resolveHold: (input) => trpc.issues.resolveShipHold.mutate(input),
@@ -138,7 +155,17 @@ export const RightDock = observer(function RightDock({
         {/* 44px, 14px of side padding, 9px between the mark, the name and the
             close — the Paper shell's head metrics (POD-725 §7). */}
         <div className="flex h-11 flex-none items-center gap-[9px] border-b border-border px-3.5">
-          {tab === 'issue' ? (
+          {tab === 'issue' && concertmasterSessionId ? (
+            <span className="flex min-w-0 flex-1 items-center gap-[9px]">
+              <Music2 size={16} className="flex-none text-text-dim" aria-hidden="true" />
+              <span
+                className="truncate text-[13.5px] leading-none font-semibold text-text-strong"
+                data-dock-title="panel"
+              >
+                Concertmaster
+              </span>
+            </span>
+          ) : tab === 'issue' ? (
             // The one panel whose header is not a name: it names the task it
             // shows by ref, and the task's own name heads the panel below.
             <Suspense fallback={<span className="min-w-0 flex-1" aria-hidden="true" />}>
@@ -205,7 +232,20 @@ export const RightDock = observer(function RightDock({
               // Not keyed on the worktree: the panel follows its own pointer, not
               // the workspace. `cwd` only tells it where to serve the artifacts
               // of a task with no checkout of its own.
-              <RightDockIssuePanel kind="panel" cwd={active.cwd} machineId={active.machineId} />
+              <RightDockIssuePanel
+                kind="panel"
+                cwd={active.cwd}
+                machineId={active.machineId}
+                lead={
+                  concertmasterSessionId ? (
+                    <ConcertmasterNeedsYou
+                      pool={pool}
+                      transport={trpc as unknown as SyncSubmitTransport}
+                      sessionId={concertmasterSessionId}
+                    />
+                  ) : undefined
+                }
+              />
             ) : (
               <RightDockIssuePanel kind="panel" cwd="" />
             ))}

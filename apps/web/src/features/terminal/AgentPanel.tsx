@@ -32,8 +32,10 @@ export { effectivePanelMode, effectivePanelMode as initialPanelMode, type PanelM
 import { issueAgentKind } from '@podium/client-core/agent-models'
 import { attentionGroup } from '@podium/client-core/focus'
 import { formatClock, panelLabel, resumeCommand } from '@podium/client-core/values'
+import { assignConcertmaster } from '@podium/client-graph/concertmaster'
 import type { SessionId } from '@podium/model/browser'
 import { isSnoozed } from '@podium/model/browser'
+import type { SyncSubmitTransport } from '@podium/protocol'
 import { SWITCH_TRACE_MARKS } from '@podium/protocol'
 import { keySequence, type SpecialKey } from '@podium/terminal-client/keys'
 import {
@@ -49,6 +51,7 @@ import {
   MessageSquareText,
   Mic,
   Moon,
+  Music2,
   Sparkles,
   Square,
   SquareTerminal,
@@ -81,6 +84,7 @@ import { isKnownRefPrefix } from '@/lib/markdown-references'
 import { activateRef } from '@/lib/ref-activation'
 import { SnoozeControl } from '@/lib/SnoozeControl'
 import { sessionMenuEligibility } from '@/lib/session-context-menu'
+import { useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
 import type { AgentPanelProps } from './agent-panel-props'
 import { applyInitialTerminalAppearance, TERMINAL_DEFAULTS, withBackground } from './appearance'
@@ -260,6 +264,7 @@ export const AgentPanel = observer(function AgentPanel({
     mode: effectiveMode,
     modeSettled,
     chatCapable,
+    curated,
     terminalOutlook,
     offlineMachine,
     pickMode,
@@ -271,6 +276,7 @@ export const AgentPanel = observer(function AgentPanel({
     inTransit,
     onEnterNative: () => rearmFlushRef.current?.(),
   })
+  const concertmasterEnabled = useFeature('concertmaster')
   const referenceStages = usePaneReferenceStages(gates.terminalActive)
   const pool = useWorklistPool()
   // Keep the terminal's imperative getter current through pool attachment
@@ -838,6 +844,15 @@ export const AgentPanel = observer(function AgentPanel({
               control — both views always visible and labeled, the filled segment
               is the current one. Only offered with a live PTY behind it — a
               hibernated/exited session has no terminal to switch to. */}
+            {curated && (
+              <span
+                data-testid="concertmaster-chip"
+                className="inline-flex flex-none items-center gap-[5px] text-[10.5px] text-text-dim"
+                title="This session shows its curated chat. Its transcript and CLI are in the ⋯ menu."
+              >
+                <Music2 size={12} aria-hidden="true" /> Concertmaster
+              </span>
+            )}
             {gates.modeSwitchOffered && (
               <span
                 role="tablist"
@@ -951,6 +966,30 @@ export const AgentPanel = observer(function AgentPanel({
                       <DropdownMenuItem onClick={() => void startBtw(sessionId)}>
                         <Sparkles size={13} aria-hidden="true" /> Ask superagent
                         <DropdownMenuShortcut>/btw</DropdownMenuShortcut>
+                      </DropdownMenuItem>
+                    )}
+                    {/* The Concertmaster mark (POD-7211), behind its feature: this
+                        session's person talks to it through its curated chat.
+                        Clearing it is the way back to the transcript and CLI. */}
+                    {concertmasterEnabled && chatCapable && session.agentKind !== 'shell' && (
+                      <DropdownMenuItem
+                        data-testid="concertmaster-toggle"
+                        onClick={() => {
+                          void assignConcertmaster(
+                            trpc as unknown as SyncSubmitTransport,
+                            sessionId,
+                            !curated,
+                          ).catch((error: unknown) =>
+                            toast.error(
+                              error instanceof Error
+                                ? error.message
+                                : 'Could not change this session',
+                            ),
+                          )
+                        }}
+                      >
+                        <Music2 size={13} aria-hidden="true" />
+                        {curated ? 'Show transcript and CLI again' : 'Make Concertmaster'}
                       </DropdownMenuItem>
                     )}
                     {(hibernate || canEnd) && <DropdownMenuSeparator />}

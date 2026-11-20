@@ -172,8 +172,7 @@ export class ChatViewModel {
    */
   @lazy get curated(): boolean {
     return (
-      this.superThread === undefined &&
-      isConcertmasterSession(this.conversation.pool, this.session)
+      this.superThread === undefined && isConcertmasterSession(this.conversation.pool, this.session)
     )
   }
   @lazy get stickyEnabled(): boolean {

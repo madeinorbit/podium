@@ -158,7 +158,6 @@ const USER_ENTRY_MARK = 'm_'
 export const concertmasterUserEntryId = (createdAt: string, messageId: string): string =>
   concertmasterEntryId(createdAt, `${USER_ENTRY_MARK}${messageId}`)
 
-
 /**
  * The chat message a `user` entry records, read back from its id; `undefined`
  * for an entry that records none. A chat hides its own pending bubble of a
