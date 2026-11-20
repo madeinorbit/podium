@@ -1237,13 +1237,6 @@ export class ReaderQueries {
         for (const id of residentIds(this.pool, entity)) this.correctCount(entity, id)
       }
     } else {
-      for (const id of index.issueIdentityRepoChanges(event)) {
-        // untracked-read: reader-repo-identity
-        const row = untracked(() => omitGone(this.pool.row('repo', id))) as
-          | Readonly<Record<string, unknown>>
-          | undefined
-        this.updateRepo(id, row)
-      }
       const delta = index.changes(event)
       const flipped = new Set<string>()
       for (const [entity, id] of delta.flips)
@@ -1254,6 +1247,16 @@ export class ReaderQueries {
       for (const [entity, id] of delta.orders)
         if (entity === 'session' && !flipped.has(id))
           this.changeSessionFacts(id, (questions) => questions.orderChanged(id))
+    }
+    // A repo keeps a stable field facade. Replacing its fields does not
+    // produce a map-slot event, so refresh these addressed identities for a
+    // replacement too, before publishing the new source's reference answers.
+    for (const id of index.issueIdentityRepoChanges(event)) {
+      // untracked-read: reader-repo-identity
+      const row = untracked(() => omitGone(this.pool.row('repo', id))) as
+        | Readonly<Record<string, unknown>>
+        | undefined
+      this.updateRepo(id, row)
     }
     // Replacement counts were rebuilt from residents above. Observed identity
     // answers are rebuilt below from the new source catalog. Updating every
