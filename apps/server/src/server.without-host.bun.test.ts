@@ -266,7 +266,9 @@ for (const engine of ['sqlite', 'pg'] as const) {
       expect(memberOfRequest.factsOf(request).sameMachine).toBe(false)
       expect(await memberOfRequest(request)).toEqual({ kind: 'https_required' })
       expect(await server.identity.signInRequired()).toBe(true)
-      expect(await (await fetch(origin() + '/auth/status')).json()).toMatchObject({ authed: false })
+      expect(await (await fetch(origin() + '/auth/status')).json()).toMatchObject({
+        error: 'https_required',
+      })
       expect((await fetch(origin() + '/sync/bootstrap')).status).toBe(400)
     })
   })
