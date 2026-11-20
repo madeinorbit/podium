@@ -66,9 +66,33 @@ describe('SessionBroadcastCoordinator sliced publication [POD-2322]', () => {
     expect(flushDeltas).toHaveBeenCalledTimes(1)
   })
 
+  it('keeps the full-drain barrier pending until asynchronous feed publication completes', async () => {
+    let finish!: () => void
+    const publication = new Promise<void>((resolve) => {
+      finish = resolve
+    })
+    const flushDeltas = vi.fn(() => publication)
+    const coordinator = new SessionBroadcastCoordinator({
+      hasPendingVolatile: () => false,
+      scheduleVolatileCapture: vi.fn(),
+      drainVolatileSlice: vi.fn(async () => ({ remaining: 0 })),
+      flushVolatileCaptures: vi.fn(async () => {}),
+      flushDeltas,
+    })
+    const completed = vi.fn()
+    const flush = coordinator.flush().then(completed)
+    await vi.waitFor(() => expect(flushDeltas).toHaveBeenCalledTimes(1))
+    expect(completed).not.toHaveBeenCalled()
+    finish()
+    await flush
+    expect(completed).toHaveBeenCalledTimes(1)
+  })
+
   it('waits for an in-flight slice before the explicit drain and propagates its failure', async () => {
     let finish!: (value: { remaining: number }) => void
-    const slice = new Promise<{ remaining: number }>((resolve) => { finish = resolve })
+    const slice = new Promise<{ remaining: number }>((resolve) => {
+      finish = resolve
+    })
     const failure = new Error('capture failed')
     const flushVolatileCaptures = vi.fn().mockRejectedValueOnce(failure).mockResolvedValue([])
     const flushDeltas = vi.fn()
@@ -92,5 +116,4 @@ describe('SessionBroadcastCoordinator sliced publication [POD-2322]', () => {
     expect(flushVolatileCaptures).toHaveBeenCalledTimes(2)
     expect(flushDeltas).toHaveBeenCalledTimes(2)
   })
-
 })

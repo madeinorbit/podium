@@ -11,6 +11,7 @@ import {
   type ScopedDelivery,
 } from '@podium/sync'
 import { type OnPublicationIdle, scheduleFeedFlush } from '../gateway/feed-serving'
+import { holdOperation } from '../store/executor/operation-scope'
 import type { EventBus } from './bus'
 import { perfPrincipal } from './perf/principal'
 import { perf } from './perf/registry'
@@ -49,8 +50,8 @@ export interface WriteFunnelDeps {
 
 /** What the funnel needs of the serving edge. Narrow so a test can drive it. */
 export interface FeedServingPort {
-  publish(principal: typeof DEVICE_GRADE_PRINCIPAL, delivery: ScopedDelivery): void
-  flushPending(): void
+  publish(principal: typeof DEVICE_GRADE_PRINCIPAL, delivery: ScopedDelivery): void | Promise<void>
+  flushPending(): void | Promise<void>
   /** ADR 2 D1's `(feedId, epoch)`. Needed by the wire-v2 catch-up read, which is
    *  an HTTP query and therefore has no frame to read identity off. */
   identity():
@@ -132,6 +133,7 @@ export class WriteFunnel {
   // so the flushed delivery is seq-ordered by construction.
   private pending: ScopedDelivery[] = []
   private cancelScheduledFlush: (() => void) | undefined
+  private publicationTail: Promise<void> = Promise.resolve()
 
   private queue(delivery: ScopedDelivery): void {
     this.pending.push(delivery)
@@ -144,38 +146,51 @@ export class WriteFunnel {
 
   /** Emit any coalesced (pending) delivery NOW. Deterministic seam for tests
    *  and dispose; cancel the scheduled flush and its idle subscription. */
-  flushDeltas(): void {
-    void Promise.resolve(this.deps.serving.flushPending()).catch((err) => {
-      log.warn('coalesced feed publication failed', { err })
-    })
+  flushDeltas(): Promise<void> {
+    const work = [
+      this.publicationTail,
+      Promise.resolve(this.deps.serving.flushPending()).catch((err) => {
+        log.warn('coalesced feed publication failed', { err })
+      }),
+    ]
     this.cancelScheduledFlush?.()
     this.cancelScheduledFlush = undefined
-    if (this.pending.length === 0) return
-    // `feedPublish.total` IS `sessionsBroadcast.total`'s successor, and the
-    // equivalence is structural rather than asserted [POD-736]: the deleted
-    // phase timed one whole coalesced publication of session truth to every
-    // connection, and so does this — the burst is coalesced here, then framed
-    // and delivered once per connection inside `serving.publish`. There is no
-    // other tail; a client sees nothing this method did not push.
-    const t0 = performance.now()
-    const perfKey = perfPrincipal(this.deps.workspaceId, DEVICE_GRADE_PRINCIPAL)
-    const queued = this.pending
-    this.pending = []
-    const deliveries = coalesce(queued)
-    // `feedPublish.scope` is `sessionsBroadcast.list`'s successor: the work that
-    // decides WHAT this principal gets. The Authority evaluated the slice before
-    // handing it over (that cost lands in the committing write), so what is left
-    // to time on this side is the coalescing that merges the evaluated ranges.
-    perf.record('phase', 'feedPublish.scope', performance.now() - t0, perfKey)
-    for (const delivery of deliveries) {
-      this.deps.onPublished(delivery.throughSeq)
-      void Promise.resolve(this.deps.serving.publish(DEVICE_GRADE_PRINCIPAL, delivery)).catch(
-        (err) => {
-          log.warn('coalesced feed publication failed', { err })
-        },
-      )
+    if (this.pending.length > 0) {
+      // `feedPublish.total` IS `sessionsBroadcast.total`'s successor, and the
+      // equivalence is structural rather than asserted [POD-736]: the deleted
+      // phase timed one whole coalesced publication of session truth to every
+      // connection, and so does this — the burst is coalesced here, then framed
+      // and delivered once per connection inside `serving.publish`. There is no
+      // other tail; a client sees nothing this method did not push.
+      const t0 = performance.now()
+      const perfKey = perfPrincipal(this.deps.workspaceId, DEVICE_GRADE_PRINCIPAL)
+      const queued = this.pending
+      this.pending = []
+      const deliveries = coalesce(queued)
+      // `feedPublish.scope` is `sessionsBroadcast.list`'s successor: the work that
+      // decides WHAT this principal gets. The Authority evaluated the slice before
+      // handing it over (that cost lands in the committing write), so what is left
+      // to time on this side is the coalescing that merges the evaluated ranges.
+      perf.record('phase', 'feedPublish.scope', performance.now() - t0, perfKey)
+      for (const delivery of deliveries) {
+        this.deps.onPublished(delivery.throughSeq)
+        work.push(
+          Promise.resolve(this.deps.serving.publish(DEVICE_GRADE_PRINCIPAL, delivery)).catch(
+            (err) => {
+              log.warn('coalesced feed publication failed', { err })
+            },
+          ),
+        )
+      }
+      perf.record('phase', 'feedPublish.total', performance.now() - t0, perfKey)
     }
-    perf.record('phase', 'feedPublish.total', performance.now() - t0, perfKey)
+    // A second, empty flush must also wait for work an earlier flush handed to
+    // the asynchronous serving edge. Keep the originating operation alive until
+    // its publications finish, without changing when they are dispatched.
+    const completion = Promise.all(work).then(() => undefined)
+    this.publicationTail = completion
+    holdOperation(completion)
+    return completion
   }
 }
 

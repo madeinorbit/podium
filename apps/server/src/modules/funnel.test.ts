@@ -16,7 +16,9 @@ function recordingServing() {
   return {
     published,
     port: {
-      publish: (_principal: unknown, delivery: ScopedDelivery) => published.push(delivery),
+      publish: (_principal: unknown, delivery: ScopedDelivery) => {
+        published.push(delivery)
+      },
       flushPending: () => {},
       // Fixed identity: these cases exercise the publication pipe, not D1. The
       // v2 catch-up read has its own coverage where the identity actually varies.
@@ -240,6 +242,44 @@ describe('the funnel has ONE output, and it is the feed', () => {
 })
 
 describe('the ordered, coalesced delivery pipe (#256)', () => {
+  it('waits for asynchronous serving work, including a previous flush with no new rows', async () => {
+    const fake = fakeAuthority()
+    let finishPending!: () => void
+    let finishPublication!: () => void
+    const pending = new Promise<void>((resolve) => {
+      finishPending = resolve
+    })
+    const publication = new Promise<void>((resolve) => {
+      finishPublication = resolve
+    })
+    const publish = vi.fn(() => publication)
+    const funnel = new WriteFunnel({
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
+      bus: new EventBus(),
+      serving: {
+        ...recordingServing().port,
+        flushPending: () => pending,
+        publish,
+      },
+      onPublished: vi.fn(),
+      authority: fake.authority,
+    })
+    fake.emit([{ seq: 1, entity: 'session', id: 's1', op: 'remove' }] as MetadataChange[])
+    const firstDone = vi.fn()
+    const emptyDone = vi.fn()
+    const first = funnel.flushDeltas().then(firstDone)
+    const empty = funnel.flushDeltas().then(emptyDone)
+    expect(publish).toHaveBeenCalledTimes(1)
+    finishPending()
+    await Promise.resolve()
+    expect(firstDone).not.toHaveBeenCalled()
+    expect(emptyDone).not.toHaveBeenCalled()
+    finishPublication()
+    await Promise.all([first, empty])
+    expect(firstDone).toHaveBeenCalledTimes(1)
+    expect(emptyDone).toHaveBeenCalledTimes(1)
+  })
+
   function pipedFunnel(onPublicationIdle?: OnPublicationIdle) {
     const bus = new EventBus()
     const serving = recordingServing()
