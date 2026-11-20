@@ -207,7 +207,9 @@ for (const scale of [1, 4])
       ])
       expect(query).not.toHaveBeenCalled()
     } finally {
-      stops.forEach((stop) => stop())
+      stops.forEach((stop) => {
+        stop()
+      })
       query.mockRestore()
       f.pool.dispose()
     }
