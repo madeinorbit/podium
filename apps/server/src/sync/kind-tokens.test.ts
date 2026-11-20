@@ -141,7 +141,7 @@ function changedKinds(before: Record<string, string>, after: Record<string, stri
 }
 
 describe('record kind code inputs', () => {
-  it.fails('device reload audit changes the session token when the no-issue collection rule changes', async () => {
+  it('device reload audit changes the session token when the no-issue collection rule changes', async () => {
     // The rule before fd0c7568d0 included every unarchived session without an issue.
     const before = await tokens({ noIssueWhere: { archived: false, issueId: { empty: true } } })
     expect(changedKinds(before, await tokens())).toEqual(['session'])
