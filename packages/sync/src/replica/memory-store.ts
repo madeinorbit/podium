@@ -172,6 +172,11 @@ class InMemoryCache implements ReplicaCacheStore {
     return this.meta.cursor?.kindTokens
   }
 
+  readKindReloadVersion(): number | undefined {
+    this.guard()
+    return this.meta.cursor?.kindReloadVersion
+  }
+
   readInstances(): ReadonlyMap<string, InstanceRecord> {
     this.guard()
     return this.meta.instances
@@ -327,6 +332,9 @@ class InMemoryCache implements ReplicaCacheStore {
       operations: [],
       cursor,
       ...(versions.kindTokens === undefined ? {} : { kindTokens: versions.kindTokens }),
+      ...(versions.kindReloadVersion === undefined
+        ? {}
+        : { kindReloadVersion: versions.kindReloadVersion }),
     }).meta
     for (const mutation of buffered) {
       applyInto(next, replacement, diskRows, mutation)

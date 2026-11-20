@@ -26,6 +26,7 @@ import {
 /** The stored cursor: the feed position, with the shape tokens of the rows it describes. */
 export interface ScopedCacheCursor extends Cursor {
   readonly kindTokens?: KindTokens
+  readonly kindReloadVersion?: number
 }
 
 /** Keep adapter-private metadata out of the feed cursor port. */
@@ -358,8 +359,14 @@ export function nextCacheMeta(
       meta.cursor.feedId === mutation.cursor.feedId &&
       meta.cursor.epoch === mutation.cursor.epoch
     const kindTokens = mutation.kindTokens ?? (sameFeed ? meta.cursor?.kindTokens : undefined)
+    const kindReloadVersion =
+      mutation.kindReloadVersion ?? (sameFeed ? meta.cursor?.kindReloadVersion : undefined)
     const triple = cursorTriple(mutation.cursor) as Cursor
-    cursor = kindTokens === undefined ? triple : { ...triple, kindTokens: { ...kindTokens } }
+    cursor = {
+      ...triple,
+      ...(kindTokens === undefined ? {} : { kindTokens: { ...kindTokens } }),
+      ...(kindReloadVersion === undefined ? {} : { kindReloadVersion }),
+    }
     writes.push({ kind: 'put', key: CURSOR_META_KEY, value: cursor })
   }
   let instances = meta.instances

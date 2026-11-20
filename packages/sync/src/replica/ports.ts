@@ -180,6 +180,8 @@ export interface CacheMutation {
   readonly cursor?: Cursor
   /** Shape tokens bound to `cursor`; absent keeps the stored tokens on the same feed. */
   readonly kindTokens?: KindTokens
+  /** Device-side kind-reload repair completed, bound to the same feed as the tokens. */
+  readonly kindReloadVersion?: number
   /** Marker changes, applied after `operations`. */
   readonly instances?: readonly InstanceOperation[]
   /** The server's policy for this client (`syncMeta.policy`); null forgets it. */
@@ -195,6 +197,7 @@ export interface CacheMutation {
 
 export interface SnapshotVersions {
   readonly kindTokens?: KindTokens
+  readonly kindReloadVersion?: number
 }
 
 /**
@@ -213,6 +216,7 @@ export interface SnapshotVersions {
 export interface ReplicaCacheStore {
   readCursor(): Cursor | null
   readKindTokens(): KindTokens | undefined
+  readKindReloadVersion(): number | undefined
   /**
    * Every stored marker, by instance key (`instanceKey`): what the device
    * holds on disk, in memory or not. `readDiskIndex().inMemory(key)` says

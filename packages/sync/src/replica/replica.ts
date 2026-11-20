@@ -308,6 +308,8 @@ export interface TransitionOutcome {
 
 const entityKey = (entity: string, entityId: string): string => `${entity}\u0000${entityId}`
 
+const KIND_RELOAD_VERSION = 1
+
 /** A retired kind requires a full replacement; missing local tokens reload their kinds. */
 function changedKinds(
   installed: KindTokens | undefined,
@@ -370,6 +372,8 @@ export class Replica implements DeviceCollectionReads {
   private inflight: Promise<void> = Promise.resolve()
   /** A ladder failure awaiting its ONE report through `settled()` (POD-1162). */
   private failure: unknown | undefined
+  private kindReloading = false
+  private pendingKindTokens: KindTokens | undefined
   private pendingTransition = false
   /**
    * Every transition-table row this replica has taken, in order. Not telemetry:
@@ -642,15 +646,24 @@ export class Replica implements DeviceCollectionReads {
   /** Called from both the connection advertisement and the HTTP delta header. */
   observeKindTokens(offered: KindTokens): void {
     if (this.cursorValue === null || this.state === 'bootstrapping') return
+    if (this.kindReloading) {
+      this.pendingKindTokens = offered
+      return
+    }
     let installed: KindTokens | undefined
+    let repaired = false
     try {
       installed = this.store.readKindTokens()
+      repaired = (this.store.readKindReloadVersion() ?? 0) >= KIND_RELOAD_VERSION
     } catch (error) {
       if (!(error instanceof ReplicaStoreCorruptError)) throw error
       this.onCorruption()
       return
     }
     const kinds = changedKinds(installed, offered)
+    // LEGACY(remove-after: 2027-05): older kind reloads could save current tokens over missing rows; re-confirm held collections once, without discarding the device copy.
+    if (kinds !== undefined && !repaired)
+      for (const kind of Object.keys(offered)) if (!kinds.includes(kind)) kinds.push(kind)
     if (kinds?.length === 0) return
     this.rebootstrap('kind-shape', kinds && new Set(kinds))
   }
@@ -1634,14 +1647,18 @@ export class Replica implements DeviceCollectionReads {
     const disk = this.store.readDiskIndex()
     for (const change of chunk.changes) {
       const key = entityKey(change.entity, change.entityId)
+      options.reload?.confirmed.add(key)
       if (newer(key)) continue
       const existing = rowOf(change.entity, change.entityId)
-      // A whole record the device keeps current needs no older or equal answer.
+      const reshaped = options.reload?.kinds.has(change.entity) === true
+      // A kind reload replaces the projection even at the same feed number:
+      // code and shape changes need not write a source row or move the feed.
+      // An ordinary fetch of a whole record needs no older or equal answer.
       // A stub is current only for its stub fields: the answer brings the main
       // part unless the stub itself changed after the answer was read.
       if (existing !== undefined) {
         const stale =
-          existing.part === 'stub'
+          existing.part === 'stub' || reshaped
             ? at < rowAsOf(existing)
             : at <= this.currencyOf(existing, loadingSince)
         if (stale) continue
@@ -1651,7 +1668,9 @@ export class Replica implements DeviceCollectionReads {
       // same row, and memory takes it.
       const onDisk = existing === undefined && !staged.has(key) ? disk.record(key) : undefined
       if (onDisk?.level === 'main' && onDisk.seq > at) continue
-      const same = onDisk?.level === 'main' && onDisk.seq === at
+      const same =
+        (onDisk?.level === 'main' && onDisk.seq === at) ||
+        (reshaped && existing !== undefined && rowAsOf(existing) === at)
       const op: CacheOperation & { readonly kind: 'upsert' } = same
         ? { ...upsertOf(change, change.payload, at), force: true }
         : upsertOf(change, change.payload, at)
@@ -1664,6 +1683,9 @@ export class Replica implements DeviceCollectionReads {
     for (const change of chunk.stubs ?? []) {
       const key = entityKey(change.entity, change.entityId)
       if (newer(key)) continue
+      const reshaped = options.reload?.kinds.has(change.entity) === true
+      if (reshaped)
+        options.reload?.stubs.set(key, { ...upsertOf(change, change.payload, at), part: 'stub' })
       // POD-7159: a record whole on disk and not in memory is whole, as of its index number.
       const onDisk = staged.has(key) ? undefined : disk.record(key)
       const existing: EntityRecord | undefined =
@@ -1681,10 +1703,7 @@ export class Replica implements DeviceCollectionReads {
         // A whole record the feed keeps current needs no stub. Only a load
         // that replaces what the device held takes an unconfirmed record back
         // to the stub it delivered; a kind reload remembers it for its sweep.
-        if (options.reload?.kinds.has(change.entity) && rowAsOf(existing) < at) {
-          options.reload.stubs.set(key, { ...upsertOf(change, change.payload, at), part: 'stub' })
-          continue
-        }
+        if (reshaped && rowAsOf(existing) <= at) continue
         if (loadingSince === null || rowAsOf(existing) >= loadingSince) continue
         // POD-7160: a record only stale instances hold stays whole while its
         // stub is the same (the reload of what holds it replaces it); a
@@ -1701,8 +1720,16 @@ export class Replica implements DeviceCollectionReads {
           continue
         }
         events.push({ type: 'released', entity: change.entity, entityId: change.entityId })
-      } else if (existing !== undefined && at <= this.currencyOf(existing, loadingSince)) continue
-      const op: CacheOperation = { ...upsertOf(change, change.payload, at), part: 'stub' }
+      } else if (
+        existing !== undefined &&
+        (reshaped ? at < rowAsOf(existing) : at <= this.currencyOf(existing, loadingSince))
+      )
+        continue
+      const op: CacheOperation = {
+        ...upsertOf(change, change.payload, at),
+        part: 'stub',
+        ...(reshaped && existing !== undefined && rowAsOf(existing) === at ? { force: true } : {}),
+      }
       operations.push(op)
       const row = recordFromOp(op)
       staged.set(key, row)
@@ -1733,6 +1760,7 @@ export class Replica implements DeviceCollectionReads {
     const args = policyArgs(chunk.policy ?? this.store.readPolicy())
     for (const marker of chunk.complete ?? []) {
       const key = instanceKey(marker)
+      options.reload?.completed.add(key)
       // POD-7159: what a record comes with is not a marker of its own; the
       // answer's end records it on the holder (`completeComesWith`).
       if (marker.via !== undefined) {
@@ -1940,6 +1968,7 @@ export class Replica implements DeviceCollectionReads {
               entityId: row.entityId,
             })),
             cursor: base,
+            ...(complete ? { kindReloadVersion: KIND_RELOAD_VERSION } : {}),
             ...(complete ? { loadingSince: null } : {}),
           },
           span,
@@ -3172,6 +3201,7 @@ export class Replica implements DeviceCollectionReads {
         for (let at = 0; at < fresh.length; at += FETCH_MAX_INSTANCES) {
           const batch = fresh.slice(at, at + FETCH_MAX_INSTANCES)
           const chunks = collections(batch, signal)[Symbol.asyncIterator]()
+          let ended = false
           try {
             for (;;) {
               const next = chunks.next()
@@ -3200,12 +3230,17 @@ export class Replica implements DeviceCollectionReads {
               }
               pending.push(chunk)
               pendingRows += rowsOfChunk(chunk)
-              if (chunk.last) break
+              if (chunk.last) {
+                ended = true
+                break
+              }
               if (pendingRows >= INSTALL_BATCH_ROWS) await install()
             }
             if (stale !== undefined && pending.length > 0)
               whole.push(mergeChunks(pending.splice(0)))
             await install()
+            if (reload !== undefined && !ended && !signal.aborted)
+              throw new Error('kind reload ended before the last chunk')
           } catch (error) {
             // The answer broke off: the chunks that arrived whole stay (POD-7086).
             // A stale reload keeps the instance as it was instead.
@@ -3231,13 +3266,13 @@ export class Replica implements DeviceCollectionReads {
         }
         // Swept once, after every batch: sweeping after the first would take
         // rows off the screen that a later batch is about to confirm.
-        if (reload !== undefined && reloadedAt !== undefined && !signal.aborted)
-          await this.serial(() => this.sweepKinds(reload, reloadedAt as BootstrapChunk))
         // What the answer's records come with, on their holders (POD-7159).
         if (!signal.aborted) {
           if (insideLoad) this.completeComesWith(members)
           else await this.serial(() => this.completeComesWith(members))
         }
+        if (reload !== undefined && reloadedAt !== undefined && !signal.aborted)
+          await this.serial(() => this.sweepKinds(reload, reloadedAt as BootstrapChunk))
       } finally {
         for (const request of fresh) {
           const key = instanceKey(request)
@@ -3315,19 +3350,107 @@ export class Replica implements DeviceCollectionReads {
     }
     this.emit({ type: 'heal', rung: 2, cause: 'kind-shape', partial: true })
     this.counters.bootstraps += 1
-    const reload: KindReload = { kinds, stubs: new Map() }
-    void this.serial(() => {
-      if (marked.length > 0) {
-        this.store.applyAtomic({
-          operations: [],
-          instances: marked.map((instance) => ({ kind: 'drop' as const, key: instance.key })),
-        })
-        this.emit({ type: 'markers' })
-      }
-    })
-      .then(() => this.fetchInstances([...requests.values()], reload))
-      .catch(() => undefined)
+    this.kindReloading = true
+    const generation = this.walkGeneration
+    const signal = this.fetchAbort.signal
+    const reload: KindReload = {
+      kinds,
+      confirmed: new Set(),
+      stubs: new Map(),
+      instances: new Set(marked.map((instance) => instance.key)),
+      completed: new Set(),
+    }
+    const task = this.kindReloadCompanions(kinds)
+      .then((companions) =>
+        this.serial(() => {
+          if (signal.aborted || generation !== this.walkGeneration) return
+          // Comes-with collections are recorded on their holders, rather than
+          // in readInstances. They must be reloaded even if their complete bits
+          // survived an older, faulty reload that removed the companion rows.
+          const invalidated = new Map<string, Set<string>>()
+          for (const spec of companions) {
+            requests.set(instanceKey(spec), spec)
+            const holder = comesWithHolderOf(spec)
+            if (holder === undefined || spec.via === undefined) continue
+            const vias = invalidated.get(holder) ?? new Set<string>()
+            vias.add(spec.via)
+            invalidated.set(holder, vias)
+            this.comesWithAnswered.delete(holder)
+          }
+          const comesWith: ComesWithOperation[] = []
+          for (const [record, vias] of invalidated) {
+            const entry = this.store.readDiskIndex().record(record)
+            if (entry !== undefined)
+              comesWith.push({
+                kind: 'complete',
+                record,
+                vias: entry.cw.filter((via) => !vias.has(via)),
+              })
+          }
+          this.store.applyAtomic({
+            operations: [],
+            // Keep collection identities durably: after an interrupted reload
+            // they must still be requested, including cached, non-policy trees.
+            instances: marked.map((instance) => ({ kind: 'stale' as const, key: instance.key })),
+            comesWith,
+          })
+          this.emit({ type: 'markers' })
+        }),
+      )
+      .then(async () => {
+        // An ordinary fetch already answering the same instance does not
+        // stand in for the changed-shape answer this reload needs.
+        await Promise.allSettled([...this.inFlightAnswers.values()])
+        if (signal.aborted || generation !== this.walkGeneration) return
+        await this.fetchInstances([...requests.values()], reload)
+      })
+      .catch((error) => {
+        if (error instanceof ReplicaStoreCorruptError) this.onCorruption()
+        else if (this.failure === undefined && !signal.aborted) this.failure = error
+      })
+      .finally(() => {
+        this.kindReloading = false
+        const pending = this.pendingKindTokens
+        this.pendingKindTokens = undefined
+        if (pending !== undefined) this.observeKindTokens(pending)
+      })
+    this.fetching = Promise.all([this.fetching, task]).then(() => undefined)
     return true
+  }
+
+  /** Declared companions of whole records, including holders currently only on disk. */
+  private async kindReloadCompanions(kinds: ReadonlySet<string>): Promise<InstanceSpec[]> {
+    const holderKinds = new Set<string>()
+    for (const record of RECORDS) {
+      const companions = [
+        ...record.comesWith,
+        ...Object.values(record.collections).flatMap((collection) => collection.comesWith ?? []),
+      ]
+      if (companions.some((entry) => kinds.has(COLLECTIONS.get(entry.collection)?.of ?? '')))
+        holderKinds.add(record.kind)
+    }
+    const rows: EntityRecord[] = []
+    const onDisk: string[] = []
+    for (const [key, entry] of this.store.readDiskIndex().records()) {
+      const { entity, entityId } = splitRowKey(key)
+      if (entry.level !== 'main' || !holderKinds.has(entity)) continue
+      const row = this.store.read(entity, entityId)
+      if (row === undefined) onDisk.push(key)
+      else rows.push(row)
+    }
+    if (onDisk.length > 0) rows.push(...(await this.store.readDiskRows(onDisk)))
+    const specs = new Map<string, InstanceSpec>()
+    const index = this.heldIndex()
+    const args = policyArgs(this.store.readPolicy())
+    const now = this.now()
+    for (const row of rows) {
+      const memberOf = index.matching(row.entity, row.value, this.ruleRows, now)
+      for (const spec of comesWithOf(row.entity, row.value, memberOf, now)) {
+        const of = resolveInstance(spec, args)?.of
+        if (of !== undefined && kinds.has(of)) specs.set(instanceKey(spec), spec)
+      }
+    }
+    return [...specs.values()]
   }
 
   /** After a kind reload: rows of those kinds its answer did not confirm leave; an issue keeps its stub. */
@@ -3338,8 +3461,9 @@ export class Replica implements DeviceCollectionReads {
     // POD-7159: over every row on the device, in memory or only on disk.
     for (const [key, entry] of this.store.readDiskIndex().records()) {
       const row = splitRowKey(key)
-      if (!reload.kinds.has(row.entity) || entry.seq >= at) continue
-      const stub = entry.level === 'stub' ? undefined : reload.stubs.get(key)
+      if (!reload.kinds.has(row.entity) || entry.seq > at || reload.confirmed.has(key)) continue
+      const stub = reload.stubs.get(key)
+      if (entry.level === 'stub' && stub !== undefined) continue
       if (stub !== undefined) {
         operations.push({ ...stub, force: true })
         events.push({ type: 'released', entity: row.entity, entityId: row.entityId })
@@ -3351,7 +3475,16 @@ export class Replica implements DeviceCollectionReads {
     const cursor = this.cursorValue
     this.store.applyAtomic({
       operations,
-      ...(cursor === null ? {} : { cursor, kindTokens: answer.kindTokens }),
+      instances: [...reload.instances]
+        .filter((key) => !reload.completed.has(key))
+        .map((key) => ({ kind: 'drop' as const, key })),
+      ...(cursor === null
+        ? {}
+        : {
+            cursor,
+            kindTokens: answer.kindTokens,
+            kindReloadVersion: KIND_RELOAD_VERSION,
+          }),
     })
     this.batchEvents(() => {
       for (const event of events) this.emit(event)
@@ -3697,7 +3830,10 @@ interface FeedDecision {
 /** A kind reload in flight: its kinds, and the stubs its answer brought for whole records. */
 interface KindReload {
   readonly kinds: ReadonlySet<string>
+  readonly confirmed: Set<string>
   readonly stubs: Map<string, CacheOperation & { readonly kind: 'upsert' }>
+  readonly instances: ReadonlySet<string>
+  readonly completed: Set<string>
 }
 
 /** An upsert of one change's record, current as of `asOf`. ADR 2 D8: provenance BESIDE the value. */
