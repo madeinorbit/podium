@@ -1246,13 +1246,14 @@ export interface HostModules {
      *  so per-frame traffic skips the loopback WebSocket entirely. */
     localDaemonLink?: LocalDaemonLink
     recoveryOnly: boolean
+    close(): Promise<void>
   }>
   isAddressInUseError(err: unknown): boolean
   startDaemon(
     opts: DaemonStartOptions & {
       onBlocked?: (info: { type: string; reason: string }) => void | Promise<void>
     },
-  ): Promise<unknown>
+  ): Promise<{ close(): Promise<void> }>
 }
 
 /** Composition-root work that may touch the selected instance's state directory.
@@ -1303,9 +1304,49 @@ async function runInProcess(
     digest: installedArtifactDigest(resolveInstallDir(process.env)),
   })
   let stopRequested: string | undefined
-  lifecycle?.onStop((reason) => {
-    stopRequested = reason
-  })
+  let startupSettled = false
+  let serverHandle: Awaited<ReturnType<HostModules['startServer']>> | undefined
+  let daemonHandle: Awaited<ReturnType<HostModules['startDaemon']>> | undefined
+  let stopWatchdog: (() => void) | undefined
+  let stopSupervisorWatch: (() => void) | undefined
+  let shutdownWork: Promise<void> | undefined
+  const shutdown = (reason = 'signal'): void => {
+    stopRequested ??= reason
+    // A boot may be inside a migration transaction. Retain the stop until its
+    // handle exists, then use the same ordered close as an already-ready server.
+    if (!startupSettled || shutdownWork !== undefined) return
+    shutdownWork = (async () => {
+      lifecycle?.stopping(stopRequested)
+      stopWatchdog?.()
+      stopSupervisorWatch?.()
+      // Stop the producer before its server/store; one failing close must not
+      // skip the other component or the log drain.
+      for (const [name, close] of [
+        ['daemon', () => daemonHandle?.close()],
+        ['server', () => serverHandle?.close()],
+        ['logs', () => componentLogging?.close()],
+      ] as const) {
+        try {
+          await close()
+        } catch (error) {
+          console.error(`Podium ${name} close failed:`, error)
+        }
+      }
+      lifecycle?.close()
+      process.exit(0)
+    })()
+  }
+  process.on('SIGINT', () => shutdown('SIGINT'))
+  process.on('SIGTERM', () => shutdown('SIGTERM'))
+  lifecycle?.onStop((reason) => shutdown(`parent asked us to stop: ${reason}`))
+  lifecycle?.onSupervisorGone(() => shutdown('parent channel closed'))
+  const finishIfStopped = async (): Promise<boolean> => {
+    if (stopRequested === undefined) return false
+    startupSettled = true
+    shutdown(stopRequested)
+    await shutdownWork
+    return true
+  }
 
   // Claim this component's role in the run registry BEFORE binding: reclaim() SIGKILLs a
   // stale holder (a force-killed desktop orphan, a crashed detached process) so we don't
@@ -1359,6 +1400,7 @@ async function runInProcess(
   let localDaemonLink: LocalDaemonLink | undefined
   let recoveryOnly = false
   const host = roles.server || roles.daemon ? await loadHost() : undefined
+  if (await finishIfStopped()) return
   if (roles.server && host) {
     const { startServer, isAddressInUseError } = host
     let server: Awaited<ReturnType<typeof startServer>>
@@ -1383,6 +1425,8 @@ async function runInProcess(
       }
       process.exit(78)
     }
+    serverHandle = server
+    if (await finishIfStopped()) return
     serverPort = server.port
     localDaemonLink = server.localDaemonLink
     recoveryOnly = server.recoveryOnly
@@ -1422,7 +1466,7 @@ async function runInProcess(
     // code (not crash-loop): the systemd unit's RestartPreventExitStatus matches it and
     // stops restarting; `podium status` then explains the blocked state (#19).
     const remoteDaemon = modePlan.mode === 'daemon'
-    await startDaemon({
+    daemonHandle = await startDaemon({
       ...daemonOptions,
       ...(remoteDaemon
         ? {
@@ -1440,8 +1484,10 @@ async function runInProcess(
           }
         : {}),
     })
+    if (await finishIfStopped()) return
     console.log(`podium daemon up → ${daemonOptions.serverUrl}`)
   }
+  startupSettled = true
   // Every role this process was asked for is up: say so on the line, with the
   // port when we bound one. THIS FRAME IS THE GATE (POD-3762): the parent that
   // spawned us will not call its stack healthy until it arrives, and the port it
@@ -1450,22 +1496,8 @@ async function runInProcess(
 
   // Watchdog pet (no-op off a Type=notify unit) — mirror scripts/daemon.ts.
   const { startWatchdog } = await import('@podium/runtime/sd-notify')
-  const stopWatchdog = startWatchdog()
-  let stopSupervisorWatch: (() => void) | undefined
-  const shutdown = (reason: string = 'signal'): void => {
-    // Last word on the line, then hang up: the parent learns this was a
-    // shutdown and why, rather than inferring it from an exit code later.
-    lifecycle?.stopping(reason)
-    lifecycle?.close()
-    stopWatchdog?.()
-    stopSupervisorWatch?.()
-    // Drain the log sink before exiting; best-effort, never a reason to hang.
-    void (componentLogging?.close() ?? Promise.resolve())
-      .catch(() => {})
-      .finally(() => process.exit(0))
-  }
-  process.on('SIGINT', shutdown)
-  process.on('SIGTERM', shutdown)
+  stopWatchdog = startWatchdog()
+  if (await finishIfStopped()) return
   // Topology migration kickoff: a legacy CLI unit that just became the new version
   // writes+starts podium.service and keeps serving until the parent takes over.
   // That CLI unit has a run-registry role for the --takeover child to reclaim.
@@ -1487,12 +1519,7 @@ async function runInProcess(
   // hook-ingest port, which is what breaks the NEXT launch. No-op unsupervised.
   const { watchSupervisor } = await import('@podium/runtime/supervisor')
   stopSupervisorWatch = watchSupervisor(() => shutdown('supervising shell exited'))
-  // The parent's stop on the line is the same request a SIGTERM is; so is the
-  // line closing under us, which means the parent died — on every platform,
-  // now that a supervised child is spawned detached on Windows (POD-3790).
-  lifecycle?.onStop((reason) => shutdown(`parent asked us to stop: ${reason}`))
-  lifecycle?.onSupervisorGone(() => shutdown('parent channel closed'))
-  if (stopRequested !== undefined) shutdown(`parent asked us to stop: ${stopRequested}`)
+  if (await finishIfStopped()) return
   await new Promise(() => {})
 }
 
