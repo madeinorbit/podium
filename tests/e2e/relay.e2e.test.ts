@@ -64,10 +64,14 @@ function collect(ws: WebSocket) {
   }
 }
 
-async function waitFor(pred: () => boolean | Promise<boolean>, timeoutMs = 10000): Promise<void> {
+async function waitFor(
+  label: string,
+  pred: () => boolean | Promise<boolean>,
+  timeoutMs = 10000,
+): Promise<void> {
   const start = Date.now()
   while (!(await pred())) {
-    if (Date.now() - start > timeoutMs) throw new Error('waitFor: timed out')
+    if (Date.now() - start > timeoutMs) throw new Error(`waitFor: timed out at ${label}`)
     await new Promise((r) => setTimeout(r, 20))
   }
 }
@@ -78,6 +82,7 @@ describe('e2e: daemon -> server -> client', () => {
     const srv = await startServer()
     let daemon: Awaited<ReturnType<typeof startDaemon>> | undefined
     const clients: WebSocket[] = []
+    const traces: ReturnType<typeof collect>[] = []
     try {
       const machineId = asMachineId(hostMachineId())
       await srv.registry.modules.machines.changeAssignment(
@@ -117,6 +122,7 @@ describe('e2e: daemon -> server -> client', () => {
         )
         clients.push(client)
         const collected = collect(client)
+        traces.push(collected)
         client.send(
           encode({
             type: 'hello',
@@ -134,13 +140,13 @@ describe('e2e: daemon -> server -> client', () => {
       // Force a fresh repaint so the just-connected client sees current output.
       client.send(encode({ type: 'redrawRequest', sessionId }))
       // 1) live fixture output reaches the client through the full chain
-      await waitFor(() => c.text.includes('cols=80 rows=24'))
+      await waitFor('initial fixture output', () => c.text.includes('cols=80 rows=24'))
 
       // 2) input typed at the client round-trips to the agent and back
       client.send(
         encode({ type: 'input', sessionId, data: Buffer.from('a', 'utf8').toString('base64') }),
       )
-      await waitFor(() => c.text.includes('last-input=61'))
+      await waitFor('input echo', () => c.text.includes('last-input=61'))
 
       // 3) takeover bumps epoch and resizes the agent. Control must move BETWEEN
       // clients: the first attacher is auto-promoted to controller and re-claiming
@@ -165,15 +171,32 @@ describe('e2e: daemon -> server -> client', () => {
           (await srv.registry.modules.sessions.listSessions()).find(
             (s) => s.sessionId === sessionId,
           )
-        await waitFor(async () => ((await getSess())?.epoch ?? 0) >= 1)
+        await waitFor('takeover epoch', async () => ((await getSess())?.epoch ?? 0) >= 1)
         // The child observes the real PTY resize. This direct-PTY fixture
         // has no kernel-size reporting port, so the server must keep its last
         // reported grid instead of claiming that an ask was acknowledged.
-        await waitFor(() => c2.text.includes('cols=100 rows=30'))
+        await waitFor('takeover PTY output', () => c2.text.includes('cols=100 rows=30'))
         expect((await getSess())?.geometry).toEqual({ cols: 80, rows: 24 })
       } finally {
         client2.close()
       }
+    } catch (error) {
+      const sessions = await srv.registry.modules.sessions.listSessions()
+      throw new Error(
+        `relay fixture failed: ${String(error)}; ${JSON.stringify({
+          clients: clients.map((client) => client.readyState),
+          traces: traces.map((trace) => ({
+            text: trace.text.slice(-1500),
+            messages: trace.seen.slice(-12).map((message) => message.type),
+          })),
+          sessions: sessions.map(({ sessionId, epoch, geometry }) => ({
+            sessionId,
+            epoch,
+            geometry,
+          })),
+        })}`,
+        { cause: error },
+      )
     } finally {
       for (const client of clients) client.close()
       await daemon?.close({ reapSessions: true })
