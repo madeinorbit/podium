@@ -562,7 +562,7 @@ export class InstallLedger {
       acquiredAt: new Date(nowMs).toISOString(),
       expiresAtMs: nowMs + leaseMs,
     }
-    const outcome = this.transaction(() => {
+    const outcome = this.writeAtomically(() => {
       const existing = this.lockRow()
       let tookOver: { from: InstallLockHolder; because: 'expired' | 'owner-gone' } | undefined
       if (existing) {
@@ -627,13 +627,13 @@ export class InstallLedger {
 
   /** Run `body` in one write transaction that first proves `lock` still holds. */
   private withLock<T>(lock: InstallLock, body: () => T): T {
-    return this.transaction(() => {
+    return this.writeAtomically(() => {
       if (!this.leaseHeld(lock.token)) throw new InstallLockLostError()
       return body()
     })
   }
 
-  private transaction<T>(body: () => T): T {
+  private writeAtomically<T>(body: () => T): T {
     this.db.exec('BEGIN IMMEDIATE')
     try {
       const result = body()
@@ -672,7 +672,7 @@ export class InstallLedger {
    * ledger together); then this does nothing.
    */
   private initialize(damage: { setAside?: string; detail: string } | undefined): void {
-    this.transaction(() => {
+    this.writeAtomically(() => {
       const hasMeta = this.sql(
         "SELECT 1 AS hit FROM sqlite_master WHERE type = 'table' AND name = 'meta'",
       ).get()
