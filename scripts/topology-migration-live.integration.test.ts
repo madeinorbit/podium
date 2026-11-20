@@ -192,8 +192,15 @@ async function startManager(runtimeDir: string, configHome: string): Promise<Pri
   return { process: manager, env, output: () => output }
 }
 
-async function stopManager(manager: PrivateManager): Promise<void> {
+async function stopManager(manager: PrivateManager, units: readonly string[]): Promise<void> {
   if (!alive(manager.process.pid)) return
+  // An isolated nested user manager can exit without reaping service processes.
+  // Stop our units explicitly so each crash case leaves no restarting fixture.
+  for (const unit of units) ctlResult(manager.env, ['stop', unit])
+  for (const unit of units) {
+    const result = ctlResult(manager.env, ['show', unit, '--property=MainPID', '--value'])
+    expect(Number(result.stdout.trim()) || 0, `fixture ${unit} stopped before manager exit`).toBe(0)
+  }
   ctlResult(manager.env, ['exit'])
   await until(
     () =>
@@ -487,7 +494,7 @@ describe('single-unit migration live kill matrix', () => {
         expect(readFileSync(operatorDropin, 'utf8')).toBe(operatorSetting)
       } finally {
         if (migrator && alive(migrator.pid)) migrator.kill('SIGKILL')
-        if (manager) await stopManager(manager)
+        if (manager) await stopManager(manager, [parentUnit, ...legacyUnits])
         // systemd deliberately creates this mode-000 sentinel in every runtime
         // tree; make its directory traversable before removing the private root.
         try {
