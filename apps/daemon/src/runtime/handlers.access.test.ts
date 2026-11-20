@@ -8,11 +8,14 @@
  * readably when the refresh never comes. It is never handed to the driver bare.
  */
 
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type { AgentSessionHandle } from '@podium/harness/driver/host'
 import { asSessionId } from '@podium/model'
 import type { AccessField } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { type MarkerJournal, memoryMarkers, SessionAccessStore } from '../control/access'
 import type { DaemonContext } from '../control/context'
 import { runtimeHandlers } from './handlers'
@@ -25,6 +28,23 @@ const access: AccessField = {
   credentialId: 'cred_00000000-0000-4000-8000-0000000000f5',
   delivery: { kind: 'env', variable: 'ANTHROPIC_API_KEY', secret: PLANTED },
 }
+
+/**
+ * The daemon's PATH holds a runnable `bwrap` (POD-7375), so a passed-in Claude
+ * credential's Linux prerequisite is met whatever the test host has installed.
+ */
+function stubPathWith(...names: string[]): void {
+  const dir = mkdtempSync(join(tmpdir(), 'podium-path-'))
+  stubbedDirs.push(dir)
+  for (const name of names) writeFileSync(join(dir, name), '#!/bin/sh\n', { mode: 0o755 })
+  vi.stubEnv('PATH', dir)
+}
+const stubbedDirs: string[] = []
+beforeEach(() => stubPathWith('bwrap'))
+afterEach(() => {
+  vi.unstubAllEnvs()
+  for (const dir of stubbedDirs.splice(0)) rmSync(dir, { recursive: true, force: true })
+})
 
 function daemon(store: SessionAccessStore) {
   const sent: DaemonMessage[] = []
@@ -73,6 +93,22 @@ describe('runtimeSendRequest and the session credential', () => {
     await vi.waitFor(() => expect(d.handle.send).toHaveBeenCalledTimes(2))
     expect(sentEnv(d.handle, 1)?.ANTHROPIC_API_KEY).toBe(PLANTED)
   })
+
+  it.runIf(process.platform === 'linux')(
+    'a Claude credential turn with no bwrap on PATH is refused readably and never sent (POD-7375)',
+    async () => {
+      stubPathWith()
+      const d = daemon(new SessionAccessStore({ markers: memoryMarkers() }))
+      runtimeHandlers.runtimeSendRequest(d.ctx, turn({ access }))
+      await vi.waitFor(() => expect(d.results()).toHaveLength(1))
+      expect(d.handle.send).not.toHaveBeenCalled()
+      expect(d.results()[0]).toMatchObject({
+        receipt: { outcome: 'refused', refusal: { reason: 'not_running' } },
+      })
+      expect(JSON.stringify(d.results()[0])).toMatch(/bubblewrap/)
+      expect(JSON.stringify(d.results()[0])).not.toContain(PLANTED)
+    },
+  )
 
   it('a session with no credential sends its turn with no env', async () => {
     const d = daemon(new SessionAccessStore({ markers: memoryMarkers() }))

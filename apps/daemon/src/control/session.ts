@@ -116,7 +116,7 @@ import {
 } from '../session-screens'
 import { removeSessionUploads } from '../session-uploads'
 import { Terminal } from '../terminal/terminal.js'
-import { deliveryOverlay, isPodiumHomeId } from './access'
+import { assertDeliveryPrerequisites, deliveryOverlay, isPodiumHomeId } from './access'
 import { type BindFacts, bindFrame, reportSize } from './applied-geometry'
 import type { ControlHandlers, DaemonContext } from './context'
 import { reportEffectiveAuth, sessionProcessEnvironment } from './effective-auth'
@@ -915,6 +915,12 @@ export async function launchTerminalProcess(
           }),
           strip: [],
         }
+    // A HIDE SWITCH THE HARNESS CANNOT RUN HERE REFUSES THE START (POD-7375):
+    // Claude Code on Linux exits at once without bubblewrap when a passed-in
+    // credential sets its scrub switch. Looked up on the PATH the process gets.
+    if (childContext && !loginHarness) {
+      assertDeliveryPrerequisites(agentKind, access, sessionProcessEnvironment(process.env, child))
+    }
     const session = await spawnSessionProcess(durable, {
       // DEMAND THE WRITER LEASE (POD-4434). A spawn that adopts a live master
       // while another writer holds it is the update-overlap symptom: two

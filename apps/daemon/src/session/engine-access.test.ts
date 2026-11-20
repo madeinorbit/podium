@@ -9,12 +9,15 @@
  * an engine before the server's refresh brings the credential back.
  */
 
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type { EngineAttachment } from '@podium/harness/driver/host'
 import { testBoundCommand } from '@podium/harness/driver/testing'
 import { asSessionId } from '@podium/model'
 import type { DurableProcess } from '@podium/process/durable'
 import type { AccessField } from '@podium/protocol'
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { memoryMarkers, SessionAccessStore } from '../control/access'
 import { createSessionEngineScope } from './engines.js'
 import { SessionRegistry } from './registry.js'
@@ -27,6 +30,23 @@ const access: AccessField = {
   credentialId: 'cred_00000000-0000-4000-8000-0000000000e5',
   delivery: { kind: 'env', variable: 'ANTHROPIC_API_KEY', secret: PLANTED },
 }
+
+/**
+ * The daemon's PATH holds a runnable `bwrap` (POD-7375), so a passed-in Claude
+ * credential's Linux prerequisite is met whatever the test host has installed.
+ */
+function stubPathWith(...names: string[]): void {
+  const dir = mkdtempSync(join(tmpdir(), 'podium-path-'))
+  stubbedDirs.push(dir)
+  for (const name of names) writeFileSync(join(dir, name), '#!/bin/sh\n', { mode: 0o755 })
+  vi.stubEnv('PATH', dir)
+}
+const stubbedDirs: string[] = []
+beforeEach(() => stubPathWith('bwrap'))
+afterEach(() => {
+  vi.unstubAllEnvs()
+  for (const dir of stubbedDirs.splice(0)) rmSync(dir, { recursive: true, force: true })
+})
 
 function heldEngine(): EngineAttachment {
   return {
@@ -83,6 +103,18 @@ describe('SessionEngineScope.startEngine with a session credential', () => {
     })
     expect(spawned[0]?.stripEnv).toEqual(['ANTHROPIC_AUTH_TOKEN'])
   })
+
+  it.runIf(process.platform === 'linux')(
+    'a Claude credential with no bwrap on PATH is refused before the engine exists (POD-7375)',
+    async () => {
+      stubPathWith()
+      const store = new SessionAccessStore({ markers: memoryMarkers() })
+      store.remember(SESSION, access, 'claude-code')
+      const { scope, spawned } = scopeWith(store)
+      await expect(start(scope)).rejects.toThrow(/bubblewrap/)
+      expect(spawned).toEqual([])
+    },
+  )
 
   it('a session with no credential starts unchanged: everything inherited is stripped', async () => {
     const { scope, spawned } = scopeWith(new SessionAccessStore({ markers: memoryMarkers() }))

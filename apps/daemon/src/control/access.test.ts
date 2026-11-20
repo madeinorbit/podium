@@ -8,7 +8,7 @@
  * a process on the machine's own login.
  */
 
-import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asSessionId } from '@podium/model'
@@ -17,7 +17,9 @@ import { afterEach, describe, expect, it } from 'vitest'
 import {
   type AccessMarker,
   AccessNotArrivedError,
+  assertDeliveryPrerequisites,
   deliveryOverlay,
+  HarnessPrerequisiteMissingError,
   type MarkerJournal,
   SessionAccessStore,
   withLeadingArgs,
@@ -214,6 +216,64 @@ describe('deliveryOverlay', () => {
         delivery: { kind: 'home', homeId: 'default' },
       }),
     ).toEqual(none)
+  })
+})
+
+describe('assertDeliveryPrerequisites (POD-7375)', () => {
+  /** A PATH folder holding the named executables, as a machine would. */
+  function pathWith(...names: string[]): string {
+    const dir = markerDir()
+    for (const name of names) {
+      writeFileSync(join(dir, name), '#!/bin/sh\n')
+      chmodSync(join(dir, name), 0o755)
+    }
+    return dir
+  }
+
+  it('refuses a passed-in Claude credential on Linux when bwrap is not on PATH, naming the package', () => {
+    const env = { PATH: pathWith('git') }
+    expect(() => assertDeliveryPrerequisites('claude-code', envAccess, env, 'linux')).toThrow(
+      HarnessPrerequisiteMissingError,
+    )
+    expect(() => assertDeliveryPrerequisites('claude-code', envAccess, env, 'linux')).toThrow(
+      /bubblewrap/,
+    )
+  })
+
+  it('lets the start through when bwrap is on the PATH the process gets', () => {
+    const env = { PATH: pathWith('bwrap') }
+    expect(() => assertDeliveryPrerequisites('claude-code', envAccess, env, 'linux')).not.toThrow()
+  })
+
+  it('needs nothing without a passed-in credential, on macOS, or for a harness with no prerequisite', () => {
+    const env = { PATH: pathWith() }
+    const home: AccessField = {
+      credentialId: envAccess.credentialId,
+      delivery: { kind: 'home', homeId: 'default' },
+    }
+    expect(() => assertDeliveryPrerequisites('claude-code', undefined, env, 'linux')).not.toThrow()
+    expect(() => assertDeliveryPrerequisites('claude-code', home, env, 'linux')).not.toThrow()
+    expect(() => assertDeliveryPrerequisites('claude-code', envAccess, env, 'darwin')).not.toThrow()
+    expect(() =>
+      assertDeliveryPrerequisites(
+        'codex',
+        {
+          credentialId: envAccess.credentialId,
+          delivery: { kind: 'env', variable: 'OPENAI_API_KEY', secret: PLANTED },
+        },
+        env,
+        'linux',
+      ),
+    ).not.toThrow()
+  })
+
+  it('never puts the secret in the refusal', () => {
+    try {
+      assertDeliveryPrerequisites('claude-code', envAccess, { PATH: pathWith() }, 'linux')
+      expect.unreachable()
+    } catch (error) {
+      expect(String(error)).not.toContain(PLANTED)
+    }
   })
 })
 

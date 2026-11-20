@@ -17,7 +17,11 @@
  * login instead.
  */
 
-import { harnessAccepts, harnessHideFromCommands } from '@podium/harness'
+import {
+  harnessAccepts,
+  harnessHideFromCommands,
+  unmetHideFromCommandsPrerequisites,
+} from '@podium/harness'
 import type { AgentKind, SessionId } from '@podium/model'
 import {
   type AccessField,
@@ -26,6 +30,7 @@ import {
   parsePodiumHomeId,
   podiumHomeId,
 } from '@podium/protocol'
+import { resolveOnPath } from '@podium/runtime/command-environment'
 
 /** What survives a restart: that a session needs a credential, never the secret. */
 export interface AccessMarker {
@@ -257,6 +262,35 @@ export function deliveryOverlay(
       ...(where.podiumHome ? (line?.homeStartArgs ?? []) : []),
     ],
     keep: [variable],
+  }
+}
+
+/** A start refused because the harness cannot run its hide-from-commands switch here. */
+export class HarnessPrerequisiteMissingError extends Error {
+  override readonly name = 'HarnessPrerequisiteMissingError'
+}
+
+/**
+ * Refuse a start that delivers `access` when the hide-from-commands switch
+ * {@link deliveryOverlay} adds needs a program `env`'s PATH does not have
+ * (POD-7375). Claude Code on Linux exits at start without bubblewrap once its
+ * scrub switch is set; this says so before the process runs instead of
+ * leaving a session that dies. `env` is the environment the process gets.
+ * Only an `env` delivery sets a switch, so any other start passes.
+ */
+export function assertDeliveryPrerequisites(
+  agentKind: AgentKind | undefined,
+  access: AccessField | undefined,
+  env: Readonly<Record<string, string | undefined>>,
+  platform: NodeJS.Platform = process.platform,
+): void {
+  if (access?.delivery.kind !== 'env' || !agentKind) return
+  const unmet = unmetHideFromCommandsPrerequisites(agentKind, {
+    platform,
+    resolve: (command) => resolveOnPath(command, env, platform),
+  })
+  if (unmet.length > 0) {
+    throw new HarnessPrerequisiteMissingError(unmet.map((need) => need.missing).join(' '))
   }
 }
 

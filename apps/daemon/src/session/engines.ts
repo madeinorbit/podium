@@ -53,6 +53,7 @@ import {
 } from '@podium/process/durable'
 import { SUN_PATH_MAX, unixSocketPathBytes, unixSocketPathFits } from '@podium/runtime/unix-socket'
 import {
+  assertDeliveryPrerequisites,
   deliveryOverlay,
   isPodiumHomeId,
   type SessionAccessStore,
@@ -217,14 +218,27 @@ export class SessionEngineScope implements EngineProcessOwner {
     // the start after a bounded wait: an engine never starts on the
     // machine's own login in its place. The delivered variable is taken off
     // the family's strip list, which names every inherited credential.
+    const agentKind =
+      sessionId !== undefined ? this.options.access?.agentKindOf(sessionId) : undefined
+    const access =
+      sessionId !== undefined ? await this.options.access?.awaitAccess(sessionId) : undefined
     const delivered =
       sessionId !== undefined && this.options.access
-        ? deliveryOverlay(
-            this.options.access.agentKindOf(sessionId),
-            await this.options.access.awaitAccess(sessionId),
-            { podiumHome: isPodiumHomeId(command.harnessHomeId) },
-          )
+        ? deliveryOverlay(agentKind, access, {
+            podiumHome: isPodiumHomeId(command.harnessHomeId),
+          })
         : undefined
+    // A hide switch the harness cannot run here refuses the start before the
+    // process exists (POD-7375), looked up on the PATH the engine gets.
+    if (delivered) {
+      const env: Record<string, string | undefined> = {
+        ...process.env,
+        ...spawn.env,
+        ...delivered.env,
+      }
+      for (const key of spawn.stripEnv) if (!delivered.keep.includes(key)) delete env[key]
+      assertDeliveryPrerequisites(agentKind, access, env)
+    }
     const address = listen ? this.mintAddress(req.label, sessionId) : undefined
     if (sessionId !== undefined) {
       // A fresh engine: whatever address an earlier one had is not this one's.
