@@ -652,15 +652,17 @@ export function harnessInstanceHomeEnv(
 /**
  * The variable that moves `kind`'s whole configuration directory, its login
  * file included (credential management §10): `CLAUDE_CONFIG_DIR` for Claude
- * Code, `CODEX_HOME` for Codex. A Podium home is that directory. Read from the
- * harness's own declaration of its propagatable login file, so the home and
- * the login file can never name different variables. Undefined for a harness
- * whose login cannot be held in a directory of Podium's choosing.
+ * Code, `CODEX_HOME` for Codex, `GROK_HOME` for Grok. A Podium home is that
+ * directory. Read from the harness's own declaration of its login file, so
+ * the home and the login file can never name different variables. Whether
+ * the login may be copied to other machines (`propagatable`) has no bearing
+ * on it. Undefined for a harness whose login cannot be held in a directory of
+ * Podium's choosing.
  */
 export function harnessHomeVariable(kind: AgentKind | string): string | undefined {
   const manifest = manifestFor(kind)
   const credentials = manifest ? declaredValue(manifest.credentials) : undefined
-  return credentials?.files.find((file) => file.propagatable && file.homeEnvVar)?.homeEnvVar
+  return credentials?.files.find((file) => file.homeEnvVar)?.homeEnvVar
 }
 
 /**

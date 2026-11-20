@@ -10,6 +10,7 @@ import {
   CAP_CREDENTIAL_IDENTITY_GUARD,
   CAP_DAEMON_GEOMETRY_APPLIED,
   CAP_HARNESS_HOMES,
+  CAP_HARNESS_HOMES_GROK,
   CAP_MACHINE_PROCESSES_V1,
   CAP_OAUTH_LOOPBACK,
   CAP_SESSION_ACCESS,
@@ -1133,6 +1134,8 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
         // Credential management §10: this daemon keeps harness homes, runs
         // sessions in them and answers the home and credential-removal requests.
         CAP_HARNESS_HOMES,
+        // Managed installs §4.7: this daemon also keeps Grok homes (GROK_HOME).
+        CAP_HARNESS_HOMES_GROK,
         // Credential management §9: this daemon places a conversation for
         // another credential's home before a resume (`conversationPrepareRequest`).
         CAP_CONVERSATION_PREPARE,

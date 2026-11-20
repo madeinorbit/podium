@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { ACCESS_CARRYING_CONTROL_TYPES, ControlMessage } from './control'
 import { DaemonMessage } from './daemon'
 import {
+  CAP_HARNESS_HOMES,
+  CAP_HARNESS_HOMES_GROK,
   CredentialRemoveRequestMessage,
   CredentialRemoveResultMessage,
   DEFAULT_HOME_ID,
@@ -10,6 +12,7 @@ import {
   HomeEnsureResultMessage,
   HomeRemoveRequestMessage,
   HomeRemoveResultMessage,
+  homeCapabilities,
   homeIdFor,
   parseHomeId,
 } from './homes'
@@ -31,7 +34,7 @@ describe('home ids', () => {
     for (const bad of [
       '../x:codex',
       'cred_../..:codex',
-      `${CRED}:grok`,
+      `${CRED}:opencode`,
       `${CRED}:codex:extra`,
       `${CRED}/codex`,
       'cred_:codex',
@@ -42,8 +45,15 @@ describe('home ids', () => {
     expect(() => homeIdFor('../x', 'codex')).toThrow()
   })
 
-  it('holds homes for the two harnesses that name their directory by a variable', () => {
-    expect([...HOME_HARNESSES]).toEqual(['claude-code', 'codex'])
+  it('holds homes for the harnesses that name their directory by a variable', () => {
+    expect([...HOME_HARNESSES]).toEqual(['claude-code', 'codex', 'grok'])
+  })
+
+  it('asks for a Grok home only from a daemon that offers Grok homes', () => {
+    expect(homeCapabilities('claude-code')).toEqual([CAP_HARNESS_HOMES])
+    expect(homeCapabilities('codex')).toEqual([CAP_HARNESS_HOMES])
+    expect(homeCapabilities('grok')).toEqual([CAP_HARNESS_HOMES, CAP_HARNESS_HOMES_GROK])
+    expect(parseHomeId(`${CRED}:grok`)).toEqual({ credentialId: CRED, harness: 'grok' })
   })
 })
 
@@ -100,7 +110,7 @@ describe('home messages', () => {
         type: 'homeEnsureRequest',
         requestId: 'r',
         credentialId: CRED,
-        harness: 'grok',
+        harness: 'opencode',
       }),
     ).toThrow()
     expect(() =>

@@ -21,6 +21,7 @@ import {
   CAP_CREDENTIAL_IDENTITY_GUARD,
   CAP_DAEMON_GEOMETRY_APPLIED,
   CAP_HARNESS_HOMES,
+  CAP_HARNESS_HOMES_GROK,
   CAP_MACHINE_PROCESSES_V1,
   CAP_SESSION_ACCESS,
   CAP_TERMINAL_INPUT_BINARY_V1,
@@ -129,6 +130,9 @@ const createResolvedDaemonAcceptor = (deps: ResolvedDaemonAcceptorDeps): Handsha
       // Credential management §10: this server asks for homes and for a
       // propagated login's removal only from a daemon that accepted this.
       CAP_HARNESS_HOMES,
+      // Managed installs §4.7: this server asks a daemon for a Grok home only
+      // when it accepted this.
+      CAP_HARNESS_HOMES_GROK,
       // Credential management §9: this server asks for a conversation to be
       // placed before a switched session resumes, only from a daemon that accepted this.
       CAP_CONVERSATION_PREPARE,

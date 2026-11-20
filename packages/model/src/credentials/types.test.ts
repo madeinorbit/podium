@@ -62,10 +62,19 @@ const TABLE = {
     sharing: 'free',
     revocation: 'none',
   },
+  // Managed installs §4.7 (POD-7370): Grok's login, held in a GROK_HOME home.
+  'xai.grok-login': {
+    provider: 'xai',
+    store: 'home',
+    renewal: undefined,
+    obtain: ['harness-sign-in', 'found-on-machine'],
+    sharing: 'warn',
+    revocation: 'sign-out',
+  },
 } as const
 
 describe('CREDENTIAL_TYPES', () => {
-  it('has exactly the seven types of the type table', () => {
+  it('has exactly the types of the type table', () => {
     expect([...CREDENTIAL_TYPE_IDS].sort()).toEqual(Object.keys(TABLE).sort())
     expect(Object.keys(CREDENTIAL_TYPES).sort()).toEqual(Object.keys(TABLE).sort())
   })

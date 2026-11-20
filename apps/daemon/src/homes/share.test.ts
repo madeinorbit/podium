@@ -44,6 +44,8 @@ describe('linkShared', () => {
     expect(SHARED_ENTRIES).toEqual({
       'claude-code': ['settings.json', 'CLAUDE.md', 'skills', 'agents', 'commands', 'plugins'],
       codex: ['config.toml', 'AGENTS.md', 'skills'],
+      // Grok 1.0.89 writes through a linked config.toml (POD-7370).
+      grok: ['config.toml', 'AGENTS.md', 'skills', 'agents', 'plugins'],
     })
   })
 

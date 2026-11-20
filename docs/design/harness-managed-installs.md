@@ -265,10 +265,30 @@ homes, stays as built.
 
 ### 4.7 Harnesses with no folder variable
 
-Podium homes exist for Claude Code and Codex today. The spike also found
-`GROK_HOME` and `PI_CODING_AGENT_DIR`. OpenCode's XDG directory variables work
-together, and Cursor's dedicated variables leave some writes in the person's
-home. Section 9 records the measured paths.
+Podium homes exist for Claude Code, Codex and Grok. The spike also found
+`PI_CODING_AGENT_DIR`. OpenCode's XDG directory variables work together, and
+Cursor's dedicated variables leave some writes in the person's home. Section 9
+records the measured paths.
+
+Grok's home is `GROK_HOME`, which moves `auth.json`, `config.toml`, logs,
+hooks and sessions together. Its login reaches a home only as a sign-in folder
+(the `xai.grok-login` credential type: signed in through Podium, or found on
+the machine). Grok has no passed-in line yet, because starting it in a home
+with `XAI_API_KEY` was not measured. A sign-in folder links `config.toml`,
+`AGENTS.md`, `skills`, `agents` and `plugins` from its source. Grok 1.0.89
+writes through a linked `config.toml` and keeps the link. The fill copies the
+same entries, and of `config.toml` only the `[mcp_servers.*]` tables. A
+daemon offers Grok homes with its own capability (`harness.homes.grok.v1`), so
+an older daemon is never asked for one. Three limits remain:
+
+- Grok also reads Claude Code's user folder from `HOME` (`~/.claude/skills`,
+  `agents`, `plugins` and the servers in `~/.claude.json`), and no switch is
+  documented. A Grok in a Podium home still reads them. It does not write
+  there.
+- A credential switch does not move a Grok conversation into another home:
+  Grok declares no conversation file, so the switch continues in a new
+  session with a handoff.
+- A real login refresh inside a Podium-made Grok home was not measured.
 
 Until an adapter uses the measured overrides for its harness, Podium can
 manage it only on a machine where the person has no install of their own.
@@ -761,7 +781,7 @@ POD-7267 report has the exact fetch commands, hashes and launch results.
 |---|---|---|---|
 | **Claude Code** | `downloads.claude.ai/claude-code-releases/stable` → 2.1.311 | `<version>/<platform>/claude` and `manifest.json` SHA-256. Windows entries are `win32-x64/claude.exe` and `win32-arm64/claude.exe`. | Direct download. `CLAUDE_CONFIG_DIR` contains state and sessions. Managed posture sets `disableDeepLinkRegistration: "disable"` in the Podium home's settings so the copy does not register an OS URL handler. A terminal start still creates `~/.claude/ssh` and `~/.config/anthropic`; see below. |
 | **Codex** | `releases.openai.com/codex/channels/latest` → 0.171.0, with [GitHub Releases](https://github.com/openai/codex/releases/latest) as installer fallback | `codex-package-<target>.tar.gz` or `.tar.zst`, with `bin/codex` plus helpers and resources. SHA-256 in `codex-package_SHA256SUMS`. | Keep the complete release package. `CODEX_HOME` contains session state and any daemon copy. See 6.3 for the version pin. |
-| **Grok** | `x.ai/cli/stable` → 1.0.89 | `grok-<version>-<platform>`, direct binary. The installer checks the binary runs. No published checksum was found in the installer or at the asset's `.sha256` URL. | `GROK_HOME` directs `auth.json`, config, logs and session storage into the same folder. A live login refresh was outside the lab's available credentials. |
+| **Grok** | `x.ai/cli/stable` → 1.0.89 | `grok-<version>-<platform>`, direct binary. The installer checks the binary runs. No published checksum was found in the installer or at the asset's `.sha256` URL. | `GROK_HOME` directs `auth.json`, config, logs and session storage into the same folder. A live login refresh was outside the lab's available credentials. Grok's Podium home and sign-in folders use it (4.7). |
 | **OpenCode** | [GitHub releases/latest](https://api.github.com/repos/anomalyco/opencode/releases/latest) → v1.19.6 | `opencode-linux-x64.tar.gz` opens to a top-level `opencode`. The GitHub API asset `digest` matches the archive SHA-256. | One override for all state was not found. `OPENCODE_CONFIG_DIR` is config only. Together the XDG config, data, state and cache variables redirected the session database and file-backed key. The personal `~/.opencode/.gitignore` write remained. The `--version` probe alone creates empty default XDG config, data, state and cache folders (POD-7277). |
 | **Pi** | `pi.dev/api/installer/releases/latest` → 1.6.0, also present in [GitHub Releases](https://github.com/earendil-works/pi/releases/tag/v1.6.0) | `pi-linux-x64.tar.gz` contains `pi/pi` and its assets. GitHub publishes `SHA256SUMS` and per-asset digests. The installer API separately publishes npm package integrity. | Direct download of the complete standalone bundle. `PI_CODING_AGENT_DIR` moves `auth.json`, settings, model state and sessions. The managed install's version and identity probes create empty `auth.json` and `models-store.json` under the default `~/.pi/agent` when absent (POD-7278). |
 | **Cursor** | `DashboardService/GetCliDownloadUrl` at `api2.cursor.sh`, with `channel=prod`, returned 2026.11.19-f005e9d and its download prefix. | `linux/x64/agent-cli-package.tar.gz` strips one `dist-package/` directory. Keep the launcher, Node and its assets together. The adjacent `agent-cli-package.tar.gz.sha256` matched the archive. | No single variable found. `CURSOR_CONFIG_DIR` moved config, `CURSOR_DATA_DIR` directed project storage, and Linux file auth uses XDG config. Agent CLI state still used `~/.cursor` with both dedicated variables. See 4.7. |

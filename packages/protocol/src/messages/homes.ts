@@ -5,7 +5,7 @@
  * login on one machine. The daemon keeps Podium's homes under its state
  * directory, one per credential and harness, and a session on that credential
  * starts with the harness's directory variable (`CLAUDE_CONFIG_DIR`,
- * `CODEX_HOME`) pointed at it. The harness's own directory is the home Podium
+ * `CODEX_HOME`, `GROK_HOME`) pointed at it. The harness's own directory is the home Podium
  * did not create: {@link DEFAULT_HOME_ID}.
  *
  * Nothing in these messages is secret. A home holds a login, but the login
@@ -28,6 +28,16 @@ export const DEFAULT_HOME_ID = 'default'
 export const HOME_HARNESSES = HOME_HARNESS_KINDS
 export const HomeHarness = z.enum(HOME_HARNESSES)
 export type HomeHarness = z.infer<typeof HomeHarness>
+
+/** A daemon that offers this also keeps Grok homes (`GROK_HOME`, managed
+ *  installs §4.7). An older daemon cannot read a request that names `grok`,
+ *  so it is never asked for one. */
+export const CAP_HARNESS_HOMES_GROK = 'harness.homes.grok.v1'
+
+/** The capabilities a daemon must offer before it is asked for a home of `harness`. */
+export function homeCapabilities(harness: HomeHarness): readonly string[] {
+  return harness === 'grok' ? [CAP_HARNESS_HOMES, CAP_HARNESS_HOMES_GROK] : [CAP_HARNESS_HOMES]
+}
 
 /**
  * A credential id as it may name a directory: `cred_` and then letters,

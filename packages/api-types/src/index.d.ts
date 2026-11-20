@@ -1899,7 +1899,7 @@ type Input_conversations_search = {
 type Input_credentials_add = {
     label: string;
     secret: string;
-    type: "anthropic.api-key" | "anthropic.claude-login" | "anthropic.claude-token" | "openai.api-key" | "openai.chatgpt-login" | "openai.chatgpt-plan" | "openrouter.api-key";
+    type: "anthropic.api-key" | "anthropic.claude-login" | "anthropic.claude-token" | "openai.api-key" | "openai.chatgpt-login" | "openai.chatgpt-plan" | "openrouter.api-key" | "xai.grok-login";
 };
 type Input_credentials_share = {
     acknowledgeDisclosure: boolean;
@@ -1914,7 +1914,7 @@ type Input_credentials_signInStart = {
     credentialId?: string | undefined;
     label?: string | undefined;
     machineId: string;
-    type: "anthropic.api-key" | "anthropic.claude-login" | "anthropic.claude-token" | "openai.api-key" | "openai.chatgpt-login" | "openai.chatgpt-plan" | "openrouter.api-key";
+    type: "anthropic.api-key" | "anthropic.claude-login" | "anthropic.claude-token" | "openai.api-key" | "openai.chatgpt-login" | "openai.chatgpt-plan" | "openrouter.api-key" | "xai.grok-login";
 };
 type Input_files_read = ({
     artifactId: string;

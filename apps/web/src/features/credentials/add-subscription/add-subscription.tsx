@@ -30,7 +30,7 @@ function withProgram<const T extends { type: string }>(choice: T) {
   return { ...choice, program: descriptor.label }
 }
 
-/** The two subscriptions a person signs in to in an agent program. */
+/** The subscriptions a person signs in to in an agent program. */
 export const SUBSCRIPTION_KINDS = [
   withProgram({
     type: 'anthropic.claude-login',
@@ -41,6 +41,11 @@ export const SUBSCRIPTION_KINDS = [
     type: 'openai.chatgpt-login',
     title: 'ChatGPT subscription',
     hint: 'In the terminal, open the link Codex shows and enter the one-time code it prints. If ChatGPT asks you to allow device codes, turn that on under Settings › Security first, then enter the code.',
+  }),
+  withProgram({
+    type: 'xai.grok-login',
+    title: 'Grok subscription',
+    hint: 'In the terminal, open the link Grok shows and sign in with the account you want to add.',
   }),
 ] as const
 

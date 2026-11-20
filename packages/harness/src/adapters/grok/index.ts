@@ -129,6 +129,7 @@ export const grokManifest: AgentManifest = {
     executable: { names: ['grok'], versionArgs: ['--version'] },
     loginCommandProbe: unsupported('Grok login detection still uses its local credential file'),
     loginCommand: supported({ args: ['login'] }),
+    signOutCommand: { args: ['logout'] },
     loginIdentity: supported((homeDir, env?: HarnessEnvironment) =>
       grokCredentials.identity(credentialFileReader(grokCredentials, homeDir, env)),
     ),
@@ -139,8 +140,10 @@ export const grokManifest: AgentManifest = {
     // Its presence flips grok from the OIDC session in `auth.json` to
     // API-key/custom-endpoint auth.
     foreignCredentialEnv: ['XAI_API_KEY'],
-    // An xAI key or Grok login is none of the registry's credential types.
-    accepts: [],
+    // A Grok login lives in `auth.json` under `GROK_HOME`, so a sign-in
+    // folder holds it (managed installs §4.7, POD-7370). No passed-in line:
+    // an `XAI_API_KEY` start in a home was not measured.
+    accepts: [{ type: 'xai.grok-login', deliver: { kind: 'home' } }],
     detectLogin(homeDir, env: HarnessEnvironment) {
       const path = grokHome(homeDir, env)
       try {

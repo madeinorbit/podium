@@ -4,8 +4,8 @@
  * request.
  *
  * Copied: instructions, skills, agents, commands, plugins and MCP servers
- * (Claude Code's `mcpServers` into the home's `.claude.json`, Codex's
- * `[mcp_servers.*]` tables into the home's `config.toml`). Never copied:
+ * (Claude Code's `mcpServers` into the home's `.claude.json`, the
+ * `[mcp_servers.*]` tables of Codex and Grok into the home's `config.toml`). Never copied:
  * permissions, folder trust, hooks, update settings, logins, conversations.
  * Posture supplies what a launch needs.
  *
@@ -34,13 +34,13 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { dirname, join, relative, resolve, sep } from 'node:path'
-import { claudePodiumHomeFill, codexPodiumHomeFill } from '@podium/harness'
+import { claudePodiumHomeFill, codexPodiumHomeFill, grokPodiumHomeFill } from '@podium/harness'
 import type { HomeHarness } from '@podium/protocol'
 import { planTomlTablesReplace, tomlTablesUnder } from '../harness-home-toml'
 
 /** The person's side of one harness, read only. */
 export interface PersonFolder {
-  /** The harness's own directory: `~/.claude` (or `CLAUDE_CONFIG_DIR`), `~/.codex`. */
+  /** The harness's own directory: `~/.claude` (or `CLAUDE_CONFIG_DIR`), `~/.codex`, `~/.grok`. */
   dir: string
   /** Claude Code's state file (`~/.claude.json`), where its MCP servers are. */
   claudeState?: string
@@ -73,8 +73,7 @@ export function fillPodiumHome(
 ): FillReport {
   const report: FillReport = { harness, copied: [], unchanged: [], left: [] }
   const copy = new Copier(person.dir, homeDir)
-  const entries =
-    harness === 'claude-code' ? claudePodiumHomeFill[1].entries : codexPodiumHomeFill[1].entries
+  const entries = FILL_ENTRIES[harness]
   for (const entry of entries) {
     const source = join(person.dir, entry)
     if (!existsSync(source)) continue
@@ -91,7 +90,8 @@ export function fillPodiumHome(
       fillOne(report, '.claude.json mcpServers', () => fillClaudeServers(personState, homeDir))
     }
   } else {
-    fillOne(report, 'config.toml mcp_servers', () => fillCodexServers(person.dir, homeDir))
+    const tables = CONFIG_TABLES[harness]
+    fillOne(report, 'config.toml mcp_servers', () => fillTomlServers(person.dir, homeDir, tables))
   }
   record(homeDir, now)
   return report
@@ -151,22 +151,33 @@ function fillClaudeServers(personState: string, homeDir: string): Outcome {
 }
 
 /** The person's `[mcp_servers.*]` tables into the home's `config.toml`. */
-function fillCodexServers(personDir: string, homeDir: string): Outcome {
+function fillTomlServers(personDir: string, homeDir: string, root: readonly string[]): Outcome {
   const personPath = join(personDir, 'config.toml')
   if (!existsSync(personPath)) return undefined
-  const lifted = tomlTablesUnder(readFileSync(personPath, 'utf8'), codexRoot())
+  const lifted = tomlTablesUnder(readFileSync(personPath, 'utf8'), [...root])
   if ('reason' in lifted) return lifted
   if (lifted.tables.length === 0) return undefined
   const path = join(homeDir, 'config.toml')
   const body = existsSync(path) ? readFileSync(path, 'utf8') : ''
-  const planned = planTomlTablesReplace(body, codexRoot(), lifted.tables)
+  const planned = planTomlTablesReplace(body, [...root], lifted.tables)
   if ('reason' in planned) return planned
   if (planned.next === body) return false
   writeAtomic(path, planned.next, 0o600)
   return true
 }
 
-const codexRoot = (): string[] => [...codexPodiumHomeFill[1].configTables]
+/** The entries each harness's fill copies as they are (files and folders). */
+const FILL_ENTRIES = {
+  [claudePodiumHomeFill[0]]: claudePodiumHomeFill[1].entries,
+  [codexPodiumHomeFill[0]]: codexPodiumHomeFill[1].entries,
+  [grokPodiumHomeFill[0]]: grokPodiumHomeFill[1].entries,
+} satisfies Readonly<Record<HomeHarness, readonly string[]>>
+
+/** The `config.toml` table each TOML harness's MCP servers sit under. */
+const CONFIG_TABLES = {
+  [codexPodiumHomeFill[0]]: codexPodiumHomeFill[1].configTables,
+  [grokPodiumHomeFill[0]]: grokPodiumHomeFill[1].configTables,
+} satisfies Readonly<Record<Exclude<HomeHarness, 'claude-code'>, readonly string[]>>
 
 /**
  * Copies one entry (a file or a folder) into the home, writing only what

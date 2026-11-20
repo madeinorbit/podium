@@ -268,11 +268,14 @@ describe('which home a session runs in (§4.2, §4.3)', () => {
 
   it('a harness with no home variable is never sent to a Podium home', () => {
     const access = new SessionAccessStore({ markers: memoryMarkers() })
-    const sessionId = asSessionId('s-grok')
+    const sessionId = asSessionId('s-opencode')
     access.remember(
       sessionId,
-      { credentialId: KEY_CRED, delivery: { kind: 'env', variable: 'XAI_API_KEY', secret: 'x' } },
-      'grok',
+      {
+        credentialId: KEY_CRED,
+        delivery: { kind: 'env', variable: 'OPENROUTER_API_KEY', secret: 'x' },
+      },
+      'opencode',
     )
     expect(access.homeIdOf(sessionId, { managedInstall: () => true })).toBeUndefined()
   })
@@ -835,5 +838,235 @@ describe('posture’s edits for a Podium-home session stay in the Podium home (�
     }
     expect(command.homeEditScope?.personal).toBe(false)
     expect(command.harnessHomeId).toBe(podiumHomeId(harness))
+  })
+})
+
+/**
+ * GROK (POD-7370, managed installs §4.7): `GROK_HOME` moves its login,
+ * config, hooks and sessions together (POD-7267), so Grok gets the same
+ * Podium home and sign-in folders as Claude Code and Codex. Its login reaches
+ * a home only as a sign-in folder: no passed-in Grok credential exists.
+ */
+describe('Grok in a Podium-made home (§4.7)', () => {
+  const GROK_PERSON_BIN = '/usr/local/bin/grok'
+  const GROK_MANAGED_BIN = '/state/harnesses/grok/1-1.0.89/grok'
+  const grokSnapshot = (managed: boolean): ResolvedHarnessInventory =>
+    testHarnessSnapshot({ grok: GROK_PERSON_BIN }, 1, managed ? { grok: GROK_MANAGED_BIN } : {})
+
+  function personGrok(): string {
+    const dir = join(person, '.grok')
+    write(
+      join(dir, 'config.toml'),
+      [
+        '[permission]',
+        'allow = ["Bash(rm *)"]',
+        '',
+        '[cli]',
+        'auto_update = true',
+        '',
+        '[mcp_servers.docs]',
+        'command = "docs-mcp"',
+        'args = ["--stdio"]',
+        '',
+        '[[hooks.PreToolUse]]',
+        'command = "person-hook"',
+        '',
+        '[mcp_servers.search]',
+        'url = "https://example.invalid/mcp"',
+        '',
+      ].join('\n'),
+    )
+    write(join(dir, 'AGENTS.md'), 'person rules')
+    write(join(dir, 'skills', 'review', 'SKILL.md'), 'a skill')
+    write(join(dir, 'agents', 'planner.md'), 'an agent')
+    write(join(dir, 'plugins', 'tool', 'plugin.json'), '{"name":"tool"}')
+    // Never copied or linked: the login, hooks, trust, memory, sessions.
+    write(join(dir, 'auth.json'), '{"default":{"key":"secret","refresh_token":"r"}}')
+    write(join(dir, 'hooks', 'person.json'), '{}')
+    write(join(dir, 'trusted_folders.toml'), '[[folders]]\npath = "/work"\n')
+    write(join(dir, 'memory-v2', 'index.json'), '{}')
+    write(join(dir, 'sessions', '%2Fwork', 'abc', 'messages.jsonl'), '{}\n')
+    return dir
+  }
+
+  async function grokSession(
+    access: SessionAccessStore,
+    kind: 'own-login' | 'sign-in',
+  ): Promise<SessionId> {
+    const sessionId = asSessionId(`s-grok-${kind}`)
+    if (kind === 'own-login') {
+      access.remember(
+        sessionId,
+        { credentialId: OWN_LOGIN, delivery: { kind: 'home', homeId: 'default' } },
+        'grok',
+      )
+      return sessionId
+    }
+    const { home } = await homes.ensure(SIGNED_IN, 'grok')
+    access.remember(
+      sessionId,
+      { credentialId: SIGNED_IN, delivery: { kind: 'home', homeId: home.homeId } },
+      'grok',
+    )
+    return sessionId
+  }
+
+  it.each([
+    false,
+    true,
+  ])('the person’s own login stays in ~/.grok on the person’s binary (managed: %s)', async (managed) => {
+    const access = new SessionAccessStore({ markers: memoryMarkers() })
+    const sessionId = await grokSession(access, 'own-login')
+    const context = await buildSessionHarnessContext(
+      contextSource(access, grokSnapshot(managed)),
+      'grok',
+      sessionId,
+    )
+    expect(context.harnessHome).toBeUndefined()
+    expect(context.installation.executable).toBe(GROK_PERSON_BIN)
+    // The account's own folder, as the instance-home rule sets it.
+    expect(context.env.GROK_HOME).toBe(join(person, '.grok'))
+    expect(context.roots.state).toBe(join(person, '.grok'))
+  })
+
+  it('a sign-in folder runs Podium’s Grok with GROK_HOME on the folder, linked from the Podium home', async () => {
+    const own = personGrok()
+    const before = listing(own, true)
+    const podium = homes.ensurePodiumHome('grok').home
+    write(join(podium.dir, 'config.toml'), '[mcp_servers.docs]\ncommand = "docs-mcp"\n')
+    write(join(podium.dir, 'AGENTS.md'), 'podium rules')
+    const access = new SessionAccessStore({ markers: memoryMarkers() })
+    const sessionId = await grokSession(access, 'sign-in')
+    const context = await buildSessionHarnessContext(
+      contextSource(access, grokSnapshot(true)),
+      'grok',
+      sessionId,
+    )
+    const signIn = context.harnessHome?.dir as string
+    expect(context.harnessHome?.id).toBe(`${SIGNED_IN}:grok`)
+    expect(context.harnessHome?.variable).toBe('GROK_HOME')
+    expect(context.env.GROK_HOME).toBe(signIn)
+    expect(context.roots.state).toBe(signIn)
+    expect(context.installation.executable).toBe(GROK_MANAGED_BIN)
+    expect(readlinkSync(join(signIn, 'config.toml'))).toBe(join(podium.dir, 'config.toml'))
+    expect(readlinkSync(join(signIn, 'AGENTS.md'))).toBe(join(podium.dir, 'AGENTS.md'))
+    // The login, hooks and trust are the folder's own; nothing points at the person.
+    for (const name of ['auth.json', 'hooks', 'trusted_folders.toml', 'sessions']) {
+      expect(existsSync(join(signIn, name)), name).toBe(false)
+    }
+    for (const target of Object.values(listing(signIn))) expect(target).not.toContain(person)
+    expect(listing(own, true)).toEqual(before)
+  })
+
+  it('without a managed install a sign-in folder links the person’s ~/.grok, as for Codex', async () => {
+    const own = personGrok()
+    const access = new SessionAccessStore({ markers: memoryMarkers() })
+    const sessionId = await grokSession(access, 'sign-in')
+    const context = await buildSessionHarnessContext(
+      contextSource(access, grokSnapshot(false)),
+      'grok',
+      sessionId,
+    )
+    const signIn = context.harnessHome?.dir as string
+    expect(context.installation.executable).toBe(GROK_PERSON_BIN)
+    expect(
+      ['config.toml', 'AGENTS.md', 'skills', 'agents', 'plugins'].map((name) =>
+        readlinkSync(join(signIn, name)),
+      ),
+    ).toEqual(['config.toml', 'AGENTS.md', 'skills', 'agents', 'plugins'].map((n) => join(own, n)))
+    expect(existsSync(join(signIn, 'auth.json'))).toBe(false)
+    expect(homes.podiumHome('grok')).toBeUndefined()
+  })
+
+  it('the fill copies rules, skills, agents, plugins and the MCP server tables, nothing else', () => {
+    const dir = personGrok()
+    const before = listing(dir, true)
+    const home = homes.ensurePodiumHome('grok').home
+    const report = fillPodiumHome('grok', { dir }, home.dir)
+    expect(report.left).toEqual([])
+    expect(Object.keys(listing(home.dir)).sort()).toEqual(
+      [
+        FILLED_RECORD,
+        'AGENTS.md',
+        'agents',
+        'agents/planner.md',
+        'config.toml',
+        'plugins',
+        'plugins/tool',
+        'plugins/tool/plugin.json',
+        'skills',
+        'skills/review',
+        'skills/review/SKILL.md',
+      ].sort(),
+    )
+    expect(readFileSync(join(home.dir, 'config.toml'), 'utf8')).toBe(
+      [
+        '[mcp_servers.docs]',
+        'command = "docs-mcp"',
+        'args = ["--stdio"]',
+        '',
+        '[mcp_servers.search]',
+        'url = "https://example.invalid/mcp"',
+        '',
+      ].join('\n'),
+    )
+    // A second fill writes nothing; the person's folder is untouched.
+    const filled = listing(home.dir, true)
+    expect(fillPodiumHome('grok', { dir }, home.dir).copied).toEqual([])
+    expect(listing(home.dir, true)).toEqual({ ...filled, [FILLED_RECORD]: expect.any(String) })
+    expect(listing(dir, true)).toEqual(before)
+  })
+
+  it('a managed Grok appearing makes, fills and re-points the sign-in folders once', async () => {
+    const own = personGrok()
+    const signIn = (await homes.ensure(SIGNED_IN, 'grok')).home
+    linkShared(signIn, own)
+    const service = new PodiumHomes({
+      homes,
+      personFolder: async (harness) => personFolderOf(harness, { home: person, env: {} }),
+    })
+    const [ready] = await service.reconcile((harness) => harness === 'grok')
+    const podium = homes.podiumHome('grok')?.dir as string
+    expect(ready?.fill?.copied).toEqual(
+      expect.arrayContaining(['AGENTS.md', 'skills', 'config.toml mcp_servers']),
+    )
+    expect(readFileSync(join(podium, 'AGENTS.md'), 'utf8')).toBe('person rules')
+    for (const name of ['config.toml', 'AGENTS.md', 'skills', 'agents', 'plugins']) {
+      expect(readlinkSync(join(signIn.dir, name)), name).toBe(join(podium, name))
+    }
+    expect(await service.reconcile((harness) => harness === 'grok')).toEqual([])
+  })
+
+  it('the engine’s Podium CLI rule is written inside the sign-in folder, never ~/.grok', async () => {
+    personGrok()
+    const access = new SessionAccessStore({ markers: memoryMarkers() })
+    const sessionId = await grokSession(access, 'sign-in')
+    const context: HarnessContext = await buildSessionHarnessContext(
+      contextSource(access, grokSnapshot(true)),
+      'grok',
+      sessionId,
+    )
+    const home = context.harnessHome?.dir as string
+    const manifest = manifestFor('grok')
+    if (!manifest) throw new Error('no manifest for grok')
+    const command = harnessCommand(
+      context,
+      { args: [] },
+      launchTerms(manifest, {
+        mode: 'engine',
+        posture: { mode: 'autonomous' },
+        workdir: '/work',
+        runtimeDir: join(root, 'runtime'),
+        context,
+        grants: {
+          podiumCli: { name: 'podium', path: '/bin/podium' },
+          uploadsDir: join(root, 'uploads'),
+          mcpServers: [],
+        },
+      }),
+    )
+    expect(command.terms.homeEdits.map((edit) => edit.file)).toEqual([join(home, 'config.toml')])
+    expect(command.homeEditScope?.personal).toBe(false)
+    expect(command.harnessHomeId).toBe(`${SIGNED_IN}:grok`)
   })
 })

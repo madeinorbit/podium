@@ -10,8 +10,9 @@
  *   of it: Podium's side then has one set of settings, and a managed binary
  *   never reads the person's folder through a link (M9).
  *
- * Both harnesses read through the links and write through them without
- * replacing them (S2), so a change made in either place is one change.
+ * The harnesses read through the links and write through them without
+ * replacing them (S2 for Claude Code and Codex; Grok 1.0.89 measured in
+ * POD-7370), so a change made in either place is one change.
  *
  * Never linked: the login (that is what the home is for), conversations and
  * harness state, and Claude Code's `.claude.json`, which holds the signed-in
@@ -19,7 +20,9 @@
  * servers. That file is the home's own: seeded so the first turn is not a
  * theme picker and a trust prompt, and given the source's `mcpServers` at
  * every launch. Codex's hooks are not linked either: Podium's own reach a
- * home at launch as `-c` flags (`codex-hook-trust.ts`).
+ * home at launch as `-c` flags (`codex-hook-trust.ts`). Nor are Grok's
+ * `hooks/` and `trusted_folders.toml`: Podium installs its own hook file in
+ * each home, and folder trust is the home's own.
  *
  * The Podium home itself links nothing: it is filled from the person's folder
  * by copy (`fill.ts`), once at managed install and again on request.
@@ -27,7 +30,12 @@
 
 import { existsSync, lstatSync, readlinkSync, symlinkSync, unlinkSync } from 'node:fs'
 import { join, resolve } from 'node:path'
-import { claudeHomeSharing, codexHomeSharing, prepareClaudeHomeLaunch } from '@podium/harness'
+import {
+  claudeHomeSharing,
+  codexHomeSharing,
+  grokHomeSharing,
+  prepareClaudeHomeLaunch,
+} from '@podium/harness'
 import type { HomeHarness } from '@podium/protocol'
 import type { HarnessHome } from './registry'
 
@@ -35,6 +43,7 @@ import type { HarnessHome } from './registry'
 export const SHARED_ENTRIES = {
   [claudeHomeSharing[0]]: claudeHomeSharing[1],
   [codexHomeSharing[0]]: codexHomeSharing[1],
+  [grokHomeSharing[0]]: grokHomeSharing[1],
 } satisfies Readonly<Record<HomeHarness, readonly string[]>>
 
 /** What one pass over a home's shared entries did. */

@@ -106,6 +106,10 @@ describe('harnessAccepts', () => {
     ])
   })
 
+  it('Grok accepts only its own login, held in a home (no passed-in line yet)', () => {
+    expect(harnessAccepts('grok')).toEqual([{ type: 'xai.grok-login', deliver: { kind: 'home' } }])
+  })
+
   it('no harness delivers two lines in one variable: the start reads its line off the variable', () => {
     for (const manifest of Object.values(AGENT_MANIFESTS)) {
       const variables = manifest.inventory.accepts.flatMap((line) =>
