@@ -385,7 +385,7 @@ async function runModelProbe(
     if (account && homes.length > 0) {
       byHome = await homeModelProbe(homes, {
         account: { home: account.home, env: account.machineEnv },
-        context: (kind) => managementContextFor(account, kind as BuiltinHarnessKind),
+        context: (kind, side) => managementContextFor(account, kind as BuiltinHarnessKind, side),
       })
     }
   } catch (err) {

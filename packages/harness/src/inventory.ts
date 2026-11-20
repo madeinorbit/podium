@@ -16,6 +16,10 @@ export type {
   BuildMachineInventoryOptions,
   LoginProbeExec,
   MachineHarnessInventory,
+  ManagedHarnessRecord,
+  ManagedInstallsRead,
+  ManagedInstallsReader,
+  ManagedReleaseCandidate,
   ProbeExec,
   ResolvedHarnessExecutable,
   ResolvedHarnessInventory,
@@ -104,6 +108,7 @@ export {
   VENDOR_ORIGINS_ENV,
   vendorOriginsFromEnv,
 } from './inventory/managed-install.js'
+export { managedInstallsReader, readManagedInstalls } from './inventory/managed-installs.js'
 export type { AccountReadScope, QuotaFetcher } from './inventory/usage.js'
 export {
   makeQuotaFetcher,

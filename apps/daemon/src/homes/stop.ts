@@ -15,8 +15,14 @@
  */
 
 import { execFile } from 'node:child_process'
-import { type CodexHomeStopPorts, type RunningProcess, stopCodexHome } from '@podium/harness'
-import type { SessionId } from '@podium/model'
+import {
+  type CodexHomeStopPorts,
+  type HarnessExecutableSnapshot,
+  harnessInstallationFor,
+  type RunningProcess,
+  stopCodexHome,
+} from '@podium/harness'
+import type { BuiltinHarnessKind, SessionId } from '@podium/model'
 import type { HarnessHome } from './registry'
 
 export type { RunningProcess } from '@podium/harness'
@@ -30,6 +36,19 @@ export interface HomeStopPorts extends CodexHomeStopPorts {
 export async function stopHome(home: HarnessHome, ports: HomeStopPorts): Promise<void> {
   for (const sessionId of ports.sessionsIn(home.homeId)) await ports.stopSession(sessionId)
   await stopCodexHome(home, ports)
+}
+
+/**
+ * The executable a home Podium made runs (managed installs §6.1): Podium's
+ * install of its harness when the snapshot has one, else the person's.
+ * Undefined before the first inventory wave, or when neither is installed.
+ */
+export function homeExecutable(
+  snapshot: HarnessExecutableSnapshot | undefined,
+  home: { harness: string },
+): string | undefined {
+  if (!snapshot) return undefined
+  return harnessInstallationFor(snapshot, home.harness as BuiltinHarnessKind, 'podium')?.executable
 }
 
 /** The real process ports: `ps` lists, `process.kill` signals. */

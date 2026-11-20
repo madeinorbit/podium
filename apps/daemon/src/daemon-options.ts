@@ -61,6 +61,10 @@ export interface DaemonOptions {
   /** Where Podium's harness homes live (credential management §10); default
    *  `<stateDir>/homes`. Tests point it at a scratch directory. */
   homesDir?: string
+  /** Where Podium's managed harness releases and the install ledger live
+   *  (managed installs §5.2); default `<stateDir>/harnesses`. Tests point it
+   *  at a scratch directory. */
+  harnessesDir?: string
   /** Parent supplied the credential; daemon must never persist or rotate it. */
   identityReadOnly?: boolean
   machineId?: MachineId

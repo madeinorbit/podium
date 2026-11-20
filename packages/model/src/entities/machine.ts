@@ -44,6 +44,59 @@ export const HomeLogin = z.object({
 })
 export type HomeLogin = z.infer<typeof HomeLogin>
 
+/** One installation of a harness the inventory verified (managed installs §8). */
+const HarnessInstallVersion = z.object({
+  /** Absolute path the version and identity probe ran. */
+  path: z.string().min(1),
+  /** What the CLI printed for its version; absent when it printed none. */
+  version: z.string().optional(),
+})
+
+/**
+ * `USE` — the two installs of one harness (docs/design/harness-managed-installs.md
+ * §6.1 and §8): the person's own and Podium's. Present only when Podium has
+ * managed this harness on the machine (the install ledger has a row for it), so
+ * a machine with only the person's install reports what it always did, and an
+ * older daemon or server simply has no `install`. The updater fills
+ * `latest`, `lastCheckAt`, `paused`, `lastError` and `failingSince` once it runs.
+ */
+export const AgentInstallWire = z.object({
+  /** The person's own install (command path, then the adapter's known folders). */
+  external: HarnessInstallVersion.optional(),
+  managed: z
+    .object({
+      /** The release a Podium home runs: the ledger's current, or its previous
+       *  when the current one failed its probe. Absent when neither passed. */
+      active: HarnessInstallVersion.extend({
+        /** The release folder's number. */
+        release: z.number().int().positive(),
+      }).optional(),
+      /** The ledger's current release, when it failed its probe and `active` is
+       *  the previous one (or nothing). */
+      currentFailed: z
+        .object({ release: z.number().int().positive(), version: z.string().min(1) })
+        .optional(),
+      /** The release Podium can go back to. */
+      previousVersion: z.string().optional(),
+      /** The vendor's newest version, as last seen. */
+      latest: z.string().optional(),
+      /** When the vendor was last asked. */
+      lastCheckAt: z.string().optional(),
+      /** A person paused updates. */
+      paused: z.boolean(),
+      /** The last failed check or install. */
+      lastError: z
+        .object({ at: z.string(), message: z.string(), version: z.string().optional() })
+        .optional(),
+      /** First failure of the current run of failed checks or installs. */
+      failingSince: z.string().optional(),
+    })
+    .optional(),
+  /** The install ledger was lost or damaged and rebuilt from the release folders. */
+  ledgerRebuilt: z.object({ at: z.string(), reason: z.enum(['missing', 'damaged']) }).optional(),
+})
+export type AgentInstallWire = z.infer<typeof AgentInstallWire>
+
 /** `USE` — one agent CLI's install + login status on the daemon's machine.
  *  Use-gated: `login.account` names a person, and the install set describes what
  *  the owner's hardware can run. */
@@ -77,6 +130,13 @@ export const AgentInventory = z.object({
    * `login`), then each home Podium created. Absent from daemons without homes.
    */
   logins: z.array(HomeLogin).optional(),
+  /**
+   * The person's install and Podium's, side by side (managed installs §8).
+   * Absent unless Podium manages this harness here. `installed`, `version` and
+   * `path` above keep naming the person's install when there is one, else
+   * Podium's.
+   */
+  install: AgentInstallWire.optional(),
 })
 export type AgentInventory = z.infer<typeof AgentInventory>
 

@@ -32,8 +32,9 @@ export interface CodexHookTrustOptions {
     flags: readonly string[]
     probeHome: string
   }): Promise<Record<string, string>>
-  /** Stop whatever Codex left running from `probeHome`, then delete it. */
-  cleanProbeHome(probeHome: string): Promise<void>
+  /** Stop whatever Codex left running from `probeHome` (with the
+   *  installation the probe ran), then delete it. */
+  cleanProbeHome(probeHome: string, installation: HarnessInstallation): Promise<void>
 }
 
 export class CodexHookTrust {
@@ -92,7 +93,7 @@ export class CodexHookTrust {
       })
       return undefined
     } finally {
-      await this.options.cleanProbeHome(probeHome).catch((err: unknown) => {
+      await this.options.cleanProbeHome(probeHome, installation).catch((err: unknown) => {
         log.warn('could not clear the codex probe home', { err, probeHome })
         return rm(probeHome, { recursive: true, force: true })
       })

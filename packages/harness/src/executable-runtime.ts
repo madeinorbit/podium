@@ -9,5 +9,5 @@ import type { ResolvedHarnessInventory } from './inventory/build-inventory.js'
  */
 export type HarnessExecutableSnapshot = Pick<
   ResolvedHarnessInventory,
-  'executables' | 'commandEnvironment'
+  'executables' | 'managed' | 'commandEnvironment'
 >

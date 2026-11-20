@@ -4,8 +4,10 @@ import {
   type HarnessContext,
   type HarnessEnvironment,
   type HarnessExecutableSnapshot,
+  type HarnessHomeSide,
   harnessAccount,
   harnessContext,
+  harnessInstallationFor,
   manifestFor,
   type ResolvedHarnessInventory,
 } from '@podium/harness'
@@ -169,14 +171,16 @@ export function managementAccountFor(
   return harnessAccount(kind, account.home, account.machineEnv)
 }
 
-/** One installed harness's full context; `undefined` when this generation has
- *  no executable for it (never a basename fallback). */
+/** One installed harness's full context on one side (managed installs §4.2;
+ *  default the person's own folder); `undefined` when this generation has no
+ *  executable for it there (never a basename fallback). */
 export function managementContextFor(
   account: ManagementAccount,
   kind: BuiltinHarnessKind,
+  side: HarnessHomeSide = 'person',
 ): HarnessContext | undefined {
-  if (!account.snapshot?.executables.has(kind)) return undefined
-  return harnessContext(account.snapshot, kind, account.home)
+  if (!account.snapshot || !harnessInstallationFor(account.snapshot, kind, side)) return undefined
+  return harnessContext(account.snapshot, kind, account.home, side)
 }
 
 /**

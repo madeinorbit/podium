@@ -19,6 +19,7 @@ import { join } from 'node:path'
 import {
   type HarnessContext,
   type HarnessExecutableSnapshot,
+  type HarnessHomeSide,
   harnessContext,
   harnessDriverContext,
   harnessLoginReadEnv,
@@ -67,23 +68,48 @@ export function sessionHomeFor(
 }
 
 /**
- * `context`, moved into the session's home when it has one, with the home
- * made ready for a start: the person's settings linked and, for Claude Code,
- * its state file seeded with the person's MCP servers. Unchanged for a
- * session on the harness's own directory.
+ * THE BINARY FOLLOWS THE HOME (managed installs §4.2, §6.1). The one place
+ * that knows a session's home decides which installation it runs:
+ *
+ * - no home (the person's own harness folder): `build('person')`, the
+ *   person's install, never Podium's;
+ * - a home Podium made (the Podium home or a sign-in folder):
+ *   `build('podium')`, Podium's install when there is one, else the
+ *   person's, moved into the home, with the home made ready for a start (the
+ *   person's settings linked and, for Claude Code, its state file seeded with
+ *   the person's MCP servers).
+ *
+ * `build` returns the context for that side in the account's own folders;
+ * this moves it into the home.
  */
 export function inSessionHome(
   ctx: Partial<Pick<DaemonContext, 'access' | 'homes'>>,
   sessionId: SessionId | undefined,
-  context: HarnessContext,
+  kind: BuiltinHarnessKind,
+  build: (side: HarnessHomeSide) => HarnessContext,
 ): HarnessContext {
-  const home = sessionHomeFor(ctx, sessionId, context.installation.kind)
-  if (!home) return context
+  const home = sessionHomeFor(ctx, sessionId, kind)
+  if (!home) return build('person')
+  const context = build('podium')
   prepareHomeLaunch(home, {
     defaultDir: context.roots.state,
     personClaudeState: claudeStateFile(context),
   })
   return withHarnessHome(context, { id: home.homeId, dir: home.dir })
+}
+
+/**
+ * The side of the machine session `sessionId` runs on: `podium` when its
+ * access names a home Podium made, else `person`. Throws as
+ * {@link sessionHomeFor} does. For a caller that needs only the installation
+ * (a headless turn's argv) and must not prepare the home.
+ */
+export function sessionHomeSide(
+  ctx: Partial<Pick<DaemonContext, 'access' | 'homes'>>,
+  sessionId: SessionId | undefined,
+  kind: AgentKind,
+): HarnessHomeSide {
+  return sessionHomeFor(ctx, sessionId, kind) ? 'podium' : 'person'
 }
 
 /** Where Claude Code keeps its state file for the harness's own directory. */
@@ -94,7 +120,8 @@ export function claudeStateFile(context: HarnessContext): string {
 
 /**
  * Build the context a new session of `kind` runs under: the inventory's
- * current installation, and the daemon's credential home
+ * current installation for the session's side ({@link inSessionHome}), and
+ * the daemon's credential home
  * (`accountHome ?? homeDir ?? machine home`, the one home host-runtime hands
  * the inventory's login probes).
  *
@@ -107,10 +134,11 @@ export async function buildSessionHarnessContext(
   /** The session it is for: its access names the home it runs in. */
   sessionId?: SessionId,
 ): Promise<HarnessContext> {
-  if (!ctx.harnessRuntime) return inSessionHome(ctx, sessionId, launchSeamHarnessContext(ctx, kind))
+  if (!ctx.harnessRuntime)
+    return inSessionHome(ctx, sessionId, kind, () => launchSeamHarnessContext(ctx, kind))
   const snapshot = await ctx.harnessRuntime.current()
   const home = resolveManagementCredentialHome(ctx) ?? snapshot.commandEnvironment.machineHome
-  return inSessionHome(ctx, sessionId, harnessContext(snapshot, kind, home))
+  return inSessionHome(ctx, sessionId, kind, (side) => harnessContext(snapshot, kind, home, side))
 }
 
 /**
@@ -125,7 +153,8 @@ export async function buildDriverHarnessContext(
   driverId: string | undefined,
   sessionId?: SessionId,
 ): Promise<HarnessContext> {
-  if (!ctx.harnessRuntime) return inSessionHome(ctx, sessionId, launchSeamHarnessContext(ctx, kind))
+  if (!ctx.harnessRuntime)
+    return inSessionHome(ctx, sessionId, kind, () => launchSeamHarnessContext(ctx, kind))
   return driverHarnessContextFrom(
     ctx,
     await ctx.harnessRuntime.current(),
@@ -148,12 +177,10 @@ export function driverHarnessContextFrom(
   sessionId?: SessionId,
 ): HarnessContext {
   const home = resolveManagementCredentialHome(ctx) ?? snapshot.commandEnvironment.machineHome
-  return inSessionHome(
-    ctx,
-    sessionId,
+  return inSessionHome(ctx, sessionId, kind, (side) =>
     driverId === undefined
-      ? harnessContext(snapshot, kind, home)
-      : harnessDriverContext(snapshot, kind, home, driverId),
+      ? harnessContext(snapshot, kind, home, side)
+      : harnessDriverContext(snapshot, kind, home, driverId, side),
   )
 }
 
@@ -238,6 +265,7 @@ function launchSeamHarnessContext(ctx: ContextSource, kind: BuiltinHarnessKind):
       executable: `launch-seam:${kind}`,
       version: '',
       generation: 0,
+      provenance: 'external',
     }),
     home,
     env,

@@ -7,16 +7,22 @@ import { execFile } from 'node:child_process'
 import { homedir, platform as nodePlatform } from 'node:os'
 import { promisify } from 'node:util'
 import { createLogger } from '@podium/logger'
-import type { AgentInventory, Inventory, MachineId, ToolInventory } from '@podium/model'
+import type {
+  AgentInstallWire,
+  AgentInventory,
+  Inventory,
+  MachineId,
+  ToolInventory,
+} from '@podium/model'
 import {
-  createCommandEnvironment,
   type CommandEnvironment,
+  createCommandEnvironment,
 } from '@podium/runtime/command-environment'
 import {
   type AgentManifest,
   declaredValue,
-  type LoginCommandResult,
   type HarnessLogin,
+  type LoginCommandResult,
 } from '../manifest.js'
 import { AGENT_MANIFESTS, harnessLoginReadEnv } from '../registry.js'
 import { AGENT_VERSION_PROBE_TIMEOUT_MS } from '../version-probe.js'
@@ -47,13 +53,68 @@ export interface ResolvedHarnessExecutable {
   readonly path: string
   readonly version?: string
   readonly generation: number
+  /** The release folder's number, for a managed install. */
+  readonly release?: number
 }
 
 export interface ResolvedHarnessInventory {
   readonly inventory: Inventory
+  /**
+   * The person's own install of each harness: the command path, then the
+   * adapter's known folders. The only install a context in the person's own
+   * harness folder may run (managed installs §4.2).
+   */
   readonly executables: ReadonlyMap<AgentManifest['kind'], ResolvedHarnessExecutable>
+  /**
+   * Podium's install of each harness: the install ledger's current release, or
+   * its previous one when the current fails its probe (§6.1). Runs only in a
+   * home Podium made. Absent or empty: nothing managed on this machine.
+   */
+  readonly managed?: ReadonlyMap<AgentManifest['kind'], ResolvedHarnessExecutable>
   readonly commandEnvironment: CommandEnvironment
 }
+
+/** One managed release a probe may try: its folder number, version and executable. */
+export interface ManagedReleaseCandidate {
+  readonly release: number
+  readonly version: string
+  /** Absolute path inside the release folder. */
+  readonly executable: string
+}
+
+/**
+ * What the install ledger says about one managed harness, as plain data, so the
+ * inventory reads it without opening a database (the daemon composes the
+ * reader, `readManagedInstalls` in ./managed-installs.ts).
+ */
+export interface ManagedHarnessRecord {
+  readonly kind: AgentManifest['kind']
+  /** The ledger's current release, when its folder holds a valid receipt. */
+  readonly current?: ManagedReleaseCandidate
+  /** The ledger's previous release, when its folder holds a valid receipt. */
+  readonly previous?: ManagedReleaseCandidate
+  /** The current release's number and version when its folder is no release. */
+  readonly currentMissing?: { readonly release: number; readonly version?: string }
+  readonly paused: boolean
+  readonly lastCheck?:
+    | { readonly at: string; readonly ok: true; readonly latest: string }
+    | { readonly at: string; readonly ok: false; readonly error: string }
+  readonly lastInstallError?: {
+    readonly at: string
+    readonly version: string
+    readonly error: string
+  }
+  readonly failingSince?: string
+}
+
+export interface ManagedInstallsRead {
+  readonly harnesses: ReadonlyMap<AgentManifest['kind'], ManagedHarnessRecord>
+  /** Set while the ledger reports it was rebuilt from the release folders. */
+  readonly rebuilt?: { readonly at: string; readonly reason: 'missing' | 'damaged' }
+}
+
+/** Reads the install ledger. Called once per inventory wave (§7). */
+export type ManagedInstallsReader = () => ManagedInstallsRead | Promise<ManagedInstallsRead>
 
 function candidatePaths(
   manifest: AgentManifest,
@@ -92,7 +153,154 @@ function probeTimedOut(error: unknown): boolean {
   )
 }
 
-async function probeAgent(
+type ExecutableProbe =
+  | { kind: 'verified'; version: string }
+  | { kind: 'timed-out' }
+  | { kind: 'failed' }
+
+/**
+ * THE VERSION AND IDENTITY PROBE OF ONE CANDIDATE, the same for the person's
+ * install and a managed release (managed installs §6.1): `<path> <versionArgs>`
+ * must answer, and a declared identity probe must accept its output. Runs in
+ * the machine command environment, never an account's.
+ */
+async function probeExecutable(
+  manifest: AgentManifest,
+  candidate: string,
+  environment: CommandEnvironment,
+  exec: ProbeExec,
+): Promise<ExecutableProbe> {
+  const declaration = manifest.inventory.executable
+  let version: string
+  try {
+    version = (
+      await exec(
+        [candidate, ...declaration.versionArgs],
+        AGENT_VERSION_PROBE_TIMEOUT_MS,
+        environment.env,
+      )
+    ).trim()
+  } catch (error) {
+    // Missing, or no longer executable: the caller tries its next path.
+    return probeTimedOut(error) ? { kind: 'timed-out' } : { kind: 'failed' }
+  }
+  if (declaration.identityProbe) {
+    try {
+      const output = await exec(
+        [candidate, ...declaration.identityProbe.args],
+        AGENT_VERSION_PROBE_TIMEOUT_MS,
+        environment.env,
+      )
+      if (!declaration.identityProbe.accepts(output)) return { kind: 'failed' }
+    } catch (error) {
+      // A generic candidate such as `agent` can belong to another harness,
+      // so a timed-out identity probe proves neither presence nor absence.
+      return probeTimedOut(error) ? { kind: 'timed-out' } : { kind: 'failed' }
+    }
+  }
+  return { kind: 'verified', version }
+}
+
+/**
+ * PODIUM'S INSTALL OF ONE HARNESS (managed installs §6.1): the ledger's
+ * current release, or its previous one when the current fails the probe.
+ * Nothing else: an older release is never reached for, and a managed binary
+ * never runs a login probe, which reads the person's own folder (M9).
+ */
+async function probeManaged(
+  manifest: AgentManifest,
+  record: ManagedHarnessRecord,
+  environment: CommandEnvironment,
+  exec: ProbeExec,
+): Promise<{ executable?: ResolvedHarnessExecutable; currentFailed?: ManagedReleaseCandidate }> {
+  let currentFailed: ManagedReleaseCandidate | undefined
+  for (const [role, candidate] of [
+    ['current', record.current],
+    ['previous', record.previous],
+  ] as const) {
+    if (!candidate) continue
+    const probed = await probeExecutable(manifest, candidate.executable, environment, exec)
+    if (probed.kind === 'verified') {
+      const executable: ResolvedHarnessExecutable = Object.freeze({
+        kind: manifest.kind,
+        path: candidate.executable,
+        ...(probed.version ? { version: probed.version } : {}),
+        generation: environment.generation,
+        release: candidate.release,
+      })
+      return { executable, ...(currentFailed ? { currentFailed } : {}) }
+    }
+    if (role === 'current') currentFailed = candidate
+  }
+  return currentFailed ? { currentFailed } : {}
+}
+
+/** The `install` wire object for one managed harness (§8). */
+function installWire(
+  record: ManagedHarnessRecord,
+  external: ResolvedHarnessExecutable | undefined,
+  managed: ResolvedHarnessExecutable | undefined,
+  currentFailed: ManagedReleaseCandidate | undefined,
+  rebuilt: ManagedInstallsRead['rebuilt'],
+): AgentInstallWire {
+  const failedCurrent =
+    currentFailed ??
+    (record.currentMissing
+      ? { release: record.currentMissing.release, version: record.currentMissing.version ?? '' }
+      : undefined)
+  const checkError =
+    record.lastCheck && !record.lastCheck.ok
+      ? { at: record.lastCheck.at, message: record.lastCheck.error }
+      : undefined
+  const installError = record.lastInstallError
+    ? {
+        at: record.lastInstallError.at,
+        message: record.lastInstallError.error,
+        version: record.lastInstallError.version,
+      }
+    : undefined
+  const lastError =
+    checkError && installError
+      ? checkError.at > installError.at
+        ? checkError
+        : installError
+      : (checkError ?? installError)
+  return {
+    ...(external
+      ? {
+          external: {
+            path: external.path,
+            ...(external.version ? { version: external.version } : {}),
+          },
+        }
+      : {}),
+    managed: {
+      ...(managed && managed.release !== undefined
+        ? {
+            active: {
+              path: managed.path,
+              ...(managed.version ? { version: managed.version } : {}),
+              release: managed.release,
+            },
+          }
+        : {}),
+      ...(failedCurrent?.version
+        ? { currentFailed: { release: failedCurrent.release, version: failedCurrent.version } }
+        : {}),
+      ...(record.previous && managed?.release !== record.previous.release
+        ? { previousVersion: record.previous.version }
+        : {}),
+      ...(record.lastCheck?.ok ? { latest: record.lastCheck.latest } : {}),
+      ...(record.lastCheck ? { lastCheckAt: record.lastCheck.at } : {}),
+      paused: record.paused,
+      ...(lastError ? { lastError } : {}),
+      ...(record.failingSince ? { failingSince: record.failingSince } : {}),
+    },
+    ...(rebuilt ? { ledgerRebuilt: { at: rebuilt.at, reason: rebuilt.reason } } : {}),
+  }
+}
+
+async function probeExternal(
   manifest: AgentManifest,
   credentialHome: string,
   environment: CommandEnvironment,
@@ -132,71 +340,43 @@ async function probeAgent(
   }
   const fallbackLogin = identity ? { ...detected, identity } : detected
   const commandProbe = declaredValue(manifest.inventory.loginCommandProbe)
-  const declaration = manifest.inventory.executable
   let timedOut = false
   for (const candidate of candidatePaths(manifest, environment, legacyInjectedExec)) {
-    try {
-      const version = (
-        await exec(
-          [candidate, ...declaration.versionArgs],
-          AGENT_VERSION_PROBE_TIMEOUT_MS,
-          environment.env,
+    const probed = await probeExecutable(manifest, candidate, environment, exec)
+    if (probed.kind === 'timed-out') timedOut = true
+    if (probed.kind !== 'verified') continue
+    const version = probed.version
+    const executable: ResolvedHarnessExecutable = Object.freeze({
+      kind: manifest.kind,
+      path: candidate,
+      ...(version ? { version } : {}),
+      generation: environment.generation,
+    })
+    let login = fallbackLogin
+    if (commandProbe) {
+      try {
+        const decision = commandProbe.classify(
+          await loginExec([candidate, ...commandProbe.args], commandProbe.timeoutMs, credentialEnv),
         )
-      ).trim()
-      if (declaration.identityProbe) {
-        try {
-          const output = await exec(
-            [candidate, ...declaration.identityProbe.args],
-            AGENT_VERSION_PROBE_TIMEOUT_MS,
-            environment.env,
-          )
-          if (!declaration.identityProbe.accepts(output)) continue
-        } catch (error) {
-          // A generic candidate such as `agent` can belong to another harness,
-          // so a timed-out identity probe proves neither presence nor absence.
-          timedOut ||= probeTimedOut(error)
-          continue
-        }
+        login =
+          decision.kind === 'determined'
+            ? decision.login
+            : decision.kind === 'fallback'
+              ? fallbackLogin
+              : { state: 'unknown' }
+      } catch {
+        login = { state: 'unknown' }
       }
-      const executable: ResolvedHarnessExecutable = Object.freeze({
+    }
+    return {
+      inventory: {
         kind: manifest.kind,
-        path: candidate,
+        installed: true,
         ...(version ? { version } : {}),
-        generation: environment.generation,
-      })
-      let login = fallbackLogin
-      if (commandProbe) {
-        try {
-          const decision = commandProbe.classify(
-            await loginExec(
-              [candidate, ...commandProbe.args],
-              commandProbe.timeoutMs,
-              credentialEnv,
-            ),
-          )
-          login =
-            decision.kind === 'determined'
-              ? decision.login
-              : decision.kind === 'fallback'
-                ? fallbackLogin
-                : { state: 'unknown' }
-        } catch {
-          login = { state: 'unknown' }
-        }
-      }
-      return {
-        inventory: {
-          kind: manifest.kind,
-          installed: true,
-          ...(version ? { version } : {}),
-          path: candidate,
-          login,
-        },
-        executable,
-      }
-    } catch (error) {
-      timedOut ||= probeTimedOut(error)
-      // Missing, wrong identity, or no longer executable: try the declaration's next path.
+        path: candidate,
+        login,
+      },
+      executable,
     }
   }
   const login =
@@ -213,6 +393,72 @@ async function probeAgent(
       },
     }
   return { inventory: { kind: manifest.kind, installed: false, login } }
+}
+
+/**
+ * One harness's inventory: the person's install exactly as before, and, when
+ * the install ledger names this harness, Podium's (managed installs §6.1).
+ * Each install passes the version and identity probe on its own. The
+ * top-level `installed`, `version` and `path` keep naming the person's
+ * install; on a machine with only Podium's they name that one, so a server
+ * that does not read `install` still sees the harness installed.
+ */
+async function probeAgent(
+  manifest: AgentManifest,
+  credentialHome: string,
+  environment: CommandEnvironment,
+  exec: ProbeExec,
+  loginExec: LoginProbeExec,
+  legacyInjectedExec: boolean,
+  hostPlatform: NodeJS.Platform,
+  managed: ManagedInstallsRead | undefined,
+): Promise<{
+  inventory: AgentInventory
+  executable?: ResolvedHarnessExecutable
+  managed?: ResolvedHarnessExecutable
+}> {
+  const record = managed?.harnesses.get(manifest.kind)
+  const [external, podium] = await Promise.all([
+    probeExternal(
+      manifest,
+      credentialHome,
+      environment,
+      exec,
+      loginExec,
+      legacyInjectedExec,
+      hostPlatform,
+    ),
+    record ? probeManaged(manifest, record, environment, exec) : Promise.resolve(undefined),
+  ])
+  if (!record || !podium) return external
+  const install = installWire(
+    record,
+    external.executable,
+    podium.executable,
+    podium.currentFailed,
+    managed?.rebuilt,
+  )
+  if (external.inventory.installed === true || !podium.executable) {
+    return {
+      ...external,
+      inventory: { ...external.inventory, install },
+      ...(podium.executable ? { managed: podium.executable } : {}),
+    }
+  }
+  // Only Podium's install answered: the top level names it. The login stays the
+  // person's folder's, read from its files (no managed binary runs there).
+  const { probeError: _unknown, ...rest } = external.inventory
+  return {
+    ...external,
+    inventory: {
+      ...rest,
+      installed: true,
+      ...(podium.executable.version ? { version: podium.executable.version } : {}),
+      path: podium.executable.path,
+      install,
+    },
+    managed: podium.executable,
+  }
 }
 
 async function probeTool(
@@ -255,6 +501,12 @@ export interface BuildInventoryOptions {
   loginExec?: LoginProbeExec
   platform?: NodeJS.Platform
   generation?: number
+  /**
+   * The install ledger, read once per wave (managed installs §7), so a release
+   * another process published appears in the next wave. Absent: nothing
+   * managed is looked for. A reader that throws counts as nothing managed.
+   */
+  managedInstalls?: ManagedInstallsReader
 }
 
 export interface MachineHarnessInventory {
@@ -298,6 +550,7 @@ export async function buildResolvedInventory(
   const loginExec = opts.loginExec ?? (opts.exec ? unavailableInjectedLoginExec : defaultLoginExec)
   // Historical tests inject an argv responder rather than executable fixture files.
   const legacyInjectedExec = Boolean(opts.exec && !opts.commandEnvironment)
+  const managed = await readManaged(opts.managedInstalls)
   const [agentResults, tools] = await Promise.all([
     Promise.all(
       Object.values(AGENT_MANIFESTS).map((manifest) =>
@@ -309,6 +562,7 @@ export async function buildResolvedInventory(
           loginExec,
           legacyInjectedExec,
           hostPlatform,
+          managed,
         ),
       ),
     ),
@@ -317,8 +571,10 @@ export async function buildResolvedInventory(
     ),
   ])
   const executables = new Map<AgentManifest['kind'], ResolvedHarnessExecutable>()
+  const managedExecutables = new Map<AgentManifest['kind'], ResolvedHarnessExecutable>()
   for (const result of agentResults) {
     if (result.executable) executables.set(result.executable.kind, result.executable)
+    if (result.managed) managedExecutables.set(result.managed.kind, result.managed)
   }
   return Object.freeze({
     inventory: {
@@ -327,8 +583,23 @@ export async function buildResolvedInventory(
       tools,
     },
     executables,
+    managed: managedExecutables,
     commandEnvironment,
   })
+}
+
+async function readManaged(
+  reader: ManagedInstallsReader | undefined,
+): Promise<ManagedInstallsRead | undefined> {
+  if (!reader) return undefined
+  try {
+    return await reader()
+  } catch (err) {
+    // A ledger that cannot be read hides Podium's installs for this wave; the
+    // person's are found as always.
+    log.warn('the install ledger could not be read; reporting no managed installs', { err })
+    return undefined
+  }
 }
 
 export async function buildInventory(opts: BuildInventoryOptions = {}): Promise<Inventory> {

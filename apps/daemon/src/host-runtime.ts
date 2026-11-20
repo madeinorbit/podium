@@ -9,6 +9,7 @@ import {
   declaredValue,
   harnessAccount,
   harnessDetectLogin,
+  harnessInstallationFor,
   harnessLoginReadEnv,
   harnessRoots,
   launchPosture,
@@ -63,6 +64,7 @@ import {
   startHookIngest,
   type TerminalRuntime,
 } from '@podium/harness/driver/host'
+import { defaultHarnessesDir, managedInstallsReader } from '@podium/harness/inventory'
 import { createLogger, resolveLevel, setNamespaceFloor } from '@podium/logger'
 import {
   type AgentKind,
@@ -161,7 +163,7 @@ import { probeCodexLaunchHookTrust } from './homes/codex-hook-probe'
 import { CodexHookTrust } from './homes/codex-hook-trust'
 import { homeQuotaReader } from './homes/probes'
 import { HomeRegistry, homeDiscoveryRoots } from './homes/registry'
-import { stopHome, systemProcessPorts } from './homes/stop'
+import { homeExecutable, stopHome, systemProcessPorts } from './homes/stop'
 import { createHostDiskSampler, sampleHostLoad, sampleHostMemory } from './host-metrics'
 import { loadIdentity } from './identity'
 import type { DaemonInstanceBootstrap } from './instance-bootstrap'
@@ -206,7 +208,11 @@ import { createSessionEngineScope } from './session/engines.js'
 import { createEngineJournal } from './session/journal.js'
 import { SessionRegistry } from './session/registry.js'
 import { SessionBinding } from './session-binding'
-import { driverHarnessContextFrom, engineSessionHarnessContext } from './session-harness-context'
+import {
+  driverHarnessContextFrom,
+  engineSessionHarnessContext,
+  sessionHomeSide,
+} from './session-harness-context'
 import { createSessionObservers } from './session-observers'
 import { launchFoldersFor, podiumGrantsFor } from './session-posture'
 import { storedSessionPosture } from './session-posture-store'
@@ -506,7 +512,13 @@ export async function createDaemonHostRuntime(args: {
   const credentialHome = accountHome?.path ?? homeDir ?? machineHome
   const harnessRuntime = opts.launch
     ? undefined
-    : new DaemonHarnessRuntime({ machineHome, credentialHome })
+    : new DaemonHarnessRuntime({
+        machineHome,
+        credentialHome,
+        // The install ledger, read on every inventory wave (managed installs
+        // §7), so a release the CLI publishes appears without a restart.
+        managedInstalls: managedInstallsReader(opts.harnessesDir ?? defaultHarnessesDir()),
+      })
   const replayPendingBindingReceipts = async (): Promise<number> => {
     let replayed = 0
     for (const owner of await bindingStore.ownersWithPendingReceipts()) {
@@ -680,15 +692,16 @@ export async function createDaemonHostRuntime(args: {
         flags,
         cwd: probeHome,
       }),
-    // The throwaway home: Codex's daemon there stopped, then deleted.
-    cleanProbeHome: async (probeHome) => {
+    // The throwaway home: Codex's daemon there stopped, by the Codex the
+    // probe ran, then deleted.
+    cleanProbeHome: async (probeHome, installation) => {
       await stopHome(
         { homeId: 'probe', credentialId: 'probe', harness: codexHarnessKind, dir: probeHome },
         {
           ...systemProcessPorts,
           sessionsIn: () => [],
           stopSession: async () => undefined,
-          codexExecutable: () => harnessRuntime?.settled()?.executables.get(codexHarnessKind)?.path,
+          codexExecutable: () => installation.executable,
           commandEnv: settledCommandEnv,
         },
       )
@@ -714,7 +727,9 @@ export async function createDaemonHostRuntime(args: {
           await stopSessionProcess(ctx, { sessionId: sessionId as SessionId })
           ctx.send({ type: 'agentExit', sessionId: sessionId as SessionId, code: 143 })
         },
-        codexExecutable: () => harnessRuntime?.settled()?.executables.get(codexHarnessKind)?.path,
+        // The Codex this home runs (managed installs §6.1): Podium's install
+        // when there is one, else the person's.
+        codexExecutable: (home) => homeExecutable(harnessRuntime?.settled(), home),
         commandEnv: settledCommandEnv,
       }),
   })
@@ -1727,6 +1742,20 @@ export async function createDaemonHostRuntime(args: {
           ...(envOverlay ? { envOverlay } : {}),
         })
         return { env, stripEnv: strip }
+      },
+      // The turn's binary follows its home (managed installs §4.2), the same
+      // side `turnChildEnv` above composes for. A home this machine does not
+      // hold is refused there, with its own words.
+      turnExecutable: ({ agent, sessionId, snapshot }) => {
+        try {
+          return harnessInstallationFor(
+            snapshot,
+            agent as BuiltinHarnessKind,
+            sessionHomeSide(ctx, sessionId, agent),
+          )?.executable
+        } catch {
+          return undefined
+        }
       },
       assertNativeAccount: (agent, accountId, inventory) =>
         assertNativeHeadlessAccount({

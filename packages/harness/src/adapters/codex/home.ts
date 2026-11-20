@@ -10,7 +10,11 @@ export interface RunningProcess {
 }
 
 export interface CodexHomeStopPorts {
-  codexExecutable(): string | undefined
+  /**
+   * The Codex that belongs to `home` (managed installs §6.1): Podium's install
+   * when there is one, else the person's. Undefined when neither is installed.
+   */
+  codexExecutable(home: { harness: string; dir: string }): string | undefined
   commandEnv(): Readonly<Record<string, string>>
   run(command: string, args: readonly string[], env: Record<string, string>): Promise<void>
   listProcesses(): Promise<RunningProcess[]>
@@ -27,7 +31,7 @@ export async function stopCodexHome(
   ports: CodexHomeStopPorts,
 ): Promise<void> {
   if (home.harness !== 'codex') return
-  const codex = ports.codexExecutable()
+  const codex = ports.codexExecutable(home)
   if (codex) {
     try {
       await ports.run(codex, ['app-server', 'daemon', 'stop'], {

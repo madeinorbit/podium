@@ -12,6 +12,7 @@ import {
   type HarnessAccountScope,
   type HarnessContext,
   type HarnessEnvironment,
+  type HarnessHomeSide,
   harnessAccount,
   type ModelChoice,
   manifestFor,
@@ -97,8 +98,12 @@ export function homeQuotaReader(deps: {
 
 export interface HomeModelProbeDeps {
   account: Account
-  /** The installed harness's context for the default directory, if any. */
-  context(kind: string): HarnessContext | undefined
+  /**
+   * The installed harness's context on one side (managed installs §4.2), in
+   * the account's own folders, if that side has an install. A home Podium made
+   * asks for `podium`: Podium's install when there is one, else the person's.
+   */
+  context(kind: string, side: HarnessHomeSide): HarnessContext | undefined
   probeClaude?: (account: HarnessAccountScope) => Promise<ModelChoice[]>
   probeAgent?: (kind: ProbeableAgent, context: HarnessContext) => Promise<ModelChoice[]>
 }
@@ -106,8 +111,9 @@ export interface HomeModelProbeDeps {
 /**
  * Each home's model list, read in that home: Claude Code's through the
  * home's own login (never the daemon's API key: a home is a subscription),
- * a CLI-probed harness through its executable run in the home. A home whose
- * harness is not installed, or whose probe fails, reports nothing.
+ * a CLI-probed harness through the home's executable (Podium's install when
+ * there is one) run in the home. A home whose harness is not installed, or
+ * whose probe fails, reports nothing.
  */
 export async function homeModelProbe(
   homes: readonly HarnessHome[],
@@ -123,7 +129,7 @@ export async function homeModelProbe(
       let models: ModelChoice[] = []
       try {
         if ((PROBEABLE_AGENTS as readonly string[]).includes(home.harness)) {
-          const context = deps.context(home.harness)
+          const context = deps.context(home.harness, 'podium')
           if (!context) return
           models = await probeAgent(
             home.harness as ProbeableAgent,
