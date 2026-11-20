@@ -137,7 +137,20 @@ function expectBoard(pool: MobxPool, options: BoardOptions, truth: Truth) {
   expect(value.layout).toBe(options.display.layout)
   expect(value.columns.map((column) => column.stage)).toEqual([...ISSUE_BOARD_STAGES])
   for (const column of value.columns) {
-    expect([...column.ids].sort()).toEqual(ids(roots.filter((row) => row.stage === column.stage)))
+    const expectedRoots = roots.filter((row) => row.stage === column.stage)
+    const missingRoots = expectedRoots
+      .filter((row) => !column.ids.includes(row.id))
+      .map((row) => ({
+        id: row.id,
+        parent: row.parentId,
+        graphParent: pool.graph.one('issue', row.id, 'treeParent'),
+        stage: row.stage,
+        audience: row.audience,
+      }))
+    expect(
+      [...column.ids].sort(),
+      JSON.stringify({ options, column: column.stage, missingRoots }),
+    ).toEqual(ids(expectedRoots))
     for (let at = 1; at < column.ids.length; at++) {
       const previous = byId.get(column.ids[at - 1]!)!,
         next = byId.get(column.ids[at]!)!
@@ -153,7 +166,16 @@ function expectBoard(pool: MobxPool, options: BoardOptions, truth: Truth) {
   else {
     const shown = value.rows.flatMap((group) => group.rows)
     expect(value.listIds).toEqual(shown.map((row) => row.id))
-    expect([...value.listIds].sort()).toEqual(ids(options.expanded.length ? active : roots))
+    const expectedShown = options.expanded.length ? active : roots
+    expect(
+      [...value.listIds].sort(),
+      JSON.stringify({
+        options,
+        listMissing: expectedShown
+          .filter((row) => !value.listIds.includes(row.id))
+          .map((row) => ({ id: row.id, parent: row.parentId })),
+      }),
+    ).toEqual(ids(expectedShown))
     const positions = new Map(shown.map((row, at) => [row.id, at]))
     for (const group of value.rows)
       for (const row of group.rows) {

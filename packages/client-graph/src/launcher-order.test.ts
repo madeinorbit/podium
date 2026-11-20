@@ -1,9 +1,11 @@
 import { reposToViews, repoUsageAt } from '@podium/client-core/values'
 import {
+  asUserId,
   type GitRepositoryWire,
   machinePathBasename,
   machinePathKey,
   machinePathsEqual,
+  pinRowId,
 } from '@podium/model/browser'
 import { autorun } from 'mobx'
 import { expect, it } from 'vitest'
@@ -45,7 +47,20 @@ function fixture(scale: number) {
     repositories.map((value, i) => ({ kind: 'repository', id: `r${i}`, value })),
   )
   const pins = { repos: ['/two/Twin', '/one/Twin'], worktrees: [] as string[] }
-  pool.sources.register(['commandWindow'], { read: () => ({ pins }) as never, dispose() {} })
+  const userId = asUserId('operator')
+  pool.apply({
+    type: 'update',
+    rows: pins.repos.map((path, i) => ({
+      kind: 'pin',
+      id: pinRowId(userId, 'repo', path),
+      value: {
+        userId,
+        kind: 'repo',
+        entityId: path,
+        pinnedAt: `2026-01-01T00:00:0${i}Z`,
+      },
+    })),
+  })
   return { pool, repositories, sessions, pins }
 }
 
