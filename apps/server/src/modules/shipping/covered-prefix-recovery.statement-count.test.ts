@@ -58,6 +58,7 @@ async function world(shipped: number): Promise<{ store: SessionStore; service: S
       }),
     spawnSession: async () => ({ sessionId: 'session-1' as never, machine: 'machine-1' }),
     repoOp: async () => ({ ok: true, output: '' }),
+    resolveMachine: async () => asMachineId('machine-1'),
     funnel: { run: (op) => op.write() },
     ledger: testLedgerWriter(ledger),
   })

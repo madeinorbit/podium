@@ -103,12 +103,12 @@ async function _addCommentRefusesAnUnnamedCaller(svc: IssueService, id: string):
     'no principal named',
   )
 
-  // @ts-expect-error POD-1315: an optional parameter would accept this too.
   await svc.commentsMail.addComment(
     svc.reports.store.serverWriter,
     id,
     'mike',
     'explicitly nobody',
+    // @ts-expect-error POD-1315: an optional parameter would accept this too.
     undefined,
   )
 }

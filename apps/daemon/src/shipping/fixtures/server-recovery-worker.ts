@@ -64,6 +64,7 @@ const issues = await IssueService.create({
     }),
   spawnSession: async () => ({ sessionId: 'recovery-session' as never, machine: machineId }),
   repoOp: async () => ({ ok: true, output: '' }),
+  resolveMachine: async () => machineId,
   funnel: { run: (op) => op.write() },
   ledger: testLedgerWriter(ledger),
 })
