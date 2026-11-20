@@ -1,17 +1,21 @@
 import { asMachineId } from '@podium/model'
 import { SERVER_MOVE_CAPABILITY, wireSchemaDigest } from '@podium/protocol'
+import { sql } from 'drizzle-orm'
 import { afterEach, expect, it } from 'vitest'
 import { storedMachineRecordFacts } from '../modules/machines/record-facts'
 import { SessionRegistry } from '../relay'
 import type { SessionStore } from '../store'
 import { recordReadsOf } from '../sync-worker/record-reads'
 import { openTestStore } from '../test-support/open-test-store'
+import { storeSql } from '../test-support/store-sql'
 
 let store: SessionStore | undefined
 let registry: SessionRegistry | undefined
 afterEach(async () => {
   await registry?.dispose()
+  registry = undefined
   await store?.close()
+  store = undefined
 })
 
 it('reports the install capability identically through server and sync-worker record reads', async () => {
@@ -75,4 +79,14 @@ it('publishes the changed capability to machine-access records', async () => {
   expect(changes.length).toBeGreaterThan(0)
   for (const change of changes)
     expect(JSON.parse(change.payload!)).toMatchObject({ serverMoveSupported: true })
+})
+
+it('sets install capability without parsing an unrelated update checkpoint', async () => {
+  store = await openTestStore(':memory:', null)
+  await storeSql(
+    store,
+  ).run(sql`INSERT INTO meta (key, value) VALUES ('updates.execution.v1', 'unreadable-checkpoint')
+    ON CONFLICT (key) DO UPDATE SET value = excluded.value`)
+  expect(await store.machines.recordContext.setServerMoveAvailable(true)).toBe(false)
+  expect(await store.machines.recordContext.setServerMoveAvailable(false)).toBe(true)
 })

@@ -13,6 +13,13 @@ import { MachineRecordWrites } from './machine-record-writes'
 const FLEET_CHANNEL = 'machines.fleet-channel.v1'
 const UPDATE_EXECUTION = 'updates.execution.v1'
 const SERVER_MOVE_AVAILABLE = 'machines.server-move.v1'
+const serverMoveRow = preparedGlobal((db, t) =>
+  db
+    .select({ value: t.meta.value })
+    .from(t.meta)
+    .where(eq(t.meta.key, SERVER_MOVE_AVAILABLE))
+    .prepare(),
+)
 const channelRow = preparedGlobal((db, t) =>
   db.select({ value: t.meta.value }).from(t.meta).where(eq(t.meta.key, FLEET_CHANNEL)).prepare(),
 )
@@ -98,7 +105,8 @@ export class MachineRecordContextRepository {
   /** An install capability shared with record readers in the sync worker. */
   async setServerMoveAvailable(available: boolean): Promise<boolean> {
     return await this.queries.createOrJoinTransaction(async () => {
-      if ((await this.read()).serverMoveAvailable === available) return false
+      const current = (await serverMoveRow(this.db).get())?.value !== 'false'
+      if (current === available) return false
       return await this.records.compare(
         async () =>
           (await setServerMove(this.db).get({ available: String(available) })) !== undefined,
