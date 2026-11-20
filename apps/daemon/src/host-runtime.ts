@@ -1306,11 +1306,7 @@ export async function createDaemonHostRuntime(args: {
       podiumHomes,
       homes,
       harnessesDir,
-      report: () => {
-        void reportInventory(ctx, { rebuild: true }).catch((err: unknown) =>
-          log.warn('install inventory failed', { err }),
-        )
-      },
+      report: () => reportInventory(ctx, { rebuild: true }),
     })
   // A wave that settled before the service existed: catch up on it now.
   const settledAtStart = harnessRuntime?.settled()

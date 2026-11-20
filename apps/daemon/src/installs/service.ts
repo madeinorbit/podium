@@ -4,6 +4,7 @@ import {
   removeManagedInstall,
   requestManagedInstall,
 } from '@podium/harness/inventory'
+import { createLogger } from '@podium/logger'
 import type { BuiltinHarnessKind, Inventory } from '@podium/model'
 import type { HarnessActionResult, HarnessInstallAction } from '@podium/protocol'
 import { HomeHarness } from '@podium/protocol'
@@ -14,13 +15,15 @@ import type { HomeRegistry } from '../homes/registry'
 import { inspectPodiumHome, removePodiumHome } from './home'
 import type { HarnessUpdater } from './updater'
 
+const log = createLogger('daemon:install-actions')
+
 export interface HarnessInstallsOptions {
   runtime: Pick<DaemonHarnessRuntime, 'refresh'>
   updater: Pick<HarnessUpdater, 'checkNow' | 'goBack' | 'setPaused'>
   podiumHomes?: Pick<PodiumHomes, 'takeMySettings' | 'reconcile'>
   homes?: Pick<HomeRegistry, 'get' | 'remove'>
   harnessesDir?: string
-  report(): void
+  report(): void | Promise<void>
   /** Test seam; production always uses the shared section 4.7 admission. */
   install?: typeof requestManagedInstall
 }
@@ -86,7 +89,7 @@ export class HarnessInstalls {
           try {
             // A fresh wave also notices a personal copy installed since the last report.
             const snapshot = await this.options.runtime.refresh()
-            this.options.report()
+            void this.report(harness)
             const own = snapshot.executables.has(harness)
               ? true
               : snapshot.inventory.agents.find((agent) => agent.kind === harness)?.installed ===
@@ -168,7 +171,14 @@ export class HarnessInstalls {
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : String(error) }
     } finally {
-      if (action !== 'changes') this.options.report()
+      if (action !== 'changes' && action !== 'home-info') await this.report(harness)
+    }
+  }
+  private async report(harness: BuiltinHarnessKind): Promise<void> {
+    try {
+      await this.options.report()
+    } catch (error) {
+      log.warn('inventory after a harness action failed', { harness, error })
     }
   }
 }
