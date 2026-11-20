@@ -419,5 +419,6 @@ it.each([
   expect(moved.start).toBe(fold.start + 2)
   expect(presentation.folds.isOpen(moved.key)).toBe(true)
   expect(presentation.anchorRow(`turn:${moved.key}`)).toBe(moved.start)
-  expect(presentation.openFoldAt(presentation.search.activeRow!)).toBe('tool-0')
+  expect(presentation.turnFolds.byMember.get(presentation.search.activeRow!)?.key).toBe(moved.key)
+  expect(presentation.openFoldAt(presentation.search.activeRow!)).toBeUndefined()
 })

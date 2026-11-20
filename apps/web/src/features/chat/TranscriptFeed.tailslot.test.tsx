@@ -148,27 +148,34 @@ describe('the tail stands in a slot of constant height', () => {
     const prose = say('a1', 'an answer')
 
     render(working, [prose])
+    const standing = slot()
     expect(host.querySelectorAll('.pod-mark')).toHaveLength(1)
     expect(tailRow()?.dataset.tail).toBe('working')
 
     render(working, [prose, tool()])
-    const line = (): HTMLElement | null => host.querySelector('[data-testid="work-line"]')
-    expect(line()?.dataset.state).toBe('pending')
-    expect(line()?.querySelector('.pod-mark')).toBeNull()
-    expect(tailRow()?.dataset.tail).toBe('working')
+    const line = (): HTMLElement | null => host.querySelector('[data-testid="turn-line"]')
+    expect(line()?.dataset.state).toBe('live')
+    expect(line()?.querySelector('.pod-mark')).not.toBeNull()
+    expect(tailRow()).toBeNull()
+    expect(slot()).toBe(standing)
+    expect(slot()?.querySelector('[role="status"]')).not.toBeNull()
     expect(host.querySelectorAll('.pod-mark')).toHaveLength(1)
 
+    // A tool result finishes the call, not the agent's turn. The live line
+    // keeps the single visual mark; its stable tail slot keeps the status.
     render(working, [prose, tool('done')])
-    expect(line()?.dataset.state).toBe('done')
-    expect(line()?.querySelector('.pod-mark')).toBeNull()
-    expect(tailRow()?.dataset.tail).toBe('working')
+    expect(line()?.dataset.state).toBe('live')
+    expect(line()?.querySelector('.pod-mark')).not.toBeNull()
+    expect(tailRow()).toBeNull()
+    expect(slot()).toBe(standing)
+    expect(slot()?.querySelector('[role="status"]')?.textContent).toBe('Working')
     expect(host.querySelectorAll('.pod-mark')).toHaveLength(1)
   })
 
   it.each([
     false,
     true,
-  ])('leaves the running shell phrase and timer to the tail, mixed stretch: %s', (mixed) => {
+  ])('lets the live turn own the shell phrase and clock, mixed stretch: %s', (mixed) => {
     vi.useFakeTimers()
     vi.setSystemTime(Date.parse('2026-08-18T12:02:42.000Z'))
     const working = { tone: 'working', label: 'Working' } as ChatActivity
@@ -190,30 +197,46 @@ describe('the tail stands in a slot of constant height', () => {
       ts: '2026-08-18T12:00:43.000Z',
     }
     const items = [say('a1', 'Running the checks.'), ...earlier, running]
-    const line = (): HTMLElement => host.querySelector('[data-testid="work-line"]')!
+    const line = (): HTMLElement => host.querySelector('[data-testid="turn-line"]')!
+    const inlineStatus = () => slot()?.querySelector('[role="status"]')
 
     render(working, items)
-    expect(tailRow()?.querySelector('.feed-tail-label')?.textContent).toBe('Waiting on shell')
-    expect(tailRow()?.querySelector('.feed-tail-detail')?.textContent).toBe('bun run test')
-    expect(tailRow()?.querySelector('.feed-tail-figure')?.textContent).toBe('1:59')
-    expect(line().querySelector('.work-line-phrase')?.textContent).not.toMatch(/Running|Waiting/)
-    expect(line().querySelector('.work-line-time')).toBeNull()
-    expect(line().dataset.state).toBe('pending')
+    const standing = slot()
+    expect(tailRow()).toBeNull()
+    expect(inlineStatus()?.textContent).toBe('Waiting on shell bun run test')
+    expect(line().querySelector('.tl-current')?.textContent).toBe('bun run test')
+    // The fold's clock covers the whole stretch, including the earlier call
+    // and the agent mail. The accessible tail still names the current wait.
+    expect(line().querySelector('.tl-timer')?.textContent).toBe(mixed ? '2:42' : '1:59')
+    expect(line().dataset.state).toBe('live')
+    expect(host.querySelectorAll('.tl-timer')).toHaveLength(1)
+    expect(host.querySelectorAll('.pod-mark')).toHaveLength(1)
 
     act(() => vi.advanceTimersByTime(1000))
-    expect(tailRow()?.querySelector('.feed-tail-figure')?.textContent).toBe('2:00')
-    expect(line().querySelector('.work-line-time')).toBeNull()
+    expect(line().querySelector('.tl-timer')?.textContent).toBe(mixed ? '2:43' : '2:00')
+    expect(slot()).toBe(standing)
 
     act(() => line().querySelector<HTMLButtonElement>('[data-transcript-run-toggle]')!.click())
-    expect(line().querySelector('.work-line-time')).toBeNull()
-    expect(tailRow()?.querySelector('.feed-tail-detail')?.textContent).toBe('bun run test')
+    expect(line().dataset.open).toBe('true')
+    expect(host.querySelectorAll('.tl-timer')).toHaveLength(1)
+    expect(inlineStatus()?.textContent).toBe('Waiting on shell bun run test')
 
-    render(working, [...items.slice(0, -1), { ...running, toolResult: 'ok', durationMs: 120000 }])
+    const completed = [...items.slice(0, -1), { ...running, toolResult: 'ok', durationMs: 120000 }]
+    render(working, completed)
+    expect(line().dataset.state).toBe('live')
+    expect(inlineStatus()?.textContent).toBe('Working')
+    // Agent words close the work segment; completing one command does not.
+    render(null, [
+      ...completed,
+      { ...say('answer', 'The checks passed.'), ts: '2026-08-18T12:02:43.000Z' },
+    ])
     expect(line().dataset.state).toBe('done')
-    expect(line().querySelector('.work-line-time')?.textContent).toMatch(
+    expect(line().querySelector('.tl-span')?.textContent).toMatch(
       mixed ? /^\d{2}:\d{2}–\d{2}:\d{2}$/ : /^2:00$/,
     )
-    expect(tailRow()?.querySelector('.feed-tail-label')?.textContent).toBe('Working')
+    expect(line().querySelector('.tl-timer')).toBeNull()
+    expect(inlineStatus()).toBeNull()
+    expect(slot()).toBe(standing)
   })
 })
 
