@@ -38,6 +38,7 @@ export const noticeCommands = defineCommands('notices', {
     exposure: SERVED_ON,
     conflict: 'single-writer',
     visibility: 'per-user-state',
+    policy: { resource: 'per-user-state', scope: 'self', action: 'write' },
     cli: { summary: 'Mark one of my notices read.' },
   },
   markAllRead: {
@@ -46,6 +47,7 @@ export const noticeCommands = defineCommands('notices', {
     exposure: SERVED_ON,
     conflict: 'single-writer',
     visibility: 'per-user-state',
+    policy: { resource: 'per-user-state', scope: 'self', action: 'write' },
     cli: { summary: 'Mark all my notices read.' },
   },
 } satisfies Record<'markRead' | 'markAllRead', CommandDef>)
