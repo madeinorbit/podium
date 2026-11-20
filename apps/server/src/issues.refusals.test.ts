@@ -199,13 +199,6 @@ describe('definitive issue refusals (POD-5429)', () => {
   })
 
   it('types the internal shipping worktree guard', async () => {
-    if (['start', 'addSession', 'addShell'].includes(command)) {
-      await registry.sessionStore.machines.addMachineComponent(
-        registry.sessionStore.hostMachineId,
-        'daemon',
-      )
-      await attachHostDaemon(registry)
-    }
     const issue = await seed()
     const row = await registry.issues.crud.store.draftOrThrow(issue.id)
     row.stage = 'shipping'
@@ -361,13 +354,6 @@ describe('definitive issue refusals (POD-5429)', () => {
   })
 
   it('refuses shipping rehome before reading the destination or mutating ownership', async () => {
-    if (['start', 'addSession', 'addShell'].includes(command)) {
-      await registry.sessionStore.machines.addMachineComponent(
-        registry.sessionStore.hostMachineId,
-        'daemon',
-      )
-      await attachHostDaemon(registry)
-    }
     const issue = await seed()
     const row = await registry.issues.crud.store.draftOrThrow(issue.id)
     row.stage = 'shipping'

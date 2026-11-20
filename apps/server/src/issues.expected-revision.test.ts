@@ -388,7 +388,7 @@ describe('registry totality (ADR 3 D13.2 — declared per contract, never guesse
 
   it('covers every mutation declared by the shared command contracts', () => {
     const declared = Object.entries(ISSUE_CONTRACTS)
-      .filter(([, contract]) => contract.kind === 'mutation')
+      .filter(([, contract]) => contract.conflict !== 'n/a')
       .map(([name]) => name)
       .sort()
     expect(declared.length).toBeGreaterThan(0)
@@ -397,6 +397,7 @@ describe('registry totality (ADR 3 D13.2 — declared per contract, never guesse
 
   it.each(mutations)('%s declares a conflict class', (_name, def) => {
     expect(def.conflict).toBeDefined()
+    expect(def.conflict).not.toBe('n/a')
   })
 
   // Queued inputs carry mutationId; replay behavior is tested above, while
@@ -437,7 +438,7 @@ describe('registry totality (ADR 3 D13.2 — declared per contract, never guesse
       expect(def.conflictRule, `${name} is a query and has no rule to state`).toBeUndefined()
     }
     const declared = Object.entries(ISSUE_CONTRACTS)
-      .filter(([, contract]) => contract.kind === 'query')
+      .filter(([, contract]) => contract.conflict === 'n/a')
       .map(([name]) => `issues.${name}`)
       .sort()
     expect(declared.length).toBeGreaterThan(0)
