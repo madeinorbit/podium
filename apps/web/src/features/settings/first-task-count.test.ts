@@ -1,7 +1,7 @@
 import { MobxPool } from '@podium/client-graph'
 import { settingsHasFirstTask } from '@podium/client-graph/settings-views'
 import type { SliceIssue } from '@podium/client-graph/shared/slice-types'
-import { autorun } from 'mobx'
+import { reaction } from 'mobx'
 import { afterEach, expect, it } from 'vitest'
 
 let pool: MobxPool | undefined
@@ -36,7 +36,11 @@ it('observes first-task membership across duplicate deltas, removal and replacem
   })
   expect(settingsHasFirstTask(pool)).toBe(true)
   const answers: unknown[] = []
-  const stop = autorun(() => answers.push(settingsHasFirstTask(pool!)))
+  const stop = reaction(
+    () => settingsHasFirstTask(pool!),
+    (answer) => answers.push(answer),
+    { fireImmediately: true },
+  )
   pool.apply({
     type: 'update',
     rows: [
