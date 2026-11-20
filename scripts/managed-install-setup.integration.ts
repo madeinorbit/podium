@@ -5,7 +5,7 @@
  */
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -63,12 +63,8 @@ const inside = (command: string[], capture = false) =>
 const scratch = mkdtempSync(join(tmpdir(), 'managed-setup-lab-'))
 try {
   run([lab, 'exec', slot, 'mkdir', '-p', '/work'])
-  const archive = spawnSync('git', ['archive', '--format=tar', 'HEAD'], {
-    maxBuffer: 256 * 1024 * 1024,
-  })
-  assert.equal(archive.status, 0, 'Source archive failed.')
   const tar = join(scratch, 'source.tar')
-  writeFileSync(tar, archive.stdout)
+  run(['git', 'archive', '--format=tar', '--output', tar, 'HEAD'])
   run(['docker', 'cp', tar, `${box}:/tmp/source.tar`])
   run([lab, 'exec', slot, 'tar', '-xf', '/tmp/source.tar', '-C', '/work'])
   run([lab, 'exec', slot, 'chown', '-R', user, '/work'])
