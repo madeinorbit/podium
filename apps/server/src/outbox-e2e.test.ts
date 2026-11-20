@@ -79,9 +79,16 @@ describe('outbox write path e2e (live server)', () => {
       id: sessionId,
     })
     expect(queued).toEqual([
-      expect.objectContaining({ body: 'queued while offline', deliveryStatus: 'stored' }),
+      expect.objectContaining({
+        body: 'queued while offline',
+        deliveryStatus: 'dispatched',
+        deliveredAt: null,
+      }),
     ])
     expect(new Set(queued.map((message) => message.id)).size).toBe(1)
+    expect(await server.registry.sessionStore.sync.listQueuedMessages(sessionId)).toEqual([
+      expect.objectContaining({ id: queued[0]!.id, text: 'queued while offline', sessionId }),
+    ])
 
     // Reconnecting the machine is not evidence that this PTY exists yet.
     const sent: import('@podium/protocol/daemon').ControlMessage[] = []
@@ -94,7 +101,11 @@ describe('outbox write path e2e (live server)', () => {
       id: sessionId,
     })
     expect(stillQueued).toEqual([
-      expect.objectContaining({ body: 'queued while offline', deliveryStatus: 'stored' }),
+      expect.objectContaining({
+        body: 'queued while offline',
+        deliveryStatus: 'dispatched',
+        deliveredAt: null,
+      }),
     ])
 
     await server.registry.gateway.routeDaemonFrame(server.registry.sessionStore.hostMachineId, {
