@@ -23,7 +23,7 @@
  */
 
 import { canonicalDriverId } from '../manifest.js'
-import { terminalMayDeclineNativeSteer } from './families/terminal/permitted-failures.js'
+import { terminalMayDeclineNativeSteer } from './families/terminal/steer-entitlement.js'
 import type { AcceptedDriverId, DriverFamily, DriverId } from './families.js'
 
 /** One named weakness a family may exhibit. */
@@ -166,7 +166,7 @@ export const NO_NATIVE_STEER_DRIVERS = [
   'grok-acp',
 ] as const satisfies readonly DriverId[]
 
-export { NO_NATIVE_STEER_TERMINAL_HARNESSES } from './families/terminal/permitted-failures.js'
+export { NO_NATIVE_STEER_TERMINAL_HARNESSES } from './families/terminal/steer-entitlement.js'
 
 /** `harness` narrows the `generic-pty` entitlement to its measured TUIs. */
 export const permitsNoNativeSteer = (driverId: AcceptedDriverId, harness?: string): boolean => {
