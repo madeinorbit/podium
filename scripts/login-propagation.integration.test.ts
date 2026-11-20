@@ -281,7 +281,10 @@ describe('real daemon-to-daemon login propagation', () => {
           // refuse to replace the newer native file that appeared meanwhile.
           refresh: true,
         }),
-      ).resolves.toMatchObject({ status: 'failed' })
+      ).resolves.toMatchObject({
+        status: 'preserved',
+        reason: 'the target holds a different login, which was kept',
+      })
       expect(readFileSync(targetCredentialPath, 'utf8')).toBe(localCredential)
     } finally {
       for (const daemon of daemons.reverse()) await daemon.close()
