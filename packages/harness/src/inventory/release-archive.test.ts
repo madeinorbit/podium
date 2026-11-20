@@ -1,4 +1,12 @@
-import { mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import {
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { gunzipSync, gzipSync } from 'node:zlib'
@@ -8,7 +16,100 @@ import {
   OPENCODE_FIXTURE_BINARY,
   opencodeTarFixture,
 } from '../adapters/opencode/install.test-support.js'
-import { extractReleaseFile, releaseArchiveMember } from './release-archive.js'
+import piZipFixtures from '../adapters/pi/fixtures/archives.json'
+import { PI_FIXTURE_FILES, piTarFixture } from '../adapters/pi/install.test-support.js'
+import {
+  extractReleaseDirectory,
+  extractReleaseFile,
+  releaseArchiveMember,
+} from './release-archive.js'
+
+describe('Release archive directories', () => {
+  it.each([
+    'tar.gz',
+    'zip',
+  ] as const)('keeps the full %s bundle in a fresh directory', async (format) => {
+    const root = mkdtempSync(join(tmpdir(), 'podium-release-tree-'))
+    try {
+      const archive = join(root, 'download')
+      const bytes =
+        format === 'tar.gz' ? piTarFixture() : Buffer.from(piZipFixtures.windows, 'base64')
+      writeFileSync(archive, bytes)
+      await extractReleaseDirectory(archive, format, 'pi', root)
+      for (const [name, body] of Object.entries(PI_FIXTURE_FILES)) {
+        const output = format === 'zip' && name === 'pi/pi' ? 'pi/pi.exe' : name
+        expect(readFileSync(join(root, output), 'utf8')).toBe(body)
+      }
+      if (format === 'zip') expect(statSync(join(root, 'pi/package.json')).mode & 0o777).toBe(0o644)
+      expect(statSync(join(root, format === 'zip' ? 'pi/pi.exe' : 'pi/pi')).mode & 0o777).toBe(
+        0o755,
+      )
+      await expect(extractReleaseDirectory(archive, format, 'pi', root)).rejects.toThrow()
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('keeps empty directories and resource files', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'podium-release-tree-'))
+    try {
+      const archive = join(root, 'download')
+      const directory = gunzipSync(opencodeTarFixture('pi/empty/', '', '5')).subarray(0, -1024)
+      const files = gunzipSync(piTarFixture({ ...PI_FIXTURE_FILES, 'pi/empty-file': '' }))
+      writeFileSync(archive, gzipSync(Buffer.concat([directory, files])))
+      await extractReleaseDirectory(archive, 'tar.gz', 'pi', root)
+      expect(readdirSync(join(root, 'pi/empty'))).toEqual([])
+      expect(readFileSync(join(root, 'pi/empty-file'))).toHaveLength(0)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('refuses unsafe entries, links and duplicates before writing the tree', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'podium-release-tree-'))
+    try {
+      const archive = join(root, 'download')
+      const good = gunzipSync(piTarFixture())
+      const malicious = [
+        ['../outside', '0'],
+        ['pi/../../outside', '0'],
+        ['pi//ambiguous', '0'],
+        ['other-root/file', '0'],
+        ['pi/link', '1'],
+        ['pi/link', '2'],
+        ['pi/pi', '0'],
+      ]
+      for (const [name, type] of malicious) {
+        const entry = gunzipSync(opencodeTarFixture(name, 'malicious', type)).subarray(0, -1024)
+        writeFileSync(
+          archive,
+          gzipSync(Buffer.concat([good.subarray(0, -1024), entry, Buffer.alloc(1024)])),
+        )
+        await expect(extractReleaseDirectory(archive, 'tar.gz', 'pi', root)).rejects.toThrow(
+          'regular member',
+        )
+        expect(readdirSync(root)).toEqual(['download'])
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('refuses a pre-existing directory symlink and unsafe destination roots', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'podium-release-tree-'))
+    try {
+      const archive = join(root, 'download')
+      writeFileSync(archive, piTarFixture())
+      symlinkSync(root, join(root, 'pi'))
+      await expect(extractReleaseDirectory(archive, 'tar.gz', 'pi', root)).rejects.toThrow()
+      for (const member of ['../outside', '/absolute', 'bin/nested', '.', '', 'C:\\outside'])
+        await expect(extractReleaseDirectory(archive, 'tar.gz', member, root)).rejects.toThrow()
+      expect(readdirSync(root).sort()).toEqual(['download', 'pi'])
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+})
 
 describe('Release archive members', () => {
   it('writes just the fixed destination and refuses existing files, links and unsafe outputs', async () => {

@@ -19,7 +19,7 @@ import { piCatalog } from './catalog.js'
 import { piCredentials } from './credentials.js'
 import { piDescriptor } from './descriptor.js'
 import { createPiConversationProvider } from './discovery.js'
-import { piInstall } from './install.js'
+import { piInstall, piManagedInstall } from './install.js'
 import { piPosture } from './posture.js'
 import { observePiState, piStateProvider } from './state.js'
 import { piTranscript } from './transcript.js'
@@ -227,9 +227,7 @@ export const piManifest: AgentManifest = {
   credentials: piCredentials,
   usage: piUsage,
   install: piInstall,
-  managedInstall: unsupported(
-    'Not yet ported to managed installs: Podium has no unattended Pi installer to build on',
-  ),
+  managedInstall: supported(piManagedInstall),
 
   posture: piPosture,
   launch(opts) {

@@ -1,5 +1,5 @@
-import { readFile, stat, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
+import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
 import { gunzip, inflateRaw } from 'node:zlib'
 
@@ -9,6 +9,13 @@ const MAX_MEMBER_BYTES = 512 * 1024 * 1024
 const MAX_ARCHIVE_BYTES = 1024 * 1024 * 1024
 
 export type ReleaseArchiveFormat = 'tar.gz' | 'zip'
+
+interface ArchiveEntry {
+  name: string
+  directory: boolean
+  executable: boolean
+  bytes: Buffer
+}
 
 /**
  * Write one named regular member to a fixed basename in the supplied release
@@ -36,10 +43,60 @@ export async function releaseArchiveMember(
   member: string,
 ): Promise<Buffer> {
   safeName(member)
+  const entries = await archiveEntries(archive, format)
+  const matches = entries.filter((entry) => entry.name === member)
+  const entry = matches[0]
+  if (matches.length !== 1 || !entry || entry.directory || !entry.bytes.length) invalid()
+  return entry.bytes
+}
+
+/**
+ * Keep a standalone bundle's resources beside its executable. Validate the
+ * whole archive before writing, then create a fresh directory under `dir`.
+ * Links, duplicate names and entries outside that directory are refused.
+ */
+export async function extractReleaseDirectory(
+  archive: string,
+  format: ReleaseArchiveFormat,
+  member: string,
+  dir: string,
+): Promise<void> {
+  safeName(member)
+  if (member.includes('/')) invalid()
+  if ((await stat(archive)).size > MAX_ARCHIVE_BYTES) invalid()
+  const entries = await archiveEntries(await readFile(archive), format)
+  const names = new Set<string>()
+  for (const entry of entries) {
+    const name = entry.name.replace(/\/$/, '')
+    if (
+      (name !== member && !name.startsWith(`${member}/`)) ||
+      (name === member && !entry.directory) ||
+      names.has(name)
+    )
+      invalid()
+    names.add(name)
+  }
+  if (!entries.some((entry) => !entry.directory)) invalid()
+  // Non-recursive: an existing directory or symlink cannot redirect writes.
+  await mkdir(join(dir, member), { mode: 0o755 })
+  for (const entry of entries) {
+    const path = join(dir, entry.name)
+    if (entry.directory) await mkdir(path, { recursive: true, mode: 0o755 })
+    else {
+      await mkdir(dirname(path), { recursive: true, mode: 0o755 })
+      await writeFile(path, entry.bytes, { flag: 'wx', mode: entry.executable ? 0o755 : 0o644 })
+    }
+  }
+}
+
+async function archiveEntries(
+  archive: Buffer,
+  format: ReleaseArchiveFormat,
+): Promise<ArchiveEntry[]> {
   if (archive.length > MAX_ARCHIVE_BYTES) invalid()
   return format === 'tar.gz'
-    ? tarMember(await unzipGzip(archive, { maxOutputLength: MAX_ARCHIVE_BYTES }), member)
-    : zipMember(archive, member)
+    ? tarEntries(await unzipGzip(archive, { maxOutputLength: MAX_ARCHIVE_BYTES }))
+    : zipEntries(archive)
 }
 
 function invalid(): never {
@@ -53,7 +110,10 @@ function safeName(name: string): void {
     name.includes('\\') ||
     name.includes(':') ||
     name.startsWith('/') ||
-    name.split('/').some((part) => part === '..' || part === '.')
+    name
+      .replace(/\/$/, '')
+      .split('/')
+      .some((part) => !part || part === '..' || part === '.')
   )
     invalid()
 }
@@ -68,8 +128,8 @@ function octal(bytes: Buffer): number {
   return Number.parseInt(value, 8)
 }
 
-function tarMember(archive: Buffer, member: string): Buffer {
-  let binary: Buffer | undefined
+function tarEntries(archive: Buffer): ArchiveEntry[] {
+  const entries: ArchiveEntry[] = []
   let offset = 0
   while (offset + 512 <= archive.length) {
     const header = archive.subarray(offset, offset + 512)
@@ -87,18 +147,21 @@ function tarMember(archive: Buffer, member: string): Buffer {
       invalid()
     const end = offset + 512 + size
     if (end > archive.length) invalid()
-    if (name === member) {
-      if (!regular || binary || size === 0) invalid()
-      binary = archive.subarray(offset + 512, end)
-    }
+    if ((!regular && size !== 0) || (regular && name.endsWith('/'))) invalid()
+    entries.push({
+      name,
+      directory: !regular,
+      executable: (octal(header.subarray(100, 108)) & 0o111) !== 0,
+      bytes: archive.subarray(offset + 512, end),
+    })
     offset += 512 + Math.ceil(size / 512) * 512
   }
-  if (!binary || archive.subarray(offset).some((byte) => byte !== 0)) invalid()
-  return binary
+  if (!entries.length || archive.subarray(offset).some((byte) => byte !== 0)) invalid()
+  return entries
 }
 
 /** Central directory sizes also cover ZIP members using data descriptors. */
-async function zipMember(archive: Buffer, member: string): Promise<Buffer> {
+async function zipEntries(archive: Buffer): Promise<ArchiveEntry[]> {
   let end = archive.length - 22
   const first = Math.max(0, end - 65535)
   while (end >= first) {
@@ -122,7 +185,8 @@ async function zipMember(archive: Buffer, member: string): Promise<Buffer> {
     central + archive.readUInt32LE(end + 12) !== end
   )
     invalid()
-  let binary: Buffer | undefined
+  const entries: ArchiveEntry[] = []
+  let totalBytes = 0
   for (let index = 0; index < count; index++) {
     if (central + 46 > end || archive.readUInt32LE(central) !== 0x02014b50) invalid()
     const flags = archive.readUInt16LE(central + 8)
@@ -165,17 +229,18 @@ async function zipMember(archive: Buffer, member: string): Promise<Buffer> {
       data + compressedSize > centralStart
     )
       invalid()
-    if (name === member) {
-      if (binary || !size || name.endsWith('/') || type === 0o040000) invalid()
-      const compressed = archive.subarray(data, data + compressedSize)
-      binary =
-        method === 0
-          ? compressed
-          : await unzipDeflate(compressed, { maxOutputLength: MAX_MEMBER_BYTES })
-      if (binary.length !== size) invalid()
-    }
+    const directory = name.endsWith('/') || type === 0o040000
+    totalBytes += size
+    if (totalBytes > MAX_ARCHIVE_BYTES || (directory && size !== 0)) invalid()
+    const compressed = archive.subarray(data, data + compressedSize)
+    const bytes =
+      method === 0
+        ? compressed
+        : await unzipDeflate(compressed, { maxOutputLength: MAX_MEMBER_BYTES })
+    if (bytes.length !== size) invalid()
+    entries.push({ name, directory, executable: (mode & 0o111) !== 0, bytes })
     central = next
   }
-  if (!binary || central !== end) invalid()
-  return binary
+  if (!entries.length || central !== end) invalid()
+  return entries
 }
