@@ -209,6 +209,12 @@ describe('grant reads per change, a running session on an issue: pinned at 5 and
       ISSUE_UPDATE,
     )
     expectGrantReads(counts, 0)
+    for (const tally of [counts.small, counts.large]) {
+      const marks = [...tally.byQuery].filter(([key]) =>
+        key.includes('coalesce(max("id"), 0) from "sync_capture"'),
+      )
+      expect(marks.reduce((sum, [, count]) => sum + count, 0)).toBe(1)
+    }
   })
 
   it('an agentObservation frame reads no grant', async () => {
@@ -241,6 +247,8 @@ const RENAME = 21
 // POD-6864: re-measured on integrate/6253-sync-log 964ad37114 at both sizes: 78 -> 79.
 // POD-6920: derived change capture: 79 -> 66. The issue's sessions watch only
 // its reference columns, so a priority edit rebuilds none of them: 66 -> 57.
-const ISSUE_UPDATE = 57
+// The authority now marks the transaction's pre-existing capture before applying
+// the command (captureMark, POD-7100): one scalar read, not another grant read.
+const ISSUE_UPDATE = 58
 // POD-6920: derived change capture: 24 -> 17.
 const OBSERVATION = 17

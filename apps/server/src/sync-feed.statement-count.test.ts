@@ -19,7 +19,13 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { asMachineId, firstAdminMemberId, type IssueId, type UserId } from '@podium/model'
+import {
+  asMachineId,
+  firstAdminMemberId,
+  type IssueId,
+  noticeRowId,
+  type UserId,
+} from '@podium/model'
 import {
   CAP_SYNC_HTTP_V1,
   CLIENT_WIRE_VERSION,
@@ -399,7 +405,7 @@ describe('sync worker: pinned statement counts at 5 and 200', () => {
       expect(rows.filter((row) => row.entity === 'issueProjection')).toHaveLength(size)
       expect(rows.filter((row) => row.entity === 'session')).toHaveLength(size)
       expect(rows.filter((row) => row.entity === 'inboxNotice')).toMatchObject([
-        { entity: 'inboxNotice', entityId: 'ntc_statement_bootstrap' },
+        { entity: 'inboxNotice', entityId: noticeRowId(_w.owner, 'ntc_statement_bootstrap') },
       ])
     },
     true,
