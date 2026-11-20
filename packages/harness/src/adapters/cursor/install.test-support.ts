@@ -25,14 +25,20 @@ export const CURSOR_FIXTURE_FILES = {
   'dist-package/node': '#!/bin/sh\necho bundled node\n',
   'dist-package/index.js': '// Cursor bundle\n',
   'dist-package/resources/tool.txt': 'bundled resource\n',
+  // The real bundle uses GNU long-name metadata for tree-sitter resources.
+  'dist-package/node_modules/tree-sitter/build/Release/.deps/Release/obj.target/tree_sitter_runtime_binding/src/binding.o.d':
+    'native resource\n',
 }
 
 export function cursorTarFixture(files: Record<string, string> = CURSOR_FIXTURE_FILES): Buffer {
   return gzipSync(
     Buffer.concat([
-      ...Object.entries(files).map(([name, body]) =>
+      ...Object.entries(files).flatMap(([name, body]) => [
+        ...(Buffer.byteLength(name) > 100
+          ? [gunzipSync(opencodeTarFixture('././@LongLink', `${name}\0`, 'L')).subarray(0, -1024)]
+          : []),
         gunzipSync(opencodeTarFixture(name, body)).subarray(0, -1024),
-      ),
+      ]),
       Buffer.alloc(1024),
     ]),
   )

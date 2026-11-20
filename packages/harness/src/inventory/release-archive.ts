@@ -131,6 +131,7 @@ function octal(bytes: Buffer): number {
 function tarEntries(archive: Buffer): ArchiveEntry[] {
   const entries: ArchiveEntry[] = []
   let offset = 0
+  let longName: string | undefined
   while (offset + 512 <= archive.length) {
     const header = archive.subarray(offset, offset + 512)
     if (header.every((byte) => byte === 0)) break
@@ -138,25 +139,49 @@ function tarEntries(archive: Buffer): ArchiveEntry[] {
     for (let i = 0; i < 512; i++) checksum += i >= 148 && i < 156 ? 32 : (header[i] ?? 0)
     if (checksum !== octal(header.subarray(148, 156))) invalid()
     const prefix = text(header.subarray(345, 500))
-    const name = `${prefix ? `${prefix}/` : ''}${text(header.subarray(0, 100))}`
-    safeName(name)
+    const headerName = `${prefix ? `${prefix}/` : ''}${text(header.subarray(0, 100))}`
     const size = octal(header.subarray(124, 136))
     const type = header[156]
-    const regular = type === 0 || type === 48
-    if ((!regular && type !== 53) || !Number.isSafeInteger(size) || size > MAX_MEMBER_BYTES)
-      invalid()
     const end = offset + 512 + size
-    if (end > archive.length) invalid()
+    if (!Number.isSafeInteger(size) || size > MAX_MEMBER_BYTES || end > archive.length) invalid()
+    const bytes = archive.subarray(offset + 512, end)
+    offset += 512 + Math.ceil(size / 512) * 512
+    // GNU tar emits a name record immediately before paths over 100 bytes.
+    // It is metadata, never an extracted member or a link. Validate the full
+    // effective name with the same checks as every ordinary path.
+    if (type === 76) {
+      if (
+        longName !== undefined ||
+        headerName !== '././@LongLink' ||
+        size < 2 ||
+        size > 4096 ||
+        bytes[size - 1] !== 0 ||
+        bytes.subarray(0, -1).includes(0)
+      )
+        invalid()
+      longName = bytes.subarray(0, -1).toString('utf8')
+      safeName(longName)
+      continue
+    }
+    const name = longName ?? headerName
+    longName = undefined
+    safeName(name)
+    const regular = type === 0 || type === 48
+    if (!regular && type !== 53) invalid()
     if ((!regular && size !== 0) || (regular && name.endsWith('/'))) invalid()
     entries.push({
       name,
       directory: !regular,
       executable: (octal(header.subarray(100, 108)) & 0o111) !== 0,
-      bytes: archive.subarray(offset + 512, end),
+      bytes,
     })
-    offset += 512 + Math.ceil(size / 512) * 512
   }
-  if (!entries.length || archive.subarray(offset).some((byte) => byte !== 0)) invalid()
+  if (
+    longName !== undefined ||
+    !entries.length ||
+    archive.subarray(offset).some((byte) => byte !== 0)
+  )
+    invalid()
   return entries
 }
 

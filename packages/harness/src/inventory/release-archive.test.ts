@@ -25,6 +25,74 @@ import {
 } from './release-archive.js'
 
 describe('Release archive directories', () => {
+  const longPath = `pi/${'long-directory/'.repeat(8)}resource.txt`
+  const rawMember = (name: string, body: string, type = '0') =>
+    gunzipSync(opencodeTarFixture(name, body, type)).subarray(0, -1024)
+  const longRecord = (name: string) => rawMember('././@LongLink', `${name}\0`, 'L')
+
+  it('keeps GNU long file and directory names as published by Cursor', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'podium-release-longnames-'))
+    try {
+      const archive = join(root, 'download')
+      const directory = longPath.slice(0, longPath.lastIndexOf('/') + 1)
+      writeFileSync(
+        archive,
+        gzipSync(
+          Buffer.concat([
+            longRecord(directory),
+            rawMember(directory, '', '5'),
+            longRecord(longPath),
+            rawMember(longPath, 'native resource'),
+            Buffer.alloc(1024),
+          ]),
+        ),
+      )
+      await extractReleaseDirectory(archive, 'tar.gz', 'pi', root)
+      expect(readFileSync(join(root, longPath), 'utf8')).toBe('native resource')
+      expect(
+        (await releaseArchiveMember(readFileSync(archive), 'tar.gz', longPath)).toString(),
+      ).toBe('native resource')
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('refuses unsafe, linked, duplicate, malformed and orphan GNU names before writing', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'podium-release-longnames-'))
+    try {
+      const archive = join(root, 'download')
+      const good = rawMember('pi/pi', 'binary')
+      const member = rawMember(longPath, 'native resource')
+      const malicious = [
+        ...[
+          '../escape',
+          'pi/../../escape',
+          '/absolute',
+          'pi//ambiguous',
+          'C:\\outside',
+          'other-root/resource',
+        ].map((name) => Buffer.concat([longRecord(name), member])),
+        Buffer.concat([longRecord('pi/pi'), rawMember('truncated', 'duplicate')]),
+        Buffer.concat([longRecord(longPath), rawMember('truncated', '', '2')]),
+        Buffer.concat([longRecord(longPath), rawMember('truncated', '', '1')]),
+        Buffer.concat([longRecord(longPath), longRecord(longPath), member]),
+        longRecord(longPath),
+        Buffer.concat([rawMember('././@LongLink', longPath, 'L'), member]),
+        Buffer.concat([longRecord('pi/one\0two'), member]),
+        Buffer.concat([longRecord(`pi/${'a'.repeat(4096)}`), member]),
+      ]
+      for (const bad of malicious) {
+        writeFileSync(archive, gzipSync(Buffer.concat([good, bad, Buffer.alloc(1024)])))
+        await expect(extractReleaseDirectory(archive, 'tar.gz', 'pi', root)).rejects.toThrow(
+          'regular member',
+        )
+        expect(readdirSync(root)).toEqual(['download'])
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   it.each([
     'tar.gz',
     'zip',
