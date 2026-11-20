@@ -510,7 +510,8 @@ describe('daemon frames that read an observation checkpoint: pinned at 5 and 200
     for (const tally of [counts.small, counts.large])
       expect(
         [...tally.byQuery].reduce(
-          (n, [sql, count]) => (/^insert into "sessions"/i.test(sql) ? n + count : n),
+          // Postgres wraps the same row upsert in its change-capture CTE.
+          (n, [sql, count]) => (/\binsert into "sessions"/i.test(sql) ? n + count : n),
           0,
         ),
       ).toBe(1)
