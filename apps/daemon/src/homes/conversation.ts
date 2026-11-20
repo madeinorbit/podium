@@ -18,6 +18,15 @@
  * - Then the harness's own bookkeeping (`afterPlace`: Codex forgets the target's
  *   index row, which would otherwise win over the file).
  *
+ * ON PODIUM'S SIDE (managed installs §4.3, §4.6 item 4) a credential Podium
+ * passes in runs in the Podium home, not the person's folder. The server does
+ * not know the machine's installs, so it names `default` with `toDelivery:
+ * env`; with a managed install of the harness this daemon places the
+ * conversation in the Podium home instead. A session that ran in the person's
+ * folder before the managed install appeared continues from there the same
+ * way, and a switch between two passed-in credentials stays in one home and
+ * copies nothing.
+ *
  * Nothing secret is read or written: a conversation file holds no credential,
  * and the request names credentials by id only.
  */
@@ -37,10 +46,13 @@ import {
   type ConversationPlacement,
   type ConversationPrepareRequestMessage,
   DEFAULT_HOME_ID,
+  HomeHarness,
+  parsePodiumHomeId,
+  podiumHomeId,
 } from '@podium/protocol'
 import type { ControlHandlers } from '../control/context'
 import { resolveManagementAccount } from '../harness-management'
-import type { HarnessHome } from './registry'
+import { type HarnessHome, isPodiumHome } from './registry'
 
 const log = createLogger('daemon:conversation')
 
@@ -49,15 +61,42 @@ export const NO_CREDENTIAL = 'none'
 
 export type ConversationPrepareRequest = Pick<
   ConversationPrepareRequestMessage,
-  'agentKind' | 'cwd' | 'resume' | 'toHomeId' | 'account' | 'fromAccount' | 'modelProvider'
+  | 'agentKind'
+  | 'cwd'
+  | 'resume'
+  | 'toHomeId'
+  | 'toDelivery'
+  | 'account'
+  | 'fromAccount'
+  | 'modelProvider'
 >
 
 export interface ConversationDeps {
   /** The account HOME and machine env the harness's roots resolve from. */
   account: { home: string; env: HarnessEnvironment }
   /** Podium's homes on this machine; absent: only the default directory. */
-  homes?: { list(): readonly HarnessHome[] }
+  homes?: {
+    list(): readonly HarnessHome[]
+    ensurePodiumHome?(harness: HomeHarness): { home: HarnessHome }
+  }
+  /** Whether the machine has a managed install of `harness` (§4.2). Absent: none. */
+  managedInstall?: (harness: HomeHarness) => boolean
   now?: () => number
+}
+
+/**
+ * The home a request's conversation goes to on this machine: `toHomeId`, or
+ * the Podium home for a passed-in credential on Podium's side (§4.3).
+ */
+export function placementHomeId(
+  deps: ConversationDeps,
+  request: ConversationPrepareRequest,
+): string {
+  if (request.toHomeId !== DEFAULT_HOME_ID || request.toDelivery !== 'env') return request.toHomeId
+  const harness = HomeHarness.safeParse(request.agentKind)
+  if (!harness.success || !deps.managedInstall?.(harness.data)) return request.toHomeId
+  deps.homes?.ensurePodiumHome?.(harness.data)
+  return podiumHomeId(harness.data)
 }
 
 export type ConversationPrepared =
@@ -78,7 +117,8 @@ function rootsFor(kind: string, deps: ConversationDeps): HomeRoot[] {
     if (home.harness !== kind) continue
     roots.push({
       homeId: home.homeId,
-      credentialId: home.credentialId,
+      // The Podium home belongs to no one credential: every passed-in one runs there.
+      ...(isPodiumHome(home) ? {} : { credentialId: home.credentialId }),
       stateDir: withHomeScope(kind, account, home.dir).roots.state,
     })
   }
@@ -97,9 +137,11 @@ export async function prepareConversation(
   if (!transcript?.locateInHome) {
     return { ok: false, error: `${request.agentKind} does not say where its conversations are` }
   }
+  const toHomeId = placementHomeId(deps, request)
   const roots = rootsFor(request.agentKind, deps)
-  const target = roots.find((root) => root.homeId === request.toHomeId)
-  if (!target) return { ok: false, error: `the home ${request.toHomeId} is not on this machine` }
+  const target = roots.find((root) => root.homeId === toHomeId)
+  if (!target) return { ok: false, error: `the home ${toHomeId} is not on this machine` }
+  const inPodiumHome = parsePodiumHomeId(toHomeId) !== null
 
   let source: { root: HomeRoot; path: string; mtimeMs: number } | undefined
   for (const root of roots) {
@@ -127,6 +169,7 @@ export async function prepareConversation(
     ? await carryRecords(source.path, transcript.carryRecord, {
         accountChanged,
         ...(request.modelProvider !== undefined ? { modelProvider: request.modelProvider } : {}),
+        ...(inPodiumHome ? { inPodiumHome } : {}),
       })
     : undefined
 
@@ -175,7 +218,7 @@ export async function prepareConversation(
 async function carryRecords(
   path: string,
   carry: NonNullable<HarnessHandoffTranscript['carryRecord']>,
-  change: { accountChanged: boolean; modelProvider?: string },
+  change: { accountChanged: boolean; modelProvider?: string; inPodiumHome?: boolean },
 ): Promise<{ text: string; altered: boolean; dropped: number }> {
   const lines = (await readFile(path, 'utf8')).split('\n')
   const kept: string[] = []
@@ -226,10 +269,12 @@ export const conversationHandlers: Pick<ControlHandlers, 'conversationPrepareReq
           reply({ ok: false, error: 'this machine has no account home' })
           return
         }
+        const snapshot = account.snapshot
         const result = await prepareConversation(
           {
             account: { home: account.home, env: account.machineEnv },
             ...(ctx.homes ? { homes: ctx.homes } : {}),
+            managedInstall: (harness) => snapshot?.managed?.has(harness) ?? false,
           },
           msg,
         )
@@ -238,6 +283,7 @@ export const conversationHandlers: Pick<ControlHandlers, 'conversationPrepareReq
             sessionId: msg.sessionId,
             placed: result.placed,
             toHomeId: msg.toHomeId,
+            ...(msg.toDelivery ? { toDelivery: msg.toDelivery } : {}),
             droppedReasoning: result.droppedReasoning,
           })
         }

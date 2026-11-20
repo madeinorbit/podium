@@ -144,6 +144,11 @@ export interface DaemonContext {
    * session that names one is refused.
    */
   homes?: import('../homes/registry').HomeRegistry
+  /**
+   * The Podium home of each harness (managed installs §4.3): made, filled and
+   * linked from when a managed install appears; filled again on request.
+   */
+  podiumHomes?: import('../homes/podium-home').PodiumHomes
   /** Codex's trust for Podium's launch-flag hooks in Podium homes (§10). */
   codexHookTrust?: import('../homes/codex-hook-trust').CodexHookTrust
   /**

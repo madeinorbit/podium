@@ -3,6 +3,17 @@
 /** The measured files a second Codex login shares with the person's default. */
 export const codexHomeSharing = ['codex', ['config.toml', 'AGENTS.md', 'skills']] as const
 
+/**
+ * What filling the Podium home copies from the person's Codex folder
+ * (managed installs §4.5): instructions, skills and custom prompts (Codex's
+ * commands), and of `config.toml` only its `[mcp_servers.*]` tables. Never the
+ * login, hooks, trust, update settings or conversations.
+ */
+export const codexPodiumHomeFill = [
+  'codex',
+  { entries: ['AGENTS.md', 'skills', 'prompts'], configTables: ['mcp_servers'] },
+] as const
+
 /** A process and its command line, as `ps` prints it. */
 export interface RunningProcess {
   pid: number

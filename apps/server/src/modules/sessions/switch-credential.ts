@@ -90,7 +90,7 @@ export type Placement =
 export async function placeConversation(
   port: ConversationPlacementPort,
   session: Pick<SwitchSession, 'sessionId' | 'agentKind' | 'machineId' | 'cwd' | 'resume'>,
-  to: { credentialId: CredentialId | null; homeId: string },
+  to: { credentialId: CredentialId | null; homeId: string; delivery?: 'env' | 'home' },
   fromCredentialId?: CredentialId | null,
   modelProvider?: string,
 ): Promise<Placement> {
@@ -104,6 +104,7 @@ export async function placeConversation(
       cwd: session.cwd,
       resume: session.resume,
       toHomeId: to.homeId,
+      ...(to.delivery !== undefined ? { toDelivery: to.delivery } : {}),
       account: accountOf(to.credentialId),
       ...(fromCredentialId !== undefined ? { fromAccount: accountOf(fromCredentialId) } : {}),
       ...(modelProvider !== undefined ? { modelProvider } : {}),
@@ -187,6 +188,8 @@ interface PendingSwitch {
   from: CredentialId | null
   to: CredentialId | null
   toHomeId: string
+  /** How the new credential reaches the harness (see `toDelivery`). */
+  toDelivery?: 'env' | 'home'
   actorUserId: UserId
 }
 
@@ -235,7 +238,13 @@ export class CredentialSwitcher {
       to,
       when: standing === 'not-running' ? 'next-wake' : standing === 'in-turn' ? 'turn-end' : 'now',
     })
-    const pending: PendingSwitch = { from, to, toHomeId, actorUserId }
+    const pending: PendingSwitch = {
+      from,
+      to,
+      toHomeId,
+      ...(plan.delivery ? { toDelivery: plan.delivery.kind } : {}),
+      actorUserId,
+    }
 
     if (standing === 'not-running') {
       // Placed now while the machine is here; otherwise the wake places it.
@@ -336,7 +345,11 @@ export class CredentialSwitcher {
     return await placeConversation(
       this.deps.placement,
       session,
-      { credentialId: pending.to, homeId: pending.toHomeId },
+      {
+        credentialId: pending.to,
+        homeId: pending.toHomeId,
+        ...(pending.toDelivery ? { delivery: pending.toDelivery } : {}),
+      },
       pending.from,
       await this.providerChange(session.agentKind, pending),
     )

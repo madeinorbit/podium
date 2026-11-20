@@ -147,6 +147,79 @@ export function tomlBasicString(value: string): string {
   return `${out}"`
 }
 
+/**
+ * The tables under `root` (`['mcp_servers']`), each as its own text: a header
+ * line through the line before the next header, comments and all. `name` is
+ * the first key below `root`, so `[mcp_servers.x]` and `[mcp_servers.x.env]`
+ * are both `x`. A key under `root` written outside such a header (a dotted
+ * key or an inline table) is not a form this lifts: a reason, nothing lifted.
+ */
+export function tomlTablesUnder(
+  body: string,
+  root: readonly string[],
+): { tables: { name: string; text: string }[] } | { reason: string } {
+  const scanned = scanOrReason(body)
+  if ('reason' in scanned) return scanned
+  const tables: { name: string; text: string }[] = []
+  const statements = scanned.statements
+  for (const [index, s] of statements.entries()) {
+    if (s.kind === 'pair' && isPrefix(root, s.path) && s.table.length <= root.length) {
+      return { reason: `${dottedKey(s.path)} is written in a form this copy does not lift` }
+    }
+    if (s.kind === 'pair') continue
+    if (!isPrefix(root, s.path) || s.path.length <= root.length) continue
+    const end = nextHeaderStart(statements, index) ?? body.length
+    tables.push({ name: s.path[root.length] as string, text: body.slice(s.start, end) })
+  }
+  return { tables }
+}
+
+/**
+ * `body` with the tables under `root` of every name in `tables` replaced by
+ * `tables`, which go at the end. A table of another name stays where it is.
+ * When the body already holds exactly those tables it is returned as it is,
+ * so the same call on its own result changes nothing.
+ */
+export function planTomlTablesReplace(
+  body: string,
+  root: readonly string[],
+  tables: readonly { name: string; text: string }[],
+): { next: string } | { reason: string } {
+  const present = tomlTablesUnder(body, root)
+  if ('reason' in present) return present
+  const names = new Set(tables.map((table) => table.name))
+  // Already there as given: the file stays exactly as it is, wherever they sit.
+  const same = (a: readonly { name: string; text: string }[]) =>
+    a.map((table) => `${table.name}\0${table.text.trimEnd()}`).join('\0\0')
+  if (same(present.tables.filter((table) => names.has(table.name))) === same(tables)) {
+    return { next: body }
+  }
+  const scanned = scanOrReason(body)
+  if ('reason' in scanned) return scanned
+  let kept = ''
+  let cursor = 0
+  const statements = scanned.statements
+  for (const [index, s] of statements.entries()) {
+    if (s.kind === 'pair' || !isPrefix(root, s.path) || s.path.length <= root.length) continue
+    if (!names.has(s.path[root.length] as string)) continue
+    const end = nextHeaderStart(statements, index) ?? body.length
+    kept += body.slice(cursor, s.start)
+    cursor = end
+  }
+  kept += body.slice(cursor)
+  const nl = body.includes('\r\n') ? '\r\n' : '\n'
+  const head = kept.trimEnd()
+  const lifted = tables.map((table) => table.text.trimEnd()).join(`${nl}${nl}`)
+  if (lifted.length === 0) return { next: head.length > 0 ? `${head}${nl}` : '' }
+  return { next: `${head}${head.length > 0 ? `${nl}${nl}` : ''}${lifted}${nl}` }
+}
+
+/** Where the first table header after statement `index` starts. */
+function nextHeaderStart(statements: readonly Statement[], index: number): number | undefined {
+  for (const later of statements.slice(index + 1)) if (later.kind !== 'pair') return later.start
+  return undefined
+}
+
 interface ArrayValue {
   kind: 'array'
   /** Offsets of `[` and `]`. */
@@ -161,8 +234,8 @@ interface ArrayValue {
 type Value = ArrayValue | { kind: 'string'; text: string } | { kind: 'other' }
 
 type Statement =
-  /** `[table]` or `[[table]]`; `lineEnd` is just past its line. */
-  | { kind: 'header' | 'array-header'; path: string[]; lineEnd: number }
+  /** `[table]` or `[[table]]`; `start` is its `[`, `lineEnd` just past its line. */
+  | { kind: 'header' | 'array-header'; path: string[]; start: number; lineEnd: number }
   /** `key = value`, with the key's full path and the table it sits in. */
   | { kind: 'pair'; path: string[]; table: string[]; value: Value }
 
@@ -190,14 +263,15 @@ class Scanner {
     for (;;) {
       this.skipBlank()
       if (this.pos >= this.src.length) return out
+      const start = this.pos
       if (this.src.startsWith('[[', this.pos)) {
         this.pos += 2
         table = this.headerKey(']]')
-        out.push({ kind: 'array-header', path: table, lineEnd: this.pos })
+        out.push({ kind: 'array-header', path: table, start, lineEnd: this.pos })
       } else if (this.src[this.pos] === '[') {
         this.pos += 1
         table = this.headerKey(']')
-        out.push({ kind: 'header', path: table, lineEnd: this.pos })
+        out.push({ kind: 'header', path: table, start, lineEnd: this.pos })
       } else {
         const key = this.key()
         this.skipSpaces()

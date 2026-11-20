@@ -161,6 +161,7 @@ import { DaemonHarnessRuntime } from './harness-runtime'
 import { withHarnessVersionReporting } from './harness-version-reporting'
 import { probeCodexLaunchHookTrust } from './homes/codex-hook-probe'
 import { CodexHookTrust } from './homes/codex-hook-trust'
+import { PodiumHomes, personFolderOf } from './homes/podium-home'
 import { homeQuotaReader } from './homes/probes'
 import { HomeRegistry, homeDiscoveryRoots } from './homes/registry'
 import { homeExecutable, stopHome, systemProcessPorts } from './homes/stop'
@@ -212,6 +213,7 @@ import {
   driverHarnessContextFrom,
   engineSessionHarnessContext,
   sessionHomeSide,
+  snapshotHomeFacts,
 } from './session-harness-context'
 import { dropInstallsOfLostSessions, ledgerSessionInstalls } from './session-installs'
 import { createSessionObservers } from './session-observers'
@@ -512,6 +514,9 @@ export async function createDaemonHostRuntime(args: {
    */
   const credentialHome = accountHome?.path ?? homeDir ?? machineHome
   const harnessesDir = opts.harnessesDir ?? defaultHarnessesDir()
+  // Made below, once the home registry exists; a wave that settles before
+  // then is followed by the next one.
+  let podiumHomes: PodiumHomes | undefined
   const harnessRuntime = opts.launch
     ? undefined
     : new DaemonHarnessRuntime({
@@ -520,6 +525,14 @@ export async function createDaemonHostRuntime(args: {
         // The install ledger, read on every inventory wave (managed installs
         // §7), so a release the CLI publishes appears without a restart.
         managedInstalls: managedInstallsReader(harnessesDir),
+        // A managed install that appeared: its Podium home is made, filled
+        // from the person's folder and linked from the sign-in folders (§4.3).
+        onSettled: (snapshot) => {
+          if (!podiumHomes || !snapshot.managed || snapshot.managed.size === 0) return
+          podiumHomes
+            .reconcile((harness) => snapshot.managed?.has(harness) ?? false)
+            .catch((err: unknown) => log.warn('the Podium home could not be made ready', { err }))
+        },
       })
   /**
    * WHICH INSTALL EACH SESSION RUNS (managed installs §6.2), in the same
@@ -723,6 +736,9 @@ export async function createDaemonHostRuntime(args: {
       await rm(probeHome, { recursive: true, force: true })
     },
   })
+  /** What the last settled wave says of managed installs (§4.2), for callers
+   *  with no snapshot in hand. */
+  const settledHomeFacts = () => snapshotHomeFacts(harnessRuntime?.settled() ?? {})
   const homes = new HomeRegistry({
     root: homesRoot,
     beforeRemove: (home) =>
@@ -733,7 +749,7 @@ export async function createDaemonHostRuntime(args: {
             .filter(
               ([sessionId, session]) =>
                 session.harnessContext?.harnessHome?.id === homeId ||
-                ctx.access.homeIdOf(sessionId) === homeId,
+                ctx.access.homeIdOf(sessionId, settledHomeFacts()) === homeId,
             )
             .map(([sessionId]) => sessionId),
         // The daemon's own decision, not the server's kill: so it says the
@@ -1252,6 +1268,25 @@ export async function createDaemonHostRuntime(args: {
   // Close the late-bound observer loop: observer setup from here on reads the
   // session's one TerminalScreen model.
   daemonCtx = ctx
+  // The Podium home of each harness (managed installs §4.3): filled from the
+  // person's own folder, read through the account the daemon manages.
+  podiumHomes = new PodiumHomes({
+    homes,
+    personFolder: async (harness) => {
+      const account = await resolveManagementAccount(ctx)
+      return account
+        ? personFolderOf(harness, { home: account.home, env: account.machineEnv })
+        : undefined
+    },
+  })
+  ctx.podiumHomes = podiumHomes
+  // A wave that settled before the service existed: catch up on it now.
+  const settledAtStart = harnessRuntime?.settled()
+  if (settledAtStart?.managed && settledAtStart.managed.size > 0) {
+    podiumHomes
+      .reconcile((harness) => settledAtStart.managed?.has(harness) ?? false)
+      .catch((err: unknown) => log.warn('the Podium home could not be made ready', { err }))
+  }
   /**
    * Client terminals (POD-2059), built here and put on the CONTEXT as well as
    * into the opencode host: `sessionPriority` (the viewer signal its idle clock
@@ -1774,7 +1809,7 @@ export async function createDaemonHostRuntime(args: {
           return harnessInstallationFor(
             snapshot,
             agent as BuiltinHarnessKind,
-            sessionHomeSide(ctx, sessionId, agent),
+            sessionHomeSide(ctx, sessionId, agent, snapshotHomeFacts(snapshot)),
           )?.executable
         } catch {
           return undefined

@@ -14,9 +14,16 @@
  *
  * Owner-only (0700) all the way down from the homes directory: a home holds a
  * login, and other users on the machine have no business listing whose.
+ *
+ * THE PODIUM HOME (managed installs §4.3) sits beside them,
+ * `<stateDir>/homes/podium/<harness>/`: one per harness, for every credential
+ * Podium passes in once the machine has a managed install. It belongs to no
+ * credential (`credentialId` is `podium`), so credential removal never names
+ * it, and `remove` refuses it unless the caller says the person confirmed
+ * removing it on its own.
  */
 
-import { existsSync, lstatSync, readdirSync } from 'node:fs'
+import { chmodSync, existsSync, lstatSync, mkdirSync, readdirSync } from 'node:fs'
 import { chmod, mkdir, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import {
@@ -24,13 +31,17 @@ import {
   HOME_HARNESSES,
   type HomeHarness,
   homeIdFor,
+  PODIUM_HOME_OWNER,
   parseHomeId,
+  parsePodiumHomeId,
+  podiumHomeId,
 } from '@podium/protocol'
 
 /** One home Podium created. */
 export interface HarnessHome {
-  /** `<credentialId>:<harness>`. */
+  /** `<credentialId>:<harness>`, or `podium:<harness>` for the Podium home. */
   readonly homeId: string
+  /** The credential the home keeps the login of; `podium` for the Podium home. */
   readonly credentialId: string
   readonly harness: HomeHarness
   /** The directory the harness's variable names. */
@@ -79,24 +90,47 @@ export class HomeRegistry {
     return { home, created }
   }
 
+  /**
+   * Make sure the Podium home of `harness` exists. Synchronous: the place that
+   * decides a session's home (`sessionHomeFor`) is.
+   */
+  ensurePodiumHome(harness: HomeHarness): { home: HarnessHome; created: boolean } {
+    if (!(HOME_HARNESSES as readonly string[]).includes(harness)) {
+      throw new Error(`${harness} has no home a variable can move, so it has no Podium home`)
+    }
+    const home = this.podiumHomeFor(harness)
+    const created = !existsSync(home.dir)
+    for (const dir of [this.options.root, join(this.options.root, PODIUM_HOME_OWNER), home.dir]) {
+      mkdirSync(dir, { recursive: true, mode: OWNER_ONLY })
+      chmodSync(dir, OWNER_ONLY)
+    }
+    return { home, created }
+  }
+
+  /** The Podium home of `harness`, when it exists here. */
+  podiumHome(harness: HomeHarness): HarnessHome | undefined {
+    const home = this.podiumHomeFor(harness)
+    return isDirectory(home.dir) ? home : undefined
+  }
+
   /** The home `homeId` names, when it exists here. Never `default`. */
   get(homeId: string): HarnessHome | undefined {
+    const podium = parsePodiumHomeId(homeId)
+    if (podium) return this.podiumHome(podium)
     const parsed = parseHomeId(homeId)
     if (!parsed) return undefined
     const home = this.homeFor(parsed.credentialId, parsed.harness, homeId)
     return isDirectory(home.dir) ? home : undefined
   }
 
-  /** Every home that exists here. */
+  /** Every home that exists here, the Podium homes included. */
   list(): HarnessHome[] {
     const homes: HarnessHome[] = []
     for (const credentialId of readNames(this.options.root)) {
       for (const harness of readNames(join(this.options.root, credentialId))) {
         const homeId = `${credentialId}:${harness}`
-        const parsed = parseHomeId(homeId)
-        if (!parsed) continue
-        const home = this.homeFor(parsed.credentialId, parsed.harness, homeId)
-        if (isDirectory(home.dir)) homes.push(home)
+        const home = this.get(homeId)
+        if (home) homes.push(home)
       }
     }
     return homes
@@ -106,12 +140,26 @@ export class HomeRegistry {
    * Stop what runs in the home, then delete it. `removed: false` when there
    * was no such home: the caller asked for it to be gone, and it is.
    * `default` is refused: Podium never removes the harness's own directory.
+   * The Podium home is refused too, unless `podiumHomeConfirmed`: it holds
+   * every passed-in session's conversations, and removing it is its own
+   * confirmed request, never a side effect of removing a credential.
    */
-  async remove(homeId: string): Promise<{ removed: boolean; freedBytes: number }> {
+  async remove(
+    homeId: string,
+    options: { podiumHomeConfirmed?: boolean } = {},
+  ): Promise<{ removed: boolean; freedBytes: number }> {
     if (homeId === DEFAULT_HOME_ID) {
       throw new Error('The default home is the harness’s own directory; Podium never removes it.')
     }
-    const parsed = parseHomeId(homeId)
+    const podium = parsePodiumHomeId(homeId)
+    if (podium && !options.podiumHomeConfirmed) {
+      throw new Error(
+        'The Podium home holds the conversations of every session on a credential Podium passes in; it is removed only on its own confirmed request.',
+      )
+    }
+    const parsed = podium
+      ? { credentialId: PODIUM_HOME_OWNER, harness: podium }
+      : parseHomeId(homeId)
     if (!parsed) throw new Error(`not a home id: ${homeId}`)
     const home = this.get(homeId)
     if (!home) return { removed: false, freedBytes: 0 }
@@ -122,6 +170,10 @@ export class HomeRegistry {
     if (readNames(credentialDir).length === 0)
       await rm(credentialDir, { recursive: true, force: true })
     return { removed: true, freedBytes }
+  }
+
+  private podiumHomeFor(harness: HomeHarness): HarnessHome {
+    return this.homeFor(PODIUM_HOME_OWNER, harness, podiumHomeId(harness))
   }
 
   private homeFor(credentialId: string, harness: HomeHarness, homeId: string): HarnessHome {
@@ -148,6 +200,11 @@ function isDirectory(path: string): boolean {
   } catch {
     return false
   }
+}
+
+/** Whether `home` is the Podium home of its harness (§4.3), not a credential's. */
+export function isPodiumHome(home: Pick<HarnessHome, 'homeId'>): boolean {
+  return parsePodiumHomeId(home.homeId) !== null
 }
 
 /** Bytes under `path`, links not followed: what deleting it gives back. */

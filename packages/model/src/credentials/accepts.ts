@@ -31,6 +31,13 @@ export interface AcceptedCredential {
    * provider Codex runs a ChatGPT plan through. They never hold the secret.
    */
   startArgs?: readonly string[]
+  /**
+   * Arguments added after `startArgs` only when the process runs in the
+   * Podium home (managed installs §4.3): a home that holds no login of its
+   * own, where a harness that otherwise reads its login file must be told to
+   * read the delivered variable. Never the secret.
+   */
+  homeStartArgs?: readonly string[]
 }
 
 /** How a direct model call is served for a credential of one type. */

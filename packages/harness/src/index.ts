@@ -29,6 +29,7 @@ export * from './adapters/claude-code/credential-freshness.js'
 export {
   claudeHomeSharing,
   claudeLoginFileRemovalError,
+  claudePodiumHomeFill,
   prepareClaudeHomeLaunch,
   probeClaudeHomeModels,
 } from './adapters/claude-code/home.js'
@@ -43,6 +44,7 @@ export * from './adapters/codex/credential-absence-grace.js'
 export {
   type CodexHomeStopPorts,
   codexHomeSharing,
+  codexPodiumHomeFill,
   type RunningProcess,
   stopCodexHome,
 } from './adapters/codex/home.js'

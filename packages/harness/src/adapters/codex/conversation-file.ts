@@ -19,6 +19,7 @@
 import { relative } from 'node:path'
 import { forgetCodexThreadRow } from '../../discovery/providers/codex-state.js'
 import { isRecord } from '../shared/json-util.js'
+import { codexProviderInPodiumHome } from './plan-provider.js'
 import { findCodexRolloutPath } from './state-provider.js'
 
 export async function locateCodexConversation(input: {
@@ -49,18 +50,22 @@ export function isCodexReasoningRecord(record: unknown): boolean {
 
 export function carryCodexRecord(
   record: unknown,
-  change: { accountChanged: boolean; modelProvider?: string },
+  change: { accountChanged: boolean; modelProvider?: string; inPodiumHome?: boolean },
 ): unknown {
   if (change.accountChanged && isCodexReasoningRecord(record)) return undefined
   if (
-    change.modelProvider !== undefined &&
     isRecord(record) &&
     record.type === 'session_meta' &&
     isRecord(record.payload) &&
-    typeof record.payload.model_provider === 'string' &&
-    record.payload.model_provider !== change.modelProvider
+    typeof record.payload.model_provider === 'string'
   ) {
-    return { ...record, payload: { ...record.payload, model_provider: change.modelProvider } }
+    const recorded = record.payload.model_provider
+    const wanted = change.modelProvider ?? recorded
+    // The Podium home has no login file, so `openai` cannot answer there.
+    const provider = change.inPodiumHome ? codexProviderInPodiumHome(wanted) : wanted
+    if (provider !== recorded) {
+      return { ...record, payload: { ...record.payload, model_provider: provider } }
+    }
   }
   return record
 }

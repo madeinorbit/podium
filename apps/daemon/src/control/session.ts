@@ -116,7 +116,7 @@ import {
 } from '../session-screens'
 import { removeSessionUploads } from '../session-uploads'
 import { Terminal } from '../terminal/terminal.js'
-import { deliveryOverlay } from './access'
+import { deliveryOverlay, isPodiumHomeId } from './access'
 import { type BindFacts, bindFrame, reportSize } from './applied-geometry'
 import type { ControlHandlers, DaemonContext } from './context'
 import { reportEffectiveAuth, sessionProcessEnvironment } from './effective-auth'
@@ -888,7 +888,9 @@ export async function launchTerminalProcess(
       childContext && !loginHarness ? await ctx.access.awaitAccess(sessionId) : undefined
     const delivered =
       childContext && !loginHarness
-        ? deliveryOverlay(agentKind, access)
+        ? deliveryOverlay(agentKind, access, {
+            podiumHome: isPodiumHomeId(childContext.harnessHome?.id),
+          })
         : { env: {}, args: [], keep: [] }
     const child = childContext
       ? harnessChildEnv(childContext, {

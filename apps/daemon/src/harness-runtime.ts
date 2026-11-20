@@ -22,6 +22,9 @@ export interface HarnessRuntimeOptions {
    *  another process published appears in the next wave. Absent: nothing
    *  managed is looked for. */
   managedInstalls?: ManagedInstallsReader
+  /** Called with each snapshot a wave installs, once it is the current one:
+   *  what follows a managed install appearing (the Podium home, §4.3). */
+  onSettled?: (snapshot: ResolvedHarnessInventory) => void
   /** Hermetic generation builder used by lifecycle tests. */
   buildSnapshot?: (generation: number) => Promise<ResolvedHarnessInventory>
 }
@@ -119,7 +122,10 @@ export class DaemonHarnessRuntime {
   ): Promise<ResolvedHarnessInventory> {
     this.authoritativePending = true
     const installed = pending.then((snapshot) => {
-      if (this.revision === revision) this.authoritativeValue = snapshot
+      if (this.revision === revision) {
+        this.authoritativeValue = snapshot
+        this.options.onSettled?.(snapshot)
+      }
       return snapshot
     })
     const tracked = installed.finally(() => {

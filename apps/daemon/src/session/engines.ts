@@ -52,7 +52,12 @@ import {
   scopeUnitName,
 } from '@podium/process/durable'
 import { SUN_PATH_MAX, unixSocketPathBytes, unixSocketPathFits } from '@podium/runtime/unix-socket'
-import { deliveryOverlay, type SessionAccessStore, withLeadingArgs } from '../control/access'
+import {
+  deliveryOverlay,
+  isPodiumHomeId,
+  type SessionAccessStore,
+  withLeadingArgs,
+} from '../control/access'
 import { noDurableBackendRefusal } from '../durable-backend'
 import type { SessionInstallRecords } from '../session-installs'
 import { nodePrepareLaunchPorts, type PrepareLaunchPorts, prepareLaunch } from '../session-posture'
@@ -217,6 +222,7 @@ export class SessionEngineScope implements EngineProcessOwner {
         ? deliveryOverlay(
             this.options.access.agentKindOf(sessionId),
             await this.options.access.awaitAccess(sessionId),
+            { podiumHome: isPodiumHomeId(command.harnessHomeId) },
           )
         : undefined
     const address = listen ? this.mintAddress(req.label, sessionId) : undefined

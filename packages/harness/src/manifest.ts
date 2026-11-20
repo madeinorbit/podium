@@ -1820,11 +1820,14 @@ export interface HarnessHandoffTranscript {
    * provider: undefined leaves it out, the same object keeps it as it was, a
    * new object replaces it. Codex leaves out encrypted reasoning when the
    * account changes (POD-6893 §3: a foreign one is refused with 400) and
-   * records the provider the target runs on. Absent: every record carries over.
+   * records the provider the target runs on. `inPodiumHome`: the target is
+   * the Podium home (managed installs §4.3), which holds no login, so a record
+   * of a provider that needs one is rewritten to the provider that does not.
+   * Absent: every record carries over.
    */
   carryRecord?(
     record: unknown,
-    change: { accountChanged: boolean; modelProvider?: string },
+    change: { accountChanged: boolean; modelProvider?: string; inPodiumHome?: boolean },
   ): unknown
   /** After the file was placed or rewritten: the harness's own bookkeeping. */
   afterPlace?(input: { stateDir: string; resumeValue: string; path: string }): Promise<void>

@@ -58,6 +58,10 @@ export type BoundCommand<I extends HarnessArgv = HarnessArgv> = Omit<
   readonly installation: HarnessInstallation
   /** Ownership of the home the posture edits. Carried through engine launches. */
   readonly homeEditScope?: { harness: BuiltinHarnessKind; personal: boolean }
+  /** The Podium-made home the context runs in, when it runs in one: what a
+   *  process start reads to apply a delivery the home way (managed installs
+   *  §4.3). Absent: the person's own folder. */
+  readonly harnessHomeId?: string
   readonly [boundCommandBrand]: true
 }
 
@@ -84,7 +88,7 @@ export type ShellCommand<I extends HarnessArgv = HarnessArgv> = Omit<I, 'cmd' | 
  * child's whole environment is `harnessChildEnv`'s to build.
  */
 export function harnessCommand<I extends HarnessArgv>(
-  context: Pick<HarnessContext, 'installation'>,
+  context: Pick<HarnessContext, 'installation' | 'harnessHome'>,
   invocation: I,
   terms: LaunchTerms,
 ): BoundCommand<I> {
@@ -105,6 +109,7 @@ export function harnessCommand<I extends HarnessArgv>(
     env: { ...launch.env },
     files: launch.files.map((file) => ({ ...file })),
     terms: applied,
+    ...(context.harnessHome ? { harnessHomeId: context.harnessHome.id } : {}),
     ...('request' in terms && applied.homeEdits.length > 0
       ? {
           homeEditScope: {

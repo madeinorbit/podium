@@ -29,6 +29,7 @@ import {
 import { sendHarnessVersion } from '../harness-version-reporting'
 import { withHomeLogins } from '../homes/logins'
 import { homeModelProbe } from '../homes/probes'
+import { isPodiumHome } from '../homes/registry'
 import { opencode2VersionProbe } from '../runtime/version-probe'
 import type { ControlHandlers, DaemonContext } from './context'
 
@@ -381,7 +382,8 @@ async function runModelProbe(
       },
     })
     // Each Podium home's models, read in that home (credential management §10).
-    const homes = ctx.homes?.list() ?? []
+    // Sign-in folders only: the Podium home holds no login to read models with.
+    const homes = (ctx.homes?.list() ?? []).filter((home) => !isPodiumHome(home))
     if (account && homes.length > 0) {
       byHome = await homeModelProbe(homes, {
         account: { home: account.home, env: account.machineEnv },

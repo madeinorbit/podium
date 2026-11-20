@@ -56,6 +56,29 @@ export function parseHomeId(homeId: string): { credentialId: string; harness: Ho
   return parsed.success ? { credentialId, harness: parsed.data } : null
 }
 
+/**
+ * THE PODIUM HOME (managed installs §4.3): one home per harness on a machine,
+ * `<stateDir>/homes/podium/<harness>/`, where every credential Podium passes
+ * in (an API key, a long-lived token, a plan token in a variable) runs once
+ * the machine has a managed install of the harness. It belongs to no
+ * credential, so it is never named by {@link parseHomeId}, never removed with
+ * a credential, and never holds a login of its own.
+ */
+export const PODIUM_HOME_OWNER = 'podium'
+
+/** The Podium home of `harness`: `podium:<harness>`. */
+export function podiumHomeId(harness: HomeHarness): string {
+  return `${PODIUM_HOME_OWNER}:${harness}`
+}
+
+/** The harness a Podium home id names; null for anything else. */
+export function parsePodiumHomeId(homeId: string): HomeHarness | null {
+  const parts = homeId.split(':')
+  if (parts.length !== 2 || parts[0] !== PODIUM_HOME_OWNER) return null
+  const parsed = HomeHarness.safeParse(parts[1])
+  return parsed.success ? parsed.data : null
+}
+
 /** Server → daemon: make sure the home for this credential and harness exists. */
 export const HomeEnsureRequestMessage = z.object({
   type: z.literal('homeEnsureRequest'),

@@ -19,7 +19,13 @@
 
 import { harnessAccepts, harnessHideFromCommands } from '@podium/harness'
 import type { AgentKind, SessionId } from '@podium/model'
-import { type AccessField, HomeHarness, homeIdFor } from '@podium/protocol'
+import {
+  type AccessField,
+  HomeHarness,
+  homeIdFor,
+  parsePodiumHomeId,
+  podiumHomeId,
+} from '@podium/protocol'
 
 /** What survives a restart: that a session needs a credential, never the secret. */
 export interface AccessMarker {
@@ -46,6 +52,20 @@ export class AccessNotArrivedError extends Error {
 
 /** The harness's own directory: nothing to apply and nothing to remember. */
 const DEFAULT_HOME = 'default'
+
+/** What the home rule reads of the machine (managed installs §4.2). */
+export interface MachineHomeFacts {
+  /** Whether the machine has a managed install of `kind` now. */
+  managedInstall(kind: HomeHarness): boolean
+}
+
+/** A credential passed in, with a managed install there: the Podium home (§4.3). */
+function passedInHome(kind: AgentKind | undefined, machine: MachineHomeFacts | undefined) {
+  const harness = HomeHarness.safeParse(kind)
+  return harness.success && machine?.managedInstall(harness.data)
+    ? podiumHomeId(harness.data)
+    : undefined
+}
 
 const needsMarker = (access: AccessField): boolean =>
   access.delivery.kind === 'env' || access.delivery.homeId !== DEFAULT_HOME
@@ -97,20 +117,28 @@ export class SessionAccessStore {
   }
 
   /**
-   * The Podium home the session runs in (credential management §10), or
-   * undefined for the harness's own directory. From the access held in
-   * memory; after a restart, before the server's refresh, from the marker: a
-   * home delivery's home is the credential's home for the session's harness.
+   * The Podium home the session runs in (credential management §10, managed
+   * installs §4.3), or undefined for the harness's own directory.
+   *
+   * - A home delivery: the home it names. Its `default` is the person's own
+   *   login, which always runs in the person's folder.
+   * - An env delivery (a credential Podium passes in): the harness's Podium
+   *   home when `machine` has a managed install of it; else the person's
+   *   folder, as credential management built it.
+   *
+   * From the access held in memory; after a restart, before the server's
+   * refresh, from the marker: a home delivery's home is the credential's home
+   * for the session's harness.
    */
-  homeIdOf(sessionId: SessionId): string | undefined {
+  homeIdOf(sessionId: SessionId, machine?: MachineHomeFacts): string | undefined {
     const held = this.held.get(sessionId)
     if (held) {
       const delivery = held.access.delivery
-      return delivery.kind === 'home' && delivery.homeId !== DEFAULT_HOME
-        ? delivery.homeId
-        : undefined
+      if (delivery.kind === 'env') return passedInHome(held.agentKind, machine)
+      return delivery.homeId !== DEFAULT_HOME ? delivery.homeId : undefined
     }
     const marker = this.marker(sessionId)
+    if (marker?.delivery === 'env') return passedInHome(marker.agentKind, machine)
     if (marker?.delivery !== 'home') return undefined
     // A home that cannot be named from the marker is still a home: an id no
     // home has, so the start is refused rather than run on the default login.
@@ -199,6 +227,7 @@ export interface DeliveryOverlay {
 /**
  * The env and arguments a process start adds for `access`. Only an `env`
  * delivery adds anything (a home delivery is the home's own business, Task 8);
+ * in the Podium home also the line's `homeStartArgs`;
  * with it come the harness's documented switches that keep the credential out
  * of the commands the agent runs (`hideFromCommands`, spec §14: an accident
  * guard, not a barrier).
@@ -206,6 +235,9 @@ export interface DeliveryOverlay {
 export function deliveryOverlay(
   agentKind: AgentKind | undefined,
   access: AccessField | undefined,
+  /** The start runs in the Podium home (managed installs §4.3): the line's
+   *  `homeStartArgs` apply too. */
+  where: { podiumHome?: boolean } = {},
 ): DeliveryOverlay {
   if (access?.delivery.kind !== 'env') return { env: {}, args: [], keep: [] }
   const hide = agentKind ? harnessHideFromCommands(agentKind) : undefined
@@ -219,9 +251,18 @@ export function deliveryOverlay(
     : undefined
   return {
     env: { [variable]: access.delivery.secret, ...hide?.env },
-    args: [...(hide?.args ?? []), ...(line?.startArgs ?? [])],
+    args: [
+      ...(hide?.args ?? []),
+      ...(line?.startArgs ?? []),
+      ...(where.podiumHome ? (line?.homeStartArgs ?? []) : []),
+    ],
     keep: [variable],
   }
+}
+
+/** Whether a start bound to a home with this id runs in the Podium home (§4.3). */
+export function isPodiumHomeId(homeId: string | undefined): boolean {
+  return homeId !== undefined && parsePodiumHomeId(homeId) !== null
 }
 
 /** The same command with `extra` right after the executable, before its own arguments. */
