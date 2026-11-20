@@ -75,8 +75,7 @@ export function demoTrpc(): Trpc {
       // the default with undefined and the work list would crash reading it).
       get: {
         query: async () => ({
-          sessionDefaults: { agent: 'codex' },
-          sidebar: { repoSort: 'lastUsed', repoOrder: [], },
+          sidebar: { repoSort: 'lastUsed', repoOrder: [] },
         }),
       },
     },
@@ -160,11 +159,7 @@ function DemoBody(): JSX.Element {
  * presence means its row source has subscribed, so the install's replace
  * batch is observed and the event-fed question indexes fill.
  */
-function DemoSlicePublisher({
-  replica,
-}: {
-  replica: ReturnType<typeof createDemoReplica>
-}): null {
+function DemoSlicePublisher({ replica }: { replica: ReturnType<typeof createDemoReplica> }): null {
   const pool = useWorklistPool()
   const published = useRef(false)
   useEffect(() => {
