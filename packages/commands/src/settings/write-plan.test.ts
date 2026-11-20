@@ -19,6 +19,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
+import { ONLINE_ONLY_SETTINGS_COMMANDS } from './contracts'
 import {
   applySettingsPatch,
   changedSettingsLeaves,
@@ -26,7 +27,6 @@ import {
   planSettingsWrite,
   readSettingsLeaf,
 } from './write-plan'
-import { ONLINE_ONLY_SETTINGS_COMMANDS } from './contracts'
 
 /** A settings-blob-shaped fixture. Only the members a case touches. */
 const base = {
@@ -34,7 +34,7 @@ const base = {
   sidebar: { repoSort: 'lastUsed' },
   gitWorkflow: { defaultParentBranch: '' },
   experimental: { someFlag: true },
-  apiKeys: { openai: '', anthropic: 'sk-old' },
+  integrations: { linearApiKey: 'linear-old' },
   notifications: { telegramChatId: '', telegramBotToken: '' },
 }
 
@@ -44,22 +44,27 @@ const ONLINE = { online: true }
 const OFFLINE = { online: false }
 
 describe('role harness deletion survives JSON', () => {
-  it.each(['coding', 'background', 'superagent', 'shipwright'])(
-    'encodes an absent %s harness as an explicit clear', (role) => {
-      const previous = { roles: { [role]: { harness: 'claude-code' } } }
-      // Both an explicit editor clear and an omitted default leaf mean absence.
-      for (const backend of [{ harness: undefined }, {}]) {
-        const plan = planSettingsWrite(previous, { roles: { [role]: backend } }, ONLINE)
-        expect(plan.refusals).toEqual([])
-        expect(JSON.parse(JSON.stringify(plan.intents))).toEqual([{
+  it.each([
+    'coding',
+    'background',
+    'superagent',
+    'shipwright',
+  ])('encodes an absent %s harness as an explicit clear', (role) => {
+    const previous = { roles: { [role]: { harness: 'claude-code' } } }
+    // Both an explicit editor clear and an omitted default leaf mean absence.
+    for (const backend of [{ harness: undefined }, {}]) {
+      const plan = planSettingsWrite(previous, { roles: { [role]: backend } }, ONLINE)
+      expect(plan.refusals).toEqual([])
+      expect(JSON.parse(JSON.stringify(plan.intents))).toEqual([
+        {
           kind: 'preference',
           command: 'records.userPreferences.edit',
           delivery: 'offline-eligible',
           values: { [`roles.${role}.harness`]: null },
-        }])
-      }
-    },
-  )
+        },
+      ])
+    }
+  })
 
   it('decodes harness clears and keeps nullable preference values', () => {
     const values = { 'roles.coding.harness': null, 'hibernation.maxIdleSessions': null }
@@ -92,10 +97,14 @@ describe('absent-default instance preference clears survive JSON', () => {
       for (const options of [ONLINE, OFFLINE]) {
         const plan = planSettingsWrite(previous, next, options)
         expect(plan.refusals).toEqual([])
-        expect(JSON.parse(JSON.stringify(plan.intents))).toEqual([{
-          kind: 'preference', command: 'records.instancePreferences.edit',
-          delivery: 'offline-eligible', values: { [path]: null },
-        }])
+        expect(JSON.parse(JSON.stringify(plan.intents))).toEqual([
+          {
+            kind: 'preference',
+            command: 'records.instancePreferences.edit',
+            delivery: 'offline-eligible',
+            values: { [path]: null },
+          },
+        ])
       }
     }
     expect(decodeSettingsPreferencePatch({ [path]: null })).toEqual({ [path]: undefined })
@@ -115,12 +124,19 @@ describe('absent-default instance preference clears survive JSON', () => {
     const next = applySettingsPatch({}, values)
     const plan = planSettingsWrite({}, next, ONLINE)
     expect(plan.refusals.map(({ path }) => path)).toEqual([
-      'deployment.futureNullableSetting', 'transcripts.futureNullableSetting',
+      'deployment.futureNullableSetting',
+      'transcripts.futureNullableSetting',
     ])
-    expect(plan.intents).toEqual([{
-      kind: 'preference', command: 'records.instancePreferences.edit', delivery: 'offline-eligible',
-      values: Object.fromEntries(Object.entries(values).filter(([path]) => path.startsWith('hibernation.'))),
-    }])
+    expect(plan.intents).toEqual([
+      {
+        kind: 'preference',
+        command: 'records.instancePreferences.edit',
+        delivery: 'offline-eligible',
+        values: Object.fromEntries(
+          Object.entries(values).filter(([path]) => path.startsWith('hibernation.')),
+        ),
+      },
+    ])
   })
 })
 
@@ -185,13 +201,13 @@ describe('offline, a secret write is REFUSED — and a preference write is not',
   it('refuses the secret and issues no command for it', () => {
     const plan = planSettingsWrite(
       base,
-      edit({ apiKeys: { openai: 'sk-live-new', anthropic: 'sk-old' } }),
+      edit({ integrations: { linearApiKey: 'linear-new' } }),
       OFFLINE,
     )
     expect(plan.intents).toEqual([])
     expect(plan.refusals).toEqual([
       {
-        path: 'apiKeys.openai',
+        path: 'integrations.linearApiKey',
         reason: 'requires-connection',
         message: expect.stringContaining('never queued'),
       },
@@ -216,15 +232,15 @@ describe('offline, a secret write is REFUSED — and a preference write is not',
       base,
       edit({
         sidebar: { repoSort: 'alphabetical' },
-        apiKeys: { openai: 'sk-live-new', anthropic: 'sk-old' },
+        integrations: { linearApiKey: 'linear-new' },
       }),
       OFFLINE,
     )
-    expect(plan.refusals.map((r) => r.path)).toEqual(['apiKeys.openai'])
+    expect(plan.refusals.map((r) => r.path)).toEqual(['integrations.linearApiKey'])
     expect(plan.intents.map((i) => i.command)).toEqual(['records.userPreferences.edit'])
     // The refused material is nowhere in the plan — not in a payload, not in a
     // message. A refusal that echoed the value would be a leak dressed as an error.
-    expect(JSON.stringify(plan)).not.toContain('sk-live-new')
+    expect(JSON.stringify(plan)).not.toContain('linear-new')
   })
 })
 
@@ -232,7 +248,7 @@ describe('online, a secret write IS issued — the refusal above is not vacuous'
   it('issues setSecret with the key and material', () => {
     const plan = planSettingsWrite(
       base,
-      edit({ apiKeys: { openai: 'sk-live-new', anthropic: 'sk-old' } }),
+      edit({ integrations: { linearApiKey: 'linear-new' } }),
       ONLINE,
     )
     expect(plan.refusals).toEqual([])
@@ -241,20 +257,20 @@ describe('online, a secret write IS issued — the refusal above is not vacuous'
         kind: 'secret',
         command: 'settings.setSecret',
         delivery: 'online-sensitive',
-        key: 'apiKeys.openai',
-        value: 'sk-live-new',
+        key: 'integrations.linearApiKey',
+        value: 'linear-new',
       },
     ])
   })
 
   it('an EMPTIED secret becomes clearSecret, with no value key at all', () => {
-    const plan = planSettingsWrite(base, edit({ apiKeys: { openai: '', anthropic: '' } }), ONLINE)
+    const plan = planSettingsWrite(base, edit({ integrations: { linearApiKey: '' } }), ONLINE)
     expect(plan.intents).toEqual([
       {
         kind: 'secret',
         command: 'settings.clearSecret',
         delivery: 'online-sensitive',
-        key: 'apiKeys.anthropic',
+        key: 'integrations.linearApiKey',
       },
     ])
     expect(Object.keys(plan.intents[0] ?? {})).not.toContain('value')
@@ -264,12 +280,28 @@ describe('online, a secret write IS issued — the refusal above is not vacuous'
     const plan = planSettingsWrite(
       base,
       edit({
-        apiKeys: { openai: 'sk-a', anthropic: 'sk-b' },
+        integrations: { linearApiKey: 'linear-new' },
         notifications: { telegramChatId: '', telegramBotToken: 'bot-1' },
       }),
       ONLINE,
     )
-    expect(plan.intents.filter((i) => i.kind === 'secret')).toHaveLength(3)
+    expect(plan.refusals).toEqual([])
+    expect(plan.intents).toEqual([
+      {
+        kind: 'secret',
+        command: 'settings.setSecret',
+        delivery: 'online-sensitive',
+        key: 'integrations.linearApiKey',
+        value: 'linear-new',
+      },
+      {
+        kind: 'secret',
+        command: 'settings.setSecret',
+        delivery: 'online-sensitive',
+        key: 'notifications.telegramBotToken',
+        value: 'bot-1',
+      },
+    ])
   })
 })
 

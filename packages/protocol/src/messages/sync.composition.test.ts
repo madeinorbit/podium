@@ -26,20 +26,26 @@
  * precisely how the five restatements this refactor deleted came to exist.
  */
 
-import { ChangeEntityIdField, ChangeSeqField, GlobalChangeOpField } from '@podium/model'
+import {
+  ChangeEntityIdField,
+  ChangeSeqField,
+  GlobalChangeOpField,
+  RECORD_KINDS,
+} from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { MetadataChange, MetadataChangeOp, UnknownMetadataChange } from './sync'
 
 /** The strict union's arms, as objects with a `.shape`. */
 const strictArms = MetadataChange.options as unknown as {
-  shape: Record<string, unknown>
+  shape: Record<string, unknown> & { entity: { value: string } }
 }[]
 
 describe('the wire change row composes the model vocabulary', () => {
-  it('has all thirty-eight entity arms, so the loops below are not vacuous', () => {
-    // Count every current entity arm so the shared-field assertions cannot
-    // silently narrow to a subset of the record vocabulary.
-    expect(strictArms).toHaveLength(38)
+  it('covers every declared record exactly once, including inbox notices', () => {
+    const kinds = strictArms.map((arm) => arm.shape.entity.value)
+    expect(kinds).toContain('inboxNotice')
+    expect(new Set(kinds).size).toBe(kinds.length)
+    expect(kinds.slice().sort()).toEqual([...RECORD_KINDS].sort())
   })
 
   it('takes `seq` from the shared field schema INSTANCE in every arm', () => {
