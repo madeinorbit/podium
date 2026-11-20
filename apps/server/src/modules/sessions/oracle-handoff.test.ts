@@ -201,7 +201,9 @@ async function handoffFixture(
       setTimeout(() => {
         release.releasedAt = Date.now()
         void reg.gateway.routeDaemonFrame('m1', {
-          type: 'runtimeLifecycleResult', requestId: msg.requestId, sessionId: msg.sessionId,
+          type: 'runtimeLifecycleResult',
+          requestId: msg.requestId,
+          sessionId: msg.sessionId,
           result: { ok: true, retirement: 'confirmed' },
         })
       }, opts.modelSourceReleaseMs ?? 0)
@@ -405,16 +407,31 @@ const meta = async (f: HandoffFixture) =>
 const twoPersonFleet = (m2Grants: { subject: string; verb: 'see' | 'use' | 'manage' }[]) => ({
   rowFor: (machineId: string) =>
     machineId === 'm1'
-      ? { machine: 'm1' as MachineId, daemonAssigned: true, daemonAvailable: true, owner: 'alice' as UserId, grants: [{ subject: 'alice' as UserId, verb: 'use' as const }, { subject: 'alice' as UserId, verb: 'manage' as const, custody: true }], name: 'source' }
+      ? {
+          machine: 'm1' as MachineId,
+          daemonAssigned: true,
+          daemonAvailable: true,
+          owner: 'alice' as UserId,
+          grants: [
+            { subject: 'alice' as UserId, verb: 'use' as const },
+            { subject: 'alice' as UserId, verb: 'manage' as const, custody: true },
+          ],
+          name: 'source',
+        }
       : machineId === 'm2'
         ? {
             machine: 'm2' as MachineId,
-            daemonAssigned: true, daemonAvailable: true,
+            daemonAssigned: true,
+            daemonAvailable: true,
             owner: 'bob' as UserId,
-            grants: [{ subject: 'bob' as UserId, verb: 'use' as const }, { subject: 'bob' as UserId, verb: 'manage' as const, custody: true }, ...m2Grants.map((grant) => ({
-              subject: grant.subject as UserId,
-              verb: grant.verb,
-            }))],
+            grants: [
+              { subject: 'bob' as UserId, verb: 'use' as const },
+              { subject: 'bob' as UserId, verb: 'manage' as const, custody: true },
+              ...m2Grants.map((grant) => ({
+                subject: grant.subject as UserId,
+                verb: grant.verb,
+              })),
+            ],
             name: 'target',
           }
         : undefined,
@@ -431,13 +448,28 @@ const twoPersonFleet = (m2Grants: { subject: string; verb: 'see' | 'use' | 'mana
 const revocableFleet = (state: { m2: ('see' | 'use' | 'manage')[] }) => ({
   rowFor: (machineId: string) =>
     machineId === 'm1'
-      ? { machine: 'm1' as MachineId, daemonAssigned: true, daemonAvailable: true, owner: 'alice' as UserId, grants: [{ subject: 'alice' as UserId, verb: 'use' as const }, { subject: 'alice' as UserId, verb: 'manage' as const, custody: true }], name: 'source' }
+      ? {
+          machine: 'm1' as MachineId,
+          daemonAssigned: true,
+          daemonAvailable: true,
+          owner: 'alice' as UserId,
+          grants: [
+            { subject: 'alice' as UserId, verb: 'use' as const },
+            { subject: 'alice' as UserId, verb: 'manage' as const, custody: true },
+          ],
+          name: 'source',
+        }
       : machineId === 'm2'
         ? {
             machine: 'm2' as MachineId,
-            daemonAssigned: true, daemonAvailable: true,
+            daemonAssigned: true,
+            daemonAvailable: true,
             owner: 'bob' as UserId,
-            grants: [{ subject: 'bob' as UserId, verb: 'use' as const }, { subject: 'bob' as UserId, verb: 'manage' as const, custody: true }, ...state.m2.map((verb) => ({ subject: 'alice' as UserId, verb }))],
+            grants: [
+              { subject: 'bob' as UserId, verb: 'use' as const },
+              { subject: 'bob' as UserId, verb: 'manage' as const, custody: true },
+              ...state.m2.map((verb) => ({ subject: 'alice' as UserId, verb })),
+            ],
             name: 'target',
           }
         : undefined,
@@ -696,7 +728,7 @@ describe('oracle: handoff success across two machines', () => {
     expect(invisible.replace("'m2'", "'X'")).toBe(nonexistent.replace("'no-such-machine'", "'X'"))
   })
 
-  it('an offline target fails execution admission before source retirement', async () => {
+  it(`${MUST_NOT_CHANGE}: an offline target fails execution admission before source retirement`, async () => {
     vi.useFakeTimers()
     try {
       const f = await handoffFixture()
@@ -715,7 +747,7 @@ describe('oracle: handoff success across two machines', () => {
           ),
         ),
       ).toBe('target machine is offline')
-      expect(f.source.some(message => message.type === 'runtimeLifecycleRequest')).toBe(false)
+      expect(f.source.some((message) => message.type === 'runtimeLifecycleRequest')).toBe(false)
     } finally {
       vi.useRealTimers()
     }

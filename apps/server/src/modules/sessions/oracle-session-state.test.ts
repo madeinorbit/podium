@@ -250,7 +250,7 @@ describe('oracle: setArchived', () => {
 })
 
 describe('oracle: read state', () => {
-  it('keeps post-read grace when a quiet historical session is viewed', async () => {
+  it(`${MUST_NOT_CHANGE}: keeps post-read grace when a quiet historical session is viewed`, async () => {
     let now = Date.parse('2026-10-29T12:00:00.000Z')
     const o = await makeOracle({ now: () => now })
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
@@ -261,7 +261,7 @@ describe('oracle: read state', () => {
       new Date(now).toISOString(),
     )
   })
-  it('stores only observed session activity for delayed receipts and keeps cursors independent', async () => {
+  it(`${MUST_NOT_CHANGE}: stores only observed session activity for delayed receipts and keeps cursors independent`, async () => {
     const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
     const other = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
