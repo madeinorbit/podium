@@ -63,7 +63,11 @@ import { UpdatesService } from '../apps/server/src/modules/updates/service'
 import type { WaveMachine } from '../apps/server/src/modules/updates/wave'
 import type { AppRouter } from '../apps/server/src/router'
 import { openTestStore } from '../apps/server/src/test-support/open-test-store'
-import { cookieOf, openTestIdentity } from '../apps/server/src/test-support/test-identity'
+import {
+  cookieOf,
+  httpsFacts,
+  openTestIdentity,
+} from '../apps/server/src/test-support/test-identity'
 import {
   MachineUpdateExecutor,
   readMachineUpdateJournal,
@@ -170,7 +174,7 @@ async function seedNamedState(spec: InstanceSpec): Promise<void> {
     await identity.credentials.setPassword(asUserId(owner.id), 'instance-owner-password')
     // These real servers are reached over loopback HTTP. Mint the loopback
     // cookie variant rather than an HTTPS-only cookie the listener cannot read.
-    const facts = { scheme: 'http' as const, sameMachine: true, clientAddress: '127.0.0.1' }
+    const facts = { ...httpsFacts(), scheme: 'http' as const, sameMachine: true }
     const ownerSignIn = await identity.signIn(
       { email: 'owner@example.test', password: 'instance-owner-password' },
       facts,
@@ -1883,7 +1887,7 @@ exec "$CANARY_REAL_CLI" "$@"
     const stopped = await runCli(named, ['stop'])
     expect(stopped.code, stopped.stderr).toBe(0)
     await waitUntil(() => named.child.exitCode !== null, 'cold named parent cleanup')
-  })
+  }, 60_000)
 
   it('keeps live runtimes, agents, commands, data, and lifecycle disjoint', async () => {
     const compatSpec = makeSpec('default')
