@@ -17,7 +17,7 @@ import { opencodeCatalog } from './catalog.js'
 import { opencodeCredentials } from './credentials.js'
 import { opencodeDescriptor } from './descriptor.js'
 import { createOpencodeConversationProvider } from './discovery.js'
-import { opencodeInstall } from './install.js'
+import { opencodeInstall, opencodeManagedInstall } from './install.js'
 import { opencodeDataRoot, opencodeDbPathForSession } from './paths.js'
 import { opencodePosture } from './posture.js'
 import { observeOpencodeState, opencodeStateProvider } from './state.js'
@@ -120,9 +120,7 @@ export const opencodeManifest: AgentManifest = {
   credentials: opencodeCredentials,
   usage: opencodeUsage,
   install: opencodeInstall,
-  managedInstall: unsupported(
-    'Not yet ported to managed installs: Podium has no unattended OpenCode installer to build on',
-  ),
+  managedInstall: supported(opencodeManagedInstall),
 
   posture: opencodePosture,
   launch(opts) {

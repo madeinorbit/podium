@@ -109,6 +109,8 @@ export {
   vendorOriginsFromEnv,
 } from './inventory/managed-install.js'
 export { managedInstallsReader, readManagedInstalls } from './inventory/managed-installs.js'
+export type { ReleaseArchiveFormat } from './inventory/release-archive.js'
+export { extractReleaseFile, releaseArchiveMember } from './inventory/release-archive.js'
 export type { AccountReadScope, QuotaFetcher } from './inventory/usage.js'
 export {
   makeQuotaFetcher,
