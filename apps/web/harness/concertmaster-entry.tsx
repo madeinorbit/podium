@@ -1,7 +1,7 @@
 // The Concertmaster's curated chat and its "Needs you" list in the shipping
 // materials (POD-7211): the ask card in every state, between the agent's
 // messages and the person's card.
-// bun --bun x vite --config vite.harness.config.ts
+// bun --bun x vite --config harness/vite.concertmaster.config.ts
 // /harness/concertmaster.html?theme=light|dark&width=760|390&view=chat|dock
 import '@fontsource-variable/geist'
 import '@fontsource-variable/geist-mono'
