@@ -193,21 +193,19 @@ export async function reportInventory(
         if (verdict && verdict.drivable) drivableAlternatives.push(alternative.driverId)
       }
       if (!ctx.harnessRuntime.isCurrent(snapshot)) return
+      const inventory = ctx.harnessInstalls?.inventory(snapshot.inventory) ?? snapshot.inventory
       ctx.send({
         type: 'inventoryReport',
         machineId: asMachineId(ctx.machineId),
         inventory: {
           // One login per home, `default` first (credential management §10).
           ...(ctx.homes
-            ? withHomeLogins(snapshot.inventory, ctx.homes.list(), {
+            ? withHomeLogins(inventory, ctx.homes.list(), {
                 home:
                   resolveManagementCredentialHome(ctx) ?? snapshot.commandEnvironment.machineHome,
                 env: snapshot.commandEnvironment.env,
               })
-            : snapshot.inventory),
-          ...(ctx.harnessInstalls
-            ? { agents: ctx.harnessInstalls.inventory(snapshot.inventory).agents }
-            : {}),
+            : inventory),
           runtimeDrivers: runtimeDriverInventory(snapshot.inventory, drivableAlternatives),
         },
         // Served descriptors (POD-4475): adapter DATA plus this machine's
