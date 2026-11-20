@@ -103,7 +103,7 @@ function replica() {
     }
     // One synthetic device commit: update the authoritative cache, then publish its event.
     records[index] = record
-    facade.onKernelEvent({ type: 'upserted', record })
+    facade.onKernelEvent({ type: 'upserted', record, readmitted: false })
   }
   return currentReplica
 }
@@ -203,7 +203,7 @@ const fixture = {
   referenceState: () => ({
     online: navigator.onLine,
     resident: current?.tables.issue.has(referenceId) ?? false,
-    title: current?.tables.issue.get(referenceId)?.title,
+    title: current === null ? undefined : requireHere(current.model('issue', referenceId)).title,
     issueId: currentReplica?.issueIdByRef('POD-1234'),
     serverCalls,
   }),
