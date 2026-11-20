@@ -1,5 +1,5 @@
 /**
- * Client-side experimental feature gate [spec:SP-f4b9].
+ * Client-side experimental feature gate.
  *
  * A flag's state is the instance settings record's `features` (POD-6677): the
  * connected server's facts (its build and config, from `welcome`, held by the

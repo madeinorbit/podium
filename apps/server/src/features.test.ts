@@ -15,7 +15,7 @@ function settings(experimental: Record<string, boolean> = {}): PodiumSettings {
 // packages/protocol/src/features.test.ts.
 const HIDDEN = 'shipwright'
 
-describe('getFeatureStates [spec:SP-f4b9]', () => {
+describe('getFeatureStates', () => {
   it('loads stored settings with the removed specs flag and ignores it', () => {
     const stored = JSON.parse('{"experimental":{"specs":true,"automations":true}}')
     const loaded = normalizeSettings(stored)
@@ -273,7 +273,7 @@ describe('isFeatureEnabled', () => {
   })
 })
 
-describe('draft-sync feature [spec:SP-f4b9] (POD-859)', () => {
+describe('draft-sync feature (POD-859)', () => {
   it('is listed on the edge channel and carries its registry metadata', () => {
     const result = getFeatureStates(
       settings(),

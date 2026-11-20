@@ -966,7 +966,7 @@ export class SyncRepository {
   }
 
   /**
-   * [spec:SP-c29e] One bounded DELETE using the indexed seq primary key.
+   * One bounded DELETE using the indexed seq primary key.
    *
    * Trimming the catch-up log never changes the model tables used by bootstrap.
    */
@@ -1273,7 +1273,7 @@ export class SyncRepository {
 
   /**
    * Rows still sitting in `upstream_outbox` — issue mutations a NODE queued for a hub
-   * it could not reach, at the moment federation was deferred ([spec:SP-0371]).
+   * it could not reach, at the moment federation was deferred.
    *
    * The enqueue / delete / attempt-bump half of this table is GONE with
    * `UpstreamForwarder`; this read survives alone, and deliberately. ADR 5 D8 permits

@@ -1,6 +1,6 @@
 import { messageTestWriter, messageTestWriters } from '../../test-support/message-writer'
 
-// Spawn-on-wake wiring (#237) [spec:SP-34d7 decision 4]: the makeSpawnOnWake
+// Spawn-on-wake wiring (#237): the makeSpawnOnWake
 // adapter over the real session-spawn machinery — issue resolution, cwd
 // choice, provenance stamping — plus the end-to-end wake→spawn→first-prompt
 // path through MessageDeliveryService and the parent clamp it unlocks.

@@ -137,7 +137,7 @@ describe('oracle: rename (the curated name slot)', () => {
     expect(await o.meta(sessionId)).toMatchObject({ name: 'agent pick', nameSource: 'agent' })
   })
 
-  it(`${MUST_NOT_CHANGE}: a user-set name is sovereign — setAgentName refuses it and returns a reason instead of throwing [spec:SP-eb60]`, async () => {
+  it(`${MUST_NOT_CHANGE}: a user-set name is sovereign — setAgentName refuses it and returns a reason instead of throwing`, async () => {
     const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
     await o.call.sessions.rename({ sessionId, name: 'Human pick' })

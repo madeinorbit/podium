@@ -230,7 +230,7 @@ export const AgentPanel = observer(function AgentPanel({
     freshStartTracedRef.current = true
     if (!isSwitchTraced(sessionId)) beginSwitch({ sessionId, issueId: traceIssueId })
   }, [active, sessionId, traceIssueId])
-  // Moving to another machine ([spec:SP-3f7a]) is one deliberate state, not the
+  // Moving to another machine is one deliberate state, not the
   // sequence of read-only states the move happens to pass through: the session is
   // stopped here, shipped, and resumed there. `handover` covers the pane for the
   // whole window (and one beat past it, over the reattaching terminal), so
@@ -337,7 +337,7 @@ export const AgentPanel = observer(function AgentPanel({
     !!session &&
     surface.kind === 'live' &&
     (attentionGroup(session) !== 'working' || isSnoozed(session, snoozeNow))
-  // Agent action offer [spec:SP-c7f1] in NATIVE mode: chat renders its own bar
+  // Agent action offer in NATIVE mode: chat renders its own bar
   // above the composer; this one sits beneath the PTY so an offer is visible in
   // both views. Same optimistic-hide contract as chat: dismissed the moment a
   // button is clicked (keyed by createdAt so a NEW offer re-shows), and the
@@ -367,7 +367,7 @@ export const AgentPanel = observer(function AgentPanel({
       throw cause
     }
   }
-  /** "None of these" [spec:SP-c7f1] — a write that clears the offer everywhere
+  /** "None of these" — a write that clears the offer everywhere
    *  instead of sending a turn, and QUEUED since POD-1110 so it survives an
    *  offline gap like every other row edit. Unlike the answer above it takes no
    *  local hide: the queued entry paints the offer away on this session, which
@@ -1290,7 +1290,7 @@ export const AgentPanel = observer(function AgentPanel({
               </div>
             </>
           )}
-          {/* Agent action offer bar [spec:SP-c7f1] beneath the PTY — the native
+          {/* Agent action offer bar beneath the PTY — the native
               counterpart of the chat composer's bar, so offers aren't invisible
               in native mode. Clicking a button sends its prompt as a user turn. */}
           {dockOffer && (

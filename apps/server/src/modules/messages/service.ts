@@ -1,5 +1,5 @@
 /**
- * Unified agent messaging (#237) [spec:SP-34d7] — MessageDeliveryService, the
+ * Unified agent messaging (#237) — MessageDeliveryService, the
  * ONE send path every surface (issue mail, session send, superagent
  * send_to_agent, chat UI) goes through:
  *
@@ -209,7 +209,7 @@ class PassIssueMembers {
   }
 }
 
-/** Spawn-on-unresumable-wake seam [spec:SP-34d7 decision 4]. Actual agent
+/** Spawn-on-unresumable-wake seam. Actual agent
  *  spawning is wired in a later stage (TODO: wire to SessionLifecycle.spawn with
  *  the message as the first prompt after prime); the default (absent) marks the
  *  ledger and surfaces needs-attention instead. */
@@ -232,7 +232,7 @@ interface InboxDeliveryInput {
    *  operator rows (chat, offer buttons) stamp `controller` because they are a
    *  person typing into the session, and the inbox acts on that difference —
    *  `prepareInboxSend` clears a standing offer for a person-send only
-   *  [spec:SP-c7f1, POD-118, POD-552]; a person's words a job delivers (an
+   * ; a person's words a job delivers (an
    *  automation's prompt, POD-4846) stamp `system`; auto-continue's 'continue'
    *  keeps `auto_continue`. Was `'mail'` alone until
    *  offer-action delivery started riding this substrate (POD-729); the port is
@@ -626,7 +626,7 @@ const isOwnersSpawnPrompt = (m: MessageRow): boolean =>
 
 /**
  * How a delivered message presents as input. A person typing (`controller`)
- * clears a standing offer [spec:SP-c7f1] and opens a user turn (POD-552);
+ * clears a standing offer and opens a user turn (POD-552);
  * agent/system/superagent mail (`mail`) never consumes an offer the human has
  * not acted on [POD-118]; a person's words a job delivers are `system`
  * (POD-4846); auto-continue's 'continue' keeps its own `auto_continue`.
@@ -768,7 +768,7 @@ export class MessageDeliveryService {
   }
 
   /**
-   * DELIVERY ELIGIBILITY AFTER A SESSION OR ISSUE CHANGE [spec:SP-c29e].
+   * DELIVERY ELIGIBILITY AFTER A SESSION OR ISSUE CHANGE.
    *
    * A change can make pending mail deliverable (or move it to another member),
    * so it queues the targets whose answer may have moved: the session
@@ -933,7 +933,7 @@ export class MessageDeliveryService {
     await this.scheduler.flushDeliveryTriggers()
   }
 
-  /** Slow delivery backstop [spec:SP-c29e]. */
+  /** Slow delivery backstop. */
   async sweep(): Promise<void> {
     await this.scheduler.sweep()
   }
@@ -1057,7 +1057,7 @@ export class MessageDeliveryService {
     const clamps: ClampNote[] = []
     let { urgency, lifecycle } = requested
 
-    // Clamp matrix [spec:SP-34d7]: downgrade-never-reject. --outside-scope
+    // Clamp matrix: downgrade-never-reject. --outside-scope
     // only ever confirms scope-crossing at the authz layer — it never reaches
     // here, so it can never elevate past these caps.
     const caps = this.capsFor(from, targetSession)
@@ -1097,7 +1097,7 @@ export class MessageDeliveryService {
       }
     }
 
-    // Acks [spec:SP-34d7 acks]: kind 'ack' requires in_reply_to; the write
+    // Acks: kind 'ack' requires in_reply_to; the write
     // below also stamps acked_by on the original in the same transaction.
     // Replies (any kind) inherit the original's thread.
     const original = input.inReplyTo ? await this.deps.messages.getMessage(input.inReplyTo) : null
@@ -1106,7 +1106,7 @@ export class MessageDeliveryService {
       if (!original) throw new Error(`unknown message ${input.inReplyTo}`)
     }
 
-    // A response is OPT-IN [spec:SP-bf44] [POD-835 §04b]: a plain message owes no reply —
+    // A response is OPT-IN [POD-835 §04b]: a plain message owes no reply —
     // receipt is proven mechanically by the ledger (POD-834), no ack traffic. Only an
     // explicit `--expect-response` (or a `question`, which always wants an answer)
     // arms the stop-hook reminder + steward settle-nag. An `ack`/`notification` can
@@ -1119,7 +1119,7 @@ export class MessageDeliveryService {
           ? false
           : (input.expectsResponse ?? false)
 
-    // Semantic-reply-as-ack [spec:SP-bf44] [POD-835 §04b]: a reply back to the
+    // Semantic-reply-as-ack [POD-835 §04b]: a reply back to the
     // requester within the thread SATISFIES a requested response — not only a
     // `kind:'ack'`. So a thorough substantive reply clears the nag (the 36 false
     // "finished without acking" notices came from treating such a reply as "no ack").
@@ -1610,7 +1610,7 @@ export class MessageDeliveryService {
 
     let target: SessionMeta | undefined
     if (message.toKind === 'session') {
-      // Self-delivery suppression [spec:SP-a4ba] (§09-H, POD-836): a message must never be
+      // Self-delivery suppression (§09-H, POD-836): a message must never be
       // surfaced back to the session that sent it (the POD-279 15× self-echo
       // loop). A session-addressed self-send has no other recipient — ledger-only.
       if (message.fromSession && message.toId === message.fromSession) {
@@ -1684,7 +1684,7 @@ export class MessageDeliveryService {
       const allMembers = opts?.members
         ? await opts.members.of(issue, readMembers)
         : await readMembers(issue.worktreePath ?? null, issue.id)
-      // Self-delivery suppression [spec:SP-a4ba] (§09-H, POD-836): exclude the sender's own
+      // Self-delivery suppression (§09-H, POD-836): exclude the sender's own
       // session from issue-recipient resolution, so an agent mailing its own
       // issue never picks itself. selectMailNudgeSession picks the most recently
       // active live member, which would otherwise BE the sender.
@@ -1700,7 +1700,7 @@ export class MessageDeliveryService {
       // between fan-out waves (when it is normally hibernated) and the fallback
       // below then picked the most-recently-active member, systematically a live
       // worker. `members` already excludes the sender, so a coordinator mailing
-      // its own issue still never receives its own message [spec:SP-a4ba].
+      // its own issue still never receives its own message.
       //
       // HOLD vs wake for a parked coordinator [POD-1371]: default lifecycle is
       // `wait`, so fyi (and other wait mail) is HELD for the coordinator's next
@@ -1862,7 +1862,7 @@ export class MessageDeliveryService {
     const text = await this.render.renderFor(message, sessionId)
     // Operator chat / offer buttons ride this substrate after POD-729, but they
     // are still a person typing into the session — not agent mail. Stamp
-    // `controller` so prepareInboxSend clears a standing offer [spec:SP-c7f1]
+    // `controller` so prepareInboxSend clears a standing offer
     // and causal turn attribution treats the send as user input (POD-552).
     // Agent/system/superagent deliveries stay `mail` so they never consume an
     // offer the human has not acted on [POD-118]. A person's words a job
@@ -1924,7 +1924,7 @@ export class MessageDeliveryService {
       // agent's own signal moves it on.
       await this.markDispatched(writer, message, sessionId)
     }
-    // Honest sync disposition [spec:SP-cb9f] [POD-854]: `delivered` only when the
+    // Honest sync disposition [POD-854]: `delivered` only when the
     // push was confirmed above; an enveloped push is merely handed on.
     if (okDisposition === 'delivered') {
       return { ...r, disposition: confirmed ? 'delivered' : 'queued' }
@@ -2481,7 +2481,7 @@ export class MessageDeliveryService {
     }
   }
 
-  // ---- acks & reads (#237 phase 3) [spec:SP-34d7 acks] ----
+  // ---- acks & reads (#237 phase 3) ----
   //
   // The pull path is its own capability (POD-1397, mailbox.ts). What follows is
   // the facade: callers ask this service, not its parts, exactly as the issue
@@ -2529,7 +2529,7 @@ export class MessageDeliveryService {
     return await this.mailbox.pendingReminders(writer, sessionId)
   }
 
-  /** Deterministic settle fallback [spec:SP-bf44] [spec:SP-34d7 acks]. */
+  /** Deterministic settle fallback. */
   async systemAckFallback(
     writer: MessageWriter,
     sessionId: SessionId,
@@ -2584,7 +2584,7 @@ export class MessageDeliveryService {
     return await this.deps.messages.queuedPositionForSession(sessionId, message.id)
   }
 
-  /** Bounded wait for a message's ack [spec:SP-34d7 read-toolkit tier 4]. */
+  /** Bounded wait for a message's ack. */
   async awaitAck(
     messageId: string,
     opts: { timeoutMs: number; pollMs?: number; sleep?(ms: number): Promise<void> },
@@ -2800,7 +2800,7 @@ export class MessageDeliveryService {
   }
 
   /** Whether `from` is the party the `original` was addressed to — the ONLY
-   *  principal whose reply fulfils a requested response [spec:SP-bf44]. A
+   *  principal whose reply fulfils a requested response. A
    *  session-addressed original is answered by that session (or whichever session
    *  it was actually pushed to, `delivered_to` — covers a resumed/spawned target);
    *  an issue-addressed one by any member of that issue (or the delivered session);
@@ -3038,7 +3038,7 @@ export class MessageDeliveryService {
     }
   }
 
-  /** Self-delivery suppression [spec:SP-a4ba] (§09-H, POD-836): a message whose only resolved
+  /** Self-delivery suppression (§09-H, POD-836): a message whose only resolved
    *  recipient is its own sender is consumed straight to the ledger —
    *  delivered-to-nobody, legacy mirror marked read — so it never re-surfaces
    *  via the sweep or the stop-hook, while the row stays visible in inbox

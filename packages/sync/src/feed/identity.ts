@@ -56,7 +56,7 @@ export interface FeedIdentity {
  * only evidence available afterwards about which generation is which.
  */
 export type EpochBumpCause =
-  /** [spec:SP-4428]'s backup-restore runbook: the operator declared a restore. */
+  /** backup-restore runbook: the operator declared a restore. */
   | 'restore'
   /** The log's max seq moved backwards, or a gap appeared in it. */
   | 'seq-discontinuity'

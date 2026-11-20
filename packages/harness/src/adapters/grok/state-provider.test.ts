@@ -346,7 +346,7 @@ Request URL: https://cli-chat-proxy.grok.com/v1/responses`
   })
 })
 
-describe('grok turn completion ([spec:SP-8b0e])', () => {
+describe('grok turn completion', () => {
   const update = (sessionUpdate: string, extra: Record<string, unknown> = {}) => ({
     method: '_x.ai/session/update',
     params: { update: { sessionUpdate, ...extra } },
@@ -768,7 +768,7 @@ describe('observeGrokState', () => {
   it('settles to idle on the turn_completed sessionUpdate that follows a trailing message chunk', async () => {
     // The exact terminal sequence real Grok writes at a turn boundary. Reduced
     // through the daemon's own path (observer → reducer), the session must end
-    // 'idle', not stuck 'working'. [spec:SP-8b0e]
+    // 'idle', not stuck 'working'.
     const home = await mkdtemp(join(tmpdir(), 'podium-grok-turn-'))
     const cwd = '/repo/grok'
     const events: AgentStateEvent[] = []
@@ -929,7 +929,7 @@ describe('observeGrokState', () => {
   })
 })
 
-describe('Grok durable causal observations ([spec:SP-cdb2])', () => {
+describe('Grok durable causal observations', () => {
   it('empty-session bootstrap snapshots idle, not unknown', () => {
     const observations: AgentObservation[] = []
     const causal = new GrokCausalObserver({

@@ -1485,7 +1485,7 @@ export class SuperagentService {
       // the next server instead of starting detached preparation behind it.
       if (!this.disposed) await this.pump(pending.threadId)
       // After turnInFlight is released so a subscriber can immediately dispatch
-      // the thread's next turn [spec:SP-5d81].
+      // the thread's next turn.
       this.modules.bus.emit('superagent.turnEnded', {
         ownerUserId: pending.ownerUserId,
         threadId: pending.threadId,

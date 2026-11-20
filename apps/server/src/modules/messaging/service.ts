@@ -74,7 +74,7 @@ export interface MessagingRoutingPort {
   chatIdForUser(userId: UserId): Promise<string | undefined>
 }
 
-/** Transcript source for issue-topic entry recaps [spec:SP-62c3]. */
+/** Transcript source for issue-topic entry recaps. */
 export interface TopicRecapPort {
   getSuperagentThread(threadId: ThreadId): Promise<
     | {
@@ -115,7 +115,7 @@ export interface MessagingDeps {
   topics?: MessagingTopicsPort
   /** Session → explicit issue attachment for notice topic routing. */
   sessionIssueId?: (sessionId: SessionId) => Promise<IssueId | null>
-  /** Bound-thread transcript for entry recaps [spec:SP-62c3]. */
+  /** Bound-thread transcript for entry recaps. */
   topicRecap?: TopicRecapPort
   /** Clock for inactivity gating (tests inject a fixed/advanceable now). */
   now?: () => number
@@ -158,7 +158,7 @@ interface AwaitedReply {
 
 /** One shared typing interval per conversation target, refcounted by owner so
  *  superagent-turn typing and ambient session-working typing never double-fire
- *  into the same topic [spec:SP-62c3]. */
+ *  into the same topic. */
 interface TypingLease {
   source: ConversationRef
   interval: ReturnType<typeof setInterval>
@@ -181,13 +181,13 @@ function conversationKey(ref: ConversationRef): string {
 }
 
 /**
- * Two-way messaging-app bridge [spec:SP-5d81]. Inbound chat messages become
+ * Two-way messaging-app bridge. Inbound chat messages become
  * superagent turns; the reply text rides the `superagent.turnEnded` bus event
  * back to the chat. Attention notices ride the same ChannelAdapter (formatting,
  * chunking, forum-topic threading) via {@link sendNotice}, with a direct-send
  * fallback when the bridge is stopped.
  *
- * Ambient working signal [spec:SP-62c3]: while a session bound to an issue
+ * Ambient working signal: while a session bound to an issue
  * forum topic is in a working phase, refresh `sendChatAction` typing into that
  * topic. Driven by `session.stateChanged` + session→issue→topic binding (the
  * reverse of {@link noticeThreadRef}). Sessions without a bound topic are
@@ -198,7 +198,7 @@ function conversationKey(ref: ConversationRef): string {
  * map to btw_<session> (live agent) or the repo concierge thread. Bindings
  * persist in `messaging_issue_topics`. `resolveThreadId` is the seam.
  *
- * Issue-topic entry recap [spec:SP-62c3]: last ~3 bound-agent messages are posted
+ * Issue-topic entry recap: last ~3 bound-agent messages are posted
  * on topic create, issue-button re-tap, and the first user message after >30min
  * inactivity (before that message is dispatched). MarkdownV2-safe via the
  * existing send path. Activity is tracked in-memory by threadRef.
@@ -231,7 +231,7 @@ export class MessagingService implements TelegramNoticePort {
   private readonly ambientTypingBySession = new Map<string, string>()
   /**
    * Last activity (inbound or outbound) per forum threadRef, for entry recaps
-   * [spec:SP-62c3]. In-memory only — recap-on-restart after process bounce is OK.
+   * In-memory only — recap-on-restart after process bounce is OK.
    */
   private readonly lastActivityByThreadRef = new Map<string, number>()
   /** Conversations attached directly to a session (POD-6212). */
@@ -570,7 +570,7 @@ export class MessagingService implements TelegramNoticePort {
   private async handleChatMessage(msg: InboundChatMessage, ownerUserId: UserId): Promise<void> {
     const resolvedThreadId = await this.resolveThreadId(msg)
     const threadId = resolvedThreadId
-    // [spec:SP-62c3] First message after >30min idle → recap BEFORE dispatch.
+    // First message after >30min idle → recap BEFORE dispatch.
     if (await this.shouldPostInactivityRecap(msg.source)) {
       await this.postTopicRecap(msg.source, threadId, ownerUserId)
     }
@@ -594,7 +594,7 @@ export class MessagingService implements TelegramNoticePort {
 
   /**
    * Last ~3 conversational messages from the bound agent transcript
-   * [spec:SP-62c3]. Best-effort: missing deps/session/transcript → silent skip.
+   * Best-effort: missing deps/session/transcript → silent skip.
    */
   private async buildTopicRecap(
     superagentThreadId: ThreadId,
@@ -660,7 +660,7 @@ export class MessagingService implements TelegramNoticePort {
   }
 
   /** Ambient typing into the issue's bound forum topic while the agent works
-   *  [spec:SP-62c3]. No-op when the session has no bound topic. */
+   * No-op when the session has no bound topic. */
   private async onSessionStateChanged(
     sessionId: SessionId,
     ownerUserId: UserId | undefined,
@@ -858,7 +858,7 @@ export class MessagingService implements TelegramNoticePort {
         threadRef: opened.threadRef,
       }
       await this.reply(topicRef, opened.text)
-      // [spec:SP-62c3] Topic create + issue-button re-tap both post a recap.
+      // Topic create + issue-button re-tap both post a recap.
       await this.postTopicRecap(topicRef, opened.superagentThreadId, ownerUserId)
     } catch (err) {
       log.warn('callback failed', { err })

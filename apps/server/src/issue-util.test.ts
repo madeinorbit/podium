@@ -51,7 +51,7 @@ describe('membership', () => {
 
 describe('stageIndex', () => {
   it('orders stages', () => {
-    expect(stageIndex('proposed')).toBe(0) // curation lane sits before backlog [spec:SP-6144]
+    expect(stageIndex('proposed')).toBe(0) // curation lane sits before backlog
     expect(stageIndex('backlog')).toBe(1)
     expect(stageIndex('done')).toBe(5)
   })

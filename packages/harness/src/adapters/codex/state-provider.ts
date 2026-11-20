@@ -234,7 +234,7 @@ export interface CodexRolloutBootstrap {
 /** Find the descriptor-local boundary immediately after the last complete JSONL
  * record. A torn suffix stays outside the bootstrap and becomes eligible only
  * after a later append completes it. Reads are fixed-size regardless of file
- * length. [spec:SP-cdb2] */
+ * length. */
 async function completeRecordEnd(
   handle: Awaited<ReturnType<typeof open>>,
   capturedSize: number,
@@ -570,7 +570,7 @@ function sourceKind(record: Record<string, unknown>): string | undefined {
 }
 
 /** The sole historical envelope. Its provenance makes the folded records
- * ineligible for live effects at the durable gate. [spec:SP-cdb2] */
+ * ineligible for live effects at the durable gate. */
 export function codexBootstrapObservation(
   config: CodexCausalObserverConfig,
   bootstrap: CodexRolloutBootstrap,
@@ -836,7 +836,7 @@ export const codexStateProvider: AgentStateProvider = {
   // stable, instance-scoped socket; URL remains for one rolling upgrade.
   // Exact bindings are durably recorded by the daemon ingest before its HTTP
   // acknowledgement, then survive daemon or server reconnects. Theme seeding
-  // uses the official per-invocation config override [spec:SP-a04d].
+  // uses the official per-invocation config override.
   instrumentation({ endpointUrl, socketPath, seedTheme }) {
     return {
       args: seedTheme ? ['-c', 'tui.theme=ansi'] : [],
@@ -1185,7 +1185,7 @@ export function observeCodexState(opts: {
     if (stopped || reading) return
     reading = true
     try {
-      // [spec:SP-fccf] The stable Podium id identifies the live pane. On Linux,
+      // The stable Podium id identifies the live pane. On Linux,
       // its inherited process environment plus that process's open rollout FD
       // gives an exact P→T mapping without putting P in a prompt or guessing by
       // cwd/time. Recheck slowly after binding so an untrusted hook's `/clear`

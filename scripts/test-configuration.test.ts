@@ -1806,7 +1806,7 @@ describe('test lane configuration', () => {
     expect(oracleJob).not.toMatch(/^\s*continue-on-error:/m)
   })
 
-  it('runs every vitest invocation under the Bun runtime [spec:SP-3f93]', () => {
+  it('runs every vitest invocation under the Bun runtime', () => {
     // The suite must exercise bun:sqlite and Bun process semantics, so a bare `vitest run`
     // (Node runtime) in any script is doctrine drift — POD-622 caught test:multi-instance
     // regressing this way. `bun --bun vitest` (the bin) silently comes up on real

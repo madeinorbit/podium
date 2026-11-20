@@ -614,7 +614,7 @@ export class DaemonRpcService {
     )
   }
 
-  /** One directory's sub-directories on `machineId`'s disk (POD-814) [spec:SP-3701]
+  /** One directory's sub-directories on `machineId`'s disk (POD-814)
    *  — the repo picker's browser. `path` omitted browses that machine's $HOME.
    *  A daemon-reported failure comes back in `error`, not as a rejection. */
   async browseDirs(
@@ -1871,7 +1871,7 @@ export class DaemonRpcService {
           machineId?: MachineId
           root: string
           path: string
-          /** Ranged pull ([spec:SP-0fc9]) — artifact snapshotting reads large files in chunks. */
+          /** Ranged pull — artifact snapshotting reads large files in chunks. */
           offset?: number
           length?: number
         },

@@ -1,6 +1,6 @@
 # Running tests — which lane, when
 
-Validation guidance for agents working in this repo [spec:SP-0be7]. Run focused tests during
+Validation guidance for agents working in this repo. Run focused tests during
 implementation when they answer a concrete question, then select final checks for the finished
 candidate. Avoid repeating broad lanes after each edit or accumulating overlapping checks.
 

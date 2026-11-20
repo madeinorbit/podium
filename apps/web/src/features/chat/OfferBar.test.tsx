@@ -7,7 +7,7 @@ import { OfferDismissalContext, useOfferDismissalHost } from './offer-dismissal'
 import { OfferLiftContext, type OfferLiftHost, useOfferLiftHost } from './offer-lift'
 
 // ---------------------------------------------------------------------------
-// Agent action offer bar [spec:SP-c7f1]: shared between ChatView and the
+// Agent action offer bar: shared between ChatView and the
 // native terminal panel. Message + buttons render; a click hands the button's
 // prompt and the offer's createdAt to the host; disabled blocks the click.
 // ---------------------------------------------------------------------------

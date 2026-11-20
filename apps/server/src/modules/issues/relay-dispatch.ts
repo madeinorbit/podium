@@ -264,7 +264,7 @@ export function makeAgentRelayDispatch(
       modules().machines.toMachine(asMachineId(machine.id), { type: 'inventoryRequest' })
       return await Promise.resolve({ machineId: machine.id, requested: true })
     }
-    // Advisory lease locks [spec:SP-85d1]: the caller's session identity is
+    // Advisory lease locks: the caller's session identity is
     // stamped server-side via the capability (actorSessionId), never from input.
     // Writes are plain registrations (POD-6593); `status` is the dispatcher's read.
     if (router === 'lock') {
@@ -277,7 +277,7 @@ export function makeAgentRelayDispatch(
         relayPrincipal,
       )
     }
-    // Unified messaging command surface (#237) [spec:SP-34d7]: podium mail
+    // Unified messaging command surface (#237): podium mail
     // send/inbox/show/reply + the stop-hook's pendingReminders. Authz lives
     // in the gate (session targets: same containment as the sessions arm).
     // The writes go on through the sync write entry point as relay calls
@@ -346,7 +346,7 @@ export function makeAgentRelayDispatch(
         })
       })()
     }
-    // Agent action offer [spec:SP-c7f1]: `podium offer` set/clear, a sync write
+    // Agent action offer: `podium offer` set/clear, a sync write
     // on the calling session (`sessions/offer-sync-write.ts`, POD-6419).
     // LEGACY(remove-after: 2027-03): this arm is an older CLI's `podium offer`,
     // as an adapter onto `submit`; the current CLI sends `sync.submit` itself.
@@ -356,11 +356,11 @@ export function makeAgentRelayDispatch(
       return await relaySyncWrite({ ...writeCall, input: input ?? {} }, await relayPrincipal())
     }
     if (router === 'sessions') {
-      // Read toolkit tiers 1–2 (#237) [spec:SP-34d7 read-toolkit]: status is
+      // Read toolkit tiers 1–2 (#237): status is
       // a structured snapshot (no transcript text); read is a bounded
       // uuid-cursor transcript window. Both are scope-gated like the send
       // ops against the RESOLVED target's issue and event-logged per read.
-      // Tier 4 — the seance (#237) [spec:SP-34d7 read-toolkit]: `podium
+      // Tier 4 — the seance (#237): `podium
       // session ask` rides the messages gate (it IS a message: question +
       // next-turn + wake + bounded ack wait; the gate owns its authz).
       if (proc === 'ask') {
@@ -408,7 +408,7 @@ export function makeAgentRelayDispatch(
           const reader = capability.actorSessionId ?? 'operator'
           if (proc === 'status') return await readToolkit.status(ref, reader)
           // Tier 3 — server-side recap since a watermark (#237)
-          // [spec:SP-34d7 read-toolkit]: delta-priced repeated check-ins.
+          // delta-priced repeated check-ins.
           if (proc === 'recap') {
             return await readToolkit.recap(
               {
@@ -436,7 +436,7 @@ export function makeAgentRelayDispatch(
       if (proc === 'title') {
         return await relaySyncWrite({ ...writeCall, input: input ?? {} }, await relayPrincipal())
       }
-      // Clean end [spec:SP-9904]: stop process, free worktree, keep branch.
+      // Clean end: stop process, free worktree, keep branch.
       // No id → self-stop (the calling session). Outside subtree needs
       // --outside-scope; self / same-issue siblings / subtree are free.
       //
@@ -477,7 +477,7 @@ export function makeAgentRelayDispatch(
               )
             } else {
               // Issueless: parent/operator free; otherwise --outside-scope
-              // asserts the agent got human OK [spec:SP-9904].
+              // asserts the agent got human OK.
               const isOperator = isPersonCapability(capability)
               const isParent =
                 actorSessionId !== undefined &&

@@ -185,7 +185,7 @@ export async function resolveSessionTarget(
  *
  * This is today's relay logic, moved rather than rewritten — the issue-scoped
  * branch is `checkIssueAccess` verbatim, and the issueless branch keeps the
- * parent rule from [spec:SP-34d7 authz] with its exact message. Both apply to
+ * parent rule from with its exact message. Both apply to
  * agents only: a person reaching their own session (the owner gate) may command
  * it, and nobody else's, admin or not (design §2.3).
  *
@@ -219,7 +219,7 @@ export async function assertMayCommandSession(
   }
   // Issueless targets stay private to their human (checked above). An agent
   // may command one as its parent, or confirm a stop with human permission
-  // [spec:SP-9904]; an unscoped capability alone never grants private access.
+  //; an unscoped capability alone never grants private access.
   const isParent =
     capability.actorSessionId !== undefined &&
     isSpawnedBy(session.spawnedBy, { kind: 'session', id: capability.actorSessionId })

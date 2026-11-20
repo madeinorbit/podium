@@ -144,7 +144,7 @@ export const IssuesScreen = observer(function IssuesScreen() {
   const filterCount = activeFilterCount(board?.filter ?? NO_FILTER, savedFilters, shared)
   const showDone = board?.showDone ?? false
 
-  // Proposals are inert until the operator decides [spec:SP-6144] — the deck
+  // Proposals are inert until the operator decides — the deck
   // flow is the fast way through them, so the board leads with it whenever any
   // are waiting (POD-277).
 

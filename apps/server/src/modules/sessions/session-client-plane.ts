@@ -307,7 +307,7 @@ export class SessionClientPlane {
   ): Promise<void> {
     return this.ports.clientControl.onInputBytes(principal, client, sessionId, bytes)
   }
-  /** Hand an issue the worktree its session is actually working in [spec:SP-4ef9].
+  /** Hand an issue the worktree its session is actually working in.
    *  Two ways in: the agent DECLARES it (`podium worktree`), or the HARNESS makes its
    *  own worktree and the session's hooks start reporting from it (Claude's
    *  EnterWorktree — POD-664 left the worktree real on disk with the issue holding
@@ -316,7 +316,7 @@ export class SessionClientPlane {
    *
    *  Every guard earns its place — this stamps a path the AGENT chose, not one podium
    *  created: only a real linked worktree (a main checkout is never a workspace, and an
-   *  issue claiming main would swallow every unattached session — [spec:SP-595b]), only
+   *  issue claiming main would swallow every unattached session —), only
    *  in the issue's own repo, only when the issue owns no worktree yet, and never one
    *  another issue already owns (a `cd` into a sibling's workspace must not steal it).
    *

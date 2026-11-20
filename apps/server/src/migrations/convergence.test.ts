@@ -1,5 +1,5 @@
 /**
- * Schema convergence [spec:SP-4428]: a fresh drizzle-built database has the full
+ * Schema convergence: a fresh drizzle-built database has the full
  * production data schema, and reopening it is idempotent. The comparison
  * excludes the `__drizzle_migrations` ledger and the FTS5 objects (`*_fts`, its
  * shadow tables, and the `conversations_a{i,d,u}` triggers), which

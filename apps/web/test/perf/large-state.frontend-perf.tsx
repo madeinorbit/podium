@@ -112,7 +112,7 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
-describe('Ludovico-scale frontend budgets [spec:SP-0b2e] [spec:SP-e2c8] [spec:SP-d562]', () => {
+describe('Ludovico-scale frontend budgets', () => {
   it('bounds Tasks DOM, defers text filtering, and preserves full-order navigation', async () => {
     const issueReads: Counter = { gets: 0, ownKeys: 0 }
     const issues = Array.from({ length: SCALE.issues }, (_, index) =>

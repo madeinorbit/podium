@@ -1,5 +1,5 @@
 /**
- * Scrubber tests [spec:SP-f933] — the hostile-input suite.
+ * Scrubber tests — the hostile-input suite.
  *
  * The premise: assume the user's machine is full of things that must not leave
  * it (their name, their employer's repo name, their client's project) and that

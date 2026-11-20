@@ -136,7 +136,7 @@ export type SessionCommandServices = Pick<
   Partial<Pick<SessionLifecycle, 'launchCredential'>>
 
 /**
- * THE SUBSTRATE BOTH CHAT PATHS RIDE (#237) [spec:SP-34d7] — as a dispatch of
+ * THE SUBSTRATE BOTH CHAT PATHS RIDE (#237) — as a dispatch of
  * the `mail.send` CONTRACT, not as a call on the delivery service.
  *
  * This is POD-729's second deletion and the one that matters for security.

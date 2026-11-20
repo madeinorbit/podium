@@ -296,7 +296,7 @@ export interface Replica {
   /** The underlying entity collection for `kind` — the live-query seam (typed
    *  `unknown` so no implementation type leaks through the interface). */
   collection(kind: ReplicaKind): unknown
-  /** Non-React read seam (#262 [spec:SP-3fe2]): the current rows for `kind`.
+  /** Non-React read seam (#262): the current rows for `kind`.
    *  Returns a stable shared empty array while the collection is empty. Never throws. */
   /** Keyed cardinality, without materialising a kind's row array. */
   rowCount?(kind: ReplicaKind): number

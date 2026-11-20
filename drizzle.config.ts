@@ -1,6 +1,6 @@
 import { defineConfig } from 'drizzle-kit'
 
-// Schema migrations [spec:SP-4428]. drizzle-kit AUTHORS migrations (generate/check);
+// Schema migrations. drizzle-kit AUTHORS migrations (generate/check);
 // the runtime applier is apps/server/src/migrations/drizzle-runner.ts, not drizzle's.
 // Run from the repo root: `bun run migration:new <name>`, `bun run migration:check`.
 export default defineConfig({

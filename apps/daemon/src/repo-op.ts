@@ -254,7 +254,7 @@ export function repoOpCommand(op: RepoOp, args: Record<string, string> = {}): Re
       }
     }
     case 'worktreeAddExisting': {
-      // [spec:SP-9904] Attach an EXISTING branch (no -b/-B). Path and branch
+      // Attach an EXISTING branch (no -b/-B). Path and branch
       // ride after `--` so dash values never parse as options. Branch is also
       // validated (defense in depth; git rejects '-…' refnames anyway).
       const { path, branch } = args
@@ -282,7 +282,7 @@ export function repoOpCommand(op: RepoOp, args: Record<string, string> = {}): Re
     }
     case 'worktreeRemove': {
       // Default: no --force — git refuses a dirty/locked worktree and we surface
-      // its message. `--force` is ONLY for stop --force [spec:SP-9904], which
+      // its message. `--force` is ONLY for stop --force, which
       // knowingly discards the working copy after the unsaved-work guard. The
       // path rides after `--` either way.
       const { path, force } = args

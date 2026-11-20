@@ -370,7 +370,7 @@ export const appRouter = t.router({
     ...settingsFamily,
   }),
   perf: t.router(perfFamilyProcedures()),
-  // Experimental feature flags [spec:SP-f4b9], resolved by the server: the CLI's
+  // Experimental feature flags, resolved by the server: the CLI's
   // read. The apps resolve them from `welcome` and the instance settings record.
   features: t.router(queryProcedures('features', FEATURE_QUERIES)),
   telemetry: t.router(telemetryFamilyProcedures()),
@@ -477,18 +477,18 @@ export const appRouter = t.router({
    */
   auth: t.router(authFamilyProcedures()),
   // The issues surface is DERIVED from the command registry (#248
-  // [spec:SP-3fe2]): one definition per command (modules/issues/registry.ts)
+  //): one definition per command (modules/issues/registry.ts)
   // carries input schema, action/scope/target authz, and the handler; the
   // capability guard reads authz from the DEFINITION (no path-string parsing),
   // and the daemon relay + MCP dispatch run the SAME pipeline.
   issues: routerFromCommands(issueRegistry),
-  // Advisory named lease locks [spec:SP-85d1] — same derivation pattern, over
+  // Advisory named lease locks — same derivation pattern, over
   // the lock registry (role-gated only; no issue-scope targets).
   lock: lockRouterFromCommands(lockRegistry),
-  // Unified agent messaging (#237) [spec:SP-34d7]: the `podium mail` surface.
+  // Unified agent messaging (#237): the `podium mail` surface.
   // Input validation + authz live in the MessageGate (shared verbatim with the
   // daemon relay arm); the gate stamps the sender from ctx.capability.
-  // Unified agent messaging (#237) [spec:SP-34d7]: the `podium mail` surface.
+  // Unified agent messaging (#237): the `podium mail` surface.
   //
   // DERIVED (POD-729). Every procedure below is built from its contract in
   // `@podium/commands` — input schema, wire verb and authz all come from the one
@@ -523,11 +523,11 @@ export const appRouter = t.router({
     // A device's own chat messages by id, when the feed no longer carries them
     // (POD-4811): the sender's and the target session owner's, as on the feed.
     records: mailQuery<{ records: MessageRecordWire[] }>('records'),
-    // The web ledger view (#237) [spec:SP-34d7 web]: per-issue / per-session
+    // The web ledger view (#237): per-issue / per-session
     // delivery ledger. Own traffic for a member, cross-user at admin grade.
     ledger: mailQuery('ledger'),
     reply: mailMutation('reply'),
-    // Cross-harness subagents (#237) [spec:SP-34d7 cross-harness]: `podium
+    // Cross-harness subagents (#237): `podium
     // agent spawn/await`. The child is a full Podium session; await is BOUNDED
     // (returns a snapshot, never hangs).
     spawnAgent: mailMutation('spawnAgent'),
@@ -553,7 +553,7 @@ export const appRouter = t.router({
    */
   workflows: t.router(workflowFamilyProcedures()),
   /**
-   * SCHEDULED AUTOMATIONS (#470) [spec:SP-17db] — the cron half of the Automations
+   * SCHEDULED AUTOMATIONS (#470) — the cron half of the Automations
    * tab, and a DERIVED SURFACE since POD-735 (the 3.11 cutover).
    *
    * The four writes — create · update · setEnabled · remove — are built from

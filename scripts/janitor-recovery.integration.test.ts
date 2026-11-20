@@ -40,7 +40,7 @@ function expiredEventCount(dbPath: string): number {
   }
 }
 
-describe('janitor process recovery [spec:SP-c29e]', () => {
+describe('janitor process recovery', () => {
   it('delays expiry while down, then applies it once through the authenticated server seam', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'podium-janitor-recovery-'))
     const dbPath = join(dir, 'podium.db')

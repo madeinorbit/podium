@@ -132,7 +132,7 @@ export interface LedgerBootOptions {
 }
 
 /**
- * Real-server readiness gate [spec:SP-c29e]: finish the sliced boot prune before
+ * Real-server readiness gate: finish the sliced boot prune before
  * the server starts serving catch-up reads.
  */
 export async function prepareLedgerBoot(options: LedgerBootOptions) {

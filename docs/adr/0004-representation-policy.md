@@ -260,7 +260,7 @@ spawn tuples that restate session spawn fields are 1.4 candidates (POD-364 drift
 
 **Instance identity:** `packages/runtime/src/instance.ts` defines runtime instance
 ids (`DEFAULT_INSTANCE_ID`, `validateInstanceId`, `resolveInstanceId`) under
-[spec:SP-15aa]. Whether `InstanceId` becomes a model brand vs stays runtime-only is
+. Whether `InstanceId` becomes a model brand vs stays runtime-only is
 **ADR 1 + ADR 8 / POD-645**. This ADR only requires: if it is modeled, it is not
 hand-restated across packages.
 
@@ -274,7 +274,7 @@ hand-restated across packages.
 ### Decision D6 — Storage encoding vs semantic definition
 
 **Decision:** Server SQLite schema-as-code is authored with **drizzle-kit**
-(`apps/server/src/migrations/schema.ts`, [spec:SP-4428]). That is the **R3 physical**
+(`apps/server/src/migrations/schema.ts`). That is the **R3 physical**
 authoring tool on the server — **not** the semantic vocabulary. Field meanings still
 live in model; storage types/columns map through adapters. Wire/replica protocol
 version is distinct from the drizzle journal (ADR 2). Client replica stores

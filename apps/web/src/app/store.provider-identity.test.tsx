@@ -30,7 +30,7 @@ type MemoryStorage = ReturnType<typeof memoryStorage>
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 // ---------------------------------------------------------------------------
-// Provider ↔ runtime identity (#262 review [spec:SP-3fe2], POD-404): the runtime
+// Provider ↔ runtime identity (#262 review, POD-404): the runtime
 // lives as long as its (principal, config, api) prop IDENTITIES. The PRINCIPAL
 // is the load-bearing one — a change of person must tear down and rebuild
 // transport, replica and outbox — while re-renders with the SAME identities

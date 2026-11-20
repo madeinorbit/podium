@@ -30,7 +30,7 @@ describe('watchdogPetIntervalMs', () => {
   })
 })
 
-describe('startWatchdog progress gating [spec:SP-c29e]', () => {
+describe('startWatchdog progress gating', () => {
   it('pets only after the janitor state machine advances, not from timer liveness', async () => {
     vi.useFakeTimers()
     vi.stubEnv('NOTIFY_SOCKET', '/run/systemd/notify')

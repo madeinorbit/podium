@@ -1,5 +1,5 @@
 /**
- * The scheduler's decision layer (#470) [spec:SP-17db] — a PURE function of
+ * The scheduler's decision layer (#470) — a PURE function of
  * (now, automations, liveSessionIds). No clock, no store, no spawn: the service
  * feeds it a snapshot and applies whatever comes back, which is what makes the
  * missed/overlap/re-arm policy table-testable without a database or a PTY.
@@ -10,7 +10,7 @@ import { nextAfter, parseCron } from '@podium/commands'
 import type { AutomationScheduleKind, AutomationId, SessionId } from '@podium/model'
 
 /** How late a fire may be and still run. Past this, the occurrence is recorded as
- *  `missed` and skipped [spec:SP-17db]: an outage must not ambush the user with a
+ *  `missed` and skipped: an outage must not ambush the user with a
  *  04:00 job at 14:00, and — since every fire spawns an agent session — a naive
  *  backfill of a weekend outage would spawn dozens at once. One hour. */
 export const GRACE_MS = 60 * 60 * 1000
@@ -31,7 +31,7 @@ export interface Schedulable {
 
 /** What the tick decided for one automation. `nextRunAt` is the re-arm — always the
  *  first occurrence STRICTLY after `now`, in every branch, so an outage collapses
- *  any number of skipped occurrences into at most ONE late fire [spec:SP-17db]. */
+ *  any number of skipped occurrences into at most ONE late fire. */
 export interface AutomationDecision {
   automationId: AutomationId
   /** 'spawn' is an intent; the service turns it into a `spawned` or `error` run. */

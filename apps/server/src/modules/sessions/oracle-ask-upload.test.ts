@@ -6,7 +6,7 @@
  * remain, so the oracle has to cover the whole router inventory, not only the
  * writes the frozen brief listed. These two are the remainder:
  *
- *  - `ask` — the seance [spec:SP-34d7 read-toolkit tier 4]. It is a MESSAGE, not
+ *  - `ask` — the seance. It is a MESSAGE, not
  *    a bespoke path: a `kind:'question'` row at next-turn + wake, then a BOUNDED
  *    wait for the ack. Its authz is the MessageGate's session-target gate, the
  *    same containment the relay send arm applies, which is why it is the one

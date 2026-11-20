@@ -101,7 +101,7 @@ type CausalPhasePayload = {
 
 /** Fully legacy rows remain routable until a v1 checkpoint exists. Once a row
  * carries any causal field, however, it must prove one accepted live terminal
- * edge; partial/bootstrap/replay/same-phase shapes fail closed. [spec:SP-cdb2] */
+ * edge; partial/bootstrap/replay/same-phase shapes fail closed. */
 export function isAcceptedLiveTerminalEvent(e: StewardEvent): boolean {
   if (e.kind !== 'session.phase') return false
   const p = (e.payload ?? {}) as CausalPhasePayload
@@ -165,7 +165,7 @@ export const TRIGGER_RULES: Record<string, (e: StewardEvent) => string | string[
     const p = e.payload as { to?: string; parentId?: string } | null
     return p?.to === 'review' && p.parentId ? `parentnudge:review:${p.parentId}` : undefined
   },
-  // Deterministic ack fallback (#237) [spec:SP-34d7 acks]: a session that
+  // Deterministic ack fallback (#237): a session that
   // settles (finished/errored) with delivered-but-unacked messages triggers one
   // system notification per sender, so the sender ALWAYS learns the outcome.
   // M4 / POD-904: ALSO fan out a session-parent wake (resolved via spawnedBy in
@@ -231,7 +231,7 @@ function subscriptionNudge(sub: Subscription, e: StewardEvent): string {
 }
 
 /** The external notification (ntfy/Telegram) a stored subscription delivers when its
- *  `notify` switch is on (#470) [spec:SP-17db]. Phone-shaped, not agent-shaped: it
+ *  `notify` switch is on (#470). Phone-shaped, not agent-shaped: it
  *  says what fired, not what to run — the CLI instructions belong in the nudge. */
 export function subscriptionNotice(
   sub: Subscription,
@@ -428,7 +428,7 @@ export interface StewardDeps {
     messageId: string,
     lifecycle: Extract<MessageLifecycle, 'wait' | 'wake'>,
   ) => Promise<void>
-  /** Ack-fallback seam (#237) [spec:SP-34d7 acks]: notify the senders of the
+  /** Ack-fallback seam (#237): notify the senders of the
    *  settled session's delivered-but-unacked messages, with issue stage + last
    *  commit stitched in. Wired to MessageDeliveryService.systemAckFallback in
    *  the composition root; suppression = the acked_by null-check at query time. */
@@ -439,7 +439,7 @@ export interface StewardDeps {
       notificationFact: { factKey: string; target: string },
     ): void
   }
-  /** External notification seam (#470) [spec:SP-17db]: the delivery behind a
+  /** External notification seam (#470): the delivery behind a
    *  subscription's `notify` switch, wired to NotifyService.notifyExternal in the
    *  composition root. Structurally typed (not the NotifyService type) so the
    *  steward's unit tests stay hermetic. Absent = notify is breadcrumb-only. */
@@ -620,7 +620,7 @@ export class StewardService {
         return
       }
     }
-    // Cheap housekeeping even on an otherwise empty tick [spec:SP-ba61].
+    // Cheap housekeeping even on an otherwise empty tick.
     await this.arbiter.retireExpired(this.now())
     const cursor = await this.resolveCursor()
     const readEvents = await this.deps.store.listEventsSince(
@@ -739,7 +739,7 @@ export class StewardService {
       events.filter((e) => e.kind === 'issue.closed').map((e) => e.subject),
     )
     for (const issueId of closedIssues) await this.arbiter.retireByIssue(asIssueId(issueId))
-    // Condition-clear retirement (POD-890 / POD-908) [spec:SP-ba61]: when the
+    // Condition-clear retirement (POD-890 / POD-908): when the
     // underlying condition ends, free the (fact,target) so a later genuine edge
     // re-fires — without shortening the 24h cross-producer TTL ceiling.
     await this.retireClearedConditions(events)
@@ -980,7 +980,7 @@ export class StewardService {
   /** Deliver a matched subscription exactly once (markDelivered dedup). nudge →
    *  the subscriber's live/starting non-shell sessions (minus the causer, #116);
    *  notify → a durable `steward.notify` breadcrumb AND an external push (#470)
-   *  [spec:SP-17db] — the breadcrumb stays because it is the audit record the
+   *  — the breadcrumb stays because it is the audit record the
    *  dedup and the event log are keyed on; the push is what the switch's label
    *  ("Send an external notification") has always promised.
    *  The nudge stays single-line with no backticks, mirroring the fixed handlers. */
@@ -1393,7 +1393,7 @@ export class StewardService {
     }
   }
 
-  /** Deterministic ack fallback (#237) [spec:SP-34d7 acks]: a settled session's
+  /** Deterministic ack fallback (#237): a settled session's
    *  unacked senders get one system notice each. The batch coalesces repeated
    *  phase flips in a poll; the LAST event's shape names the outcome. The seam
    *  itself queries delivered+unacked at call time, so an agent ack that landed

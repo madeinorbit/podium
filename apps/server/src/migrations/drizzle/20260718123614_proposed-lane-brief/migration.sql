@@ -75,7 +75,7 @@ CREATE UNIQUE INDEX `idx_issues_repo_id_seq` ON `issues` (`repo_id`,`seq`);--> s
 CREATE INDEX `idx_issues_parent` ON `issues` (`parent_id`);--> statement-breakpoint
 CREATE INDEX `idx_issues_repo` ON `issues` (`repo_path`);
 --> statement-breakpoint
--- Backfill only untouched agent discoveries [spec:SP-6144]. "Touched" means an
+-- Backfill only untouched agent discoveries. "Touched" means an
 -- EXPLICIT operator lifecycle action still in the event log: a stage change /
 -- claim (issue.stage_changed), a pin, or an answered needs-human question — all
 -- with no causing session. A mere read-through (issue.read) is NOT curation and

@@ -302,7 +302,7 @@ export class IssueCommandDispatcher {
       ISSUE_COMMAND_NAMES.map((name) => [name, proc('issues', name)]),
     ) as Record<IssueContractName, IssueProc>
     // The in-process surface doesn't serve the lock router
-    // [spec:SP-85d1] — locks ride the daemon relay / HTTP (podium lock CLI).
+    // — locks ride the daemon relay / HTTP (podium lock CLI).
     const lockProc = (name: string): IssueProc => {
       const call = (): Promise<unknown> => {
         throw new Error(`no such issue procedure: lock.${name}`)

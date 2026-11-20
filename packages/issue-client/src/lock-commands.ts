@@ -9,7 +9,7 @@ import { z } from 'zod'
 import type { IssueCommand, IssueCommandResult } from './commands.js'
 
 /**
- * The `podium lock` command table [spec:SP-85d1] — presentation (verbs,
+ * The `podium lock` command table — presentation (verbs,
  * positionals, render bodies) over the server's advisory named-lease locks
  * (`lock.*` procs). Same shape as ISSUE_COMMANDS so the CLI dispatcher
  * (apps/cli/src/lock-cli.ts) reuses the parse → validate → run → render flow.

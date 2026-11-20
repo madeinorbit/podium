@@ -7,7 +7,7 @@ import type { ControlHandlers, DaemonContext } from './context'
 const execFileAsync = promisify(execFile)
 
 /**
- * Approval broker executor [spec:SP-edbb] (#410): run an operator-APPROVED
+ * Approval broker executor (#410): run an operator-APPROVED
  * management op by spawning the podium binary. The op catalog is closed
  * (ApprovalOp) and each op maps to a FIXED argv — nothing agent-controlled
  * reaches the command line except the validated, UI-displayed op params.

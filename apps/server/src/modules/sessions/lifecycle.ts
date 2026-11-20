@@ -362,7 +362,7 @@ export class SessionLifecycle {
     clearInterval(this.activityFlushTimer)
     this.browserOpen.dispose()
     // Graceful server restarts must not lose a resize that landed inside the
-    // coalescing window; persist dirty geometry/activity before closing [spec:SP-1a0b].
+    // coalescing window; persist dirty geometry/activity before closing.
     await this.flushActivity()
     // Run any coalesced session broadcast + pending delta batch. The durable
     // change log is already complete (commits happen at persist time, #256);
@@ -549,7 +549,7 @@ export class SessionLifecycle {
   // `upstreamSessions` / `upstreamStale` / `upstreamOwnMachineIds`, the
   // `setUpstreamSessions` ingest that stamped `viaHub`, the stale-visible flip, and
   // the `upstreamRejection` guard that refused commands against a mirrored session.
-  // Federation is deferred ([spec:SP-0371]) and `UpstreamSync` — the ONLY producer of
+  // Federation is deferred and `UpstreamSync` — the ONLY producer of
   // any of it — is deleted, so every one of those maps was permanently empty and every
   // guard reading them was permanently false. What survives is the SEAM, and it is not
   // here: authority/feed identity (packages/sync/src/feed), the change envelope's
@@ -990,7 +990,7 @@ export class SessionLifecycle {
     log.info('tab release retired an untouched shell', { sessionId, reason: decision.reason })
     await this.sessionKill.killSession(this.deps.writers.lifecycle, { sessionId })
   }
-  /** Move one resumable worktree session to another machine ([spec:SP-3f7a]). */
+  /** Move one resumable worktree session to another machine. */
   async handoffSession(
     input: { sessionId: SessionId; machineId: MachineId },
     caller: HandoffCaller,
@@ -1018,7 +1018,7 @@ export class SessionLifecycle {
       }),
       ownership: await ownershipSnapshotFromMachines(this.machines),
     })
-  /** Wake a hibernated/exited session under the same id [spec:SP-9904]. */
+  /** Wake a hibernated/exited session under the same id. */
   async resurrectSession(
     input: {
       sessionId: SessionId

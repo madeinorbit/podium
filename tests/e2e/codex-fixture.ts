@@ -12,7 +12,6 @@ export function codexStartupFixtureConfig(trustedProjectPaths: readonly string[]
 /**
  * Seed only deterministic, non-secret first-run state into an isolated Codex
  * home. Authentication is supplied separately by the real-agent home fixture.
- * [spec:SP-e639]
  */
 export function writeCodexStartupFixture(
   codexHomeDir: string,

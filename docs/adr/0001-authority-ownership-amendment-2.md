@@ -25,8 +25,8 @@
   identity; the per-principal scoped feed and watermarks), ADR 3 + its Amendment 1
   (principal from transport; policy vocabulary), ADR 5 (peer roles and role-specific auth),
   ADR 8 (package placement for brands vs runtime bootstrap)
-- **Specs:** [spec:SP-15aa] multi-instance runtime isolation (the spec this amendment is
-  cross-referenced from); [spec:SP-0371] hub/node federation deferred
+- **Specs:** multi-instance runtime isolation (the spec this amendment is
+  cross-referenced from); hub/node federation deferred
 - **Base tip verified:** `201dd989` (`issue/279-integration`), 2026-07-30
 - **File discipline:** this amendment owns **only** this file plus a single "Amended by"
   line in `docs/adr/0001-authority-ownership.md`. No index edits, no ledger edits, no edits
@@ -71,7 +71,7 @@ drawing the axis map first is how the wrong answer gets a citation.
 
 ### 1.1 What POD-733 was asked to decide
 
-Instance identity ([spec:SP-15aa], `packages/runtime/src/instance.ts`) landed **after** the
+Instance identity (, `packages/runtime/src/instance.ts`) landed **after** the
 rewrite plan froze. ADR 1 D5 placed it. POD-645's drift audit then asked four residual
 questions, and POD-733 is the record that answers them:
 
@@ -251,7 +251,7 @@ concern:
 
 | Conflation | What breaks |
 |---|---|
-| **Instance ≡ User** ("multi-user means multi-tenant") | An `instance_id` column lands on every table carrying one constant value; the owner dimension is then implemented twice, incompatibly; and the actual product requirement — sharing *between people in one workspace* — becomes unexpressible, because each person is their own universe with their own ports, units, state root and daemons ([spec:SP-15aa]). D18's fence exists for this cell alone. |
+| **Instance ≡ User** ("multi-user means multi-tenant") | An `instance_id` column lands on every table carrying one constant value; the owner dimension is then implemented twice, incompatibly; and the actual product requirement — sharing *between people in one workspace* — becomes unexpressible, because each person is their own universe with their own ports, units, state root and daemons. D18's fence exists for this cell alone. |
 | **Instance ≡ Machine** (or instance encoded into `MachineId`) | Overturned already by D5's rejected alternatives, and the code shows why: two instances on one host legitimately hold two MachineIds for that host, and SP-15aa's isolation suite pins machine UUIDs per state root. Encoding the partition into the join key makes "is this the same host?" and "is this the same deployment?" one unanswerable question. |
 | **Machine ≡ Process role** | The all-in-one case (readiness §3.1.4 M4). The server is a *role*; `LOCAL_MACHINE_ID = 'local'` is a *machine*. Treat the host as "the server's own box" rather than as somebody's owned compute and every authenticated user inherits execute on the operator's laptop. Amendment 1 D13.4 fails this closed. |
 | **Machine ≡ User** ("the machine acts as its owner") | A daemon token becomes a credential for a person's whole account. ADR 9 D1 rejects it explicitly: the machine principal reports observations and carries **already-authorised** work; it never originates writes as a person. |
@@ -932,7 +932,7 @@ table, at the same altitude, makes the asymmetry the load-bearing fact.
 |---|---|
 | Add an instance id to the daemon handshake so a daemon can detect it is talking to the wrong instance | See D19.4 and §1.4: it would not have prevented the known bug (the row is gone either way), and it converts a configuration fact into a protocol commitment — after which removing it is a wire migration. The operator's real need is diagnosable server-side. |
 | Add it to the wire-version / bootstrap header "for observability" | ADR 2 owns wire-version negotiation and it is about *protocol* compatibility, not deployment. An observability field on a negotiated header is the field most likely to be branched on later, and no client can be in the wrong instance: the endpoint it dialled *is* the instance. |
-| Reserve the field now so a future federation does not need a wire migration | [spec:SP-0371] defers federation and D21 puts cross-instance work out of scope. A reserved field with no reader rots: it is either untested and wrong when needed, or quietly adopted for something else. ADR 1 D7's federation seam is deliberately about origin/causation provenance, not about naming instances. |
+| Reserve the field now so a future federation does not need a wire migration | defers federation and D21 puts cross-instance work out of scope. A reserved field with no reader rots: it is either untested and wrong when needed, or quietly adopted for something else. ADR 1 D7's federation seam is deliberately about origin/causation provenance, not about naming instances. |
 | Allow it on the wire but forbid *authorizing* on it | The distinction does not survive contact: a field that is present and describes the deployment will be read, then trusted, then relied on. ADR 3 D7's "payload identity is inert" is precisely the lesson — an identity-shaped field that must not be trusted is a field that should not be sent. |
 
 ---
@@ -943,10 +943,10 @@ table, at the same altitude, makes the asymmetry the load-bearing fact.
 now carry:
 
 1. **No cross-instance federation of any kind.** No cross-instance read, mutate, route,
-   join, feed, cursor, presence room, lock namespace, or entity reference. [spec:SP-15aa]
+   join, feed, cursor, presence room, lock namespace, or entity reference.
    requires proof that one instance cannot read, mutate, stop, update, or route commands into
    another unless sharing is *explicitly configured*, and no such configuration is specified,
-   built, or planned. Hub/node product federation is deferred under [spec:SP-0371] /
+   built, or planned. Hub/node product federation is deferred under /
    POD-353. ADR 1 D7 keeps a **provenance seam** (origin / causation on changes and commands)
    and that seam is explicitly **not** a federation feature: it exists so a future hop could
    attribute writers without rewriting matrix columns.

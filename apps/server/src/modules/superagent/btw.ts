@@ -7,7 +7,7 @@ import type { HarnessAgent, TranscriptItem } from '@podium/model'
 import type { ConciergeSessionInfo } from './concierge'
 
 /** One transcript item as a marked, length-bounded line (id + ts for awareness).
- *  Exported for the read-toolkit's tier-3 recap (#237) [spec:SP-34d7]. */
+ *  Exported for the read-toolkit's tier-3 recap (#237). */
 export function lineForItem(it: TranscriptItem): string {
   const stamp = `${it.ts ?? '?'} · ${it.id}`
   if (it.role === 'tool') {

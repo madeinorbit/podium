@@ -1,5 +1,5 @@
 /**
- * The outbox's write-path wiring (#262 [spec:SP-3fe2]): the queued kinds, their
+ * The outbox's write-path wiring (#262): the queued kinds, their
  * commands, routing, dead-letter rules and maximum ages, the executors, and the
  * Outbox (durable offline write queue over the replica's storage). The outbox
  * service (`./outbox-service.ts`) is the one construction site; the socket hub

@@ -156,7 +156,7 @@
     <p>
       Archiving an issue cascades to its member sessions (#133,
       <code>relay.archive-cascade.test.ts</code>), and a sweep auto-archives sessions that are
-      stopped and read ([spec:SP-6144], <code>tryAutoArchiveStoppedObserved</code>).
+      stopped and read (, <code>tryAutoArchiveStoppedObserved</code>).
       Session-level archive is a manual duplicate of two paths that already run on their own.
     </p>
   </div>
@@ -164,7 +164,7 @@
   <div class="find warn">
     <b>4 · The verb the operator actually wants is built and unexposed.</b>
     <p>
-      <code>sessions.stop</code> [spec:SP-9904] — stop the process, free the worktree when safe,
+      <code>sessions.stop</code> — stop the process, free the worktree when safe,
       <b>keep branch, transcript and row</b>, resume recreates the worktree from the branch — is
       live on the command plane (<code>command-plane.ts:631</code>) and wired to the CLI
       (<code>session-cli.ts:305</code>). It has <b>zero call sites in <code>apps/web</code></b>.
@@ -179,7 +179,7 @@
     <p>
       The flight deck imports <code>IssueContextMenu</code> with <code>surface="sidebar"</code>
       (POD-771, “imported, never forked” — <code>FlightDeck.tsx:2830</code>). Only the colour row
-      differs, gated top-level by [spec:SP-b4d1]. So a sub-task still offers Archive and Pin,
+      differs, gated top-level by. So a sub-task still offers Archive and Pin,
       which are both mission-scoped ideas.
     </p>
   </div>
@@ -529,7 +529,7 @@
         <div class="mi red"><span class="gl">🗑</span>Delete</div>
       </div>
       <p class="note">
-        No Rename (finding 7). Colour is correctly absent — [spec:SP-b4d1], the colour names
+        No Rename (finding 7). Colour is correctly absent —, the colour names
         the mission and a sub-task inherits it.
       </p>
     </div>
@@ -580,7 +580,7 @@
     unlabelled mid-menu. Header it PLACEMENT and it stops reading as another lifecycle row.
   </p>
   <p>
-    Colour is already correctly absent here — [spec:SP-b4d1], the colour names the mission
+    Colour is already correctly absent here —, the colour names the mission
     and a sub-task inherits it.
   </p>
 

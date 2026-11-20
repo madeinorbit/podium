@@ -37,7 +37,7 @@ export async function sendHandler(
     await access.assertSessionTargetAccess(caller, to.id, 'messages.send')
   } else {
     // Issue-addressed: a write gated against the RESOLVED target issue
-    // [spec:SP-34d7 authz] — messages carry urgency/lifecycle (wake →
+    // — messages carry urgency/lifecycle (wake →
     // resurrect / spawn), so unlike append-only mailSend a cross-subtree
     // send needs the --outside-scope confirmation. The confirmation only
     // crosses scope; it never elevates the clamp matrix. The spawn-on-wake

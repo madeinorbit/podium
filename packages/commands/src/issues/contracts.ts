@@ -221,7 +221,7 @@ export const resolveRefsInput = z.object({ refs: z.array(z.string().min(1).max(1
 export const commentsInput = byIssueId
 
 /**
- * READ ONE SNAPSHOTTED ARTIFACT'S BYTES BACK OUT ([spec:SP-0fc9], POD-1999).
+ * READ ONE SNAPSHOTTED ARTIFACT'S BYTES BACK OUT (, POD-1999).
  *
  * The panel only ever said WHICH files an agent attached; the content lived in
  * the server's permanent store with no command to read it, so a later agent —
@@ -292,7 +292,7 @@ export const panelApplyInput = z.object({
   index: z.number().int().min(1).optional(),
   path: z.string().optional(),
   title: z.string().optional(),
-  /** Extra file paths bundled with `path` into one artifact snapshot ([spec:SP-0fc9]). */
+  /** Extra file paths bundled with `path` into one artifact snapshot. */
   extraPaths: z.array(z.string()).optional(),
   /** Pull a raster screenshot from the invoking issue session's checkout. */
   terminalEvidence: z.boolean().optional(),
@@ -428,7 +428,7 @@ export const attachSessionInput = z.object({
   sessionId: SessionIdField,
   targetId: z.string().optional(),
   confirmRehome: z.boolean().optional(),
-  // #348 [spec:SP-a859]: no caller-supplied `origin` — provenance is derived
+  // #348: no caller-supplied `origin` — provenance is derived
   // from the caller below, exactly like issues.create, so it cannot be forged.
   newSubissue: z.object({ title: z.string().min(1) }).optional(),
   // POD-85: spinoff = top-level issue + discovered-from edge to the origin.
@@ -2038,7 +2038,7 @@ export const issueAttachSessionContract = {
     'parent',
     'Attaching may MINT an issue: `newSubissue` files one under the target and it inherits that ' +
       'issue; `newSpinoff` files a top-level one carrying only a `discovered-from` edge. `origin` is ' +
-      'derived from the caller and never accepted from payload ([spec:SP-a859]), so the provenance ' +
+      'derived from the caller and never accepted from payload, so the provenance ' +
       'stamped on the new row cannot be forged.',
   ),
   attribution: ISSUE_ATTRIBUTION,

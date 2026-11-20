@@ -36,7 +36,7 @@ const log = createLogger('server:trpc')
 
 /**
  * The tRPC core shared by the hand-written routers (router.ts) and the derived
- * issues router (modules/issues/trpc.ts, the P3 command registry [spec:SP-3fe2]):
+ * issues router (modules/issues/trpc.ts, the P3 command registry):
  * ONE `initTRPC` instance + the request Context + the tiny ctx accessors. Split
  * out of router.ts so the derivation helper can import them without a runtime
  * cycle (router.ts imports the helper).
@@ -65,7 +65,7 @@ export interface Context {
    *  is off. Optional so existing context builders keep the historical shape
    *  (absent = core + hub, exactly as before roles existed). */
   role?: ServerRoleConfig
-  /** The opt-in telemetry emitter [spec:SP-f933], so `telemetry.preview` can
+  /** The opt-in telemetry emitter, so `telemetry.preview` can
    *  render the REAL pending report instead of a hand-written sample that could
    *  drift from what is actually sent. Optional: contexts without one (tests,
    *  the in-process MCP caller) simply have no preview. Consent state itself is

@@ -228,7 +228,7 @@ export type ErrorConsistency =
  * The actor half of the authored attribution pair, BY KIND ONLY (POD-351).
  *
  * A reducer receives this and never an identity. `session.rename`'s arbitration
- * ([spec:SP-eb60]) turns on human-versus-agent, so a reducer that could not see
+ * turns on human-versus-agent, so a reducer that could not see
  * the kind could never predict a refusal — and the rejection member below would
  * be a shape with no possible caller. It learns "an agent wrote this"; it has no
  * argument with which to ask "may this agent write this".

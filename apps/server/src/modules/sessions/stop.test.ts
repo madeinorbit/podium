@@ -1,6 +1,6 @@
 import { clientSessionViews } from '../../test-support/session-views'
 /**
- * session/issue stop [spec:SP-9904]: park process, free worktree keep branch,
+ * session/issue stop: park process, free worktree keep branch,
  * resume recreates worktree; unsaved guard + force.
  */
 
@@ -169,7 +169,7 @@ async function bindLive(
   })
 }
 
-describe('stopSession [spec:SP-9904]', () => {
+describe('stopSession', () => {
   it.each(
     (['live', 'bootstrap'] as const).flatMap((provenance) =>
       (['hibernated', 'exited'] as const).map((status) => ({ provenance, status })),
@@ -1051,7 +1051,7 @@ describe('stopSession [spec:SP-9904]', () => {
   })
 })
 
-describe('stopIssue [spec:SP-9904]', () => {
+describe('stopIssue', () => {
   it('closing an issue dispatches the same no-force stop and frees its clean worktree', async () => {
     const { reg, daemon, repoOps } = await makeRegistry()
     const issue = await reg.modules.issues.crud.create(

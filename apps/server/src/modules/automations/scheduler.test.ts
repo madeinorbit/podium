@@ -566,7 +566,7 @@ describe('AutomationsService.tick — spawn', () => {
       createdByOnBehalfOf: firstAdminMemberId(),
     })
     // The prompt is NEVER handed to createSession: initialPrompt is argv-only and
-    // silently becomes a draft on opencode/cursor [spec:SP-17db].
+    // silently becomes a draft on opencode/cursor.
     expect(spawn.initialPrompt).toBeUndefined()
     expect(h.freshPrompts()).toEqual([
       {
@@ -835,7 +835,7 @@ describe('AutomationsService.tick — spawn', () => {
 describe('AutomationsService.tick — the missed / overlap / error policy', () => {
   it('an outage spanning many occurrences collapses into exactly ONE late fire', async () => {
     // Hourly automation, armed for 09:00; the server comes back at 09:30 THREE DAYS
-    // later. A backfill would spawn ~72 sessions. [spec:SP-17db]
+    // later. A backfill would spawn ~72 sessions.
     const h = await harness()
     const a = await h.service.create({
       name: 'Hourly',

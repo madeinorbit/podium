@@ -11,7 +11,7 @@ import {
 } from './lock-cli'
 
 /**
- * `podium lock` / `podium merge-lock` CLI dispatch [spec:SP-85d1] —
+ * `podium lock` / `podium merge-lock` CLI dispatch —
  * mocked-client style (see issue-cli.test.ts): parse, positional mapping, the
  * merge:<branch> name mapping, exit-code contract (0 granted · 3 queued ·
  * 4 wait-timeout · 130 interrupted), and the --wait poll loop — which after

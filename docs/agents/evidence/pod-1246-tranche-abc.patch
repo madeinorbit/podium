@@ -164,7 +164,7 @@ diff --git a/apps/server/src/features.test.ts b/apps/server/src/features.test.ts
 index 412c9504..0228a599 100644
 --- a/apps/server/src/features.test.ts
 +++ b/apps/server/src/features.test.ts
-@@ -24,9 +24,13 @@ describe('getFeatureStates [spec:SP-f4b9]', () => {
+@@ -24,9 +24,13 @@ describe('getFeatureStates', () => {
    })
  
    it('production stable does not list hidden flags', () => {
@@ -181,7 +181,7 @@ index 412c9504..0228a599 100644
      expect(result.devMode).toBe(false)
      const sample = result.flags.find((f) => f.id === 'sample-experiment')
      expect(sample).toMatchObject({
-@@ -38,9 +42,13 @@ describe('getFeatureStates [spec:SP-f4b9]', () => {
+@@ -38,9 +42,13 @@ describe('getFeatureStates', () => {
    })
  
    it('honors user toggle when listed (dev)', () => {
@@ -198,7 +198,7 @@ index 412c9504..0228a599 100644
      expect(result.flags.find((f) => f.id === 'sample-experiment')).toMatchObject({
        listed: true,
        enabled: true,
-@@ -51,11 +59,9 @@ describe('getFeatureStates [spec:SP-f4b9]', () => {
+@@ -51,11 +59,9 @@ describe('getFeatureStates', () => {
  
    it('config override force-enables and locks', () => {
      const config: PodiumConfig = { features: { 'sample-experiment': true } }
@@ -213,7 +213,7 @@ index 412c9504..0228a599 100644
      expect(result.flags.find((f) => f.id === 'sample-experiment')).toMatchObject({
        listed: false,
        enabled: true,
-@@ -66,11 +72,9 @@ describe('getFeatureStates [spec:SP-f4b9]', () => {
+@@ -66,11 +72,9 @@ describe('getFeatureStates', () => {
  
    it('config force-disables even when user is on and listed', () => {
      const config: PodiumConfig = { features: { 'sample-experiment': false } }
@@ -228,7 +228,7 @@ index 412c9504..0228a599 100644
      expect(result.flags.find((f) => f.id === 'sample-experiment')).toMatchObject({
        listed: true,
        enabled: false,
-@@ -96,9 +100,9 @@ describe('getFeatureStates [spec:SP-f4b9]', () => {
+@@ -96,9 +100,9 @@ describe('getFeatureStates', () => {
  
  describe('isFeatureEnabled', () => {
    it('returns false by default', () => {
@@ -675,7 +675,7 @@ diff --git a/apps/server/src/issues.ledger.test.ts b/apps/server/src/issues.ledg
 index fa8ead67..df49497a 100644
 --- a/apps/server/src/issues.ledger.test.ts
 +++ b/apps/server/src/issues.ledger.test.ts
-@@ -308,3 +308,146 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
+@@ -308,3 +308,146 @@ describe('issue writes on the write-seam Ledger (#255)', () => {
      expect(change?.value?.title).toBe('changed offline')
    })
  })
@@ -1351,10 +1351,10 @@ index b4d03145..5a9d44d4 100644
    { name: "20260718013423_janitor-maintenance-fencing", sql: "CREATE TABLE `maintenance_commands` (\n\t`job_kind` text NOT NULL,\n\t`run_key` text NOT NULL,\n\t`fencing_token` integer NOT NULL,\n\t`result_json` text NOT NULL,\n\t`applied_at` text NOT NULL,\n\tCONSTRAINT `maintenance_commands_pk` PRIMARY KEY(`job_kind`, `run_key`)\n);\n--> statement-breakpoint\nCREATE TABLE `maintenance_leases` (\n\t`name` text PRIMARY KEY,\n\t`generation_id` text NOT NULL,\n\t`fencing_token` integer NOT NULL,\n\t`expires_at` text NOT NULL,\n\t`protocol_version` integer NOT NULL,\n\t`schema_version` text NOT NULL,\n\t`updated_at` text NOT NULL\n);\n" },
    { name: "20260718030038_janitor-expiry-indexes", sql: "CREATE INDEX `idx_messages_expiry_explicit` ON `messages` (`status`,`expires_at`,`id`);--> statement-breakpoint\nCREATE INDEX `idx_messages_expiry_implicit` ON `messages` (`status`,`lifecycle`,`expires_at`,`created_at`,`id`);" },
    { name: "20260718093018_session-drafts-versioned", sql: "ALTER TABLE `session_drafts` ADD `rev` integer DEFAULT 0 NOT NULL;--> statement-breakpoint\nALTER TABLE `session_drafts` ADD `origin` text;--> statement-breakpoint\nALTER TABLE `session_drafts` ADD `history` text;" },
--  { name: "20260718123614_proposed-lane-brief", sql: "ALTER TABLE `issues` ADD `brief` text;--> statement-breakpoint\nPRAGMA foreign_keys=OFF;--> statement-breakpoint\nCREATE TABLE `__new_issues` (\n\t`id` text PRIMARY KEY,\n\t`repo_path` text NOT NULL,\n\t`repo_id` text,\n\t`seq` integer NOT NULL,\n\t`title` text NOT NULL,\n\t`description` text DEFAULT '' NOT NULL,\n\t`brief` text,\n\t`stage` text NOT NULL,\n\t`worktree_path` text,\n\t`branch` text,\n\t`parent_branch` text DEFAULT 'main' NOT NULL,\n\t`default_agent` text NOT NULL,\n\t`default_model` text DEFAULT 'auto' NOT NULL,\n\t`default_effort` text DEFAULT 'auto' NOT NULL,\n\t`machine_id` text,\n\t`linear_id` text,\n\t`linear_identifier` text,\n\t`linear_url` text,\n\t`activity_notes` text,\n\t`notes_updated_at` text,\n\t`suggested_stage` text,\n\t`suggested_reason` text,\n\t`blocked_by` text DEFAULT '[]' NOT NULL,\n\t`dependency_note` text,\n\t`pr_url` text,\n\t`priority` integer DEFAULT 2 NOT NULL,\n\t`type` text DEFAULT 'task' NOT NULL,\n\t`assignee` text,\n\t`parent_id` text,\n\t`design` text,\n\t`acceptance` text,\n\t`notes` text,\n\t`due_at` text,\n\t`defer_until` text,\n\t`closed_reason` text,\n\t`superseded_by` text,\n\t`duplicate_of` text,\n\t`pinned` integer DEFAULT 0 NOT NULL,\n\t`color` text,\n\t`estimate_min` integer,\n\t`needs_human` integer DEFAULT 0 NOT NULL,\n\t`human_question` text,\n\t`human_question_options` text,\n\t`human_question_asked_by` text,\n\t`human_question_asked_at` text,\n\t`panel` text,\n\t`created_at` text NOT NULL,\n\t`updated_at` text NOT NULL,\n\t`archived` integer DEFAULT 0 NOT NULL,\n\t`origin` text DEFAULT 'human' NOT NULL,\n\t`draft` integer DEFAULT 0 NOT NULL,\n\t`read_at` text,\n\t`audience` text DEFAULT 'human' NOT NULL,\n\t`deleted_at` text,\n\t`coordinator_session_id` text,\n\t`started_by_session` text,\n\tCONSTRAINT `fk_issues_parent_id_issues_id_fk` FOREIGN KEY (`parent_id`) REFERENCES `issues`(`id`) ON DELETE SET NULL,\n\tCONSTRAINT `fk_issues_superseded_by_issues_id_fk` FOREIGN KEY (`superseded_by`) REFERENCES `issues`(`id`) ON DELETE SET NULL,\n\tCONSTRAINT `fk_issues_duplicate_of_issues_id_fk` FOREIGN KEY (`duplicate_of`) REFERENCES `issues`(`id`) ON DELETE SET NULL,\n\tCONSTRAINT \"issues_check_1\" CHECK(stage IN ('proposed', 'backlog', 'planning', 'in_progress', 'review', 'verifying', 'done')),\n\tCONSTRAINT \"issues_check_2\" CHECK(priority BETWEEN 0 AND 4),\n\tCONSTRAINT \"issues_check_3\" CHECK(type IN ('task', 'bug', 'feature', 'chore', 'epic', 'decision', 'spike', 'story', 'milestone', 'automation'))\n);\n--> statement-breakpoint\nINSERT INTO `__new_issues`(`id`, `repo_path`, `repo_id`, `seq`, `title`, `description`, `stage`, `worktree_path`, `branch`, `parent_branch`, `default_agent`, `default_model`, `default_effort`, `machine_id`, `linear_id`, `linear_identifier`, `linear_url`, `activity_notes`, `notes_updated_at`, `suggested_stage`, `suggested_reason`, `blocked_by`, `dependency_note`, `pr_url`, `priority`, `type`, `assignee`, `parent_id`, `design`, `acceptance`, `notes`, `due_at`, `defer_until`, `closed_reason`, `superseded_by`, `duplicate_of`, `pinned`, `color`, `estimate_min`, `needs_human`, `human_question`, `human_question_options`, `human_question_asked_by`, `human_question_asked_at`, `panel`, `created_at`, `updated_at`, `archived`, `origin`, `draft`, `read_at`, `audience`, `deleted_at`, `coordinator_session_id`, `started_by_session`) SELECT `id`, `repo_path`, `repo_id`, `seq`, `title`, `description`, `stage`, `worktree_path`, `branch`, `parent_branch`, `default_agent`, `default_model`, `default_effort`, `machine_id`, `linear_id`, `linear_identifier`, `linear_url`, `activity_notes`, `notes_updated_at`, `suggested_stage`, `suggested_reason`, `blocked_by`, `dependency_note`, `pr_url`, `priority`, `type`, `assignee`, `parent_id`, `design`, `acceptance`, `notes`, `due_at`, `defer_until`, `closed_reason`, `superseded_by`, `duplicate_of`, `pinned`, `color`, `estimate_min`, `needs_human`, `human_question`, `human_question_options`, `human_question_asked_by`, `human_question_asked_at`, `panel`, `created_at`, `updated_at`, `archived`, `origin`, `draft`, `read_at`, `audience`, `deleted_at`, `coordinator_session_id`, `started_by_session` FROM `issues`;--> statement-breakpoint\nDROP TABLE `issues`;--> statement-breakpoint\nALTER TABLE `__new_issues` RENAME TO `issues`;--> statement-breakpoint\nPRAGMA foreign_keys=ON;--> statement-breakpoint\nCREATE INDEX `idx_issues_deleted_at` ON `issues` (`deleted_at`);--> statement-breakpoint\nCREATE UNIQUE INDEX `idx_issues_repo_id_seq` ON `issues` (`repo_id`,`seq`);--> statement-breakpoint\nCREATE INDEX `idx_issues_parent` ON `issues` (`parent_id`);--> statement-breakpoint\nCREATE INDEX `idx_issues_repo` ON `issues` (`repo_path`);\n--> statement-breakpoint\n-- Backfill only untouched agent discoveries [spec:SP-6144]. \"Touched\" means an\n-- EXPLICIT operator lifecycle action still in the event log: a stage change /\n-- claim (issue.stage_changed), a pin, or an answered needs-human question — all\n-- with no causing session. A mere read-through (issue.read) is NOT curation and\n-- must not pin an issue in backlog. Event retention (14d/50k) makes this fuzzy\n-- for older touches; accepted — the sweep is one-shot and operator-reversible.\nUPDATE issues\nSET stage = 'proposed'\nWHERE archived = 0\n  AND deleted_at IS NULL\n  AND closed_reason IS NULL\n  AND origin = 'agent'\n  AND parent_id IS NULL\n  AND stage = 'backlog'\n  AND NOT EXISTS (\n    SELECT 1 FROM podium_events e\n    WHERE e.subject = issues.id\n      AND e.kind IN ('issue.stage_changed', 'issue.pinned', 'issue.needs_human_cleared')\n      AND json_extract(e.payload, '$.causedBySessionId') IS NULL\n  );\n" },
-+  { name: "20260718123614_proposed-lane-brief", sql: "ALTER TABLE `issues` ADD `brief` text;--> statement-breakpoint\nPRAGMA foreign_keys=OFF;--> statement-breakpoint\nCREATE TABLE `__new_issues` (\n\t`id` text PRIMARY KEY,\n\t`repo_path` text NOT NULL,\n\t`repo_id` text,\n\t`seq` integer NOT NULL,\n\t`title` text NOT NULL,\n\t`description` text DEFAULT '' NOT NULL,\n\t`brief` text,\n\t`stage` text NOT NULL,\n\t`worktree_path` text,\n\t`branch` text,\n\t`parent_branch` text DEFAULT 'main' NOT NULL,\n\t`default_agent` text NOT NULL,\n\t`default_model` text DEFAULT 'auto' NOT NULL,\n\t`default_effort` text DEFAULT 'auto' NOT NULL,\n\t`machine_id` text,\n\t`linear_id` text,\n\t`linear_identifier` text,\n\t`linear_url` text,\n\t`activity_notes` text,\n\t`notes_updated_at` text,\n\t`suggested_stage` text,\n\t`suggested_reason` text,\n\t`blocked_by` text DEFAULT '[]' NOT NULL,\n\t`dependency_note` text,\n\t`pr_url` text,\n\t`priority` integer DEFAULT 2 NOT NULL,\n\t`type` text DEFAULT 'task' NOT NULL,\n\t`assignee` text,\n\t`parent_id` text,\n\t`design` text,\n\t`acceptance` text,\n\t`notes` text,\n\t`due_at` text,\n\t`defer_until` text,\n\t`closed_reason` text,\n\t`superseded_by` text,\n\t`duplicate_of` text,\n\t`pinned` integer DEFAULT 0 NOT NULL,\n\t`color` text,\n\t`estimate_min` integer,\n\t`needs_human` integer DEFAULT 0 NOT NULL,\n\t`human_question` text,\n\t`human_question_options` text,\n\t`human_question_asked_by` text,\n\t`human_question_asked_at` text,\n\t`panel` text,\n\t`created_at` text NOT NULL,\n\t`updated_at` text NOT NULL,\n\t`archived` integer DEFAULT 0 NOT NULL,\n\t`origin` text DEFAULT 'human' NOT NULL,\n\t`draft` integer DEFAULT 0 NOT NULL,\n\t`read_at` text,\n\t`audience` text DEFAULT 'human' NOT NULL,\n\t`deleted_at` text,\n\t`coordinator_session_id` text,\n\t`started_by_session` text,\n\t`revision` integer DEFAULT 1 NOT NULL,\n\tCONSTRAINT `fk_issues_parent_id_issues_id_fk` FOREIGN KEY (`parent_id`) REFERENCES `issues`(`id`) ON DELETE SET NULL,\n\tCONSTRAINT `fk_issues_superseded_by_issues_id_fk` FOREIGN KEY (`superseded_by`) REFERENCES `issues`(`id`) ON DELETE SET NULL,\n\tCONSTRAINT `fk_issues_duplicate_of_issues_id_fk` FOREIGN KEY (`duplicate_of`) REFERENCES `issues`(`id`) ON DELETE SET NULL,\n\tCONSTRAINT \"issues_check_1\" CHECK(stage IN ('proposed', 'backlog', 'planning', 'in_progress', 'review', 'verifying', 'done')),\n\tCONSTRAINT \"issues_check_2\" CHECK(priority BETWEEN 0 AND 4),\n\tCONSTRAINT \"issues_check_3\" CHECK(type IN ('task', 'bug', 'feature', 'chore', 'epic', 'decision', 'spike', 'story', 'milestone', 'automation'))\n);\n--> statement-breakpoint\nINSERT INTO `__new_issues`(`id`, `repo_path`, `repo_id`, `seq`, `title`, `description`, `stage`, `worktree_path`, `branch`, `parent_branch`, `default_agent`, `default_model`, `default_effort`, `machine_id`, `linear_id`, `linear_identifier`, `linear_url`, `activity_notes`, `notes_updated_at`, `suggested_stage`, `suggested_reason`, `blocked_by`, `dependency_note`, `pr_url`, `priority`, `type`, `assignee`, `parent_id`, `design`, `acceptance`, `notes`, `due_at`, `defer_until`, `closed_reason`, `superseded_by`, `duplicate_of`, `pinned`, `color`, `estimate_min`, `needs_human`, `human_question`, `human_question_options`, `human_question_asked_by`, `human_question_asked_at`, `panel`, `created_at`, `updated_at`, `archived`, `origin`, `draft`, `read_at`, `audience`, `deleted_at`, `coordinator_session_id`, `started_by_session`, `revision`) SELECT `id`, `repo_path`, `repo_id`, `seq`, `title`, `description`, `stage`, `worktree_path`, `branch`, `parent_branch`, `default_agent`, `default_model`, `default_effort`, `machine_id`, `linear_id`, `linear_identifier`, `linear_url`, `activity_notes`, `notes_updated_at`, `suggested_stage`, `suggested_reason`, `blocked_by`, `dependency_note`, `pr_url`, `priority`, `type`, `assignee`, `parent_id`, `design`, `acceptance`, `notes`, `due_at`, `defer_until`, `closed_reason`, `superseded_by`, `duplicate_of`, `pinned`, `color`, `estimate_min`, `needs_human`, `human_question`, `human_question_options`, `human_question_asked_by`, `human_question_asked_at`, `panel`, `created_at`, `updated_at`, `archived`, `origin`, `draft`, `read_at`, `audience`, `deleted_at`, `coordinator_session_id`, `started_by_session`, `revision` FROM `issues`;--> statement-breakpoint\nDROP TABLE `issues`;--> statement-breakpoint\nALTER TABLE `__new_issues` RENAME TO `issues`;--> statement-breakpoint\nPRAGMA foreign_keys=ON;--> statement-breakpoint\nCREATE INDEX `idx_issues_deleted_at` ON `issues` (`deleted_at`);--> statement-breakpoint\nCREATE UNIQUE INDEX `idx_issues_repo_id_seq` ON `issues` (`repo_id`,`seq`);--> statement-breakpoint\nCREATE INDEX `idx_issues_parent` ON `issues` (`parent_id`);--> statement-breakpoint\nCREATE INDEX `idx_issues_repo` ON `issues` (`repo_path`);\n--> statement-breakpoint\n-- Backfill only untouched agent discoveries [spec:SP-6144]. \"Touched\" means an\n-- EXPLICIT operator lifecycle action still in the event log: a stage change /\n-- claim (issue.stage_changed), a pin, or an answered needs-human question — all\n-- with no causing session. A mere read-through (issue.read) is NOT curation and\n-- must not pin an issue in backlog. Event retention (14d/50k) makes this fuzzy\n-- for older touches; accepted — the sweep is one-shot and operator-reversible.\nUPDATE issues\nSET stage = 'proposed'\nWHERE archived = 0\n  AND deleted_at IS NULL\n  AND closed_reason IS NULL\n  AND origin = 'agent'\n  AND parent_id IS NULL\n  AND stage = 'backlog'\n  AND NOT EXISTS (\n    SELECT 1 FROM podium_events e\n    WHERE e.subject = issues.id\n      AND e.kind IN ('issue.stage_changed', 'issue.pinned', 'issue.needs_human_cleared')\n      AND json_extract(e.payload, '$.causedBySessionId') IS NULL\n  );\n" },
+-  { name: "20260718123614_proposed-lane-brief", sql: "ALTER TABLE `issues` ADD `brief` text;--> statement-breakpoint\nPRAGMA foreign_keys=OFF;--> statement-breakpoint\nCREATE TABLE `__new_issues` (\n\t`id` text PRIMARY KEY,\n\t`repo_path` text NOT NULL,\n\t`repo_id` text,\n\t`seq` integer NOT NULL,\n\t`title` text NOT NULL,\n\t`description` text DEFAULT '' NOT NULL,\n\t`brief` text,\n\t`stage` text NOT NULL,\n\t`worktree_path` text,\n\t`branch` text,\n\t`parent_branch` text DEFAULT 'main' NOT NULL,\n\t`default_agent` text NOT NULL,\n\t`default_model` text DEFAULT 'auto' NOT NULL,\n\t`default_effort` text DEFAULT 'auto' NOT NULL,\n\t`machine_id` text,\n\t`linear_id` text,\n\t`linear_identifier` text,\n\t`linear_url` text,\n\t`activity_notes` text,\n\t`notes_updated_at` text,\n\t`suggested_stage` text,\n\t`suggested_reason` text,\n\t`blocked_by` text DEFAULT '[]' NOT NULL,\n\t`dependency_note` text,\n\t`pr_url` text,\n\t`priority` integer DEFAULT 2 NOT NULL,\n\t`type` text DEFAULT 'task' NOT NULL,\n\t`assignee` text,\n\t`parent_id` text,\n\t`design` text,\n\t`acceptance` text,\n\t`notes` text,\n\t`due_at` text,\n\t`defer_until` text,\n\t`closed_reason` text,\n\t`superseded_by` text,\n\t`duplicate_of` text,\n\t`pinned` integer DEFAULT 0 NOT NULL,\n\t`color` text,\n\t`estimate_min` integer,\n\t`needs_human` integer DEFAULT 0 NOT NULL,\n\t`human_question` text,\n\t`human_question_options` text,\n\t`human_question_asked_by` text,\n\t`human_question_asked_at` text,\n\t`panel` text,\n\t`created_at` text NOT NULL,\n\t`updated_at` text NOT NULL,\n\t`archived` integer DEFAULT 0 NOT NULL,\n\t`origin` text DEFAULT 'human' NOT NULL,\n\t`draft` integer DEFAULT 0 NOT NULL,\n\t`read_at` text,\n\t`audience` text DEFAULT 'human' NOT NULL,\n\t`deleted_at` text,\n\t`coordinator_session_id` text,\n\t`started_by_session` text,\n\tCONSTRAINT `fk_issues_parent_id_issues_id_fk` FOREIGN KEY (`parent_id`) REFERENCES `issues`(`id`) ON DELETE SET NULL,\n\tCONSTRAINT `fk_issues_superseded_by_issues_id_fk` FOREIGN KEY (`superseded_by`) REFERENCES `issues`(`id`) ON DELETE SET NULL,\n\tCONSTRAINT `fk_issues_duplicate_of_issues_id_fk` FOREIGN KEY (`duplicate_of`) REFERENCES `issues`(`id`) ON DELETE SET NULL,\n\tCONSTRAINT \"issues_check_1\" CHECK(stage IN ('proposed', 'backlog', 'planning', 'in_progress', 'review', 'verifying', 'done')),\n\tCONSTRAINT \"issues_check_2\" CHECK(priority BETWEEN 0 AND 4),\n\tCONSTRAINT \"issues_check_3\" CHECK(type IN ('task', 'bug', 'feature', 'chore', 'epic', 'decision', 'spike', 'story', 'milestone', 'automation'))\n);\n--> statement-breakpoint\nINSERT INTO `__new_issues`(`id`, `repo_path`, `repo_id`, `seq`, `title`, `description`, `stage`, `worktree_path`, `branch`, `parent_branch`, `default_agent`, `default_model`, `default_effort`, `machine_id`, `linear_id`, `linear_identifier`, `linear_url`, `activity_notes`, `notes_updated_at`, `suggested_stage`, `suggested_reason`, `blocked_by`, `dependency_note`, `pr_url`, `priority`, `type`, `assignee`, `parent_id`, `design`, `acceptance`, `notes`, `due_at`, `defer_until`, `closed_reason`, `superseded_by`, `duplicate_of`, `pinned`, `color`, `estimate_min`, `needs_human`, `human_question`, `human_question_options`, `human_question_asked_by`, `human_question_asked_at`, `panel`, `created_at`, `updated_at`, `archived`, `origin`, `draft`, `read_at`, `audience`, `deleted_at`, `coordinator_session_id`, `started_by_session`) SELECT `id`, `repo_path`, `repo_id`, `seq`, `title`, `description`, `stage`, `worktree_path`, `branch`, `parent_branch`, `default_agent`, `default_model`, `default_effort`, `machine_id`, `linear_id`, `linear_identifier`, `linear_url`, `activity_notes`, `notes_updated_at`, `suggested_stage`, `suggested_reason`, `blocked_by`, `dependency_note`, `pr_url`, `priority`, `type`, `assignee`, `parent_id`, `design`, `acceptance`, `notes`, `due_at`, `defer_until`, `closed_reason`, `superseded_by`, `duplicate_of`, `pinned`, `color`, `estimate_min`, `needs_human`, `human_question`, `human_question_options`, `human_question_asked_by`, `human_question_asked_at`, `panel`, `created_at`, `updated_at`, `archived`, `origin`, `draft`, `read_at`, `audience`, `deleted_at`, `coordinator_session_id`, `started_by_session` FROM `issues`;--> statement-breakpoint\nDROP TABLE `issues`;--> statement-breakpoint\nALTER TABLE `__new_issues` RENAME TO `issues`;--> statement-breakpoint\nPRAGMA foreign_keys=ON;--> statement-breakpoint\nCREATE INDEX `idx_issues_deleted_at` ON `issues` (`deleted_at`);--> statement-breakpoint\nCREATE UNIQUE INDEX `idx_issues_repo_id_seq` ON `issues` (`repo_id`,`seq`);--> statement-breakpoint\nCREATE INDEX `idx_issues_parent` ON `issues` (`parent_id`);--> statement-breakpoint\nCREATE INDEX `idx_issues_repo` ON `issues` (`repo_path`);\n--> statement-breakpoint\n-- Backfill only untouched agent discoveries. \"Touched\" means an\n-- EXPLICIT operator lifecycle action still in the event log: a stage change /\n-- claim (issue.stage_changed), a pin, or an answered needs-human question — all\n-- with no causing session. A mere read-through (issue.read) is NOT curation and\n-- must not pin an issue in backlog. Event retention (14d/50k) makes this fuzzy\n-- for older touches; accepted — the sweep is one-shot and operator-reversible.\nUPDATE issues\nSET stage = 'proposed'\nWHERE archived = 0\n  AND deleted_at IS NULL\n  AND closed_reason IS NULL\n  AND origin = 'agent'\n  AND parent_id IS NULL\n  AND stage = 'backlog'\n  AND NOT EXISTS (\n    SELECT 1 FROM podium_events e\n    WHERE e.subject = issues.id\n      AND e.kind IN ('issue.stage_changed', 'issue.pinned', 'issue.needs_human_cleared')\n      AND json_extract(e.payload, '$.causedBySessionId') IS NULL\n  );\n" },
++  { name: "20260718123614_proposed-lane-brief", sql: "ALTER TABLE `issues` ADD `brief` text;--> statement-breakpoint\nPRAGMA foreign_keys=OFF;--> statement-breakpoint\nCREATE TABLE `__new_issues` (\n\t`id` text PRIMARY KEY,\n\t`repo_path` text NOT NULL,\n\t`repo_id` text,\n\t`seq` integer NOT NULL,\n\t`title` text NOT NULL,\n\t`description` text DEFAULT '' NOT NULL,\n\t`brief` text,\n\t`stage` text NOT NULL,\n\t`worktree_path` text,\n\t`branch` text,\n\t`parent_branch` text DEFAULT 'main' NOT NULL,\n\t`default_agent` text NOT NULL,\n\t`default_model` text DEFAULT 'auto' NOT NULL,\n\t`default_effort` text DEFAULT 'auto' NOT NULL,\n\t`machine_id` text,\n\t`linear_id` text,\n\t`linear_identifier` text,\n\t`linear_url` text,\n\t`activity_notes` text,\n\t`notes_updated_at` text,\n\t`suggested_stage` text,\n\t`suggested_reason` text,\n\t`blocked_by` text DEFAULT '[]' NOT NULL,\n\t`dependency_note` text,\n\t`pr_url` text,\n\t`priority` integer DEFAULT 2 NOT NULL,\n\t`type` text DEFAULT 'task' NOT NULL,\n\t`assignee` text,\n\t`parent_id` text,\n\t`design` text,\n\t`acceptance` text,\n\t`notes` text,\n\t`due_at` text,\n\t`defer_until` text,\n\t`closed_reason` text,\n\t`superseded_by` text,\n\t`duplicate_of` text,\n\t`pinned` integer DEFAULT 0 NOT NULL,\n\t`color` text,\n\t`estimate_min` integer,\n\t`needs_human` integer DEFAULT 0 NOT NULL,\n\t`human_question` text,\n\t`human_question_options` text,\n\t`human_question_asked_by` text,\n\t`human_question_asked_at` text,\n\t`panel` text,\n\t`created_at` text NOT NULL,\n\t`updated_at` text NOT NULL,\n\t`archived` integer DEFAULT 0 NOT NULL,\n\t`origin` text DEFAULT 'human' NOT NULL,\n\t`draft` integer DEFAULT 0 NOT NULL,\n\t`read_at` text,\n\t`audience` text DEFAULT 'human' NOT NULL,\n\t`deleted_at` text,\n\t`coordinator_session_id` text,\n\t`started_by_session` text,\n\t`revision` integer DEFAULT 1 NOT NULL,\n\tCONSTRAINT `fk_issues_parent_id_issues_id_fk` FOREIGN KEY (`parent_id`) REFERENCES `issues`(`id`) ON DELETE SET NULL,\n\tCONSTRAINT `fk_issues_superseded_by_issues_id_fk` FOREIGN KEY (`superseded_by`) REFERENCES `issues`(`id`) ON DELETE SET NULL,\n\tCONSTRAINT `fk_issues_duplicate_of_issues_id_fk` FOREIGN KEY (`duplicate_of`) REFERENCES `issues`(`id`) ON DELETE SET NULL,\n\tCONSTRAINT \"issues_check_1\" CHECK(stage IN ('proposed', 'backlog', 'planning', 'in_progress', 'review', 'verifying', 'done')),\n\tCONSTRAINT \"issues_check_2\" CHECK(priority BETWEEN 0 AND 4),\n\tCONSTRAINT \"issues_check_3\" CHECK(type IN ('task', 'bug', 'feature', 'chore', 'epic', 'decision', 'spike', 'story', 'milestone', 'automation'))\n);\n--> statement-breakpoint\nINSERT INTO `__new_issues`(`id`, `repo_path`, `repo_id`, `seq`, `title`, `description`, `stage`, `worktree_path`, `branch`, `parent_branch`, `default_agent`, `default_model`, `default_effort`, `machine_id`, `linear_id`, `linear_identifier`, `linear_url`, `activity_notes`, `notes_updated_at`, `suggested_stage`, `suggested_reason`, `blocked_by`, `dependency_note`, `pr_url`, `priority`, `type`, `assignee`, `parent_id`, `design`, `acceptance`, `notes`, `due_at`, `defer_until`, `closed_reason`, `superseded_by`, `duplicate_of`, `pinned`, `color`, `estimate_min`, `needs_human`, `human_question`, `human_question_options`, `human_question_asked_by`, `human_question_asked_at`, `panel`, `created_at`, `updated_at`, `archived`, `origin`, `draft`, `read_at`, `audience`, `deleted_at`, `coordinator_session_id`, `started_by_session`, `revision`) SELECT `id`, `repo_path`, `repo_id`, `seq`, `title`, `description`, `stage`, `worktree_path`, `branch`, `parent_branch`, `default_agent`, `default_model`, `default_effort`, `machine_id`, `linear_id`, `linear_identifier`, `linear_url`, `activity_notes`, `notes_updated_at`, `suggested_stage`, `suggested_reason`, `blocked_by`, `dependency_note`, `pr_url`, `priority`, `type`, `assignee`, `parent_id`, `design`, `acceptance`, `notes`, `due_at`, `defer_until`, `closed_reason`, `superseded_by`, `duplicate_of`, `pinned`, `color`, `estimate_min`, `needs_human`, `human_question`, `human_question_options`, `human_question_asked_by`, `human_question_asked_at`, `panel`, `created_at`, `updated_at`, `archived`, `origin`, `draft`, `read_at`, `audience`, `deleted_at`, `coordinator_session_id`, `started_by_session`, `revision` FROM `issues`;--> statement-breakpoint\nDROP TABLE `issues`;--> statement-breakpoint\nALTER TABLE `__new_issues` RENAME TO `issues`;--> statement-breakpoint\nPRAGMA foreign_keys=ON;--> statement-breakpoint\nCREATE INDEX `idx_issues_deleted_at` ON `issues` (`deleted_at`);--> statement-breakpoint\nCREATE UNIQUE INDEX `idx_issues_repo_id_seq` ON `issues` (`repo_id`,`seq`);--> statement-breakpoint\nCREATE INDEX `idx_issues_parent` ON `issues` (`parent_id`);--> statement-breakpoint\nCREATE INDEX `idx_issues_repo` ON `issues` (`repo_path`);\n--> statement-breakpoint\n-- Backfill only untouched agent discoveries. \"Touched\" means an\n-- EXPLICIT operator lifecycle action still in the event log: a stage change /\n-- claim (issue.stage_changed), a pin, or an answered needs-human question — all\n-- with no causing session. A mere read-through (issue.read) is NOT curation and\n-- must not pin an issue in backlog. Event retention (14d/50k) makes this fuzzy\n-- for older touches; accepted — the sweep is one-shot and operator-reversible.\nUPDATE issues\nSET stage = 'proposed'\nWHERE archived = 0\n  AND deleted_at IS NULL\n  AND closed_reason IS NULL\n  AND origin = 'agent'\n  AND parent_id IS NULL\n  AND stage = 'backlog'\n  AND NOT EXISTS (\n    SELECT 1 FROM podium_events e\n    WHERE e.subject = issues.id\n      AND e.kind IN ('issue.stage_changed', 'issue.pinned', 'issue.needs_human_cleared')\n      AND json_extract(e.payload, '$.causedBySessionId') IS NULL\n  );\n" },
    { name: "20260718124039_session-stop-metadata", sql: "ALTER TABLE `sessions` ADD `stopped_at` text;--> statement-breakpoint\nALTER TABLE `sessions` ADD `stop_reason` text;--> statement-breakpoint\nPRAGMA foreign_keys=OFF;--> statement-breakpoint\nCREATE TABLE `__new_sessions` (\n\t`id` text PRIMARY KEY,\n\t`agent_kind` text NOT NULL,\n\t`model` text,\n\t`effort` text,\n\t`account_id` text,\n\t`cwd` text NOT NULL,\n\t`title` text NOT NULL,\n\t`origin_kind` text NOT NULL,\n\t`conversation_id` text,\n\t`resume_kind` text,\n\t`resume_value` text,\n\t`status` text NOT NULL,\n\t`exit_code` integer,\n\t`durable_label` text NOT NULL,\n\t`created_at` text NOT NULL,\n\t`last_active_at` text NOT NULL,\n\t`name` text,\n\t`archived` integer DEFAULT 0 NOT NULL,\n\t`work_state` text,\n\t`machine_id` text DEFAULT '__local__' NOT NULL,\n\t`last_output_at` text,\n\t`last_input_at` text,\n\t`last_resumed_at` text,\n\t`spawned_by` text,\n\t`headless` integer DEFAULT 0 NOT NULL,\n\t`issue_id` text,\n\t`read_at` text,\n\t`stopped_at` text,\n\t`stop_reason` text,\n\t`deleted_at` text,\n\t`deleted_by_issue_id` text,\n\t`deletion_source` text,\n\t`workflow_run_id` text,\n\t`workflow_step_id` text,\n\t`execution_profile_id` text,\n\t`name_source` text,\n\t`ref_issue_id` text,\n\t`ref_letter` text,\n\t`ref_draft` integer,\n\t`terminal_cols` integer DEFAULT 80 NOT NULL,\n\t`terminal_rows` integer DEFAULT 24 NOT NULL,\n\t`working_ms_total` integer,\n\tCONSTRAINT \"sessions_stop_reason_check\" CHECK(stop_reason IS NULL OR stop_reason IN ('self', 'parent', 'forced', 'exited'))\n);\n--> statement-breakpoint\nINSERT INTO `__new_sessions`(`id`, `agent_kind`, `model`, `effort`, `account_id`, `cwd`, `title`, `origin_kind`, `conversation_id`, `resume_kind`, `resume_value`, `status`, `exit_code`, `durable_label`, `created_at`, `last_active_at`, `name`, `archived`, `work_state`, `machine_id`, `last_output_at`, `last_input_at`, `last_resumed_at`, `spawned_by`, `headless`, `issue_id`, `read_at`, `deleted_at`, `deleted_by_issue_id`, `deletion_source`, `workflow_run_id`, `workflow_step_id`, `execution_profile_id`, `name_source`, `ref_issue_id`, `ref_letter`, `ref_draft`, `terminal_cols`, `terminal_rows`, `working_ms_total`) SELECT `id`, `agent_kind`, `model`, `effort`, `account_id`, `cwd`, `title`, `origin_kind`, `conversation_id`, `resume_kind`, `resume_value`, `status`, `exit_code`, `durable_label`, `created_at`, `last_active_at`, `name`, `archived`, `work_state`, `machine_id`, `last_output_at`, `last_input_at`, `last_resumed_at`, `spawned_by`, `headless`, `issue_id`, `read_at`, `deleted_at`, `deleted_by_issue_id`, `deletion_source`, `workflow_run_id`, `workflow_step_id`, `execution_profile_id`, `name_source`, `ref_issue_id`, `ref_letter`, `ref_draft`, `terminal_cols`, `terminal_rows`, `working_ms_total` FROM `sessions`;--> statement-breakpoint\nDROP TABLE `sessions`;--> statement-breakpoint\nALTER TABLE `__new_sessions` RENAME TO `sessions`;--> statement-breakpoint\nPRAGMA foreign_keys=ON;--> statement-breakpoint\nCREATE INDEX `idx_sessions_deleted_by_issue` ON `sessions` (`deleted_by_issue_id`);--> statement-breakpoint\nCREATE INDEX `idx_sessions_deleted_at` ON `sessions` (`deleted_at`);" },
-   { name: "20260718141035_issue-closed-at", sql: "ALTER TABLE `issues` ADD `closed_at` text;--> statement-breakpoint\n-- Legacy closed rows get a FIXED anchor (their last touch at migration time) so\n-- historical done issues decay deterministically instead of resurfacing. [spec:SP-6144]\nUPDATE issues SET closed_at = updated_at\nWHERE closed_at IS NULL AND (stage = 'done' OR closed_reason IS NOT NULL);\n" },
+   { name: "20260718141035_issue-closed-at", sql: "ALTER TABLE `issues` ADD `closed_at` text;--> statement-breakpoint\n-- Legacy closed rows get a FIXED anchor (their last touch at migration time) so\n-- historical done issues decay deterministically instead of resurfacing.\nUPDATE issues SET closed_at = updated_at\nWHERE closed_at IS NULL AND (stage = 'done' OR closed_reason IS NOT NULL);\n" },
    { name: "20260718193851_session-observation-checkpoints", sql: "CREATE TABLE `session_observation_checkpoints` (\n\t`session_id` text PRIMARY KEY,\n\t`schema_version` integer DEFAULT 1 NOT NULL,\n\t`provider` text NOT NULL,\n\t`provider_session_id` text,\n\t`binding_version` integer DEFAULT 0 NOT NULL,\n\t`observation_generation` integer DEFAULT 0 NOT NULL,\n\t`checkpoint_json` text,\n\t`updated_at` text NOT NULL\n);\n" },
 diff --git a/apps/server/src/migrations/drizzle/20260717092407_issue-revision-and-feed-identity/migration.sql b/apps/server/src/migrations/drizzle/20260717092407_issue-revision-and-feed-identity/migration.sql
 new file mode 100644
@@ -7313,7 +7313,7 @@ index 00000000..09053b72
 +    const beforeBackup = write(ledger, ['iss_1', 'iss_2'])
 +    expect(beforeBackup).toBe(2)
 +
-+    // The sanctioned rollback point ([spec:SP-4428]: drizzle has no down
++    // The sanctioned rollback point (: drizzle has no down
 +    // migrations, so restoring the pre-migration backup IS the rollback).
 +    const backupPath = backupDatabase(db, dbPath, 'test', PLENTY)
 +    if (!backupPath) throw new Error('backup did not run')
@@ -7586,7 +7586,7 @@ index 00000000..09053b72
 +
 +/**
 + * A backup that predates the feed-identity migration. This is NOT an exotic case:
-+ * the [spec:SP-4428] pre-migration backup for 20260717092407 is taken BEFORE it
++ * the pre-migration backup for 20260717092407 is taken BEFORE it
 + * runs, so the canonical artifact for rolling THIS change back has no sync_feed
 + * table and still has the migration pending.
 + */
@@ -7749,7 +7749,7 @@ index 00000000..2bd0ad94
 + * ADR 2 D1 requires the authority to mint a NEW epoch whenever it cannot
 + * guarantee its `seq` sequence continues the one clients hold — and restore from
 + * backup is the headline case, because it is the SANCTIONED rollback path
-+ * ([spec:SP-4428] mandates the pre-migration backup precisely because drizzle
++ * (mandates the pre-migration backup precisely because drizzle
 + * has no down migrations).
 + *
 + * The trap the epoch exists to catch:
@@ -7945,7 +7945,7 @@ index 00000000..2bd0ad94
 + *
 + * ## Why the missing table is the NORMAL case, not an edge case
 + *
-+ * The feed-identity migration's own [spec:SP-4428] pre-migration backup is taken
++ * The feed-identity migration's own pre-migration backup is taken
 + * BEFORE that migration runs — so the canonical artifact for rolling THIS change
 + * back is a database with no `sync_feed` table at all. A restore path that only
 + * handles post-migration backups fails exactly when the rollback it exists for is
@@ -8000,7 +8000,7 @@ index 00000000..2bd0ad94
 + *    (safety copy #2 evicts the oldest file in the pool — which is it); and
 + *  - two restores evict every pre-migration backup, i.e. the restore command
 + *    eats the very artifacts that ARE the sanctioned rollback path
-+ *    ([spec:SP-4428]), which is the exact opposite of its job.
++ *   , which is the exact opposite of its job.
 + *
 + * So the replaced database lands OUTSIDE that pool, under `.replaced-`, where
 + * `isBackupMain` cannot see it: it neither prunes nor is pruned. It therefore
@@ -8271,22 +8271,22 @@ index 00000000..20a5694c
 +
 +type MutuallyAssignable<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false
 +
-+// MachineId's model and protocol brand tags remain mutually assignable [spec:SP-3fe2].
++// MachineId's model and protocol brand tags remain mutually assignable.
 +const machineIdBrandsMatch = true satisfies MutuallyAssignable<
 +  ModelMachineIdType,
 +  ProtocolMachineIdType
 +>
-+// SessionId's model and protocol brand tags remain mutually assignable [spec:SP-3fe2].
++// SessionId's model and protocol brand tags remain mutually assignable.
 +const sessionIdBrandsMatch = true satisfies MutuallyAssignable<
 +  ModelSessionIdType,
 +  ProtocolSessionIdType
 +>
-+// IssueId's model and protocol brand tags remain mutually assignable [spec:SP-3fe2].
++// IssueId's model and protocol brand tags remain mutually assignable.
 +const issueIdBrandsMatch = true satisfies MutuallyAssignable<ModelIssueIdType, ProtocolIssueIdType>
-+// RepoId's model and protocol brand tags remain mutually assignable [spec:SP-3fe2].
++// RepoId's model and protocol brand tags remain mutually assignable.
 +const repoIdBrandsMatch = true satisfies MutuallyAssignable<ModelRepoIdType, ProtocolRepoIdType>
 +
-+describe('model ↔ protocol branded id drift [spec:SP-3fe2]', () => {
++describe('model ↔ protocol branded id drift', () => {
 +  it('keeps every brand tag mutually assignable', () => {
 +    // MachineId's brand tag is identical across model and protocol.
 +    expect(machineIdBrandsMatch).toBe(true)
@@ -9386,12 +9386,12 @@ index b61f21a9..3296bdf5 100644
 +    sessions: registry.modules.sessions,
      topics: store.messagingTopics,
      sessionIssueId: (sessionId) => registry.modules.sessions.getSessionIssueId(sessionId),
-     // Issue-topic entry recap [spec:SP-62c3]: last messages from the bound
+     // Issue-topic entry recap: last messages from the bound
 diff --git a/apps/server/src/sessions.ledger.test.ts b/apps/server/src/sessions.ledger.test.ts
 index 1cbca10f..a37bdaea 100644
 --- a/apps/server/src/sessions.ledger.test.ts
 +++ b/apps/server/src/sessions.ledger.test.ts
-@@ -459,7 +459,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () =>
+@@ -459,7 +459,7 @@ describe('session writes on the write-seam Ledger (#256)', () =>
      ).toBe(true)
      second.modules.sessions.broadcastSessions()
      second.modules.sessions.flushBroadcasts()
@@ -9400,7 +9400,7 @@ index 1cbca10f..a37bdaea 100644
        kind: 'delta',
        cursor: cursorAfterRecovery,
        changes: [],
-@@ -688,7 +688,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () =>
+@@ -688,7 +688,7 @@ describe('session writes on the write-seam Ledger (#256)', () =>
      expect(
        registry.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)?.name,
      ).toBeUndefined()
@@ -9409,7 +9409,7 @@ index 1cbca10f..a37bdaea 100644
        kind: 'delta',
        cursor,
        changes: [],
-@@ -740,7 +740,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () =>
+@@ -740,7 +740,7 @@ describe('session writes on the write-seam Ledger (#256)', () =>
      expect(
        registry.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)?.snoozedUntil,
      ).toBeUndefined()
@@ -9418,7 +9418,7 @@ index 1cbca10f..a37bdaea 100644
        kind: 'delta',
        cursor,
        changes: [],
-@@ -825,6 +825,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () =>
+@@ -825,6 +825,7 @@ describe('session writes on the write-seam Ledger (#256)', () =>
      ])
    })
  
@@ -9426,7 +9426,7 @@ index 1cbca10f..a37bdaea 100644
    it('replaying the whole durable log folds to the live session list', () => {
      const registry = makeRegistry()
      const a = registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w1' })
-@@ -893,3 +894,118 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () =>
+@@ -893,3 +894,118 @@ describe('session writes on the write-seam Ledger (#256)', () =>
      expect(listed?.machineName).not.toBe(undefined)
    })
  })
@@ -9849,7 +9849,7 @@ index 61fa09e9..1f411368 100644
  /**
   * The desktop 44px command header per the handoff v2 desktop anatomy
 @@ -17,10 +17,11 @@ import { type MainView, useStoreSelector } from './store'
-  * [spec:SP-3834] The same header becomes the native app's integrated title bar.
+  * The same header becomes the native app's integrated title bar.
   */
  export function TopBar(): JSX.Element {
 -  const { view, setView, issues } = useStoreSelector(
@@ -10842,7 +10842,7 @@ index c6558ac5..5be12625 100644
      origin: index % 7 === 0 ? 'agent' : 'human',
      audience: 'human',
      draft: false,
-@@ -306,10 +305,7 @@ describe('Ludovico-scale frontend budgets [spec:SP-0b2e] [spec:SP-e2c8] [spec:SP
+@@ -306,10 +305,7 @@ describe('Ludovico-scale frontend budgets [spec:SP
  
      const incomingReads: Counter = { gets: 0, ownKeys: 0 }
      const freshButEqual = initial.map((row) =>
@@ -14923,7 +14923,7 @@ index 572f9ba7..3d9e1870 100644
  | `apps/daemon` | L4 app | node-only | daemon-surface | Phase 5 machine-host tightening (POD-292) |
  | `apps/desktop` | L4 app | browser-safe | desktop-shell | — |
 -| `apps/janitor` | L4 app | node-only | maintenance-jobs | appeared on main after POD-296; maintenance/steward jobs lifted out of `apps/server` — feeds Phase 4 server decomposition (POD-292) |
-+| `apps/janitor` | L4 app | node-only | maintenance-jobs | appeared on main after POD-296; the durable maintenance sibling [spec:SP-c29e] — maintenance/steward jobs lifted out of `apps/server`, feeds Phase 4 server decomposition (POD-292) |
++| `apps/janitor` | L4 app | node-only | maintenance-jobs | appeared on main after POD-296; the durable maintenance sibling — maintenance/steward jobs lifted out of `apps/server`, feeds Phase 4 server decomposition (POD-292) |
  | `apps/mobile` | L4 app | browser-safe | mobile-surface | — |
  | `apps/server` | L4 app | node-only | server-surface | role-tiered (core<hub<cloud, `apps/server/src/roles.ts`); Phase 4 decomposition |
  | `apps/web` | L4 app | browser-safe | web-surface | Phase 6 engine split |
@@ -18828,7 +18828,7 @@ index 9695d23b..49a5abb2 100644
 @@ -1266,7 +1296,7 @@ const SIDEBAR_FINISHED_UNREAD_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
  
  /** When the issue finished: closedAt when stamped (stable — moves only on
-  *  closed-predicate flips), else updatedAt for legacy rows. [spec:SP-6144] */
+  *  closed-predicate flips), else updatedAt for legacy rows. */
 -function issueFinishedAt(issue: IssueWire): number {
 +function issueFinishedAt(issue: IssueNavigationModel): number {
    return Date.parse(issue.closedAt ?? issue.updatedAt) || 0
@@ -18837,7 +18837,7 @@ index 9695d23b..49a5abb2 100644
 @@ -1359,7 +1389,7 @@ export function pendingDecisionTitle(
  }
  
- /** Acknowledgment-gated completion decay for the live sidebar. [spec:SP-6144] */
+ /** Acknowledgment-gated completion decay for the live sidebar. */
 -export function issueVisibleInSidebar(issue: IssueWire, now: number): boolean {
 +export function issueVisibleInSidebar(issue: IssueNavigationModel, now: number): boolean {
    const finished = issue.stage === 'done' || issue.closedReason != null
@@ -18902,7 +18902,7 @@ index 5213eef5..7941ef69 100644
      if (i.archived || i.deletedAt || i.worktreePath == null || !cwdInWorktree(cwd, i.worktreePath))
        continue
 @@ -111,15 +113,15 @@ export function issueForCwd(issues: IssueWire[], cwd: string): IssueWire | null
-  *  main checkout would swallow every unattached session, [spec:SP-595b] #582).
+  *  main checkout would swallow every unattached session, #582).
   *  Containment
   *  fallback applies only to file tabs / panes with no resolvable session. */
 -export function issueForPanel(args: {
@@ -18912,7 +18912,7 @@ index 5213eef5..7941ef69 100644
    sessions: SessionMeta[]
    cwd: string
    sessionId?: string
-   /** Explicit issue (artifact file tabs, [spec:SP-0fc9] #441) — beats both the
+   /** Explicit issue (artifact file tabs, #441) — beats both the
     *  session attachment and cwd containment when it names a live issue. */
    issueId?: string
 -}): IssueWire | null {
@@ -19046,7 +19046,7 @@ index 00000000..cce6d759
 + *
 + * ## Relationship to `@podium/protocol`'s `ids.ts` (deliberate duplication)
 + *
-+ * `packages/protocol/src/ids.ts` [spec:SP-3fe2] declares the same brands today.
++ * `packages/protocol/src/ids.ts` declares the same brands today.
 + * Model is L0 and imports NO other @podium package (ADR 8 layer map), so it
 + * cannot import them; and protocol is NOT edited to re-export from here, because
 + * moving entity schemas out of protocol is the POD-300 / POD-796 cutover's job,
@@ -19684,7 +19684,7 @@ index 00000000..b28ae636
 +// Enumerations and structured values
 +// ---------------------------------------------------------------------------
 +
-+/** Ordered lifecycle stages an issue moves through. [spec:SP-0078] */
++/** Ordered lifecycle stages an issue moves through. */
 +export const IssueStage = z.enum(['proposed', 'backlog', 'planning', 'in_progress', 'review', 'done'])
 +export type IssueStage = z.infer<typeof IssueStage>
 +export const ISSUE_STAGES: readonly IssueStage[] = IssueStage.options
@@ -19705,7 +19705,7 @@ index 00000000..b28ae636
 +export type IssueType = z.infer<typeof IssueType>
 +
 +/**
-+ * The 10 user-pickable issue colour SLOTS [spec:SP-b4d1] — stored and transmitted
++ * The 10 user-pickable issue colour SLOTS — stored and transmitted
 + * as the slot NAME, never a hex (the palette maps a slot to a full colouring
 + * scheme client-side, so schemes retune without touching stored data). Unset = no
 + * colour = the neutral slate flow.
@@ -19751,7 +19751,7 @@ index 00000000..b28ae636
 +  path: z.string(),
 +  title: z.string().optional(),
 +  addedAt: Timestamp,
-+  /** Permanent-store snapshot id [spec:SP-0fc9]. Present ⇒ bytes are served from
++  /** Permanent-store snapshot id. Present ⇒ bytes are served from
 +   *  `<state-dir>/artifacts/<issueId>/<artifactId>/`; absent ⇒ legacy live route
 +   *  against the worktree. */
 +  artifactId: z.string().optional(),
@@ -19813,7 +19813,7 @@ index 00000000..b28ae636
 +  pinned: z.boolean(),
 +  /** Fractional manual ordering key; null = legacy creation order. */
 +  sortKey: z.string().nullable(),
-+  /** User-assigned colour slot [spec:SP-b4d1]; null = no colour = neutral slate flow. */
++  /** User-assigned colour slot; null = no colour = neutral slate flow. */
 +  color: IssueColor.nullable(),
 +  /** Estimated minutes of work; null = unestimated. */
 +  estimateMin: z.number().int().nullable(),
@@ -20686,7 +20686,7 @@ index 00000000..dfbb3dcb
 + * **R3 — the Issue storage representation** [ADR 4 D2]: the physical row encoding.
 + * Meanings still come from the vocabulary (this is `issueDurableShape` plus a
 + * short, explicit override list); only the ENCODING is local. Per D6 the server's
-+ * physical DDL is authored with drizzle-kit [spec:SP-4428] — that is the column
++ * physical DDL is authored with drizzle-kit — that is the column
 + * authoring tool, not the semantic vocabulary, and this type is the bridge
 + * between the two.
 + *
@@ -21182,7 +21182,7 @@ index de8b2016..504395dd 100644
 -    expect(malformed.unread).toBe(false)
    })
  
-   // Issue colour [spec:SP-b4d1]: an additive optional slot NAME ('rose' … 'lime',
+   // Issue colour: an additive optional slot NAME ('rose' … 'lime',
 @@ -232,8 +224,6 @@ describe('issue protocol types', () => {
        createdAt: 't',
        updatedAt: 't',
@@ -21684,7 +21684,7 @@ index 00000000..2d353862
 + * the repo's standing minting call; a ULID would be a dependency bought for a
 + * property this design forbids relying on.
 + *
-+ * [spec:SP-0371] seam note: `feedId` IS the federation seam's authority/feed
++ * seam note: `feedId` IS the federation seam's authority/feed
 + * identity. A future hub distinguishes feeds by it and a node holds one cursor
 + * per upstream feed. It is built now precisely because retrofitting identity
 + * into already-persisted cursors later is the migration this design spares.

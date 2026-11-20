@@ -96,7 +96,7 @@ const metadataChangeArm = <E extends z.ZodTypeAny, V extends z.ZodTypeAny>(entit
 const FeedIdShape = {
   /** Stable identity of the feed — minted once per authority database. Changes
    *  ONLY when the database is genuinely a different feed. This is also the
-   *  federation seam's authority/feed identity [spec:SP-0371]. */
+   *  federation seam's authority/feed identity. */
   feedId: z.string().min(1).optional(),
   /** Identity of the current seq-continuity generation. The authority mints a
    *  NEW one whenever it cannot guarantee its seqs continue the ones clients
@@ -162,7 +162,7 @@ export type MetadataChange = z.infer<typeof MetadataChange>
 export const MetadataEntityKind = z.enum(RECORD_KINDS)
 export type MetadataEntityKind = z.infer<typeof MetadataEntityKind>
 
-// ---- Kind-tolerant (lenient) consumer parsing ([spec:SP-3fe2] #258) ----
+// ---- Kind-tolerant (lenient) consumer parsing (#258) ----
 // Forward-compat prep for future entity kinds ('machine', 'settings', …):
 // producers NEVER emit unknown kinds today — every SERVER-side schema stays
 // strict — but consumers parse the change stream LENIENTLY, so a NEWER server

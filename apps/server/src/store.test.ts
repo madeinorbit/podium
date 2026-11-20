@@ -50,7 +50,7 @@ async function tabOrdersOf(
   return out
 }
 
-// POD-518 [spec:SP-0be7]: every mkdtemp in this file is tracked and removed when the file's
+// POD-518: every mkdtemp in this file is tracked and removed when the file's
 // tests finish, so a suite run leaves nothing behind in tmp.
 const tmpDirs: string[] = []
 function trackTmp(prefix: string): string {
@@ -216,10 +216,10 @@ function row(overrides: Partial<SessionRow> = {}): SessionRow {
     refIssueId: null,
     refLetter: null,
     refDraft: null,
-    // Durable completion metadata drives acknowledgment-gated decay [spec:SP-6144].
+    // Durable completion metadata drives acknowledgment-gated decay.
     stoppedAt: null,
     stopReason: null,
-    // #285 workflow pass-through metadata (#237 [spec:SP-34d7 cross-harness]):
+    // #285 workflow pass-through metadata (#237):
     // always projected, null = none stamped at spawn.
     workflowRunId: null,
     workflowStepId: null,
@@ -721,8 +721,8 @@ describe('SessionStore sessions', () => {
 
   // Email-style read state (issue #124): read_at persists like the other additive columns.
   // (A separate schema-PRAGMA "column exists" test was dropped as redundant — this
-  // round-trip already fails if the column is missing. POD-619 [spec:SP-0be7].)
-  it('round-trips stoppedAt and stopReason [spec:SP-6144]', async () => {
+  // round-trip already fails if the column is missing. POD-619.)
+  it('round-trips stoppedAt and stopReason', async () => {
     const store = await openTestStore(':memory:')
     const stopped = row({
       stoppedAt: '2026-07-18T12:00:00.000Z',
@@ -850,7 +850,7 @@ describe('SessionStore drafts', () => {
 })
 
 // The 'SessionStore schema migration' tests (in-process upgrade of v1/v5 legacy
-// databases) were removed with the legacy migration chain [spec:SP-4428]: an
+// databases) were removed with the legacy migration chain: an
 // old-format database is upgraded by running a pre-drizzle Podium build first,
 // not in-process.
 
@@ -992,7 +992,7 @@ describe('SessionStore snoozes', () => {
   })
 })
 
-// Agent action offers [spec:SP-c7f1].
+// Agent action offers.
 describe('SessionStore offers', () => {
   const OFFER = {
     message: 'Tests are red on main',

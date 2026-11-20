@@ -401,7 +401,7 @@ export function reconcileNativeClientTerminal(
  * spawn (never a CLI arg the agent could spoof); the relay URL has the session id
  * baked into its path (agentRelay.endpointFor(sessionId)).
  * Only the new names are written — never the legacy PODIUM_ISSUE_RELAY (read-side
- * tolerance for in-flight sessions lives in resolveAgentRelay, not here). [spec:SP-b85a]
+ * tolerance for in-flight sessions lives in resolveAgentRelay, not here).
  * Pure so it's unit-testable without standing up the daemon.
  *
  * TWO variables, one URL, two different questions [POD-1375]:
@@ -2784,7 +2784,7 @@ export async function recoverTerminalProcess(
         // failure just leaves the buffer to refill from live deltas.
         void ctx.tailSeedGate(async () => {
           try {
-            // [spec:SP-c29e] A server reconnect can resend 100+ reattaches at once.
+            // A server reconnect can resend 100+ reattaches at once.
             // Keep bind/state above immediate, but pace the allocation-heavy
             // transcript read/parse/reset-send through the existing seed gate.
             await seedRuntimeHistory(ctx, msg.sessionId)
@@ -3447,7 +3447,7 @@ export const sessionHandlers: Pick<
  * Install the browser-command shims once and return the env that makes every
  * spawned session use them. The script reads the already capability-scoped
  * session relay at invocation time, so one shim directory serves every
- * session without embedding session ids. [spec:SP-a43e]
+ * session without embedding session ids.
  *
  * Opening a URL is session TRANSPORT, not delegate authority, so the shim reads
  * PODIUM_SESSION_RELAY — which shells get too. PODIUM_AGENT_RELAY stays as the

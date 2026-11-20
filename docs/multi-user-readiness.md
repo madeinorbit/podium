@@ -224,7 +224,7 @@ shipped instinct: `OPERATOR` is `admin`/`all` while relayed agents carry a const
 **A3 — Attribution is a pair, not a substitution.** Every write records **actor** (which agent) *and*
 **on-behalf-of** (which human), both stamped from the transport principal per ADR 3 D7, never from
 payload. Collapsing to one loses distinctions the product already depends on: human-set `name`
-outranks agent-set (`nameSource`, [spec:SP-eb60]), and `humanQuestionAskedBy` is server-authoritative
+outranks agent-set (`nameSource`), and `humanQuestionAskedBy` is server-authoritative
 precisely so "did a person or an agent ask this?" stays answerable. `Capability.actorSessionId` is
 the existing seam for the actor half; the on-behalf-of half is new.
 
@@ -369,7 +369,7 @@ surface**. Today the inbound direction is effectively "whoever holds the bot is 
 chat id, one implied identity. With several people, an arriving message must resolve to a *user*
 before anything acts on it. Per ADR 3 D7 (principal from authenticated transport only) that requires
 a real binding ceremony — a claim code issued in the web UI and presented to the bot, the same shape
-as machine pairing ([spec:SP-5d81] adapter; `PairingManager` is the precedent) — and **unknown chats
+as machine pairing (adapter; `PairingManager` is the precedent) — and **unknown chats
 must fail closed**, never fall back to an operator identity. Small work; easy to skip because the
 feature already "works" single-user.
 

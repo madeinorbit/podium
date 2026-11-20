@@ -1,6 +1,6 @@
 /**
  * Verifies the desktop header nav links (Issues / Automations) and the Automations
- * view — now a REAL backend surface (#470) [spec:SP-17db], not the seeded prototype
+ * view — now a REAL backend surface (#470), not the seeded prototype
  * this spec used to assert. The load-bearing assertion is the one the mock could
  * never pass: a created automation SURVIVES A RELOAD.
  */

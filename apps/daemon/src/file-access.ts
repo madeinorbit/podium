@@ -97,7 +97,7 @@ type AssetResult = Omit<FileAssetResultMessage, 'type' | 'requestId'>
 
 /** Read a (possibly binary) asset's bytes for the markdown preview, sandboxed to the
  *  session cwd exactly like readFileSandboxed. Returns base64 + a content-type.
- *  Ranged reads (`offset`+`length`, [spec:SP-0fc9]) bypass the single-shot size cap
+ *  Ranged reads (`offset`+`length`) bypass the single-shot size cap
  *  so the server can pull large artifact files chunk by chunk; each slice is still
  *  clamped to MAX_ASSET_BYTES. `size` always reports the total file size. */
 export async function readAssetSandboxed(opts: {

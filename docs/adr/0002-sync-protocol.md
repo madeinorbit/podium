@@ -3,7 +3,7 @@
 Status: **proposed** · 2026-07-17 · Issue POD-748, epic POD-359
 Governs: POD-289 (Phase 2 sync kernel), POD-305 (Authority), POD-306 (Replica + Outbox), POD-307 (clients on the kernel Replica), POD-309 (retire upstream sync)
 Related ADRs: ADR 1 (authority/ownership matrix), ADR 3 (command security & lifecycle), ADR 4 (representation policy), ADR 5 (peer topology seam), ADR 6 (replica storage), ADR 7 (plane/message inventory)
-Spec components: [spec:SP-3fe2] (strangler rebuild), [spec:SP-0371] (hub deferred), [spec:SP-4428] (drizzle-kit)
+Spec components: (strangler rebuild), (hub deferred), (drizzle-kit)
 **Amended by:** [Amendment 1 — the feed becomes per-principal](0002-sync-protocol-amendment-1.md) (POD-1072, 2026-07-29): D2's "the feed stays **unscoped**" clause is **overturned** (D2's one-feed/one-global-seq/one-cursor half survives verbatim); D5's safety proof is re-proved over the per-principal slice and gains an op-stream constraint; D6's bootstrap reads the principal's scoped slice (shape unchanged); and the Deferred bullet **"Per-client feed scoping"** is **struck — its own stated trigger fired**. New decisions D12–D17 (per-principal feed, covered-range watermarks, `evict` op + `rescope` frame, scoped bootstrap, retention/op-stream constraints, load-bearing-from-day-one and the must-land-before-POD-308 ordering). D1, D3, D4, D7–D11 are unchanged.
 **Amended by:** [Amendment 2 — model bootstrap and feed retention](0002-sync-protocol-amendment-2.md) (POD-6771, 2026-11-11): replaces D5's fixed limits with 30 days and 500,000 rows per feed; current state comes from model tables.
 
@@ -63,13 +63,13 @@ asset, its invariants are the thing that must survive both.
 
 The three decided facts this ADR builds on:
 
-- [spec:SP-3fe2]: *tables as truth + transactional change log*. No event sourcing.
+-: *tables as truth + transactional change log*. No event sourcing.
   Entities live in normal SQLite tables; every durable write appends its change in
   the same transaction. One replication engine, spoken by every hop.
-- [spec:SP-0371]: the hub is **deferred**, but the **federation seam is preserved** —
+-: the hub is **deferred**, but the **federation seam is preserved** —
   feed identity, origin/causation on changes and commands, reserved peer-capability
   fields, ports free of same-machine assumptions.
-- [spec:SP-4428]: drizzle-kit owns the **server's** schema migrations. See D4 — this
+-: drizzle-kit owns the **server's** schema migrations. See D4 — this
   is emphatically *not* the sync protocol's version, and conflating the two is a
   named error, not a shorthand.
 
@@ -147,7 +147,7 @@ operation, and paying for a counter's ordering buys a collision instead.
 and silently corrupts the hard half:
 
 > Restore the server from a pre-migration backup — **the sanctioned rollback path**.
-> [spec:SP-4428] mandates the "pre-migration backup (#43)" as part of the operational
+> mandates the "pre-migration backup (#43)" as part of the operational
 > envelope wrapped around drizzle's migrator, and POD-305 spells out what it is for:
 > *"Rollback = restore the automatic pre-migration backup (backup.ts; free-space
 > preflight f07d2683) — drizzle has NO down migrations."* Say the backup's log ends
@@ -195,7 +195,7 @@ rather than write a runbook line:
 POD-306's conformance suite must cover *restore → keep writing → stale client
 reconnects at the same seq*: the scenario above, and the one no current test can catch.
 
-**Seam note ([spec:SP-0371]).** `feedId` *is* the "authority/feed identity" the
+**Seam note.** `feedId` *is* the "authority/feed identity" the
 federation seam requires. A future hub distinguishes feeds by it; a node holds one
 cursor per upstream feed. We build the identity now precisely because retrofitting it
 into persisted cursors later is exactly the migration this ADR is trying to spare a
@@ -320,7 +320,7 @@ drift refresh on POD-359 called out the risk explicitly and this is the answer.
    re-bootstrap is this ADR's guarantee that the optimization is always optional.
    **Subject to the outbox rule in D7 — a discard of the cache is never a discard of
    queued user work.**
-3. **The server DB drizzle journal** — [spec:SP-4428]. **Server-internal. NEVER on the
+3. **The server DB drizzle journal** —. **Server-internal. NEVER on the
    wire, never compared with a peer, never sent to a client.**
 
 **Why the third one matters so much.** The temptation is to treat "the DB schema
@@ -636,7 +636,7 @@ whose *content* never changed — the exact class of bug the conversation projec
 exists to fix (the 81MB/day churn fix, `change-log.ts:43`), and (b) make provenance
 part of every wire projection, which ADR 4 forbids.
 
-**Why now, with the hub deferred.** [spec:SP-0371] names "origin/causation fields on
+**Why now, with the hub deferred.** names "origin/causation fields on
 changes and commands" as a required part of the preserved seam, and this is the
 cheapest possible time to add it. The concrete payoff is immediate and local, not
 speculative:
@@ -646,7 +646,7 @@ speculative:
   originating from this node itself (filtered by machineId... avoid echo
   duplicates)"). That is a domain field pressed into service as a routing field — it
   works only because machine identity happens to correlate with feed origin today.
-  Per [spec:SP-15aa] machine identity is per-*instance*, so the correlation is
+  Per machine identity is per-*instance*, so the correlation is
   already not guaranteed. `originId` is the field that actually means what the filter
   needs.
 - **Optimistic overlay retirement gets exact.** "This change is my own write coming
@@ -713,7 +713,7 @@ consumer, and this ADR requires it to assert *convergence*, not merely survival.
 `Authority.commit()` runs authorization, arbitration, the entity write and the change
 append through the same unit of work. Awaiting a database operation does not release
 that unit. This supersedes the former `Ledger.commit()` refusal of async writes:
-[spec:SP-3fe2]'s “tables as truth + transactional change log” is now enforced by the
+ “tables as truth + transactional change log” is now enforced by the
 executor's transaction scope and scheduler, rather than synchronous execution.
 
 The scheduler's **write lane is the in-process single writer**. On bun:sqlite, read,
@@ -890,7 +890,7 @@ restate the other's number; both must reference it.
 ## Consequences
 
 **For POD-305 (Authority):** mint and persist `feedId`/`epoch`, and bump the epoch on
-restore (the [spec:SP-4428] backup-restore runbook is now part of this contract); add
+restore (the backup-restore runbook is now part of this contract); add
 `revision` to entity tables via a drizzle migration; publish `minAvailableSeq`; add
 `originId`/`causationId` to change rows; implement the bounded send queue and the
 `resync-required` signal; correct the retention spec drift; unify
@@ -936,7 +936,7 @@ it is the shipped pattern and it kept the oplog rollout at zero breakage.
   and D17 (Phase 2, **before** the POD-308 cutover). Policy is ADR 9 and ADR 1's amendment.
 - **`machinesChanged` / `approvalsChanged` / `worktreesChanged` as durable entity
   kinds.** The code flags these as candidates; ADR 7 owns the classification.
-- **Node↔hub replication.** Parked in POD-353 per [spec:SP-0371]. D1's `feedId` and
+- **Node↔hub replication.** Parked in POD-353 per. D1's `feedId` and
   D8's `originId` are the seam; nothing here builds the hop.
 - **Per-field LWW / CRDTs.** ADR 1 owns conflict rules. `changes.event_time` is
   written on every append and already load-bearing for D5's age budget
@@ -946,7 +946,7 @@ it is the shipped pattern and it kept the oplog rollout at zero breakage.
 
 ## References
 
-- [spec:SP-3fe2] strangler rebuild · [spec:SP-0371] hub deferred · [spec:SP-4428] drizzle-kit · [spec:SP-15aa] instance identity
+- strangler rebuild · hub deferred · drizzle-kit · instance identity
 - `docs/offline-sync-architecture.md` §5 · `docs/spec/oplog-read-path.md` · `docs/spec/outbox-write-path.md` · `docs/spec/thin-client-replica.md` · `docs/spec/node-hub-sync.md`
 - `packages/sync/src/ledger.ts` · `packages/sync/src/change-log.ts` · `packages/protocol/src/messages/sync.ts` · `packages/protocol/src/messages/message-class.ts` · `packages/protocol/src/version.ts` · `packages/client-core/src/replica/replica.ts`
 - POD-181 (localStorage quota incident) · POD-289 / POD-305 / POD-306 / POD-307 / POD-308 / POD-309 / POD-353

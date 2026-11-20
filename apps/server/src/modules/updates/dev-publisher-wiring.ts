@@ -200,7 +200,7 @@ export async function wireDevBundlePublisher(deps: {
   readonly hasRemoteUpdateConsumers: () => Promise<boolean>
   /**
    * The platforms the registered fleet actually runs — what this host mints bundles
-   * for beyond its own [spec:SP-6144 section 8b]. Absent mints only this host's.
+   * for beyond its own. Absent mints only this host's.
    */
   readonly fleetPlatforms?: () => Promise<readonly string[]> | readonly string[]
   /** Product version and source commit captured by the server producing this proposal. */

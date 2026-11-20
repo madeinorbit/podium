@@ -54,7 +54,7 @@ import { assignHostMachine, attachHostDaemon } from './test-support/host-daemon'
 import { openTestStore } from './test-support/open-test-store'
 import { seedRows } from './test-support/seed-rows'
 
-// POD-518 [spec:SP-0be7]: every mkdtemp in this file is tracked and removed when the file's
+// POD-518: every mkdtemp in this file is tracked and removed when the file's
 // tests finish, so a suite run leaves nothing behind in tmp.
 const tmpDirs: string[] = []
 function trackTmp(prefix: string): string {
@@ -567,7 +567,7 @@ describe('SessionRegistry', () => {
     expect(await cwdOf()).toBe('/repo')
   })
 
-  // ---- adopting the worktree a session actually works in [spec:SP-4ef9] ----
+  // ---- adopting the worktree a session actually works in ----
 
   const adopting = async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
@@ -611,7 +611,7 @@ describe('SessionRegistry', () => {
   })
 
   it('never adopts the repo MAIN checkout as an issue workspace', async () => {
-    // An issue owning main would swallow every unattached session [spec:SP-595b].
+    // An issue owning main would swallow every unattached session.
     const { cwdMsg, read } = await adopting()
     await cwdMsg({ cwd: '/repo', kind: 'main', branch: 'main' })
     await expect.poll(read).toMatchObject({ worktreePath: null, branch: null })
@@ -688,7 +688,7 @@ describe('SessionRegistry', () => {
     // THE hole that retired the old daemon's guard, reproduced. That guard identified
     // main by string-comparing the REGISTERED repo path, but git reports a symlinked
     // repo by its REAL path — so `repoPath !== cwd` answered "not main" and the issue
-    // swallowed live main, the failure [spec:SP-595b] exists to prevent. Verified with
+    // swallowed live main, the failure exists to prevent. Verified with
     // real git: `git -C /link/repo rev-parse --show-toplevel` prints /real/repo.
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     await attachHostDaemon(reg, () => {}, { repos: ['/link/repo'] })
@@ -3091,7 +3091,7 @@ describe('agent state', () => {
 
   it('notifyExternal pushes to every configured target, visible client or not (#470)', async () => {
     // The subscription "Notify" switch is an explicit standing request — unlike the
-    // attention path it must NOT be suppressed by an open browser tab [spec:SP-17db].
+    // attention path it must NOT be suppressed by an open browser tab.
     const store = await openTestStore(':memory:', TEST_MACHINE)
     // POD-419: the bot token is a server-owned secret and lives in the keyed
     // store, not the blob. Written through the repository here for the same
@@ -6179,7 +6179,7 @@ describe('reconnect identity (hello reclaim)', () => {
 describe('session draft sync — versioned (POD-859, flag on)', () => {
   async function flaggedReg(store?: SessionStore) {
     store ??= await openTestStore(':memory:', TEST_MACHINE)
-    // Enable draft sync through the canonical experiments store [spec:SP-f4b9].
+    // Enable draft sync through the canonical experiments store.
     // Tests run with PODIUM_APP_VERSION unset → devMode → the flag is listed, so a
     // user toggle enables it (matches getFeatureStates resolution).
     await store.settings.setSettings({
@@ -7984,7 +7984,7 @@ describe('binds this build cannot classify fail toward keep-queued [POD-2327]', 
   })
 })
 
-describe('event-driven mail delivery wiring [POD-842] [spec:SP-c29e]', () => {
+describe('event-driven mail delivery wiring [POD-842]', () => {
   /**
    * THE WIRING IS WHAT THIS PINS, NOT THE LATENCY (POD-2837).
    *
@@ -8207,7 +8207,7 @@ describe('event-driven mail delivery wiring [POD-842] [spec:SP-c29e]', () => {
     }
   })
 
-  describe('message startup recovery isolation [POD-842] [spec:SP-c29e]', () => {
+  describe('message startup recovery isolation [POD-842]', () => {
     it('keeps registry boot alive when the recovery job throws', async () => {
       const reconcile = vi
         .spyOn(MessageDeliveryService.prototype, 'reconcileQueued')

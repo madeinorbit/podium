@@ -85,7 +85,7 @@ const PER_USER = 'per-user-state' as const
 // ---------------------------------------------------------------------------
 
 /**
- * The curated name slot. `nameSource` precedence ([spec:SP-eb60]) makes this the
+ * The curated name slot. `nameSource` precedence makes this the
  * contract where §3.1.3 A3's attribution PAIR bites hardest: "a human set this
  * name" must be decided from the ON-BEHALF-OF human of the transport principal,
  * not from "was this the operator cookie" — an agent acting for a human still
@@ -123,7 +123,7 @@ const setArchived: CommandDef = {
 }
 
 /**
- * THE OFFER THE USER DECLINES TO ANSWER [spec:SP-c7f1].
+ * THE OFFER THE USER DECLINES TO ANSWER.
  *
  * Until now an offer left the screen exactly two ways: the user pressed one of
  * its buttons, or the conversation moved past it (a user turn auto-clears it

@@ -251,7 +251,7 @@ const HANDOFF_BUNDLE_CORE = {
   /** Repository-relative checkout location, using `/` separators. New exporters
    *  include it when the linked worktree lives below the primary checkout;
    *  older packages omit it and import under `.worktrees/<worktreeName>`.
-   *  [spec:SP-3f7a] */
+   */
   worktreeRelativePath: z
     .string()
     .min(1)
@@ -263,7 +263,7 @@ const HANDOFF_BUNDLE_CORE = {
       'worktreeRelativePath must stay inside the repository',
     )
     .optional(),
-  /** Where the agent sat inside the worktree, relative to its root ([spec:SP-3f7a]).
+  /** Where the agent sat inside the worktree, relative to its root.
    *  Absent = the root. The import lands the resumed agent in the equivalent
    *  subdir, or the root when the target tree has no such directory. */
   cwdSubpath: z.string().optional(),
@@ -373,7 +373,7 @@ export const HandoffManifestV2 = z.object({
 export type HandoffManifestV2 = z.infer<typeof HandoffManifestV2>
 
 /**
- * Canonical portable session package ([spec:SP-3f7a]) — **the discriminated
+ * Canonical portable session package — **the discriminated
  * union over file formats**, and the schema every reader should parse with.
  *
  * Discriminated on `format`, so a bundle is read as the version it says it is:

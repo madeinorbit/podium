@@ -41,7 +41,7 @@ export function attentionGroup(s: SessionView): AttentionGroup {
     // verdict. A harness that emits no terminal event on an abrupt exit (Grok,
     // killed mid-turn) freezes its last live phase at 'working'; the transported
     // status is the ground truth and overrides it, so the row leaves the working
-    // bucket. [spec:SP-8b0e]
+    // bucket.
     if (s.status === 'exited' || s.status === 'hibernated') return 'idle'
     return 'working'
   }

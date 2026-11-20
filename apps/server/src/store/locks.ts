@@ -1,6 +1,6 @@
 // workspace-scoped (POD-6959)
 /**
- * Locks aggregate [spec:SP-85d1] — owns the `locks` and `lock_waiters` tables
+ * Locks aggregate — owns the `locks` and `lock_waiters` tables
  * (advisory named lease locks, migration 011). Pure persistence: lease/queue
  * SEMANTICS (grant, renew, FIFO advance, expiry sweep, steal) live in
  * modules/lock/service.ts.

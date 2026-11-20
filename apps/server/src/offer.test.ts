@@ -13,7 +13,7 @@ import { feedDelta } from './test-support/feed-delta'
 import { attachHostDaemon } from './test-support/host-daemon'
 import { openTestStore } from './test-support/open-test-store'
 
-// Agent action offer [spec:SP-c7f1] — service-level set/replace/clear, meta
+// Agent action offer — service-level set/replace/clear, meta
 // surfacing, persistence across a restart, and clear-on-turn (queue path).
 
 const tmpDirs: string[] = []
@@ -41,7 +41,7 @@ async function metaOffer(reg: SessionRegistry, sessionId: string) {
   )?.offer
 }
 
-describe('agent action offer [spec:SP-c7f1]', () => {
+describe('agent action offer', () => {
   it('setOffer surfaces on session meta with a createdAt; a second offer replaces it', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     await attachHostDaemon(reg, () => {})

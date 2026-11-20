@@ -7,7 +7,7 @@ import { Hono } from 'hono'
 import { describe, expect, it, vi } from 'vitest'
 import { registerMaintenanceRoute } from './route'
 
-describe('maintenance route [spec:SP-c29e]', () => {
+describe('maintenance route', () => {
   const handshake = vi.fn(() => ({
     status: 'ready' as const,
     fencingToken: 4,

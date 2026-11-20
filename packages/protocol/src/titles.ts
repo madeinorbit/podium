@@ -1,7 +1,7 @@
 /** Titling doctrine, stated once and reused by every surface that instructs an
  *  agent: the issue prime (server), the claude system pointer (agent-bridge),
  *  and the CLI/MCP command summaries (issue-client). Three copies of this text
- *  would drift; one does not. [spec:SP-eb60]
+ *  would drift; one does not.
  */
 
 /** Sanity bound for a self-chosen / spawner-set session title (sidebar label,

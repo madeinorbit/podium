@@ -15,9 +15,9 @@ import { z } from 'zod'
  * Any incompatible janitor-read schema or command contract change bumps one of
  * these values so an old sibling stops before acquiring/renewing a lease.
  * Additive job kinds are backward-compatible for older janitors that only send
- * previously defined kinds. [spec:SP-c29e]
+ * previously defined kinds.
  */
-// v2: the session-auto-archive job kind [spec:SP-6144] — a new janitor sending
+// v2: the session-auto-archive job kind — a new janitor sending
 // it to a v1 server must be version-gated out, not hard-fail command parsing.
 // v3 (POD-1229): both auto-archive observations replace the unqualified
 // `readAt` with `readerUserId`. This is the case the version gate exists for —
@@ -58,7 +58,7 @@ export const CHANGE_PRUNE_BATCH_ROWS = 100
 /** Keep applied maintenance command rows long enough for overlap/replay proof. */
 export const MAINTENANCE_COMMAND_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000
 export const MAINTENANCE_COMMAND_PRUNE_BATCH_ROWS = 500
-/** Read-gated completion decay window [spec:SP-6144]. */
+/** Read-gated completion decay window. */
 export const AUTO_ARCHIVE_READ_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
 /**
  * Receipts deleted per `applied-mutations-prune` command (POD-7035). Small,

@@ -54,7 +54,7 @@ describe('issue protocol types', () => {
     expect(RepoOp.parse('isMergedInto')).toBe('isMergedInto')
   })
 
-  it('accepts worktreeAddExisting for stop→resume [spec:SP-9904]', () => {
+  it('accepts worktreeAddExisting for stop→resume', () => {
     expect(RepoOp.parse('worktreeAddExisting')).toBe('worktreeAddExisting')
   })
 })

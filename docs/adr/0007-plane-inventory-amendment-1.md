@@ -17,8 +17,8 @@
   its Amendment 1 (reader-independent projections; attribution as a branded pair), ADR 5
   (framing, role-specific auth), ADR 9 (identity, ownership, sharing — D1 principal taxonomy,
   D3 visibility classes, D4 default-closed totality, D6 machine `see`/`use`/`manage`)
-- **Specs:** [spec:SP-b85a], [spec:SP-fccf], [spec:SP-a43e] (host↔server ≠ agent relay — D2,
-  untouched); [spec:SP-15aa] (instance isolation); [spec:SP-eb60] (curated name vs live title)
+- **Specs:**, (host↔server ≠ agent relay — D2,
+  untouched); (instance isolation); (curated name vs live title)
 - **Base tip verified:** `2ddfec21` (issue/279-integration), 2026-07-29. ADR 7's own inventory
   baseline `ca361327` is **not** restated or moved by this amendment.
 - **File discipline:** this amendment owns **only** this file plus a single "Amended by" line

@@ -6,7 +6,7 @@ import type { SessionView } from '../session-values'
 // (terminal-client's index pulls xterm addons that need a browser-ish global
 // at import time; the engine itself is DOM-optional.)
 /**
- * Engine unit tests (#262 [spec:SP-3fe2]): lifecycle idempotence, the
+ * Engine unit tests (#262): lifecycle idempotence, the
  * single-URL-writer invariant (the React-#185 ping-pong scenario, simulated),
  * snapshot identity stability (useSyncExternalStore requirement), and
  * outbox drain on hub reconnect. Everything runs against fakes — no React,
@@ -812,7 +812,7 @@ describe('session resurrection (POD-6399)', () => {
   })
 })
 
-describe('artifact file tabs ([spec:SP-0fc9] #441)', () => {
+describe('artifact file tabs (#441)', () => {
   it('openArtifact creates an artifact-scoped tab carrying the issue, and focuses it', () => {
     const { engine } = makeEngine()
     engine.start()

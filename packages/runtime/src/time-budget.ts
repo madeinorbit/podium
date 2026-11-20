@@ -1,6 +1,6 @@
 /**
  * Cooperative time slicing for synchronous, already-bounded job units
- * [spec:SP-c29e]. The helper owns scheduling and measurement only: callers
+ * The helper owns scheduling and measurement only: callers
  * choose the unit boundary and own any serialization between jobs.
  */
 

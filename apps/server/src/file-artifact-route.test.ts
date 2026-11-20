@@ -44,7 +44,7 @@ async function selfHostedApp(members: Record<string, string | Uint8Array>): Prom
 const url = (rel: string) => `/files/artifact/iss_1/abc123/${rel}`
 const ranged = (range: string) => ({ headers: { range } })
 
-describe('GET /files/artifact/:issueId/:artifactId/* [spec:SP-0fc9]', () => {
+describe('GET /files/artifact/:issueId/:artifactId/*', () => {
   it('streams a whole member with its type, length and immutable cache-control', async () => {
     const app = await selfHostedApp({ 'shots/a.png': 'PNGDATA' })
     const res = await app.request(url('shots/a.png'))

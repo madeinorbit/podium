@@ -223,7 +223,7 @@ export class IssueGitWorkflowModule {
   }
   /**
    * Move an issue's home to another machine after its session was handed off
-   * ([spec:SP-3f7a], POD-824). The target worktree is where the work now lives,
+   * (, POD-824). The target worktree is where the work now lives,
    * and this trio is what the user sees: the file-browser root, the sidebar's
    * selected worktree, and the cwd a NEW agent on this issue spawns into.
    *
@@ -538,7 +538,7 @@ export class IssueGitWorkflowModule {
     // Where the worktree is cut: the issue's pin, else its profile's machine.
     const homeMachineId = launch.machineId ?? undefined
     // Refuse an unavailable EXPLICIT model/effort BEFORE mutating any start state
-    // (worktree, branch, stage, and the issue's own profile) [spec:SP-cc60]. A
+    // (worktree, branch, stage, and the issue's own profile). A
     // refused `--model` must not be left on the issue for the next start to inherit.
     // An inherited value the catalog does not know falls back to `auto` instead —
     // a stale default never blocks a start (POD-3911).
@@ -776,7 +776,7 @@ export class IssueGitWorkflowModule {
           : 'local',
       }
     }
-    // The human summary leads; the technical brief follows verbatim. [spec:SP-6144]
+    // The human summary leads; the technical brief follows verbatim.
     const initialPrompt = [row.description.trim(), row.brief ?? ''].filter(Boolean).join('\n\n')
     const spawned = await this.store.d
       .spawnSession({
@@ -1043,7 +1043,7 @@ export class IssueGitWorkflowModule {
   }
 
   /**
-   * Free an issue's working copy while KEEPING its branch [spec:SP-9904].
+   * Free an issue's working copy while KEEPING its branch.
    * Used by session/issue stop so a finished agent can release the worktree
    * without discarding reversible work on the branch. Does NOT require the
    * issue to be closed (unlike cleanup). Caller is responsible for the
@@ -1226,7 +1226,7 @@ export class IssueGitWorkflowModule {
     if (await this.isRegisteredRepoRoot(machineId, worktreePath)) {
       return await refuse(`refusing free: ${worktreePath} is a registered repository root`)
     }
-    // not be inspected/removed against the hub's local path [spec:SP-9904].
+    // not be inspected/removed against the hub's local path.
     const st = await this.store.d.repoOp('status', worktreePath, undefined, machineId)
     // Already gone on disk — clear the path of record, keep the branch.
     if (!st.ok && /cannot change to .*: no such file or directory/i.test(st.output)) {
@@ -1432,7 +1432,7 @@ export class IssueGitWorkflowModule {
 
   /**
    * Ensure the issue's worktree exists on disk for the preserved branch
-   * [spec:SP-9904]. Used on resume after stop/archive freed the working copy,
+   * Used on resume after stop/archive freed the working copy,
    * and by `start` / `addSession` when a NEW agent needs the same rebuild.
    * Idempotent when the worktree is already present.
    */

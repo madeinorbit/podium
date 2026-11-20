@@ -36,7 +36,7 @@ describe('assetUrl', () => {
   })
 })
 
-describe('scopedAssetUrl (artifact scope) [spec:SP-0fc9]', () => {
+describe('scopedAssetUrl (artifact scope)', () => {
   const scope = {
     kind: 'artifact',
     issueId: asIssueId('iss_1'),

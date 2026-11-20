@@ -1,5 +1,5 @@
 /**
- * Consent tests [spec:SP-f933]. The tri-state and the kill switches are the
+ * Consent tests. The tri-state and the kill switches are the
  * feature's load-bearing promises — "absent usage is on, absent crash is off,
  * explicit off is off" (POD-5922) and "DO_NOT_TRACK beats everything" are the
  * ones a reviewer should be able to find.

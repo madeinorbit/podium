@@ -9,10 +9,10 @@ import { useShellActions, useShellApprovals } from './shell-data'
 import { useWorklistPool } from './store-worklist-pool'
 
 /**
- * Approval broker popup [spec:SP-edbb] (#410): an agent asked to run a
+ * Approval broker popup (#410): an agent asked to run a
  * management op (update / stop / channel / set-server). Shows WHO is asking
  * (machine · issue, with a one-click jump via the central navigate-to-session
- * action [spec:SP-a1c0]) and exactly WHAT would run — ops like set-server
+ * action) and exactly WHAT would run — ops like set-server
  * render their target, because an approval dialog only protects when the user
  * can see what they're approving.
  *

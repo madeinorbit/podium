@@ -618,7 +618,7 @@ export const ChatComposer = observer(function ChatComposer({
       // and where the file ends up are different questions, and this is the
       // answer to the second one.
     >
-      {/* Agent action offer [spec:SP-c7f1]: the agent's suggested next
+      {/* Agent action offer: the agent's suggested next
           actions, shown only while an offer exists for this session. The
           message sits above compact buttons; a click sends the button's
           predefined prompt as a normal turn (and clears the offer). */}

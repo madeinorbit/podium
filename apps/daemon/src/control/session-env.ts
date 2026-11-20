@@ -21,7 +21,7 @@ import { type HarnessChildEnv, type HarnessContext, harnessChildEnv } from '@pod
  * stripped from it, and the shell launch's env (the machine command env) keeps
  * its place above the spawn frame's env, as it always had. Podium's own
  * bindings win a collision, and the desktop-owned Podium CLI leads PATH
- * [spec:SP-d6e8]. A `PATH` in `podiumEnv` (the browser shim's folder) is a
+ * A `PATH` in `podiumEnv` (the browser shim's folder) is a
  * prefix, as in `harnessChildEnv`, never the whole PATH.
  *
  * The result is an OVERLAY: the PTY layer spreads the daemon env under it.

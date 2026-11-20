@@ -4,7 +4,7 @@ import { SessionRegistry } from '../../relay'
 import { attachHostDaemon } from '../../test-support/host-daemon'
 
 /**
- * The session-exit → lock auto-release seam [spec:SP-85d1]: `session.exited`
+ * The session-exit → lock auto-release seam: `session.exited`
  * must fire on EVERY real death path — daemon agentExit, killSession (which
  * deletes the row before the daemon's agentExit arrives), and spawnError —
  * and relay.ts must wire it to LockService.releaseForSession. Hibernation is

@@ -114,7 +114,7 @@ export function reposToViews(repos: readonly GitRepositoryWire[]): RepoView[] {
       // what the sidebar's "New <agent> in <repo>" and the rail/palette show. Only
       // an originless repo is named after its folder — that is all we know about it.
       // `originUrl` here is already normalized (host/owner/repo); the helper is
-      // idempotent over that. [spec:SP-3701]
+      // idempotent over that.
       name: repoNameFromOrigin(originUrl) ?? (machinePathBasename(first.path) || first.path),
       worktrees,
       machines,

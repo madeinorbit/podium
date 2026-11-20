@@ -51,7 +51,7 @@ export function countFrame(bytes: number): void {
   }
 }
 
-/** [spec:SP-c29e] Attribute one complete synchronous control-frame turn (decode + dispatch).
+/** Attribute one complete synchronous control-frame turn (decode + dispatch).
  * Returns a finisher because the message type is only known after decoding.
  * Positive heap deltas are a deliberately cheap allocation-pressure proxy; a
  * GC during the turn contributes zero rather than hiding allocations elsewhere. */

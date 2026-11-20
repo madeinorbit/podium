@@ -130,7 +130,7 @@ test('key bar: bordered keys, tinted submit, live input, viewport pinning', asyn
     { timeout: 15_000 },
   )
 
-  // [spec:SP-7696] Click the explicit mobile affordance, then prove input still
+  // Click the explicit mobile affordance, then prove input still
   // reaches the real PTY below. An already-controlling client need not bump epoch.
   const takeControl = page.getByTestId('take-control')
   await expect(takeControl).toBeVisible()

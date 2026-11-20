@@ -215,7 +215,7 @@ export class MessageMailbox {
   }
 
   /**
-   * Deterministic settle fallback [spec:SP-bf44] [spec:SP-34d7 acks]: the target
+   * Deterministic settle fallback: the target
    * session settled (finished/errored) leaving a REQUESTED response unfulfilled
    * (expects_response, not stamped by any in-thread reply). One system-kind
    * notification per such message, stitched with issue stage + last commit, routed
@@ -286,7 +286,7 @@ export class MessageMailbox {
     return await this.deps.messages.getMessage(id)
   }
 
-  /** The per-issue / per-session delivery ledger (#237) [spec:SP-34d7 web] —
+  /** The per-issue / per-session delivery ledger (#237) —
    *  a pure read (never consumes queued status). */
   async ledger(q: {
     issueId?: IssueId
@@ -297,7 +297,7 @@ export class MessageMailbox {
   }
 
   /**
-   * Bounded wait for a message's ack [spec:SP-34d7 read-toolkit tier 4]: poll
+   * Bounded wait for a message's ack: poll
    * `acked_by` until the deadline; returns the ack row or null ("no answer
    * yet"). NEVER hangs — the same every-wait-bounded rule as agent await.
    * Shared by the seance (`podium session ask`) across gate + superagent.
@@ -395,7 +395,7 @@ export class MessageMailbox {
   }
 
   /** Explicitly clear one recipient-owned message without opening the inbox.
-   * Reuses the read, the existing way a message is cleared [spec:SP-ba61]. */
+   * Reuses the read, the existing way a message is cleared. */
   async dismiss(
     writer: MessageWriter,
     messageId: string,

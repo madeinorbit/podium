@@ -36,7 +36,7 @@ export function claudeHookSettings(endpointUrl: string, opts?: { seedTheme?: boo
       // theme:auto makes Claude Code query the terminal background (OSC 11 —
       // xterm answers from its current theme) instead of assuming a
       // scheme. Per-session --settings only; the user's global config is never
-      // touched, and with seeding off the key is absent entirely [spec:SP-a04d].
+      // touched, and with seeding off the key is absent entirely.
       ...(opts?.seedTheme ? { theme: 'auto' } : {}),
       // Launch terms that are settings keys, not flags (POD-6858 §4.8). The
       // two skips keep a mode's one-time confirmation from opening as a menu

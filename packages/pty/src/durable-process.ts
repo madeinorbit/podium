@@ -196,7 +196,7 @@ export function abducoAdoptionAdapter(): DurableAdapter {
       // `lastKnownGeometry` is only what the server last KNEW. A reattach is not
       // a viewer asking for a size, so it neither resizes nor signals the agent
       // (size-neutral `-N`); the first viewport request after reconnect is what
-      // moves it [spec:SP-6144].
+      // moves it.
       const attachment = attachAbducoAgent({
         label: opts.label,
         socketPath: opts.socketPath,

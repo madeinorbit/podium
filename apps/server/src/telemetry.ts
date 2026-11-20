@@ -1,5 +1,5 @@
 /**
- * Server-side telemetry composition [spec:SP-f933].
+ * Server-side telemetry composition.
  *
  * The server is the SOLE emitter (D10): joined daemons and clients are covered
  * by the hub's decision and never construct one of these. This module is the

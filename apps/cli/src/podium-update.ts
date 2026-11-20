@@ -38,7 +38,6 @@ const execSystemctl: SystemctlExec = (command, args) =>
  * A schema-blocked janitor exits 78 and RestartPreventExitStatus deliberately
  * leaves it stopped. After a bundle catch-up, revive exactly that instance's
  * blocked unit; healthy, absent, and differently-failed units are untouched.
- * [spec:SP-c29e]
  *
  * LEGACY-ONLY since PDM-27: nothing writes a janitor unit any more (the janitor
  * is a thread inside the server, and a refusal there is reported as DEGRADED

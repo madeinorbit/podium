@@ -1221,7 +1221,7 @@ fn native_desktop_hook(
     current_version: &str,
     served_local_origin: Option<&str>,
 ) -> String {
-    // [spec:SP-3701] The hosting toggle is exposed only in client mode — the one state where
+    // The hosting toggle is exposed only in client mode — the one state where
     // this device is not already running a daemon. The command itself re-checks the mode.
     let enable_hosting = if launch_mode == "client" {
         ",\n            enableHosting: (pairCode) => window.__TAURI_INTERNALS__.invoke('enable_hosting', { pairCode }),\n            clientRegistrationStatus: () => window.__TAURI_INTERNALS__.invoke('client_registration_status'),\n            registerClient: (pairCode, target) => window.__TAURI_INTERNALS__.invoke('register_client', { pairCode, target })"
@@ -1444,7 +1444,7 @@ fn runtime_probe_report(body_text: String) -> Result<(), String> {
     std::fs::rename(pending, target).map_err(|error| error.to_string())
 }
 
-/// [spec:SP-3701] In-app "host sessions on this device": rewrite the local config from client
+/// In-app "host sessions on this device": rewrite the local config from client
 /// to daemon mode with a hub-minted pairing code. The web UI then triggers a shell restart
 /// (__PODIUM_RESTART__) so `resolve_launch` picks up daemon mode and spawns the sidecar,
 /// which pairs over its WebSocket handshake. All validation lives in
@@ -1816,7 +1816,7 @@ fn main() {
                 log::error!("configured server rejected by desktop transport policy: {error}");
             }
             // Resolved-mode tag exposed to the web UI (bridge.launchMode) and used to gate the
-            // hosting toggle [spec:SP-3701].
+            // hosting toggle.
             let launch_mode_tag = bootstrap::page_launch_mode(&action);
 
             // FIX 2: shared shutting-down flag — set true in exit handlers so the supervision
@@ -2108,7 +2108,7 @@ fn main() {
                 .window("main")
                 .permission("opener:allow-open-url")
                 .permission("opener:allow-default-urls");
-            // [spec:SP-3701] The enable_hosting command is granted ONLY to a client-mode window
+            // The enable_hosting command is granted ONLY to a client-mode window
             // (the sole state where the toggle exists), scoped to the configured hub origin.
             let mut hosting_capability = (launch_mode_tag == "client").then(|| {
                 tauri::ipc::CapabilityBuilder::new("enable-hosting")
@@ -2620,7 +2620,7 @@ fn main() {
                             }
                         });
 
-                    // [spec:SP-3834] Native desktop chrome replaces the separate OS title bar.
+                    // Native desktop chrome replaces the separate OS title bar.
                     #[cfg(target_os = "macos")]
                     let window_builder = window_builder
                         // Sidebar is the visibly translucent chrome material (Finder,
@@ -3556,7 +3556,6 @@ mod tests {
 
     #[test]
     fn native_hook_exposes_hosting_toggle_only_in_client_mode() {
-        // [spec:SP-3701]
         let client = test_native_desktop_hook("client", None);
         assert!(client.contains("launchMode: \"client\""));
         assert!(client.contains("enableHosting: (pairCode) =>"));
@@ -3598,7 +3597,7 @@ mod tests {
 
     #[test]
     fn native_hook_embeds_the_paired_machine_id_when_known() {
-        // [spec:SP-3701] machineId lets the web UI mark "this machine" in the machines list.
+        // machineId lets the web UI mark "this machine" in the machines list.
         let hook = test_native_desktop_hook("client", Some("m-abc"));
         assert!(hook.contains("machineId: \"m-abc\""));
     }

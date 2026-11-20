@@ -82,7 +82,7 @@ describe('repo_id schema (v8, #74)', () => {
       expect(cols.has('repo_id'), `missing repo_id on ${table}`).toBe(true)
     }
     // The legacy `meta.schema_version` marker (written by migration 002's DML) is
-    // NOT carried on a fresh drizzle-built DB [spec:SP-4428] — the baseline is
+    // NOT carried on a fresh drizzle-built DB — the baseline is
     // DDL only, and nothing at runtime reads that marker. It still appears on
     // pre-drizzle databases healed by the legacy chain (see the backfill test).
     await s.close()

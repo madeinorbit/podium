@@ -275,7 +275,7 @@ afterAll(() => {
   for (const dir of roots) rmSync(dir, { recursive: true, force: true })
 })
 
-describe('real process death acceptance [spec:SP-c29e]', () => {
+describe('real process death acceptance', () => {
   for (const boundary of ['before-apply', 'after-apply-before-ack'] as const) {
     it('SIGKILLs the janitor ' + boundary + ' and recovers exactly once', async () => {
       const dir = makeRoot('podium-janitor-' + boundary + '-')
@@ -369,7 +369,7 @@ describe('real process death acceptance [spec:SP-c29e]', () => {
   }, 60_000)
 })
 
-describe('real user-systemd recovery acceptance [spec:SP-c29e]', () => {
+describe('real user-systemd recovery acceptance', () => {
   it('restarts a progress-hung janitor with SIGKILL and stays healthy after recovery', async () => {
     const dir = makeRoot('podium-janitor-watchdog-')
     const harness = await maintenanceHarness(dir)

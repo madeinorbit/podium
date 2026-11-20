@@ -108,7 +108,7 @@ async function durableCounts(
   }
 }
 
-describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => {
+describe('isolated restart notification-storm acceptance', () => {
   it.each([
     ['claude-code', 'claude-terminal-fixture'],
     ['codex', 'codex-terminal-fixture'],

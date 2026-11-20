@@ -13,7 +13,7 @@ import { seedRows } from './test-support/seed-rows'
 import { sessionReadPorts } from './test-support/session-facts'
 
 /**
- * Issue writes on the write-seam Ledger ([spec:SP-3fe2] #255): the REAL Ledger
+ * Issue writes on the write-seam Ledger (#255): the REAL Ledger
  * over the REAL SessionStore (store.sync + store.transact), so these tests pin
  * the production wiring — change rows commit atomically with the issue row
  * write, derived ripples reconcile, deletes emit replayable removes.
@@ -83,7 +83,7 @@ function fold(changes: MetadataChange[]): Map<string, unknown> {
   return state
 }
 
-describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
+describe('issue writes on the write-seam Ledger (#255)', () => {
   // The creator's start record (POD-6290, design §4.4) lives on the same row,
   // so clearing the markers leaves the row holding that record, not empty.
   it('publishes personal markers from their keyed storage and keeps the row its start record holds', async () => {

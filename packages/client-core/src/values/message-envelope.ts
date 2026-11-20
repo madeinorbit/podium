@@ -1,5 +1,5 @@
 /**
- * Delivered-message envelope detection (#237) [spec:SP-34d7 web]: a message
+ * Delivered-message envelope detection (#237): a message
  * from another agent / the superagent / the system reaches the harness as a
  * server-rendered frame — `[podium message …] … [end podium message …]` — so
  * it lands in the transcript as a "user" turn (a server job's short frame —
@@ -31,10 +31,10 @@ export interface ParsedEnvelope {
   /** True when the frame carried the `[this is a question: …]` binding rule. */
   question: boolean
   /** True when the frame carried the `[a response was requested: …]` rule
-   *  (`--expect-response` [spec:SP-bf44]) — questions carry their own,
+   *  (`--expect-response`) — questions carry their own,
    *  stronger rule and leave this false. */
   expectsReply: boolean
-  /** The cross-machine provenance note [spec:SP-6d57] ("this agent runs on
+  /** The cross-machine provenance note ("this agent runs on
    *  machine …"), when the sender runs elsewhere — rendered as a footer, not
    *  body text. */
   machineNote?: string

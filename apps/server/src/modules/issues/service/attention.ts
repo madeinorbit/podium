@@ -212,7 +212,7 @@ export class IssueAttentionModule {
     if (newIssue) {
       const prev = prevId ? await this.store.row(prevId) : undefined
       // A native subagent inherits its parent's relay, so an unconfirmed attach
-      // could silently re-home the parent session [spec:SP-bab8].
+      // could silently re-home the parent session.
       if (prev && !prev.draft && !opts.confirmRehome) {
         throw new IssueRefusal(
           `attach blocked: this session already belongs to ${await this.reports().niceRef(prev)} (a real issue), ` +
@@ -293,7 +293,7 @@ export class IssueAttentionModule {
       if (!opts.targetId)
         throw new IssueRefusal('attach needs --id <issue> or --subissue "<title>"')
       target = await this.store.rowOrThrow(await this.store.resolveRef(opts.targetId))
-      // Re-homing off a REAL issue is blocked [spec:SP-8744]: it strands the old
+      // Re-homing off a REAL issue is blocked: it strands the old
       // issue session-less so it drops out of the sidebar. Only the draft→issue
       // flow (naming a fresh vessel) may move between issues; from a real issue
       // the sanctioned move is `--subissue`, which keeps the subtree intact.
@@ -709,7 +709,7 @@ export class IssueAttentionModule {
     const due: { row: IssueRow; viewerReadAt: string }[] = []
     for (const row of closed) {
       if (row.archived || row.deletedAt) continue // idempotent: never re-archive deleted work
-      if (!this.store.isClosed(row) || row.parentId) continue // only closed top-level work ages out [spec:SP-6144]
+      if (!this.store.isClosed(row) || row.parentId) continue // only closed top-level work ages out
       // "Read" is a fact about a READER (POD-1076). `archived` is shared, so one
       // reader gates it: the task's assignee, the person accountable for it
       // (POD-6291). On a one-member instance that is the only member, as before;

@@ -211,7 +211,7 @@ describe('restore re-mints the epoch (ADR 2 D1)', () => {
     const beforeBackup = await write(ledger, ['iss_1', 'iss_2'])
     expect(beforeBackup).toBe(2)
 
-    // The sanctioned rollback point ([spec:SP-4428]: drizzle has no down
+    // The sanctioned rollback point (: drizzle has no down
     // migrations, so restoring the pre-migration backup IS the rollback).
     const backupPath = backupDatabase(db, dbPath, 'test', PLENTY)
     if (!backupPath) throw new Error('backup did not run')

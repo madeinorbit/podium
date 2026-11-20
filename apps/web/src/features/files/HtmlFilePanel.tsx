@@ -98,7 +98,7 @@ export function HtmlFilePanel({
     }
   }, [doc.status, stylesheetPathKey, readFileScoped, scope])
 
-  // Artifacts are deliverables an agent built for the user to click ([spec:SP-0fc9]); every
+  // Artifacts are deliverables an agent built for the user to click; every
   // other scope is just some .html on disk. Only the former earns script execution.
   const allowScripts = scope.kind === 'artifact'
   const assetOrigin = httpOrigin || (typeof window === 'undefined' ? '' : window.location.origin)

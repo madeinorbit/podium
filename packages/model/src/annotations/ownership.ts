@@ -266,7 +266,7 @@ export type VisibilityChangingVerb =
 
 /**
  * ADR 3 D7 / ADR 9 D5 A3's attribution pair, per row. TWO annotations, never
- * one: `nameSource`'s human-outranks-agent rule ([spec:SP-eb60]) and
+ * one: `nameSource`'s human-outranks-agent rule and
  * server-authoritative `humanQuestionAskedBy` both exist so that "did a person
  * or an agent do this?" stays answerable, and a single collapsed id cannot
  * answer it.

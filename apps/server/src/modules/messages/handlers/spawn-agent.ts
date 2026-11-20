@@ -123,7 +123,7 @@ async function spawnOnce(
     ...(effort ? { effort } : {}),
     ...(input.force ? { forceUnknownModel: true } : {}),
     ...(machineId ? { machineId } : {}),
-    // CLI `--title` → curated name slot (not derived title) [spec:SP-4ef9][spec:SP-eb60].
+    // CLI `--title` → curated name slot (not derived title).
     ...(input.title ? { name: input.title } : {}),
     ...(input.workflowRunId ? { workflowRunId: input.workflowRunId } : {}),
     ...(input.workflowStepId ? { workflowStepId: input.workflowStepId } : {}),
@@ -337,7 +337,7 @@ async function planSpawn(
   }
   const issue = await issues.reports.getMeta(issueId)
   if (!issue) throw new MailRefusal('target-not-found', `unknown issue ${issueId}`)
-  // Brake 2 applies to DIRECT agent spawns too [spec:SP-34d7 containment]:
+  // Brake 2 applies to DIRECT agent spawns too:
   // the same per-issue daily budget as the spawn-on-wake seam, or a looping
   // agent (or its spawned children re-spawning) fork-bombs the host with
   // full PTY sessions. Human intent is never braked (contract: the exemption

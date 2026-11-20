@@ -152,7 +152,7 @@ export const setupCompleteInput = z.object({
   mode: z.enum(['all-in-one', 'server']).optional(),
   password: z.string().optional(),
   acknowledgeNoPassword: z.literal(true).optional(),
-  /** The web setup's telemetry answers [spec:SP-f933]. Rides THIS payload so the
+  /** The web setup's telemetry answers. Rides THIS payload so the
    *  wizard commits atomically — and because setting a password closes the /trpc
    *  guard, a follow-up telemetry call from the not-yet-logged-in setup page
    *  would 401. Absent = not asked. */
@@ -568,7 +568,7 @@ export const telemetrySetContract = {
     resource: 'global',
     confirmation: 'none',
     rationale:
-      'Opt-in telemetry consent [spec:SP-f933] — Settings → Privacy’s backing surface. Writes ' +
+      'Opt-in telemetry consent — Settings → Privacy’s backing surface. Writes ' +
       '`config.json` (D8) and NOT the settings blob, so the web toggles and `podium telemetry off` ' +
       'are the same switch. `write` rather than `manage`: it records an answer, it does not ' +
       'administer the box. `admin` because consent is given ONCE FOR THE WHOLE DEPLOYMENT — there ' +

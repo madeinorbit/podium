@@ -146,7 +146,7 @@ export const SessionCwdMessage = z.object({
   explicit: z.boolean().optional(),
   // What `cwd` IS, classified by git on the daemon (the only side that can run it):
   // the repo's main checkout, a linked worktree, or outside git entirely. Only a
-  // linked worktree may be adopted as an issue's workspace [spec:SP-4ef9] — main
+  // linked worktree may be adopted as an issue's workspace — main
   // never is. Optional because an older daemon cannot send it; such a daemon simply
   // does not adopt (no path test can stand in for git here — worktrees live inside
   // the repo dir), and self-heals when its binary updates.

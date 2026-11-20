@@ -263,7 +263,7 @@ describe('IssueCompactControls', () => {
     })
 
     it('writes the picked agent to the issue, resetting the model it is not for', async () => {
-      // Models are per-agent ([spec:SP-7ff1]) — the write that changes the
+      // Models are per-agent — the write that changes the
       // harness clears the model and effort with it, so the optimistic row never
       // shows the previous agent's model.
       // POD-3911: seed agent-specific overrides so both resets change a field.

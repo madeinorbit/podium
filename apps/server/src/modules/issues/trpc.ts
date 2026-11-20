@@ -19,7 +19,7 @@ import { runsAsEffectRecord } from './work-effects'
 
 /**
  * Derive the `issues:` tRPC sub-router from the command registry (#248
- * [spec:SP-3fe2]): one procedure per definition — keyed by def name, input =
+ *): one procedure per definition — keyed by def name, input =
  * def.input, guarded by the capability middleware that reads `def.action` /
  * `def.target` from the DEFINITION (the old issueCapabilityGuard parsed the
  * middleware path string to find the proc, so renaming a proc silently changed

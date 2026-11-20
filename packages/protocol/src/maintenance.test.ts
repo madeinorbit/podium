@@ -30,7 +30,7 @@ import {
  */
 const A_MEMBER = asUserId('mem_0ujtsYcgvSTl8PAuAdqWYSMnLOv')
 
-describe('maintenance protocol [spec:SP-c29e]', () => {
+describe('maintenance protocol', () => {
   const observed = {
     messageId: 'msg_1',
     deliveryStatus: 'stored' as const,

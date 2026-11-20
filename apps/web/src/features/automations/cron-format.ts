@@ -1,6 +1,6 @@
 /**
  * Cron ⇄ human, shared by the Scheduled cards and the composer (#470)
- * [spec:SP-17db]. Presentation only — the authoritative parse lives on the server
+ * Presentation only — the authoritative parse lives on the server
  * (modules/automations/cron.ts); this just prettifies the shapes the composer can
  * build, and falls back to the raw expression for anything hand-written.
  */

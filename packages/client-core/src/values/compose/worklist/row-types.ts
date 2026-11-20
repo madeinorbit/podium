@@ -25,7 +25,7 @@ export type UnifiedIssueRow = {
   issue: IssueNavigationModel
   sessions: SessionView[]
   activityAt: number
-  /** Formal parentId children plus agent-started provenance children. [spec:SP-6144] */
+  /** Formal parentId children plus agent-started provenance children. */
   startedByChildren?: UnifiedIssueRow[]
   /** Own + descendant sessions, used only for bubbled status/attention. */
   aggregateSessions?: SessionView[]

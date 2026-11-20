@@ -103,7 +103,7 @@ describe('machines store', () => {
   })
 
   // The 'pre-multi-machine repos copy' test (upgrading a pre-schema_version, machine_id-less
-  // database) was removed with the legacy migration chain [spec:SP-4428]; such old formats
+  // database) was removed with the legacy migration chain; such old formats
   // are upgraded by running a pre-drizzle Podium build first.
 
   it('multi-machine migration is idempotent — re-opening the same file db is a no-op', async () => {

@@ -28,7 +28,7 @@ const FIXTURE_FORMAT = 1
  * The cache key: the identity of the schema an image was built from.
  *
  * THIS IS THE INVALIDATION GUARANTEE the whole change rests on. Schema DDL lives
- * only in `src/migrations/` ([spec:SP-4428], and `store.ts` says so), so every
+ * only in `src/migrations/` (, and `store.ts` says so), so every
  * schema change is a change to some migration's name or sql — and every such change
  * is a different digest, a different filename, and therefore a rebuild. There is no
  * step anyone can forget. A stale image cannot be reached, only orphaned.
@@ -47,7 +47,7 @@ export function schemaFingerprint(migrations = DRIZZLE_MIGRATIONS): string {
 /**
  * Where the image for `fingerprint` lives.
  *
- * NOT under tmp, deliberately [spec:SP-0be7]: the hermetic setup repoints TMPDIR at
+ * NOT under tmp, deliberately: the hermetic setup repoints TMPDIR at
  * a per-file container that is deleted when the fork exits, so a tmp cache would be
  * rebuilt ~291 times per run. `node_modules/.cache` is the conventional home for a
  * derived artifact — already ignored, and wiped by a clean install.

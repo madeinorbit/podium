@@ -1,5 +1,5 @@
 /**
- * Server-side experimental feature flags [spec:SP-f4b9].
+ * Server-side experimental feature flags.
  *
  * Two halves, joined by one resolver (`resolveFeatureStates`, `@podium/protocol`):
  *
@@ -72,7 +72,7 @@ export function getFeatureStates(
   })
 }
 
-/** Seam for server-side gating of unfinished behavior [spec:SP-f4b9]. */
+/** Seam for server-side gating of unfinished behavior. */
 export function isFeatureEnabled(
   id: FeatureId,
   settings: PodiumSettings,

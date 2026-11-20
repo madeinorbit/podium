@@ -205,7 +205,7 @@ export interface IssueCommandDeps {
   /** cwd → repo inference (RepoRegistry.inferFromPath semantics) — serves the
    *  relay-allowlisted `repos.inferFromPath` without touching the router. */
   inferRepoFromPath(path: string): string | undefined | Promise<string | undefined>
-  /** Unified messaging send path (#237) [spec:SP-34d7] — the only way mail is
+  /** Unified messaging send path (#237) — the only way mail is
    *  sent. Optional so bare test dispatchers that never send keep working;
    *  mailSend refuses when it is absent. */
   sendMessage?(
@@ -227,7 +227,7 @@ export interface IssueCommandDeps {
     caller: IssueCaller,
   ): Promise<{ ok: true; via: 'menu' | 'text' } | { ok: false; message: string }>
   /** Stop every session on an issue and free its worktree (keep branch)
-   *  [spec:SP-9904]. Injected from SessionLifecycle; optional in bare tests. */
+   * Injected from SessionLifecycle; optional in bare tests. */
   stopIssueSessions?(input: {
     issueId: IssueId
     force?: boolean
@@ -542,7 +542,7 @@ export class IssueCommandCtx {
   }
 
   /** Structured sender principal for the unified substrate (#237)
-   *  [spec:SP-34d7] — server-stamped from the caller, mirroring mailIdentity():
+   *  — server-stamped from the caller, mirroring mailIdentity():
    *  a subtree-scoped caller is an agent on its root issue; ONLY the
    *  unconstrained scope ('all') is the operator — an issueless agent session
    *  (scope 'none' + actorSessionId) stamps as an agent, or it would send
@@ -585,7 +585,7 @@ export class IssueCommandCtx {
 
   /** Server-derived provenance for a session spawned by an issue command.
    *  Preserve the exact initiating session when one exists; otherwise distinguish
-   *  the operator from legacy constrained callers. [spec:SP-ccb2] */
+   *  the operator from legacy constrained callers. */
   spawnProvenance(): string {
     return spawnProvenanceOf(this.caller.capability)
   }

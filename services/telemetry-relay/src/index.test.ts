@@ -1,5 +1,5 @@
 /**
- * Relay contract tests [spec:SP-f933].
+ * Relay contract tests.
  *
  * The relay is the one part of this feature a self-hosted user cannot audit at
  * runtime (they can read this source; they cannot prove the deployment matches

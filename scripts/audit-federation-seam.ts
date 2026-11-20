@@ -11,7 +11,7 @@
  * ---------------------------------------------------------------------------
  *
  * POD-309 deletes half-built federation and PRESERVES the structure that keeps a future
- * hub possible ([spec:SP-0371]: the rewrite must not deliver hub/node federation AND
+ * hub possible (: the rewrite must not deliver hub/node federation AND
  * must not make choices that prevent one). Those two obligations fail in opposite
  * directions and neither failure is loud:
  *

@@ -1,5 +1,5 @@
 /**
- * `podium offer` — the agent action offer CLI [spec:SP-c7f1].
+ * `podium offer` — the agent action offer CLI.
  *
  *   offer --message "…" [--action "Label::Prompt" ...]   set (replace) the offer
  *   offer clear                                            remove the offer

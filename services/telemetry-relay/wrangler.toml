@@ -1,4 +1,4 @@
-# The telemetry relay [spec:SP-f933] — deployed in podium cloud; source here so
+# The telemetry relay — deployed in podium cloud; source here so
 # the "validate → drop IP → forward" rules are auditable.
 #
 # Secrets are NOT in this file and never will be:

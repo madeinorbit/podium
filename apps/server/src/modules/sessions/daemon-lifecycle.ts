@@ -68,7 +68,7 @@ export interface SessionDaemonLifecyclePorts {
   ): Promise<void>
   broadcastSessions(): void
   /** The volatile Session-view seam: mutate live, capture once in the
-   *  coalesced flush (no synchronous row write) [spec:SP-c29e]. */
+   *  coalesced flush (no synchronous row write). */
   mutateSessionView(sessionId: SessionId, mutate: (session: Session) => void): boolean
   onSessionActivity(sessionId: SessionId): void | Promise<void>
   onSessionAttention(sessionId: SessionId): void
@@ -275,7 +275,7 @@ export class SessionDaemonLifecycle {
     await this.ports.onSessionActivity(msg.sessionId)
     // Keep the issue attachment: an updater and an abandoned process both
     // arrive as agentExit, and the exited session remains resumable.
-    // Session-death notification [spec:SP-85d1] (lock auto-release et al.).
+    // Session-death notification (lock auto-release et al.).
     // Only a REAL exit fires: a hibernate kill keeps status 'hibernated'
     // and the session's leases with it. Also durable for steward parent-wake
     // (POD-904).
@@ -305,7 +305,7 @@ export class SessionDaemonLifecycle {
 
   /**
    * A new turn began: does it retire the session's standing offer
-   * [spec:SP-c7f1]? Only when the USER opened it — a turn forced by a
+   *? Only when the USER opened it — a turn forced by a
    * stop-hook, mail delivery, cron or steward wake must leave an offer the
    * human never saw standing [POD-118].
    *
@@ -372,7 +372,7 @@ export class SessionDaemonLifecycle {
         // itself and are never suppressed.
         if (session?.hasBoundDriver) break
         // A daemon may only originate intents for sessions it owns. The bus is
-        // the typed notification seam from capture to client routing. [spec:SP-a43e]
+        // the typed notification seam from capture to client routing.
         if (session?.machineId === machineId) this.bus.emit('session.openUrl', msg)
         break
       }
@@ -587,7 +587,7 @@ export class SessionDaemonLifecycle {
         if (s) await this.write(s, (draft) => s.markSpawnError(msg.message, draft))
         this.broadcastSessions()
         // markSpawnError sets status 'exited' — notify lock auto-release etc.
-        // [spec:SP-85d1] like any other real death.
+        // like any other real death.
         if (s) await this.emitSessionExited(s.sessionId, -1, s.spawnedBy)
         break
       }
@@ -621,7 +621,7 @@ export class SessionDaemonLifecycle {
             draft.spawnFailure = msg.reason.trim().slice(0, 2000) || 'unknown reattach failure'
           })
           // Real death (not a boot-time probe of an already-exited row) —
-          // notify lock auto-release etc. [spec:SP-85d1]. onExit keeps a
+          // notify lock auto-release etc.. onExit keeps a
           // hibernated row 'hibernated'; only a genuine exit fires. (Fresh
           // lookup: the narrowed `s.status` above would defeat the compare.)
           if (this.sessions.get(msg.sessionId)?.status === 'exited') {
@@ -875,7 +875,7 @@ export class SessionDaemonLifecycle {
         const next = session.agentState ?? outcome.checkpoint.turnState
 
         // The durable commit above is the release point for daemon-side
-        // bootstrap buffering [spec:SP-cdb2].
+        // bootstrap buffering.
         this.toMachine(session.machineId, {
           type: 'agentObservationAck',
           sessionId: session.sessionId,
@@ -916,7 +916,7 @@ export class SessionDaemonLifecycle {
           this.ports.onSessionAttention(session.sessionId)
         }
         // A NEW turn opened after the offer means the conversation moved past
-        // it, so its suggested actions no longer apply [spec:SP-c7f1]. This is
+        // it, so its suggested actions no longer apply. This is
         // the path every causally-observed harness takes — the chat composer
         // and the offer buttons clear directly in sendText, so what lands here
         // is the continuation those never see: the user typing into the PTY.
@@ -1009,7 +1009,7 @@ export class SessionDaemonLifecycle {
           this.ports.onSessionAttention(msg.sessionId)
         }
         // A NEW turn beginning after the offer was made means the conversation
-        // moved past it — its suggested actions no longer apply [spec:SP-c7f1].
+        // moved past it — its suggested actions no longer apply.
         // This frame carries no input origin, so {@link userOpenedTurn} decides
         // on input evidence. The event-time guard keeps a boot replay of the
         // very turn that produced the offer from consuming it.

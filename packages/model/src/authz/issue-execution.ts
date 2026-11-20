@@ -254,7 +254,7 @@ export function eventSessionIds(kind: string, payload: unknown): string[] {
  * written before artifacts were snapshotted kept the absolute path of the file
  * in the worktree. For a reader who may not see the worktree, an absolute path
  * becomes the path inside the worktree, or its file name when it lies outside
- * it; relative paths (every snapshot since [spec:SP-0fc9]) are untouched.
+ * it; relative paths (every snapshot since) are untouched.
  */
 function withoutAbsoluteArtifactPaths(panel: unknown, root: string | undefined): unknown {
   if (panel === null || typeof panel !== 'object') return panel

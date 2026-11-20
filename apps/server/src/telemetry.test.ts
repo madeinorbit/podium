@@ -1,5 +1,5 @@
 /**
- * Server telemetry wiring tests [spec:SP-f933].
+ * Server telemetry wiring tests.
  *
  * The load-bearing claim here is negative: with usage off, driving the bus
  * hard produces NOTHING on disk. The second claim is that a telemetry failure

@@ -179,7 +179,7 @@ describe('HtmlFilePanel', () => {
     expect(srcdoc).not.toContain('src="./hero.png"')
   })
 
-  // Only an artifact ([spec:SP-0fc9]) is a deliverable the agent built to be clicked; any
+  // Only an artifact is a deliverable the agent built to be clicked; any
   // other .html is incidental content on disk and stays inert.
   describe('script execution is scoped to artifacts', () => {
     const renderScope = (

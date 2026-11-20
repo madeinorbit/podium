@@ -68,7 +68,7 @@ export function isIssueMember(
 
 /**
  * Live/starting/reconnecting sessions whose cwd sits inside `worktreePath`
- * (any issue attachment). Used by stop free-guards [spec:SP-9904]: sessionsForIssue
+ * (any issue attachment). Used by stop free-guards: sessionsForIssue
  * excludes sessions with a different explicit issueId even when they share the
  * path — freeing under those would delete a worktree still in use.
  */

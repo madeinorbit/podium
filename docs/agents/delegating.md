@@ -3,7 +3,7 @@
 Instructions to use **subtasks** or **subagents** mean **Podium sub-issues** for task
 tracking and **Podium sessions** for delegated agents by default. This applies to
 coordinators and other agents, including read-only research and review. It keeps work
-visible in the issue tree and session list. [spec:SP-f7a5]
+visible in the issue tree and session list.
 
 Use native harness tools only when the user explicitly requests them for that work.
 That request permits **both native task tracking and native subagents**, so the work
@@ -22,7 +22,7 @@ handles any Podium issue attachment.
 
 You can spawn other agents onto an issue with `podium agent spawn`. Podium deliberately
 has **no agent roles, no write-claim, and no activity-based auto-isolation**
-([spec:SP-4ef9]). Nothing about your delegate is inferred from how it behaves: placement
+. Nothing about your delegate is inferred from how it behaves: placement
 is fixed by the spawn decision, and what the delegate *is* rides its session title.
 
 The consequence is the whole point of this guide: **what you tell the delegate is the
@@ -42,7 +42,7 @@ it a blocking sub-issue rather than a proposal.
 
 Write `description` for the human: 1–3 concise, jargon-free sentences that stand alone.
 Put reproduction steps, file paths, constraints, and agent instructions in `brief`.
-[spec:SP-6144]
+
 
 ## 1. Placement — where it works
 
@@ -77,7 +77,7 @@ podium issue create --title "…" --parent-id <your issue> \
 `--start` does three things at once: it creates the branch and worktree, **and spawns
 exactly one agent on it** (`issue start` always spawns — there is no
 start-without-agent option). The human summary from `--description` leads the first prompt;
-`--brief` follows verbatim with technical context and instructions. [spec:SP-6144]
+`--brief` follows verbatim with technical context and instructions.
 
 > **Do not follow `--start` with `podium agent spawn --issue <sub>`.** That spawns a
 > *second* agent into the same worktree, and the two will silently clobber each other.
@@ -91,7 +91,7 @@ answers most placement questions on its own: **a branch is owned by an issue, an
 session never owns one.** So a delegate that needs its own branch needs its own issue —
 there is no way to give a *session* a private branch, by design. The happy side effect is
 that isolation shows up on the human's board as a sub-issue, which is a unit they already
-read, instead of as invisible worktree plumbing. [spec:SP-4ef9]
+read, instead of as invisible worktree plumbing.
 
 Use `agent spawn --issue` to add a delegate to an issue that is **already started** —
 i.e. deliberately, when you want a second session sharing that workspace (a reviewer
@@ -136,7 +136,7 @@ ownership in the prompt:
 > `apps/server/src/modules/issues/**` — POD-694 is editing it. Mail it if you need a
 > change there.
 
-…or have both sides take an advisory lease ([spec:SP-85d1]):
+…or have both sides take an advisory lease:
 
 ```
 podium lock acquire migrations --ttl 10m --wait   # queued if held; 0 granted, 3 queued, 4 timed out

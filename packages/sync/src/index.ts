@@ -138,7 +138,7 @@ export {
 } from './write-scope'
 // RETIRED at POD-309: `./upstream` (UpstreamSync — the node→hub dialer) and
 // `./upstream-forwarder` (UpstreamForwarder — the node→hub issue write path) were
-// exported here. Federation is deferred, not cancelled ([spec:SP-0371], ADR 5 D1), and
+// exported here. Federation is deferred, not cancelled (, ADR 5 D1), and
 // the SEAM that keeps it possible is exported by `@podium/sync/testing`
 // (parameterized conformance, S5) and ABOVE this line: `./authority/index` and
 // `./feed/visibility` (authority + feed identity, S1), and `./outbox` + `./replica/index`

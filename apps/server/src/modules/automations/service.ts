@@ -1,5 +1,5 @@
 /**
- * Scheduled automations (#470) [spec:SP-17db] — the service half.
+ * Scheduled automations (#470) — the service half.
  *
  * Owns the CRUD surface the Automations tab drives (list/create/update/remove/
  * setEnabled/runs) and the tick that turns a due automation into a real agent
@@ -105,7 +105,7 @@ export interface AutomationsDeps {
 
 export interface AutomationInput {
   name: string
-  /** null/absent = GLOBAL: the session runs in the home directory [spec:SP-17db]. */
+  /** null/absent = GLOBAL: the session runs in the home directory. */
   repoPath?: string | null
   scheduleKind?: AutomationScheduleKind
   cron?: string | null
@@ -268,7 +268,7 @@ export class AutomationsService {
   }
 
   /** Create an automation. Validation happens before persistence, including the
-   *  explicit one-minute floor [spec:SP-17db]. */
+   *  explicit one-minute floor. */
   async create(
     writer: AutomationCommandWriter,
     input: AutomationInput,
@@ -615,7 +615,7 @@ export class AutomationsService {
   }
 
   /**
-   * Delivers the run into the selected conversation mode [spec:SP-17db].
+   * Delivers the run into the selected conversation mode.
    *
    * Resume mode reuses the last successful session. If that durable reference has
    * disappeared or never became resumable, the run safely falls back to a fresh

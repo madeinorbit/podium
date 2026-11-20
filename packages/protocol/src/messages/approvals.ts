@@ -2,7 +2,7 @@ import { AgentKind, IssueIdField, MachineIdField, SessionIdField } from '@podium
 import { z } from 'zod'
 
 /**
- * Approval broker [spec:SP-edbb] — agent-initiated management operations.
+ * Approval broker — agent-initiated management operations.
  *
  * An agent session may INITIATE any podium management op, but never executes it:
  * the CLI call becomes an approval request (over the issue relay), the user

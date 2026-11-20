@@ -247,7 +247,7 @@ describe('per-repo DRAFT counter', () => {
 })
 
 // The "migration backfill" test (colliding repo names → unique prefixes) was
-// removed with the legacy migration chain [spec:SP-4428]: it drove the deleted
+// removed with the legacy migration chain: it drove the deleted
 // human-facing-ids migration's one-time backfill directly. Runtime prefix
 // assignment on a fresh database is exercised through the SessionStore-based ref
 // tests above.

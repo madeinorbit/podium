@@ -87,7 +87,7 @@ function discard(body: ReadableStream<Uint8Array>): void {
 }
 
 /**
- * Serve permanent-store artifact snapshots ([spec:SP-0fc9] #441):
+ * Serve permanent-store artifact snapshots (#441):
  * GET /files/artifact/<issueId>/<artifactId>/<relpath...>. Path-style so a
  * bundle's HTML entry resolves relative src/href to sibling files. Server-local
  * read — no daemon round-trip, works with the owning machine offline. Auth

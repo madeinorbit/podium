@@ -18,7 +18,7 @@ export const ISSUE_SYSTEM_POINTER =
   // POD-2062: coordinators planned stages in scripts the deck could not show.
   // POD-2178: and filed each task only as they launched it.
   'With Podium task tracking, work you orchestrate across other agent sessions is planned on the tree: claim `podium issue coordinator <id> --claim`, file every task you can already name before launching any, and give each delegate a task; add `--type phase` children only to group two or more sequential stages, and put waits on tasks, not phases. `podium issue prime` has the commands. ' +
-  'Write `--description` as 1–3 plain, context-free sentences for the human and put technical detail/instructions in `--brief`. [spec:SP-6144] ' +
+  'Write `--description` as 1–3 plain, context-free sentences for the human and put technical detail/instructions in `--brief`. ' +
   '`podium issue ready` lists unblocked work; ' +
   '`podium issue claim` the issue you take. ' +
   // Closing an issue tears down its sessions, including one still mid-work [POD-5762].
@@ -30,10 +30,10 @@ export const ISSUE_SYSTEM_POINTER =
   '`podium issue update --id <id> --stage planning|in_progress|review` as the work moves. Note that ' +
   'creating or retitling an issue leaves it in `backlog`; only `claim` sets `in_progress`. ' +
   'Editing an issue outside your assigned one needs `--outside-scope`. ' +
-  // Issue identity is immutable [spec:SP-9c7b].
+  // Issue identity is immutable.
   'Never reuse an existing issue for something completely different — new work gets a new issue or ' +
   "sub-issue. Switch yourself to it only on the human's push; otherwise file it for another agent. " +
-  // Cross-issue reattach is blocked [spec:SP-8744]; only a draft may attach --id.
+  // Cross-issue reattach is blocked; only a draft may attach --id.
   'A session on a DRAFT may join the issue that covers its work: `podium issue attach --id <issue>`. ' +
   'Once on a real issue you cannot reattach elsewhere — for a new piece of work you move onto, use --spinoff/--subissue below. ' +
   // Git-state attribution [POD-98]: trailers keep shared-branch commits attributable.
@@ -55,7 +55,7 @@ export const ISSUE_SYSTEM_POINTER =
   'use their basename by default. `--terminal-evidence` remains available for the older acknowledged raster screenshot path. ' +
   'Re-add each significant iteration; the issue ' +
   'artifact list is how the human finds and reviews visual work later, even after the chat scrolls away. ' +
-  // Agent action offer [spec:SP-c7f1]: suggested next actions the user can click.
+  // Agent action offer: suggested next actions the user can click.
   'When you finish a turn and there are natural next actions the user might pick, offer them: ' +
   '`podium offer --message "…" --action "Label::prompt to send when clicked"` (repeat --action — prefer 2–3, ' +
   'up to 6 only when the decision genuinely branches that wide; `podium offer clear` to remove). ' +

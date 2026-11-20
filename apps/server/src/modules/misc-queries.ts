@@ -272,7 +272,7 @@ export const QUOTA_QUERIES = {
 } as const
 
 export const FEATURE_QUERIES = {
-  /** Experimental feature flags [spec:SP-f4b9] — the CLI's read; the apps resolve flags from welcome and the instance record. */
+  /** Experimental feature flags — the CLI's read; the apps resolve flags from welcome and the instance record. */
   state: q(noInput, async (s) =>
     getFeatureStates(await s.modules.settings.getSettings(), loadConfig()),
   ),

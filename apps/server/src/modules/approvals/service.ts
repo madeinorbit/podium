@@ -30,7 +30,7 @@ import { NO_TARGET, type SyncWriteContext, type SyncWriteTarget } from '../sync-
 import { type ApprovalOpPermissionDeps, isRequestPerson, mayRunApprovalOp } from './op-permission'
 
 /**
- * Approval broker [spec:SP-edbb] (#410) — the server half. AN APPROVAL IS AN
+ * Approval broker (#410) — the server half. AN APPROVAL IS AN
  * EFFECT RECORD WITH A HUMAN GATE (POD-6674, ADR 12 D5 E2).
  *
  * Agents INITIATE management ops via the issue relay (`approvals.request`,

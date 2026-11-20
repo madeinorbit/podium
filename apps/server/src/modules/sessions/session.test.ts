@@ -940,7 +940,7 @@ describe('Session', () => {
     expect(s.lastActiveAt > CREATED).toBe(true)
   })
 
-  // Agent action offer [spec:SP-c7f1].
+  // Agent action offer.
   it('toMeta surfaces offer only when set; clearOffer reports change', () => {
     const s = makeSession()
     expect('offer' in s.toMeta()).toBe(false)

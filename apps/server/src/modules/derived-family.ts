@@ -94,7 +94,7 @@ export interface FamilyState {
   readonly modules: RegistryModules
   readonly repos: RepoRegistry
   /**
-   * The opt-in telemetry emitter [spec:SP-f933], present only when the server was
+   * The opt-in telemetry emitter, present only when the server was
    * assembled with one. On the bundle for the same reason as `repos`: exactly one
    * family (`telemetry.preview`) needs it, and naming it here is a smaller claim
    * than widening `RegistryModules`. Optional, so contexts without one — tests,

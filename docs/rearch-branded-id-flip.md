@@ -136,7 +136,7 @@ a second meaning on an existing one.**
 | `IssueWire.assignee` | raw, unchanged | becomes a `UserId`. Left raw because today's values are role labels (`agent:claude-code`), not identities; branding it `UserId` now would claim a person where a role class sits |
 | `IssueWire.origin` (`'human' \| 'agent'`) | enum, unchanged | the *person* dimension is new; the enum stays as the class |
 | `IssueComment.author` | raw, unchanged | becomes a `UserId` (freeform author label today) |
-| `SessionMeta.nameSource` (`'user' \| 'agent'`) | enum, unchanged | per readiness §3.2, the role class must learn to name a person; [spec:SP-eb60]'s human-outranks-agent rule is why the pair cannot collapse |
+| `SessionMeta.nameSource` (`'user' \| 'agent'`) | enum, unchanged | per readiness §3.2, the role class must learn to name a person; human-outranks-agent rule is why the pair cannot collapse |
 | `SessionMeta.spawnedBy` | raw on the wire, unchanged — but no longer written or read by hand (POD-1133) | on-behalf-of, as an arm member |
 | `Capability.actorSessionId` / `actorUser` / `onBehalfOf` (`authz/issue-authz.ts`) | already the pair's seam, landed by ADR 3 Amendment 1 D17; structurally `string` because the brand was not reachable at L0 | POD-1075 types `actorUser` / `onBehalfOf` as `UserId` — now that the brand **is** at L0, this is a type change with no move |
 | `sessions.deletion_source` | untouched | POD-360 reclassified it as a code-PATH label, not provenance — recorded so POD-1075 does not add a person to it by pattern-matching |

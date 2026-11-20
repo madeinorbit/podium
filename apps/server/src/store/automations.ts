@@ -1,6 +1,6 @@
 // workspace-scoped (POD-6959)
 /**
- * Automations aggregate (#470) [spec:SP-17db] — owns the `automations` and
+ * Automations aggregate (#470) — owns the `automations` and
  * `automation_runs` tables (timestamped automations migrations). Pure persistence: the schedule
  * SEMANTICS (cron parsing, the due/missed/overlap decision, the spawn) live in
  * modules/automations/.

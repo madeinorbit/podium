@@ -1,6 +1,6 @@
 # Managed CLI availability plan
 
-Source contract: [spec:SP-d6e8]. This plan follows the reviewed macOS desktop scope: every
+Source contract:. This plan follows the reviewed macOS desktop scope: every
 interactive harness, headless harness, and Podium shell started by the local desktop backend
 receives the exact bundled `podium` command ahead of user PATH entries. It does not install a
 command into the user's terminal environment.
@@ -34,7 +34,7 @@ distribution or shell-integration decisions.
    - Prepend its directory before the existing user harness directories and inherited PATH.
    - Build PATH when a managed CLI exists even if `HOME` is absent; preserve the current no-op
      behavior when neither input exists.
-   - Reference [spec:SP-d6e8] at this implementing boundary.
+   - Reference at this implementing boundary.
 
 3. **Headless launches use the same helper.**
    - Replace the inline environment object in `apps/daemon/src/control/headless.ts` with a

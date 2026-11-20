@@ -1,6 +1,6 @@
 import { observer } from 'mobx-react-lite'
 /**
- * Settings → Labs [spec:SP-f4b9]: workspace feature flags. Admins save
+ * Settings → Labs: workspace feature flags. Admins save
  * enablement edits through the instance preference record immediately.
  */
 
@@ -29,7 +29,7 @@ export const LabsSection = observer(function LabsSection({
   patch: (p: Partial<PodiumSettings>) => void
 }): JSX.Element {
   // The instance settings record's flags (same as useFeature): the server's
-  // facts joined with the SAVED toggles [spec:SP-f4b9]. A switch below edits
+  // facts joined with the SAVED toggles. A switch below edits
   // the record immediately.
   const state = useFeaturesState()
   const listed = state?.flags.filter((flag) => flag.listed && flag.visibility !== 'hidden') ?? []

@@ -371,7 +371,7 @@ export const codexManifest: AgentManifest = {
 
   posture: codexPosture,
   launch(opts) {
-    // [spec:SP-fccf] Session identity never enters model-visible instructions.
+    // Session identity never enters model-visible instructions.
     // Official hooks bind the stable Podium pane id to Codex's native thread id.
     const instructions = composeAgentInstructions(opts.instructions ?? [])
     return {
@@ -655,7 +655,7 @@ export const codexManifest: AgentManifest = {
       // Once the durable lease names a thread, resumeValue is the exact binding.
       // Process correlation remains useful only for legacy or initially-unbound
       // observers; allowing it to replace a leased thread would move the inner
-      // observer before the exact rebind ack. [spec:SP-cdb2]
+      // observer before the exact rebind ack.
       const processBindingSessionId =
         !lease || lease.providerSessionId === null ? input.podiumSessionId : undefined
       return observeCodexState({

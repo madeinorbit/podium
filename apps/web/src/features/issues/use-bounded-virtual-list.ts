@@ -3,7 +3,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { flushSync } from 'react-dom'
 
 /**
- * Hard retention limits for issue indexes [spec:SP-d562]. A viewport mounts no
+ * Hard retention limits for issue indexes. A viewport mounts no
  * more than 72 ordinary rows, plus a focused row and an active drag source
  * while either is outside the window. Measurements are LRU-bounded separately:
  * dynamic heights do not turn a trip through a 674-task list into 674 retained

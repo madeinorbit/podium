@@ -2316,7 +2316,7 @@ export class SessionsRepository {
       await deleteDraftOf(this.db).run({ id })
       await deleteSnoozesOf(this.db).run({ id })
       await deleteUserStateOf(this.db).run({ id })
-      await deleteOfferOf(this.db).run({ id }) // [spec:SP-c7f1]
+      await deleteOfferOf(this.db).run({ id })
       await this.scrubTabOrders(id)
     })
   }
@@ -2642,7 +2642,7 @@ export class SessionsRepository {
     return cleared.map((row) => row.userId)
   }
 
-  // ---- agent action offers [spec:SP-c7f1] ----
+  // ---- agent action offers ----
   /** Every live offer, keyed by session — replayed onto SessionMeta at boot. A
    *  row with corrupt JSON actions is dropped rather than failing the load. */
   async listOffers(): Promise<OfferMap> {

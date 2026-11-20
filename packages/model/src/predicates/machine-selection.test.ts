@@ -234,7 +234,7 @@ describe('handoffTargets', () => {
     ).toEqual([])
   })
 
-  it('offers a drifted session its issue worktree ([spec:SP-3f7a])', () => {
+  it('offers a drifted session its issue worktree', () => {
     const drifted = { cwd: '/a', machineId: asMachineId('source'), agentKind: 'codex' }
     const machines = [{ id: 'target', ...daemonFacts, online: true, inventory: { agents: [agent('in')] } }]
     expect(handoffTargets(drifted, repos, machines)).toEqual([])
@@ -242,7 +242,7 @@ describe('handoffTargets', () => {
   })
 })
 
-describe('handoffSource ([spec:SP-3f7a])', () => {
+describe('handoffSource', () => {
   const at = (cwd: string, machineId = asMachineId('source')) => ({
     cwd,
     machineId,

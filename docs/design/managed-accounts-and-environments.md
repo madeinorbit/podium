@@ -1,7 +1,7 @@
 # Managed accounts & per-agent environments
 
 Design doc + feasibility findings for issue #212 (epic #211). Builds on the
-accounts foundation shipped in [spec:SP-6454] (main `87df9a7`).
+accounts foundation shipped in (main `87df9a7`).
 
 **Verdict:** yes to both questions. Managed logins work today with no
 reverse-engineering — proven by spike below. And "managed login" is genuinely

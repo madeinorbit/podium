@@ -234,7 +234,7 @@ describe('createSessionCwdTracker', () => {
     expect(sent).toEqual([{ sessionId: 's1', cwd: '/tmp/scratch' }])
   })
 
-  // ---- main never captures [spec:SP-4ef9] ----
+  // ---- main never captures ----
 
   it('a hook cwd in the repo MAIN checkout never re-homes a session', async () => {
     const { sent, tracker } = make(inRepo)

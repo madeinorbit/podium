@@ -77,7 +77,7 @@ export function usePanelSurface(input: {
   paneActive: boolean
   /** The optimistic spawn has reconciled server-side (#119). */
   spawnConfirmed: boolean
-  /** The handover veil owns the pane ([spec:SP-3f7a]). */
+  /** The handover veil owns the pane. */
   inTransit: boolean
   /** Fired on a chat → native transition, never on mount-in-native. */
   onEnterNative?: () => void

@@ -1,5 +1,5 @@
 /**
- * The pending-report queue [spec:SP-f933].
+ * The pending-report queue.
  *
  * `<state-dir>/telemetry/queue.jsonl` — one JSON report per line, capped, and
  * plain text on purpose: "you can read exactly what is waiting to be sent, with
@@ -50,7 +50,7 @@ export function windowPath(stateDir: string): string {
 }
 
 /**
- * The CURRENT counting window, persisted [spec:SP-f933].
+ * The CURRENT counting window, persisted.
  *
  * Why this is on disk rather than purely in memory: the design says "one report
  * per day", and a Podium server restarts often (deploys, reboots, `podium

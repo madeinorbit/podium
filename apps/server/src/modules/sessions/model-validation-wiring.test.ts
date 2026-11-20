@@ -1,5 +1,5 @@
 /**
- * The WIRING that pays off issue #534 [spec:SP-cc60]: createSession is the one spawn
+ * The WIRING that pays off issue #534: createSession is the one spawn
  * funnel, so validating there is what actually stops a typo'd model from reaching the
  * daemon. These tests observe the real registry — a rejected selection produces NO
  * spawn frame and NO session; a forced unlisted model spawns AND leaves a durable

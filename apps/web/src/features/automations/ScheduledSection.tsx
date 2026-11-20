@@ -78,7 +78,7 @@ const OUTCOME_LABELS: Record<AutomationRun['outcome'], string> = {
 }
 
 /**
- * The Scheduled surface (#470) [spec:SP-17db] — real cron automations: the list is
+ * The Scheduled surface (#470) — real cron automations: the list is
  * the server's, create/toggle/delete persist, and expanding a card shows the actual
  * `automation_runs` rows (including the fires that deliberately did nothing), with
  * the spawned session linked. A collapsed card reads no runs; an expanded one asks

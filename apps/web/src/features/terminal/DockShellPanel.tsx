@@ -25,7 +25,7 @@ import {
 import { useTerminalAppearance } from './use-terminal-appearance'
 
 /**
- * The right dock's Shell panel (#23) [spec:SP-75b1]: one shell session per
+ * The right dock's Shell panel (#23): one shell session per
  * worktree, living IN the dock — not in the workspace tab strip (the strip
  * filters ids in `dockShells`). The mapping is SERVER-OWNED (POD-4436,
  * `shells.forWorktree`): the same dock shell opens on every device, and the

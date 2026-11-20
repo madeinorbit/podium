@@ -51,7 +51,7 @@ ownership checks that are dead code on the one transport humans use.
 Every write records **actor** (which agent) and **on-behalf-of** (which human), both
 stamped from the transport (readiness §3.1.3 A3). They are never collapsed: "which agent
 did this" and "which human was it for" are two questions, and `nameSource`
-([spec:SP-eb60]) and `humanQuestionAskedBy` are shipped features that depend on the
+ and `humanQuestionAskedBy` are shipped features that depend on the
 answer.
 
 `wirePlacement` is a real decision, not boilerplate. Put the pair on the wire only when

@@ -392,7 +392,7 @@ export class SessionRepository {
     return this.sessionsGeneration_
   }
 
-  /** Ordered post-capture patches for projection workers [spec:SP-c29e]. */
+  /** Ordered post-capture patches for projection workers. */
   onSessionProjection(listener: (event: SessionProjectionEvent) => void): () => void {
     this.sessionProjectionListeners.add(listener)
     return () => this.sessionProjectionListeners.delete(listener)
@@ -569,7 +569,7 @@ export class SessionRepository {
 
   /** Central volatile Session-view mutation seam. The latest value is captured
    * once per session by the coalesced broadcast flush, keeping interaction paths
-   * free of synchronous SQLite writes [spec:SP-c29e]. */
+   * free of synchronous SQLite writes. */
   mutateSessionView(
     sessionId: SessionId,
     mutate: (session: Session) => void,
@@ -651,7 +651,7 @@ export class SessionRepository {
   }
 
   /**
-   * THE session write seam ([spec:SP-3fe2] #256): every persist commits the
+   * THE session write seam (#256): every persist commits the
    * row write and its declared session change through the write-seam Ledger —
    * one transact span, so "the row changed" and "the change log says so"
    * commit or roll back together. All ~15 persisting handlers inherit this,
@@ -1252,7 +1252,7 @@ export class SessionRepository {
     await this.state.loadFromStore()
     bootStage('sessions draft hydration', recoveryStarted)
     const rowsStarted = performance.now()
-    const offers = await this.store.sessions.offersOf(ids) // [spec:SP-c7f1]
+    const offers = await this.store.sessions.offersOf(ids)
     let rowReadMs = 0
     let installMs = 0
     // The DRAFT stamps of the sessions installed below, in one read (POD-6160:

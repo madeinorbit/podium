@@ -1,5 +1,5 @@
 /**
- * Convert superagent markdown to Telegram MarkdownV2 [spec:SP-5d81].
+ * Convert superagent markdown to Telegram MarkdownV2.
  * Ported from Hermes gateway/platforms/telegram.py (format_message pipeline).
  */
 

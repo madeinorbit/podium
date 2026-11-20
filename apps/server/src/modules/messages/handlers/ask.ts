@@ -1,6 +1,5 @@
 /**
- * Handler for the `mail.ask` contract (L3) — the seance [spec:SP-34d7
- * read-toolkit tier 4], moved verbatim out of `MessageGate` by POD-729.
+ * Handler for the `mail.ask` contract (L3) — the seance, moved verbatim out of `MessageGate` by POD-729.
  *
  * WHY THIS ONE MATTERED MOST OF THE FIVE. `ask` is the only member of the
  * hand-written remainder that reaches message DELIVERY: it calls

@@ -224,7 +224,7 @@ export async function applySessionsSliceBudget(
  * `process.env` mutations when `env` is omitted — they reuse the process-start
  * environment. That breaks HOME isolation in tests (session created under a
  * temp `$HOME` via an explicit `env`, then "not found" by a bare listing) and would also miss any runtime env change in production. Always pass
- * the live map. [spec:SP-3f93]
+ * the live map.
  */
 export function liveEnv(): NodeJS.ProcessEnv {
   return { ...process.env }
@@ -305,7 +305,6 @@ export interface DurableSpawnOptions {
  * turned a create failing with a one-line "File name too long" into a session
  * that produced no output and an e2e timeout 20s later — and sent the first
  * investigation chasing systemd, which was only relaying the inner exit status.
- * [spec:SP-0be7]
  *
  * stderr is redirected to a FILE, never a pipe: the host daemonizes and
  * inherits this fd, and waiting for pipe EOF would block the create call until

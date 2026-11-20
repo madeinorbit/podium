@@ -54,7 +54,7 @@ export const ScanReposResultMessage = z.object({
   diagnostics: z.array(GitDiscoveryDiagnosticWire),
 })
 
-// ---- Daemon <-> server: directory browsing (POD-814) [spec:SP-3701] ----
+// ---- Daemon <-> server: directory browsing (POD-814) ----
 // The repo picker browses the SELECTED machine's disk through its daemon. The
 // server host's own filesystem is never the browse target: users pick a machine,
 // and in hub-only mode (mode=server) the hub may run no daemon at all.
@@ -184,7 +184,7 @@ export const RepoOp = z.enum([
   'worktreeList',
   'revListUnreachableCount',
   'worktreeAdd',
-  // stop→resume [spec:SP-9904]: re-materialize a worktree for an EXISTING branch
+  // stop→resume: re-materialize a worktree for an EXISTING branch
   // (no -b/-B). worktreeAdd always creates a new branch; this attaches the
   // preserved branch after free-worktree-keep-branch.
   'worktreeAddExisting',

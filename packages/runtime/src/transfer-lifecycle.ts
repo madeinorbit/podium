@@ -1,6 +1,6 @@
 /**
  * Server-transfer lifecycle: the durable config conversions and process-role transition
- * each side of a cutover boots through. [spec:SP-9f5e] — file/digest/journal concerns live
+ * each side of a cutover boots through. — file/digest/journal concerns live
  * in the coordinator; this module owns ONLY
  *
  *  1. the SOURCE's conversion from host (all-in-one/server) to daemon mode, pointed at the

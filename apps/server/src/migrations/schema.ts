@@ -1,5 +1,5 @@
 /**
- * Podium's server schema as drizzle-kit schema-as-code [spec:SP-4428] — the
+ * Podium's server schema as drizzle-kit schema-as-code — the
  * source of truth for `drizzle-kit generate`/`check`. Edit this, then
  * `bun run migration:new <name>` to author a migration.
  *
@@ -166,7 +166,7 @@ export const sessions = sqliteTable(
     id: text().$type<SessionId>().notNull(),
     ownerUserId: text('owner_user_id').$type<UserId>().notNull(),
     agentKind: text('agent_kind').notNull(),
-    // Resolved launch placement, captured once at spawn [spec:SP-dae6].
+    // Resolved launch placement, captured once at spawn.
     model: text(),
     effort: text(),
     /**
@@ -696,7 +696,7 @@ export const workspaceSecrets = sqliteTable(
  * D7: payload identity is inert) and neither is reachable from an input. Two
  * columns and not one, because "did a person or an agent rotate this key?" and
  * "whose authority was it under?" are different questions — the same reason
- * `nameSource` and `humanQuestionAskedBy` exist ([spec:SP-eb60]).
+ * `nameSource` and `humanQuestionAskedBy` exist.
  *
  * `on_behalf_of` IS NULLABLE, and the null is load-bearing rather than lazy:
  * ADR 9 D8 S5 says system automations have no human behind them and MUST NOT be
@@ -1396,7 +1396,7 @@ export const snoozes = sqliteTable(
   ],
 )
 
-// Agent action offers [spec:SP-c7f1] — one live offer per session (a freeform
+// Agent action offers — one live offer per session (a freeform
 // message + JSON-encoded action buttons). Ephemeral overlay like `snoozes`;
 // replaced on re-offer, deleted on clear/next-turn.
 export const offers = sqliteTable(
@@ -2275,7 +2275,7 @@ export const issues = sqliteTable(
     deferUntil: text('defer_until'),
     closedReason: text('closed_reason'),
     // When the closed-predicate last flipped true; null while open. The stable
-    // completion-decay anchor (updatedAt churns on any touch). [spec:SP-6144]
+    // completion-decay anchor (updatedAt churns on any touch).
     closedAt: text('closed_at'),
     /** Who closed it (POD-6287): whose sessions the close and the closed-task
      *  sweep stop. NULL for a row closed before this column, or by the
@@ -3360,7 +3360,7 @@ export const messages = sqliteTable(
     // the steward settle-nag — an ordinary message owes no reply, so receipt alone
     // (mechanically proven by the ledger, POD-834) never generates ack traffic.
     expectsResponse: integer('expects_response', { mode: 'boolean' }).default(sql`0`).notNull(),
-    // Message-backed notification identity [spec:SP-ba61]. Both are null for
+    // Message-backed notification identity. Both are null for
     // ordinary mail; consume/dismiss retires the matching arbiter fact.
     factKey: text('fact_key'),
     factTarget: text('fact_target'),
@@ -3503,7 +3503,7 @@ export const messageWakeCooldowns = sqliteTable(
   ],
 )
 
-/** Per-READER receipts [POD-1379] [spec:SP-b11e]: one row per (message, session that has seen
+/** Per-READER receipts [POD-1379]: one row per (message, session that has seen
  *  it). `messages.delivery_status` stays the DELIVERY ledger (one pipeline per message);
  *  this table is the per-session "already in my context" ledger, so several
  *  agents on one issue each get the shared mailbox exactly once and no agent's
@@ -3525,7 +3525,7 @@ export const messageReads = sqliteTable(
   ],
 )
 
-/** Durable janitor lease/fence and command idempotency [spec:SP-c29e]. */
+/** Durable janitor lease/fence and command idempotency. */
 export const maintenanceLeases = sqliteTable('maintenance_leases', {
   name: text().primaryKey(),
   generationId: text('generation_id').notNull(),
@@ -3585,7 +3585,7 @@ export const recapWatermarks = sqliteTable(
   ],
 )
 
-/** Telegram forum-topic ↔ issue/superagent-thread bindings [spec:SP-5d81]. */
+/** Telegram forum-topic ↔ issue/superagent-thread bindings. */
 export const messagingIssueTopics = sqliteTable(
   'messaging_issue_topics',
   {

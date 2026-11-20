@@ -151,7 +151,7 @@ describe('session observer hook field normalization', () => {
   })
 })
 
-describe('generic causal observer host [spec:SP-cdb2]', () => {
+describe('generic causal observer host', () => {
   it('waits for a completed provider poll and emits at most one monotonic proof per completion', async () => {
     const statTick = new ManualStatTick()
     const sent: DaemonMessage[] = []
@@ -1008,7 +1008,7 @@ describe('session observer →idle debounce', () => {
     expect(agentStateMsgs(sent, sessionId).every((m) => m.state.phase !== 'idle')).toBe(true)
   })
 })
-describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
+describe('Claude causal daemon emission', () => {
   it('reconciles a prompt flushed after its live hook across daemon restart', async () => {
     const at = '2026-07-19T00:00:00.000Z'
     const dir = await mkdtemp(join(tmpdir(), 'podium-claude-late-flush-'))
@@ -2995,7 +2995,7 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
       providerTurnId: null,
       providerPromptId: 'prompt-5',
       // What the hooks proved: Stop arrived, and the turn is held open because a
-      // named child is still running. [spec:SP-dae6]
+      // named child is still running.
       turnState: {
         phase: 'working',
         since: at,

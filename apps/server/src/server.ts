@@ -779,7 +779,7 @@ export async function startServer(
     return openedIdentity
   }
   const credentials = memberCredentials(store.users, () => serverIdentity().workspace.core.accounts)
-  // Readiness gate [spec:SP-c29e]: a bloated change log is fully pruned in
+  // Readiness gate: a bloated change log is fully pruned in
   // bounded, yielding units before the server starts serving catch-up reads.
   // The server does not listen meanwhile.
   if (!recoveryOnly) {
@@ -1030,7 +1030,7 @@ export async function startServer(
   bootStage('setup enrollment', setupStarted)
   // RETIRED at POD-309: the node⇄hub dialer (`UpstreamSync`) and the issue write
   // forwarder (`UpstreamForwarder`) were constructed here when config.json carried an
-  // `upstream` block. Federation is deferred, not cancelled ([spec:SP-0371], ADR 5 D1);
+  // `upstream` block. Federation is deferred, not cancelled (, ADR 5 D1);
   // what survives it is the SEAM — authority/feed identity, outbox attribution,
   // the reserved node-peer caps, and kernel ports with no transport baked in —
   // none of which is wired from this composition root.
@@ -1039,7 +1039,7 @@ export async function startServer(
   // parked, not discarded: `reportParkedUpstreamMutations` is the operator-visible
   // half of that (ADR 5 D8: "silent discard of poison/pending work is forbidden").
   if (!recoveryOnly) await reportParkedUpstreamMutations(store.sync, store.events)
-  // Telemetry [spec:SP-f933]. The server is the sole emitter (D10). Usage is on
+  // Telemetry. The server is the sole emitter (D10). Usage is on
   // unless turned off, crash is off unless turned on (POD-5922). Wiring is
   // unconditional and consent is read fresh per record/flush (D4/D9), so a tier
   // that is off collects NOTHING, and a change takes effect without a restart.
@@ -1068,7 +1068,7 @@ export async function startServer(
   // The registry owns disposal on failed listen and in test harnesses. Normal
   // shutdown also settles its reaper before store.close starts scheduler drain.
   registry.adoptSuperagent(superagent)
-  // Messaging-app bridge [spec:SP-5d81]: two-way Telegram chat with the
+  // Messaging-app bridge: two-way Telegram chat with the
   // superagent, riding the notification bot config. configure() is a no-op
   // until a bot token + chat id are set; settings.changed re-arms it live.
   const messaging = new MessagingService({
@@ -1098,7 +1098,7 @@ export async function startServer(
     topics: store.messagingTopics,
     sessionIssueId: async (sessionId) =>
       await registry.modules.sessions.readSessionIssueId(sessionId),
-    // Issue-topic entry recap [spec:SP-62c3]: last messages from the bound
+    // Issue-topic entry recap: last messages from the bound
     // superagent (or btw origin) session transcript.
     topicRecap: {
       getSuperagentThread: async (threadId) => await store.superagent.getSuperagentThread(threadId),
@@ -1170,7 +1170,7 @@ export async function startServer(
       (await store.machines.listMachines()).some(
         (machine) => !machine.revokedAt && isRemoteUpdateConsumer(machine, hostMachineId),
       ),
-    // FLEET-SCOPED darwin production [spec:SP-6144 section 8b]: this host mints a Mac
+    // FLEET-SCOPED darwin production: this host mints a Mac
     // bundle when a Mac has enrolled, and not otherwise. Read at build time, from the
     // inventories the daemons themselves reported.
     fleetPlatforms: async () =>
@@ -1929,7 +1929,7 @@ export async function startServer(
         machineId ?? (await registry.modules.machines.defaultMachine()),
       )) !== undefined,
   })
-  // Permanent artifact snapshots ([spec:SP-0fc9] #441) — server-local, no daemon hop.
+  // Permanent artifact snapshots (#441) — server-local, no daemon hop.
   registerArtifactRoute(app, selfHostedArtifacts(registry.modules.issueArtifacts))
   // In-process MCP server exposing the superagent's orchestrator tools to a
   // harness-backed superagent (Claude via --mcp-config). Token-gated.
@@ -2022,7 +2022,7 @@ export async function startServer(
           // during listen — `perf.snapshot` then omits its `loop` section, which
           // is what "nothing was measured" has to look like.
           ...(loopAccounting ? { loopAccounting } : {}),
-          // Only so telemetry.preview can show the REAL report [spec:SP-f933];
+          // Only so telemetry.preview can show the REAL report;
           // consent lives in config.json and is never read through the context.
           telemetry,
           // Hub-only procs (machines fleet admin + pairing) 404 when the hub

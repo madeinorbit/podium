@@ -1,5 +1,5 @@
 /**
- * Guards for the example report [spec:SP-f933].
+ * Guards for the example report.
  *
  * Why this file exists: the first version of the example (defined in apps/cli,
  * where nothing could test it) advertised `"sessions": { "claude": 14 }`. There

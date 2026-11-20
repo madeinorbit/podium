@@ -16,7 +16,7 @@
  * change for a user action that expressed no intent. Anything reachable by
  * fumbling has to be inert when it changes nothing.
  *
- * The name a rename WRITES is a human-set name, and per [spec:SP-eb60]
+ * The name a rename WRITES is a human-set name, and per
  * `nameSource: 'user'` outranks an agent-set one. That distinction is the
  * server's to stamp from the transport principal (ADR 3 D7) — this hook sends the
  * text and nothing else. It deliberately carries no actor, owner or origin in its

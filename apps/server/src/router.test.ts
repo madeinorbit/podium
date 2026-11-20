@@ -170,7 +170,7 @@ describe('appRouter', () => {
     expect(issueId).toMatch(/^iss_[0-9a-f-]{36}$/)
   })
 
-  it('files.read serves artifact-snapshot bytes from the server-local store [spec:SP-0fc9]', async () => {
+  it('files.read serves artifact-snapshot bytes from the server-local store', async () => {
     const { call, registry } = await caller()
     const base = mkdtempSync(join(tmpdir(), 'podium-artifact-read-'))
     try {
@@ -488,7 +488,7 @@ describe('repos router', () => {
     expect(await call.snoozes.clear({ sessionId })).toEqual({})
   })
 
-  // #470 [spec:SP-17db]: the minimum interval is one minute, exactly the
+  // #470: the minimum interval is one minute, exactly the
   // granularity of five-field cron.
   it('automations.create accepts an every-minute cron', async () => {
     const { call } = await caller()

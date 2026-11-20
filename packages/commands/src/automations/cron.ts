@@ -1,5 +1,5 @@
 /**
- * A small, hand-rolled 5-field cron parser (#470) [spec:SP-17db].
+ * A small, hand-rolled 5-field cron parser (#470).
  *
  * Deliberately no dependency: the scheduler needs exactly two things — "is this
  * expression valid?" (composer + create/update validation) and "what is the first
@@ -11,7 +11,7 @@
  * those. Fields, in order: minute (0–59), hour (0–23), day-of-month (1–31),
  * month (1–12), day-of-week (0–6, Sunday = 0; 7 is accepted as Sunday).
  *
- * Time base: SERVER-LOCAL time [spec:SP-17db] — no per-automation timezone in this
+ * Time base: SERVER-LOCAL time — no per-automation timezone in this
  * pass. Occurrences are built with the local-time Date constructor, so a DST jump
  * behaves the way the platform does (a skipped 02:30 lands at 03:30 on the spring
  * forward; an ambiguous autumn 02:30 resolves to the first pass). Cron's classic
@@ -141,7 +141,7 @@ function dayMatches(spec: CronSpec, day: Date): boolean {
  * The first occurrence STRICTLY after `after`, in server-local time. Returns null
  * when the expression cannot match within the search horizon (e.g. `0 0 30 2 *` —
  * February 30th). Strictness is what keeps a fired automation from re-firing on
- * the same minute in a tight loop [spec:SP-17db].
+ * the same minute in a tight loop.
  */
 export function nextAfter(spec: CronSpec, after: Date): Date | null {
   // Round up to the next whole minute: cron has minute granularity, and `after` is
@@ -170,7 +170,7 @@ export function nextRunAfter(expr: string, after: Date): Date | null {
 }
 
 /**
- * The rate floor (#470) [spec:SP-17db]: one minute. Five-field cron has minute
+ * The rate floor (#470): one minute. Five-field cron has minute
  * granularity, so every valid expression satisfies this floor; keeping the
  * invariant explicit protects the boundary if richer schedules arrive later.
  */

@@ -8,7 +8,7 @@ import { makeIssue } from '@/lib/test-issue'
 import { IssuePanelView } from './IssuePanelView'
 import { IssueAgentActivity } from './issue-page/IssueAgentActivity'
 
-// Snapshotted artifact ([spec:SP-0fc9]) on an issue whose repoPath exists:
+// Snapshotted artifact on an issue whose repoPath exists:
 // clicking must open the permanent snapshot as an in-app artifact file tab,
 // NOT a live worktree file tab and NOT a new browser window (the source file
 // may be deleted, and openFileInWorktree re-homes the dock's Issue panel to

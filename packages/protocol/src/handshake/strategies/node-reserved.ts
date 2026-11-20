@@ -3,7 +3,7 @@
  *
  * The credential CLASS and the capability fields exist so a future node peer can
  * declare itself without a flag day. There is NO ACCEPTOR: the hub is deferred
- * ([spec:SP-0371]) and implementing one here would be H2 product creep (D4's
+ * and implementing one here would be H2 product creep (D4's
  * first rejected alternative).
  *
  * What authenticates it: nothing. This module exists to refuse, loudly and

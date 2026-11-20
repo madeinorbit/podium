@@ -291,7 +291,7 @@ export class SessionRevival {
   }
 
   /**
-   * Move one resumable worktree session to another machine ([spec:SP-3f7a]).
+   * Move one resumable worktree session to another machine.
    *
    * THE COMPOSITION ROOT for the `sessions.handoff` command (POD-642). The
    * choreography, the `use`-verb gate on both machines, the apply-time
@@ -417,7 +417,7 @@ export class SessionRevival {
 
   /** Wake a hibernated session: respawn under the same id with its resume ref.
    *  If stop freed the worktree, recreates it from the preserved branch first
-   *  [spec:SP-9904]. */
+   */
   async resurrectSession(
     input: {
       sessionId: SessionId

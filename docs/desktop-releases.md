@@ -43,7 +43,7 @@ standing shell manifest forward:
 
 A prerelease tag that names no channel (`v0.2.0-rc1`) is refused rather than guessed at.
 
-This is still an explicit promotion, not a per-push build [spec:SP-7f2c]: pushing `main` refreshes
+This is still an explicit promotion, not a per-push build: pushing `main` refreshes
 nothing desktop-side, and only a deliberate tag releases. The **desktop release** workflow can also
 still be dispatched by hand to re-promote a commit without minting a new tag.
 

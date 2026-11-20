@@ -7,7 +7,7 @@ import { OPERATOR } from '../../test-support/capabilities'
 import { lockRegistry } from './registry'
 
 /**
- * Lock registry completeness + dispatch pipeline [spec:SP-85d1]: the def keys
+ * Lock registry completeness + dispatch pipeline: the def keys
  * are pinned to the protocol list, the relay dispatcher runs guard → parse →
  * handler (router-equal), the caller's session identity is stamped from the
  * capability (never from input), and the role gate holds (viewers may read

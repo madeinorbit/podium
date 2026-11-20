@@ -478,7 +478,7 @@ function candidateOfRow(
   }
 }
 
-/** Durable causal observer leases and checkpoints [spec:SP-cdb2]. */
+/** Durable causal observer leases and checkpoints. */
 export class ObservationCheckpointsRepository {
   private readonly scope: WorkspaceDb
   protected readonly createOrJoinTransaction: TransactionRunner
@@ -652,7 +652,7 @@ export class ObservationCheckpointsRepository {
    * Atomically replace one exact native provider binding. Both fences advance,
    * so observations and acknowledgements from the predecessor become inert.
    * Duplicate old→already-current-next requests return the durable current
-   * lease without advancing again, including after process restart. [spec:SP-cdb2]
+   * lease without advancing again, including after process restart.
    */
   async rebindExact(input: {
     sessionId: SessionId

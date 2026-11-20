@@ -12,7 +12,7 @@
  * ## Why rename, and why it stopped being a "pure scalar write"
  *
  * It was chosen as the lowest-risk scalar command in the product. It is not one,
- * and the drift refresh on this issue says so: [spec:SP-eb60] makes a HUMAN-set
+ * and the drift refresh on this issue says so: makes a HUMAN-set
  * name sovereign over an agent-set one, so the shipped service already REFUSES an
  * agent rename over a user-set name. That makes rename a BETTER skeleton, not a
  * worse one — it exercises POLICY rather than plumbing alone, and the accept /
@@ -294,7 +294,7 @@ export const sessionRenameContract: CommandContract<
     // after it, and because the Outbox already persists exactly this pair.
     reservedWireKeys: ['actor', 'onBehalfOf'],
     rationale:
-      'ON THE WIRE, unlike sessions.handoff, because this pair has a downstream reader: the optimistic overlay needs the authored actor KIND to derive [spec:SP-eb60]\'s arbitration for a queued write, and an outbox entry that crossed a reload has no other source for it. Both halves are stamped from the authenticated transport and are inert in the payload (ADR 3 D7, Amendment 1 D17). The two are never collapsed: "which agent did this" and "which human was it for" are separate questions, and `nameSource` is the shipped feature that depends on the answer — a human-issued rename stamps `user`, an agent-delegated one stamps `agent` with the same human as on-behalf-of.',
+      'ON THE WIRE, unlike sessions.handoff, because this pair has a downstream reader: the optimistic overlay needs the authored actor KIND to derive arbitration for a queued write, and an outbox entry that crossed a reload has no other source for it. Both halves are stamped from the authenticated transport and are inert in the payload (ADR 3 D7, Amendment 1 D17). The two are never collapsed: "which agent did this" and "which human was it for" are separate questions, and `nameSource` is the shipped feature that depends on the answer — a human-issued rename stamps `user`, an agent-delegated one stamps `agent` with the same human as on-behalf-of.',
   },
   errorConsistency: {
     callerSuppliedTargetId: true,

@@ -6,7 +6,7 @@
  * released at a time; its successor waits for the exact server
  * acknowledgement. Owned by the grok adapter and driven by its provider
  * (`./state-provider.js`); the cross-harness acceptance gate it feeds is
- * generic (`observer.ts`). [spec:SP-cdb2]
+ * generic (`observer.ts`).
  */
 import { createHash } from 'node:crypto'
 import type { AgentRuntimeState, SessionId } from '@podium/model'
@@ -62,7 +62,7 @@ export type GrokSegmentIdentity = {
 /**
  * Provider-local causal fold for Grok. Disk records may be read ahead, but only
  * one durable observation is released at a time; its successor waits for the
- * exact server acknowledgement. [spec:SP-cdb2]
+ * exact server acknowledgement.
  */
 export class GrokCausalObserver {
   private readonly now: () => string

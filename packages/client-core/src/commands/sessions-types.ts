@@ -16,7 +16,7 @@ export interface SessionResurrectionResult {
   reason?: string
 }
 
-/** Result of a clean end [spec:SP-9904]. `ok` says whether the desired-state
+/** Result of a clean end. `ok` says whether the desired-state
  * edit was queued; a later lifecycle refusal appears on the session. */
 export interface SessionEndResult {
   ok: boolean
@@ -59,7 +59,7 @@ export interface SessionsCommands<_TApi extends PodiumClientApi = PodiumClientAp
   /** Nudge an errored agent to retry ("continue⏎" into its PTY). */
   continueSession: (sessionId: SessionId) => Promise<void>
   hibernate: (sessionId: SessionId) => Promise<void>
-  /** Clean end [spec:SP-9904]: stop the process and free the issue worktree,
+  /** Clean end: stop the process and free the issue worktree,
    *  KEEPING the branch, the transcript and the session row, so Resume can
    *  rebuild the checkout from the branch. The middle of the lifecycle between
    *  hibernate (which keeps the worktree) and kill (which tombstones the row) —

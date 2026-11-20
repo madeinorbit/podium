@@ -731,7 +731,7 @@ describe('mail e2e: send -> delivery -> reply, through the derived surfaces', ()
     expect(requests).toHaveLength(1)
     const [request] = requests
     // The body is byte-faithful and appears once. No envelope assertion here: an
-    // OPERATOR send lands unwrapped by design ([spec:SP-34d7] deliversUnwrapped),
+    // OPERATOR send lands unwrapped by design (deliversUnwrapped),
     // so the id is not in the text — the reply below uses the id the SENDER was
     // handed, which is the operator's real affordance.
     expect(request!.text.split(BODY).length - 1).toBe(1)

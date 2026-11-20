@@ -6,12 +6,12 @@ const log = createLogger('server:automations')
 // Cron has minute granularity, so a 30s tick bounds lateness at ~30s. The boot
 // one-shot (like the retention/auto-archive pair) runs a first pass shortly after
 // startup, so a restart promptly picks up an occurrence that came due while the
-// server was down — within the grace window, at most one late fire [spec:SP-17db].
+// server was down — within the grace window, at most one late fire.
 export const AUTOMATIONS_BOOT_DELAY_MS = 20_000
 export const AUTOMATIONS_INTERVAL_MS = 30_000
 
 /**
- * The automations tick (#470) [spec:SP-17db], owned by the automations module:
+ * The automations tick (#470), owned by the automations module:
  * a boot-delay one-shot that hands off to the 30s interval — the same shape as
  * IssueAutoArchive and EventLogRetention.
  *

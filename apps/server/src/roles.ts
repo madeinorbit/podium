@@ -91,7 +91,7 @@ export interface ServerRoleConfig {
  *
  * RETIREMENT DECISION (POD-309, ADR 5 D2 + D8). This used to read `config.upstream`:
  * a server dialing a hub was a NODE, so inbound pairing was switched off for it. That
- * heuristic named an H2 deployment shape, and H2 is deferred ([spec:SP-0371]) — with
+ * heuristic named an H2 deployment shape, and H2 is deferred — with
  * the dialer deleted there is no such server, and a heuristic whose input can no longer
  * exist is a branch that reads as policy while being dead code.
  *

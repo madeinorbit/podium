@@ -41,7 +41,7 @@ describe('IssueCommandDispatcher.asIssueTrpc (in-process MCP client)', () => {
     expect(list).toHaveLength(1)
   })
 
-  it('panelApply artifact-add pulls a snapshot — errors cleanly with no owning worktree ([spec:SP-0fc9])', async () => {
+  it('panelApply artifact-add pulls a snapshot — errors cleanly with no owning worktree', async () => {
     const c = await client()
     const created = (await c.issues.create.mutate({
       repoPath: '/r',

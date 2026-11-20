@@ -79,7 +79,7 @@ async function harness(
   }
   const issues = await IssueService.create(issueDeps)
   const sendNotice = vi.fn()
-  // The external-notification seam (#470) [spec:SP-17db] — injected, so the unit
+  // The external-notification seam (#470) — injected, so the unit
   // tests assert the call without ever reaching ntfy/Telegram.
   const notify = vi.fn()
   const deps: StewardDeps = {
@@ -211,7 +211,7 @@ describe('TRIGGER_RULES', () => {
   })
 })
 
-describe('Steward causal terminal gate [spec:SP-cdb2]', () => {
+describe('Steward causal terminal gate', () => {
   const baseEvent = {
     id: 1,
     ts: T,
@@ -1881,7 +1881,7 @@ describe('StewardService stored subscriptions (Phase B)', () => {
   })
 })
 
-describe('StewardService ack fallback (#237) [spec:SP-34d7 acks]', () => {
+describe('StewardService ack fallback (#237)', () => {
   it('maps settled session.phase events to ackfallback + sessionparentnudge (finished + errored only)', () => {
     const e = { id: 1, ts: T, kind: 'session.phase', subject: 's9', repoPath: null, payload: {} }
     expect(
@@ -2023,7 +2023,7 @@ describe('StewardService ack fallback (#237) [spec:SP-34d7 acks]', () => {
   })
 })
 
-describe('StewardService notification fact retirement [spec:SP-ba61]', () => {
+describe('StewardService notification fact retirement', () => {
   it('retires facts scoped to an issue when issue.closed is consumed', async () => {
     const h = await harness()
     const issue = await h.issues.crud.create(h.issues.reports.store.serverWriter, {

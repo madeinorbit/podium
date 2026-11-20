@@ -6,7 +6,7 @@ describe('scopeKey / tabIdFor', () => {
   it('keys the three scope kinds distinctly', () => {
     expect(scopeKey({ kind: 'session', sessionId: asSessionId('s1') })).toBe('s:s1')
     expect(scopeKey({ kind: 'worktree', root: '/wt' })).toBe('w:/wt')
-    // Artifact snapshots ([spec:SP-0fc9] #441).
+    // Artifact snapshots (#441).
     expect(scopeKey({ kind: 'artifact', issueId: asIssueId('iss_1'), artifactId: asArtifactId('abc123') })).toBe(
       'a:iss_1:abc123',
     )

@@ -119,7 +119,7 @@ export const SESSION_QUERIES = {
       })
     },
   ),
-  /** Read toolkit tiers 1–2 (#237) [spec:SP-34d7]: structured status (phase,
+  /** Read toolkit tiers 1–2 (#237): structured status (phase,
    *  issue stage/todos, last commits, files touched, unacked count — NO
    *  transcript text). The /trpc surface is operator-authority; agents reach the
    *  same procs via the daemon relay's scope-gated sessions arm. Every read is
@@ -156,7 +156,7 @@ export const SESSION_QUERIES = {
       return await s.modules.readToolkit.read(input, s.caller.actorSessionId ?? 'operator')
     },
   ),
-  /** Read toolkit tier 3 (#237) [spec:SP-34d7 read-toolkit]: server-side recap
+  /** Read toolkit tier 3 (#237): server-side recap
    *  since a watermark — repeated check-ins pay only for the delta (the watermark
    *  persists per (reader, target)). */
   recap: q(

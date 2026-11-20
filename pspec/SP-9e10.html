@@ -1,4 +1,0 @@
-<!-- pspec v1 — edit via Podium Specs; id is stable, referenced from code as [spec:SP-9e10] -->
-<section data-spec="SP-9e10" data-title="Agent pane header carries a chat/native view toggle" data-parent="SP-root" data-order="2" data-status="draft" data-updated="1783952175486">
-The desktop agent panel header DOES carry a chat/native view toggle (restored 2026-07-13 per explicit user request, issue #20 — reversing the 2026-07-12 removal from the 'Podium copy copy copy' design-mock pass). The toggle shows only for chat-capable live sessions (hidden when hibernated/exited — no PTY to switch to). A pick persists per-session (store panelMode) and as the per-device default for not-yet-seen sessions (PANEL_MODE_DEFAULT_KEY). The mode-resolution fallbacks (startScreen setting, chat-on-mobile/native-on-desktop, hibernated/exited force chat) still apply for sessions never toggled.
-</section>

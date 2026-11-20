@@ -54,7 +54,7 @@ export function useSessionGuard(
 ): {
   /** Delete (kill) a session — ALWAYS confirms; the row does not come back. */
   guardedDelete: (sessionId: SessionId) => Promise<void>
-  /** Clean end [spec:SP-9904] — stops the process, frees the worktree, keeps the
+  /** Clean end — stops the process, frees the worktree, keeps the
    *  row. Prompts first only while the agent is working. A server refusal
    *  (e.g. an unsaved working tree) shows on the session's own bar. */
   guardedEnd: (sessionId: SessionId) => Promise<void>

@@ -21,7 +21,7 @@ interface FactClaim {
   expiresAt: string | null
 }
 
-/** Durable atomic claims behind the steward's notification arbiter [spec:SP-ba61]. */
+/** Durable atomic claims behind the steward's notification arbiter. */
 // Every query this repository runs, prepared once per store [POD-6147].
 
 // A WRITE THAT RETURNS ROWS, and the exact statement POD-3318 was found on:
@@ -234,7 +234,7 @@ export class NotificationFactsRepository {
 
 /**
  * Steward-facing fact arbiter. It owns clock/TTL policy while the repository owns
- * the atomic SQLite operation [spec:SP-ba61].
+ * the atomic SQLite operation.
  */
 export class NotificationArbiter {
   constructor(

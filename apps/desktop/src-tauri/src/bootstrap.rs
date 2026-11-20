@@ -9,7 +9,7 @@ const SERVER_TRANSFER_JOURNAL: &str = ".server-transfer/journal.json";
 /// `defaultInstancePorts('default').server`.
 pub const DEFAULT_LOCAL_PORT: u16 = 18787;
 
-/// The compatibility instance id, which keeps every historical port. [spec:SP-15aa]
+/// The compatibility instance id, which keeps every historical port.
 pub const DEFAULT_INSTANCE_ID: &str = "default";
 
 /// Bind an ephemeral loopback port and return it (best-effort; falls back to [`DEFAULT_LOCAL_PORT`]).
@@ -37,7 +37,7 @@ fn is_valid_instance_id(id: &str) -> bool {
     id.len() <= 32 && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
 }
 
-/// This shell's instance identity: `PODIUM_INSTANCE`, else `default`. [spec:SP-15aa]
+/// This shell's instance identity: `PODIUM_INSTANCE`, else `default`.
 ///
 /// `@podium/runtime` `validateInstanceId` THROWS on a malformed id; a desktop shell has to
 /// open a window anyway, so a malformed value degrades to the default instance here. The
@@ -320,7 +320,7 @@ pub fn read_config() -> DesktopConfig {
         port: json.get("port").and_then(|v| v.as_u64()).and_then(|n| {
             u16::try_from(n).ok().filter(|p| *p > 0)
         }),
-        // [spec:SP-7f2c] Missing or unrecognized values are not user choices, so the channel
+        // Missing or unrecognized values are not user choices, so the channel
         // stamped into the installed build remains authoritative.
         update_channel: UpdateChannel::from_config(
             json.get("updateChannel").and_then(|v| v.as_str()),
@@ -811,7 +811,7 @@ pub fn backend_exit_decision(initial_action: &LaunchAction) -> BackendExitDecisi
     classify_backend_exit(initial_action, &config, journal.as_deref())
 }
 
-/// [spec:SP-3701] This device's supervisor-owned machine identity, if any — lets
+/// This device's supervisor-owned machine identity, if any — lets
 /// the web UI mark "this machine" in the
 /// machines list and skip the standalone hosting card for already-paired devices.
 pub fn read_supervisor_machine_id() -> Option<String> {
@@ -842,7 +842,7 @@ pub fn read_supervisor_machine_id() -> Option<String> {
     None
 }
 
-/// [spec:SP-3701] Flip a client-mode config to daemon mode with the given pairing code — the
+/// Flip a client-mode config to daemon mode with the given pairing code — the
 /// whole write surface of the in-app "host sessions on this device" toggle. Deliberately
 /// NARROW: the webview content that can invoke this is served by the remote hub, so the only
 /// transition allowed is client → daemon against the serverUrl the user already configured
@@ -1316,7 +1316,7 @@ pub fn resolve_launch(
 /// Every install runs the supervisor since POD-3431, so the supervisor never names the label.
 /// `LocalSupervisor` is the device that runs nothing else — its server is elsewhere and it
 /// runs no agents — which the page calls `client`: that is what continues first-run setup
-/// after connecting to a VPS and what offers hosting agents here [spec:SP-3701]. Labelling it
+/// after connecting to a VPS and what offers hosting agents here. Labelling it
 /// after the supervisor told every VPS-connected page `supervisor`, a value it never handled.
 pub fn page_launch_mode(action: &LaunchAction) -> &'static str {
     match action {

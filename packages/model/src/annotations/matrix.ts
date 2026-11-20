@@ -620,14 +620,14 @@ const SESSION_ROWS: readonly MatrixRow[] = [
     id: ROW.sessionLabels,
     section: 'sessions',
     title: 'User-authored labels (`name`/`nameSource`, user `title`, `archived`, `workState`)',
-    sites: ['packages/model/src/entities/session.ts', '[spec:SP-eb60]'],
+    sites: ['packages/model/src/entities/session.ts'],
     home: 'server',
     idMinting: 'n/a',
     writers: ['operator', 'agent-session'],
     replication: 'server-to-clients',
     conflict: 'field-LWW',
     conflictNote:
-      'AMENDED AGAIN by ADR 12 D3 (POD-6406): each label (`name`, `archived`, `workState`) is its own independent group at `field-LWW`, which is what their commands always did (they carried no revision); they are still SHARED SESSION FACTS, written once for every viewer. Clock: the Authority-assigned event time at commit. The lifecycle has its own row at exp-rev (session-desired-state), and a label edit never moves its spec revision. Before: AMENDED (Amendment 1 D10): `archived` and `workState` were `field-LWW` in the base matrix and became SHARED SESSION FACTS at `exp-rev`. `WorkState` is `planning|implementing|testing|done|icebox` — a statement about the WORK, identical for every viewer; a session that is `done` is not `done` only for me. `readAt` LEFT this group entirely and is per-user state. The `name`/`nameSource` rule survives unchanged: a human-set name is not agent-overwritable ([spec:SP-eb60]).',
+      'AMENDED AGAIN by ADR 12 D3 (POD-6406): each label (`name`, `archived`, `workState`) is its own independent group at `field-LWW`, which is what their commands always did (they carried no revision); they are still SHARED SESSION FACTS, written once for every viewer. Clock: the Authority-assigned event time at commit. The lifecycle has its own row at exp-rev (session-desired-state), and a label edit never moves its spec revision. Before: AMENDED (Amendment 1 D10): `archived` and `workState` were `field-LWW` in the base matrix and became SHARED SESSION FACTS at `exp-rev`. `WorkState` is `planning|implementing|testing|done|icebox` — a statement about the WORK, identical for every viewer; a session that is `done` is not `done` only for me. `readAt` LEFT this group entirely and is per-user state. The `name`/`nameSource` rule survives unchanged: a human-set name is not agent-overwritable.',
     tombstone: 'never-delete',
     tombstoneNote:
       'Archive is not delete — `archived` sits beside `deletedAt` on the shared row and means "retired".',
@@ -945,7 +945,6 @@ const SESSION_ROWS: readonly MatrixRow[] = [
       '`offers` — keyed `session_id`, at most one live offer per session',
       'apps/server/src/store/sessions.ts',
       'apps/server/src/relay.ts',
-      '[spec:SP-c7f1]',
     ],
     home: 'server',
     idMinting: 'Key `session_id` — the session IS the id',
@@ -993,7 +992,6 @@ const SESSION_ROWS: readonly MatrixRow[] = [
       '`session_observation_rebinds` — keyed `session_id`, cascades from the checkpoint',
       '`session_terminal_candidates` — keyed `session_id`, cascades from the checkpoint',
       'apps/server/src/store/observation-checkpoints.ts',
-      '[spec:SP-cdb2]',
     ],
     idMinting: 'Key `session_id` in all three; the generation counters are server-allocated',
     writers: ['system', 'daemon'],
@@ -1947,7 +1945,7 @@ const SETTINGS_ROWS: readonly MatrixRow[] = [
     sites: [
       'packages/model/src/settings/preferences.ts (`InstancePreferences`, POD-418)',
       'packages/runtime/src/settings.ts',
-      '[spec:SP-f4b9] `settings.experimental`',
+      '`settings.experimental`',
     ],
     home: 'server',
     idMinting: 'Settings singleton / keys',
@@ -2167,7 +2165,7 @@ const COORDINATION_ROWS: readonly MatrixRow[] = [
     id: ROW.locks,
     section: 'coordination',
     title: 'Advisory locks (`locks`, `lock_waiters`)',
-    sites: ['`locks`', '`lock_waiters`', '[spec:SP-85d1]'],
+    sites: ['`locks`', '`lock_waiters`'],
     home: 'server',
     idMinting: 'Key `(repo_id, name)`',
     writers: ['operator', 'agent-session'],
@@ -2637,7 +2635,6 @@ const COORDINATION_ROWS: readonly MatrixRow[] = [
       '`maintenance_leases`',
       'apps/server/src/store/maintenance.ts',
       'packages/janitor/src/janitor.ts',
-      '[spec:SP-c29e]',
     ],
     idMinting: 'Key `name`; the holder is `(generation_id, fencing_token)`',
     conflict: 'cmd',
@@ -2650,7 +2647,7 @@ const COORDINATION_ROWS: readonly MatrixRow[] = [
     id: ROW.maintenanceCommandReceipts,
     section: 'coordination',
     title: 'Janitor command receipts (`maintenance_commands`)',
-    sites: ['`maintenance_commands`', 'apps/server/src/store/maintenance.ts', '[spec:SP-c29e]'],
+    sites: ['`maintenance_commands`', 'apps/server/src/store/maintenance.ts'],
     idMinting: 'Key `(job_kind, run_key)`, with the fencing token of the holder that applied it',
     conflictNote:
       'Idempotency bookkeeping: the receipt IS the dedupe, so a second apply of the same run key finds the row and returns the recorded result rather than repeating the effect. The `applied-mutations` shape, one layer up.',
@@ -2671,7 +2668,6 @@ const COORDINATION_ROWS: readonly MatrixRow[] = [
       '`notification_facts`',
       'apps/server/src/store/notification-facts.ts',
       'apps/server/src/steward.ts',
-      '[spec:SP-ba61]',
     ],
     idMinting: 'Key `(fact_key, target)`; the target is a SESSION or a subscriber, not a user',
     conflictNote:
@@ -2989,7 +2985,6 @@ const SYNC_ROWS: readonly MatrixRow[] = [
     sites: [
       '`feed_identity` — packages/sync/src/adapters/sqlite/schema.ts',
       'ADR 2 D1',
-      '[spec:SP-4428]',
     ],
     idMinting:
       'One row, pinned by a constant primary key; `feedId` and `epoch` are minted with the log',

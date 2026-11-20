@@ -76,7 +76,7 @@ export interface IssuesCommands<_TApi extends PodiumClientApi = PodiumClientApi>
   /** Mark an issue UNREAD again (issue #138, email-style inverse of markIssueRead):
    *  stamp readAt = null so derived `unread` flips back to true. Optimistic + outboxed. */
   markUnread: (id: string) => Promise<void>
-  /** Decline the standing offer without answering it [spec:SP-c7f1] — the third
+  /** Decline the standing offer without answering it — the third
    *  exit, next to pressing a button and letting the next turn clear it.
    *
    *  SHARED state, not a local hide: the offer is a fact about the session, so

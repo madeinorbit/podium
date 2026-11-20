@@ -2,7 +2,7 @@ import type { ApprovalOp, ApprovalStatus, ApprovalWire } from '@podium/protocol'
 import { describeApprovalOp } from '@podium/protocol'
 
 /**
- * Approval broker, CLI half [spec:SP-edbb] (#410). Inside a Podium-managed
+ * Approval broker, CLI half (#410). Inside a Podium-managed
  * agent session (PODIUM_AGENT_RELAY set) management commands do not execute —
  * they file an approval request over the relay and BLOCK until the operator
  * decides, exactly like any permission prompt: approved → the daemon runs the

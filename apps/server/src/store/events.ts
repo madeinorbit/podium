@@ -1584,7 +1584,7 @@ export class EventsRepository {
     return (await eventIdAtOrBelow(this.db).get({ guess, missing }))?.id ?? 0
   }
 
-  /** [spec:SP-c29e] One bounded synchronous DELETE unit from a fixed plan. */
+  /** One bounded synchronous DELETE unit from a fixed plan. */
   async pruneEventBatch(plan: EventPrunePlan, batchSize = 500): Promise<number> {
     if (!Number.isInteger(batchSize) || batchSize <= 0) {
       throw new RangeError('batchSize must be a positive integer')

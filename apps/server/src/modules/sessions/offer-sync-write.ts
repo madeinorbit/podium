@@ -1,5 +1,5 @@
 /**
- * AN AGENT'S ACTION OFFER ON THE SYNC WRITE ENTRY POINT (POD-6419; [spec:SP-c7f1]).
+ * AN AGENT'S ACTION OFFER ON THE SYNC WRITE ENTRY POINT (POD-6419).
  *
  * `podium offer` sets or clears the calling session's offer: one message and up
  * to six action buttons, shown to the user with the session. The offer is a field
@@ -105,7 +105,7 @@ function validOffer(raw: z.infer<typeof OfferSetInput>): {
     if (!prompt || prompt.length > 4_000) {
       refused(`action ${i + 1}: prompt must contain 1..4000 characters`)
     }
-    // Feedback-collecting action [spec:SP-c7f1]: the UI asks for freeform text
+    // Feedback-collecting action: the UI asks for freeform text
     // before sending, appended to the prompt.
     return rec.input === true ? { label, prompt, input: true } : { label, prompt }
   })

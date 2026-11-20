@@ -480,7 +480,7 @@ export class IssueCrudModule {
   }
 
   /**
-   * artifact-add with permanent-store snapshotting ([spec:SP-0fc9] #441): pull
+   * artifact-add with permanent-store snapshotting (#441): pull
    * the bytes from the owning daemon into `<state-dir>/artifacts/<issueId>/`
    * BEFORE committing the panel entry — a pull/write failure errors the op with
    * nothing half-registered. Re-add of the same source path snapshots under a
@@ -1030,7 +1030,7 @@ export class IssueCrudModule {
     return found ? new Uint8Array(await new Response(found.body).arrayBuffer()) : undefined
   }
 
-  /** artifact-remove that also deletes the snapshot's store dir ([spec:SP-0fc9]).
+  /** artifact-remove that also deletes the snapshot's store dir.
    *  The dir delete is best-effort AFTER the committed panel update. */
   async panelArtifactRemove(
     writer: IssueWriter,
@@ -1056,7 +1056,7 @@ export class IssueCrudModule {
   }
 
   /**
-   * READ ONE ARTIFACT'S STORED BYTES BACK (POD-1999, [spec:SP-0fc9]).
+   * READ ONE ARTIFACT'S STORED BYTES BACK (POD-1999).
    *
    * `panelArtifactAdd` snapshots the bytes into the server's permanent store and
    * the panel then only carries the source path — so an agent that did not
@@ -1186,7 +1186,7 @@ export class IssueCrudModule {
   }
 
   /** Closing a parent retires its descendant progress record and stopped
-   *  sessions [spec:SP-6144]. The cascade archives ONLY children that are
+   *  sessions. The cascade archives ONLY children that are
    *  themselves closed, already read, and have no live member session — open
    *  work, unread results, and running agents are skipped (and surfaced via a
    *  single issue.cascade_skipped event on the parent) instead of vanishing
@@ -1502,7 +1502,7 @@ export class IssueCrudModule {
 
   /**
    * Whether moving an issue from harness `from` to `to` changes the harness its
-   * stored model/effort were picked for, so they must reset [spec:SP-7ff1]. An
+   * stored model/effort were picked for, so they must reset. An
    * `auto` side counts as the Settings harness it resolves to (POD-6133): naming
    * the default harness on an `auto` issue is no switch, as it was when create
    * froze that harness into the row.
@@ -1823,7 +1823,7 @@ export class IssueCrudModule {
         ...patch,
         ...(!('defaultModel' in patch) ? { defaultModel: 'auto' } : {}),
         ...(!('defaultEffort' in patch) ? { defaultEffort: 'auto' } : {}),
-      } // [spec:SP-7ff1]
+      }
     }
     // Attention-state before-values (issue #124): every defer/archive path funnels
     // through update() (dedicated methods just call it), so a single before/after diff
@@ -1913,7 +1913,7 @@ export class IssueCrudModule {
           .catch(() => {})
       }, 'issue-git-state-retarget')
     }
-    // Closed-flip anchor [spec:SP-6144]: closedAt moves ONLY on actual predicate
+    // Closed-flip anchor: closedAt moves ONLY on actual predicate
     // flips, so post-close touches (notes, deps, steward writes) never restart
     // the sidebar's completion-decay window the way updatedAt would.
     if (!wasClosed && this.store.isClosed(row)) {
@@ -2360,7 +2360,7 @@ export class IssueCrudModule {
         this.store.announceWorktreeMove(purged.id, worktreeOf(purged), null)
       },
     })
-    // Hard delete: drop any artifact snapshots too ([spec:SP-0fc9], best-effort).
+    // Hard delete: drop any artifact snapshots too (, best-effort).
     // Awaited: a retry that reuses the client-minted id must not move files
     // into a directory this is still deleting (POD-2148).
     // Kept when a chat upload could not be handed back: the dir may hold its

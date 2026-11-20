@@ -90,7 +90,7 @@ const readyLease = (
   worktreeGcAfterDays: over.worktreeGcAfterDays ?? 14,
 })
 
-describe('JanitorService [spec:SP-c29e]', () => {
+describe('JanitorService', () => {
   it('exposes progress and queue/coalescing/failure counters without mistaking a hung tick for progress', async () => {
     let finishHandshake: ((reply: MaintenanceHandshakeReply) => void) | undefined
     const handshake = vi.fn(

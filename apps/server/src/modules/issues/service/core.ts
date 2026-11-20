@@ -909,7 +909,7 @@ export class IssueStore {
 
   /** persist() plus an extra repository write (labels/comments/deps/mail) that
    *  must land inside the SAME transaction as the row upsert. The ledger's
-   *  commit ([spec:SP-3fe2] #255) binds the write and its declared change row
+   *  commit (#255) binds the write and its declared change row
    *  into one transact span — the durable change log can never say something
    *  the issue table doesn't — then the funnel fans the committed changes out. */
   async persistWith(

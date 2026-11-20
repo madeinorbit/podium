@@ -112,7 +112,7 @@ async function git(cwd: string, args: string[], env?: NodeJS.ProcessEnv): Promis
  *  not a repo). POD-657 and POD-665 each built this classification independently
  *  and hit the same trap — `git rev-parse` echoes an unknown flag and exits 0, so
  *  a shifted parse reads every main checkout as a worktree, failing OPEN on the
- *  one rule [spec:SP-3f7a] forbids. Collapsed here onto `gitWorktree`, the single
+ *  one rule forbids. Collapsed here onto `gitWorktree`, the single
  *  hardened primitive, as both branches' commit bodies agreed. */
 async function linkedWorktreeRoot(cwd: string): Promise<string | null> {
   const info = await gitWorktree(cwd)
@@ -122,7 +122,7 @@ async function linkedWorktreeRoot(cwd: string): Promise<string | null> {
 /**
  * The worktree this export moves, and where the agent sits inside it.
  *
- * Two layers ([spec:SP-3f7a]), mirroring the client's `handoffSource` gate but
+ * Two layers, mirroring the client's `handoffSource` gate but
  * decided here against git truth: the worktree CONTAINING the session's cwd, or
  * — when that cwd has drifted off any worktree — the attached issue's worktree,
  * which is still the session's home. Neither may be a main checkout.
@@ -200,7 +200,7 @@ export async function buildSnapshotCommit(
 
 /** Preserve an in-repository worktree's location across machines. Worktrees
  * outside the primary checkout cannot be mapped safely, so old-package placement
- * under `.worktrees/` remains their fallback [spec:SP-3f7a]. */
+ * under `.worktrees/` remains their fallback. */
 function repositoryRelativeWorktreePath(
   repoRoot: string,
   worktreeRoot: string,

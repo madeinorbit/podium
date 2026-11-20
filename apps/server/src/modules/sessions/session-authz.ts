@@ -267,7 +267,7 @@ export class SessionAuthz {
     return this.ports.clientControl.authorizeDrive(principal, sessionId)
   }
 
-  /** Set (replace) a session's agent action offer [spec:SP-c7f1]. A subsequent
+  /** Set (replace) a session's agent action offer. A subsequent
    *  offer replaces the previous one. Persisted in the `offers` table (off-row,
    *  like snooze) and broadcast so every client's chat bar updates. */
 
@@ -426,7 +426,6 @@ export class SessionAuthz {
    * settings defaults — 'auto' inherits them for the configured coding harness
    * and means "no flag" for any other harness. Missing values follow the same
    * rule; selecting a different harness must not inherit that harness's model or effort
-   * [spec:SP-7ff1].
    */
   // ---- the sessions FEATURE PORT for client frames (gateway/client-mux.ts) ----
   /**

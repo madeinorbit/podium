@@ -687,7 +687,7 @@ describe('AC5 · attribution is a pair and comes from the transport', () => {
     expect((await o.meta(sessionId)).name).toBe('human choice')
 
     // …and an AGENT acting for that human does NOT overwrite it, because the
-    // agent-naming path enforces [spec:SP-eb60]'s precedence. The distinction is
+    // agent-naming path enforces precedence. The distinction is
     // read off the principal's pair, not off which transport was used — and the
     // payload's own `humanDirect` / `actor` claims are not even representable.
     const result = await renameOnTargetPath(

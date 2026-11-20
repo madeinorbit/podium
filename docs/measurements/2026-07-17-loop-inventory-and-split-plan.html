@@ -146,7 +146,7 @@ Move there: messages sweep + expiry, steward polling, automations cron, event-lo
 <li>Replace the 65 × 700ms stat-pollers with one shared stat batch per tick (one timer, one pass) — cosmetic now, but removes 65 timers' scheduling jitter.</li>
 </ul>
 
-<h3>Step 4 — idle-session cap <span class="small">(human decision 2026-07-17 [spec:SP-c29e]: replaces broader host tuning)</span></h3>
+<h3>Step 4 — idle-session cap <span class="small">(human decision 2026-07-17: replaces broader host tuning)</span></h3>
 <ul>
 <li>Auto-hibernation gains a tunable <b>max-idle-sessions cap</b> per machine: beyond the cap, oldest-idle sessions hibernate <b>even without memory pressure</b> — motivation is the idle fleet's standing CPU (~1.6%/proc ⇒ ~80% of a core at 49 idle) and RSS (15–19GB). The memory-pressure trigger stays as-is. Candidate filter reuses <code>maybeAutoHibernate</code>'s safety gates (idle window, PTY-quiet, never <code>needs_user</code>/working, resume ref).</li>
 </ul>

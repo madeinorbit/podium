@@ -1,5 +1,5 @@
 /**
- * THE UNIX SOCKET PATH BUDGET [spec:SP-0be7].
+ * THE UNIX SOCKET PATH BUDGET.
  *
  * A durable session IS a unix socket, and a unix socket path has a hard kernel
  * ceiling: `sizeof(struct sockaddr_un.sun_path)` is 108 bytes on Linux, and a

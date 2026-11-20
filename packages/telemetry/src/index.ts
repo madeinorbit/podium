@@ -1,5 +1,5 @@
 /**
- * @podium/telemetry — two-tier anonymous telemetry [spec:SP-f933]: usage is
+ * @podium/telemetry — two-tier anonymous telemetry: usage is
  * opt-out, crash is opt-in (POD-5922).
  *
  * Design: docs/internal/superpowers/specs/2026-07-16-telemetry-design.md

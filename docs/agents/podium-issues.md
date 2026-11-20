@@ -139,7 +139,7 @@ refused with the `/files/artifact/…` URL that streams them instead.
 
 ## Offering next actions
 
-`podium offer` posts your suggested next steps as clickable buttons [spec:SP-c7f1]:
+`podium offer` posts your suggested next steps as clickable buttons:
 
 ```
 podium issue artifact 12 --add e2e/login-final.png --title "Login · final"
@@ -197,7 +197,7 @@ post an offer naming the decision you need (merge, send back, discuss).
 
 ## Landing on the parent branch
 
-This is the Podium repository's landing policy [spec:SP-a69c]. Landing integrates an issue into
+This is the Podium repository's landing policy. Landing integrates an issue into
 its stored local `parentBranch`. Publishing to a remote is a separate operator decision.
 
 Read `podium issue show <id> --json` for `parentBranch`, `branch`, `worktreePath` and `repoPath`.

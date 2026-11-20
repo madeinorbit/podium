@@ -1,5 +1,5 @@
 /**
- * The emitter [spec:SP-f933]: counters, the daily jittered flush, and the POST.
+ * The emitter: counters, the daily jittered flush, and the POST.
  *
  * Only the SERVER constructs one (D10) — joined daemons and clients are covered
  * by the hub's decision and never emit. Everything ambient (clock, fetch,

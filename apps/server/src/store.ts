@@ -845,7 +845,7 @@ export class SessionStore {
   /** Each machine's checkouts, as its scans reported them (POD-6644). */
   readonly checkouts: CheckoutsRepository
   readonly sessions: SessionsRepository
-  /** Durable causal observer generations and accepted checkpoints [spec:SP-cdb2]. */
+  /** Durable causal observer generations and accepted checkpoints. */
   readonly observationCheckpoints: ObservationCheckpointsRepository
   readonly issues: IssuesRepository
   readonly conversations: ConversationsRepository
@@ -903,7 +903,7 @@ export class SessionStore {
    *  gets no principal and is refused; it never falls back to an operator. */
   readonly telegramBindings: TelegramBindingsRepository
   readonly events: EventsRepository
-  /** Cross-producer notification deduplication [spec:SP-ba61]. */
+  /** Cross-producer notification deduplication. */
   readonly notificationFacts: NotificationFactsRepository
   /** Each person's notice inbox (POD-6881, credential management spec §13). */
   readonly notices: NoticesRepository
@@ -913,22 +913,22 @@ export class SessionStore {
   /** One row per transcript the usage harvest has read (POD-1858) — what a task
    *  cost, after the harvest's 7-day window has rolled past the work. */
   readonly transcriptCosts: TranscriptCostsRepository
-  /** Unified agent messaging (#237) [spec:SP-34d7]. */
+  /** Unified agent messaging (#237). */
   readonly messages: MessagesRepository
-  /** Recap watermarks (#237) [spec:SP-34d7 read-toolkit tier 3]. */
+  /** Recap watermarks (#237). */
   readonly readWatermarks: ReadWatermarksRepository
   /** Blocking asks (POD-2020, spec §4) — durable so a stuck session is enumerable. */
   readonly interactions: InteractionsRepository
   readonly workflows: WorkflowsRepository
   readonly agentProfiles: AgentProfilesRepository
-  /** Advisory named lease locks [spec:SP-85d1] — podium lock / merge-lock. */
+  /** Advisory named lease locks — podium lock / merge-lock. */
   readonly locks: LocksRepository
   /** CLI bundle uploads in progress (POD-6963 design 2.4): their state; the bytes are blobs. */
   readonly artifactUploads: ArtifactUploadsRepository
   /** Files picked in a composer (POD-6963 design 2.5): their records; the bytes are blobs. */
   readonly pendingUploads: PendingUploadsRepository
   /**
-   * Janitor generation fencing + deterministic command outcomes [spec:SP-c29e].
+   * Janitor generation fencing + deterministic command outcomes.
    * A workspace repository: its command ledger (`maintenance_commands`) is
    * workspace data, and the install-wide lease (`maintenance_leases`) is an
    * install table a workspace transaction may write.
@@ -941,7 +941,7 @@ export class SessionStore {
    * query audits plan its definitions with every other repository's.
    */
   readonly janitorReads: JanitorReadsRepository
-  /** Scheduled automations + their run history (#470) [spec:SP-17db]. */
+  /** Scheduled automations + their run history (#470). */
   readonly automations: AutomationsRepository
   /** One-shot effects as data (ADR 12 D5 E2, POD-6357). */
   readonly effects: EffectsRepository
@@ -950,7 +950,7 @@ export class SessionStore {
   /** Durable long-running operations (POD-2097) — updates now, server moves later. */
   readonly updateRecovery: UpdateRecoveryStore
   readonly operations: OperationStore
-  /** Telegram forum-topic ↔ issue thread bindings [spec:SP-5d81]. */
+  /** Telegram forum-topic ↔ issue thread bindings. */
   readonly messagingTopics: MessagingTopicsRepository
   /** Telegram conversation ↔ directly attached session (POD-6212). */
   readonly messagingSessionAttachments: MessagingSessionAttachmentsRepository
@@ -1244,7 +1244,7 @@ export class SessionStore {
   /** Run `fn` atomically on the shared connection (nesting-safe: BEGIN at depth
    *  0, SAVEPOINT inside an open transaction), as THIS WORKSPACE's transaction.
    *  Narrow seam for cross-aggregate atomic writes — the write-seam Ledger binds
-   *  an entity write and its change append into one span ([spec:SP-3fe2] #255) —
+   *  an entity write and its change append into one span (#255) —
    *  without exposing the db handle.
    *
    *  The executor owns the transaction scope and drains registered post-commit

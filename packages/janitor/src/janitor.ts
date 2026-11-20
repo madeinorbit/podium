@@ -1220,7 +1220,7 @@ export class QueuedMessagesExpiryReader {
  * Durable auto-archive candidates only — closed + read past cutoff + not archived.
  * Live unread revalidation happens on the server at apply time.
  */
-/** Durable read + stopped session candidates [spec:SP-6144]. */
+/** Durable read + stopped session candidates. */
 export class SessionAutoArchiveReader {
   constructor(private readonly source: JanitorReadSource) {}
 

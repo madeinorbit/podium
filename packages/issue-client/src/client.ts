@@ -27,7 +27,7 @@ export interface IssueProc {
  * (the typed tRPC client, IssueCommandDispatcher.asIssueTrpc) cast themselves
  * to this seam.
  *
- * The proc-name union is NOT hand-maintained any more (#248 [spec:SP-3fe2]): it
+ * The proc-name union is NOT hand-maintained any more (#248): it
  * derives from @podium/commands' ISSUE_COMMAND_NAMES, which POD-311 made a DERIVATION
  * over the contract table (`Object.keys(ISSUE_CONTRACTS)`) rather than a hand-typed
  * array — so the client shape, the server registry and the contracts cannot drift
@@ -37,7 +37,7 @@ export interface IssueProc {
  */
 type IssueProcName = IssueContractName
 
-/** The lock router (advisory named lease locks [spec:SP-85d1]) — `podium lock`
+/** The lock router (advisory named lease locks) — `podium lock`
  *  / `podium merge-lock` drive these; the union derives from the same protocol
  *  list the server registry is satisfies-checked against. */
 type LockProcName = LockCommandName

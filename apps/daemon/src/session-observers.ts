@@ -200,7 +200,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
   const adapterForKind = deps.harnessAdapterFor ?? harnessAdapterFor
   // One timer fans out every transcript/native-state stat poll in this daemon;
   const captureTranscript = deps.captureClaudeTranscript ?? captureClaudeTranscript
-  // observer lifecycle only adds/removes callbacks. [spec:SP-c29e]
+  // observer lifecycle only adds/removes callbacks.
   const statTick = deps.statTick ?? createSharedStatTick()
   // TEST SEAM DEFAULT: production always passes `accountFor`. A test that names
   // no home reads the folders under the process's own HOME, as it always has.
@@ -2001,7 +2001,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
           )
         // Reattach can enqueue 100+ full-rollout reads/classifications at once.
         // Pace those boot-state seeds with transcript backfills so their synchronous
-        // parse completions cannot starve watchdog/interaction timers. [spec:SP-c29e]
+        // parse completions cannot starve watchdog/interaction timers.
         if (!init.seedOnFrame && deps.tailSeedGate) void deps.tailSeedGate(run)
         else void run()
       }

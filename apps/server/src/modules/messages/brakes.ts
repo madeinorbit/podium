@@ -1,5 +1,5 @@
 /**
- * Containment brakes 1 and 2 [spec:SP-34d7 containment] — extracted from
+ * Containment brakes 1 and 2 — extracted from
  * `MessageDeliveryService` (POD-1397).
  *
  * Two brakes, one owner, because they answer the same question with different
@@ -171,7 +171,7 @@ export class DeliveryBrakes {
   /** Brake 2 for DIRECT agent spawns (`podium agent spawn`) — the gate shares
    *  the same per-issue daily budget as the spawn-on-wake seam, or a looping
    *  agent could fork-bomb the host with full PTY sessions the wake budget
-   *  never sees [spec:SP-34d7 containment]. Consumes one unit when available. */
+   *  never sees. Consumes one unit when available. */
   async takeSpawnBudget(issueId: IssueId | null): Promise<{ ok: boolean; count: number }> {
     const key = issueId ?? 'no-issue'
     const day = this.deps.now().slice(0, 10)

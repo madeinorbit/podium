@@ -166,7 +166,7 @@ export function groupQuotaByAccount(machines: readonly MachineQuotaWire[]): Acco
  * Daemons that predate `scopeModel` still encode the scope in the window key
  * (`weekly-scoped:model:fable`) and put the model's display name in the label,
  * so a mixed-version fleet gets the same partition rather than the old
- * worst-case collapse. [spec:SP-0610]
+ * worst-case collapse.
  */
 const KEY_MODEL_SCOPE = /(?:^|:)model:[^:]+/
 export function windowScopeModel(w: QuotaWindowWire): string | undefined {

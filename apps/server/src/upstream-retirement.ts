@@ -3,7 +3,7 @@
  *
  * `UpstreamForwarder` durably queued issue mutations into `upstream_outbox` whenever a
  * NODE could not reach its hub, and drained them on reconnect. POD-309 deletes the
- * forwarder because federation is deferred ([spec:SP-0371]). Anything still queued when
+ * forwarder because federation is deferred. Anything still queued when
  * this build lands therefore has no drainer, ever — which is exactly the case ADR 5 D8
  * legislates: *"Schema may be archived with operator-visible reporting of pending rows;
  * silent discard of poison/pending work is forbidden."*
@@ -15,7 +15,7 @@
  * The obvious reading of "one-shot migration parks the pending rows" is a drizzle
  * migration renaming `upstream_outbox` to an `_archived` name. It was rejected on a
  * mechanical fact rather than a preference: `drizzle-kit generate` resolves a rename
- * INTERACTIVELY, and this repo generates non-interactively ([spec:SP-4428],
+ * INTERACTIVELY, and this repo generates non-interactively (,
  * `migrations/index.ts`), where the same schema edit emits DROP + CREATE. That
  * migration would destroy the precise rows this function exists to protect, and it
  * would do it silently, in one transaction, at boot.

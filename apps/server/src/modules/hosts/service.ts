@@ -379,7 +379,7 @@ export class HostsService {
     }
   }
 
-  /** Apply memory, load, and idle-count pressure independently [spec:SP-c29e].
+  /** Apply memory, load, and idle-count pressure independently.
    *
    *  Memory and load share one per-machine cooldown map (one resource park per
    *  cooldown window); count pressure keeps its own token bucket. Each branch

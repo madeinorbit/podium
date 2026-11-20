@@ -26,10 +26,10 @@ export function deepestOwner(rows: readonly WorktreeOwnerRow[], cwd: string): Is
 }
 
 /**
- * Spawn-time attachment [spec:SP-ccb2]: the deepest containing worktree of a
+ * Spawn-time attachment: the deepest containing worktree of a
  * non-archived issue. Several issues at that same deepest root are ambiguous
  * and attach nothing. A registered repo MAIN checkout is shared workspace,
- * never an issue's own worktree ([spec:SP-595b] #582).
+ * never an issue's own worktree (#582).
  *
  * With `machineId`, only an issue homed on that machine (or on none) counts,
  * so a path on one machine never joins another machine's task. Main checkouts

@@ -612,7 +612,7 @@ describe('concierge threads (issue #64)', () => {
 })
 
 // The prior-art intake test (grepping conciergeSystemPrompt for instructional
-// copy-strings) was dropped as brittle bitrot, POD-619 [spec:SP-0be7]. Its real
+// copy-strings) was dropped as brittle bitrot, POD-619. Its real
 // behavioral surface is covered elsewhere: the confirmed-gate on start-capable
 // tools (concierge threads describe) and the search_all/issue_find_duplicates
 // tools actually running (search_all tool describe below).

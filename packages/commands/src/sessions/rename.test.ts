@@ -239,7 +239,7 @@ describe('the reducer models the WRITER-AUTHORIZATION OUTCOME, not just the effe
   it('does NOT refuse an agent renaming over its OWN earlier agent-set name', () => {
     // Second counterfactual: the refusal turns on nameSource === 'user', not on
     // "the row already has a name". An agent retitling as the work becomes clear
-    // is explicitly allowed by [spec:SP-eb60].
+    // is explicitly allowed by.
     expect(reduce({ name: 'first guess', nameSource: 'agent' }, 'better name', agent)).toEqual({
       kind: 'value',
       value: { name: 'better name', nameSource: 'agent' },
@@ -274,7 +274,7 @@ describe('the reducer models the WRITER-AUTHORIZATION OUTCOME, not just the effe
     // The default matters and is not arbitrary: an unattributed write on this path
     // is the operator cookie (§3.2's sole human today), and treating it as an agent
     // would let a missing pair SILENTLY strip a human's sovereign nameSource. It
-    // fails toward the human, which is the direction [spec:SP-eb60] protects.
+    // fails toward the human, which is the direction protects.
     expect(reduce({ name: 'chosen', nameSource: 'user' }, 'still mine', undefined)).toEqual({
       kind: 'value',
       value: { name: 'still mine', nameSource: 'user' },

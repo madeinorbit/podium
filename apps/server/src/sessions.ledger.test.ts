@@ -33,13 +33,13 @@ type ProjectionEvent = {
 }
 
 /**
- * Session writes on the write-seam Ledger ([spec:SP-3fe2] #256): persist()
+ * Session writes on the write-seam Ledger (#256): persist()
  * commits the row write and the declared SessionMeta change atomically;
  * kill commits the remove with the row tombstone; boot reconciles; and every
  * appended batch reaches delta clients through the funnel's ONE ordered
  * metadataDelta pipe. Registry-level tests pin the production wiring.
  */
-describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => {
+describe('session writes on the write-seam Ledger (#256)', () => {
   const registries: SessionRegistry[] = []
   afterEach(async () => {
     for (const r of registries.splice(0)) await r.dispose()

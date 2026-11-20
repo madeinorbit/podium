@@ -551,7 +551,7 @@ describe('issues.mail* (agent mail #103)', () => {
 })
 
 // Basic create/list and the local (non-forwarded) update path (P7b). Folded from
-// the former router-issues.test.ts (POD-619 [spec:SP-0be7]) — now with registry disposal.
+// the former router-issues.test.ts (POD-619) — now with registry disposal.
 describe('issues router create/list/update', () => {
   const registries: SessionRegistry[] = []
   afterEach(async () => {

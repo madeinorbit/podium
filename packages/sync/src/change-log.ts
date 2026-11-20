@@ -7,7 +7,7 @@ import type {
 } from './authority/change-lifecycle'
 
 /**
- * Internals of the durable metadata change log [spec:SP-3fe2] (#253): change
+ * Internals of the durable metadata change log (#253): change
  * detection against the stored rows, the conversation significance projection, the retention
  * policy, and the cursor read path. Consumed by the write-seam {@link Ledger}
  * — the log's single writer since P2f deleted the legacy broadcast-seam
@@ -61,7 +61,7 @@ export interface ChangeLogPruneResult {
 
 /**
  * Drain eligible change-log rows in bounded delete units under the shared
- * monotonic/macrotask budget [spec:SP-c29e]. This function deliberately does
+ * monotonic/macrotask budget. This function deliberately does
  * not serialize concurrent jobs; the owner decides whether that is needed.
  */
 export async function pruneChangeLog(

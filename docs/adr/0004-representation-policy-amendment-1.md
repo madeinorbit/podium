@@ -8,7 +8,7 @@
 | **Issue** | none — **integrator-authored under POD-359**. Closes a gap the pack review found un-owned: ADR 4 D7.3's rationale, and the representation shapes the multi-user decision implies, had no leaf issue assigned to them. |
 | **Consumers** | POD-364 (inventory + composition plan), POD-365 (field schemas in `packages/model`), POD-366 / POD-367 (session / issue re-derivation), POD-368 (audit to zero), POD-304 (matrix annotations), POD-293 (replica-side views) |
 | **Related ADRs** | ADR 1 (ownership matrix, conflict rule, instance identity), ADR 2 (feed identity, revision, scoping), ADR 3 (principal from transport, apply-time re-authorization, redaction), ADR 6 (replica storage), ADR 8 (package topology), ADR 9 (identity, ownership, sharing — landed under the same POD-359 gate; owns the taxonomy, the visibility classes and the canonical open list this amendment consumes) |
-| **Specs** | [spec:SP-3fe2] branded ids; [spec:SP-15aa] multi-instance isolation; [spec:SP-eb60] curated name vs live title |
+| **Specs** | branded ids; multi-instance isolation; curated name vs live title |
 | **Base tip verified** | `2ddfec21` (issue/279-integration), 2026-07-29 |
 | **File discipline** | This amendment owns **only** this file plus a single "Amended by" line in `docs/adr/0004-representation-policy.md`. No index edits, no ledger edits. |
 
@@ -112,7 +112,7 @@ composed by representations under D3, never as per-entity re-declarations:
    branded** — the actor may be an agent-session identity, the on-behalf-of is always a
    `UserId` — so the pair cannot collapse into one nullable id field without losing the
    distinction the product already depends on (`nameSource`'s human-outranks-agent rule,
-   [spec:SP-eb60]; server-authoritative `humanQuestionAskedBy`). Both values are stamped from
+  ; server-authoritative `humanQuestionAskedBy`). Both values are stamped from
    the transport principal (ADR 3 D7); neither is ever taken from payload.
 4. **Attribution is not provenance.** D3.8 moves `viaHub` / `upstreamStale` / `pendingSync`
    to the replicated envelope because they describe *how a value arrived*. Actor and

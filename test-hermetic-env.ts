@@ -1,5 +1,5 @@
 /**
- * Hermetic test environment [spec:SP-b85a].
+ * Hermetic test environment.
  *
  * Runs before every test file — wired as vitest `setupFiles` (vitest.config.ts) and as a
  * `bun test` preload (bunfig.toml `[test].preload`), so BOTH runners get it. Its job: strip
@@ -115,7 +115,7 @@ if (process.env.PATH) {
     .join(delimiter)
 }
 
-// ---- tmp-dir containment [spec:SP-0be7] (POD-518) -------------------------------------------
+// ---- tmp-dir containment (POD-518) -------------------------------------------
 // INVARIANT: everything a test file (and any child it spawns) writes to "tmp" lands inside ONE
 // container dir that is removed once that file is done. A full-suite run used to leak
 // ~660 dirs / 84MB into /tmp per run (POD-518; /tmp hit 143k entries) because 181 mkdtemp
@@ -283,7 +283,7 @@ export function mintHermeticFileScope(): void {
   // Publish the pre-containment tmpdir BEFORE overriding TMPDIR. The e2e harness
   // (tests/e2e/harness-env.ts) must anchor its per-port dirs to the HOST tmp root
   // rather than this per-file container — see harnessTmpRoot() for why (path
-  // determinism across processes + abduco's sun_path budget). [spec:SP-0be7]
+  // determinism across processes + abduco's sun_path budget).
   process.env.PODIUM_TEST_HOST_TMPDIR = tmpState.hostTmpdir
   process.env.TMPDIR = containerDir
   guardRun(containerDir)

@@ -53,7 +53,7 @@ describe('panelSurface', () => {
   it('lets the move win over the read-only state it passes through', () => {
     // A move STOPS the process, so a moving session is briefly a parked one too.
     // The veil must win or the operator watches the pane fall through every
-    // read-only state on the way ([spec:SP-3f7a]).
+    // read-only state on the way.
     expect(surfaceOf({ status: 'hibernated', inTransit: true })).toEqual({ kind: 'transit' })
     expect(surfaceOf({ status: 'exited', inTransit: true })).toEqual({ kind: 'transit' })
     expect(surfaceOf({ status: 'live', inTransit: true })).toEqual({ kind: 'transit' })

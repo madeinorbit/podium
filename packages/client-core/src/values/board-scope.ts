@@ -16,7 +16,7 @@ import { isSystemOwnedIssueStage } from '@podium/model'
  * and a row reading `Draft` with no description was the one place in the
  * product where a bare agent posed as a task.
  *
- * Keys on `audience` (who the issue is FOR, #198 [spec:SP-a859]), NOT `origin`:
+ * Keys on `audience` (who the issue is FOR, #198), NOT `origin`:
  * an agent acting for the human can cut a human-audience issue that belongs on the
  * board, and the human's own quick note to an agent can be internal.
  */

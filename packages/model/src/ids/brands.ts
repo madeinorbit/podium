@@ -266,7 +266,7 @@ export const asWorkspaceId = (s: string): WorkspaceId => s as WorkspaceId
 // Tier 2 — added by POD-361, recorded for ratification (see the header)
 // ---------------------------------------------------------------------------
 
-/** A scheduled automation [spec:SP-17db] — a `MetadataEntityKind` member. */
+/** A scheduled automation — a `MetadataEntityKind` member. */
 export const AutomationId = z.string().min(1).brand<'AutomationId'>()
 export type AutomationId = z.infer<typeof AutomationId>
 export const AutomationIdField = idField<'AutomationId'>()
@@ -281,7 +281,7 @@ export type AutomationRunId = z.infer<typeof AutomationRunId>
 export const AutomationRunIdField = idField<'AutomationRunId'>()
 export const asAutomationRunId = (s: string): AutomationRunId => s as AutomationRunId
 
-/** A permanent-store artifact snapshot ([spec:SP-0fc9], POD-441): the bytes live
+/** A permanent-store artifact snapshot (, POD-441): the bytes live
  *  at `<state-dir>/artifacts/<issueId>/<artifactId>/`, so this id and an
  *  {@link IssueId} appear side by side in one path and must not be swappable. */
 export const ArtifactId = z.string().min(1).brand<'ArtifactId'>()

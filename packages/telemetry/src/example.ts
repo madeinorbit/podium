@@ -1,5 +1,5 @@
 /**
- * The example usage report [spec:SP-f933] — the most-read artifact in this
+ * The example usage report — the most-read artifact in this
  * package.
  *
  * Every new user sees it (the setup prompt shows it BY DEFAULT rather than

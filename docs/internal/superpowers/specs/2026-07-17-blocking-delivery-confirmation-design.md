@@ -2,7 +2,7 @@
 
 Issue: POD-853 (Mid-turn delivery misses transcript echo). Parent epic POD-833
 (Cross-agent communication rebuild). Builds on POD-834 (sync send + honest
-delivery lifecycle, `[spec:SP-34d7]`).
+delivery lifecycle,).
 
 > **Scope correction (coordinator, 2026-07-17):** the urgency-gated *blocking*
 > sync-send semantics moved to a sibling issue, **POD-854 (Urgency-gated blocking

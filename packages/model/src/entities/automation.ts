@@ -38,18 +38,18 @@
 import { z } from 'zod'
 import { AutomationIdField, AutomationRunIdField, SessionIdField } from '../ids'
 
-/** How a scheduled fire chooses the agent conversation [spec:SP-17db]. */
+/** How a scheduled fire chooses the agent conversation. */
 export const AutomationSessionMode = z.enum(['fresh', 'resume'])
 export type AutomationSessionMode = z.infer<typeof AutomationSessionMode>
 
-/** Recurring cron or a single timestamped fire [spec:SP-17db]. */
+/** Recurring cron or a single timestamped fire. */
 export const AutomationScheduleKind = z.enum(['cron', 'once'])
 export type AutomationScheduleKind = z.infer<typeof AutomationScheduleKind>
 
 export const AutomationRunOutcome = z.enum(['spawned', 'missed', 'skipped_overlap', 'error'])
 export type AutomationRunOutcome = z.infer<typeof AutomationRunOutcome>
 
-/** Durable scheduled-automation definition [spec:SP-17db]. */
+/** Durable scheduled-automation definition. */
 export const AutomationWire = z.object({
   id: AutomationIdField,
   name: z.string(),

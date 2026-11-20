@@ -193,7 +193,7 @@ describe('attachSession', () => {
     expect(await svc.reports.get(draft.id)).not.toBeNull()
   })
 
-  // Cross-issue reattach is blocked [spec:SP-8744]: moving off a real issue
+  // Cross-issue reattach is blocked: moving off a real issue
   // strands it session-less and it falls out of the sidebar.
   it('blocks unconfirmed re-home off a real issue; confirmed --subissue works', async () => {
     const { svc, issueBySession } = await harness([
@@ -705,7 +705,7 @@ describe('soleOwnerForCwd', () => {
     expect(await svc.reports.soleOwnerForCwd('/r/.worktrees/a')).toBeNull()
   })
 
-  it('a registered repo main checkout never owns spawns ([spec:SP-595b] #582)', async () => {
+  it('a registered repo main checkout never owns spawns (#582)', async () => {
     // `/r` is registered only AFTER the pre-existing claim below is modelled.
     const { svc, store } = await harness([], { repos: ['/other'] })
     const squatter = await svc.crud.create(svc.reports.store.serverWriter, {

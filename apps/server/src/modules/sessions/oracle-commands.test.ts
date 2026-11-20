@@ -1415,7 +1415,7 @@ describe('oracle: stop (clean end, keep the branch)', () => {
 
     const row = (await o.store.sessions.loadSessions()).find((r) => r.id === sessionId)
     expect(row).toMatchObject({ status: 'hibernated', stopReason: 'parent' })
-    // A terminal transition is new unread information [spec:SP-6144]: stop
+    // A terminal transition is new unread information: stop
     // resurfaces the session, where archive deliberately does not.
     // Per-user (POD-1076): the terminal transition clears EVERY reader's marker,
     // which is what nulling the one column used to mean.

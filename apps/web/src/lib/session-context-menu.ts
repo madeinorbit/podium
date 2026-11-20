@@ -30,7 +30,7 @@ export interface ContextMenuAnchor {
  *  - hibernate: only a live, recoverable agent that isn't mid-turn (parking a
  *    working agent would lose its in-flight turn — the server enforces this too).
  *    Keeps the worktree.
- *  - end: a running session, cleanly stopped [spec:SP-9904] — frees the worktree,
+ *  - end: a running session, cleanly stopped — frees the worktree,
  *    keeps branch + transcript + row. Deliberately NOT gated on `resumable`: the
  *    row survives either way, and the server refuses what it cannot do.
  *  - resume: a parked session (hibernated, or exited-but-recoverable).

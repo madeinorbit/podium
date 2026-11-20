@@ -1,5 +1,5 @@
 /**
- * `podium mail` — the unified messaging CLI (#237) [spec:SP-34d7]:
+ * `podium mail` — the unified messaging CLI (#237):
  *   send --to <#issue|session-id> --body "…" [--urgency fyi|next-turn|interrupt]
  *        [--lifecycle wait|wake]
  *   inbox [--issue <ref>]

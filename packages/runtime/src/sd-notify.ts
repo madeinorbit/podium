@@ -47,7 +47,7 @@ export interface WatchdogOptions {
  * returns undefined when there's no watchdog to pet, so callers can `?.()` on cleanup.
  *
  * A progress reader changes the contract from event-loop liveness to state-machine
- * progress [spec:SP-c29e]. The first scheduled pet consumes progress completed
+ * progress. The first scheduled pet consumes progress completed
  * before startup; later pets require the token to advance.
  */
 export function startWatchdog(options: WatchdogOptions = {}): (() => void) | undefined {

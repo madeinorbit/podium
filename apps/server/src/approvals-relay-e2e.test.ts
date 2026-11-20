@@ -9,7 +9,7 @@ import { fixtureInventory } from './test-support/daemon-inventory'
 import { attachHostDaemon } from './test-support/host-daemon'
 
 /**
- * Approval broker end-to-end through the real registry [spec:SP-edbb] (#410):
+ * Approval broker end-to-end through the real registry (#410):
  * agent relay request → gate → an `approval` effect record → the person's
  * decision (`records.effect.edit`, POD-6674) → exec frame to the owning daemon →
  * result lands. Mirrors relay-agent-relay.test.ts's harness.

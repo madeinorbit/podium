@@ -89,7 +89,7 @@ export interface NativeDesktopBridge {
    */
   setTheme?: (theme: 'light' | 'dark' | null) => Promise<void>
   /**
-   * [spec:SP-3701] Present only in client mode: rewrite the local config to daemon mode with a
+   * Present only in client mode: rewrite the local config to daemon mode with a
    * hub-minted pairing code. Caller restarts the shell afterwards (window.__PODIUM_RESTART__).
    */
   enableHosting?: (pairCode: string) => Promise<void>

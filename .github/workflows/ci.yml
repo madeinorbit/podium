@@ -27,7 +27,7 @@ jobs:
       # separately (podium #30). Flip this to blocking once the count reaches zero.
       # The count grew from 249 because nothing here blocks regression; ~1141 of it
       # is `biome check --write` territory (format + organizeImports). Design
-      # prototypes under docs/design and pspec are excluded in biome.json — they
+      # prototypes under docs/design are excluded in biome.json — they
       # are throwaway mockups and contributed 180 errors nobody would ever fix.
       - name: biome + boundaries (non-blocking)
         continue-on-error: true
@@ -292,7 +292,7 @@ jobs:
       - name: two fresh worktrees build byte-identical clients
         run: bash scripts/prove-client-build-deterministic.sh
 
-  # Schema migrations [spec:SP-4428]: drizzle-kit check fails when two branches
+  # Schema migrations: drizzle-kit check fails when two branches
   # authored non-commutative migrations (touching the same table) — the merge
   # conflict our hand-rolled runner could never see. Also guards the bundled
   # manifest against drift (a migration added without regenerating it).
@@ -470,7 +470,7 @@ jobs:
   # Migration oracle [POD-295]: the process-spawning lanes (integration, e2e,
   # multi-instance). Together with unit-tests + typecheck above they are the
   # behavioral contract every rewrite phase must preserve — lane definitions live
-  # in docs/agents/testing.md [spec:SP-0be7] and the lane set in scripts/oracle.ts
+  # in docs/agents/testing.md and the lane set in scripts/oracle.ts
   # (`bun run oracle` runs all five locally; a drift guard keeps the two in sync).
   #
   # This job is the BACKSTOP, not the gate: work lands here by local ff-merge under

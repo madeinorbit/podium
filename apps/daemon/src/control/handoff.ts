@@ -43,13 +43,13 @@ function bindingRefusal(
  * root — so by the time a handoff runs, the subdirectory the agent was actually
  * working in survives only here, in the daemon's own hook tracking (POD-741).
  * Recovering it is what lets the agent resume where it left off rather than at the
- * root [spec:SP-3f7a], and it is what points the Claude transcript lookup at the
+ * root, and it is what points the Claude transcript lookup at the
  * bucket the agent actually ran in — Claude buckets by launch cwd.
  *
  * CONTAINMENT IS THE GUARD, and it is load-bearing: a raw cwd is trusted only INSIDE
  * the root the server named. An agent that wandered into another checkout must never
  * drag the export there — that is exactly what the pin exists to prevent, and honouring
- * it here keeps "never hand off a main checkout" airtight [spec:SP-3f7a].
+ * it here keeps "never hand off a main checkout" airtight.
  */
 export function exportCwd(ctx: DaemonContext, sessionId: SessionId, root: string): string {
   const raw = ctx.sessionCwdTracker.rawCwd(sessionId)

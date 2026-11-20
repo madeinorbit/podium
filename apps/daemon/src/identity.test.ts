@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
 import { loadIdentity, savePairingToken, savePinnedUpdatePubkey, saveToken } from './identity'
 
-// POD-518 [spec:SP-0be7]: every mkdtemp in this file is tracked and removed when the file's
+// POD-518: every mkdtemp in this file is tracked and removed when the file's
 // tests finish, so a suite run leaves nothing behind in tmp.
 const tmpDirs: string[] = []
 function trackTmp(prefix: string): string {

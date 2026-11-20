@@ -1,5 +1,5 @@
 /**
- * Message ledger dock (#237) [spec:SP-34d7 web]: the right rail's Messages
+ * Message ledger dock (#237): the right rail's Messages
  * panel shows the active session's delivery ledger — sender → recipient,
  * status chip, urgency/lifecycle, message id — fed by `messages.ledger`.
  * Sends ride the real gate (operator capability via /trpc), so this drives

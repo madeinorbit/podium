@@ -443,7 +443,7 @@ declare const PodiumSettings: z.ZodObject<{
         assistantEnabled?: boolean | undefined;
     }>>;
     /** The steward: the orchestrator's trigger queue over the durable event log
-     *  (deterministic unblock nudges etc.). On by default (#470) [spec:SP-17db]:
+     *  (deterministic unblock nudges etc.). On by default (#470):
      *  the feature has been live long enough to be trusted, and the dark default
      *  only broke NEW installs — their Notification triggers silently never fired.
      *  Existing installs are unaffected (the persisted `meta` value wins). */
@@ -468,7 +468,7 @@ declare const PodiumSettings: z.ZodObject<{
         promptDismissed?: boolean | undefined;
     }>>;
     /**
-     * User toggles for experimental features [spec:SP-f4b9].
+     * User toggles for experimental features.
      *
      * Draft Sync v2 (POD-859) lives here under `'draft-sync'`; the legacy bespoke
      * `draftSync.enabled` key is migrated onto it by `normalizeSettings` and dropped.
@@ -1689,7 +1689,7 @@ type UpdateStartability = {
 };
 
 /**
- * [spec:SP-3701] Tiered repo discovery for a (newly paired or reconnecting) machine —
+ * Tiered repo discovery for a (newly paired or reconnecting) machine —
  * POD-787. Answers "what repos does this machine have?" without ever walking blindly:
  *
  *   T1 probe    — exact-path probes derived from repos registered on OTHER machines

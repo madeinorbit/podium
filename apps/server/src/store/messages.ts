@@ -5,7 +5,7 @@ import { type ChangeLogCommit, throughChangeLog } from './change-log-commit'
 import { CommittedRows } from './committed-rows'
 /**
  * Messages aggregate — owns the unified `messages` table (#237)
- * [spec:SP-34d7]: one durable row per inter-agent / superagent / system / UI
+ * one durable row per inter-agent / superagent / system / UI
  * message, with the delivery ledger as columns on the row.
  */
 
@@ -1787,7 +1787,7 @@ export class MessagesRepository {
     return out
   }
 
-  /** The delivery ledger for one issue or session (#237) [spec:SP-34d7 web]:
+  /** The delivery ledger for one issue or session (#237):
    *  every row the principal SENT or was ADDRESSED (issue box / session box /
    *  delivered-to), newest first — the "what happened to my message" view. */
   async listLedger(q: {
@@ -1933,7 +1933,7 @@ export class MessagesRepository {
     return Number(row?.n ?? 0)
   }
 
-  // ---- PER-READER state [POD-1379] [spec:SP-b11e] ----
+  // ---- PER-READER state [POD-1379] ----
   // `delivery_status` is the DELIVERY ledger: one pipeline per message (stored →
   // handed on → confirmed, or another end), shared by every session on the issue.
   // It cannot answer "has THIS session seen it", and an issue mailbox is read by
@@ -2650,12 +2650,12 @@ export class MessagesRepository {
    *  so receipt alone never lands here. `acked_by IS NULL` is the unfulfilled test:
    *  it is stamped by any in-thread reply (semantic-reply-as-ack), not just a
    *  `kind:'ack'`. The stop-hook reminder and the steward's deterministic fallback
-   *  both read this set (#237) [spec:SP-34d7 acks]. */
+   *  both read this set (#237). */
   async listDeliveredUnacked(sessionId: SessionId, now: string): Promise<MessageRow[]> {
     return (await deliveredUnacked(this.db).all({ sessionId, now })).map(mapMessage)
   }
 
-  /** The steward settle-fallback set (#468, [spec:SP-bf44] [POD-835 §04b]): delivered,
+  /** The steward settle-fallback set (#468, [POD-835 §04b]): delivered,
    *  unfulfilled, unexpired rows for `sessionId` that (a) REQUESTED a response — `expects_response
    *  = 1`, the opt-in flag; an ordinary message (even next-turn) owes no reply and
    *  never nags, killing the 49% ack traffic — and (b) have not already produced a

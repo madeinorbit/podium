@@ -67,7 +67,7 @@ const baseMessage = (over: Partial<MessageRow> = {}): MessageRow => ({
   ...over,
 })
 
-describe('MaintenanceService [spec:SP-c29e]', () => {
+describe('MaintenanceService', () => {
   let nowMs: number
   let store: SessionStore
   let service: MaintenanceService
@@ -418,7 +418,7 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
     ).toMatchObject({ status: 'stale', reason: 'not-due' })
   })
 
-  describe('stopped-session auto-archive [spec:SP-6144]', () => {
+  describe('stopped-session auto-archive', () => {
     const observed = {
       sessionId: asSessionId('ses_done'),
       issueId: null,

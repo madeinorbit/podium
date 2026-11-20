@@ -29,7 +29,7 @@ const log = createLogger('web:desktop-window')
  *
  *   mark │ mode tabs │ ─ │ mode-contextual slot │ ⇠gap⇢ │ instrument well │ ─ │ utilities
  *
- * The zones are fixed; only the slot's contents change. [spec:SP-3834] The same
+ * The zones are fixed; only the slot's contents change. The same
  * header becomes the native app's integrated title bar.
  *
  * WHY IT LOOKS LIKE THIS. The bar previously read as a marketing-site header —

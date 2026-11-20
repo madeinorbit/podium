@@ -724,7 +724,7 @@ export class SettingsService {
   }
 
   /** True while a pairing window is open — the messaging bridge pauses its
-   *  getUpdates long-poll so the setup flow's polls don't 409 [spec:SP-5d81]. */
+   *  getUpdates long-poll so the setup flow's polls don't 409. */
   hasPendingTelegramSetup(): boolean {
     const now = this.nowIso()
     for (const setup of this.telegramSetups.values()) {

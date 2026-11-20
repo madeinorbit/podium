@@ -1,4 +1,4 @@
-// Read toolkit tiers 1–2 (#237) [spec:SP-34d7 read-toolkit]: status shape (no
+// Read toolkit tiers 1–2 (#237): status shape (no
 // transcript text), issue-ref target resolution, the read line cap, and the
 // per-read event log.
 

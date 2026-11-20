@@ -106,7 +106,7 @@ export const CodingRole = RoleBackend.extend({
    *  rendering follows the terminal's colors (Claude Code
    *  `--settings {"theme":"auto"}`, Codex `-c tui.theme=ansi`). Default ON;
    *  off = no flags at all, the CLI's own theme behaviour is untouched. Podium
-   *  never edits a user's global CLI config either way. [spec:SP-a04d] */
+   *  never edits a user's global CLI config either way. */
   seedCliTheme: z.boolean().default(true),
 })
 export type CodingRole = z.infer<typeof CodingRole>
@@ -250,7 +250,7 @@ export const HibernationPolicy = z.object({
    * the fleet drains and would over-park during recovery.
    */
   loadPerCore: z.number().min(0.5).max(8).nullable().default(1.5),
-  /** Per-machine idle-live convergence target [spec:SP-c29e]. Null is
+  /** Per-machine idle-live convergence target. Null is
    * unlimited; zero is valid and parks every session that passes the safety
    * gates.
    *
@@ -351,7 +351,7 @@ export const IssueAssistantPolicy = z.object({
 export type IssueAssistantPolicy = z.infer<typeof IssueAssistantPolicy>
 
 /** The steward: the orchestrator's trigger queue over the durable event log
- *  (deterministic unblock nudges etc.). On by default (#470) [spec:SP-17db].
+ *  (deterministic unblock nudges etc.). On by default (#470).
  *  INSTANCE, same reason as {@link IssueAssistantPolicy} — and note ADR 9 D8 S5:
  *  the steward is a SYSTEM automation with no human behind it, so it is not a
  *  personal agent whose settings could be someone's. */
@@ -361,7 +361,7 @@ export const StewardPolicy = z.object({
 export type StewardPolicy = z.infer<typeof StewardPolicy>
 
 /**
- * User toggles for experimental features [spec:SP-f4b9]. Keys are feature ids
+ * User toggles for experimental features. Keys are feature ids
  * from the protocol registry; unknown ids are kept (a flag may exist in a
  * newer/older build) and are harmless. Honored only while the flag is listed for
  * this install — see `resolveFeatureState`.

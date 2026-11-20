@@ -55,7 +55,7 @@ export class EventLogRetention {
   }
 
   /**
-   * Request retention [spec:SP-c29e]. Overlapping triggers share one flight and
+   * Request retention. Overlapping triggers share one flight and
    * coalesce into at most one follow-up pass, so timer/manual races cannot run
    * duplicate plans and deletes concurrently.
    */

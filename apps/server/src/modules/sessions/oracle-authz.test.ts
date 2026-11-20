@@ -338,7 +338,7 @@ describe('oracle: continue and stop ARE reachable by an agent, under different g
     })
 
     expect(reply.ok).toBe(true)
-    // The contract the CLI depends on [spec:SP-9904]: the agent is TOLD its own
+    // The contract the CLI depends on: the agent is TOLD its own
     // stop succeeded, and told that the process kill is deferred.
     expect(reply.result).toMatchObject({ ok: true, deferredKill: true })
 

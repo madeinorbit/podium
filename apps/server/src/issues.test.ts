@@ -2023,7 +2023,7 @@ describe('IssueService.start', () => {
     )
   })
 
-  it('force lets an unlisted issue model start [spec:SP-cc60]', async () => {
+  it('force lets an unlisted issue model start', async () => {
     const { svc, deps, store } = await harness()
     await store.settings.setModelCatalog({
       machineId: store.hostMachineId,
@@ -4574,7 +4574,7 @@ describe('IssueService.tree (issue #82)', () => {
     await expect(svc.reports.tree('iss_nope')).rejects.toThrow()
   })
 
-  // [spec:SP-99d3] managers must see sibling sessions before spawn
+  // managers must see sibling sessions before spawn
   it('lists all sessions on each issue including siblings, with coordinator', async () => {
     const sessions: SessionMeta[] = []
     const { svc } = await harness(sessions)
@@ -4898,7 +4898,7 @@ describe('IssueService.prime (P1a)', () => {
     const out = await svc.reports.prime({ repoPath: '/r', boundIssueId: epic.id })
     // Structural: the bound issue and its child both surface. Instructional
     // copy-string pins (reparent / --outside-scope / operator-only prose) dropped
-    // as brittle bitrot, POD-619 [spec:SP-0be7].
+    // as brittle bitrot, POD-619.
     expect(out).toContain('Epic')
     expect(out).toContain(child.title)
   })
@@ -4930,7 +4930,7 @@ describe('IssueService.prime (P1a)', () => {
     expect(out).toContain('Ready one')
   })
 
-  // POD-694 [spec:SP-4ef9]. Asserting the discoverable SURFACE (command
+  // POD-694. Asserting the discoverable SURFACE (command
   // names, guide path) rather than the copy: an agent that cannot see the string
   // `podium lock` has no way to learn leases exist for anything but merging, which
   // was the actual gap. Prose is free to change; these identifiers are the contract.
@@ -6789,7 +6789,7 @@ describe('IssueService panelApply (agent-published human panel)', () => {
   })
 })
 
-describe('IssueService panelArtifactAdd/Remove (permanent snapshots [spec:SP-0fc9])', () => {
+describe('IssueService panelArtifactAdd/Remove (permanent snapshots)', () => {
   async function artifactHarness() {
     const sessions = [sess('/wt')]
     const h = await harness(sessions)
@@ -7696,7 +7696,7 @@ describe('IssueService agent mail (#103)', () => {
     await seedMailboxRow(store, a.id, 'operator', 'x')
     await seedMailboxRow(store, a.id, 'operator', 'y')
     // Behavioral: the unread count surfaces and points at the mail inbox command
-    // (exact sentence pin relaxed, POD-619 [spec:SP-0be7]).
+    // (exact sentence pin relaxed, POD-619).
     const primed = await svc.reports.prime({ boundIssueId: a.id })
     expect(primed).toContain('2 unread mail')
     expect(primed).toContain('mail inbox')

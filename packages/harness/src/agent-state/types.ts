@@ -159,7 +159,7 @@ export interface AgentScreenObservation {
 export interface AgentStateProvider {
   /** Spawn-time injection wiring the harness event bus to the endpoint URL.
    * seedTheme uses official CLI flags to follow terminal colors;
-   * false preserves native CLI theme behaviour [spec:SP-a04d]. */
+   * false preserves native CLI theme behaviour. */
   instrumentation(opts: {
     endpointUrl: string
     settingsPath: string

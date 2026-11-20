@@ -95,7 +95,7 @@ export interface SessionMetaOpsPorts {
 export class SessionMetaOps {
   constructor(private readonly ports: SessionMetaOpsPorts) {}
 
-  /** Set (replace) a session's agent action offer [spec:SP-c7f1]. A subsequent
+  /** Set (replace) a session's agent action offer. A subsequent
    *  offer replaces the previous one. Persisted in the `offers` table (off-row,
    *  like snooze) and broadcast so every client's chat bar updates. */
   async setOffer(
@@ -139,7 +139,7 @@ export class SessionMetaOps {
     this.ports.broadcastSessions()
   }
 
-  /** Clear a session's agent action offer [spec:SP-c7f1] (explicit `offer clear`
+  /** Clear a session's agent action offer (explicit `offer clear`
    *  or auto-clear on the next user turn). Skips work when nothing changes. */
   async clearOffer(writer: SessionWriter, sessionId: SessionId): Promise<void> {
     const session = this.ports.sessions.get(sessionId)
@@ -194,7 +194,7 @@ export class SessionMetaOps {
   }
 
   /**
-   * The USER's dismissal of one named offer [spec:SP-c7f1] — "none of these".
+   * The USER's dismissal of one named offer — "none of these".
    *
    * Distinct from {@link clearOffer} by the STAMP, not by the effect. `clearOffer`
    * is the system's own clear: the agent replaced the offer, or the conversation
@@ -376,7 +376,7 @@ export class SessionMetaOps {
   }
 
   /**
-   * Cleanly end a session [spec:SP-9904]. Survival table lives on SessionTeardown.
+   * Cleanly end a session. Survival table lives on SessionTeardown.
    */
 
   setArchived(
@@ -537,7 +537,7 @@ export class SessionMetaOps {
     // A PERSON sending into the session moves the conversation past the offer.
     // Mail delivery, a cron/automation wake or an auto-continue is not a person
     // — it must leave a standing offer for the human who has not seen it yet
-    // [spec:SP-c7f1, POD-118], the same rule the turn path applies.
+    //, the same rule the turn path applies.
     const userSend = origin === 'human' || origin === 'controller'
     if (userSend && session.offer !== undefined) await this.clearOffer(writer, sessionId)
     await this.ports.store.events.appendEvent({

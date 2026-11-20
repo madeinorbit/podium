@@ -149,7 +149,7 @@ export interface AutomationCommandContract<In extends z.ZodTypeAny = z.ZodTypeAn
 // ---------------------------------------------------------------------------
 
 /**
- * The composer's field set (#470) [spec:SP-17db], relocated from `router.ts`
+ * The composer's field set (#470), relocated from `router.ts`
  * byte-for-byte.
  *
  * `repoPath: null` (or absent) = a GLOBAL automation: it runs in the home

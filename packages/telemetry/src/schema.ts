@@ -1,5 +1,5 @@
 /**
- * THE telemetry schema of record [spec:SP-f933].
+ * THE telemetry schema of record.
  *
  * This module is the single source of truth for everything that may leave a
  * user's machine. `docs/TELEMETRY.md` documents it for humans and

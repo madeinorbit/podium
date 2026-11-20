@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { EventLogRetention } from './retention'
 
-describe('EventLogRetention [spec:SP-c29e]', () => {
+describe('EventLogRetention', () => {
   it('plans once, runs bounded delete units to completion, and reports metrics', async () => {
     const plan = { cutoff: '2026-01-01T00:00:00.000Z', capThroughId: 10 }
     const planEventPrune = vi.fn(async () => plan)

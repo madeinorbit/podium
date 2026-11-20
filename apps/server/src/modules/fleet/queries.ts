@@ -30,7 +30,7 @@ export const REPO_QUERIES = {
     repoPath: (await s.repos.inferFromPath(input.path)) ?? null,
   })),
   /**
-   * Browse a machine's directories for the repo picker (POD-814) [spec:SP-3701].
+   * Browse a machine's directories for the repo picker (POD-814).
    * The caller names the machine; only that machine's daemon can list its disk.
    */
   browse: q(

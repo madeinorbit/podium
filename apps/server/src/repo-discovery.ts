@@ -11,7 +11,7 @@ import { canonicalizeRepoOrigin } from './repo-id'
 import { normalizeRepoPath } from './store'
 
 /**
- * [spec:SP-3701] Tiered repo discovery for a (newly paired or reconnecting) machine —
+ * Tiered repo discovery for a (newly paired or reconnecting) machine —
  * POD-787. Answers "what repos does this machine have?" without ever walking blindly:
  *
  *   T1 probe    — exact-path probes derived from repos registered on OTHER machines
@@ -225,7 +225,7 @@ export class MachineRepoDiscovery {
 
   /** Run the tiered discovery.
    *  `atPath` adds the folder the user is browsing as a scan root (POD-855)
-   *  [spec:SP-5eb6] — "scan here" — on top of the always-on tiers (probes of
+   *  — "scan here" — on top of the always-on tiers (probes of
    *  other machines' paths + the shallow walk around this machine's known repos,
    *  which is the "known repo locations" the user asked to always include). */
   async scan(

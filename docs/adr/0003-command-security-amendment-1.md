@@ -18,9 +18,9 @@
   strategies), ADR 7 (plane inventory; external chat adapter sits **outside** the three peer
   planes), **ADR 9** (identity, ownership and sharing — principal taxonomy, delegation,
   machine verbs, superagent/system classes)
-- **Specs:** [spec:SP-3fe2] command contract; [spec:SP-b85a] relay command channel;
-  [spec:SP-edbb] approval broker; [spec:SP-15aa] instance isolation; [spec:SP-eb60] curated
-  name vs live title; [spec:SP-5d81] Telegram bridge / setup ceremony
+- **Specs:** command contract; relay command channel;
+  approval broker; instance isolation; curated
+  name vs live title; Telegram bridge / setup ceremony
 - **Base tip verified:** `2ddfec21` (issue/279-integration), 2026-07-29
 - **File discipline:** this amendment owns **only** this file plus a single "Amended by" line in
   `docs/adr/0003-command-security.md`. No index edits (POD-359 owns `docs/adr/README.md`), no
@@ -40,7 +40,7 @@ This amendment decides it.
 
 **Multi-user is not multi-tenancy.** Multi-user in one tenant lives **inside** one Authority.
 **ADR 1 D5 is unaffected**: `InstanceId` remains a deployment partition, not a row-level
-discriminator, and D2's instance-isolation clause ([spec:SP-15aa]) keeps exactly its current
+discriminator, and D2's instance-isolation clause keeps exactly its current
 meaning — an authz hard wall between deployments, not a tenant column. Nothing in this amendment
 authorises an `instance_id` column on any table, envelope, outbox entry or capability. An
 implementer who reads "multi-user" and reaches for tenant columns has misread this document.
@@ -95,7 +95,7 @@ implementer who reads "multi-user" and reaches for tenant columns has misread th
 - **A claim-code ceremony already exists — it just binds a chat to the *instance*.**
   `apps/server/src/modules/settings/service.ts` `startTelegramSetup` / `pollTelegramSetup` mint a
   short code, poll `getUpdates` for it, and write the matched `chatId` into settings
-  ([spec:SP-5d81]); `apps/server/src/hub/pairing.ts` `PairingManager` is the single-use,
+ ; `apps/server/src/hub/pairing.ts` `PairingManager` is the single-use,
   short-TTL code precedent. D22 gives that ceremony a user on the other end.
 - **Superagent state carries no owner.** `superagent_threads` / `superagent_messages` have no user
   or owner column (readiness §3.1.6 S2).
@@ -136,7 +136,7 @@ their numbers; each decision below states which base decision it extends.
 | superagent / scheduled automation | **agent-delegated (broad scope)** | its creating human | the automation identity | Server-side record created at the moment a human created the thread or schedule (ADR 9 D8 S1/S6) |
 | system (steward, expiry jobs, boot reconcile, derived-field maintenance) | **system** | **none, and never assigned one** | the named system job | In-process construction only; not reachable from any transport (D21) |
 | `peer` | **machine** | none (a machine is not a person) | the paired machine | Peer auth strategy module (ADR 5) — machine token / pairing, not payload |
-| **Telegram (external chat ingress, [spec:SP-5d81])** | **human user, via binding** | the user bound to that chat id | that user's superagent | Claim-code **binding record** (D22). Unbound chat ⇒ **no principal**, request refused |
+| **Telegram (external chat ingress)** | **human user, via binding** | the user bound to that chat id | that user's superagent | Claim-code **binding record** (D22). Unbound chat ⇒ **no principal**, request refused |
 
 3. **The agent row carries a delegation reference, not a string.** The relay principal names a
    durable delegation record (`agentIdentity`, `onBehalfOf: UserId`, granted `scope`, lifecycle);
@@ -164,7 +164,7 @@ class that has no row has no principal source, and therefore no principal.
 |---|---|
 | Keep `OPERATOR` as the tRPC principal and add users later | `OPERATOR` is `admin` + `scope: 'all'` and `checkIssueAccess` short-circuits on `scope.kind === 'all'`. Every ownership check would be dead code on the one transport humans actually use, so nothing would be tested until the flip. |
 | Carry `onBehalfOf` in the durable write payload | A payload-supplied delegator is an impersonation primitive: any agent could mail, close or spawn as anyone. The delegation must be a server-minted record the transport resolves. |
-| One `principal` opaque string per transport, parsed per handler | Reproduces the `PROC_ACTION` string-map failure [spec:SP-3fe2] / POD-248 fixed once already: a rename silently resets authz. Structured principal, resolved at context construction, is the shipped lesson. |
+| One `principal` opaque string per transport, parsed per handler | Reproduces the `PROC_ACTION` string-map failure / POD-248 fixed once already: a rename silently resets authz. Structured principal, resolved at context construction, is the shipped lesson. |
 | Give Telegram a D3 exposure tag so commands can be invoked from chat | Contradicts ADR 7 (external chat is outside the peer planes) and D3 rule 3. It would also make an unauthenticated inbound webhook a command surface — the precise shape D3 exists to forbid. |
 | Give the system class a service user so everything has a user | Readiness §3.1.6 S5 rejects it directly: a system job with a human identity can act *as* that person and widen their visibility. See D21. |
 
@@ -277,7 +277,7 @@ larger one.
    distinct, representable value; it is never defaulted to an operator or to the row's owner.
 
 **Rationale.** Collapsing the pair loses distinctions the product already depends on and already
-tests for: human-set `name` outranks agent-set (`nameSource`, [spec:SP-eb60]), and
+tests for: human-set `name` outranks agent-set (`nameSource`), and
 `humanQuestionAskedBy` is server-authoritative precisely so *"did a person or an agent ask this?"*
 stays answerable. Under multi-user a third question arrives — *"which person is this on behalf
 of?"* — and a single field cannot answer all three. Stamping both from the transport is not extra
@@ -291,7 +291,7 @@ comment; the amendment adds a second value to the same code path.
 | One `actor` field holding either a user or an agent | Every consumer must then parse the id to know which it got, and the human-vs-agent test (`humanQuestionAskedBy`, `nameSource`) becomes a string-prefix inspection. Prefix-typed ids are the drift class branded ids exist to end. |
 | Derive on-behalf-of at read time from the agent's current delegation | Delegations change and agents are retired; a historical write would then re-attribute itself to whoever the agent belongs to *now*, or to nobody. Attribution is a durable fact of the write. |
 | Attribute agent work to the agent, with owner = the agent | Retiring an agent session orphans its issues, and the delegating human's own sidebar hides work done for them. Readiness §3.1.3 A4 decides the other way. |
-| Attribute agent work to the human only (drop the actor) | Destroys the human-vs-agent distinction in the direction that matters most — a human's name edit would be indistinguishable from an agent's, which [spec:SP-eb60] exists to prevent. |
+| Attribute agent work to the human only (drop the actor) | Destroys the human-vs-agent distinction in the direction that matters most — a human's name edit would be indistinguishable from an agent's, which exists to prevent. |
 
 ### D18 — `machine` scope gains **see / use / manage** with an owner and a per-machine grant list
 
@@ -491,7 +491,7 @@ what makes it testable: the steward may look at everything, and every mark it le
 1. An inbound Telegram message must resolve to a **user** before anything acts on it. Resolution is
    by a durable **binding record** `(chatId → UserId)` established by a **claim-code ceremony**: the
    code is issued in the authenticated web UI and presented to the bot, mirroring machine pairing
-   ([spec:SP-5d81] adapter; `PairingManager`'s single-use, short-TTL codes are the precedent).
+   (adapter; `PairingManager`'s single-use, short-TTL codes are the precedent).
 2. **Unknown chats fail closed.** An inbound message from a chat with no binding yields **no
    principal** and is refused. It must **never** fall back to an operator identity, and the refusal
    must not disclose whether the instance exists in any richer form than an unbound chat already
@@ -674,7 +674,7 @@ Checked on integration tip `2ddfec21`, 2026-07-29.
 | The all-in-one host machine is seeded as `local` | `apps/server/src/modules/machines/service.ts` — `ensureLocalMachine(hostname = LOCAL_MACHINE_ID, …)` (line 346), importing `LOCAL_MACHINE_ID` from `../../local-machine`, which re-exports `readOrCreateDaemonSecret` from `@podium/runtime/local-machine` |
 | Telegram inbound is "one chat id = one implied identity" | `apps/server/src/modules/messaging/telegram.ts` — `const wantChatId = this.config.chatId.trim()` (line 221); `if (msg.chatId !== wantChatId) continue` (lines 240, 252) |
 | `telegramBotToken` and `telegramChatId` are sibling settings strings today | `packages/runtime/src/settings.ts` — `notifications.telegramBotToken` (line 272), `notifications.telegramChatId` (line 274), both `z.string().default('')` |
-| A claim-code ceremony already exists, binding a chat to the **instance** | `apps/server/src/modules/settings/service.ts` — `startTelegramSetup` / `pollTelegramSetup` mint a code, poll `getUpdates`, write the matched `chatId` into settings ([spec:SP-5d81], lines 232–285) |
+| A claim-code ceremony already exists, binding a chat to the **instance** | `apps/server/src/modules/settings/service.ts` — `startTelegramSetup` / `pollTelegramSetup` mint a code, poll `getUpdates`, write the matched `chatId` into settings (, lines 232–285) |
 | `PairingManager` is the single-use, short-TTL code precedent | `apps/server/src/hub/pairing.ts` — `class PairingManager` with `mint()` / `redeem()`, 600s default TTL, single-use regardless of outcome (line 15) |
 | Superagent state carries no owner | `apps/server/src/migrations/schema.ts` — `superagentMessages` (line 119), `superagentThreads` (line 130): no user or owner column |
 | `CommandScope` / `CommandAction` are the leaf contract vocabulary this amendment extends | `packages/protocol/src/commands.ts` — `type CommandAction = 'read' \| 'write' \| 'manage'`; `type CommandScope = 'issue' \| 'repo' \| 'global'`; `CommandDef` fields |
@@ -682,7 +682,7 @@ Checked on integration tip `2ddfec21`, 2026-07-29.
 | D4 already classes spawn/attach/harness exec/file ops as `online-only` | `docs/adr/0003-command-security.md` §D4 delivery table |
 | D9 invariants forbid silent drop and require reason codes | `docs/adr/0003-command-security.md` §D9 invariants 1–3 |
 | ADR 1 D5 makes `InstanceId` a deployment partition | `docs/adr/0001-authority-ownership.md` §2 D5 |
-| ADR 7 places external chat adapters outside the three peer planes, with no tRPC for the external edge | `docs/adr/0007-plane-inventory.md` lines 94 and 291 ([spec:SP-5d81]) |
+| ADR 7 places external chat adapters outside the three peer planes, with no tRPC for the external edge | `docs/adr/0007-plane-inventory.md` lines 94 and 291 |
 | Human decisions encoded here | `docs/multi-user-readiness.md` — header block (private default), §3.1.1 (visibility sets, default-closed), §3.1.2 (open items), §3.1.3 A1–A5 (delegation), §3.1.4 M1–M6 (machine verbs), §3.1.5 (mail ratification, human ceiling, consistent error, reparent open), §3.1.6 S1–S6 (superagent, Telegram, system, scheduled), §3.2 (no identity today, minimum shape) |
 
 ---

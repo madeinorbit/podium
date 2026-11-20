@@ -63,9 +63,9 @@ function readLocalProjectDraft(raw: string | null | undefined): LocalProjectDraf
  * The reusable scan-and-select flow: pick a machine, browse ITS directories, and
  * either add the repo you're standing in or scan for repos from here. The scan
  * covers the browsed folder AND this machine's known repo locations (POD-855)
- * [spec:SP-5eb6], returning one grouped result view (already-added / found).
+ *, returning one grouped result view (already-added / found).
  *
- * Machine-aware (POD-814) [spec:SP-3701]: every action names its machine and runs
+ * Machine-aware (POD-814): every action names its machine and runs
  * on that machine's daemon. One machine is always selected — there is no server-host
  * filesystem to fall back to.
  */

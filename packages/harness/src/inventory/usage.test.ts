@@ -5,7 +5,7 @@ import type { AgentKind, AgentQuotaWire } from '@podium/model'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import { makeQuotaFetcher, scanHostUsage, scanHostUsageSources } from './usage.js'
 
-// POD-518 [spec:SP-0be7]: every mkdtemp in this file is tracked and removed when the file's
+// POD-518: every mkdtemp in this file is tracked and removed when the file's
 // tests finish, so a suite run leaves nothing behind in tmp.
 const tmpDirs: string[] = []
 function trackTmp(prefix: string): string {

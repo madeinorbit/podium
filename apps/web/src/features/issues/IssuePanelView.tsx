@@ -533,7 +533,7 @@ const ArtifactsPart = observer(function ArtifactsPart({
   if (all.length === 0 && deferred.length === 0) return null
 
   const srcOf = (a: IssuePanelArtifact): string | null =>
-    // Snapshotted artifacts ([spec:SP-0fc9]) serve from the permanent store;
+    // Snapshotted artifacts serve from the permanent store;
     // legacy path-only entries need the live worktree root.
     artifactUrl({
       httpOrigin,
@@ -794,7 +794,7 @@ export const IssuePanelBody = observer(function IssuePanelBody({
   cwd: string
   machineId?: MachineId
   sessionId?: SessionId
-  /** Explicit issue (artifact file tabs, [spec:SP-0fc9] #441) — wins over the
+  /** Explicit issue (artifact file tabs, #441) — wins over the
    *  session attachment and cwd containment. */
   issueId?: IssueId
   /**

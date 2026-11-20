@@ -97,7 +97,7 @@ package rather than replacing it, per `docs/multi-user-readiness.md` (human deci
 
 ## Build orchestration
 
-The reference case for the convention (POD-715, [spec:SP-3b58]): a `typecheck` script using
+The reference case for the convention (POD-715): a `typecheck` script using
 `tsgo --noEmit`, a `@podium/source` export condition so consumers resolve source in dev and
 tests, and a `typecheck` task in `turbo.json`. As the L0 root with no `dependsOn` edges of its
 own, it is also the reference case for whichever ADR-8 resolution style wins (source-conditions

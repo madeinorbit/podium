@@ -84,7 +84,7 @@ export interface MaintenanceServiceOptions {
 }
 
 /**
- * The server-owned janitor command authority [spec:SP-c29e]. SQLite observations
+ * The server-owned janitor command authority. SQLite observations
  * are only proposals: compatibility, fence, idempotency, row facts, and server
  * time are re-read inside the mutation transaction.
  */
