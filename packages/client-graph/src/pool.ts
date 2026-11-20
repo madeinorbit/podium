@@ -1274,6 +1274,11 @@ export class MobxPool {
     atom.reportChanged()
   }
 
+  /** The per-pool clock cleared at retirement; the process clock belongs to the app. */
+  get ownedClock(): DeadlineClock | null {
+    return this.clock === deadlineClock ? null : this.clock
+  }
+
   /** Empty every table, model cache, selection and clock registration. */
   dispose(): void {
     this.queries.dispose()
@@ -1300,7 +1305,7 @@ export class MobxPool {
     })
     for (const entity of ENTITIES) this.models[entity].clear()
     this.residency?.clear()
-    if (this.clock !== deadlineClock) this.clock.clear()
+    this.ownedClock?.clear()
     // A retired pool may outlive its switch (POD-5402); it must not hold the
     // retired feed's device index, which carries every row's relations.
     this.ownIndex = undefined

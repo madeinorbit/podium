@@ -97,7 +97,7 @@ export function createPoolHost({
       relations: pool.graph,
       worklist: pool.worklist,
       groups: pool.sources.peekView('worklist.groups')!,
-      clock: pool.clock,
+      clock: pool.ownedClock,
       residency: pool.residency,
     }
     for (const [name, object] of Object.entries(owned)) {
