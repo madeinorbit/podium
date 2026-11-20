@@ -347,13 +347,13 @@ it.each([
       text: '',
       toolName: 'Read',
       toolUseId: `use-${turn}`,
-      toolResult: 'done',
+      toolResult: turn === 0 ? 'far needle inside the old command result' : 'done',
       cursor: cursor(turn * 4 + 1),
     },
     {
       id: `note-${turn}`,
       role: 'assistant' as const,
-      text: turn === 0 ? 'far needle in old work' : `Working ${turn}`,
+      text: '',
       answer: false,
       cursor: cursor(turn * 4 + 2),
     },
@@ -390,13 +390,14 @@ it.each([
   presentation.setRenderCount(RENDER_WINDOW)
   expect(presentation.anchorRow('turn:prompt-0:work')).toBe(0)
   presentation.setQuery('far needle')
+  expect(presentation.activeMatchKey).toBe('tool-0')
   const selected = presentation.search.activeRow!
   expect(selected).toBeLessThan(presentation.renderStart)
   const boundary = presentation.turnBoundaryAt(selected)
   presentation.setRenderCount(presentation.rowCount - boundary + RENDER_WINDOW)
   const fold = presentation.turnFolds.byMember.get(selected)!
   expect(fold.key).toBe('prompt-0:work')
-  expect(presentation.openFoldAt(selected)).toBe('note-0')
+  expect(presentation.openFoldAt(selected)).toBe('tool-0')
   expect(presentation.folds.isOpen(fold.key)).toBe(true)
   expect(presentation.closedFolds.some((line) => line.first === fold.start)).toBe(false)
   page = {
@@ -418,5 +419,5 @@ it.each([
   expect(moved.start).toBe(fold.start + 2)
   expect(presentation.folds.isOpen(moved.key)).toBe(true)
   expect(presentation.anchorRow(`turn:${moved.key}`)).toBe(moved.start)
-  expect(presentation.openFoldAt(presentation.search.activeRow!)).toBe('note-0')
+  expect(presentation.openFoldAt(presentation.search.activeRow!)).toBe('tool-0')
 })

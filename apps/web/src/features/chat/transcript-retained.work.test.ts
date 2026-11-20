@@ -127,7 +127,10 @@ it('bounds warm web stream, append, prepend, query and cursor work at 1x/4x hist
           verbosity: 'summary',
         })
       })
-      expect((await verbosityResult)!.search.total).toBe(0)
+      expect((await verbosityResult)!.search).toMatchObject({
+        total: presentation.search.total,
+        filtering: true,
+      })
       expect(presentation.search.total).toBe(1)
       expect(presentation.block(items.at(-1)!.id)?.item.text).toBe('streamed token')
       expect(log.ids.length).toBe(items.length + 6)
