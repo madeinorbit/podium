@@ -619,11 +619,13 @@ async function attachCollector(
   ws.on('error', () => {})
   ws.on('message', (raw: any) => {
     try {
-      const msg = parseServerMessage(String(raw)) as any
+      const msg = parseServerMessage(String(raw))
+      if (!msg) return
       if (msg.type === 'outputFrame' && typeof msg.data === 'string') {
         text += Buffer.from(msg.data, 'base64').toString('utf8')
       }
-      if (msg.type === 'attached' || msg.type === 'geometry') geometry = msg.geometry
+      if (msg.type === 'attached') geometry = msg.geometry
+      if (msg.type === 'geometry') geometry = { cols: msg.cols, rows: msg.rows }
     } catch {}
   })
   ws.send(encode({ type: 'attach', sessionId } as any))
