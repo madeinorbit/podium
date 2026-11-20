@@ -1714,6 +1714,7 @@
         "src/modules/concertmaster/delivered.ts",
         "src/modules/concertmaster/records.ts",
         "src/modules/concertmaster/service.ts",
+        "src/modules/concertmaster/sync-write.test.ts",
         "src/modules/concertmaster/sync-write.ts",
         "src/modules/connect/client.ts",
         "src/modules/connect/publisher.ts",
