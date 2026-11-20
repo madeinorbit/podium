@@ -45,7 +45,8 @@ interface VendorRelease {
  * runs here. Per the operator's decision (§12.12), the daemon copy and its
  * updater inside CODEX_HOME retain their default behavior.
  */
-export const codexManagedInstall: HarnessInstall = {
+export const codexManagedInstall: HarnessInstall & { readonly updateNotice: string } = {
+  updateNotice: 'Codex updates its own server; a session may move to that newer server.',
   async latest(ports) {
     const name = archiveName(ports)
     const { metadata, base } = await releaseMetadata(ports)
