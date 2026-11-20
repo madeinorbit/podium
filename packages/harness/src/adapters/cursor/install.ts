@@ -5,7 +5,6 @@ import { chmod, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { extractReleaseDirectory } from '../../inventory/release-archive.js'
 import { type HarnessCheckPorts, type HarnessInstall, unsupported } from '../../manifest.js'
-import { parseCursorChatId } from './chat.js'
 
 export const cursorInstall = unsupported(
   "cursor-agent is distributed through Cursor's own installer (curl https://cursor.com/install | bash)",
@@ -13,6 +12,8 @@ export const cursorInstall = unsupported(
 
 const INSTALLER = 'https://cursor.com/install'
 const DOWNLOADS = 'https://downloads.cursor.com/lab'
+const GUARD_PROBE = '--podium-updater-guard-probe'
+const GUARD_PROOF = `error: unknown option '${GUARD_PROBE}'`
 
 export const cursorManagedInstall: HarnessInstall = {
   async latest(ports) {
@@ -53,24 +54,23 @@ export const cursorManagedInstall: HarnessInstall = {
         throw new Error('Cursor archive checksum verification FAILED')
       await extractReleaseDirectory(archive, 'tar.gz', 'dist-package', dir)
       await chmod(join(dir, executable), 0o755)
-      // --help/--version may short-circuit unknown-option validation. Allocate
-      // an empty chat to exercise parsing without a login, using only the
-      // contained install home. No conversation reaches the person's home.
+      // --help/--version bypass unknown-option checks, and command actions
+      // initialize vendor services. Instead, a recognized guard must reach the
+      // second (deliberately invalid) option's error before any action starts.
+      let diagnostic = 'the CLI did not reject the deliberately invalid parser probe'
       try {
-        const output = await ports.run(
-          join(dir, executable),
-          ['--disable-auto-update', 'create-chat'],
-          {
-            ...ports.installerEnv,
-            CURSOR_CONFIG_DIR: join(ports.home, '.cursor'),
-            CURSOR_DATA_DIR: join(ports.home, '.cursor-data'),
-            NODE_COMPILE_CACHE: join(ports.home, '.cache'),
-          },
-        )
-        parseCursorChatId(output.trim())
+        await ports.run(join(dir, executable), ['--disable-auto-update', GUARD_PROBE], {
+          ...ports.installerEnv,
+          CURSOR_CONFIG_DIR: join(ports.home, '.cursor'),
+          CURSOR_DATA_DIR: join(ports.home, '.cursor-data'),
+          NODE_COMPILE_CACHE: join(ports.home, '.cache'),
+        })
       } catch (error) {
+        diagnostic = (error as Error).message
+      }
+      if (!diagnostic.split(/\r?\n/).includes(GUARD_PROOF)) {
         throw new Error(
-          `Cursor ${release.version} cannot be managed: its --disable-auto-update startup guard could not be verified: ${(error as Error).message}`,
+          `Cursor ${release.version} cannot be managed: its --disable-auto-update startup guard could not be verified: ${diagnostic}`,
         )
       }
       return {

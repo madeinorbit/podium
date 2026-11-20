@@ -47,7 +47,9 @@ function ports(
       writeFileSync(out, archive)
     }),
     vendorUrl: (url) => url,
-    run: vi.fn(async () => '12345678-1234-1234-1234-123456789abc\n'),
+    run: vi.fn(async () => {
+      throw new Error("error: unknown option '--podium-updater-guard-probe'")
+    }),
     runTool: vi.fn(async () => {
       throw new Error('must not execute the vendor installer or an extraction tool')
     }),
@@ -122,7 +124,7 @@ describe('Cursor managed install', () => {
     expect(statSync(join(dir, result.executable)).mode & 0o777).toBe(0o755)
     expect(host.run).toHaveBeenCalledExactlyOnceWith(
       join(dir, result.executable),
-      ['--disable-auto-update', 'create-chat'],
+      ['--disable-auto-update', '--podium-updater-guard-probe'],
       {
         ...host.installerEnv,
         CURSOR_CONFIG_DIR: join(host.home, '.cursor'),
@@ -221,6 +223,13 @@ describe('Cursor managed install', () => {
     await expect(
       cursorManagedInstall.install({ version: CURSOR_VERSION }, dir, host),
     ).rejects.toThrow('cannot be managed')
+  })
+
+  it('refuses a CLI that silently accepts the deliberately invalid probe option', async () => {
+    const host = ports({ run: vi.fn(async () => 'Cursor Agent') })
+    await expect(
+      cursorManagedInstall.install({ version: CURSOR_VERSION }, dir, host),
+    ).rejects.toThrow('did not reject the deliberately invalid parser probe')
   })
 
   it('publishes a verified receipt without inventing a vendor publication time', async () => {

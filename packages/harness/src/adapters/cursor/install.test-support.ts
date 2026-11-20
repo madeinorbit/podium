@@ -16,7 +16,7 @@ export const CURSOR_SOURCE = `https://downloads.cursor.com/lab/${CURSOR_VERSION}
 export const CURSOR_FIXTURE_BINARY = `#!/bin/sh
 case "$*" in
   *--help*) echo "Cursor Agent" ;;
-  *create-chat*) echo "12345678-1234-1234-1234-123456789abc" ;;
+  *--podium-updater-guard-probe*) echo "error: unknown option '--podium-updater-guard-probe'" >&2; exit 1 ;;
   *) echo "${CURSOR_VERSION}" ;;
 esac
 `
