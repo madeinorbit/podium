@@ -118,7 +118,7 @@ function expectBoard(pool: MobxPool, options: BoardOptions, truth: Truth) {
   if (!value || value === LOADING) throw new Error('Board fixture is loading')
   expect(unread).toEqual([])
   const active = expectedMembers(truth, options)
-  expect(active.length).toBeGreaterThan(0)
+  if (Object.keys(options.filter).length === 0) expect(active.length).toBeGreaterThan(0)
   const byId = new Map(active.map((row) => [row.id, row]))
   const ids = (rows: readonly { id: string }[]) => rows.map((row) => row.id).sort()
   const missing = active

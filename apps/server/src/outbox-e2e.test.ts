@@ -87,7 +87,12 @@ describe('outbox write path e2e (live server)', () => {
     ])
     expect(new Set(queued.map((message) => message.id)).size).toBe(1)
     expect(await server.registry.sessionStore.sync.listQueuedMessages(sessionId)).toEqual([
-      expect.objectContaining({ id: queued[0]!.id, text: 'queued while offline', sessionId }),
+      expect.objectContaining({
+        id: queued[0]!.id,
+        sourceMessageId: queued[0]!.id,
+        text: 'queued while offline',
+        attempts: 0,
+      }),
     ])
 
     // Reconnecting the machine is not evidence that this PTY exists yet.
