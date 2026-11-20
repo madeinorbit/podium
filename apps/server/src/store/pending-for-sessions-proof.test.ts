@@ -248,7 +248,7 @@ describe('pendingForSessionsProof (POD-7036)', () => {
           'outside-' || value, true FROM n
       `)
       const rows: number[] = []
-      const detach = probeStatements(store, (statement) => rows.push(statement.rows))
+      const detach = probeStatements(store.database, (statement) => rows.push(statement.rows))
       try {
         const single = await countStatements(store, () => messages.pendingForSessionProof(A, NOW))
         const batch = await countStatements(store, () =>
