@@ -75,6 +75,7 @@ export interface AutomationsDeps {
   /** A fresh run owns a fresh issue (a plain task since POD-6106) and attached session. */
   createIssue(input: {
     repoPath: string
+    machineId: MachineId
     title: string
     description: string
     defaultAgent: string
@@ -690,6 +691,7 @@ export class AutomationsService {
     const cwd = automation.repoPath ?? (await this.deps.machines.machineHome(machineId))
     const issue = await this.deps.createIssue({
       repoPath: cwd,
+      machineId,
       title: automation.name,
       description: automation.prompt,
       defaultAgent: automation.agentKind,

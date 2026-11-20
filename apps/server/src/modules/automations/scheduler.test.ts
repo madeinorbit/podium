@@ -250,7 +250,9 @@ async function harness(
   )
   const prompts = (resume: boolean) =>
     deliverPrompt.mock.calls.map(([p]) => p).filter((p) => p.resume === resume)
-  const createIssue = vi.fn(() => ({ id: asIssueId(`iss_${++issueN}`) }))
+  const createIssue = vi.fn((_input: { repoPath: string; machineId: typeof machineId }) => ({
+    id: asIssueId(`iss_${++issueN}`),
+  }))
   const writer = testLedgerWriter(ledger)
   const service = asOperator(
     new AutomationsService({
@@ -552,6 +554,7 @@ describe('AutomationsService.tick — spawn', () => {
     expect(spawn.issueId).toBe('iss_1')
     expect(h.createIssue).toHaveBeenCalledWith({
       repoPath: '/repos/podium',
+      machineId: h.machineId,
       title: 'Nightly sweep',
       description: 'Run the test suite and report.',
       defaultAgent: 'claude-code',
@@ -776,7 +779,16 @@ describe('AutomationsService.tick — spawn', () => {
     expect(h.createSession).toHaveBeenCalledWith(
       expect.objectContaining({ cwd: homePath, machineId: h.machineId }),
     )
-    expect(h.createIssue).toHaveBeenCalledWith(expect.objectContaining({ repoPath: homePath }))
+    expect(h.createIssue).toHaveBeenCalledWith(
+      expect.objectContaining({ repoPath: homePath, machineId: h.machineId }),
+    )
+    // Home directories need not be reported repositories. Issue creation can
+    // derive their identity only when the target machine accompanies the path.
+    const location = h.createIssue.mock.calls[0]?.[0]
+    if (!location) throw new Error('automation did not create its issue')
+    expect(
+      await h.store.repos.resolveIssueRepoId(location.repoPath, location.machineId),
+    ).toBeTruthy()
   })
 
   it.each([
