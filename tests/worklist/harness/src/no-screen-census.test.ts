@@ -51,7 +51,9 @@ const PER_ROW = ['IssueModel', 'SessionModel', 'WorktreeModel', 'GroupNode'] as 
 const perRow = (t: Tally) => PER_ROW.reduce((sum, owner) => sum + (t.computedsBy[owner] ?? 0), 0)
 
 async function phases(scale: FixtureScale) {
-  const ctx = await startScenarioEngine(scale, { ownRows: true })
+  // This census measures the pool lifetime. Network/navigation services are
+  // unrelated owners; leave the fixture runtime stopped while attaching its pool.
+  const ctx = await startScenarioEngine(scale, { ownRows: true, start: false })
   let census = startCensus()
   const handle = createRuntimeWorklistPool(ctx.engine)
   const pool = handle.pool

@@ -90,10 +90,47 @@ function referenceIssues(source: ReferenceState): Issue[] {
   return issues
 }
 
+// Source-only indices live for exactly one immutable publication. They do
+// not borrow pool models, and every expected row still comes from the oracle.
+const sourceFacts = new WeakMap<ReferenceState, ReturnType<typeof buildSourceFacts>>()
+function buildSourceFacts(source: ReferenceState) {
+  const issues = referenceIssues(source)
+  const sessions = source.sessions.filter((session) => !session.headless)
+  const members = new Map(issues.map((issue) => [issue.id as string, issue]))
+  const paths = reposToViews(source.repos).flatMap((repo) =>
+    repo.worktrees.map((tree) => tree.path),
+  )
+  const rawOrder = dedupeSessionsByResume(
+    [...source.replica.rows('sessions')].sort((a, b) => a.sessionId.localeCompare(b.sessionId)),
+  )
+  const rank = new Map(rawOrder.map((session, index) => [session.sessionId as string, index]))
+  return {
+    issues,
+    sessions,
+    members,
+    paths,
+    rank,
+    crews: new Map<string, ReturnType<typeof missionSessions>>(),
+    progress: new Map<string, ReturnType<typeof tallyMissionBuckets>>(),
+    departures: new Map<string, ReturnType<typeof missionDepartures>>(),
+  }
+}
+function factsFor(source: ReferenceState) {
+  let facts = sourceFacts.get(source)
+  if (!facts) {
+    facts = buildSourceFacts(source)
+    sourceFacts.set(source, facts)
+  }
+  return facts
+}
+
 /** A hidden mission may still contain accepted visible work. Count that work
  * from its formal records rather than dropping the meter with its root. */
-function referenceProgress(issues: Issue[], sessions: ReferenceState['sessions'], rootId?: string) {
-  const byId = new Map(issues.map((issue) => [issue.id as string, issue]))
+function referenceProgress(source: ReferenceState, rootId?: string) {
+  const facts = factsFor(source)
+  const cached = facts.progress.get(rootId ?? '')
+  if (cached) return cached
+  const { issues, sessions, members: byId } = facts
   const visible = (issue: Issue) => !issue.archived && !issue.deletedAt
   const children = new Map<string, string[]>()
   for (const issue of issues) {
@@ -106,7 +143,7 @@ function referenceProgress(issues: Issue[], sessions: ReferenceState['sessions']
     rootId && byId.has(rootId)
       ? leafTasks(rootId, { task: (id) => byId.get(id), children: (id) => children.get(id) ?? [] })
       : []
-  return tallyMissionBuckets(leaves, (id) => {
+  const progress = tallyMissionBuckets(leaves, (id) => {
     const issue = byId.get(id)!
     const own = sessions.filter((session) => session.issueId === id)
     if (!visible(issue) || isVacatedOrigin(issue, own, byId)) return null
@@ -119,6 +156,8 @@ function referenceProgress(issues: Issue[], sessions: ReferenceState['sessions']
       [...own, ...members].some((session) => !session.archived && sessionWorkingFact(session)),
     )
   })
+  facts.progress.set(rootId ?? '', progress)
+  return progress
 }
 
 /** Delegate requests stay with their live coordinator; only delegate exceptions
@@ -392,11 +431,8 @@ export function expectMobileScreens(
   input: MobileScreenInput,
   label: string,
 ) {
-  const issues = referenceIssues(source)
-  const sessions = source.sessions.filter((session) => !session.headless)
-  const paths = reposToViews(source.repos).flatMap((repo) =>
-    repo.worktrees.map((worktree) => worktree.path),
-  )
+  const facts = factsFor(source)
+  const { issues, sessions, paths, members, rank } = facts
   const section = (key: string) => {
     const value = actual.sections.find((section) => section.key === key)
     if (!value) throw new Error(`${label}: missing ${key}`)
@@ -404,16 +440,15 @@ export function expectMobileScreens(
   }
   expect(actual.pending, label).toBe(0)
   const root = input.selectedId ? missionRootFor(issues, asIssueId(input.selectedId)) : undefined
-  const rawOrder = dedupeSessionsByResume(
-    [...source.replica.rows('sessions')].sort((a, b) => a.sessionId.localeCompare(b.sessionId)),
-  )
-  const rank = new Map(rawOrder.map((session, index) => [session.sessionId as string, index]))
-  const crew = root
-    ? missionSessions(issues, sessions, root.id).sort(
-        (a, b) => (rank.get(a.sessionId) ?? 0) - (rank.get(b.sessionId) ?? 0),
-      )
-    : []
-  const members = new Map(issues.map((issue) => [issue.id as string, issue]))
+  let crew = facts.crews.get(root?.id ?? '')
+  if (!crew) {
+    crew = root
+      ? missionSessions(issues, sessions, root.id).sort(
+          (a, b) => (rank.get(a.sessionId) ?? 0) - (rank.get(b.sessionId) ?? 0),
+        )
+      : []
+    facts.crews.set(root?.id ?? '', crew)
+  }
   // The expected answer uses source records and the declared phone triage rule.
   // Calling the production selector here passed raw rows to model-only getters
   // and silently ranked every source session as closed.
@@ -443,7 +478,7 @@ export function expectMobileScreens(
     root: root?.id ?? null,
     current: current?.sessionId ?? null,
     header: header ? { id: header.id, ...headerFields } : null,
-    progress: referenceProgress(issues, sessions, root?.id),
+    progress: referenceProgress(source, root?.id),
     attention: crew.filter(sessionNeedsHuman).length,
     live: crew.filter((session) => !session.archived && session.status !== 'exited').length,
     working: crew.filter(isSessionWorking).length,
@@ -531,12 +566,12 @@ export function expectMobileScreens(
       .map((section) => section.key),
     `${label}: task lanes`,
   ).toEqual(board.sections.map((section) => `tasks:${section.stage}`))
-  let facts = boardFacts.get(source)
-  if (board.sections.length > 0 && !facts) {
+  let totals = boardFacts.get(source)
+  if (board.sections.length > 0 && !totals) {
     const working = confirmedWorkingAgentCountsByIssue(issues, sessions, source.coarseNow)
     // These pure record counts belong to the publication, independent of the
     // selected mission or board options. Mission-only comparisons need none.
-    facts = {
+    totals = {
       working,
       progress: taskProgressMap(
         issues.filter((issue) => !issue.archived && !issue.deletedAt && !issue.isDraftVessel),
@@ -544,7 +579,7 @@ export function expectMobileScreens(
         working,
       ),
     }
-    boardFacts.set(source, facts)
+    boardFacts.set(source, totals)
   }
   for (const expected of board.sections) {
     const drawn = section(`tasks:${expected.stage}`)
@@ -562,12 +597,12 @@ export function expectMobileScreens(
         childCount: row.childCount,
         expanded: row.expanded,
         parent: row.issue.parentId ? (members.get(row.issue.parentId)?.title ?? null) : null,
-        working: facts?.working.get(row.issue.id) ?? 0,
-        progress: facts?.progress.get(row.issue.id) ?? null,
+        working: totals?.working.get(row.issue.id) ?? 0,
+        progress: totals?.progress.get(row.issue.id) ?? null,
         state: taskStateWord(
           row.issue,
-          facts?.working.get(row.issue.id) ?? 0,
-          facts?.progress.get(row.issue.id),
+          totals?.working.get(row.issue.id) ?? 0,
+          totals?.progress.get(row.issue.id),
         ),
       })
   }

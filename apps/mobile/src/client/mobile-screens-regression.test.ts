@@ -8,7 +8,7 @@ import { createWorklistPool } from '@podium/client-graph/create'
 import { missionView, requireLoaded } from '@podium/client-graph/mission-view'
 import { attachMobileScreens } from '@podium/client-graph/mobile-screens'
 import type { MobxPool } from '@podium/client-graph/pool'
-import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   type MobileScreenInput,
   mobileScreenLoadingState,
@@ -203,16 +203,38 @@ async function compare(pool: MobxPool, store: Store, label: string, all: boolean
   }
   return positions
 }
-for (const scale of [1, 4] as const)
-  it(`phone Tasks, Mission and Details: corpus and focused gates at ${scale}x`, async () => {
-    const ctx = await startScenarioEngine(scale),
+// Keep cumulative mutations and every original root/mode comparison. Giving
+// each gate its own test budget prevents a long corpus opening from timing out
+// unrelated gates, and names the scenario if a comparison stops progressing.
+for (const scale of [1, 4] as const) {
+  describe.sequential(`phone Tasks, Mission and Details at ${scale}x`, () => {
+    let ctx: Awaited<ReturnType<typeof startScenarioEngine>>
+    let feeds: ReturnType<typeof openFenceFeeds>
+    let handle: ReturnType<typeof createWorklistPool>
+    let positions = 0
+    beforeAll(async () => {
+      vi.useFakeTimers({ toFake: ['Date'] })
+      vi.setSystemTime(FIXED_NOW)
+      ctx = await startScenarioEngine(scale)
       feeds = openFenceFeeds(ctx, 'pooled')
-    const handle = createWorklistPool(feeds.rows.source, feeds.locals.source, {})
-    feeds.attachPool(handle.pool)
-    await attachMobileScreens(handle.pool)
-    try {
-      let positions = await compare(handle.pool, referenceState(ctx.engine), 'corpus', scale === 1)
-      for (const scenario of FENCE_SCENARIOS) {
+      handle = createWorklistPool(feeds.rows.source, feeds.locals.source, {})
+      feeds.attachPool(handle.pool)
+      await attachMobileScreens(handle.pool)
+    })
+    afterAll(() => {
+      handle?.dispose()
+      feeds?.dispose()
+      ctx?.dispose()
+      console.info(
+        '[phone screen regression]',
+        JSON.stringify({ scale, gates: FENCE_SCENARIOS.length + 2, positions }),
+      )
+    })
+    it('compares the corpus', async () => {
+      positions += await compare(handle.pool, referenceState(ctx.engine), 'corpus', scale === 1)
+    }, 600_000)
+    for (const scenario of FENCE_SCENARIOS) {
+      it(`compares ${scenario.scenario}`, async () => {
         await scenario.write(ctx)
         feeds.flush()
         positions += await compare(
@@ -221,21 +243,18 @@ for (const scale of [1, 4] as const)
           scenario.scenario,
           false,
         )
-      }
+      }, 600_000)
+    }
+    it('compares scope growth', async () => {
       await writeRescopeGrow(ctx)
       feeds.flush()
       positions += await compare(handle.pool, referenceState(ctx.engine), 'scope growth', false)
+    }, 600_000)
+    it('compares scope back', async () => {
       await writeRescopeBack(ctx)
       feeds.flush()
       positions += await compare(handle.pool, referenceState(ctx.engine), 'scope back', false)
       expect(positions).toBeGreaterThan(0)
-      console.info(
-        '[phone screen regression]',
-        JSON.stringify({ scale, gates: FENCE_SCENARIOS.length + 2, positions }),
-      )
-    } finally {
-      handle.dispose()
-      feeds.dispose()
-      ctx.dispose()
-    }
-  }, 600_000)
+    }, 600_000)
+  })
+}
