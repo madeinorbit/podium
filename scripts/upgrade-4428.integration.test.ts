@@ -1122,20 +1122,13 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
         }
       }
 
-      // (5) the two rows drain through the gateway exactly once, in order.
-      //
-      // The reservation precedes every forward, and the drain forwards
-      // head-first awaiting each receipt — so row 1's owner flips strictly
-      // before row 2's, seconds apart (one verification window). Polling the
-      // owners at 1s observes that order directly; PTY bytes cannot (the
-      // resurrected grok sits at its restore screen, not a composer). Without
-      // a model turn there is no delivery proof, so the rows stay queued; the
-      // 30s quiet afterwards proves no second forward. A legacy retype would
-      // have deleted the rows instead — the 4427-reverted red detector.
+      // (5) Resurrect alone re-admits both old rows, in FIFO order. The daemon
+      // ACKs custody quickly, so timestamps may tie; its actual requested/queued
+      // telemetry proves order and one forward per row. Without a model turn no
+      // delivery is proved: both durable rows remain, including after 30s quiet.
       {
-        // The owner poll starts BEFORE the resurrect (both NULL guaranteed)
-        // at 250ms — the forwards land seconds apart (one verification
-        // window each), so the transition order is observed, not inferred.
+        // Observe pre-resurrect custody and poll the real durable owners while
+        // the resumed session binds. No fresh send is needed to kick the drain.
         let tRow1Set = 0
         let tRow2Set = 0
         const pollOwners = (): boolean => {
@@ -1155,22 +1148,7 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
         }
         if (pollOwners()) throw new Error('upgrade-4428: rows already reserved pre-resurrect')
         await newApi.sessions.resurrect.mutate({ sessionId: sQueue })
-        const eLive = await waitStatus(newApi, sQueue, 'live', 'resumed queue session')
-        expect(eLive?.driverId, '(5) resurrected session bound a driver').toBe('generic-pty')
-        // A live send returns its gateway receipt in-band: if the queued rows
-        // keep refusing, the reason prints here instead of hiding in a log.
-        {
-          const probe = (await newApi.sessions.sendText.mutate({
-            sessionId: sQueue,
-            text: 'up4428-live-probe',
-          })) as any
-          console.log(`upgrade-4428 live-send receipt: ${JSON.stringify(probe)?.slice(0, 400)}`)
-        }
-        // The owner poll runs CONCURRENTLY with the live-wait: the justBound
-        // drain starts at bind, possibly before live is visible, and both
-        // reserves would land before a sequential poll ever starts. At 250ms
-        // against ~5s-apart forwards, the transition order is observed.
-        await Promise.all([
+        const [eLive] = await Promise.all([
           waitStatus(newApi, sQueue, 'live', 'resumed queue session'),
           (async () => {
             const deadline = Date.now() + 120_000
@@ -1184,26 +1162,9 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
             }
           })(),
         ])
+        expect(eLive?.driverId, '(5) resurrected session bound a driver').toBe('generic-pty')
         expect(tRow1Set, '(5) row 1 reserved').toBeGreaterThan(0)
         expect(tRow2Set, '(5) row 2 reserved').toBeGreaterThan(0)
-        // NOTE: no timestamp order here — the daemon ACKs custody in
-        // milliseconds (reserves land in the same poll tick by design); the
-        // FIFO order is proven by the telemetry line order below instead.
-        // The daemon ACKed custody per turn ('queued' receipts) and owes the
-        // async delivery while grok stays non-idle: its per-turn telemetry
-        // must name each row id exactly once (requested + queued), in FIFO
-        // order. A duplicate forward would double a row's lines.
-        {
-          const out = newDaemon?.output(100_000) ?? ''
-          const id1 = `qmsg_up4428_${sQueue.slice(0, 8)}_1`
-          const id2 = `qmsg_up4428_${sQueue.slice(0, 8)}_2`
-          const count = (s: string, sub: string): number => s.split(sub).length - 1
-          const detail = `daemon tail:\n${out.slice(-4000)}`
-          expect(count(out, id1), `(5) row 1 telemetry lines\n${detail}`).toBe(2)
-          expect(count(out, id2), `(5) row 2 telemetry lines\n${detail}`).toBe(2)
-          expect(out.indexOf(id1) < out.indexOf(id2), `(5) telemetry FIFO\n${detail}`).toBe(true)
-          expect(out, `(5) custody ACKs logged\n${detail}`).toContain('prompt_queued')
-        }
         const db = openDb()
         try {
           const rows = db.all(
@@ -1226,6 +1187,24 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
           db.close()
         }
         await sleep(30_000)
+        // NOTE: no timestamp order here — the daemon ACKs custody in
+        // milliseconds (reserves land in the same poll tick by design); the
+        // FIFO order is proven by the telemetry line order below instead.
+        // The daemon ACKed custody per turn ('queued' receipts) and owes the
+        // async delivery while grok stays non-idle: its per-turn telemetry
+        // must name each row id exactly once (requested + queued), in FIFO
+        // order. A duplicate forward would double a row's lines.
+        {
+          const out = newDaemon?.output(100_000) ?? ''
+          const id1 = `qmsg_up4428_${sQueue.slice(0, 8)}_1`
+          const id2 = `qmsg_up4428_${sQueue.slice(0, 8)}_2`
+          const count = (s: string, sub: string): number => s.split(sub).length - 1
+          const detail = `daemon tail:\n${out.slice(-4000)}`
+          expect(count(out, id1), `(5) row 1 telemetry lines\n${detail}`).toBe(2)
+          expect(count(out, id2), `(5) row 2 telemetry lines\n${detail}`).toBe(2)
+          expect(out.indexOf(id1) < out.indexOf(id2), `(5) telemetry FIFO\n${detail}`).toBe(true)
+          expect(out, `(5) custody ACKs logged\n${detail}`).toContain('prompt_queued')
+        }
         {
           const db = openDb()
           try {
