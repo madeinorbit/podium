@@ -9,14 +9,32 @@ import '@/index.css'
 import '@/styles.css'
 
 const scene = new URLSearchParams(location.search).get('state') ?? 'managed'
-const kind = scene === 'shared' ? 'opencode' : 'codex'
-const managed = ['managed', 'both', 'shared', 'installing'].includes(scene)
+const kind = scene === 'shared' ? 'opencode' : scene === 'prerequisite' ? 'claude-code' : 'codex'
+const managed = ['managed', 'both', 'shared', 'installing', 'prerequisite'].includes(scene)
 const own = ['own', 'own-too-old', 'both', 'shared'].includes(scene)
-const current = kind === 'codex' ? '0.171.0' : '1.19.6'
+const current = { codex: '0.171.0', opencode: '1.19.6', 'claude-code': '2.1.311' }[kind]
+const homeVariable = {
+  codex: 'CODEX_HOME',
+  opencode: undefined,
+  'claude-code': 'CLAUDE_CONFIG_DIR',
+}[kind]
 const agent: AgentInventory = {
   kind,
   installed: managed || own,
   login: { state: 'out' },
+  ...(scene === 'prerequisite'
+    ? {
+        missingPrerequisites: [
+          {
+            executable: 'bwrap',
+            package: 'bubblewrap',
+            neededFor: 'passed-in-credential' as const,
+            message:
+              'Claude Code needs bubblewrap (bwrap) on Linux to run on a credential Podium passes in. It was not found on PATH. Install the bubblewrap package (for example: sudo apt-get install bubblewrap), then start the session again.',
+          },
+        ],
+      }
+    : {}),
   ...(own
     ? {
         path: `/person/bin/${kind}`,
@@ -25,7 +43,7 @@ const agent: AgentInventory = {
     : {}),
   management: {
     installable: scene !== 'shared',
-    ...(kind === 'codex' ? { homeVariable: 'CODEX_HOME' } : {}),
+    ...(homeVariable ? { homeVariable } : {}),
     ...(kind === 'codex' && managed
       ? { updateNotice: 'Codex updates its own server; a session may move to that newer server.' }
       : {}),

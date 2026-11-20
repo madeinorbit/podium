@@ -502,6 +502,8 @@ function installDescription(agent: AgentInventory): string {
     )
   if (managed?.previousVersion) lines.push(`  Can go back to ${managed.previousVersion}`)
   if (managed && agent.management?.updateNotice) lines.push(`  ${agent.management.updateNotice}`)
+  for (const prerequisite of agent.missingPrerequisites ?? [])
+    lines.push(`  ${prerequisite.message}`)
   if (managed?.latest) lines.push(`  Latest stable seen: ${managed.latest}`)
   if (agent.install?.ledgerRebuilt)
     lines.push('  Podium rebuilt its install ledger from the release folders.')

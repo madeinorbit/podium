@@ -60,20 +60,23 @@ try {
       'both',
       'shared',
       'installing',
+      'prerequisite',
     ]) {
       const page = await browser.newPage({ viewport: { width: 1100, height: 540 } })
       const errors: string[] = []
       page.on('pageerror', (error) => errors.push(error.message))
       await page.goto(`http://127.0.0.1:55658/harness/managed-installs.html?state=${state}`)
       try {
-        await page.locator(`[data-harness-state="${state}"]`).waitFor()
+        await page
+          .locator(`[data-harness-state="${state === 'prerequisite' ? 'managed' : state}"]`)
+          .waitFor()
       } catch (error) {
         throw new Error(`${state}: ${String(error)}\n${errors.join('\n')}\n${logs}`)
       }
       await page.evaluate(() => document.fonts.ready)
       await page.screenshot({ path: join(out, `${state}.png`), fullPage: true })
       if (errors.length) throw new Error(errors.join('\n'))
-      if (['both', 'shared'].includes(state)) {
+      if (['both', 'shared', 'prerequisite'].includes(state)) {
         await page.setViewportSize({ width: 390, height: 820 })
         await page.screenshot({ path: join(out, `${state}-phone.png`), fullPage: true })
       }
@@ -82,7 +85,7 @@ try {
   } finally {
     await browser.close()
   }
-  console.log(`Captured all seven managed harness states in ${out}`)
+  console.log(`Captured all seven managed harness states and missing prerequisites in ${out}`)
 } finally {
   server.kill('SIGTERM')
 }
