@@ -915,12 +915,14 @@ export function createMachineSupervisorConnection(
             const reply = (estimate: UpdateSpaceEstimate): void => {
               try {
                 if (socket !== active || !connected || resolveServerUrl() !== grantServerUrl) return
-                active.send(JSON.stringify({
-                  ...estimate,
-                  type: 'updateSpaceResult',
-                  requestId: message.requestId,
-                  targetFingerprint: message.targetFingerprint,
-                }))
+                active.send(
+                  JSON.stringify({
+                    ...estimate,
+                    type: 'updateSpaceResult',
+                    requestId: message.requestId,
+                    targetFingerprint: message.targetFingerprint,
+                  }),
+                )
               } catch {
                 // A preview disappearing with its socket needs no recovery.
               }
@@ -933,7 +935,9 @@ export function createMachineSupervisorConnection(
               void Promise.resolve()
                 .then(() => checkSpace(message))
                 .then(reply, () => reply(unknownUpdateSpace('Space could not be verified.')))
-                .finally(() => { spaceCheckInFlight = false })
+                .finally(() => {
+                  spaceCheckInFlight = false
+                })
             }
           } else if (message.type === 'serviceAssignment') {
             if (deps.acceptAssignment?.(message.assignment) === false) return
