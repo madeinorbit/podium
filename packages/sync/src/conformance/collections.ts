@@ -1149,6 +1149,88 @@ export function describeCollectionStore(instantiation: SyncInstantiation): void 
         for (const spec of [LIVE, SIDEBAR, STUBS]) expect(marked(cache, spec)).toBe(true)
         expectMarkersTrue(cache, server)
       })
+
+      describe('device reload audit', () => {
+        it.fails('keeps the whole issue from a tree first opened while its kind reload starts', async () => {
+          const server = deviceServer()
+          const { cache, replica } = await boot(instantiation, server)
+          const spec = tree('D2')
+          expect(partOf(cache, ISSUE, 'D2')).toBe('stub')
+          expect(marked(cache, spec)).toBe(false)
+
+          const gate = barrier()
+          server.gate = gate.promise
+          server.kindTokens = { ...server.kindTokens, issueProjection: 'v2' }
+          const fetchesBefore = server.fetches.length
+          const opening = replica.load([spec])
+          try {
+            await until(() => server.fetches.length > fetchesBefore)
+            replica.observeKindTokens(server.kindTokens)
+            await until(() => replica.instanceStale(SIDEBAR))
+          } finally {
+            gate.release()
+          }
+          await opening
+          await replica.settled()
+
+          expect(marked(cache, spec)).toBe(true)
+          expect(cache.readKindTokens()).toEqual(server.kindTokens)
+          expect(partOf(cache, ISSUE, 'D2')).toBe('main')
+        })
+
+        it.fails('reloads the companion kind before certifying its token from a newer answer', async () => {
+          const server = deviceServer()
+          const stateId = `${PRINCIPAL}\nS2`
+          server.put('sessionUserState', stateId, { userId: PRINCIPAL, sessionId: 'S2', readAt: null })
+          const { cache, replica, storage } = await boot(instantiation, server)
+          expect(cache.read('sessionUserState', stateId)?.value).toMatchObject({ readAt: null })
+          const collections = server.collections.bind(server)
+          server.collections = async function* (requests) {
+            for await (const chunk of collections(requests)) {
+              yield {
+                ...chunk,
+                changes: chunk.changes.map((change) =>
+                  change.entity === 'sessionUserState' && change.entityId === stateId
+                    ? { ...change, payload: { userId: PRINCIPAL, sessionId: 'S2', readAt: RECENTLY } }
+                    : change,
+                ),
+              }
+            }
+          }
+
+          replica.observeKindTokens({ ...server.kindTokens, machineAccess: 'v2' })
+          server.kindTokens = { ...server.kindTokens, machineAccess: 'v2', sessionUserState: 'v2' }
+          replica.observeKindTokens(server.kindTokens)
+          await replica.settled()
+          replica.disconnect()
+
+          const restarted = kernelOver(storage, server)
+          restarted.replica.connect()
+          restarted.replica.observeKindTokens(server.kindTokens)
+          await restarted.replica.settled()
+          expect(restarted.cache.readKindTokens()).toEqual(server.kindTokens)
+          expect(restarted.cache.read('sessionUserState', stateId)?.value).toMatchObject({
+            readAt: RECENTLY,
+          })
+        })
+
+        it.fails('records an updated token for an on-demand kind the device has never held', async () => {
+          const server = deviceServer()
+          server.kindTokens = { ...server.kindTokens, workflowRun: 'v1' }
+          const { cache, replica } = await boot(instantiation, server)
+          const fetchesBefore = server.fetches.length
+          server.kindTokens = { ...server.kindTokens, workflowRun: 'v2' }
+
+          replica.observeKindTokens(server.kindTokens)
+          await replica.settled()
+          replica.observeKindTokens(server.kindTokens)
+          await replica.settled()
+
+          expect(server.bootstraps).toBe(1)
+          expect(server.fetches).toHaveLength(fetchesBefore)
+          expect(cache.readKindTokens()?.workflowRun).toBe('v2')
+        })
+      })
     })
 
     // ─── The feed-apply table, one case per row ───────────────────────────────
