@@ -44,7 +44,11 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { deliveryOverlay, memoryMarkers, SessionAccessStore } from '../control/access'
 import type { DaemonContext } from '../control/context'
 import { planTomlTablesReplace, tomlTablesUnder } from '../harness-home-toml'
-import { buildSessionHarnessContext } from '../session-harness-context'
+import {
+  buildSessionHarnessContext,
+  recordedSessionHarnessContext,
+} from '../session-harness-context'
+import { sessionInstallRow } from '../session-installs'
 import { testHarnessSnapshot } from '../test-support/harness-snapshot'
 import { prepareConversation } from './conversation'
 import { FILLED_RECORD, fillPodiumHome } from './fill'
@@ -271,6 +275,51 @@ describe('which home a session runs in (§4.2, §4.3)', () => {
       'grok',
     )
     expect(access.homeIdOf(sessionId, { managedInstall: () => true })).toBeUndefined()
+  })
+})
+
+describe('re-attach after a restart follows the recorded install (§6.2)', () => {
+  /** The daemon restarted: the session's process lives on, its row says what it runs. */
+  async function reattach(
+    harness: BuiltinHarnessKind,
+    startedManaged: boolean,
+    nowManaged: boolean,
+  ) {
+    const access = new SessionAccessStore({ markers: memoryMarkers() })
+    const sessionId = await sessionOn(access, harness, 'api-key')
+    const started = await buildSessionHarnessContext(
+      contextSource(access, snapshot(startedManaged)),
+      harness,
+      sessionId,
+    )
+    const row = sessionInstallRow(sessionId, started.installation)
+    const ctx = {
+      ...contextSource(access, snapshot(nowManaged)),
+      sessionInstalls: { get: (id: SessionId) => (id === sessionId ? row : undefined) },
+    } as unknown as DaemonContext
+    return { started, again: await recordedSessionHarnessContext(ctx, sessionId, harness) }
+  }
+
+  it.each([
+    'claude-code',
+    'codex',
+  ] as const)('%s: started in the person’s folder, a managed install appeared since: still the person’s folder', async (harness) => {
+    const { started, again } = await reattach(harness, false, true)
+    expect(started.harnessHome).toBeUndefined()
+    expect(again?.harnessHome).toBeUndefined()
+    expect(again?.installation.executable).toBe(PERSON_BIN[harness])
+  })
+
+  it.each([
+    'claude-code',
+    'codex',
+  ] as const)('%s: started in the Podium home on Podium’s install: the Podium home, whatever the inventory says now', async (harness) => {
+    for (const nowManaged of [true, false]) {
+      const { started, again } = await reattach(harness, true, nowManaged)
+      expect(started.harnessHome?.id).toBe(podiumHomeId(harness))
+      expect(again?.harnessHome?.id).toBe(podiumHomeId(harness))
+      expect(again?.installation.executable).toBe(MANAGED_BIN[harness])
+    }
   })
 })
 
