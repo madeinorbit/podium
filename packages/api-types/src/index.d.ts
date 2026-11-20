@@ -5914,6 +5914,7 @@ type Output_machines_applyUpdate = {
                         paused: boolean;
                         previousVersion?: string | undefined;
                         removingAt?: string | undefined;
+                        vendorUpdated?: boolean | undefined;
                     };
                 };
                 installed: boolean | null;
@@ -6099,6 +6100,7 @@ type Output_machines_uninstall = {
                         paused: boolean;
                         previousVersion?: string | undefined;
                         removingAt?: string | undefined;
+                        vendorUpdated?: boolean | undefined;
                     };
                 };
                 installed: boolean | null;

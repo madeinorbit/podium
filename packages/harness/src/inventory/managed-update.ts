@@ -8,7 +8,7 @@
  *   - is newer than the current release,
  *   - is at or above the harness's minimum,
  *   - is not on the rejected list,
- *   - and updates are not paused for that harness.
+ *   - and updates are not paused or left to the vendor for that harness.
  *
  * Otherwise nothing changes but the check's record. Updates do not wait for
  * the machine to be idle: an install fills a new folder and moves a record,

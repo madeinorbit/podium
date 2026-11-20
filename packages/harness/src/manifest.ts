@@ -805,10 +805,9 @@ export interface HarnessInstallPorts extends HarnessCheckPorts {
  * (`inventory/managed-install.ts`) runs the same steps for every harness: lock,
  * staging folder, this `install`, outside checks, receipt, rename, publish.
  *
- * Declared `supported` only when all three hold: a release can be placed
- * completely inside a folder Podium picks; the harness's own updater changes
- * nothing outside Podium's folders; and `--version` prints the release's version.
- * A release whose updater cannot be stopped reports `updater: 'cannot-stop'`:
+ * Declared `supported` when a release can be placed completely inside a folder
+ * Podium picks and `--version` prints the release's version. The adapter stops
+ * the vendor updater, or reports `updater: 'cannot-stop'` for that release:
  * Podium installs it once and leaves future updates to the vendor (§12, decision 13).
  */
 export interface HarnessInstall {
