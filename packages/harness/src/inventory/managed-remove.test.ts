@@ -89,12 +89,45 @@ describe('managed removal', () => {
     finishPendingRemovals(dir)
     expect(existsSync(release)).toBe(false)
     expect(readManagedInstalls(dir).harnesses.size).toBe(0)
+    const removed = InstallLedger.open({ harnessesDir: dir })
+    try {
+      expect(() =>
+        removed.recordSessionInstall({
+          sessionId,
+          kind: 'codex',
+          executable: join(release, 'codex'),
+          version: '0.171.0',
+          provenance: 'managed',
+          release: 1,
+        }),
+      ).toThrow('being removed')
+    } finally {
+      removed.close()
+    }
   })
 })
 
 it('migrates the first ledger schema without losing an explicit request', () => {
   const ledger = InstallLedger.open({ harnessesDir: dir })
   ledger.requestInstall('codex', 'machine-setup')
+  const session = {
+    sessionId,
+    kind: 'codex' as const,
+    executable: '/person/codex',
+    version: '0.171.0',
+    provenance: 'external' as const,
+    release: null,
+  }
+  ledger.recordSessionInstall(session)
+  ledger.recordHomeEdit({
+    harness: 'codex',
+    file: '/person/.codex/rules/podium.rules',
+    edit: { kind: 'owned-file', sha256: 'a'.repeat(64) },
+    prior: { absent: true },
+    serves: 'podium-cli',
+    appliedAt: '2026-11-20T00:00:00Z',
+  })
+  const edits = ledger.homeEdits('codex')
   const path = ledger.path
   ledger.close()
   const legacy = openDatabase(path)
@@ -109,6 +142,8 @@ it('migrates the first ledger schema without losing an explicit request', () => 
     expect(upgraded.get('codex')?.requested.by).toBe('machine-setup')
     expect(upgraded.get('codex')?.removingAt).toBeUndefined()
     expect(upgraded.rebuilt()).toBeUndefined()
+    expect(upgraded.sessionInstall(sessionId)).toEqual(session)
+    expect(upgraded.homeEdits('codex')).toEqual(edits)
   } finally {
     upgraded.close()
   }

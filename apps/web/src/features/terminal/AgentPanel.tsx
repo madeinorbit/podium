@@ -23,6 +23,7 @@ import {
 } from '@/features/credentials/session/RefusedLaunchBanner'
 import { SessionCredentialChip } from '@/features/credentials/session/SessionCredentialChip'
 import { SessionCredentialNotice } from '@/features/credentials/session/SessionCredentialNotice'
+import { InstallCurrentHarness } from './InstallCurrentHarness'
 import { SessionLoginBar } from './SessionLoginBar'
 
 export { effectivePanelMode, effectivePanelMode as initialPanelMode, type PanelMode }
@@ -1067,7 +1068,12 @@ export const AgentPanel = observer(function AgentPanel({
                 sessionId={sessionId}
                 exitCode={session.exitCode}
                 spawnFailure={session.spawnFailure}
-                firstPrompt={optimisticFirstPrompt}
+                installRecovery={
+                  <InstallCurrentHarness
+                    sessionId={sessionId}
+                    firstPrompt={optimisticFirstPrompt}
+                  />
+                }
                 isShell={session.agentKind === 'shell'}
                 resumable={session.resumable === true}
                 {...(session.neverBound ? { neverBound: true as const } : {})}
@@ -1096,7 +1102,9 @@ export const AgentPanel = observer(function AgentPanel({
             sessionId={sessionId}
             exitCode={session.exitCode}
             spawnFailure={session.spawnFailure}
-            firstPrompt={optimisticFirstPrompt}
+            installRecovery={
+              <InstallCurrentHarness sessionId={sessionId} firstPrompt={optimisticFirstPrompt} />
+            }
             isShell={session.agentKind === 'shell'}
             resumable={session.resumable === true}
             {...(session.neverBound ? { neverBound: true as const } : {})}

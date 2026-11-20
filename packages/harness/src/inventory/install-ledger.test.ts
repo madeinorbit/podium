@@ -463,6 +463,7 @@ describe('rejected releases, sessions and home edits', () => {
 
   it('records and removes the install each running session uses', () => {
     const ledger = openLedger()
+    ledger.requestInstall('claude-code', 'person')
     const sessionId = 'ses_1' as SessionId
     ledger.recordSessionInstall({
       sessionId,

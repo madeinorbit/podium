@@ -1,7 +1,6 @@
 import { useCommands } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { Trpc } from '@/app/trpc'
-import { InstallCurrentHarness } from './InstallCurrentHarness'
 /**
  * THE READ-ONLY SURFACES (POD-408) — what a `parked` or `ended` panel shows,
  * and the bar a live CLI shows when its machine is offline (POD-4629).
@@ -130,7 +129,7 @@ type ExitedProps = Pick<
   'sessionId' | 'exitCode' | 'spawnFailure' | 'resumable' | 'neverBound'
 > & {
   isShell: boolean
-  firstPrompt?: string
+  installRecovery?: JSX.Element
 }
 
 function exitedAction(p: ExitedProps): { detail: string; action: LifecycleAction } {
@@ -157,7 +156,7 @@ export function ExitedPane(props: ExitedProps): JSX.Element {
       <p className="m-0 max-w-[42ch] text-[13px] text-muted-foreground">
         {detail} {action.hint}
       </p>
-      <InstallCurrentHarness sessionId={props.sessionId} firstPrompt={props.firstPrompt} />
+      {props.installRecovery}
       <LifecycleButton
         action={action}
         sessionId={props.sessionId}
@@ -187,7 +186,7 @@ export function ExitedBanner(props: ExitedProps & { waking?: boolean }): JSX.Ele
         <RotateCcw size={13} strokeWidth={1.7} />
       </span>
       <span className="pane-state-bar-copy">{detail} Transcript is read-only.</span>
-      <InstallCurrentHarness sessionId={props.sessionId} firstPrompt={props.firstPrompt} />
+      {props.installRecovery}
       <LifecycleButton
         action={action}
         sessionId={props.sessionId}

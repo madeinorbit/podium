@@ -544,7 +544,8 @@ export class InstallLedger {
 
   recordSessionInstall(row: SessionInstall): void {
     this.writeAtomically(() => {
-      if (row.provenance === 'managed' && (!this.get(row.kind) || this.get(row.kind)?.removingAt))
+      const managed = row.provenance === 'managed' ? this.get(row.kind) : undefined
+      if (row.provenance === 'managed' && (!managed || managed.removingAt))
         throw new Error(
           `Podium's install of ${row.kind} is being removed; start again after removal.`,
         )

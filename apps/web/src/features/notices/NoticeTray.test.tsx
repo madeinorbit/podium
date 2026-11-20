@@ -18,6 +18,7 @@ const h = vi.hoisted(() => ({
     setOpenIssueId: vi.fn(),
     navigateToSession: vi.fn(),
     setView: vi.fn(),
+    openMachineSettings: vi.fn(),
   },
   markRead: vi.fn(async () => {}),
   markAll: vi.fn(async () => {}),
@@ -144,6 +145,23 @@ describe('NoticeTray', () => {
     expect(h.markRead).toHaveBeenCalledTimes(1)
     expect(h.markRead).toHaveBeenCalledWith(h.actions.trpc, 'b')
     expect(read).toBeTruthy()
+  })
+
+  it('opens a machine install notice at that machine’s settings', () => {
+    pool.apply({
+      type: 'replace',
+      rows: [
+        row('machine', {
+          subjectKind: 'machine',
+          subjectId: 'machine-1',
+          subjectAnchor: undefined,
+        }),
+      ],
+    })
+    render(<NoticeTray />)
+    fireEvent.click(screen.getByTestId('notice-tray'))
+    fireEvent.click(screen.getByTestId('notice-row'))
+    expect(h.actions.openMachineSettings).toHaveBeenCalledWith('machine-1')
   })
 
   it('"Mark all read" asks the server, and the count clears when the reads arrive', () => {

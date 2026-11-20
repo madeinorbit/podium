@@ -5,7 +5,6 @@ import { type JSX, useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 import { color, font, leading, mono, radius, sans, space } from '../theme/theme'
 import { Icon } from './Icon'
-import { PhoneInstallCurrentHarness } from './InstallCurrentHarness'
 import { Moon, RotateCcw } from './icons'
 import { PressableScale } from './PressableScale'
 
@@ -158,11 +157,13 @@ export function MobileSessionLifecycle({
   hasTranscript,
   onResume,
   onRemove,
+  installRecovery,
 }: {
   session: Pick<
     SessionMeta,
     'sessionId' | 'status' | 'exitCode' | 'spawnFailure' | 'agentKind' | 'resumable' | 'neverBound'
   >
+  installRecovery?: JSX.Element
   hasTranscript: boolean
   onResume: (sessionId: SessionMeta['sessionId']) => Promise<SessionResurrectionResult>
   onRemove: (sessionId: SessionMeta['sessionId']) => Promise<void>
@@ -189,7 +190,7 @@ export function MobileSessionLifecycle({
       <View style={styles.pane} testID="lifecycle-pane">
         <Icon as={parked ? Moon : RotateCcw} size={28} color={color.accentTint} />
         <Text style={styles.paneCopy}>{parked ? action.hint : `${detail} ${action.hint}`}</Text>
-        {!parked && <PhoneInstallCurrentHarness sessionId={session.sessionId} />}
+        {!parked && installRecovery}
         <LifecycleButton
           action={action}
           session={session}
@@ -224,7 +225,7 @@ export function MobileSessionLifecycle({
           `${detail} Transcript is read-only.`
         )}
       </Text>
-      {!parked && <PhoneInstallCurrentHarness sessionId={session.sessionId} />}
+      {!parked && installRecovery}
       <LifecycleButton
         action={action}
         session={session}

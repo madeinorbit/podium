@@ -67,6 +67,14 @@ let records: SessionInstallRecords
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), 'podium-session-installs-'))
   harnessesDir = join(root, 'harnesses')
+  // Synthetic managed contexts still need the ownership row a real install creates.
+  const ledger = InstallLedger.open({ harnessesDir })
+  try {
+    ledger.requestInstall('codex', 'person')
+    ledger.requestInstall('claude-code', 'person')
+  } finally {
+    ledger.close()
+  }
   records = ledgerSessionInstalls(harnessesDir)
 })
 afterEach(() => rmSync(root, { recursive: true, force: true }))
