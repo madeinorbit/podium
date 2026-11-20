@@ -68,6 +68,7 @@ export {
   InstallLedgerTooNewError,
   InstallLockLostError,
   LEDGER_FILE,
+  NothingToGoBackToError,
 } from './inventory/install-ledger.js'
 export type { ReadReceiptResult, ReleaseFolder } from './inventory/install-receipt.js'
 export {
@@ -109,6 +110,24 @@ export {
   vendorOriginsFromEnv,
 } from './inventory/managed-install.js'
 export { managedInstallsReader, readManagedInstalls } from './inventory/managed-installs.js'
+export type {
+  CheckForUpdateOptions,
+  CheckForUpdateResult,
+  GoBackOptions,
+  GoBackResult,
+  NoUpdateReason,
+  SetUpdatesPausedOptions,
+  SetUpdatesPausedResult,
+  UpdateDecision,
+  UpdateDecisionInput,
+} from './inventory/managed-update.js'
+export {
+  checkForUpdate,
+  compareHarnessVersions,
+  decideUpdate,
+  goBackRelease,
+  setUpdatesPaused,
+} from './inventory/managed-update.js'
 export type { ReleaseArchiveFormat } from './inventory/release-archive.js'
 export { extractReleaseFile, releaseArchiveMember } from './inventory/release-archive.js'
 export type { AccountReadScope, QuotaFetcher } from './inventory/usage.js'

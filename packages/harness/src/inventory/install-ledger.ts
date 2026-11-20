@@ -179,6 +179,17 @@ export class InstallLockLostError extends Error {
   }
 }
 
+/** Going back was asked for, but there is no published previous release. Nothing was written. */
+export class NothingToGoBackToError extends Error {
+  constructor(
+    readonly kind: BuiltinHarnessKind,
+    readonly reason: string,
+  ) {
+    super(`${kind} has nothing to go back to: ${reason}`)
+    this.name = 'NothingToGoBackToError'
+  }
+}
+
 /** The database was written by a newer Podium. It is left untouched. */
 export class InstallLedgerTooNewError extends Error {
   constructor(
@@ -414,6 +425,48 @@ export class InstallLedger {
            WHERE kind = ?`,
       ).run(number, kind)
       return this.require(kind)
+    })
+  }
+
+  /**
+   * A person goes back (§5.6): the previous release becomes current, and the
+   * version that was current goes on the rejected list so no check brings it
+   * straight back. One transaction, only while `lock` is held, and only when
+   * the previous folder is still a published release. Nothing is left to go
+   * back to afterwards (`previous` is cleared); housekeeping deletes the
+   * rejected folder once no session runs on it.
+   *
+   * With {@link publishRelease}, the only write that moves `current`.
+   */
+  revertToPrevious(
+    kind: BuiltinHarnessKind,
+    lock: InstallLock,
+    reason: string,
+  ): { row: ManagedInstall; rejected?: string } {
+    return this.withLock(lock, () => {
+      const row = this.require(kind)
+      if (row.previous == null)
+        throw new NothingToGoBackToError(kind, 'there is no previous release')
+      const previous = this.releaseFolder(kind, row.previous)
+      if (!previous?.receipt)
+        throw new NothingToGoBackToError(
+          kind,
+          `release ${row.previous} is not a published folder: ${previous?.invalid ?? 'no such folder'}`,
+        )
+      const current = row.current == null ? undefined : this.releaseFolder(kind, row.current)
+      const rejected = current?.receipt?.version ?? current?.version
+      if (rejected !== undefined && rejected !== previous.receipt.version)
+        this.sql(
+          `INSERT INTO rejected_release (kind, version, reason, at) VALUES (?, ?, ?, ?)
+             ON CONFLICT(kind, version) DO UPDATE SET reason = excluded.reason, at = excluded.at`,
+        ).run(kind, rejected, reason, this.isoNow())
+      this.sql('UPDATE managed_install SET current = previous, previous = NULL WHERE kind = ?').run(
+        kind,
+      )
+      return {
+        row: this.require(kind),
+        ...(rejected !== undefined && rejected !== previous.receipt.version ? { rejected } : {}),
+      }
     })
   }
 
