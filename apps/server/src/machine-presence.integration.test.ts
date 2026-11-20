@@ -82,7 +82,7 @@ describe('machine presence (live server, real daemon socket)', () => {
   }
 
   async function expectOfflineAfterGrace(): Promise<void> {
-    await expect.poll(async () => (await listing()).availability.daemon).toBe(false)
+    await expect.poll(async () => (await listing()).availability?.daemon).toBe(false)
     expect((await listing()).online).toBe(true)
     const afterGrace = Date.now() + MACHINE_PRESENCE_GRACE_MS + 1
     const clock = vi.spyOn(Date, 'now').mockReturnValue(afterGrace)

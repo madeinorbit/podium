@@ -49,6 +49,7 @@ import {
   CAP_TERMINAL_OUTPUT_BINARY_V1,
   CLIENT_WIRE_VERSION,
   decodeBinaryEnvelope,
+  type FeedChange,
   PtyOutputBinaryMetadata,
   type ServerMessage,
 } from '@podium/protocol'
@@ -116,14 +117,7 @@ describe('a daemon reattach storm', () => {
   async function connectClient(port: number) {
     const frames: ServerMessage[] = []
     const sessions = new Map<string, { status?: string }>()
-    const apply = (
-      changes: readonly {
-        entity: string
-        entityId: string
-        op: string
-        value?: { status?: string }
-      }[],
-    ) => {
+    const apply = (changes: readonly FeedChange[]) => {
       for (const change of changes) {
         if (change.entity !== 'session') continue
         if (change.op === 'upsert' && change.value) sessions.set(change.entityId, change.value)

@@ -271,7 +271,8 @@ function referenceDeck(
     if (interaction.status === 'asked')
       pending.set(interaction.sessionId, (pending.get(interaction.sessionId) ?? 0) + 1)
   for (const row of full) {
-    const coordinated = coordinatorLive(bySession.get(row.issue.coordinatorSessionId ?? ''))
+    const coordinatorId = row.issue.coordinatorSessionId
+    const coordinated = coordinatorLive(coordinatorId ? bySession.get(coordinatorId) : undefined)
     const verdict = (session: ReferenceState['sessions'][number]) =>
       coordinatedSeat(
         session,

@@ -454,7 +454,7 @@ export function createRuntimeWorklistPool(
     // this pool's effects with the feed bound to judge them by.
     attached = handle
     runInAction(() => {
-      release = runtime.attachPool(handle.pool, () => dispose())
+      release = runtime.attachPool(phasePool, () => dispose())
       transactions.bind(rows)
     })
     handle.pool.attachTransactions(transactions, true)
