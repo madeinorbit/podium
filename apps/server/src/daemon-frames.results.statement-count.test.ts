@@ -43,12 +43,6 @@ interface Fixture {
 
 /** `size` bound sessions, the first on an issue. */
 async function fixture(size: number): Promise<Fixture> {
-  const result = await settledOperation(() => seedFixture(size))
-  await settle(result.reg)
-  return result
-}
-
-async function seedFixture(size: number): Promise<Fixture> {
   const store = await openTestStore(':memory:')
   const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   await attachHostDaemon(reg, () => {}, { repos: ['/repo'] })
@@ -62,19 +56,23 @@ async function seedFixture(size: number): Promise<Fixture> {
   const ids: SessionId[] = []
   for (let i = 0; i < size; i++) {
     const cwd = i === 0 ? '/repo/w' : `/other/w${i}`
-    const { sessionId } = await reg.modules.sessions.createSession({
-      agentKind: 'shell',
-      cwd,
-      ...(i === 0 ? { issueId: issue.id } : {}),
-    })
-    await reg.gateway.routeDaemonFrame(host, {
-      type: 'bind',
-      sessionId,
-      cmd: 'sh',
-      cwd,
-      agentKind: 'shell',
-      geometry: { cols: 80, rows: 24 },
-    } as never)
+    const { sessionId } = await settledOperation(() =>
+      reg.modules.sessions.createSession({
+        agentKind: 'shell',
+        cwd,
+        ...(i === 0 ? { issueId: issue.id } : {}),
+      }),
+    )
+    await settledOperation(() =>
+      reg.gateway.routeDaemonFrame(host, {
+        type: 'bind',
+        sessionId,
+        cmd: 'sh',
+        cwd,
+        agentKind: 'shell',
+        geometry: { cols: 80, rows: 24 },
+      } as never),
+    )
     ids.push(sessionId)
   }
   await settle(reg)

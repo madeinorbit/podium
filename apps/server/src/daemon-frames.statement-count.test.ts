@@ -121,31 +121,29 @@ interface Fixture {
 
 /** `size` bound codex sessions; on the app-server contract driver when `contract`. */
 async function fixture(size: number, contract = false): Promise<Fixture> {
-  const result = await settledOperation(() => seedFixture(size, contract))
-  await settle(result.reg)
-  return result
-}
-
-async function seedFixture(size: number, contract: boolean): Promise<Fixture> {
   const store = await openTestStore(':memory:')
   const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   await attachHostDaemon(reg, () => {})
   await quietShipping(reg)
   const ids: SessionId[] = []
   for (let i = 0; i < size; i++) {
-    const { sessionId } = await reg.modules.sessions.createSession({
-      agentKind: 'codex',
-      cwd: `/w${i}`,
-    })
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
-      type: 'bind',
-      sessionId,
-      cmd: 'codex',
-      cwd: `/w${i}`,
-      agentKind: 'codex',
-      geometry: { cols: 80, rows: 24 },
-      ...(contract ? { driverId: 'codex-app-server' } : {}),
-    } as never)
+    const { sessionId } = await settledOperation(() =>
+      reg.modules.sessions.createSession({
+        agentKind: 'codex',
+        cwd: `/w${i}`,
+      }),
+    )
+    await settledOperation(() =>
+      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+        type: 'bind',
+        sessionId,
+        cmd: 'codex',
+        cwd: `/w${i}`,
+        agentKind: 'codex',
+        geometry: { cols: 80, rows: 24 },
+        ...(contract ? { driverId: 'codex-app-server' } : {}),
+      } as never),
+    )
     ids.push(sessionId)
   }
   await settle(reg)

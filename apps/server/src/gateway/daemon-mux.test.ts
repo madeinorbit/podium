@@ -100,8 +100,10 @@ describe('the routing table', () => {
     const discovery = new Promise<void>((resolve) => {
       release = resolve
     })
-    ports.conversations.onDiscovery = vi.fn(() => discovery)
-    ports.rpc.settleDaemonReply = vi.fn()
+    const onDiscovery = vi.fn(() => discovery)
+    const settleDaemonReply = vi.fn()
+    ports.conversations = { ...ports.conversations, onDiscovery }
+    ports.rpc = { ...ports.rpc, settleDaemonReply }
     const frame = sampleFrame('scanResult')
     let completed = false
     const routed = muxWith(ports)

@@ -31,12 +31,6 @@ interface Fixture {
 
 /** `size` bound Claude Code sessions, and `size` other machines in the fleet. */
 async function fixture(size: number): Promise<Fixture> {
-  const result = await settledOperation(() => seedFixture(size))
-  await settle(result.reg)
-  return result
-}
-
-async function seedFixture(size: number): Promise<Fixture> {
   const store = await openTestStore(':memory:')
   const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   await attachHostDaemon(reg, () => {})
@@ -54,18 +48,22 @@ async function seedFixture(size: number): Promise<Fixture> {
   }
   const ids: SessionId[] = []
   for (let i = 0; i < size; i++) {
-    const { sessionId } = await reg.modules.sessions.createSession({
-      agentKind: 'claude-code',
-      cwd: `/w${i}`,
-    })
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
-      type: 'bind',
-      sessionId,
-      cmd: 'claude',
-      cwd: `/w${i}`,
-      agentKind: 'claude-code',
-      geometry: { cols: 80, rows: 24 },
-    } as never)
+    const { sessionId } = await settledOperation(() =>
+      reg.modules.sessions.createSession({
+        agentKind: 'claude-code',
+        cwd: `/w${i}`,
+      }),
+    )
+    await settledOperation(() =>
+      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+        type: 'bind',
+        sessionId,
+        cmd: 'claude',
+        cwd: `/w${i}`,
+        agentKind: 'claude-code',
+        geometry: { cols: 80, rows: 24 },
+      } as never),
+    )
     ids.push(sessionId)
   }
   await settle(reg)

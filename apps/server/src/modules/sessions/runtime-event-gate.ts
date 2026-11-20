@@ -9,7 +9,7 @@ import {
   type RuntimeEventCheckpoint,
   type RuntimeEventLogRecord,
 } from '../../store/events'
-import { withOwnOperation } from '../../store/executor/operation-scope'
+import { holdOperation, withOwnOperation } from '../../store/executor/operation-scope'
 import type { SessionDurableState } from './session'
 
 const log = createLogger('server:runtime-event-gate')
@@ -605,9 +605,10 @@ export class RuntimeEventGate {
   }
 
   private async scheduleBoardProjection(): Promise<void> {
-    void this.replayBoardProjection().catch((err) => {
+    const projection = this.replayBoardProjection().catch((err) => {
       log.warn('runtime board projection paused before cursor advance', { err })
     })
+    holdOperation(projection)
   }
 
   private async drainBoardProjection(progress: ProjectionProgress): Promise<void> {
@@ -681,14 +682,19 @@ export class RuntimeEventGate {
     if (restoringState) {
       const { seq: _oldSequence, ...before } = current.cursor.components
       const { seq: _newSequence, ...after } = event.cursor.components
-      if (compareProviderCursor(
-        { ...current.cursor, components: before },
-        { ...event.cursor, components: after },
-      ) === 'incomparable') return { kind: 'rejected', reason: 'unproven-segment-rotation' }
+      if (
+        compareProviderCursor(
+          { ...current.cursor, components: before },
+          { ...event.cursor, components: after },
+        ) === 'incomparable'
+      )
+        return { kind: 'rejected', reason: 'unproven-segment-rotation' }
       // Only the driver's sequence restarts. Provider evidence cannot go backwards
       // inside the same file/segment under a fresh observer lease.
-      if (current.cursor.segmentId === event.cursor.segmentId &&
-          Object.entries(before).some(([key, value]) => (after[key] ?? 0) < value)) {
+      if (
+        current.cursor.segmentId === event.cursor.segmentId &&
+        Object.entries(before).some(([key, value]) => (after[key] ?? 0) < value)
+      ) {
         return { kind: 'rejected', reason: 'cursor-not-after-checkpoint' }
       }
       if (event.turnEpoch < current.turnEpoch)
