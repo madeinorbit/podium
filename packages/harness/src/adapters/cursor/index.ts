@@ -14,7 +14,7 @@ import { cursorCatalog } from './catalog.js'
 import { cursorCredentials } from './credentials.js'
 import { cursorDescriptor } from './descriptor.js'
 import { createCursorConversationProvider } from './discovery.js'
-import { cursorInstall } from './install.js'
+import { cursorInstall, cursorManagedInstall } from './install.js'
 import { cursorPosture } from './posture.js'
 import { cursorStateProvider, observeCursorState } from './state.js'
 import { cursorTranscript } from './transcript.js'
@@ -87,9 +87,7 @@ export const cursorManifest: AgentManifest = {
   credentials: cursorCredentials,
   usage: cursorUsage,
   install: cursorInstall,
-  managedInstall: unsupported(
-    'Not yet ported to managed installs: Podium has no unattended Cursor installer to build on',
-  ),
+  managedInstall: supported(cursorManagedInstall),
 
   posture: cursorPosture,
   launch(opts) {

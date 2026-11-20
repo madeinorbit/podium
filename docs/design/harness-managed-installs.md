@@ -361,7 +361,7 @@ export interface InstalledRelease {
   executable: string
   /** What proved the download. */
   integrity:
-    | { kind: 'sha256'; digest: string; publishedAt: string }
+    | { kind: 'sha256'; digest: string; publishedAt?: string }
     | { kind: 'none'; reason: string }
 }
 ```

@@ -710,7 +710,7 @@ export interface HarnessRelease {
 
 /** What proved a download. */
 export type ReleaseIntegrityProof =
-  | { kind: 'sha256'; digest: string; publishedAt: string }
+  | { kind: 'sha256'; digest: string; publishedAt?: string }
   | { kind: 'none'; reason: string }
 
 /** What an adapter's `install` put into its folder. */

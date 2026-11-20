@@ -23,7 +23,7 @@ export const ReleaseIntegrity = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('sha256'),
     digest: z.string().regex(/^[0-9a-f]{64}$/),
-    publishedAt: z.string(),
+    publishedAt: z.string().optional(),
   }),
   z.object({ kind: z.literal('none'), reason: z.string().min(1) }),
 ])
