@@ -94,6 +94,29 @@ const sampleFrame = (type: DaemonMessage['type']): DaemonMessage =>
 const PRINCIPAL: MachinePrincipal = inProcessMachinePrincipal(asMachineId('m1'))
 
 describe('the routing table', () => {
+  it('retains scan discovery completion while settling its RPC reply immediately', async () => {
+    const { ports } = fakePorts()
+    let release!: () => void
+    const discovery = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    ports.conversations.onDiscovery = vi.fn(() => discovery)
+    ports.rpc.settleDaemonReply = vi.fn()
+    const frame = sampleFrame('scanResult')
+    let completed = false
+    const routed = muxWith(ports)
+      .routeDaemonFrame(PRINCIPAL, frame)
+      .then(() => {
+        completed = true
+      })
+    expect(ports.rpc.settleDaemonReply).toHaveBeenCalledWith(PRINCIPAL.machine, frame)
+    await Promise.resolve()
+    expect(completed).toBe(false)
+    release()
+    await routed
+    expect(completed).toBe(true)
+  })
+
   it('names an owning port for EVERY frame in the ADR 7 daemon inventory', () => {
     // The compile-time `satisfies` proves the table is total over the union; this
     // proves it is total over the INVENTORY too, so a frame classified in ADR 7

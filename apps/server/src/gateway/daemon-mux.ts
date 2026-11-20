@@ -184,13 +184,14 @@ const DISPATCH: Dispatcher = {
   // conversation discovery and the reply to an RPC. Order matters and is the
   // table's, not a send site's.
   scanResult: (ports, principal, msg) => {
-    ports.conversations.onDiscovery(
+    const discovered = ports.conversations.onDiscovery(
       principal.machine,
       msg.conversations,
       msg.diagnostics,
       msg.removed,
     )
     ports.rpc.settleDaemonReply(principal.machine, msg)
+    return discovered
   },
 
   // ---- RPC replies: ONE correlator, and it is told WHO answered ----

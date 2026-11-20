@@ -141,7 +141,7 @@ export interface ConversationsDaemonPort {
     conversations: ConversationDiscoveryWire[],
     diagnostics: ConversationDiagnosticWire[],
     removed?: string[],
-  ): void
+  ): void | Promise<void>
   onTranscriptMirrorResult(machineId: MachineId, msg: DaemonFrame<'transcriptMirrorResult'>): void
   triggerLakeSweep(machineId: MachineId): void
 }

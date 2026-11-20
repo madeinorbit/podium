@@ -23,11 +23,29 @@
 
 import { expect } from 'vitest'
 import {
+  currentOperation,
+  type OperationScope,
+  withOwnOperation,
+} from '../store/executor/operation-scope'
+import {
   probeStatements,
   type StatementObservation,
   type StatementProbeHolder,
 } from '../store/executor/statement-probe'
 import { type TestStoreEngine, testStoreEngine } from './pg-test-database'
+
+/** Finish the operation's retained bus/commit work, not a fixed number of ticks. */
+export async function settledOperation<T>(run: () => T | Promise<T>): Promise<T> {
+  let operation: OperationScope | undefined
+  try {
+    return await withOwnOperation(() => {
+      operation = currentOperation()
+      return run()
+    })
+  } finally {
+    await operation?.whenSettled()
+  }
+}
 
 /** What one operation ran. */
 export interface StatementTally {

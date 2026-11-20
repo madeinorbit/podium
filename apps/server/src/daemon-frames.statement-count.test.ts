@@ -18,6 +18,7 @@ import {
   quietShipping,
   type StatementPin,
   type StatementTally,
+  settledOperation,
 } from './test-support/statement-count'
 
 // RE-PINNED AFTER C1 (POD-6183; measured per commit on the polaris VM). Each
@@ -120,6 +121,12 @@ interface Fixture {
 
 /** `size` bound codex sessions; on the app-server contract driver when `contract`. */
 async function fixture(size: number, contract = false): Promise<Fixture> {
+  const result = await settledOperation(() => seedFixture(size, contract))
+  await settle(result.reg)
+  return result
+}
+
+async function seedFixture(size: number, contract: boolean): Promise<Fixture> {
   const store = await openTestStore(':memory:')
   const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   await attachHostDaemon(reg, () => {})
@@ -151,14 +158,15 @@ async function fixture(size: number, contract = false): Promise<Fixture> {
  * setup can fire inside the counted window at one size and not the other.
  */
 async function settle(reg: SessionRegistry): Promise<void> {
-  for (let i = 0; i < 20; i++) await new Promise((resolve) => setImmediate(resolve))
-  await reg.modules.sessions.flushBroadcasts()
-  await new Promise((resolve) => setTimeout(resolve, 20))
-  for (let i = 0; i < 20; i++) await new Promise((resolve) => setImmediate(resolve))
+  await reg.changeLedger.authority.settled()
+  await settledOperation(() => reg.modules.sessions.flushBroadcasts())
+  await reg.changeLedger.authority.settled()
 }
 
 const route = async (f: Fixture, frame: unknown) => {
-  await f.reg.gateway.routeDaemonFrame(f.reg.sessionStore.hostMachineId, frame as never)
+  await settledOperation(() =>
+    f.reg.gateway.routeDaemonFrame(f.reg.sessionStore.hostMachineId, frame as never),
+  )
   await settle(f.reg)
 }
 

@@ -48,6 +48,9 @@ export interface OperationScope {
   readonly id: number
   /** This owner's memo for the rest of the operation, created on first ask. */
   slot<T>(key: OperationSlotKey<T>): T
+  /** Await outside the operation body: its held reactions have all finished.
+   *  A hold reaching the lifetime limit rejects rather than claiming completion. */
+  whenSettled(): Promise<void>
 }
 
 /** How long held work may keep an operation open after its function settled. */
@@ -88,6 +91,8 @@ export function holdOperation(work: PromiseLike<unknown>): void {
 
 function openOperation(): OpenOperation {
   const slots = new Map<OperationSlotKey<unknown>, unknown>()
+  let completion: Promise<void> | undefined
+  let complete: (() => void) | undefined
   const operation: OpenOperation = {
     id: nextOperationId++,
     ended: false,
@@ -98,9 +103,24 @@ function openOperation(): OpenOperation {
       // Work left running still holds the scope through its async context;
       // dropping the memos here keeps them from living as long as that work.
       slots.clear()
+      complete?.()
+    },
+    whenSettled() {
+      // Normal ingress never needs this barrier, so allocate only when asked.
+      if (!completion) {
+        completion = new Promise<void>((resolve, reject) => {
+          complete = () => {
+            if (operation.held === 0) resolve()
+            else reject(new Error('operation exceeded its held-work lifetime'))
+          }
+          if (operation.ended) complete()
+        })
+      }
+      return completion
     },
     slot<T>(key: OperationSlotKey<T>): T {
-      if (slots.has(key as OperationSlotKey<unknown>)) return slots.get(key as OperationSlotKey<unknown>) as T
+      if (slots.has(key as OperationSlotKey<unknown>))
+        return slots.get(key as OperationSlotKey<unknown>) as T
       const created = key.create()
       slots.set(key as OperationSlotKey<unknown>, created)
       return created

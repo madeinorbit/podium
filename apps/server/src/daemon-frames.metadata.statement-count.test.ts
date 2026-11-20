@@ -20,6 +20,7 @@ import {
   expectConstantStatements,
   quietShipping,
   type StatementPin,
+  settledOperation,
 } from './test-support/statement-count'
 
 interface Fixture {
@@ -30,6 +31,12 @@ interface Fixture {
 
 /** `size` bound Claude Code sessions, and `size` other machines in the fleet. */
 async function fixture(size: number): Promise<Fixture> {
+  const result = await settledOperation(() => seedFixture(size))
+  await settle(result.reg)
+  return result
+}
+
+async function seedFixture(size: number): Promise<Fixture> {
   const store = await openTestStore(':memory:')
   const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   await attachHostDaemon(reg, () => {})
@@ -67,14 +74,15 @@ async function fixture(size: number): Promise<Fixture> {
 
 /** Let unawaited bus reactions and the coalesced broadcast finish (as in daemon-frames). */
 async function settle(reg: SessionRegistry): Promise<void> {
-  for (let i = 0; i < 20; i++) await new Promise((resolve) => setImmediate(resolve))
-  await reg.modules.sessions.flushBroadcasts()
-  await new Promise((resolve) => setTimeout(resolve, 20))
-  for (let i = 0; i < 20; i++) await new Promise((resolve) => setImmediate(resolve))
+  await reg.changeLedger.authority.settled()
+  await settledOperation(() => reg.modules.sessions.flushBroadcasts())
+  await reg.changeLedger.authority.settled()
 }
 
 const route = async (f: Fixture, frame: unknown) => {
-  await f.reg.gateway.routeDaemonFrame(f.reg.sessionStore.hostMachineId, frame as never)
+  await settledOperation(() =>
+    f.reg.gateway.routeDaemonFrame(f.reg.sessionStore.hostMachineId, frame as never),
+  )
   await settle(f.reg)
 }
 

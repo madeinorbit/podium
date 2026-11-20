@@ -30,6 +30,7 @@ import {
   quietShipping,
   type StatementPin,
   type StatementTally,
+  settledOperation,
 } from './test-support/statement-count'
 
 interface Fixture {
@@ -42,6 +43,12 @@ interface Fixture {
 
 /** `size` bound sessions, the first on an issue. */
 async function fixture(size: number): Promise<Fixture> {
+  const result = await settledOperation(() => seedFixture(size))
+  await settle(result.reg)
+  return result
+}
+
+async function seedFixture(size: number): Promise<Fixture> {
   const store = await openTestStore(':memory:')
   const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   await attachHostDaemon(reg, () => {}, { repos: ['/repo'] })
@@ -75,14 +82,13 @@ async function fixture(size: number): Promise<Fixture> {
 }
 
 async function settle(reg: SessionRegistry): Promise<void> {
-  for (let i = 0; i < 20; i++) await new Promise((resolve) => setImmediate(resolve))
-  await reg.modules.sessions.flushBroadcasts()
-  await new Promise((resolve) => setTimeout(resolve, 20))
-  for (let i = 0; i < 20; i++) await new Promise((resolve) => setImmediate(resolve))
+  await reg.changeLedger.authority.settled()
+  await settledOperation(() => reg.modules.sessions.flushBroadcasts())
+  await reg.changeLedger.authority.settled()
 }
 
 const route = async (f: Fixture, frame: unknown) => {
-  await f.reg.gateway.routeDaemonFrame(f.host, frame as never)
+  await settledOperation(() => f.reg.gateway.routeDaemonFrame(f.host, frame as never))
   await settle(f.reg)
 }
 
