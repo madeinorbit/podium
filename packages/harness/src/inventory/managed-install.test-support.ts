@@ -12,6 +12,7 @@ import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { join } from 'node:path'
 import type { BuiltinHarnessKind } from '@podium/model'
+import { claudeVendorFixture } from '../adapters/claude-code/install.test-support.js'
 import { grokVendorFixture } from '../adapters/grok/install.test-support.js'
 import { opencodeVendorFixture } from '../adapters/opencode/install.test-support.js'
 import { piVendorFixture } from '../adapters/pi/install.test-support.js'
@@ -224,6 +225,7 @@ export const fakeVendorFixture: VendorFixture = {
  * fails, naming the harness, until it does.
  */
 export const MANAGED_INSTALL_VENDOR_FIXTURES: Partial<Record<BuiltinHarnessKind, VendorFixture>> = {
+  'claude-code': claudeVendorFixture,
   grok: grokVendorFixture,
   opencode: opencodeVendorFixture,
   pi: piVendorFixture,

@@ -76,6 +76,32 @@ const LEVELS = [
 
 describe('claudeCodePosture', () => {
   for (const mode of LAUNCH_MODES) {
+    it(`${mode}: disables the updater for a managed installation, preserving other launch terms`, () => {
+      const launch = { ...resumeLaunch, env: { KEEP: 'value', DISABLE_AUTOUPDATER: '0' } }
+      const external = claudeCodePosture(launch, request(mode, { mode: 'autonomous' }))
+      const managed = claudeCodePosture(
+        launch,
+        request(
+          mode,
+          { mode: 'autonomous' },
+          {
+            context: testHarnessContext({ kind: 'claude-code', home: HOME, provenance: 'managed' }),
+          },
+        ),
+      )
+      expect(managed).toEqual({
+        ...external,
+        launch: { ...external.launch, env: { ...external.launch.env, DISABLE_AUTOUPDATER: '1' } },
+      })
+      expect(external.launch.env.DISABLE_AUTOUPDATER).toBe('0')
+      expect(launch.env.DISABLE_AUTOUPDATER).toBe('0')
+    })
+
+    it(`${mode}: adds no updater switch for an external installation`, () => {
+      const out = claudeCodePosture(resumeLaunch, request(mode, { mode: 'autonomous' }))
+      expect(out.launch.env).not.toHaveProperty('DISABLE_AUTOUPDATER')
+    })
+
     for (const { posture, word } of LEVELS) {
       it(`${mode} / ${posture.mode as string}: --permission-mode ${word}, the rules, the trust key`, () => {
         const out = claudeCodePosture(resumeLaunch, request(mode, posture))

@@ -28,7 +28,7 @@ import { claudeConversationFile } from './conversation-file.js'
 import { claudeCredentials } from './credentials.js'
 import { claudeCodeDescriptor } from './descriptor.js'
 import { createClaudeCodeConversationProvider } from './discovery.js'
-import { claudeCodeInstall } from './install.js'
+import { claudeCodeInstall, claudeCodeManagedInstall } from './install.js'
 import {
   claudeCodeInstrumentation,
   configureClaudeTranscriptClassifier,
@@ -205,9 +205,7 @@ export const claudeCodeManifest: AgentManifest = {
   credentials: supported(claudeCredentials),
   usage: supported(claudeUsage),
   install: supported(claudeCodeInstall),
-  managedInstall: unsupported(
-    'Not yet ported to managed installs: the Claude Code harness task of the managed-installs phase writes it',
-  ),
+  managedInstall: supported(claudeCodeManagedInstall),
 
   posture: claudeCodePosture,
   launch(opts) {

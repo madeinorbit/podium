@@ -68,13 +68,14 @@ export function claudeCodePosture(launch: PostureLaunch, request: PostureRequest
     ...(mode !== null ? ['--permission-mode', mode] : []),
     ...allowRules(request.grants).map((rule) => `--allowedTools=${rule}`),
   ]
+  let env = launch.env
+  if (request.context.installation.provenance === 'managed')
+    env = { ...env, DISABLE_AUTOUPDATER: '1' }
+  if (request.mode === 'terminal') env = { ...env, CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY: '1' }
   return {
     launch: {
       args: optionArgs(launch.args, options),
-      env:
-        request.mode === 'terminal'
-          ? { ...launch.env, CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY: '1' }
-          : launch.env,
+      env,
       files: launch.files,
     },
     homeEdits: [trustEdit(request)],
