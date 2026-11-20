@@ -30,6 +30,8 @@ function daemon() {
   } as unknown as AgentSessionHandle
   const ctx = {
     agentRuntime: { handleFor: () => handle },
+    // This turn uses the machine's own login, so no credential overlay is needed.
+    access: { awaitAccess: async () => undefined },
     send: (msg: DaemonMessage) => void sent.push(msg),
   } as unknown as DaemonContext
   return { ctx, turns }

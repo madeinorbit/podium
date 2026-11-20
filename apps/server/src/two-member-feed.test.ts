@@ -21,6 +21,7 @@ import { fixtureWriteScope } from '@podium/sync/testing'
 
 import { asIssueId, asIssuePanelItemId, type IssueId, pinRowId } from '@podium/model'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { seedRows } from './test-support/seed-rows'
 import {
   changedIds,
   MEMBERS,
@@ -28,7 +29,6 @@ import {
   startTwoMemberInstance,
   type TwoMemberInstance,
 } from './test-support/two-member-instance'
-import { seedRows } from './test-support/seed-rows'
 
 let f: TwoMemberInstance
 
@@ -58,7 +58,11 @@ const finishedTaskOf = async (owner: 'alice' | 'bob', title: string): Promise<Is
     title,
     startNow: false,
   } as never)) as { id: string }
-  await f.handle.registry.issues.crud.update(f.handle.registry.issues.reports.store.serverWriter, created.id, { stage: 'done' })
+  await f.handle.registry.issues.crud.update(
+    f.handle.registry.issues.reports.store.serverWriter,
+    created.id,
+    { stage: 'done' },
+  )
   return asIssueId(created.id)
 }
 
@@ -148,12 +152,24 @@ describe('Bob’s feed and Bob’s view of a task never carry Alice’s per-user
     // Alice read it after its last activity, ten days before the sweep: on
     // her read alone the task is due. It is Bob's task, so her read decides nothing.
     const readAfterActivity = new Date(Date.now() + 1000).toISOString()
-    await seedRows(f.handle.registry.sessionStore, async () => await store.setIssueUserState(fixtureWriteScope(), MEMBERS.alice.id, id, { readAt: readAfterActivity }))
+    await seedRows(
+      f.handle.registry.sessionStore,
+      async () =>
+        await store.setIssueUserState(fixtureWriteScope(), MEMBERS.alice.id, id, {
+          readAt: readAfterActivity,
+        }),
+    )
     const later = Date.now() + 10 * 86_400_000
     expect((await issues.attention.sweepAutoArchive(later)).map((w) => w.id)).not.toContain(id)
     expect((await issues.reports.get(id))?.archived).toBe(false)
     // Bob's own read, the same moment, makes it due.
-    await seedRows(f.handle.registry.sessionStore, async () => await store.setIssueUserState(fixtureWriteScope(), MEMBERS.bob.id, id, { readAt: readAfterActivity }))
+    await seedRows(
+      f.handle.registry.sessionStore,
+      async () =>
+        await store.setIssueUserState(fixtureWriteScope(), MEMBERS.bob.id, id, {
+          readAt: readAfterActivity,
+        }),
+    )
     expect((await issues.attention.sweepAutoArchive(later)).map((w) => w.id)).toContain(id)
   })
 })
@@ -273,7 +289,8 @@ describe('MU-13: artifact entries and the rest of the event log, per member', ()
       expect(
         (await bobFeed.bootstrap()).issuePanelArtifacts
           .filter((record) => record.issueId === id)
-          .map((record) => record.path),
+          .map((record) => record.path)
+          .sort(),
       ).toEqual(['docs/shot.png', 'plan.md'])
       await bobFeed.until(() => changedIds(bobFeed.deltas(), 'issuePanelArtifact').length >= 2)
       for (const change of bobFeed.deltas()) {
