@@ -324,6 +324,7 @@ it('covers board model fields, filters, columns, nested positions and progress f
   await handle.pool.sources.ensure(ISSUE_BOARD_SOURCE_KEY, ISSUE_BOARD_ENTITIES, () =>
     createIssueBoardSource(handle.pool, runtime),
   )
+  const heldIssueIds = [...handle.pool.tables.issue.keys()].sort()
   try {
     for (const filter of [
       {},
@@ -346,6 +347,7 @@ it('covers board model fields, filters, columns, nested positions and progress f
           },
           truth,
         )
+        expect([...handle.pool.tables.issue.keys()].sort()).toEqual(heldIssueIds)
       }
     }
     expectBoard(
@@ -360,7 +362,7 @@ it('covers board model fields, filters, columns, nested positions and progress f
       },
       truth,
     )
-    expect(handle.pool.tables.issue.size).toBeLessThan(replica.rows('issueProjections').length)
+    expect([...handle.pool.tables.issue.keys()].sort()).toEqual(heldIssueIds)
   } finally {
     handle.dispose()
   }

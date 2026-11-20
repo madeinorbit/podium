@@ -119,6 +119,9 @@ const BROKER_SETTLED = (Object.keys(DAEMON_FRAME_PORTS) as DaemonMessage['type']
     const ports = DAEMON_FRAME_PORTS[type] as readonly string[]
     return (
       type !== 'scanResult' &&
+      // A loopback listener streams callbacks after its opening request has
+      // settled. RPC owns that stream, but it is not a broker settlement.
+      type !== 'oauthLoopbackCallback' &&
       (ports.every((port) => port === 'rpc') ||
         ['memoryBreakdownResult', 'reclaimDiskEstimateResult', 'transcriptMirrorResult'].includes(
           type,
