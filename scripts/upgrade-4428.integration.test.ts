@@ -623,6 +623,9 @@ async function attachCollector(
     } catch {}
   })
   ws.send(encode({ type: 'attach', sessionId } as any))
+  // Peers without pictures serve live bytes on attach. Ask the preserved PTY
+  // to repaint rather than treating replay of old login output as a contract.
+  ws.send(encode({ type: 'redrawRequest', sessionId } as any))
   return { text: () => text, close: () => ws.close() }
 }
 
