@@ -349,9 +349,11 @@ export function createPoolTransactions(ports: PoolTransactionsPorts): PoolTransa
       removeParked(entry.mutationId)
       const rows = rowsOf(reduce(entry))
       // Sending text paints no model, but a refused send belongs to its session.
-      if (entry.kind === 'sendText') {
-        const { sessionId } = entry.input as OutboxKinds['sendText']
-        rows.set(`session:${sessionId}`, { kind: 'session', id: sessionId })
+      // LEGACY(remove-after: 2027-03): parked renames from older queues still execute through the compatibility route; removing this drops their recovery row mark
+      if (entry.kind === 'sendText' || entry.kind === 'rename') {
+        const { sessionId } = entry.input as { sessionId?: unknown }
+        if (typeof sessionId === 'string')
+          rows.set(`session:${sessionId}`, { kind: 'session', id: sessionId })
       }
       parked.set(entry.mutationId, { entry, rows })
       for (const key of rows.keys()) notSavedRows.set(key, (notSavedRows.get(key) ?? 0) + 1)
