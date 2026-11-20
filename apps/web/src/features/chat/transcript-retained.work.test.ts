@@ -51,7 +51,7 @@ it('bounds warm web stream, append, prepend, query and cursor work at 1x/4x hist
     role: at % 4 === 0 ? 'user' : 'assistant',
     cursor: Buffer.from(JSON.stringify(['file', at, `item-${at}`, 0])).toString('base64url'),
     answer: at % 4 === 3,
-    text: at === 5 ? 'unique needle' : `Settled message ${at}`,
+    text: at === 5 ? 'unique needle' : `Settled message ${String(at).padStart(4, '0')}`,
   })
   const samples = []
   for (const scale of [1, 4]) {
@@ -112,11 +112,20 @@ it('bounds warm web stream, append, prepend, query and cursor work at 1x/4x hist
         await log.loadOlder()
         log.merge([item(items.length + 1)])
       })
+      // First query pays for the lazily built postings. Measure it separately;
+      // the next request reuses that same watched query and is genuinely warm.
+      const coldSearch = await count('retainedWeb.coldSearch', () =>
+        presentation.setQuery('needle'),
+      )
       const search = await count('retainedWeb.search', () => presentation.setQuery('needle'))
       const cursor = await count('retainedWeb.cursor', () => presentation.moveCursor(1))
       let verbosityResult: ReturnType<TranscriptComputeClient['computeGraph']> | undefined
+      // Hold the query fixed: withdrawing it also frees the retained postings,
+      // which is a different operation from a verbosity change.
       const verbosity = await count('retainedWeb.verbosity', () => {
-        verbosityResult = client.computeGraph(retainedSource!, '', 0, { verbosity: 'summary' })
+        verbosityResult = client.computeGraph(retainedSource!, 'needle', 0, {
+          verbosity: 'summary',
+        })
       })
       expect((await verbosityResult)!.search.total).toBe(0)
       expect(presentation.search.total).toBe(1)
@@ -129,6 +138,7 @@ it('bounds warm web stream, append, prepend, query and cursor work at 1x/4x hist
         incoming,
         older,
         coalesced,
+        coldSearch,
         search,
         cursor,
         verbosity,
@@ -141,6 +151,13 @@ it('bounds warm web stream, append, prepend, query and cursor work at 1x/4x hist
     }
   }
   console.log('[transcript-retained-web-work]', JSON.stringify(samples))
+  // Fixed-width fixture strings hold per-record text size constant while
+  // retained row count grows fourfold. A first index build may visit each row;
+  // it may not revisit the complete history for every row.
+  expect(samples[1]!.coldSearch.elements).toBeLessThanOrEqual(
+    samples[0]!.coldSearch.elements * 4 + 20,
+  )
+  expect(samples[1]!.coldSearch.visits).toBeLessThanOrEqual(samples[0]!.coldSearch.visits * 4 + 40)
   for (const name of [
     'stream',
     'incoming',
