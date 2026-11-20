@@ -68,6 +68,7 @@
  * process env afterwards. Child envs are built from the scrubbed set.
  */
 import { execFileSync, spawn } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import {
   closeSync,
   existsSync,
@@ -427,6 +428,28 @@ async function bootOldServer(baseDir: string, port: number): Promise<ProcHandle>
   return proc
 }
 
+/** Native history the real logged-out Grok CLI can resume without a model turn. */
+function seedGrokResume(cwd: string): string {
+  const id = randomUUID()
+  const directory = join(stateDir, 'agent-home', '.grok', 'sessions', encodeURIComponent(cwd), id)
+  mkdirSync(directory, { recursive: true })
+  const now = new Date().toISOString()
+  writeFileSync(
+    join(directory, 'summary.json'),
+    JSON.stringify({
+      info: { id, cwd },
+      session_summary: 'Upgrade resume fixture',
+      created_at: now,
+      updated_at: now,
+      num_chat_messages: 0,
+      git_remotes: [],
+    }),
+  )
+  writeFileSync(join(directory, 'chat_history.jsonl'), '')
+  writeFileSync(join(directory, 'updates.jsonl'), '')
+  return id
+}
+
 /** Kill and reboot the old server on the SAME port: the daemon reconnects
  *  transparently and live sessions reattach. Used to install SQL-seeded resume
  *  refs into the server's in-memory sessions (recovery rebuilds them from
@@ -694,9 +717,10 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
       // would carry (kind from the manifest's resumeKind). The PARK itself
       // (status flip, process kill, row shape) is the real old API, and the
       // NULL driver column is the documented old-row shape. Post-upgrade,
-      // resurrect spawns `grok --resume <ref>`; grok tolerates an unresolvable
-      // ref by staying alive (verified by hand), so the session genuinely
-      // returns to live with a driver.
+      // Resurrect spawns `grok --resume <ref>`. Current Grok refuses an
+      // invented ref, so seed the native summary/history files too. The real
+      // logged-out CLI can open that history at its sign-in screen; no model
+      // turn or credentials are needed to prove driver-bound resurrection.
       sHib = await createSession(oldApi, {
         agentKind: 'grok',
         cwd,
@@ -709,7 +733,7 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
           db.run(
             'UPDATE sessions SET resume_kind = ?, resume_value = ? WHERE id = ?',
             'grok-session',
-            `up4428-${sHib.slice(0, 8)}`,
+            seedGrokResume(cwd),
             sHib,
           )
         } finally {
@@ -745,7 +769,7 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
           db.run(
             'UPDATE sessions SET resume_kind = ?, resume_value = ? WHERE id = ?',
             'grok-session',
-            `up4428-${sQueue.slice(0, 8)}`,
+            seedGrokResume(cwd),
             sQueue,
           )
         } finally {
