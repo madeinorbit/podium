@@ -1151,6 +1151,74 @@ export function describeCollectionStore(instantiation: SyncInstantiation): void 
       })
 
       describe('device reload audit', () => {
+        it.fails('installs the restored epoch even when its snapshot sequence is lower', async () => {
+          const before = deviceServer()
+          before.put(ISSUE, 'A1', issue('A1', { title: 'Edited after the backup' }))
+          before.put(ISSUE, 'A9', issue('A9'))
+          const { storage, replica } = await boot(instantiation, before)
+          replica.disconnect()
+
+          const restored = Object.assign(deviceServer(), { epoch: 'restored-epoch' })
+          restored.changesRange = async () => ({ kind: 'bootstrap-required', reason: 'identity' })
+          expect(restored.head).toBeLessThan(before.head)
+          const opened = await boot(instantiation, restored, storage)
+          expect(opened.cache.readCursor()).toEqual(restored.cursorAt())
+          expect.soft(opened.cache.read(ISSUE, 'A1')?.value).toMatchObject({ title: 'Issue A1' })
+          expect(opened.cache.readRow(ISSUE, 'A9')).toBeUndefined()
+        })
+
+        it.fails('abandons an unfinished first download when its saved epoch has changed', async () => {
+          const server = deviceServer()
+          const storage = await instantiation.open()
+          // The first snapshot committed its initial chunk and was closed
+          // before the policy collections received their completion markers.
+          storage.viewFor(PRINCIPAL).cache.applyAtomic({
+            operations: [],
+            cursor: { ...server.cursorAt(), epoch: 'previous-epoch' },
+            kindTokens: server.kindTokens,
+            policy: server.policy,
+            loadingSince: server.head,
+          })
+          server.changesRange = async () => ({ kind: 'bootstrap-required', reason: 'identity' })
+
+          const { cache, replica } = await boot(instantiation, server, storage)
+          expect.soft(cache.readCursor()).toEqual(server.cursorAt())
+          expect.soft(cache.readLoadingSince()).toBeNull()
+          expect(replica.posture).toBe('live')
+        })
+
+        it.fails('admits notices when an upgrade adds them to the policy of an existing device', async () => {
+          const server = deviceServer()
+          const booted = await boot(instantiation, server)
+          const { cache, replica } = booted
+          server.policy = {
+            ...server.policy,
+            steps: [...server.policy.steps, { step: 'always', collections: ['inboxNotice.all'] }],
+          }
+          // The credential management migration introduced the notice kind
+          // while also bumping the session generation in each workspace.
+          server.kindTokens = { ...server.kindTokens, session: 'v2', inboxNotice: 'v1' }
+          replica.observeKindTokens(server.kindTokens)
+          await replica.settled()
+
+          const notice = {
+            noticeId: 'N1',
+            recipientUserId: PRINCIPAL,
+            kind: 'mention',
+            subjectKind: 'issue',
+            subjectId: 'A1',
+            title: 'Mentioned on an issue',
+            createdAt: RECENTLY,
+          }
+          const noticeId = `${PRINCIPAL}\n${notice.noticeId}`
+          server.put('inboxNotice', noticeId, notice)
+          await feed(booted, server)
+
+          expect(cache.readCursor()).toEqual(server.cursorAt())
+          expect(cache.readKindTokens()).toEqual(server.kindTokens)
+          expect(cache.read('inboxNotice', noticeId)?.value).toEqual(notice)
+        })
+
         it.fails('keeps the whole issue from a tree first opened while its kind reload starts', async () => {
           const server = deviceServer()
           const { cache, replica } = await boot(instantiation, server)

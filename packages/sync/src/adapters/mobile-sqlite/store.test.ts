@@ -159,6 +159,36 @@ describe('mobile SQLite adapter — store obligations', () => {
     erased.close()
   })
 
+  it.fails('device reload audit preserves offline writes after an interrupted version-1 migration', async () => {
+    const store = await open()
+    const queued = record('queued')
+    expect(
+      await store.viewFor(ADA).outbox.apply({
+        put: [queued],
+        expect: [{ mutationId: M, expect: 'absent' }],
+      }),
+    ).toEqual({ ok: true })
+    store.close()
+
+    // This is the layout if the process dies after ADD COLUMN part commits,
+    // before ADD COLUMN as_of and before the version stamp advances.
+    const raw = sqliteEngine.open(file)
+    try {
+      raw.exec(`ALTER TABLE ${ENTITY_TABLE} DROP COLUMN as_of`)
+      raw.exec(`DROP TABLE ${INDEX_TABLE}`)
+      raw.prepare(`UPDATE ${SCHEMA_VERSION_TABLE} SET version = 1 WHERE singleton = 1`).run()
+    } finally {
+      raw.close()
+    }
+
+    const reopened = await open()
+    try {
+      expect(await reopened.viewFor(ADA).outbox.read()).toEqual([queued])
+    } finally {
+      reopened.close()
+    }
+  })
+
   it('migrates a version-1 file in place: rows read whole, the outbox survives', async () => {
     expect(REPLICA_SCHEMA_VERSION).toBe(3)
     const store = await open()

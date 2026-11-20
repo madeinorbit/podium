@@ -9,9 +9,11 @@ import type { MutationId } from '@podium/model'
 import { actorUser, asUserId } from '@podium/model'
 import { IDBKeyRange } from 'fake-indexeddb'
 import { beforeEach, describe, expect, it } from 'vitest'
+import { CollectionServer, issue, WORLD_NOW } from '../../conformance/collection-server'
 import { policyBudgets } from '../../conformance/test-budgets'
 import type { OutboxRecord } from '../../outbox/records'
 import { INSTANCE_META_PREFIX, instanceKey } from '../../replica/cache-state'
+import { Replica } from '../../replica/replica'
 import type { Cursor } from '../../replica/types'
 import { SyncCommitConflict } from '../../span'
 import { indexedDbInstantiation } from './conformance'
@@ -252,6 +254,75 @@ describe('IndexedDbSyncStore', () => {
       await open(),
       await open(),
     ]
+
+    it.fails('device reload audit keeps a reshaped row after an older tab finishes a fetch', async () => {
+      const server = new CollectionServer()
+      server.kindTokens = { issueProjection: 'v1' }
+      server.put('issueProjection', 'D2', issue('D2', { stage: 'done', closedReason: 'completed' }))
+      const tree = { collection: 'issueProjection.tree', part: 'main', args: { root: 'D2' } } as const
+      const tabA = await open()
+      const cacheA = tabA.viewFor(PRINCIPAL).cache
+      const a = new Replica({ store: cacheA, authority: server, now: () => WORLD_NOW })
+      a.connect()
+      await a.settled()
+      await tabA.settled()
+      const tabB = await open()
+      const cacheB = tabB.viewFor(PRINCIPAL).cache
+      const b = new Replica({ store: cacheB, authority: server, now: () => WORLD_NOW })
+      const started = Promise.withResolvers<void>()
+      const release = Promise.withResolvers<void>()
+      try {
+        expect(cacheB.readRow('issueProjection', 'D2')?.part).toBe('stub')
+        await a.load([tree])
+        await a.settled()
+        const collections = server.collections.bind(server)
+        server.collections = (requests) => {
+          const answer = collections(requests)
+          started.resolve()
+          return answer
+        }
+        server.gate = release.promise
+        const older = b.load([tree])
+        await started.promise
+
+        server.gate = undefined
+        server.kindTokens = { issueProjection: 'v2' }
+        server.collections = async function* (requests) {
+          for await (const chunk of collections(requests)) {
+            yield {
+              ...chunk,
+              changes: chunk.changes.map((change) =>
+                change.entity === 'issueProjection' && change.entityId === 'D2'
+                  ? { ...change, payload: { ...(change.payload as object), title: 'New shape' } }
+                  : change,
+              ),
+            }
+          }
+        }
+        a.observeKindTokens(server.kindTokens)
+        await a.settled()
+        await tabA.settled()
+        expect(cacheA.read('issueProjection', 'D2')?.value).toMatchObject({ title: 'New shape' })
+
+        release.resolve()
+        await older
+        await b.settled()
+        await tabB.settled()
+        const reopened = await open()
+        try {
+          const cache = reopened.viewFor(PRINCIPAL).cache
+          expect(cache.readKindTokens()).toEqual(server.kindTokens)
+          const rows = await cache.readDiskRows(['issueProjection\u0000D2'])
+          expect(rows[0]?.value).toMatchObject({ title: 'New shape' })
+        } finally {
+          reopened.close()
+        }
+      } finally {
+        release.resolve()
+        tabB.close()
+        tabA.close()
+      }
+    })
 
     it('a stale precondition is refused at COMMIT, by a read the other tab’s mirror cannot answer', async () => {
       const seed = await open()
