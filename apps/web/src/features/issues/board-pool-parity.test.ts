@@ -166,7 +166,17 @@ function expectBoard(pool: MobxPool, options: BoardOptions, truth: Truth) {
   else {
     const shown = value.rows.flatMap((group) => group.rows)
     expect(value.listIds).toEqual(shown.map((row) => row.id))
-    const expectedShown = options.expanded.length ? active : roots
+    // Shipping has its own surface. A nested list uses the root's stage, so
+    // its descendants also belong there even when their own stage differs.
+    const expectedShown = (options.expanded.length ? active : roots).filter((row) => {
+      let root = row
+      const seen = new Set([row.id])
+      while (root.parentId && byId.has(root.parentId) && !seen.has(root.parentId)) {
+        root = byId.get(root.parentId)!
+        seen.add(root.id)
+      }
+      return (ISSUE_BOARD_STAGES as readonly string[]).includes(root.stage)
+    })
     expect(
       [...value.listIds].sort(),
       JSON.stringify({
