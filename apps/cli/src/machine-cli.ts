@@ -49,7 +49,13 @@ type Mutation = { mutate(input?: unknown): Promise<unknown> }
  */
 export interface MachineClient extends SyncSubmitTransport {
   harnessInstalls?: { action: { mutate(input: unknown): Promise<HarnessActionResult> } }
-  machines: { listWithRepos: Proc; reprobe: Mutation; adopt?: Mutation; supersede?: Mutation }
+  machines: {
+    list?: Proc
+    listWithRepos: Proc
+    reprobe: Mutation
+    adopt?: Mutation
+    supersede?: Mutation
+  }
 }
 
 interface FleetView {
@@ -295,7 +301,10 @@ export async function runMachineCli(
   const invalid = argumentError(argv)
   if (invalid) throw new MachineCliError(invalid)
 
-  const { machines, repos } = (await client.machines.listWithRepos.query()) as FleetView
+  const { machines, repos } =
+    argv[0] === 'installs' && client.machines.list
+      ? { machines: (await client.machines.list.query()) as MachineWire[], repos: [] as RepoRow[] }
+      : ((await client.machines.listWithRepos.query()) as FleetView)
   const json = argv.includes('--json')
 
   if (argv[0] === 'installs') {

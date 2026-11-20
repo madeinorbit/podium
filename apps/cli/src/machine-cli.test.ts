@@ -366,6 +366,16 @@ describe('explicit machine supersession', () => {
 })
 
 describe('machine installs verbs', () => {
+  it('uses the public machine projection for operator installs commands', async () => {
+    const client = fakeClient([ludovico])
+    client.machines.list = { query: async () => [ludovico] }
+    client.machines.listWithRepos = {
+      query: async () => {
+        throw new Error('relay-only proc')
+      },
+    }
+    expect(await runMachineCli(['installs', 'list', 'ludovico'], client)).toContain('your install')
+  })
   it('surfaces a failed daemon action as a CLI failure', async () => {
     const client = {
       ...fakeClient([ludovico]),

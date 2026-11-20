@@ -53,7 +53,7 @@ export const MachineHarnessRow = observer(function MachineHarnessRow({
   }
   return (
     <div className="py-4" data-harness-state={row.state}>
-      <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-2">
+      <div className="flex flex-col items-start justify-between gap-x-6 gap-y-2 sm:flex-row sm:flex-wrap">
         <div className="min-w-0 flex-1">
           <h4 className="text-sm font-medium text-foreground">{row.label}</h4>
           {row.ownLabel && <p className="settings-prose mt-1">{row.ownLabel}</p>}
@@ -98,6 +98,7 @@ export const MachineHarnessRow = observer(function MachineHarnessRow({
               type="button"
               variant={action === 'install' ? 'outline' : 'ghost'}
               size="xs"
+              className="min-h-11 sm:min-h-0"
               disabled={
                 !row.canAct ||
                 answer.loading ||
