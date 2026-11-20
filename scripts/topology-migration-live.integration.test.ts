@@ -312,6 +312,7 @@ describe('single-unit migration live kill matrix', () => {
         FIXTURE_SERVER_HEALTH_DELAY_MS: '1500',
       })
 
+      mkdirSync(runtimeDir, { recursive: true, mode: 0o700 })
       const operatorDropin = join(
         runtimeDir,
         'systemd',
@@ -466,6 +467,11 @@ describe('single-unit migration live kill matrix', () => {
         }
         if (phase === null || phase === 'after-all-legacy-stopped-before-remove') {
           expect(legacyUnits.filter((unit) => existsSync(join(unitDir, unit)))).toEqual([])
+          for (const unit of legacyUnits)
+            expect(
+              lstatSync(join(unitDir, 'default.target.wants', unit), { throwIfNoEntry: false }),
+              unit,
+            ).toBeUndefined()
           expect(
             legacyUnits.filter((unit) =>
               existsSync(join(runtimeDir, 'systemd', 'user.control', unit)),
