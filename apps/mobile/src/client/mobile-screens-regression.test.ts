@@ -207,7 +207,7 @@ async function compare(pool: MobxPool, store: Store, label: string, all: boolean
 // each gate its own test budget prevents a long corpus opening from timing out
 // unrelated gates, and names the scenario if a comparison stops progressing.
 for (const scale of [1, 4] as const) {
-  describe.sequential(`phone Tasks, Mission and Details at ${scale}x`, () => {
+  describe(`phone Tasks, Mission and Details at ${scale}x`, () => {
     let ctx: Awaited<ReturnType<typeof startScenarioEngine>>
     let feeds: ReturnType<typeof openFenceFeeds>
     let handle: ReturnType<typeof createWorklistPool>

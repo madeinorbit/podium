@@ -530,18 +530,18 @@
       "file": "apps/mobile/src/lib/mission-session.ts",
       "holder": "mostRelevantSession",
       "rule": "consume:sort",
-      "tokens": "e2bf790cb9693a8a43b02d2e26e851683d589b8d5e30d4d11fb1ecd4be5ac13a",
+      "tokens": "49d55b8196dc7599f900ceb770626adfb0d85b34b132252fcecba3ba923f3f35",
       "gate": [],
       "origin": [
         "5b33ef77a0d2f4739140b34f87311db8022a1f5f0e82479153e51863c1a98b77"
       ],
-      "fingerprint": "62fba40ca3bf6eb25b3a8fd450fcbe0f70ce1d7301394a6e4ef168b170e5a783",
+      "fingerprint": "04841b883a03d33abcd772b9c9abb8aae7aab0aa27f06c75beb65e7e91995cf5",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of mostRelevantSession",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:sort carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "consume:sort carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7196: The selector now reads canonical session fields when ranking the same supplied crew. Existing REQUIRED REPAIR remains; no corpus bound is invented.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -9781,7 +9781,7 @@
         "exit:then:5caadaba7cb74c3c8ee422e09d62192d72873493848e82050244477d5d1f372e",
         "exit:then:5c41bbdfccd93976a02d238277c51e6a943e8b68ca9a7e0917c709a1ef69d158",
         "exit:then:53cabceb4f6363d1c87f8e5f4e482480bb60c826bd44dcaab27de203e0aa31f8",
-        "exit:then:19919840636bd6b6fa217545069b07f0cf19e8aae36b4587db474b2cd27c3917",
+        "exit:then:c25609c342d3cccfbea0c89d3ee5df8ffa1b6fb23b7bef83bc1549b1cdddb791",
         "exit:then:b3936369a06b36560d470294eb32180add66f8b0d6af826dedc1e88619e15ea7",
         "exit:then:490592b68a5cd2ae3cfdf77b3461191ce737eeb09b3c0625c036173ce0ad6446",
         "exit:then:52aee1fd5824cbfe0ed41e12ba317f1fa35ab46ddf02f7b330b608a4667a2a0b",
@@ -9793,13 +9793,13 @@
         "5641f8f84581485a31d010b99e085652ec205d16df8e17343cb00db585a2e662",
         "a835815122562d1d0dd22a71ddbd055fbfba7f823cba8712a4b31941ff575f25"
       ],
-      "fingerprint": "92dceb730aa76d1db788cea1a8706984077c8f8ed47fd4708f748383b18c97cb",
+      "fingerprint": "f5b14433fa85db9a5307289f7428234b54a1dd9132f4f743f109aacca619073b",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Fixture sidebar projection over normalized synthetic issues (POD-5566)",
       "bound": "Test fixture collection; no production import caller. Exact taint remains monitored.",
-      "reason": "Test-only reference implementations changed to match addressed APIs. Conservative fixture taint retained, not a product regression or fixed runtime path.",
+      "reason": "Test-only reference implementations changed to match addressed APIs. Conservative fixture taint retained, not a product regression or fixed runtime path. POD-7196: The provider-free test adapter now uses canonical model and session-pane ports. Its synthetic record scans remain classified as REQUIRED REPAIR; no product bound or exemption is added.",
       "guard": "apps/web/src/features/worklist/SidebarUnified.search.test.tsx; exact fingerprint remains monitored."
     },
     {
@@ -9815,7 +9815,7 @@
         "exit:then:5caadaba7cb74c3c8ee422e09d62192d72873493848e82050244477d5d1f372e",
         "exit:then:5c41bbdfccd93976a02d238277c51e6a943e8b68ca9a7e0917c709a1ef69d158",
         "exit:then:53cabceb4f6363d1c87f8e5f4e482480bb60c826bd44dcaab27de203e0aa31f8",
-        "exit:then:19919840636bd6b6fa217545069b07f0cf19e8aae36b4587db474b2cd27c3917",
+        "exit:then:c25609c342d3cccfbea0c89d3ee5df8ffa1b6fb23b7bef83bc1549b1cdddb791",
         "exit:then:b3936369a06b36560d470294eb32180add66f8b0d6af826dedc1e88619e15ea7",
         "exit:then:490592b68a5cd2ae3cfdf77b3461191ce737eeb09b3c0625c036173ce0ad6446",
         "exit:then:52aee1fd5824cbfe0ed41e12ba317f1fa35ab46ddf02f7b330b608a4667a2a0b",
@@ -9827,13 +9827,13 @@
         "5641f8f84581485a31d010b99e085652ec205d16df8e17343cb00db585a2e662",
         "a835815122562d1d0dd22a71ddbd055fbfba7f823cba8712a4b31941ff575f25"
       ],
-      "fingerprint": "bcb3f361ce587a816438b338bd510e5d661826d092edd829e807d5756877d1e6",
+      "fingerprint": "5c6d87dc678ebd0ac93a02770e38621fffdd99cd12c1662d0617312c64a3e33f",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Fixture sidebar projection over normalized synthetic issues (POD-5566)",
       "bound": "Test fixture collection; no production import caller. Exact taint remains monitored.",
-      "reason": "Test-only reference implementations changed to match addressed APIs. Conservative fixture taint retained, not a product regression or fixed runtime path.",
+      "reason": "Test-only reference implementations changed to match addressed APIs. Conservative fixture taint retained, not a product regression or fixed runtime path. POD-7196: The provider-free test adapter now uses canonical model and session-pane ports. Its synthetic record scans remain classified as REQUIRED REPAIR; no product bound or exemption is added.",
       "guard": "apps/web/src/features/worklist/SidebarUnified.search.test.tsx; exact fingerprint remains monitored."
     },
     {
@@ -9849,7 +9849,7 @@
         "exit:then:5caadaba7cb74c3c8ee422e09d62192d72873493848e82050244477d5d1f372e",
         "exit:then:5c41bbdfccd93976a02d238277c51e6a943e8b68ca9a7e0917c709a1ef69d158",
         "exit:then:53cabceb4f6363d1c87f8e5f4e482480bb60c826bd44dcaab27de203e0aa31f8",
-        "exit:then:19919840636bd6b6fa217545069b07f0cf19e8aae36b4587db474b2cd27c3917",
+        "exit:then:c25609c342d3cccfbea0c89d3ee5df8ffa1b6fb23b7bef83bc1549b1cdddb791",
         "exit:then:b3936369a06b36560d470294eb32180add66f8b0d6af826dedc1e88619e15ea7",
         "exit:then:490592b68a5cd2ae3cfdf77b3461191ce737eeb09b3c0625c036173ce0ad6446",
         "exit:then:52aee1fd5824cbfe0ed41e12ba317f1fa35ab46ddf02f7b330b608a4667a2a0b",
@@ -9862,13 +9862,13 @@
         "5641f8f84581485a31d010b99e085652ec205d16df8e17343cb00db585a2e662",
         "a835815122562d1d0dd22a71ddbd055fbfba7f823cba8712a4b31941ff575f25"
       ],
-      "fingerprint": "e9e2073a37bdf2ab1013f2c07a7b177af22f5ab746a4e0f1d7e460f9e3f157d8",
+      "fingerprint": "66e4abb8f96e8b6a61ae12d3cd6edecb542f9195464714874a5bd6f541d293a8",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Fixture sidebar projection over normalized synthetic issues (POD-5566)",
       "bound": "Test fixture collection; no production import caller. Exact taint remains monitored.",
-      "reason": "Test-only reference implementations changed to match addressed APIs. Conservative fixture taint retained, not a product regression or fixed runtime path.",
+      "reason": "Test-only reference implementations changed to match addressed APIs. Conservative fixture taint retained, not a product regression or fixed runtime path. POD-7196: The provider-free test adapter now uses canonical model and session-pane ports. Its synthetic record scans remain classified as REQUIRED REPAIR; no product bound or exemption is added.",
       "guard": "apps/web/src/features/worklist/SidebarUnified.search.test.tsx; exact fingerprint remains monitored."
     },
     {
@@ -9882,7 +9882,7 @@
         "exit:then:5caadaba7cb74c3c8ee422e09d62192d72873493848e82050244477d5d1f372e",
         "exit:then:5c41bbdfccd93976a02d238277c51e6a943e8b68ca9a7e0917c709a1ef69d158",
         "exit:then:53cabceb4f6363d1c87f8e5f4e482480bb60c826bd44dcaab27de203e0aa31f8",
-        "exit:then:19919840636bd6b6fa217545069b07f0cf19e8aae36b4587db474b2cd27c3917",
+        "exit:then:c25609c342d3cccfbea0c89d3ee5df8ffa1b6fb23b7bef83bc1549b1cdddb791",
         "exit:then:b3936369a06b36560d470294eb32180add66f8b0d6af826dedc1e88619e15ea7",
         "exit:then:490592b68a5cd2ae3cfdf77b3461191ce737eeb09b3c0625c036173ce0ad6446",
         "exit:then:52aee1fd5824cbfe0ed41e12ba317f1fa35ab46ddf02f7b330b608a4667a2a0b",
@@ -9897,13 +9897,13 @@
         "5641f8f84581485a31d010b99e085652ec205d16df8e17343cb00db585a2e662",
         "a835815122562d1d0dd22a71ddbd055fbfba7f823cba8712a4b31941ff575f25"
       ],
-      "fingerprint": "e6521a3d37bf8619d01f2cd4b2804a7263e4ba2badab5521eed44ac2c085a8e1",
+      "fingerprint": "69d34070e03513aebf8b4499e2dc14332db21eec8efc9ed2bb6aee6e397be9c6",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Fixture sidebar projection over normalized synthetic issues (POD-5566)",
       "bound": "Test fixture collection; no production import caller. Exact taint remains monitored.",
-      "reason": "Test-only reference implementations changed to match addressed APIs. Conservative fixture taint retained, not a product regression or fixed runtime path.",
+      "reason": "Test-only reference implementations changed to match addressed APIs. Conservative fixture taint retained, not a product regression or fixed runtime path. POD-7196: The provider-free test adapter now uses canonical model and session-pane ports. Its synthetic record scans remain classified as REQUIRED REPAIR; no product bound or exemption is added.",
       "guard": "apps/web/src/features/worklist/SidebarUnified.search.test.tsx; exact fingerprint remains monitored."
     },
     {
@@ -9917,7 +9917,7 @@
         "exit:then:5caadaba7cb74c3c8ee422e09d62192d72873493848e82050244477d5d1f372e",
         "exit:then:5c41bbdfccd93976a02d238277c51e6a943e8b68ca9a7e0917c709a1ef69d158",
         "exit:then:53cabceb4f6363d1c87f8e5f4e482480bb60c826bd44dcaab27de203e0aa31f8",
-        "exit:then:19919840636bd6b6fa217545069b07f0cf19e8aae36b4587db474b2cd27c3917",
+        "exit:then:c25609c342d3cccfbea0c89d3ee5df8ffa1b6fb23b7bef83bc1549b1cdddb791",
         "exit:then:b3936369a06b36560d470294eb32180add66f8b0d6af826dedc1e88619e15ea7",
         "exit:then:490592b68a5cd2ae3cfdf77b3461191ce737eeb09b3c0625c036173ce0ad6446",
         "exit:then:52aee1fd5824cbfe0ed41e12ba317f1fa35ab46ddf02f7b330b608a4667a2a0b",
@@ -9931,13 +9931,13 @@
         "5641f8f84581485a31d010b99e085652ec205d16df8e17343cb00db585a2e662",
         "a835815122562d1d0dd22a71ddbd055fbfba7f823cba8712a4b31941ff575f25"
       ],
-      "fingerprint": "c7df5e7bb0747ce1976d3343af1737bb74be51a1bd655011b3f473c3c5ecb818",
+      "fingerprint": "0fbabad2e4cd962b68d8b76fa205ca1d862ea116edf1828d1589bccb1e2d58aa",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation or observation of useFixturePool/useMemo:callback/pool/sources/view/callback/worklist/sections/callback",
       "bound": "Test fixture collection; no production import caller. Exact taint remains monitored.",
-      "reason": "POD-5822 updates this existing reader to canonical direct fields. Its collection and caller bounds are unchanged; the existing REQUIRED REPAIR classification remains. Predecessor: 62781a2dee21f49ca90ac9d7c3c1e4b64f98c42a5c9e6bb330dea0787adf6d03.",
+      "reason": "POD-5822 updates this existing reader to canonical direct fields. Its collection and caller bounds are unchanged; the existing REQUIRED REPAIR classification remains. Predecessor: 62781a2dee21f49ca90ac9d7c3c1e4b64f98c42a5c9e6bb330dea0787adf6d03. POD-7196: The provider-free test adapter now uses canonical model and session-pane ports. Its synthetic record scans remain classified as REQUIRED REPAIR; no product bound or exemption is added.",
       "guard": "apps/web/src/features/worklist/SidebarUnified.search.test.tsx; exact fingerprint remains monitored."
     },
     {
@@ -27735,61 +27735,61 @@
       "file": "packages/client-graph/src/launch-records.ts",
       "holder": "LaunchRepository/worktrees",
       "rule": "consume:filter",
-      "tokens": "56e36a781cfdcba4d7fb3e4ea5959dc2b85e9cb4d1dbf0c7f51850f3f75dac76",
+      "tokens": "e32c8add3c77f12d64a86aa859123f2b9fe981ef4c105b464ced6fb7042aca38",
       "gate": [],
       "origin": [
         "d88bbfc360a35c0b9c3c725aadf2f7c7524220c513d3561b437bdd2e7cb087b3"
       ],
-      "fingerprint": "aec79a58816a97d91ee3a8c66ae86ae72102dd5347e9e19bae48909eea688c0c",
+      "fingerprint": "994e0f0d5035b46c5f7ed1b6ef2ef0d97cfe38a9dc66d761e9c930b6a8c171cd",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5870",
       "trigger": "An addressed repository companion resolves a launch placement or its branch.",
       "bound": "One indexed repository group and its declared nested worktrees, plus the current opening's pinned worktree IDs; no repository-wide search.",
-      "reason": "The existing header indexes select the group before this local traversal. Companions keep repository models and placement IDs, and read branch and repository facts live.",
+      "reason": "The existing header indexes select the group before this local traversal. Companions keep repository models and placement IDs, and read branch and repository facts live. POD-7196: The same repository-local header membership is filtered before mapping worktrees; canonical model field reads and refusal wording changed, not its collection.",
       "guard": "settings-launch-records.parity.test.ts compares grouping, pins and root/clone/nested placements with the original answer, including live origin changes; command-place-labels.test.tsx checks live branch/name and removal; speed:structural preserves its bounds."
     },
     {
       "file": "packages/client-graph/src/launch-records.ts",
       "holder": "LaunchRepository/worktrees/flatMap:callback",
       "rule": "consume:map",
-      "tokens": "bfdc38b4d2e08c22aed43b27341a32e8a8017aafae901f08d02b2b8e26f3bd0e",
+      "tokens": "ce35437b18a06ad4b195ba587f52f7a5066e4d0495b22feb1af36022fb2030f5",
       "gate": [],
       "origin": [
         "d88bbfc360a35c0b9c3c725aadf2f7c7524220c513d3561b437bdd2e7cb087b3"
       ],
-      "fingerprint": "39e4f202d5b2c4044668233888d6d68244a2a7bcf8024bb7a698fa8fb041d12a",
+      "fingerprint": "e89e28350a7afe02dc5fdb1d5535c34a1ce493677c57635464b94982069fcbf4",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5870",
       "trigger": "An addressed repository companion resolves a launch placement or its branch.",
       "bound": "One indexed repository group and its declared nested worktrees, plus the current opening's pinned worktree IDs; no repository-wide search.",
-      "reason": "The existing header indexes select the group before this local traversal. Companions keep repository models and placement IDs, and read branch and repository facts live.",
+      "reason": "The existing header indexes select the group before this local traversal. Companions keep repository models and placement IDs, and read branch and repository facts live. POD-7196: Maps the selected repository checkout group, with live canonical machine facts; the existing local bound is unchanged.",
       "guard": "settings-launch-records.parity.test.ts compares grouping, pins and root/clone/nested placements with the original answer, including live origin changes; command-place-labels.test.tsx checks live branch/name and removal; speed:structural preserves its bounds."
     },
     {
       "file": "packages/client-graph/src/launch-records.ts",
       "holder": "LaunchRepository/worktrees/flatMap:callback",
       "rule": "spread",
-      "tokens": "18a65db14c549356a7329daa5b5a962ed3ada94d16e44619c3ce4d6ee3cbb03e",
+      "tokens": "08175dc803bbf4cddabe54e5c9778a5189d4d5699d857f72b3e03532a8f50749",
       "gate": [],
       "origin": [
         "d88bbfc360a35c0b9c3c725aadf2f7c7524220c513d3561b437bdd2e7cb087b3"
       ],
-      "fingerprint": "ae03d0a0b0a0f619ab952ee54b26a301ecd2812f762272adc30f0fb9901dbcff",
+      "fingerprint": "0e7a2b6a603b55129f8b0924ab99b0f8cd227ec3ee1b322908a14d1cca37213e",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5870",
       "trigger": "An addressed repository companion resolves a launch placement or its branch.",
       "bound": "One indexed repository group and its declared nested worktrees, plus the current opening's pinned worktree IDs; no repository-wide search.",
-      "reason": "The existing header indexes select the group before this local traversal. Companions keep repository models and placement IDs, and read branch and repository facts live.",
+      "reason": "The existing header indexes select the group before this local traversal. Companions keep repository models and placement IDs, and read branch and repository facts live. POD-7196: Expands the same selected checkout group; canonical machine facts changed the enclosing provenance fingerprint, not the group.",
       "guard": "settings-launch-records.parity.test.ts compares grouping, pins and root/clone/nested placements with the original answer, including live origin changes; command-place-labels.test.tsx checks live branch/name and removal; speed:structural preserves its bounds."
     },
     {
       "file": "packages/client-graph/src/launch-records.ts",
       "holder": "LaunchTree/branch",
       "rule": "consume:find",
-      "tokens": "d84e2caea937cfc856612fede712a8213eb969e67b3fefbef5ad3f44e28ea440",
+      "tokens": "c89b80a77f1ea2d9c1a5b61be515d0b73a9bb5258f5af85757e94ccf2defd4cc",
       "gate": [
         "??:1479e911362be4e5148637c9f69ce58b1c0a44e8f6f13e1cf4d57b66be5971be",
         "else:825ec6308d16e73581b07d2ed3a865da04f07df970ea16e584d132605016603f"
@@ -27797,33 +27797,33 @@
       "origin": [
         "c6278aaac490c74b3753557bd64bb182196722215a6eb8fddbd8a849c8a9fce9"
       ],
-      "fingerprint": "80ac4869ef1f4522cc77ab6b7be5a6fa34bdbdfe11688cf34cae960db41c5b1b",
+      "fingerprint": "ca4bbda6002b6d9d6a151ec6f3d2498a0bd1b8e0becdf920eb3c9fbde2760614",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5870",
       "trigger": "An addressed repository companion resolves a launch placement or its branch.",
       "bound": "One indexed repository group and its declared nested worktrees, plus the current opening's pinned worktree IDs; no repository-wide search.",
-      "reason": "The existing header indexes select the group before this local traversal. Companions keep repository models and placement IDs, and read branch and repository facts live.",
+      "reason": "The existing header indexes select the group before this local traversal. Companions keep repository models and placement IDs, and read branch and repository facts live. POD-7196: Finds the named branch inside this repository checkout group, with the same existing group bound.",
       "guard": "settings-launch-records.parity.test.ts compares grouping, pins and root/clone/nested placements with the original answer, including live origin changes; command-place-labels.test.tsx checks live branch/name and removal; speed:structural preserves its bounds."
     },
     {
       "file": "packages/client-graph/src/launch-records.ts",
       "holder": "launchRecords/view:callback/treeAt",
       "rule": "consume:find",
-      "tokens": "b4a91167aefdc30201085cc5240f3911bffbf9fdc8ba52453fcde9fac8bb29ec",
+      "tokens": "1d8fa04cdb8c07d1c7b54d804db98ed1141f7953a1e306253af76596255436cd",
       "gate": [
         "then:728fcdd760e42999c899681cae770711cc5b53f7f2e058e28775d8dee717727d"
       ],
       "origin": [
         "baded421dbc3a2e5306662097ad827bda61e87b5f3b36a5d0eb82b0a8fc07e28"
       ],
-      "fingerprint": "65466e9bd6dc8ee1455b77d0a6c8eb77e7202e5539a4a3f33331499e6557f5ca",
+      "fingerprint": "e9b826aa0f493009bc691d7819bab778ab2ebf1efde95f8b4f8d80b59bfe6258",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5870",
       "trigger": "An addressed repository companion resolves a launch placement or its branch.",
       "bound": "One indexed repository group and its declared nested worktrees, plus the current opening's pinned worktree IDs; no repository-wide search.",
-      "reason": "The existing header indexes select the group before this local traversal. Companions keep repository models and placement IDs, and read branch and repository facts live.",
+      "reason": "The existing header indexes select the group before this local traversal. Companions keep repository models and placement IDs, and read branch and repository facts live. POD-7196: Finds the addressed tree in the selected repository group. Canonical machine facts changed its provenance fingerprint; it still reads that group only.",
       "guard": "settings-launch-records.parity.test.ts compares grouping, pins and root/clone/nested placements with the original answer, including live origin changes; command-place-labels.test.tsx checks live branch/name and removal; speed:structural preserves its bounds."
     },
     {
@@ -32187,7 +32187,7 @@
       "file": "apps/web/src/test-support/mock-screen-pool.ts",
       "holder": "mock:callback/useWorklistPoolProjection/pool",
       "rule": "reader-summary",
-      "tokens": "d885ef95c5db299d546985b649bc8b2a54e4cccd299c0a6123476af0d81915a6",
+      "tokens": "9508da3ff7f5f2853ceb5af79e83a3d5b6402d8189c269ac1c69400f9ff10b3d",
       "gate": [],
       "origin": [
         "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
@@ -32217,13 +32217,13 @@
         "edccbaf426dca942750619e6960d69f0c560ebdaf7c2beb6a07ceb8fdc008aaf",
         "f35fbf75a9191b6b6b2796aba1314c0b716360ad6ffbe40bb2a13c777d8a0061"
       ],
-      "fingerprint": "f842adc35eed91dbde520643849ef8542a69b9747115ae9a09d2b254257c83fa",
+      "fingerprint": "484949a01bea98175811e63debb5c34750231fa60013af42b34cad89e65f09a7",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation or observation of mock:callback/useWorklistPoolProjection/pool",
       "bound": "Test fixture collection; no production import caller. Exact taint remains monitored.",
-      "reason": "POD-5822 updates this existing reader to canonical direct fields. Its collection and caller bounds are unchanged; the existing REQUIRED REPAIR classification remains. Predecessor: 3567d73357a9192d6f08d7b563f9ccbab2f60168606daccda93a6aaf4bdc14a4. POD-5866 pilot reconciliation preserves the classification while moving opening ownership or adopting the landed model reader; predecessor: 8df29ca50a83bb38241f643f9d6f0263a5826f95c43e332db32155dcd7ff9b1a. POD-5872: The test adapter now publishes session rows into canonical models and borrows the existing draft owner; its fixture catalogue demand is unchanged. Predecessor: 339be345c8e21996547dfd544e83c4fd554a3beee76e3af67ca1f8604f857cf7. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged. POD-7174: the pool's queries gain `inPublication` (a feed publication is being installed), which changes this fingerprint; the collection bound and classification are unchanged. POD-7166: tracked marker freshness adds a board summary read; formatting changes parenthesized board expressions and propagated origins. The existing collection bound and classification are unchanged. Predecessor: 2dfddd2aae79c85a669bde32e52254d4a75b909cc1bbcb49c80a237522ec51e6.",
+      "reason": "POD-5822 updates this existing reader to canonical direct fields. Its collection and caller bounds are unchanged; the existing REQUIRED REPAIR classification remains. Predecessor: 3567d73357a9192d6f08d7b563f9ccbab2f60168606daccda93a6aaf4bdc14a4. POD-5866 pilot reconciliation preserves the classification while moving opening ownership or adopting the landed model reader; predecessor: 8df29ca50a83bb38241f643f9d6f0263a5826f95c43e332db32155dcd7ff9b1a. POD-5872: The test adapter now publishes session rows into canonical models and borrows the existing draft owner; its fixture catalogue demand is unchanged. Predecessor: 339be345c8e21996547dfd544e83c4fd554a3beee76e3af67ca1f8604f857cf7. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged. POD-7174: the pool's queries gain `inPublication` (a feed publication is being installed), which changes this fingerprint; the collection bound and classification are unchanged. POD-7166: tracked marker freshness adds a board summary read; formatting changes parenthesized board expressions and propagated origins. The existing collection bound and classification are unchanged. Predecessor: 2dfddd2aae79c85a669bde32e52254d4a75b909cc1bbcb49c80a237522ec51e6. POD-7196: The provider-free test adapter now uses canonical model and session-pane ports. Its synthetic record scans remain classified as REQUIRED REPAIR; no product bound or exemption is added.",
       "guard": "apps/web/src/features/worklist/SidebarUnified.search.test.tsx; exact fingerprint remains monitored."
     },
     {
@@ -39520,18 +39520,18 @@
       "file": "packages/client-graph/src/mobile-tasks.ts",
       "holder": "MobileTasksBoard/refreshing",
       "rule": "reader-summary",
-      "tokens": "e56e170c0b68024f11ab74dc3c446c46f223b3f3997fcdb19f10992509223548",
+      "tokens": "c1b63e54152e54b01bd0f6f2f262ae01401a3d37dd4378db6b3cd890d67d6dd2",
       "gate": [],
       "origin": [
         "06eefdc67dfb0693416e0e383db43fe70611b301f1c7e37698c0b35c4168acc8"
       ],
-      "fingerprint": "ddf55f5ab7624a5adbde6d7e8203b74cb795c06fdb98f8ae7cec402681b85d77",
+      "fingerprint": "23dea08ad899d8733fd0b0ed21e155387d7ac0280a189af3a9e8d37013070253",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-7166",
       "trigger": "Reading the board screen freshness while that screen is open.",
       "bound": "At most six declared stage markers and one stub marker. With text search, only the existing title/ref index matches and requested server-hit pages are read; no history table or unrelated tree is visited.",
-      "reason": "The screen derives one refreshing bit from its own column/count sources and its current search hits. Record freshness is an addressed disk-index holder read, independent of unrelated stale instances.",
+      "reason": "The screen derives one refreshing bit from its own column/count sources and its current search hits. Record freshness is an addressed disk-index holder read, independent of unrelated stale instances. POD-7196: The existing screen freshness read still covers its fixed column/count sources and current text search. Refactoring lane placement changed provenance, not freshness demand.",
       "guard": "refreshing.test.ts and both platform ScreenRefreshMark.test.tsx files cover complete cached answers, in-place replacement, and unrelated stale-tree isolation; record-freshness.test.ts covers shared holder freshness."
     },
     {
@@ -40060,6 +40060,168 @@
       "bound": "Only the machine/repository inputs and readings owned by this test fixture.",
       "reason": "Test-only setup publishes canonical machine and repository records from the fixture inputs.",
       "guard": "Focused client fixture tests use the real pool and LiveStore; no product interaction calls this helper."
+    },
+    {
+      "file": "apps/web/src/test-support/mock-screen-pool.ts",
+      "holder": "useFixturePool/useMemo:callback/pool/sessionPanes/loaded/callback/session",
+      "rule": "consume:find",
+      "tokens": "7257cb87397d11b62f16d3a4bf576bbcd07786735afb34b6b78698d32a880d4a",
+      "gate": [],
+      "origin": [
+        "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
+      ],
+      "fingerprint": "b6710d0efd1ae0ceccdc8a07c01ba581c8ea320d7db377b38438fbc858d83cf8",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-7196",
+      "trigger": "Provider-free component fixture reads useFixturePool/useMemo:callback/pool/sessionPanes/loaded/callback/session",
+      "bound": "Synthetic session/layout inputs supplied by the test; this entry makes no product cardinality claim.",
+      "reason": "The fixture adapter implements the live session-pane port using its supplied records and device layout fields. Retain conservative collection taint for each exact new read or consumer.",
+      "guard": "Exact fingerprint and multiplicity; test-only adapter, not runtime boundedness evidence."
+    },
+    {
+      "file": "apps/web/src/test-support/mock-screen-pool.ts",
+      "holder": "useFixturePool/useMemo:callback/pool/sessionPanes/loaded/callback/session",
+      "rule": "reader-summary",
+      "tokens": "8f6c6e8bbc147b21f954e0048077f930fac9a8921bc607b07654f71aeee9e69a",
+      "gate": [],
+      "origin": [
+        "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
+      ],
+      "fingerprint": "36d841f88b4f0719feb2f610e21ccab98b0c3273204a2d879992b1264d663a5e",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-7196",
+      "trigger": "Provider-free component fixture reads useFixturePool/useMemo:callback/pool/sessionPanes/loaded/callback/session",
+      "bound": "Synthetic session/layout inputs supplied by the test; this entry makes no product cardinality claim.",
+      "reason": "The fixture adapter implements the live session-pane port using its supplied records and device layout fields. Retain conservative collection taint for each exact new read or consumer.",
+      "guard": "Exact fingerprint and multiplicity; test-only adapter, not runtime boundedness evidence."
+    },
+    {
+      "file": "apps/web/src/test-support/mock-screen-pool.ts",
+      "holder": "useFixturePool/useMemo:callback/pool/sessionPanes/pane/callback/present",
+      "rule": "consume:some",
+      "tokens": "67610bd1203ab14ed1c5bb20d3ee7425edeea5c0b7b0a74a5809e47d37665c41",
+      "gate": [],
+      "origin": [
+        "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
+      ],
+      "fingerprint": "a77c2e51d805383c08622f85dd08a49b7fd06bcb935a7e96a80f4d699b602d88",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-7196",
+      "trigger": "Provider-free component fixture reads useFixturePool/useMemo:callback/pool/sessionPanes/pane/callback/present",
+      "bound": "Synthetic session/layout inputs supplied by the test; this entry makes no product cardinality claim.",
+      "reason": "The fixture adapter implements the live session-pane port using its supplied records and device layout fields. Retain conservative collection taint for each exact new read or consumer.",
+      "guard": "Exact fingerprint and multiplicity; test-only adapter, not runtime boundedness evidence."
+    },
+    {
+      "file": "apps/web/src/test-support/mock-screen-pool.ts",
+      "holder": "useFixturePool/useMemo:callback/pool/sessionPanes/pane/callback/present",
+      "rule": "reader-summary",
+      "tokens": "8f6c6e8bbc147b21f954e0048077f930fac9a8921bc607b07654f71aeee9e69a",
+      "gate": [],
+      "origin": [
+        "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
+      ],
+      "fingerprint": "225f46dd8a8ffe491a2324c78f637da6af9d82bf9b93e5e9710a3365e55b7917",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-7196",
+      "trigger": "Provider-free component fixture reads useFixturePool/useMemo:callback/pool/sessionPanes/pane/callback/present",
+      "bound": "Synthetic session/layout inputs supplied by the test; this entry makes no product cardinality claim.",
+      "reason": "The fixture adapter implements the live session-pane port using its supplied records and device layout fields. Retain conservative collection taint for each exact new read or consumer.",
+      "guard": "Exact fingerprint and multiplicity; test-only adapter, not runtime boundedness evidence."
+    },
+    {
+      "file": "apps/web/src/test-support/mock-screen-pool.ts",
+      "holder": "useFixturePool/useMemo:callback/pool/sessionPanes/spawnConfirmed/callback",
+      "rule": "consume:some",
+      "tokens": "43e4270be0540560e174ca80042cb54f5e9edc1eb2bd7cf2f265f8a57bd85678",
+      "gate": [],
+      "origin": [
+        "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
+      ],
+      "fingerprint": "5f59b3509678c3925e77672e4f671725c2d74d133e1056cd554cb7031fa077c0",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-7196",
+      "trigger": "Provider-free component fixture reads useFixturePool/useMemo:callback/pool/sessionPanes/spawnConfirmed/callback",
+      "bound": "Synthetic session/layout inputs supplied by the test; this entry makes no product cardinality claim.",
+      "reason": "The fixture adapter implements the live session-pane port using its supplied records and device layout fields. Retain conservative collection taint for each exact new read or consumer.",
+      "guard": "Exact fingerprint and multiplicity; test-only adapter, not runtime boundedness evidence."
+    },
+    {
+      "file": "apps/web/src/test-support/mock-screen-pool.ts",
+      "holder": "useFixturePool/useMemo:callback/pool/sessionPanes/spawnConfirmed/callback",
+      "rule": "reader-summary",
+      "tokens": "8f6c6e8bbc147b21f954e0048077f930fac9a8921bc607b07654f71aeee9e69a",
+      "gate": [],
+      "origin": [
+        "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
+      ],
+      "fingerprint": "0894993e026c49c92559d874d63d17bb6cb93b2dc730b6689d22ecfc1a22355f",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-7196",
+      "trigger": "Provider-free component fixture reads useFixturePool/useMemo:callback/pool/sessionPanes/spawnConfirmed/callback",
+      "bound": "Synthetic session/layout inputs supplied by the test; this entry makes no product cardinality claim.",
+      "reason": "The fixture adapter implements the live session-pane port using its supplied records and device layout fields. Retain conservative collection taint for each exact new read or consumer.",
+      "guard": "Exact fingerprint and multiplicity; test-only adapter, not runtime boundedness evidence."
+    },
+    {
+      "file": "apps/web/src/test-support/mock-screen-pool.ts",
+      "holder": "useFixturePool/useMemo:callback/pool/sessionPanes/window/callback/dockShells",
+      "rule": "reader-summary",
+      "tokens": "b49b95dd352b4155e498e64bc6ae5d190908dd51e9fb6a31d868925f02f473aa",
+      "gate": [],
+      "origin": [
+        "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
+      ],
+      "fingerprint": "392040a5521d75551026dbd40b3164e26c9c30086ec5f867190e32ef4ed6ece7",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-7196",
+      "trigger": "Provider-free component fixture reads useFixturePool/useMemo:callback/pool/sessionPanes/window/callback/dockShells",
+      "bound": "Synthetic session/layout inputs supplied by the test; this entry makes no product cardinality claim.",
+      "reason": "The fixture adapter implements the live session-pane port using its supplied records and device layout fields. Retain conservative collection taint for each exact new read or consumer.",
+      "guard": "Exact fingerprint and multiplicity; test-only adapter, not runtime boundedness evidence."
+    },
+    {
+      "file": "apps/web/src/test-support/mock-screen-pool.ts",
+      "holder": "useFixturePool/useMemo:callback/pool/sessionPanes/window/callback/panelMode",
+      "rule": "reader-summary",
+      "tokens": "b49b95dd352b4155e498e64bc6ae5d190908dd51e9fb6a31d868925f02f473aa",
+      "gate": [],
+      "origin": [
+        "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
+      ],
+      "fingerprint": "1438a49dece8f7f6dae9aca3c04c887f367bc40ce4e4a551323ad5a6803be633",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-7196",
+      "trigger": "Provider-free component fixture reads useFixturePool/useMemo:callback/pool/sessionPanes/window/callback/panelMode",
+      "bound": "Synthetic session/layout inputs supplied by the test; this entry makes no product cardinality claim.",
+      "reason": "The fixture adapter implements the live session-pane port using its supplied records and device layout fields. Retain conservative collection taint for each exact new read or consumer.",
+      "guard": "Exact fingerprint and multiplicity; test-only adapter, not runtime boundedness evidence."
+    },
+    {
+      "file": "packages/client-graph/src/mobile-tasks.ts",
+      "holder": "MobileTasksBoard/dispose",
+      "rule": "loop:for-of",
+      "tokens": "a95cb87b50b52acd13b175d7defc79a1a112ce02d00ed5f736c06ff017433bda",
+      "gate": [],
+      "origin": [
+        "c12d66e74bd0df756ef73b7ef7e17b07efbbeefa1a711c80e5e623239b01de7f"
+      ],
+      "fingerprint": "529db19c7dbb30fceb189a35a4e20b831ab933e3adfb7f17ce7cee74d306dd12",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-7196",
+      "trigger": "Disposing the phone task view.",
+      "bound": "Exactly the six MOBILE_TASK_STAGES lane owners; no task or session rows are enumerated.",
+      "reason": "Releases each lane owner's demand-scoped query results. The lifecycle iterates the fixed stage vocabulary, independent of corpus size.",
+      "guard": "MOBILE_TASK_STAGES declaration; board-screen-work and work-per-change regressions exercise 1x/4x view ownership."
     }
   ]
 }
