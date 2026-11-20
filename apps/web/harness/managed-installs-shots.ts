@@ -1,7 +1,7 @@
 /** Run through the capture wrapper: bun run capture:managed-installs -- <output-directory>. */
 
 import { spawn } from 'node:child_process'
-import { mkdirSync, readdirSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { chromium } from '@playwright/test'
 
@@ -39,7 +39,15 @@ try {
     await new Promise((resolve) => setTimeout(resolve, 100))
   }
   if (!ready) throw new Error(`Harness did not start: ${logs}`)
+  const browserEnv = { ...process.env }
+  const userLib = join(
+    process.env.HOME ?? '',
+    '.cache/podium-chromium-deps/root/usr/lib/x86_64-linux-gnu',
+  )
+  if (existsSync(userLib)) browserEnv.LD_LIBRARY_PATH = userLib
+  else delete browserEnv.LD_LIBRARY_PATH
   const browser = await chromium.launch({
+    env: browserEnv,
     ...(executablePath ? { executablePath } : {}),
     args: ['--no-sandbox'],
   })
