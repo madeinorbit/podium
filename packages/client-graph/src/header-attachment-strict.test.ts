@@ -30,9 +30,11 @@ it('attaches the header source without untracked observable reads', () => {
   try {
     // The attachment's reconciliation read runs against a populated table
     // here too: the stale row must be removed without tripping the trap.
-    headerEntities(pool).apply([
-      { kind: 'shipOrder', id: 'stale', value: { id: 'stale' } as HeaderRows['shipOrder'] },
-    ])
+    runInAction(() =>
+      headerEntities(pool).apply([
+        { kind: 'shipOrder', id: 'stale', value: { id: 'stale' } as HeaderRows['shipOrder'] },
+      ]),
+    )
     const stop = attachHeaderSource(pool, runtime)
     try {
       runInAction(() => {

@@ -11,10 +11,10 @@
  * Run from `packages/client-graph`: `bun run lint`.
  */
 
-import { fenceConfig } from '../../tests/worklist/harness/lint/fence-plugin.mjs'
+import { createRequire } from 'node:module'
 import babelParser from '@babel/eslint-parser'
 import mobx from 'eslint-plugin-mobx'
-import { createRequire } from 'node:module'
+import { fenceConfig } from '../../tests/worklist/harness/lint/fence-plugin.mjs'
 import { noReactionWrites } from './reaction-writes-rule.mjs'
 
 // Resolved from this package, not by bare name: Babel resolves a bare plugin
@@ -23,10 +23,10 @@ import { noReactionWrites } from './reaction-writes-rule.mjs'
 // happened to link the plugin nearby).
 const BABEL_SYNTAX_TS = createRequire(import.meta.url).resolve('@babel/plugin-syntax-typescript')
 
-
 export default [
   ...fenceConfig({ root: 'src', frozen: ['shared'] }).map((config) => ({
-    ...config, ignores: [...(config.ignores ?? []), 'src/shared/**'],
+    ...config,
+    ignores: [...(config.ignores ?? []), 'src/shared/**'],
   })),
   {
     files: ['**/*.ts', '**/*.tsx'],
@@ -37,6 +37,7 @@ export default [
         babelOptions: {
           configFile: false,
           babelrc: false,
+          parserOpts: { plugins: ['decorators', 'decoratorAutoAccessors'] },
           plugins: [[BABEL_SYNTAX_TS, { isTSX: true, allExtensions: true }]],
         },
         ecmaVersion: 'latest',
