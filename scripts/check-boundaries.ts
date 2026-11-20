@@ -2361,6 +2361,7 @@ const DRIZZLE_IMPORT_ROOTS: readonly string[] = [
   'apps/server/src/store/',
   'apps/server/src/migrations/',
   'packages/sync/src/adapters/sqlite/',
+  'packages/sync/src/adapters/pg/',
   // The shared identity package defines its tables and its own statements for
   // both the server's SQLite store and the cloud's Postgres (POD-6744).
   'packages/identity/src/',
@@ -3163,7 +3164,7 @@ export function checkDrizzleTransaction(file: string, source: string): Violation
 
 /**
  * Rule 15 — drizzle is imported only from the store, the operations store, the
- * migrations and the sync SQLite adapter (spec §6 rule 2).
+ * migrations and the sync engine adapters (spec §6 rule 2).
  *
  * The rule the other three lean on: it is what makes "a drizzle handle can only
  * exist in persistence" a fact rather than a convention, and therefore what

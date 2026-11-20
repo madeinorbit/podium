@@ -1627,8 +1627,17 @@ describe('sql-raw-literal (POD-3252 rule 16)', () => {
     ).toEqual([])
   })
 
+  it('leaves intentional fixture SQL to its behavior tests', () => {
+    expect(
+      checkSqlRawLiteral(
+        'apps/server/src/store/example.test.ts',
+        'const term = sql.raw(userInput)',
+      ),
+    ).toEqual([])
+  })
+
   it('keeps an approved constant marker attached across formatting', () => {
-    const approved = 'apps/server/src/store/shipping-lane-reads.test.ts'
+    const approved = 'apps/server/src/store/shipping.ts'
     const marker = '// CONSTANT-IDENTIFIER STATEMENT POD-5612'
     const call = 'const term = sql.raw(ACTIVE_SHIP_ORDER_TERM)'
     expect(checkSqlRawLiteral(approved, `${marker}\n${call}`)).toEqual([])
