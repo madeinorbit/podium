@@ -1025,27 +1025,6 @@ interface TelemetryState {
     endpoint: string;
 }
 
-interface SpecComponentMeta {
-    id: string;
-    title: string;
-    /** Parent component id; empty for the root. */
-    parent: string;
-    /** Sort position among siblings. */
-    order: number;
-    status: 'active' | 'superseded' | 'draft';
-    updatedAt: number;
-}
-interface SpecComponent extends SpecComponentMeta {
-    /** Inner HTML of the component's <section> — the editable body. */
-    body: string;
-}
-interface SpecSearchHit {
-    id: string;
-    title: string;
-    /** Plain-text snippet around the first match. */
-    snippet: string;
-}
-
 /**
  * Live per-agent model lists for ONE machine.
  *
@@ -2359,15 +2338,6 @@ type Input_setup_complete = {
         crash: "off" | "on";
         usage: "off" | "on";
     };
-};
-type Input_specs_save = {
-    body?: string | undefined;
-    id: string;
-    order?: number | undefined;
-    parent?: string | undefined;
-    repoPath: string;
-    status?: "active" | "draft" | "superseded" | undefined;
-    title?: string | undefined;
 };
 type Input_superagent_concierge = {
     focus?: undefined | {
@@ -8759,55 +8729,6 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             output: {
                 [x: string]: null | string;
             };
-            meta: unknown;
-        }>;
-    };
-    "specs": {
-        "create": TRPC.TRPCMutationProcedure<{
-            input: {
-                parent: string;
-                repoPath: string;
-                title: string;
-            };
-            output: SpecComponent;
-            meta: unknown;
-        }>;
-        "get": TRPC.TRPCQueryProcedure<{
-            input: {
-                id: string;
-                repoPath: string;
-            };
-            output: (SpecComponent) | (null);
-            meta: unknown;
-        }>;
-        "list": TRPC.TRPCQueryProcedure<{
-            input: {
-                repoPath: string;
-            };
-            output: Array<SpecComponentMeta>;
-            meta: unknown;
-        }>;
-        "remove": TRPC.TRPCMutationProcedure<{
-            input: {
-                id: string;
-                repoPath: string;
-            };
-            output: {
-                ok: boolean;
-            };
-            meta: unknown;
-        }>;
-        "save": TRPC.TRPCMutationProcedure<{
-            input: Input_specs_save;
-            output: SpecComponent;
-            meta: unknown;
-        }>;
-        "search": TRPC.TRPCQueryProcedure<{
-            input: {
-                query: string;
-                repoPath: string;
-            };
-            output: Array<SpecSearchHit>;
             meta: unknown;
         }>;
     };

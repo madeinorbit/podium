@@ -22,7 +22,7 @@ import { syncFeedPrincipal } from '../sync/route-support'
  * Nothing below invents a rule. Every claim it makes is one an existing family
  * already makes in its own words:
  *
- *  - exposure is default-closed and checked at MODULE LOAD (`modules/specs/trpc.ts`)
+ *  - exposure is default-closed and checked at MODULE LOAD (`modules/workflows/trpc.ts`)
  *  - membership is checked in BOTH directions against the object that will
  *    actually be served, so an EMPTY surface fails rather than passes
  *    (`modules/settings/trpc.ts`, POD-732's "an empty router satisfies every

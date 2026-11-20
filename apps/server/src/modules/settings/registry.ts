@@ -3,7 +3,7 @@
  * with the `SettingsService` methods that implement them (L3), per ADR 3 D1 and
  * the three-way split POD-311 established.
  *
- * Same shape as `modules/specs/registry.ts` and `modules/fleet/registry.ts`,
+ * Same shape as `modules/sessions/registry.ts` and `modules/fleet/registry.ts`,
  * deliberately: the framework is built, and a family that invented its own join
  * would be a fifth answer to a question four families already answer the same
  * way.
