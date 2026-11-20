@@ -263,8 +263,8 @@ async function harness(sessions: SessionMeta[] = [], opts?: HarnessOpts) {
   const issueGetLists: (SessionMeta[] | undefined)[] = []
   const svc = new MessageDeliveryService({
     writers: messageTestWriters(store),
-          soleActiveMember: async () => (await store.users.soleActiveMember())?.id as never,
-      legacyRowOwner: () => firstAdminMemberId(store),
+    soleActiveMember: async () => (await store.users.soleActiveMember())?.id as never,
+    legacyRowOwner: () => firstAdminMemberId(store),
     messages: store.messages,
     notificationFacts: store.notificationFacts,
     events: store.events,
@@ -684,10 +684,18 @@ describe('MessageDeliveryService.send', () => {
     // agent session is an agent.
     const person = firstAdminMemberId()
     expect(
-      senderFromCapability({ scope: { kind: 'owned', userId: person }, actorUser: person, onBehalfOf: person }),
+      senderFromCapability({
+        scope: { kind: 'owned', userId: person },
+        actorUser: person,
+        onBehalfOf: person,
+      }),
     ).toEqual({ kind: 'operator' })
     expect(
-      senderFromCapability({ scope: { kind: 'all' }, actorSessionId: asSessionId('s9'), onBehalfOf: person }),
+      senderFromCapability({
+        scope: { kind: 'all' },
+        actorSessionId: asSessionId('s9'),
+        onBehalfOf: person,
+      }),
     ).toEqual({ kind: 'agent', sessionId: asSessionId('s9') })
   })
 
@@ -1847,6 +1855,60 @@ describe('delivery table (state × urgency × lifecycle) [spec:SP-34d7]', () => 
         asSessionId('s1'),
       ),
     ).toBe(false)
+  })
+
+  it.each([
+    'before the hand-off read',
+    'between the read and dispatch write',
+  ] as const)('a recorded ledger retract wins %s without a queue row', async (when) => {
+    const { svc, store } = await harness([session({ sessionId: asSessionId('s1') })], {
+      queueText: async () => ({ ok: false, reason: 'machine unreachable' }),
+    })
+    const sent = await svc.send(
+      w,
+      { kind: 'operator' },
+      { to: { kind: 'session', id: asSessionId('s1') }, body: 'withdraw before hand-off' },
+    )
+    const retract = () =>
+      store.messages.requestRetract(fixtureWriteScope(), sent.message.id, new Date().toISOString())
+    if (when === 'before the hand-off read') await retract()
+    else {
+      const dispatch = store.messages.markDispatched.bind(store.messages)
+      vi.spyOn(store.messages, 'markDispatched').mockImplementationOnce(async (...args) => {
+        await retract()
+        return await dispatch(...args)
+      })
+    }
+    expect(await svc.onQueuedInputHandingOn(w, sent.message.id, asSessionId('s1'))).toBe(false)
+    expect(await store.messages.getMessage(sent.message.id)).toMatchObject({
+      deliveryStatus: 'cancelled',
+      deliveredTo: null,
+      injectedAt: null,
+      retractRequestedAt: expect.any(String),
+    })
+  })
+
+  it('the drain settles a recorded stored-row retract without handing it on again', async () => {
+    const queueText = vi.fn(async () => ({ ok: false, reason: 'machine unreachable' }))
+    const { svc, store } = await harness([session({ sessionId: asSessionId('s1') })], { queueText })
+    const sent = await svc.send(
+      w,
+      { kind: 'operator' },
+      {
+        to: { kind: 'session', id: asSessionId('s1') },
+        body: 'withdraw before a drain',
+      },
+    )
+    expect(queueText).toHaveBeenCalledTimes(1)
+    await store.messages.requestRetract(
+      fixtureWriteScope(),
+      sent.message.id,
+      new Date().toISOString(),
+    )
+    await svc.onSessionEligibilityChanged(asSessionId('s1'))
+    await svc.flushDeliveryTriggers()
+    expect(queueText).toHaveBeenCalledTimes(1)
+    expect((await store.messages.getMessage(sent.message.id))?.deliveryStatus).toBe('cancelled')
   })
 
   it('cancels the named held operator chat message for an interrupted session', async () => {

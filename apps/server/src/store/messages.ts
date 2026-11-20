@@ -1014,6 +1014,9 @@ const MOVES = {
   dispatched: {
     to: 'dispatched',
     set: () => ({ injectedAt: sql.placeholder('at'), deliveredTo: sql.placeholder('deliveredTo') }),
+    // The retract's ledger write can commit before its queue follow-up runs.
+    // It must win a concurrent first hand-off while the server still owns input.
+    where: (t: StoreTables) => [isNull(t.messages.retractRequestedAt)],
   },
   typed: {
     to: 'typed',

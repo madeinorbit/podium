@@ -2076,9 +2076,23 @@ export class MessageDeliveryService {
   ): Promise<boolean> {
     const message = await this.deps.messages.getMessage(messageId)
     if (!message) return false
+    if (await this.cancelStoredRetraction(writer, message)) return false
     if (message.deliveryStatus === 'stored') await this.markDispatched(writer, message, sessionId)
     const now = await this.deps.messages.getMessage(messageId)
+    if (now && (await this.cancelStoredRetraction(writer, now))) return false
     return now !== null && isMessageHandedOn(now.deliveryStatus) && now.deliveredTo === sessionId
+  }
+
+  /** A still-stored row has never left the server. Its committed retract wins
+   * before a queue row or buffered control can exist. Daemon-owned rows retain
+   * the ordinary cancellation round trip and are never settled from this stamp. */
+  private async cancelStoredRetraction(
+    writer: MessageWriter,
+    message: MessageRow,
+  ): Promise<boolean> {
+    if (message.deliveryStatus !== 'stored' || !message.retractRequestedAt) return false
+    await this.mailbox.finishRetract(writer, message)
+    return true
   }
 
   /** SessionInbox calls this when the daemon settles a durable row as delivered:
@@ -2438,6 +2452,7 @@ export class MessageDeliveryService {
     // it to the session's queue, and the echo, a turn boundary or an inbox read
     // confirm it. Only a row the server still holds is ever pushed.
     if (message.deliveryStatus !== 'stored') return false
+    if (await this.cancelStoredRetraction(this.deps.writers.delivery, message)) return false
     if (checksWakeCooldown(message)) {
       const key = wakeKey ?? (await this.wakeKeyOfRow(message))
       if (await this.brakes.isWakeHot(key)) {

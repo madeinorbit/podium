@@ -231,6 +231,29 @@ describe('markDeadLetter / markDeliveryAbandoned — the notice rides the move',
 // A lost answer is `unknown`, never failed, and never walks a row back
 // ---------------------------------------------------------------------------
 
+describe('markDispatched — a recorded retract wins the first hand-off', () => {
+  it('a recorded retract blocks first dispatch without blocking other held inputs', async () => {
+    await add({ id: 'withdrawn-before-dispatch' })
+    await add({ id: 'still-pending' })
+    await messages.requestRetract(fixtureWriteScope(), 'withdrawn-before-dispatch', T[1])
+    expect(
+      await messages.markDispatched(fixtureWriteScope(), 'withdrawn-before-dispatch', READER, T[2]),
+    ).toEqual({ kind: 'refused', current: 'stored' })
+    expect(await back('withdrawn-before-dispatch')).toMatchObject({
+      deliveryStatus: 'stored',
+      retractRequestedAt: T[1],
+      deliveredTo: null,
+      injectedAt: null,
+    })
+    await messages.markDispatched(fixtureWriteScope(), 'still-pending', READER, T[2])
+    expect(await back('still-pending')).toMatchObject({
+      deliveryStatus: 'dispatched',
+      deliveredTo: READER,
+      injectedAt: T[2],
+    })
+  })
+})
+
 describe('markUnknown — only a handed-on row, only for its session (POD-4775)', () => {
   it('moves the row handed to that session and nothing else', async () => {
     await add({ id: 'on-its-way' })
