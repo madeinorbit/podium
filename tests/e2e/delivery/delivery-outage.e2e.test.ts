@@ -561,6 +561,16 @@ describe('message delivery under real failures', { retry: 0 }, () => {
     try {
       const session = only(world.sessionIds, 'session')
       const phone = world.device('phone')
+      // Establish the native program's observed state, beyond process boot,
+      // before testing a transport outage on this running agent.
+      const warm = phone.send(session, 'establishes the running agent before the cut')
+      await waitTyped(world, warm.id)
+      await waitFor(
+        async () => (await world.session(session))?.agentState?.phase === 'idle',
+        30_000,
+        'the native program completes its initial turn',
+        () => world.logs(),
+      )
       // Ordinary chat steers a working agent and can begin typing before a
       // retract. This case owns a transport cut BEFORE admission instead: the
       // daemon has never seen the row, so its cancellation creates a tombstone.
@@ -610,6 +620,7 @@ describe('message delivery under real failures', { retry: 0 }, () => {
       )
       const after = phone.send(session, 'sent after the offline retract')
       await judge(world, 'device-retract-offline', [
+        delivered(warm.id, session),
         { id: retracted.id, sessionId: session, expect: 'retracted', sender: 'phone' },
         delivered(after.id, session),
       ])
