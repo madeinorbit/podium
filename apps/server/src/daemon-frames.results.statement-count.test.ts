@@ -329,6 +329,9 @@ describe('daemon *Result frames: pinned statement counts at 5 and 200', () => {
     'approvalExecResult',
     async (size) => {
       const f = await fixture(size)
+      // This case owns an executing approval. Start that dispatcher explicitly
+      // in the otherwise maintenance-free fixture; decideApproval awaits it.
+      f.reg.modules.effects?.runner.start()
       const { id } = await fileApproval(f.reg, {
         op: { kind: 'update' },
         sessionId: f.ids[0]!,

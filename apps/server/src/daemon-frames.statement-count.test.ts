@@ -241,6 +241,16 @@ describe('daemon frames: pinned statement counts at 5 and 200', () => {
         'agentObservation',
         async (f) =>
           await route(f, { type: 'agentObservation', observation: observation(f.ids[0]!) }),
+        async (f) => {
+          expect(f.reg.modules.sessions.sessions.get(f.ids[0]!)?.agentState).toMatchObject(idle)
+          expect(await f.store.observationCheckpoints.get(f.ids[0]!)).toMatchObject({
+            observationGeneration: 1,
+            checkpoint: {
+              lastTransitionId: 'snapshot-10',
+              providerCursor: { components: { file: 10 } },
+            },
+          })
+        },
       ),
       // POD-6920: derived change capture (no build before the write; one drain after it): 24 -> 17.
       17,
@@ -267,6 +277,13 @@ describe('daemon frames: pinned statement counts at 5 and 200', () => {
             })),
             tail: `c${size - 1}`,
           }),
+        async (f) => {
+          const session = f.reg.modules.sessions.sessions.get(f.ids[0]!)
+          expect(session?.transcriptAvailable).toBe(true)
+          expect(session?.terminal.transcriptItems().map((item) => item.id)).toEqual(
+            f.ids.map((_, i) => `u${i}`),
+          )
+        },
       ),
       // POD-6920: derived change capture (no build before the write; one drain after it): 22 -> 15.
       15,
@@ -471,6 +488,15 @@ describe('daemon frames that read an observation checkpoint: pinned at 5 and 200
             resumeKind: 'codex-thread',
             rebindId: 'rebind-1',
           }),
+        async (f) => {
+          expect(await f.store.observationCheckpoints.get(f.ids[0]!)).toMatchObject({
+            providerSessionId: 'thread-2',
+          })
+          expect(f.reg.modules.sessions.sessions.get(f.ids[0]!)?.resume).toEqual({
+            kind: 'codex-thread',
+            value: 'thread-2',
+          })
+        },
       ),
       // POD-6920: derived change capture (no build before the write; one drain after it): 35 -> 30.
       30,
@@ -549,6 +575,17 @@ describe('daemon frames that read an observation checkpoint: pinned at 5 and 200
                 turnEpoch: 1,
               },
             }),
+          async (f) => {
+            expect(f.reg.modules.sessions.sessions.get(f.ids[0]!)?.resume).toEqual({
+              kind: 'codex-thread',
+              value: 'native-thread',
+            })
+            expect(
+              await f.store.conversations.registry.podiumIds(f.store.hostMachineId, [
+                'native-thread',
+              ]),
+            ).toHaveProperty('size', 1)
+          },
         ),
         setup: async (size) => await fixture(size, true),
       },
