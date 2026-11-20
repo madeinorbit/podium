@@ -16501,3 +16501,7 @@ button.waterfall-fold:hover {
   line-height: 1.55;
   color: var(--muted-foreground);
 }
+/* A quiet action that starts its row sits on the card's text edge. */
+.cm-ask-quiet:first-child {
+  margin-left: -8px;
+}
