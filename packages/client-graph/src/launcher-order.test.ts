@@ -6,12 +6,11 @@ import {
   machinePathsEqual,
 } from '@podium/model/browser'
 import { autorun } from 'mobx'
-import { expect, it, vi } from 'vitest'
+import { expect, it } from 'vitest'
 import { insideReader, measureWork } from '../../../tests/worklist/harness/src/work-meter'
 import { headerEntities } from './header-entities'
 import { createLaunchCatalogPicker, createLaunchWorkPicker } from './launch-option-views'
 import { MobxPool } from './pool'
-import { ReaderQueries } from './reader-queries'
 import type { RowRecord } from './shared/source'
 
 function fixture(scale: number) {
@@ -114,8 +113,6 @@ function legacyOrder(f: ReturnType<typeof fixture>) {
 
 for (const scale of [1, 4])
   it(`matches the live order at open, then freezes usage until reopen at ${scale}x`, async () => {
-    // Install the probe before the pool binds and freezes its public query port.
-    const query = vi.spyOn(ReaderQueries.prototype, 'activity')
     const f = fixture(scale)
     const catalog = createLaunchCatalogPicker(f.pool),
       phone = createLaunchWorkPicker(f.pool)
@@ -147,9 +144,16 @@ for (const scale of [1, 4])
         }),
       ),
     ]
+    const scalarVisits = () => f.pool.queries.counts.scalarVisits
+    // Arm the public work counter against a populated root before judging zero.
+    const beforeProbe = scalarVisits()
+    expect(
+      f.pool.queries.activity({ kind: 'commandRootActivity', roots: ['/zeta'] }),
+    ).toBeGreaterThan(0)
+    expect(scalarVisits()).toBeGreaterThan(beforeProbe)
     try {
       for (const lastActiveAt of ['2026-01-04T00:00:00Z', '2026-01-05T00:00:00Z']) {
-        query.mockClear()
+        const visitsBefore = scalarVisits()
         const cell = await measureWork(
           async () =>
             f.pool.apply({
@@ -164,7 +168,7 @@ for (const scale of [1, 4])
             }),
           { pool: f.pool },
         )
-        expect(query).not.toHaveBeenCalled()
+        expect(scalarVisits()).toBe(visitsBefore)
         for (const [reader, elements] of Object.entries(cell.work.elementsBy))
           if (/launch\.(?:usage|catalogUsage|activityAt)/.test(reader))
             expect(elements, reader).toBe(0)
@@ -176,7 +180,7 @@ for (const scale of [1, 4])
           JSON.stringify({
             scale,
             lastActiveAt,
-            usageQueries: query.mock.calls.length,
+            activityVisits: scalarVisits() - visitsBefore,
             elementsBy: cell.work.elementsBy,
           }),
         )
@@ -188,7 +192,7 @@ for (const scale of [1, 4])
       expect(phone.repos[0]?.path).toBe('/two/Twin')
       expect(phone.repositoryPaths[0]).toBe('/two/Twin')
       expect(phone.repositoryActivity('/two/Twin')).toBe(Date.parse('2026-01-05T00:00:00Z'))
-      query.mockClear()
+      const visitsBeforeDiscovery = scalarVisits()
       headerEntities(f.pool).apply([
         {
           kind: 'repository',
@@ -205,12 +209,11 @@ for (const scale of [1, 4])
         '/one/Twin',
         '/new',
       ])
-      expect(query).not.toHaveBeenCalled()
+      expect(scalarVisits()).toBe(visitsBeforeDiscovery)
     } finally {
       stops.forEach((stop) => {
         stop()
       })
-      query.mockRestore()
       f.pool.dispose()
     }
   })
