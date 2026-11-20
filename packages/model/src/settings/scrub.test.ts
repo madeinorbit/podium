@@ -18,22 +18,38 @@
 
 import { describe, expect, it } from 'vitest'
 import { SETTINGS_CLASSIFICATION, settingsPathsInTier } from './classification'
-import { findSecretMaterial, SETTINGS_SECRET_PATHS, scrubSecretMaterial } from './scrub'
+import {
+  findSecretMaterial,
+  RETIRED_SETTINGS_SECRET_PATHS,
+  SETTINGS_SECRET_PATHS,
+  scrubSecretMaterial,
+} from './scrub'
 
-describe('the path list is the shipped classification, not a copy of it', () => {
-  it('is exactly the server-secret tier', () => {
-    expect([...SETTINGS_SECRET_PATHS]).toEqual(settingsPathsInTier('server-secret'))
+describe('current classification and retired cleanup paths', () => {
+  it('adds exactly the retired provider paths to the current secret tier', () => {
+    expect(RETIRED_SETTINGS_SECRET_PATHS).toEqual([
+      'apiKeys.anthropic',
+      'apiKeys.openai',
+      'apiKeys.openrouter',
+    ])
+    expect([...SETTINGS_SECRET_PATHS]).toEqual([
+      ...settingsPathsInTier('server-secret'),
+      ...RETIRED_SETTINGS_SECRET_PATHS,
+    ])
   })
 
   it('is non-empty, and every member is classified as never-replicating and never-enqueueing', () => {
     // An empty list would make the scrub a no-op that passes everything. This is
     // the POD-305 "fails first if the matrix imports empty" guard as a test.
-    expect(SETTINGS_SECRET_PATHS.length).toBeGreaterThan(0)
-    for (const path of SETTINGS_SECRET_PATHS) {
+    const current = settingsPathsInTier('server-secret')
+    expect(current.length).toBeGreaterThan(0)
+    for (const path of current) {
       const row = SETTINGS_CLASSIFICATION.find((c) => c.path === path)
       expect(row?.replicates).toBe(false)
       expect(row?.mayEnqueue).toBe(false)
     }
+    for (const path of RETIRED_SETTINGS_SECRET_PATHS)
+      expect(SETTINGS_CLASSIFICATION.some((row) => row.path === path)).toBe(false)
   })
 
   it('names no preference path — the scrub may not reach one', () => {
@@ -98,7 +114,8 @@ describe('it FINDS material — at every depth a store can hold it', () => {
     const blob: Record<string, unknown> = {}
     for (const [i, path] of SETTINGS_SECRET_PATHS.entries()) {
       const [group, leaf] = path.split('.') as [string, string]
-      const node = (blob[group] ??= {}) as Record<string, unknown>
+      blob[group] ??= {}
+      const node = blob[group] as Record<string, unknown>
       node[leaf] = `distinct-secret-${i}`
     }
     const { value, removed } = scrubSecretMaterial(blob)
