@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { type IssueDeps, IssueService } from './modules/issues/service'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
 import { applyAfterCommit, spanOpen } from './store/executor/executor'
+import { TEST_MACHINE_ID } from './test-support/machine-id'
 import { openTestStore } from './test-support/open-test-store'
 import { logStoreRecords } from './test-support/record-writer'
 import { seedRows } from './test-support/seed-rows'
@@ -23,7 +24,7 @@ async function harness() {
   // Mutable wall clock: the in-place-rollback tests advance it so a missing
   // updatedAt restore is a REAL wire difference the reconcile would append.
   let wallClock = '2026-07-01T00:00:00.000Z'
-  const store = await openTestStore(':memory:')
+  const store = await openTestStore(':memory:', TEST_MACHINE_ID)
   // Issues are placed on a machine that reported their repo (2b803efb5 refuses
   // implicit placement), so the fixture's repo is reported by the host machine.
   await store.repos.addRepo('/r', store.hostMachineId)
@@ -43,6 +44,7 @@ async function harness() {
   ledger.onAppended((changes) => appended.push(changes))
   const plumbing = issueTestPlumbing(undefined, { store })
   const deps: IssueDeps = {
+    resolveMachine: async () => TEST_MACHINE_ID,
     store,
     ...sessionReadPorts(() => []),
     getSettings: async () =>
@@ -636,6 +638,7 @@ describe('issue writes on the write-seam Ledger (#255)', () => {
     })
     const plumbing2 = issueTestPlumbing(undefined, { store })
     const svc2 = await IssueService.create({
+      resolveMachine: async () => TEST_MACHINE_ID,
       store,
       ...sessionReadPorts(() => []),
       getSettings: async () => normalizeSettings({ sessionDefaults: { agent: 'claude-code' } }),

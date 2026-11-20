@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { makeFeedVisibility } from '../../feed-visibility'
 import type { IssueRow, SessionStore } from '../../store'
 import { withOperation } from '../../store/executor/operation-scope'
+import { TEST_MACHINE_ID } from '../../test-support/machine-id'
 import { openTestStore } from '../../test-support/open-test-store'
 import { testStoreRecords } from '../../test-support/record-writer'
 import { DurableIssueAccessIndex } from '../issues/access-index'
@@ -65,10 +66,10 @@ function issueRow(over: Partial<IssueRow> = {}): IssueRow {
   }
 }
 async function setup() {
-  const store = await openTestStore(':memory:')
+  const store = await openTestStore(':memory:', TEST_MACHINE_ID)
   stores.push(store)
   // An issue row resolves its repo only through a machine that REPORTED it (2b803efb5).
-  await store.repos.addRepo('/r', store.hostMachineId)
+  await store.repos.addRepo('/r', TEST_MACHINE_ID)
   await store.issues.upsertIssue(fixtureWriteScope(), issueRow({ ownerUserId: alice }))
   return { store }
 }
@@ -252,7 +253,7 @@ it('orders by repo-path bytes like SQL, and batches folder owners identically (P
   // U+FF01 sorts AFTER the surrogate pair of U+1F600 in UTF-16 but BEFORE it in
   // UTF-8 bytes (SQLite BINARY): string comparison would get this pair wrong.
   const repos = ['/r', '/r\u{1F600}', '/r\uFF01', '/a']
-  for (const repo of repos.slice(1)) await store.repos.addRepo(repo, store.hostMachineId)
+  for (const repo of repos.slice(1)) await store.repos.addRepo(repo, TEST_MACHINE_ID)
   let n = 0
   for (const repoPath of [...repos].reverse()) {
     for (const seq of [13, 11, 12]) {

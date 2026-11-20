@@ -1,22 +1,24 @@
-import { fixtureWriteScope } from '@podium/sync/testing'
 import { asSessionId } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { describe, expect, it, vi } from 'vitest'
+import { TEST_MACHINE_ID } from '../../test-support/machine-id'
 import { openTestStore } from '../../test-support/open-test-store'
+import { seedRows } from '../../test-support/seed-rows'
 import { type IssueDeps, IssueService } from './service'
 import { issueTestPlumbing } from './service/test-plumbing'
-import { seedRows } from '../../test-support/seed-rows'
 
 async function harness() {
-  const store = await openTestStore(':memory:')
+  const store = await openTestStore(':memory:', TEST_MACHINE_ID)
   // An issue's repo resolves only through a machine that reported it (2b803efb5),
   // so the fixture repo is reported by the host machine.
-  await store.repos.addRepo('/repo', store.hostMachineId)
+  await store.repos.addRepo('/repo', TEST_MACHINE_ID)
   // POD-826's assertion, restated for POD-3857: the cheap lookups must not
   // enumerate the fleet AT ALL — not even the in-memory facts read that
   // replaced the reader-scoped projection here.
   const sessionFacts = vi.fn(() => [])
   const deps: IssueDeps = {
+    resolveMachine: async () => TEST_MACHINE_ID,
     store,
     // Every fleet read goes through the one spy, so "not called" covers them all.
     runningSessionFacts: sessionFacts,
@@ -35,7 +37,10 @@ async function harness() {
         },
         sessionDefaults: { agent: 'claude-code' },
       }),
-    spawnSession: vi.fn(async () => ({ sessionId: asSessionId('s1'), machine: 'machine-under-test' })),
+    spawnSession: vi.fn(async () => ({
+      sessionId: asSessionId('s1'),
+      machine: 'machine-under-test',
+    })),
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
     ...issueTestPlumbing(undefined, { store }),
     setSessionArchived: vi.fn(),
@@ -47,7 +52,11 @@ async function harness() {
 describe('POD-826 lightweight issue lookups', () => {
   it('returns raw metadata and checks existence without enumerating sessions', async () => {
     const { sessionFacts, svc } = await harness()
-    const created = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/repo', title: 'metadata', startNow: false })
+    const created = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/repo',
+      title: 'metadata',
+      startNow: false,
+    })
     sessionFacts.mockClear()
 
     expect(await svc.reports.getMeta(String(created.seq))).toMatchObject({
@@ -66,16 +75,24 @@ describe('POD-826 lightweight issue lookups', () => {
 
   it('answers the folder owner from the table, inside and outside a write span', async () => {
     const { deps, svc } = await harness()
-    const created = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/repo', title: 'indexed', startNow: false })
+    const created = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/repo',
+      title: 'indexed',
+      startNow: false,
+    })
     const row = (await deps.store.issues.getIssue(created.id))!
     const scan = vi.spyOn(deps.store.issues, 'listIssueRows')
-    await seedRows(deps.store, () => deps.store.issues.upsertIssue(fixtureWriteScope(), { ...row, worktreePath: '/wt' }))
+    await seedRows(deps.store, () =>
+      deps.store.issues.upsertIssue(fixtureWriteScope(), { ...row, worktreePath: '/wt' }),
+    )
     // One indexed query per answer (POD-6155); every issue is never read.
     for (let i = 0; i < 20; i++) expect(await svc.reports.issueForCwd('/wt/src')).toBe(created.id)
     expect(scan).not.toHaveBeenCalled()
     // Inside a write span the same query sees the span's own write.
     await deps.store.transact(async () => {
-      await seedRows(deps.store, () => deps.store.issues.upsertIssue(fixtureWriteScope(), { ...row, worktreePath: '/moved' }))
+      await seedRows(deps.store, () =>
+        deps.store.issues.upsertIssue(fixtureWriteScope(), { ...row, worktreePath: '/moved' }),
+      )
       expect(await svc.reports.issueForCwd('/moved/src')).toBe(created.id)
       expect(await svc.reports.issueForCwd('/wt/src')).toBeNull()
     })
@@ -84,7 +101,11 @@ describe('POD-826 lightweight issue lookups', () => {
 
   it('keeps get as a session-free wire lookup', async () => {
     const { sessionFacts, svc } = await harness()
-    const created = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/repo', title: 'wire', startNow: false })
+    const created = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/repo',
+      title: 'wire',
+      startNow: false,
+    })
     sessionFacts.mockClear()
 
     expect(await svc.reports.get(created.id)).toMatchObject({ id: created.id })

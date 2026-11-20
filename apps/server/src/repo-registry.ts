@@ -70,6 +70,17 @@ export class RepoRegistry {
     return await this.store.repos.listRepoPaths(machineId)
   }
 
+  /** Machines that registered this root or a repository containing it. */
+  async machinesForRoot(root: string): Promise<MachineId[]> {
+    return [
+      ...new Set(
+        (await this.store.repos.listRepos())
+          .filter((repo) => isMachinePathWithinRoot(repo.path, root))
+          .map((repo) => repo.machineId),
+      ),
+    ]
+  }
+
   /** The longest registered repo root that contains `path` (cwd → repo inference).
    *  Pure over `list()` — see {@link inferRepoFromRoots}. */
   async inferFromPath(path: string, machineId?: MachineId): Promise<string | undefined> {

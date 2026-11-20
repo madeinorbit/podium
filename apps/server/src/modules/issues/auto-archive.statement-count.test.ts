@@ -12,6 +12,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from '../../relay'
 import { attachHostDaemon } from '../../test-support/host-daemon'
+import { TEST_MACHINE_ID } from '../../test-support/machine-id'
 import { openTestStore } from '../../test-support/open-test-store'
 import { countStatements } from '../../test-support/statement-count'
 
@@ -24,8 +25,8 @@ afterEach(async () => {
 /** `n` issues, half closed and read; every issue has a parked session that was
  *  active after the read, so the sweep looks at each and archives none. */
 async function world(n: number) {
-  const store = await openTestStore(':memory:')
-  await store.repos.addRepo('/r', store.hostMachineId)
+  const store = await openTestStore(':memory:', TEST_MACHINE_ID)
+  await store.repos.addRepo('/r', TEST_MACHINE_ID)
   const reg = await SessionRegistry.create(store, undefined, {
     instanceId: 'default',
     sessionResidency: { evictParked: true, sweepIntervalMs: 0 },
@@ -48,7 +49,7 @@ async function world(n: number) {
       cwd: '/r',
       issueId: issue.id,
     })
-    await reg.gateway.routeDaemonFrame(store.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(TEST_MACHINE_ID, {
       type: 'agentExit',
       sessionId,
       code: 0,

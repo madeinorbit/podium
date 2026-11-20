@@ -24,7 +24,7 @@ afterEach(() => {
 
 async function withIssue(): Promise<{ o: Oracle; id: IssueId }> {
   const o = await makeOracle()
-  await o.store.repos.addRepo('/p', o.store.hostMachineId)
+  await o.store.repos.addRepo('/p', o.machineId)
   const id = mintDeviceId('iss_') as IssueId
   await o.call.issues.create({ id, repoPath: '/p', title: 'merge me', startNow: false })
   return { o, id }

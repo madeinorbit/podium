@@ -1,5 +1,12 @@
 import { spawnSync } from 'node:child_process'
-import { appendFileSync, existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  appendFileSync,
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { blobKey } from '@podium/blob-store'
@@ -16,6 +23,7 @@ import {
   type DescendantTip,
   firstAdminMemberId,
   type IssueId,
+  type MachineId,
   type SessionMeta,
   type SessionMetaInput,
   type UserId,
@@ -40,6 +48,7 @@ import { memberFacts } from './store/fixtures/test-support'
 import { artifactStoreOnDisk } from './test-support/artifact-store'
 import { captureLogs } from './test-support/capture-logs'
 import { seedLegacyKeyCredential } from './test-support/legacy-key-credential'
+import { TEST_MACHINE_ID } from './test-support/machine-id'
 import { openTestStore } from './test-support/open-test-store'
 import { seedMailboxRow } from './test-support/seed-issue-mail'
 import { seedMessage } from './test-support/seed-message'
@@ -51,7 +60,7 @@ import { metasAsFacts, sessionReadPorts } from './test-support/session-facts'
 const AS_OPERATOR = userCommandPrincipal(firstAdminMemberId(), 'admin')
 
 async function harness(sessions: SessionMeta[] = [], opts: { originUrl?: string } = {}) {
-  const store = await openTestStore(':memory:')
+  const store = await openTestStore(':memory:', TEST_MACHINE_ID)
   // Issues are placed on a machine that reported their repo (2b803efb5 refuses
   // implicit placement), so the fixture's repo is reported by the host machine.
   // Without an origin its identity is derived from the host and path; a test
@@ -601,11 +610,12 @@ describe('IssueService unread (#124)', () => {
     // Mutable clock so a content patch can stamp updatedAt strictly after readAt
     // (computeUnread uses lastActivity > readAt, not >=).
     let clock = '2026-06-30T00:00:00.000Z'
-    const store = await openTestStore(':memory:')
+    const store = await openTestStore(':memory:', TEST_MACHINE_ID)
     await seedRows(store, async () => await store.repos.addRepo('/r', store.hostMachineId))
     /** Every change row the service published — see `issueTestPlumbing`. */
     const broadcast = vi.fn()
     const deps: IssueDeps & { broadcast: ReturnType<typeof vi.fn> } = {
+      resolveMachine: async () => TEST_MACHINE_ID,
       store,
       ...sessionReadPorts(() => []),
       getSettings: async () =>
@@ -716,11 +726,12 @@ describe('IssueService tuck-away (POD-333)', () => {
   it('untucks back to null, and a re-tuck keeps the ORIGINAL dismissal moment', async () => {
     // Mutable clock so a repeated tuck could visibly move the stamp if it did.
     let clock = '2026-06-30T00:00:00.000Z'
-    const store = await openTestStore(':memory:')
+    const store = await openTestStore(':memory:', TEST_MACHINE_ID)
     await seedRows(store, async () => await store.repos.addRepo('/r', store.hostMachineId))
     /** Every change row the service published — see `issueTestPlumbing`. */
     const broadcast = vi.fn()
     const deps: IssueDeps & { broadcast: ReturnType<typeof vi.fn> } = {
+      resolveMachine: async () => TEST_MACHINE_ID,
       store,
       ...sessionReadPorts(() => []),
       getSettings: async () =>
@@ -1906,6 +1917,95 @@ describe('IssueService.start', () => {
       selected,
     )
     expect(deps.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ machineId: selected }))
+  })
+
+  it('validates an unpinned start against the catalog of the machine it starts on', async () => {
+    const { svc, deps, store } = await harness()
+    const machineId = asMachineId('catalog-remote')
+    deps.resolveMachine = vi.fn(async () => machineId)
+    await store.settings.setModelCatalog({
+      machineId: store.hostMachineId,
+      version: MODEL_CATALOG_VERSION,
+      fetchedAt: 1,
+      byAgent: { 'claude-code': [{ value: 'server-model', label: 'Server model' }] },
+    })
+    await store.settings.setModelCatalog({
+      machineId,
+      version: MODEL_CATALOG_VERSION,
+      fetchedAt: 1,
+      byAgent: { 'claude-code': [{ value: 'remote-model', label: 'Remote model' }] },
+    })
+    const created = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'Remote catalog',
+      startNow: false,
+    })
+    expect((await store.issues.getIssue(created.id))?.machineId).toBeNull()
+    const catalog = vi.spyOn(store.settings, 'getModelCatalog')
+    await svc.gitWorkflow.start(created.id, undefined, { model: 'remote-model' })
+    expect(catalog).toHaveBeenCalledExactlyOnceWith(machineId)
+    expect(deps.resolveMachine).toHaveBeenCalledTimes(1)
+    expect(deps.spawnSession).toHaveBeenCalledWith(
+      expect.objectContaining({ machineId, model: 'remote-model' }),
+    )
+  })
+
+  it('with no machine online, a stale catalog never blocks placement (POD-3911)', async () => {
+    const { svc, deps, store } = await harness()
+    await store.settings.setModelCatalog({
+      machineId: store.hostMachineId,
+      version: MODEL_CATALOG_VERSION,
+      fetchedAt: 1,
+      byAgent: { 'claude-code': [{ value: 'old-model', label: 'Old model' }] },
+    })
+    const created = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'No daemon',
+      defaultModel: 'stale-model',
+      startNow: false,
+    })
+    deps.resolveMachine = vi.fn(async () => undefined)
+    const catalog = vi.spyOn(store.settings, 'getModelCatalog')
+    await expect(
+      svc.gitWorkflow.start(created.id, undefined, { model: 'new-model' }),
+    ).rejects.toMatchObject({
+      name: 'IssueRefusal',
+      message: 'no machine for this worktree: /r',
+    })
+    expect(catalog).not.toHaveBeenCalled()
+    expect(deps.repoOp).not.toHaveBeenCalled()
+    expect(deps.spawnSession).not.toHaveBeenCalled()
+    expect((await svc.reports.get(created.id))?.stage).toBe('backlog')
+  })
+
+  it('validates an added session against its resolved worktree machine', async () => {
+    const { svc, deps, store } = await harness()
+    const created = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'Added catalog',
+      startNow: false,
+      defaultModel: 'remote-model',
+    })
+    await svc.gitWorkflow.start(created.id)
+    const row = (await store.issues.getIssue(created.id))!
+    await seedRows(
+      store,
+      async () => await store.issues.upsertIssue(fixtureWriteScope(), { ...row, machineId: null }),
+    )
+    const machineId = asMachineId('added-session-remote')
+    deps.resolveMachine = vi.fn(async () => machineId)
+    await store.settings.setModelCatalog({
+      machineId,
+      version: MODEL_CATALOG_VERSION,
+      fetchedAt: 1,
+      byAgent: { 'claude-code': [{ value: 'remote-model', label: 'Remote model' }] },
+    })
+    const catalog = vi.spyOn(store.settings, 'getModelCatalog')
+    await svc.gitWorkflow.addSession(created.id)
+    expect(catalog).toHaveBeenCalledExactlyOnceWith(machineId)
+    expect(deps.spawnSession).toHaveBeenLastCalledWith(
+      expect.objectContaining({ machineId, model: 'remote-model' }),
+    )
   })
 
   it('fires onWorktreesChanged with the issue repoPath after a successful worktree add (POD-665)', async () => {
@@ -8266,13 +8366,14 @@ describe('worktree GC sweep for closed work (POD-564)', () => {
 
   const closedIssueWithCheckout = async (
     h: { svc: IssueService },
-    over: { title?: string; parentId?: IssueId; path?: string } = {},
+    over: { title?: string; parentId?: IssueId; path?: string; machineId?: MachineId } = {},
   ) => {
     const created = await h.svc.crud.create(h.svc.reports.store.serverWriter, {
       repoPath: '/r',
       title: over.title ?? 'Shipped',
       startNow: false,
       ...(over.parentId ? { parentId: over.parentId } : {}),
+      ...(over.machineId ? { machineId: over.machineId } : {}),
     })
     await h.svc.crud.update(h.svc.reports.store.serverWriter, created.id, {
       worktreePath: over.path ?? `/r/.worktrees/${created.id}`,
@@ -8487,6 +8588,93 @@ describe('worktree GC sweep for closed work (POD-564)', () => {
     expect(reclaimable.candidates.map((c) => c.issueId)).toEqual([child])
     expect(reclaimable.candidates.map((c) => c.issueId)).not.toContain(open.id)
     expect(reclaimable.candidates.map((c) => c.issueId)).not.toContain(busy)
+  })
+
+  it('lists both machines without a filter, skipping and counting unresolved worktree rows', async () => {
+    const h = await gcHarness({ mode: 'propose', afterDays: 14 })
+    const remote = asMachineId('gc-remote')
+    await seedRows(h.store, async () => await h.store.repos.addRepo('/r', remote))
+    const local = await closedIssueWithCheckout(h, {
+      title: 'First machine',
+      path: '/r/.worktrees/shared',
+      machineId: TEST_MACHINE_ID,
+    })
+    const other = await closedIssueWithCheckout(h, {
+      title: 'Second machine',
+      path: '/r/.worktrees/shared',
+      machineId: remote,
+    })
+    const unresolved = await closedIssueWithCheckout(h, {
+      title: 'Unresolved',
+      path: '/r/.worktrees/unresolved',
+    })
+    const row = (await h.store.issues.getIssue(unresolved))!
+    await seedRows(
+      h.store,
+      async () =>
+        await h.store.issues.upsertIssue(fixtureWriteScope(), { ...row, machineId: null }),
+    )
+    h.deps.resolveMachine = vi.fn(async () => undefined)
+    h.deps.repoOp = vi.fn(async () => ({
+      ok: true,
+      output: gitWorktreeList([
+        { path: '/r', branch: 'main' },
+        { path: '/r/.worktrees/shared', branch: 'issue/shared' },
+        { path: '/r/.worktrees/unresolved', branch: 'issue/unresolved' },
+      ]),
+    }))
+    const inventory = await h.svc.gitWorkflow.listReclaimableWorktrees(DUE)
+    expect(inventory.candidates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ issueId: local, machineId: TEST_MACHINE_ID, present: true }),
+        expect.objectContaining({ issueId: other, machineId: remote, present: true }),
+      ]),
+    )
+    expect(inventory.candidates).toHaveLength(2)
+    expect(inventory.skippedUnresolvedMachines).toBe(1)
+    expect(inventory.orphans).toEqual([])
+    expect(h.deps.repoOp).toHaveBeenCalledWith('worktreeList', '/r', undefined, TEST_MACHINE_ID)
+    expect(h.deps.repoOp).toHaveBeenCalledWith('worktreeList', '/r', undefined, remote)
+    const filtered = await h.svc.gitWorkflow.listReclaimableWorktrees(DUE, remote)
+    expect(filtered.candidates.map((candidate) => candidate.issueId)).toEqual([other])
+  })
+
+  it('revalidates a janitor observation on its issue machine and refuses an unresolved row', async () => {
+    const h = await gcHarness({ mode: 'auto', afterDays: 14 })
+    const remote = asMachineId('gc-observed-remote')
+    await seedRows(h.store, async () => await h.store.repos.addRepo('/r', remote))
+    const pinned = await closedIssueWithCheckout(h, {
+      title: 'Remote observation',
+      machineId: remote,
+    })
+    const unresolved = await closedIssueWithCheckout(h, { title: 'Unresolved observation' })
+    const row = (await h.store.issues.getIssue(unresolved))!
+    await seedRows(
+      h.store,
+      async () =>
+        await h.store.issues.upsertIssue(fixtureWriteScope(), { ...row, machineId: null }),
+    )
+    h.deps.resolveMachine = vi.fn(async () => undefined)
+    recordOps(h)
+    const ops = vi.spyOn(h.deps, 'repoOp')
+    expect(
+      await h.svc.gitWorkflow.tryWorktreeGcObserved(
+        await observationFor(h, pinned, 'auto'),
+        DUE,
+        systemPrincipal('expiry'),
+      ),
+    ).toEqual({ outcome: 'freed' })
+    expect(ops).toHaveBeenCalledWith('worktreeRemove', '/r', expect.any(Object), remote)
+    ops.mockClear()
+    expect(
+      await h.svc.gitWorkflow.tryWorktreeGcObserved(
+        await observationFor(h, unresolved, 'auto'),
+        DUE,
+        systemPrincipal('expiry'),
+      ),
+    ).toEqual({ outcome: 'refused', reason: 'no machine for this worktree: /r' })
+    expect(ops).not.toHaveBeenCalled()
+    expect((await h.svc.reports.get(unresolved))?.worktreePath).toBe(row.worktreePath)
   })
 
   it('reports a git worktree that no issue row claims as an orphan', async () => {

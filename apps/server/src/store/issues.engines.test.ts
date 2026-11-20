@@ -95,6 +95,17 @@ async function seed(store: IssueEngineStore, over: Partial<IssueRow>): Promise<I
 const ids = (rows: readonly { id: string }[]) => rows.map((row) => row.id)
 
 describe('the issue listings', () => {
+  it('does not backfill legacy worktree placement without an explicit host machine', async () => {
+    const store = await openStore()
+    await seed(store, { worktreePath: '/r/.worktrees/legacy', machineId: null })
+    const before = await store.issues.getIssue(asIssueId('iss_x'))
+    expect(before?.worktreePath).toBe('/r/.worktrees/legacy')
+    expect(before?.machineId).toBeNull()
+    expect(await store.issues.backfillLegacyWorktreeMachineIds()).toBeUndefined()
+    expect(await store.issues.getIssue(asIssueId('iss_x'))).toEqual(before)
+    await store.close()
+  })
+
   it('lists the open issues updated before a bound, oldest update first (julianday on SQLite)', async () => {
     const store = await openStore()
     await seed(store, { id: asIssueId('iss_late'), seq: 1, updatedAt: at(30) })

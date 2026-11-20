@@ -35,6 +35,7 @@ import type { PrivateResourceAccess } from '../../private-resources'
 import type { RegistryModules } from '../../relay'
 import type { RepoRegistry } from '../../repo-registry'
 import { isAllowedRoot } from '../../root-allowlist'
+import { resolveFileRootMachine } from './root-machine'
 
 /** Exactly what the file family reaches, named. Nothing else is reachable from a
  *  handler here — in particular no capability and no registry. */
@@ -99,7 +100,9 @@ export const assertReadableRoot = async (
   root: string,
   machineId: MachineId | undefined,
 ): Promise<MachineId> => {
-  const target = machineId ?? (await state.rpc.answeringMachineId())
+  const target = await resolveFileRootMachine(root, machineId, (path) =>
+    state.repos.machinesForRoot(path),
+  )
   await assertMayReadMachineFiles(state, target)
   await assertAllowedRoot(state, root, target)
   return target

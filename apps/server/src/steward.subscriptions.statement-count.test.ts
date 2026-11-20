@@ -1,3 +1,4 @@
+import { TEST_MACHINE_ID } from './test-support/machine-id'
 /**
  * A steward poll reads only the subscriptions that can match its events
  * [POD-6208, server-data rules 5 and 8]. Subscriptions are never cleaned up,
@@ -75,7 +76,7 @@ const stale = (i: number): Subscription => {
 }
 
 async function setup(size: number): Promise<Fixture> {
-  const store = await openTestStore(':memory:')
+  const store = await openTestStore(':memory:', TEST_MACHINE_ID)
   await store.repos.addRepo('/r', store.hostMachineId)
   await store.events.setStewardState('cursor', '0')
   const sessions: SessionMeta[] = []
@@ -87,6 +88,7 @@ async function setup(size: number): Promise<Fixture> {
   let clockMs = Date.parse('2026-07-02T00:00:00.000Z')
   const now = () => new Date(clockMs++).toISOString()
   const issueDeps: IssueDeps = {
+    resolveMachine: async () => TEST_MACHINE_ID,
     store,
     ...sessionReadPorts(() => sessions),
     getSettings: async () => settings,

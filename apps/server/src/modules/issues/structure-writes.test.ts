@@ -40,7 +40,7 @@ afterEach(() => disposeOracles())
 /** The oracle, with the repo the issues below are filed in reported by its machine. */
 async function makeOracle() {
   const o = await makeBareOracle()
-  await o.store.repos.addRepo('/r', o.store.hostMachineId)
+  await o.store.repos.addRepo('/r', o.machineId)
   return o
 }
 
@@ -217,9 +217,19 @@ describe("an agent's relay through the entry point", () => {
         if (msg.type === 'agentRelayResult') replies.push(msg)
       }),
     )
-    root = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, { repoPath: '/r', title: 'root', startNow: false })
-    await registry.issues.crud.update(registry.issues.reports.store.serverWriter, root.id, { worktreePath: '/r/.worktrees/issue-1-root' })
-    outside = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, { repoPath: '/r', title: 'other', startNow: false })
+    root = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'root',
+      startNow: false,
+    })
+    await registry.issues.crud.update(registry.issues.reports.store.serverWriter, root.id, {
+      worktreePath: '/r/.worktrees/issue-1-root',
+    })
+    outside = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'other',
+      startNow: false,
+    })
     agent = asSessionId(
       (
         await registry.modules.sessions.createSession({
@@ -322,7 +332,12 @@ describe("an agent's relay through the entry point", () => {
 describe('a create that asked to start, after its commit', () => {
   const created = { id: 'iss_1', coordinator: 'you coordinate #1' }
   const issues = (opts: { proposedParent?: boolean; worktreePath?: string | null } = {}) => {
-    const start = vi.fn(async (_caller: unknown, _family: string, _proc: string, input: { id: string }) => ({ id: input.id, started: true }))
+    const start = vi.fn(
+      async (_caller: unknown, _family: string, _proc: string, input: { id: string }) => ({
+        id: input.id,
+        started: true,
+      }),
+    )
     return {
       start,
       commands: { dispatch: start } as never,
@@ -397,7 +412,9 @@ describe('a create that asked to start, after its commit', () => {
 
   it('a create that did not ask to start answers as it is', async () => {
     const { issues: deps, start, commands } = issues()
-    expect(await startAfterCreate(deps, operator, { startNow: false }, created, commands)).toBe(created)
+    expect(await startAfterCreate(deps, operator, { startNow: false }, created, commands)).toBe(
+      created,
+    )
     expect(start).not.toHaveBeenCalled()
   })
 })

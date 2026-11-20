@@ -1,3 +1,5 @@
+import { TEST_MACHINE_ID } from '../../../test-support/machine-id'
+
 /**
  * Issue writes that read other issues run a fixed number of statements,
  * whatever the number of issues (POD-6192, server-data rule 8).
@@ -9,9 +11,9 @@
  * level, so 200 issues in the repository cost what 5 do.
  */
 
-import { fixtureWriteScope } from '@podium/sync/testing'
 import { asIssueId, asSessionId, firstAdminMemberId, spreadSortKeys } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { describe, expect, it, vi } from 'vitest'
 import type { IssueRow, SessionStore } from '../../../store'
 import { issueRowFixture } from '../../../test-support/issue-row'
@@ -29,15 +31,22 @@ interface Fixture {
 /** `size` top-level issues with valid, distinct manual-order keys, and a
  *  three-level chain under the first one. */
 async function fixture(size: number): Promise<Fixture> {
-  const store = await openTestStore(':memory:')
-  await store.repos.addRepo('/repo', store.hostMachineId, undefined, 'POD')
+  const store = await openTestStore(':memory:', TEST_MACHINE_ID)
+  await store.repos.addRepo('/repo', TEST_MACHINE_ID, undefined, 'POD')
   const owner = firstAdminMemberId()
   const keys = spreadSortKeys(size)
   const row = (seq: number, patch: Partial<IssueRow> = {}): IssueRow =>
     ({
-      ...issueRowFixture({ id: `iss_${seq}`, repoPath: '/repo', seq, ownerUserId: owner, createdByActor: owner, createdByOnBehalfOf: owner }),
+      ...issueRowFixture({
+        id: `iss_${seq}`,
+        repoPath: '/repo',
+        seq,
+        ownerUserId: owner,
+        createdByActor: owner,
+        createdByOnBehalfOf: owner,
+      }),
       repoId: undefined,
-      machineId: store.hostMachineId,
+      machineId: TEST_MACHINE_ID,
       stage: 'backlog',
       parentId: null,
       worktreePath: null,
@@ -46,12 +55,23 @@ async function fixture(size: number): Promise<Fixture> {
       ...patch,
     }) as IssueRow
   await store.transact(async () => {
-    for (let seq = 1; seq <= size; seq++) await store.issues.upsertIssue(fixtureWriteScope(), row(seq, { sortKey: keys[seq - 1]! }))
-    await store.issues.upsertIssue(fixtureWriteScope(), row(size + 1, { parentId: asIssueId('iss_1') }))
-    await store.issues.upsertIssue(fixtureWriteScope(), row(size + 2, { parentId: asIssueId(`iss_${size + 1}`) }))
-    await store.issues.upsertIssue(fixtureWriteScope(), row(size + 3, { parentId: asIssueId(`iss_${size + 2}`) }))
+    for (let seq = 1; seq <= size; seq++)
+      await store.issues.upsertIssue(fixtureWriteScope(), row(seq, { sortKey: keys[seq - 1]! }))
+    await store.issues.upsertIssue(
+      fixtureWriteScope(),
+      row(size + 1, { parentId: asIssueId('iss_1') }),
+    )
+    await store.issues.upsertIssue(
+      fixtureWriteScope(),
+      row(size + 2, { parentId: asIssueId(`iss_${size + 1}`) }),
+    )
+    await store.issues.upsertIssue(
+      fixtureWriteScope(),
+      row(size + 3, { parentId: asIssueId(`iss_${size + 2}`) }),
+    )
   })
   const deps: IssueDeps = {
+    resolveMachine: async () => TEST_MACHINE_ID,
     store,
     ...sessionReadPorts(() => []),
     getSettings: async () =>
@@ -59,7 +79,10 @@ async function fixture(size: number): Promise<Fixture> {
         gitWorkflow: { defaultParentBranch: '', autoRebaseBeforeMerge: true },
         sessionDefaults: { agent: 'claude-code' },
       }),
-    spawnSession: vi.fn(async () => ({ sessionId: asSessionId('s1'), machine: 'machine-under-test' })),
+    spawnSession: vi.fn(async () => ({
+      sessionId: asSessionId('s1'),
+      machine: 'machine-under-test',
+    })),
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
     ...issueTestPlumbing(() => {}, { store }),
     setSessionArchived: vi.fn(),
@@ -70,7 +93,11 @@ async function fixture(size: number): Promise<Fixture> {
   return { store, svc }
 }
 
-const pin = (name: string, run: (f: Fixture, size: number) => Promise<unknown>, check: (result: unknown, size: number) => void) => ({
+const pin = (
+  name: string,
+  run: (f: Fixture, size: number) => Promise<unknown>,
+  check: (result: unknown, size: number) => void,
+) => ({
   name,
   setup: fixture,
   target: (f: Fixture) => f.store,
@@ -82,8 +109,16 @@ const pin = (name: string, run: (f: Fixture, size: number) => Promise<unknown>, 
 describe('issue writes that read other issues: pinned statement counts at 5 and 200 issues', () => {
   it('create at the top of a repository: one read of its key space', async () => {
     await expectConstantStatements(
-      pin('crud.create', async (f) => await f.svc.crud.create(f.svc.reports.store.serverWriter, { repoPath: '/repo', title: 'New work', startNow: false }),
-        (wire) => expect(wire).toMatchObject({ title: 'New work' })),
+      pin(
+        'crud.create',
+        async (f) =>
+          await f.svc.crud.create(f.svc.reports.store.serverWriter, {
+            repoPath: '/repo',
+            title: 'New work',
+            startNow: false,
+          }),
+        (wire) => expect(wire).toMatchObject({ title: 'New work' }),
+      ),
       // POD-6218: two earliest-admin lookups, one statement each (the row), not two: 13 -> 11.
       // POD-6341: creating a task starts it for the creating member (POD-6290
       // f97c15fe73, design §4.4). The first-writer start record reads that
@@ -110,8 +145,12 @@ describe('issue writes that read other issues: pinned statement counts at 5 and 
 
   it('move among siblings: one read of the key space', async () => {
     await expectConstantStatements(
-      pin('crud.move', async (f) => await f.svc.crud.move(f.svc.reports.store.serverWriter, 'iss_3', { before: 'iss_2' }),
-        (wire) => expect(wire).toMatchObject({ id: 'iss_3' })),
+      pin(
+        'crud.move',
+        async (f) =>
+          await f.svc.crud.move(f.svc.reports.store.serverWriter, 'iss_3', { before: 'iss_2' }),
+        (wire) => expect(wire).toMatchObject({ id: 'iss_3' }),
+      ),
       // POD-6769: compare at save, as for `crud.create` (+5), and POD-6765's
       // read of the stored git observation (+1), and the body headers'
       // two builds (POD-6767): 8 -> 16.
@@ -127,8 +166,11 @@ describe('issue writes that read other issues: pinned statement counts at 5 and 
 
   it('ancestors: one row per level', async () => {
     await expectConstantStatements(
-      pin('hierarchy.ancestorIds', async (f, size) => await f.svc.hierarchy.ancestorIds(`iss_${size + 3}`),
-        (ids, size) => expect(ids).toEqual([`iss_${size + 2}`, `iss_${size + 1}`, 'iss_1'])),
+      pin(
+        'hierarchy.ancestorIds',
+        async (f, size) => await f.svc.hierarchy.ancestorIds(`iss_${size + 3}`),
+        (ids, size) => expect(ids).toEqual([`iss_${size + 2}`, `iss_${size + 1}`, 'iss_1']),
+      ),
       4,
     )
   })

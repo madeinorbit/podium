@@ -1,3 +1,4 @@
+import { TEST_MACHINE_ID } from '../../test-support/machine-id'
 /**
  * THE ISSUE CLI / MCP SURFACE, DRIVEN AGAINST A RUNNING SERVER OBJECT.
  *
@@ -47,7 +48,7 @@ const fresh = async (): Promise<SessionRegistry> => {
   registries.push(r)
   // Issues are placed on a machine that reported their repo (2b803efb5 refuses
   // implicit placement), so the fixture's repo is reported by the host machine.
-  await r.sessionStore.repos.addRepo('/r', r.sessionStore.hostMachineId)
+  await r.sessionStore.repos.addRepo('/r', TEST_MACHINE_ID)
   return r
 }
 afterAll(async () => {

@@ -1,5 +1,6 @@
 import { asSessionId, firstAdminMemberId } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
+import { TEST_MACHINE_ID } from './test-support/machine-id'
 /**
  * Boot crash-loop hardening (Phase 1, deliverable 3): a corrupt issue row must
  * never prevent IssueService construction/hydration — it is quarantined
@@ -21,13 +22,14 @@ import { storeSql } from './test-support/store-sql'
 /** Issues are placed on a machine that reported their repo (2b803efb5 refuses
  *  implicit placement), so the host machine reports the fixture repo. */
 async function reportingStore(): Promise<SessionStore> {
-  const store = await openTestStore(':memory:')
+  const store = await openTestStore(':memory:', TEST_MACHINE_ID)
   await store.repos.addRepo('/r', store.hostMachineId)
   return store
 }
 
 function deps(store: SessionStore): IssueDeps {
   return {
+    resolveMachine: async () => TEST_MACHINE_ID,
     store,
     ...sessionReadPorts(() => []),
     getSettings: async () =>
@@ -74,7 +76,7 @@ const AT = '2026-07-01T00:00:00.000Z'
 
 describe('IssueService boot quarantine', () => {
   it('loads no issue rows into memory to construct (POD-6158)', async () => {
-    const store = await openTestStore(':memory:')
+    const store = await openTestStore(':memory:', TEST_MACHINE_ID)
     const listSpy = vi.spyOn(store.issues, 'listIssueRows')
     await IssueService.create(deps(store))
     expect(listSpy).not.toHaveBeenCalled()

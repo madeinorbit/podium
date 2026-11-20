@@ -273,10 +273,10 @@ export interface IssueDeps {
    * Resolve the target an unpinned machine operation would choose for cwd.
    *
    * Worktree writers call this before their first operation, persist the result,
-   * and pass that same id to the operation. Optional only for the existing unit
-   * fixtures; production injects the daemon router's exact resolver.
+   * and pass that same id to the operation. Undefined means no available machine;
+   * production injects the daemon router's exact resolver.
    */
-  resolveMachine?(requested: string | undefined, cwd: string): Promise<MachineId>
+  resolveMachine(requested: string | undefined, cwd: string): Promise<MachineId | undefined>
   /** Pre-flight for an explicit machine pin: throws (actionable message) when the
    *  machine is offline or lacks the repo. Injected by the relay; optional so
    *  existing test deps literals stay valid. */

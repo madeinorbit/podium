@@ -2790,9 +2790,11 @@ export class IssuesRepository {
    * The enrolled host row supplies the placement; an absent or revoked host
    * defers the migration. The receipt commits with the updates, even when
    * contradictory rows remain for manual recovery. */
+  // LEGACY(remove-after: 2027-05): Pin v0.1.0 worktrees to an enrolled host; removing this drops that repair.
   async backfillLegacyWorktreeMachineIds(
-    candidateHostId: MachineId,
+    candidateHostId?: MachineId,
   ): Promise<{ hostMachineId: MachineId; backfilled: number; skipped: number } | undefined> {
+    if (candidateHostId === undefined) return undefined
     return await this.createOrJoinTransaction(async () => {
       if (await legacyWorktreeReceipt(this.db).get()) return undefined
       const host = await liveMachineById(this.db).get({ id: candidateHostId })

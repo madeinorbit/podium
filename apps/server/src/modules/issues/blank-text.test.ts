@@ -1,11 +1,12 @@
-import { firstAdminMemberId, asSessionId, asUserId, type UserId } from '@podium/model'
+import { asSessionId, asUserId, firstAdminMemberId, type UserId } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it, vi } from 'vitest'
+import { TEST_MACHINE_ID } from '../../test-support/machine-id'
 import { openTestStore } from '../../test-support/open-test-store'
+import { sessionReadPorts } from '../../test-support/session-facts'
 import { BLANK_TO_NULL_COLUMNS, normalizeBlankIssueText } from './blank-text'
 import { type IssueDeps, IssueService } from './service'
 import { issueTestPlumbing } from './service/test-plumbing'
-import { sessionReadPorts } from '../../test-support/session-facts'
 
 /**
  * POD-820 — `''` and `null` were two spellings of "absent" on every nullable
@@ -13,11 +14,12 @@ import { sessionReadPorts } from '../../test-support/session-facts'
  * `persistWith` choke point rather than at any single caller.
  */
 async function harness() {
-  const store = await openTestStore(':memory:')
+  const store = await openTestStore(':memory:', TEST_MACHINE_ID)
   // Issues are placed on a machine that reported their repo (2b803efb5 refuses
   // implicit placement), so the fixture's repo is reported by the host machine.
-  await store.repos.addRepo('/repo', store.hostMachineId)
+  await store.repos.addRepo('/repo', TEST_MACHINE_ID)
   const deps: IssueDeps = {
+    resolveMachine: async () => TEST_MACHINE_ID,
     store,
     ...sessionReadPorts(() => []),
     getSettings: async () =>
@@ -28,7 +30,10 @@ async function harness() {
         },
         sessionDefaults: { agent: 'claude-code' },
       }),
-    spawnSession: vi.fn(async () => ({ sessionId: asSessionId('s1'), machine: 'machine-under-test' })),
+    spawnSession: vi.fn(async () => ({
+      sessionId: asSessionId('s1'),
+      machine: 'machine-under-test',
+    })),
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
     ...issueTestPlumbing(() => {}, { store }),
     setSessionArchived: vi.fn(),
@@ -40,7 +45,11 @@ async function harness() {
 describe('blank issue text normalizes to null', () => {
   it('collapses an empty acceptance written through update()', async () => {
     const { store, svc } = await harness()
-    const created = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/repo', title: 'T', startNow: false })
+    const created = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/repo',
+      title: 'T',
+      startNow: false,
+    })
     await svc.crud.update(svc.reports.store.serverWriter, created.id, { acceptance: '' })
 
     // Read back through the STORE, not the wire: the wire's truthiness omission
@@ -51,7 +60,12 @@ describe('blank issue text normalizes to null', () => {
 
   it('leaves a non-empty value and a legitimately empty description alone', async () => {
     const { store, svc } = await harness()
-    const created = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/repo', title: 'T', description: '', startNow: false })
+    const created = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/repo',
+      title: 'T',
+      description: '',
+      startNow: false,
+    })
     await svc.crud.update(svc.reports.store.serverWriter, created.id, { acceptance: 'it works' })
 
     const row = await store.issues.getIssue(created.id)
@@ -62,8 +76,16 @@ describe('blank issue text normalizes to null', () => {
 
   it('applies to the whole nullable-text class, not just the measured column', async () => {
     const { store, svc } = await harness()
-    const created = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/repo', title: 'T', startNow: false })
-    await svc.crud.update(svc.reports.store.serverWriter, created.id, { acceptance: '', branch: '', closedReason: '' })
+    const created = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/repo',
+      title: 'T',
+      startNow: false,
+    })
+    await svc.crud.update(svc.reports.store.serverWriter, created.id, {
+      acceptance: '',
+      branch: '',
+      closedReason: '',
+    })
 
     const row = await store.issues.getIssue(created.id)
     expect(row?.acceptance).toBeNull()

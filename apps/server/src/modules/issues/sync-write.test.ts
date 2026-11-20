@@ -23,7 +23,7 @@ afterEach(() => disposeOracles())
 async function issue(o: Oracle, title = 'on the path'): Promise<IssueId> {
   // An issue needs a repo some machine reports.
   if (!(await o.store.repos.listRepoPaths()).includes('/p')) {
-    await o.store.repos.addRepo('/p', o.store.hostMachineId)
+    await o.store.repos.addRepo('/p', o.machineId)
   }
   return (await o.call.issues.create({ repoPath: '/p', title, startNow: false })).id
 }

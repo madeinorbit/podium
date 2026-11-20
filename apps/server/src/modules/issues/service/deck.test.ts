@@ -7,6 +7,7 @@ import {
 } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import { afterEach, expect, it } from 'vitest'
+import { TEST_MACHINE_ID } from '../../../test-support/machine-id'
 import { openTestStore } from '../../../test-support/open-test-store'
 import { sessionReadPorts } from '../../../test-support/session-facts'
 import { IssueService } from '.'
@@ -18,14 +19,15 @@ afterEach(async () => {
 })
 
 async function fixture() {
-  const store = await openTestStore(':memory:')
+  const store = await openTestStore(':memory:', TEST_MACHINE_ID)
   stores.push(store)
-  await store.repos.addRepo('/repo', store.hostMachineId)
-  await store.repos.setRepoPrefix(store.hostMachineId, '/repo', 'POD')
+  await store.repos.addRepo('/repo', TEST_MACHINE_ID)
+  await store.repos.setRepoPrefix(TEST_MACHINE_ID, '/repo', 'POD')
   const sessions: SessionMeta[] = []
   const hiddenSessions = new Set<SessionId>()
   const ports = sessionReadPorts(() => sessions)
   const svc = await IssueService.create({
+    resolveMachine: async () => TEST_MACHINE_ID,
     store,
     ...ports,
     sessionsById: async (ids) =>
@@ -54,7 +56,7 @@ async function fixture() {
       agentKind: 'codex',
       title: id,
       cwd: '/repo',
-      machineId: store.hostMachineId,
+      machineId: TEST_MACHINE_ID,
       status: 'live',
       createdAt: '2026-10-15T00:00:00.000Z',
       lastActiveAt: '2026-10-15T00:00:00.000Z',
@@ -214,7 +216,12 @@ it('lists formal and provenance proposals with author and placement, excluding d
     startedBySession: author.sessionId,
     startNow: false,
   })
-  await svc.hierarchy.addDep(svc.reports.store.serverWriter, proposal.id, root.id, 'discovered-from')
+  await svc.hierarchy.addDep(
+    svc.reports.store.serverWriter,
+    proposal.id,
+    root.id,
+    'discovered-from',
+  )
   const formal = await svc.crud.create(svc.reports.store.serverWriter, {
     repoPath: '/repo',
     title: 'Here proposal',
@@ -257,11 +264,16 @@ it('filters hidden issues, dependency targets and sessions before deriving state
   const visible = await create('Visible task', root.id)
   await svc.hierarchy.addDep(svc.reports.store.serverWriter, visible.id, hidden.id)
   seat('private-session', hidden.id, { agentState: agentState('errored') })
-  const deck = await svc.reports.deck(root.id, { viewer: () => null, mayRead: (id) => id !== hidden.id })
+  const deck = await svc.reports.deck(root.id, {
+    viewer: () => null,
+    mayRead: (id) => id !== hidden.id,
+  })
   expect(deck.counts).toMatchObject({ total: 1, 'not-started': 1, error: 0, blocked: 0 })
   expect(JSON.stringify(deck)).not.toContain('Private')
   expect(JSON.stringify(deck)).not.toContain('private-session')
-  await expect(svc.reports.deck(root.id, { viewer: () => null, mayRead: () => false })).rejects.toThrow()
+  await expect(
+    svc.reports.deck(root.id, { viewer: () => null, mayRead: () => false }),
+  ).rejects.toThrow()
 })
 
 it('includes pending permission asks in session and task words', async () => {

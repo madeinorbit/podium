@@ -537,20 +537,24 @@ export class IssueGitWorkflowModule {
     )
     // Where the worktree is cut: the issue's pin, else its profile's machine.
     const homeMachineId = launch.machineId ?? undefined
+    const startMachineId =
+      homeMachineId ?? (await this.store.d.resolveMachine(undefined, resumePath ?? row.repoPath))
     // Refuse an unavailable EXPLICIT model/effort BEFORE mutating any start state
     // (worktree, branch, stage, and the issue's own profile). A
     // refused `--model` must not be left on the issue for the next start to inherit.
     // An inherited value the catalog does not know falls back to `auto` instead —
     // a stale default never blocks a start (POD-3911).
-    // Catalog is machine-keyed (POD-1123): validate against the issue's host.
+    // Validate against the exact machine used below. Without one, the empty
+    // catalog lets placement report its own refusal, even with stale defaults.
     const vetted = resolveLaunchSelection({
       agentKind: launch.agent,
       explicit: { model: opts?.model ?? 'auto', effort: opts?.effort ?? 'auto' },
       issueProfile: launch.issueProfile,
       settings: await this.store.d.getSettings(starter),
-      catalog: await this.store.d.store.settings.getModelCatalog(
-        homeMachineId ?? this.store.d.store.hostMachineId,
-      ),
+      catalog:
+        startMachineId === undefined
+          ? null
+          : await this.store.d.store.settings.getModelCatalog(startMachineId),
       force: opts?.forceUnknownModel,
     })
     const selection = vetted
@@ -577,8 +581,9 @@ export class IssueGitWorkflowModule {
     const established: { branch?: string; machineId?: MachineId; repoPath?: string } = {}
     if (resumePath) {
       path = resumePath
+      established.machineId = await this.store.resolveWorktreeMachine(startMachineId, path)
     } else if (row.branch) {
-      const ensured = await this.ensureWorktree(id)
+      const ensured = await this.ensureWorktree(id, startMachineId)
       if (!ensured.ok || !ensured.worktreePath) {
         throw new Error(ensured.output || 'failed to recreate worktree from branch')
       }
@@ -640,7 +645,7 @@ export class IssueGitWorkflowModule {
       // Persisting and routing with one value records where the worktree was actually
       // created without changing which daemon receives the operation.
       const worktreeMachineId = await this.store.resolveWorktreeMachine(
-        homeMachineId,
+        startMachineId,
         startRepoPath,
       )
       const res = await this.store.d.repoOp(
@@ -1092,11 +1097,11 @@ export class IssueGitWorkflowModule {
   private async inspectRemovableWorktree(
     id: string,
     worktreePath: string,
+    machineId: MachineId,
   ): Promise<
     { ok: true; branch: string | null; head: string | null } | { ok: false; output: string }
   > {
-    const { machineId: pinned, repoPath } = await this.store.rowOrThrow(id)
-    const machineId = pinned ?? undefined
+    const { repoPath } = await this.store.rowOrThrow(id)
     if (await this.isRegisteredRepoRoot(machineId, worktreePath)) {
       return {
         ok: false,
@@ -1220,7 +1225,7 @@ export class IssueGitWorkflowModule {
       }
     }
     const worktreePath = at.worktreePath
-    const machineId = at.machineId ?? undefined
+    const machineId = await this.store.resolveWorktreeMachine(at.machineId, at.repoPath)
     const repoPath = at.repoPath
     // Always route git ops to the issue's machine — a remote-owned worktree must
     if (await this.isRegisteredRepoRoot(machineId, worktreePath)) {
@@ -1247,7 +1252,7 @@ export class IssueGitWorkflowModule {
     if (!st.ok) {
       return await refuse(`refusing free: cannot inspect worktree: ${st.output}`)
     }
-    const authority = await this.inspectRemovableWorktree(id, worktreePath)
+    const authority = await this.inspectRemovableWorktree(id, worktreePath, machineId)
     if (!authority.ok) return await refuse(`refusing free: ${authority.output}`)
     const branch = authority.branch
     const kept = branch
@@ -1636,7 +1641,6 @@ export class IssueGitWorkflowModule {
     const at = await this.store.rowOrThrow(id)
     const rowId = at.id
     const seq = at.seq
-    const machineId = at.machineId ?? undefined
     const { repoPath, parentBranch } = at
     const refuse = async (
       output: string,
@@ -1651,6 +1655,7 @@ export class IssueGitWorkflowModule {
     //     to the worktree-less delete path below.
     const refusal = this.cleanupRefusal(at)
     if (refusal !== undefined) return await refuse(refusal)
+    const machineId = await this.store.resolveWorktreeMachine(at.machineId, at.repoPath)
     if (!at.worktreePath && at.branch) {
       // Retry path after a partial cleanup: re-verify ancestry, then delete.
       const branch = at.branch
@@ -1718,7 +1723,7 @@ export class IssueGitWorkflowModule {
         : ''
       return await refuse(`refusing cleanup: cannot inspect worktree: ${st.output}${hint}`)
     }
-    const authority = await this.inspectRemovableWorktree(id, worktreePath)
+    const authority = await this.inspectRemovableWorktree(id, worktreePath, machineId)
     if (!authority.ok) return await refuse(`refusing cleanup: ${authority.output}`)
     const branch = authority.branch
 
@@ -1938,6 +1943,10 @@ export class IssueGitWorkflowModule {
             starter,
           )
     const kind = agentKind === 'shell' ? 'shell' : (launch?.agent ?? row.defaultAgent)
+    const sessionMachineId =
+      row.machineId ??
+      launch?.machineId ??
+      (await this.store.d.resolveMachine(undefined, row.worktreePath))
     // Everything here is inherited from the issue's profile, so nothing here can
     // refuse the spawn: a value the catalog does not know falls back to `auto`
     // (POD-3911). `--force-unknown-model` keeps an unknown stored model as before.
@@ -1950,9 +1959,10 @@ export class IssueGitWorkflowModule {
         effort: row.defaultEffort,
       },
       settings: await this.store.d.getSettings(starter),
-      catalog: await this.store.d.store.settings.getModelCatalog(
-        row.machineId ?? this.store.d.store.hostMachineId,
-      ),
+      catalog:
+        sessionMachineId === undefined || sessionMachineId === null
+          ? null
+          : await this.store.d.store.settings.getModelCatalog(sessionMachineId),
       force: opts?.forceUnknownModel,
     })
     // Guard against the path the repository has ON THE PIN, not the issue's own
@@ -1974,7 +1984,7 @@ export class IssueGitWorkflowModule {
       ...(selection.forced ? { forceUnknownModel: true } : {}),
       spawnedBy: opts?.spawnedBy ?? spawnedByTag({ kind: 'issue', id: row.id }),
       ...sessionOwnerFor(row, opts),
-      ...(row.machineId ? { machineId: row.machineId } : {}),
+      ...(sessionMachineId ? { machineId: sessionMachineId } : {}),
       ...(launch?.agentProfileId ? { agentProfileId: launch.agentProfileId } : {}),
       ...(opts?.credentialId !== undefined && kind !== 'shell'
         ? { credentialId: opts.credentialId }

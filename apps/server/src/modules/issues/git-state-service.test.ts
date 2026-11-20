@@ -3,6 +3,7 @@ import { asIssueId, asSessionId, type SessionId } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import { fixtureWriteScope } from '@podium/sync/testing'
 import { describe, expect, it, vi } from 'vitest'
+import { TEST_MACHINE_ID } from '../../test-support/machine-id'
 import { openTestStore } from '../../test-support/open-test-store'
 import { seedRows } from '../../test-support/seed-rows'
 import { sessionReadPorts } from '../../test-support/session-facts'
@@ -20,9 +21,9 @@ async function harness(
    *  POD-3806 was invisible to the git-state probe here. */
   opts: { storeBackedSettings?: boolean; now?: () => string } = {},
 ) {
-  const store = await openTestStore(':memory:')
+  const store = await openTestStore(':memory:', TEST_MACHINE_ID)
   // Issues are placed under a machine that REPORTED their repo (2b803efb5).
-  await store.repos.addRepo('/repo', store.hostMachineId)
+  await store.repos.addRepo('/repo', TEST_MACHINE_ID)
   const broadcast = vi.fn()
   const repoOp = vi.fn(async (op: string, _cwd: string, args?: Record<string, string>) => {
     const key =
@@ -36,6 +37,7 @@ async function harness(
   })
   const plumbing = issueTestPlumbing((msg) => broadcast(msg), { store })
   const deps: IssueDeps = {
+    resolveMachine: async () => TEST_MACHINE_ID,
     store,
     ...sessionReadPorts(() => sessions),
     getSettings: async () => {
@@ -60,6 +62,7 @@ async function harness(
   // The plumbing wires a REAL Ledger; its `changeLog` lets tests read the log
   // back (cursor/changesSince).
   return {
+    resolveMachine: async () => TEST_MACHINE_ID,
     svc: await IssueService.create(deps),
     store,
     repoOp,

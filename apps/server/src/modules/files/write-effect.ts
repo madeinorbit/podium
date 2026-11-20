@@ -7,7 +7,7 @@
  * a guess: the executor reads the file back and says whether it landed.
  *
  *  - TARGET: the session a session-addressed save names, or the machine a
- *    root-addressed one names (the host when it names none). `admit` holds the
+ *    root-addressed one names or resolves from its repository. `admit` holds the
  *    input to that target and keeps the shipped root allowlist: a root that is
  *    not a registered repository is refused at create, and again at the run,
  *    because the repo set can change in between.
@@ -26,6 +26,7 @@
 
 import { FILE_CONTRACTS } from '@podium/commands'
 import { asMachineId, asSessionId, type MachineId, mintDeviceId } from '@podium/model'
+import { TRPCError } from '@trpc/server'
 import type { z } from 'zod'
 import { privateResourceAccess } from '../../private-resources'
 import type { RegistryModules } from '../../relay'
@@ -34,6 +35,7 @@ import type { EffectRow } from '../../store/effects'
 import { publishedInputOf } from '../effects/published-input'
 import type { EffectOutcome, EffectRunContext } from '../effects/registry'
 import { NO_TARGET } from '../sync-write/registry'
+import { resolveFileRootMachine } from './root-machine'
 
 export const FILE_WRITE_EFFECT_KIND = 'file.write'
 
@@ -57,15 +59,20 @@ export interface FileWriteEffectDeps {
   modules(): RegistryModules
   /** The registered repository roots (the root allowlist), read per call. */
   repoPaths(machineId: MachineId): Promise<string[]>
-  /** The machine a root-addressed save without a machine names. */
-  readonly hostMachineId: MachineId
+  /** Machines that registered this root or a repository containing it. */
+  repoMachines(root: string): Promise<MachineId[]>
 }
 
 /** The target an input addresses. */
-export function fileWriteTarget(input: FileWriteInput, hostMachineId: MachineId) {
-  return 'sessionId' in input
-    ? ({ kind: 'session', id: input.sessionId } as const)
-    : ({ kind: 'machine', id: input.machineId ?? hostMachineId } as const)
+export function fileWriteTarget(input: FileWriteInput) {
+  if ('sessionId' in input) return { kind: 'session', id: input.sessionId } as const
+  if (input.machineId === undefined) {
+    throw new TRPCError({
+      code: 'BAD_REQUEST',
+      message: 'specify machineId for this repository root',
+    })
+  }
+  return { kind: 'machine', id: input.machineId } as const
 }
 
 const conflict = (baseHash?: string): EffectOutcome => ({
@@ -80,13 +87,17 @@ export function registerFileWriteEffect(deps: FileWriteEffectDeps): void {
   const rpc = () => deps.modules().rpc
   const rootAllowed = async (input: FileWriteInput) =>
     !('root' in input) ||
-    isAllowedRoot(await deps.repoPaths(input.machineId ?? deps.hostMachineId), input.root)
-  const resolvedInput = (input: FileWriteInput): FileWriteInput =>
-    'root' in input ? { ...input, machineId: input.machineId ?? deps.hostMachineId } : input
+    (input.machineId !== undefined &&
+      isAllowedRoot(await deps.repoPaths(input.machineId), input.root))
+  // The record freezes routing at admission, including for recovery of old inputs
+  // that did not carry a machine. Never resolve such a record onto another daemon.
+  const recordedInput = (ctx: EffectRunContext<FileWriteInput>): FileWriteInput =>
+    'root' in ctx.input && ctx.record.target.kind === 'machine'
+      ? { ...ctx.input, machineId: asMachineId(ctx.record.target.id) }
+      : ctx.input
 
   /** Did the save land? Reads the file back through the same daemon. */
-  const readBack = async (raw: FileWriteInput): Promise<EffectOutcome> => {
-    const input = resolvedInput(raw)
+  const readBack = async (input: FileWriteInput): Promise<EffectOutcome> => {
     const read = await rpc().readFile(
       'sessionId' in input
         ? { sessionId: input.sessionId, path: input.path }
@@ -138,16 +149,27 @@ export function registerFileWriteEffect(deps: FileWriteEffectDeps): void {
       return undefined
     },
     admit: async (input, target) => {
-      const addressed = fileWriteTarget(input, deps.hostMachineId)
+      const resolved =
+        'root' in input
+          ? {
+              ...input,
+              machineId: await resolveFileRootMachine(
+                input.root,
+                input.machineId,
+                deps.repoMachines,
+              ),
+            }
+          : input
+      const addressed = fileWriteTarget(resolved)
       if (addressed.kind !== target.kind || addressed.id !== target.id) {
         return { kind: 'invalid', details: ['target'] }
       }
-      return (await rootAllowed(input)) ? undefined : { kind: 'unauthorized' }
+      return (await rootAllowed(resolved)) ? undefined : { kind: 'unauthorized' }
     },
     deadlineMs: FILE_WRITE_DEADLINE_MS,
     publish: publishedInputOf(FILE_WRITE_EFFECT_KIND),
     run: async (ctx: EffectRunContext<FileWriteInput>) => {
-      const input = resolvedInput(ctx.input)
+      const input = recordedInput(ctx)
       if (!(await rootAllowed(input))) {
         return {
           status: 'failed',
@@ -164,7 +186,7 @@ export function registerFileWriteEffect(deps: FileWriteEffectDeps): void {
       }
       return { status: 'failed', error: { code: 'error', message: r.error ?? 'write failed' } }
     },
-    recover: async (ctx) => await readBack(ctx.input),
+    recover: async (ctx) => await readBack(recordedInput(ctx)),
   })
 }
 

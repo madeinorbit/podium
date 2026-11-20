@@ -2813,7 +2813,15 @@ export class SessionRegistry {
       agentProfiles,
       repoOp: async (op, cwd, args, machineId) => await rpc.repoOp(op, cwd, args, machineId),
       readRepo: async (op, cwd, args, machineId) => await rpc.repoOp(op, cwd, args, machineId),
-      resolveMachine: async (requested, cwd) => await machines.resolveMachine(requested, cwd),
+      resolveMachine: async (requested, cwd) => {
+        try {
+          return await machines.resolveMachine(requested, cwd)
+        } catch (error) {
+          if (error instanceof Error && 'code' in error && error.code === 'PRECONDITION_FAILED')
+            return undefined
+          throw error
+        }
+      },
       requireMachineForRepo: async (machineId, repoPath) =>
         await machines.requireMachineForRepo(machineId, repoPath),
       requireIssueHomeMachine: async (machineId) =>
@@ -5272,7 +5280,7 @@ export class SessionRegistry {
     registerFileWriteEffect({
       modules: () => this.modules,
       repoPaths: async (machineId) => await this.store.repos.listRepoPaths(machineId),
-      hostMachineId: this.store.hostMachineId,
+      repoMachines: async (root) => await fleetRepos.machinesForRoot(root),
     })
     // Scans and clones on a machine (POD-6396).
     this.repoDiscovery = new MachineRepoDiscovery({

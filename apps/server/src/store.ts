@@ -1143,7 +1143,7 @@ export class SessionStore {
   async refuseAndRepair(): Promise<void> {
     await this.settings.initializeSnapshot()
     await this.refuseLegacyIdentities()
-    await this.backfillLegacyWorktreeMachines()
+    await this.backfillLegacyWorktreeMachines(this.hostMachineId)
   }
 
   /**
@@ -1157,8 +1157,9 @@ export class SessionStore {
   }
 
   /** Run-once historical migration; no receipt until the host is enrolled. */
-  private async backfillLegacyWorktreeMachines(): Promise<void> {
-    const result = await this.issues.backfillLegacyWorktreeMachineIds(this.hostMachineId)
+  // LEGACY(remove-after: 2027-05): Pin v0.1.0 worktrees to an enrolled host; removing this drops that boot repair.
+  private async backfillLegacyWorktreeMachines(hostMachineId?: MachineId): Promise<void> {
+    const result = await this.issues.backfillLegacyWorktreeMachineIds(hostMachineId)
     if (result && (result.backfilled > 0 || result.skipped > 0)) {
       log.warn(
         `pinned ${result.backfilled} legacy worktree issue(s) to ${result.hostMachineId}; ` +

@@ -3147,6 +3147,7 @@ type Output_hosts_reclaimInventory = {
         path: string;
         repoPath: string;
     }[];
+    skippedUnresolvedMachines: number;
 };
 type Output_interactions_answer = ({
     detail?: string | undefined;

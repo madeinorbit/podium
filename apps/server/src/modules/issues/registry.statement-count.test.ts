@@ -1,3 +1,4 @@
+import { asIssueId, asUserId, firstAdminMemberId } from '@podium/model'
 /**
  * Issue reports and listings run a fixed number of statements, whatever the
  * number of issues [POD-6149, server-data rule 8].
@@ -15,10 +16,10 @@
  * rows; `doctor` reads only its listing and the dependencies now.
  */
 import { fixtureWriteScope } from '@podium/sync/testing'
-import { asIssueId, asUserId, firstAdminMemberId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { IssueRow, SessionStore } from '../../store'
 import { OPERATOR } from '../../test-support/capabilities'
+import { TEST_MACHINE_ID } from '../../test-support/machine-id'
 import { openTestStore } from '../../test-support/open-test-store'
 import { expectConstantStatements, type StatementPin } from '../../test-support/statement-count'
 import { IssueCommandCtx } from './command-ctx'
@@ -91,8 +92,8 @@ interface Fixture {
  * one, so ready and blocked both have rows.
  */
 async function fixture(size: number): Promise<Fixture> {
-  const store = await openTestStore(':memory:')
-  await store.repos.addRepo('/repo', store.hostMachineId, undefined, 'POD')
+  const store = await openTestStore(':memory:', TEST_MACHINE_ID)
+  await store.repos.addRepo('/repo', TEST_MACHINE_ID, undefined, 'POD')
   const rows = [
     row(1, { type: 'phase' }),
     ...Array.from({ length: size }, (_, i) =>
@@ -147,7 +148,10 @@ const call = async (f: Fixture, name: keyof typeof issueRegistry.defs, input: un
     { capability: OPERATOR, principal: { kind: 'user', user: reader, capability: OPERATOR } },
     name,
   )
-  const handler = issueRegistry.defs[name].handler as (ctx: unknown, input: unknown) => Promise<unknown>
+  const handler = issueRegistry.defs[name].handler as (
+    ctx: unknown,
+    input: unknown,
+  ) => Promise<unknown>
   return await handler(ctx, input)
 }
 
@@ -181,8 +185,10 @@ const lengthOf = (value: unknown) => (value as unknown[]).length
 describe('issue listings: pinned statement counts at 5 and 200 issues', () => {
   it('list: labels, deps, comment counts and one grant read (was 9 at 5 issues, 204 at 200)', async () => {
     await expectConstantStatements(
-      pin('issues.list', (f) => call(f, 'list', {}), (rows, size) =>
-        expect(lengthOf(rows)).toBe(readableChildren(size) + 1),
+      pin(
+        'issues.list',
+        (f) => call(f, 'list', {}),
+        (rows, size) => expect(lengthOf(rows)).toBe(readableChildren(size) + 1),
       ),
       14,
     )
@@ -190,22 +196,33 @@ describe('issue listings: pinned statement counts at 5 and 200 issues', () => {
 
   it('ready', async () => {
     await expectConstantStatements(
-      pin('issues.ready', (f) => call(f, 'ready', {}), (rows) => expect(lengthOf(rows)).toBeGreaterThan(0)),
+      pin(
+        'issues.ready',
+        (f) => call(f, 'ready', {}),
+        (rows) => expect(lengthOf(rows)).toBeGreaterThan(0),
+      ),
       14,
     )
   })
 
   it('blocked (was 5 at 5 issues, 102 at 200)', async () => {
     await expectConstantStatements(
-      pin('issues.blocked', (f) => call(f, 'blocked', {}), (rows) => expect(lengthOf(rows)).toBeGreaterThan(0)),
+      pin(
+        'issues.blocked',
+        (f) => call(f, 'blocked', {}),
+        (rows) => expect(lengthOf(rows)).toBeGreaterThan(0),
+      ),
       13,
     )
   })
 
   it('graph (was 9 at 5 issues, 204 at 200)', async () => {
     await expectConstantStatements(
-      pin('issues.graph', (f) => call(f, 'graph', {}), (graph, size) =>
-        expect((graph as { nodes: unknown[] }).nodes).toHaveLength(readableChildren(size) + 1),
+      pin(
+        'issues.graph',
+        (f) => call(f, 'graph', {}),
+        (graph, size) =>
+          expect((graph as { nodes: unknown[] }).nodes).toHaveLength(readableChildren(size) + 1),
       ),
       10,
     )
@@ -227,8 +244,10 @@ describe('issue listings: pinned statement counts at 5 and 200 issues', () => {
 
   it('doctor: its own dep read plus lint and stale (was 23 at 5 issues, 581 at 200)', async () => {
     await expectConstantStatements(
-      pin('issues.doctor', (f) => call(f, 'doctor', {}), (report) =>
-        expect(report).toMatchObject({ cycles: [] }),
+      pin(
+        'issues.doctor',
+        (f) => call(f, 'doctor', {}),
+        (report) => expect(report).toMatchObject({ cycles: [] }),
       ),
       3,
     )
@@ -236,7 +255,11 @@ describe('issue listings: pinned statement counts at 5 and 200 issues', () => {
 
   it('one issue report (unbatched report())', async () => {
     await expectConstantStatements(
-      pin('issues.get', (f) => f.reports.get('iss_2'), (report) => expect(report).toMatchObject({ seq: 2 })),
+      pin(
+        'issues.get',
+        (f) => f.reports.get('iss_2'),
+        (report) => expect(report).toMatchObject({ seq: 2 }),
+      ),
       14,
     )
   })

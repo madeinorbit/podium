@@ -5,6 +5,7 @@ import type { CommandPrincipal } from '../../../command-principal'
 import { liveSessionsUsingWorktree } from '../../../issue-util'
 import type { IssueRow } from '../../../store'
 import type { IssueStore } from './core'
+import { isIssueRefusal } from './refusal'
 
 import { parseGitWorktreeList } from './worktree-safety'
 
@@ -49,7 +50,10 @@ export class IssueWorktreeGcModule {
         `${stillUsing.length} live session(s) still in ${worktreePath}`,
       )
     }
-    const freed = await this.freeWorktreeKeepBranch(id, principal)
+    const freed = await this.freeWorktreeKeepBranch(id, principal).catch((error: unknown) => {
+      if (!isIssueRefusal(error)) throw error
+      return { ok: false, output: error.message, worktreeFreed: false }
+    })
     if (!freed.ok) return await this.refuseRelease(row, worktreePath, freed.output)
     return freed.worktreeFreed ? { freed: true } : { freed: false }
   }
@@ -63,9 +67,8 @@ export class IssueWorktreeGcModule {
   /** Reclaimable paths, oldest close first, shared by the panel and manual apply. */
   async listReclaimableWorktrees(nowMs: number = Date.now(), machineId?: MachineId) {
     const { afterDays } = (await this.store.d.getSettings()).worktreeGc
-    const targetMachineId = machineId ?? this.store.d.store.hostMachineId
     const live = this.store.d.runningSessionFacts()
-    const repoRows = await this.store.d.store.repos.listRepos(targetMachineId)
+    const repoRows = await this.store.d.store.repos.listRepos(machineId)
     const discovered = new Map<
       string,
       {
@@ -122,28 +125,45 @@ export class IssueWorktreeGcModule {
     // still claimed) are read, in one SQL listing (POD-6194); they used to be
     // found by scanning the issue map, with a machine resolved for every issue.
     const withWorktrees = await this.store.deps.store.issues.listIssueRowsWhere({
-      repo: false, live: false, hasWorktree: true, order: 'path-seq',
+      repo: false,
+      live: false,
+      hasWorktree: true,
+      order: 'path-seq',
     })
     const machineByRow = new Map<IssueId, MachineId>()
+    const unresolvedPaths = new Set<string>()
+    let skippedUnresolvedMachines = 0
     for (const row of withWorktrees) {
-      machineByRow.set(row.id, await this.store.resolveWorktreeMachine(row.machineId, row.repoPath))
+      try {
+        machineByRow.set(
+          row.id,
+          await this.store.resolveWorktreeMachine(row.machineId, row.repoPath),
+        )
+      } catch (error) {
+        if (!isIssueRefusal(error)) throw error
+        skippedUnresolvedMachines++
+        if (row.worktreePath) unresolvedPaths.add(machinePathKey(row.worktreePath))
+      }
     }
-    const rowMachine = (row: IssueRow): MachineId =>
-      machineByRow.get(row.id) ?? this.store.deps.store.hostMachineId
+    const resolvedRows = withWorktrees.flatMap((row) => {
+      const resolvedMachineId = machineByRow.get(row.id)
+      return resolvedMachineId === undefined ? [] : [{ row, machineId: resolvedMachineId }]
+    })
     const claimed = new Set<string>()
-    for (const row of withWorktrees) {
+    for (const { row, machineId: resolvedMachineId } of resolvedRows) {
       if (!row.worktreePath) continue
-      claimed.add(`${rowMachine(row)}\0${machinePathKey(row.worktreePath!)}`)
+      claimed.add(`${resolvedMachineId}\0${machinePathKey(row.worktreePath)}`)
     }
-    const candidates = withWorktrees
-      .filter((row) => this.isCandidate(row, nowMs, afterDays))
-      .filter((row) => rowMachine(row) === targetMachineId)
-      .filter((row) => liveSessionsUsingWorktree(row.worktreePath, live).length === 0)
+    const candidates = resolvedRows
+      .filter(({ row }) => this.isCandidate(row, nowMs, afterDays))
+      .filter((entry) => machineId === undefined || entry.machineId === machineId)
+      .filter(({ row }) => liveSessionsUsingWorktree(row.worktreePath, live).length === 0)
       .sort(
-        (a, b) => (a.closedAt ?? '').localeCompare(b.closedAt ?? '') || a.id.localeCompare(b.id),
+        (a, b) =>
+          (a.row.closedAt ?? '').localeCompare(b.row.closedAt ?? '') ||
+          a.row.id.localeCompare(b.row.id),
       )
-      .map((row) => {
-        const resolvedMachineId = rowMachine(row)
+      .map(({ row, machineId: resolvedMachineId }) => {
         const found = discovered.get(`${resolvedMachineId}\0${machinePathKey(row.worktreePath!)}`)
         return {
           issueId: row.id,
@@ -158,6 +178,7 @@ export class IssueWorktreeGcModule {
 
     const orphans = [...discovered.values()]
       .filter((entry) => !entry.primary)
+      .filter((entry) => !unresolvedPaths.has(machinePathKey(entry.path)))
       .filter((entry) => !claimed.has(`${entry.machineId}\0${machinePathKey(entry.path)}`))
       .sort((a, b) => a.path.localeCompare(b.path))
       .map(({ primary: _primary, ...entry }) => entry)
@@ -172,6 +193,7 @@ export class IssueWorktreeGcModule {
       diagnostics,
       allWorktreePaths,
       reclaimableDiskPaths,
+      skippedUnresolvedMachines,
     }
   }
 
@@ -179,13 +201,13 @@ export class IssueWorktreeGcModule {
   async releaseReclaimableWorktrees(principal: CommandPrincipal, nowMs: number = Date.now()) {
     const freed: string[] = []
     const refused: Array<{ issueId: IssueId; reason: string }> = []
-    const { candidates } = await this.listReclaimableWorktrees(nowMs)
+    const { candidates, skippedUnresolvedMachines } = await this.listReclaimableWorktrees(nowMs)
     for (const candidate of candidates) {
       const result = await this.releaseWorktreeIfIdle(candidate.issueId, principal)
       if (result.freed) freed.push(candidate.issueId)
       else refused.push({ issueId: candidate.issueId, reason: result.reason ?? 'not released' })
     }
-    return { freed, refused }
+    return { freed, refused, skippedUnresolvedMachines }
   }
 
   /**
@@ -211,7 +233,9 @@ export class IssueWorktreeGcModule {
     if ((row.closedAt ?? null) !== observed.closedAt) return { outcome: 'precondition' as const }
     if (row.deletedAt || !this.store.isClosed(row)) return { outcome: 'precondition' as const }
     if (!this.isCandidate(row, nowMs, policy.afterDays)) return { outcome: 'not-due' as const }
-    if (liveSessionsUsingWorktree(row.worktreePath, this.store.d.runningSessionFacts()).length > 0) {
+    if (
+      liveSessionsUsingWorktree(row.worktreePath, this.store.d.runningSessionFacts()).length > 0
+    ) {
       return { outcome: 'precondition' as const }
     }
     if (observed.mode === 'propose') {

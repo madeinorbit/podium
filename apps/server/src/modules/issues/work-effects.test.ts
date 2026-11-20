@@ -34,12 +34,16 @@ afterEach(() => disposeOracles())
 
 async function makeOracle() {
   const o = await makeBareOracle()
-  await o.store.repos.addRepo('/r', o.store.hostMachineId)
+  await o.store.repos.addRepo('/r', o.machineId)
   return o
 }
 
 async function newIssue(o: Awaited<ReturnType<typeof makeOracle>>, title: string) {
-  return await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, { repoPath: '/r', title, startNow: false })
+  return await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, {
+    repoPath: '/r',
+    title,
+    startNow: false,
+  })
 }
 
 describe('the issue work effects', () => {

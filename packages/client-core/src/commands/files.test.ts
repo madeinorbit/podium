@@ -97,4 +97,22 @@ describe('file commands retain their scoped request calls', () => {
       path: 'a.txt',
     })
   })
+
+  it('sends the known checkout machine for saves from either client', async () => {
+    const f = fixture()
+    const machineId = asMachineId('checkout-machine')
+    await f.commands.write({
+      scope: { kind: 'worktree', machineId, root: '/repo' },
+      path: 'notes.md',
+      content: 'saved',
+      baseHash: 'before',
+    })
+    expect(f.write).toHaveBeenCalledExactlyOnceWith({
+      machineId,
+      root: '/repo',
+      path: 'notes.md',
+      content: 'saved',
+      baseHash: 'before',
+    })
+  })
 })

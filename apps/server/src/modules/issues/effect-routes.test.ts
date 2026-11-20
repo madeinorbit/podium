@@ -38,7 +38,7 @@ const OFFLINE = asMachineId('mach_offline_6603')
 
 async function makeOracle() {
   const o = await makeBareOracle({ offlineMachines: [{ id: OFFLINE, name: 'Away' }] })
-  await o.store.repos.addRepo('/r', o.store.hostMachineId)
+  await o.store.repos.addRepo('/r', o.machineId)
   return o
 }
 

@@ -56,7 +56,8 @@ import { RepoRegistry } from '../../repo-registry'
 import { appRouter } from '../../router'
 import type { SessionStore } from '../../store'
 import { OPERATOR } from '../../test-support/capabilities'
-import { assignHostMachine, confirmingRetirement } from '../../test-support/host-daemon'
+import { confirmingRetirement } from '../../test-support/host-daemon'
+import { TEST_MACHINE_ID } from '../../test-support/machine-id'
 import { openTestStore } from '../../test-support/open-test-store'
 import type { PortableStateFence } from '../server-transfer/portable-fence'
 import { SuperagentService } from '../superagent'
@@ -134,6 +135,7 @@ export function provisional(reference: ProvisionalReference, why: string): strin
 export interface Oracle {
   reg: SessionRegistry
   store: SessionStore
+  machineId: MachineId
   /** Every ServerMessage broadcast to the (single) attached client. */
   client: ServerMessage[]
   /** Every ControlMessage the server sent to the attached daemon. */
@@ -212,7 +214,8 @@ export async function makeOracle(
     mailAwait?: { pollMs?: number; sleep?(ms: number): Promise<void> }
   } = {},
 ): Promise<Oracle> {
-  const store = await openTestStore(':memory:')
+  const machineId = opts.machineId ?? TEST_MACHINE_ID
+  const store = await openTestStore(':memory:', TEST_MACHINE_ID)
   for (const machine of opts.offlineMachines ?? []) {
     await store.machines.upsertMachine({
       id: machine.id,
@@ -238,9 +241,15 @@ export async function makeOracle(
       }),
     )
   }
-  // The host's own machine row, as setup enrollment writes it: boot no longer
-  // provisions it (6fd4f7221), and placement needs an assigned daemon (34aa06cf2).
-  await assignHostMachine(store)
+  // Enroll the fixture's machine explicitly, independently of server placement.
+  await store.machines.upsertMachine({
+    id: machineId,
+    name: 'Fixture machine',
+    hostname: 'fixture-machine',
+    tokenHash: 'fixture-token',
+    ownerUserId: firstAdminMemberId(),
+    assignment: { server: false, agentExecution: true },
+  })
   const reg = await SessionRegistry.create(store, undefined, {
     instanceId: 'default',
     ...(opts.portableStateFence ? { portableStateFence: opts.portableStateFence } : {}),
@@ -248,11 +257,6 @@ export async function makeOracle(
     ...(opts.mailAwait ? { mailAwait: opts.mailAwait } : {}),
   })
   registries.push(reg)
-  // The daemon the oracle attaches is THIS HOST's (POD-318): its row was
-  // written above, so it has an owner to be granted `use` by — the same posture
-  // setup enrollment leaves behind. A caller naming its own machineId is asking for a
-  // machine the fixture has NOT registered, which is a refusal, on purpose.
-  const machineId = opts.machineId ?? store.hostMachineId
   const daemon: ControlMessage[] = []
   const client: ServerMessage[] = []
   /** Extra sinks the relay helper installs; the daemon send fn is single-slot. */
@@ -324,6 +328,7 @@ export async function makeOracle(
   return {
     reg,
     store,
+    machineId,
     client,
     daemon,
     principal,
@@ -388,7 +393,7 @@ export async function waitFor(
 export function paintOracleTui(o: Oracle, sessionId: SessionId): void {
   let seq = 0
   const painter = setInterval(() => {
-    o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+    o.reg.gateway.routeDaemonFrame(o.machineId, {
       type: 'agentFrame',
       sessionId,
       seq: seq++,

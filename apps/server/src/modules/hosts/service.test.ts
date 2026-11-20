@@ -1,10 +1,11 @@
 import type { HostMetricsWire, SessionId } from '@podium/model'
-import { asMachineId, asSessionId } from '@podium/model'
+import { asIssueId, asMachineId, asSessionId } from '@podium/model'
 import type { LiveServerMessage } from '@podium/protocol'
 import { PodiumSettings } from '@podium/runtime'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { captureLogs } from '../../test-support/capture-logs'
 import { EventBus } from '../bus'
+import { HOST_COMMANDS_TRPC, type HostState } from './registry'
 import { type HostSessionView, type HostsDeps, HostsService } from './service'
 
 const NOW = new Date('2026-07-17T12:00:00.000Z').getTime()
@@ -1183,9 +1184,7 @@ describe('idle-session cap', () => {
     })
 
     it('keeps a TUI never seen watched-then-unwatched: no client terminal, nothing to do', async () => {
-      const sessions = [
-        attachTui(asSessionId('never-watched'), { lastUnwatchedAtMs: undefined }),
-      ]
+      const sessions = [attachTui(asSessionId('never-watched'), { lastUnwatchedAtMs: undefined })]
       const { service, closedClientTerminals } = harness({
         sessions,
         maxIdleSessions: null,
@@ -1277,26 +1276,32 @@ describe('idle-session cap', () => {
       expect(shellParked).toEqual([])
     })
 
-    it.each(['proof', 'resume', 'working', 'unknown floor'] as const)(
-      'cannot bypass %s at the backstop', async (missing) => {
-        const target = ancient(asSessionId('unsafe'))
-        if (missing === 'resume') target.resume = undefined
-        if (missing === 'working') target.agentState = { phase: 'working', since: target.lastActiveAt, nativeSubagentCount: 0 }
-        if (missing === 'unknown floor') {
-          target.lastActiveAt = new Date(NOW - 2 * HOUR).toISOString()
-          target.lastInputAtMs = target.lastOutputAtMs = NOW - 2 * HOUR
-        }
-        const { service, parked, hibernateRequireProof } = harness({
-          sessions: [target], maxIdleSessions: null, idleShellMinutes: null,
-          backstopMinutes: 60,
-          proven: missing === 'proof' ? new Set() : new Set(['unsafe']),
-        })
-        await service.onHostMetrics(asMachineId('local'), sample(10))
-        expect(parked).toEqual([])
-        expect(hibernateRequireProof).toEqual([])
-        expect(target.status).toBe('live')
-      },
-    )
+    it.each([
+      'proof',
+      'resume',
+      'working',
+      'unknown floor',
+    ] as const)('cannot bypass %s at the backstop', async (missing) => {
+      const target = ancient(asSessionId('unsafe'))
+      if (missing === 'resume') target.resume = undefined
+      if (missing === 'working')
+        target.agentState = { phase: 'working', since: target.lastActiveAt, nativeSubagentCount: 0 }
+      if (missing === 'unknown floor') {
+        target.lastActiveAt = new Date(NOW - 2 * HOUR).toISOString()
+        target.lastInputAtMs = target.lastOutputAtMs = NOW - 2 * HOUR
+      }
+      const { service, parked, hibernateRequireProof } = harness({
+        sessions: [target],
+        maxIdleSessions: null,
+        idleShellMinutes: null,
+        backstopMinutes: 60,
+        proven: missing === 'proof' ? new Set() : new Set(['unsafe']),
+      })
+      await service.onHostMetrics(asMachineId('local'), sample(10))
+      expect(parked).toEqual([])
+      expect(hibernateRequireProof).toEqual([])
+      expect(target.status).toBe('live')
+    })
 
     it('leaves a backstop-quiet session alone when a wake-up is already scheduled', async () => {
       const sessions = [ancient(asSessionId('forgotten'))]
@@ -1317,6 +1322,50 @@ describe('idle-session cap', () => {
 })
 
 describe('reclaim disk estimate cache', () => {
+  it('lists a workspace inventory without measuring its paths on a default machine', async () => {
+    const request = vi.fn()
+    const { service } = harness({
+      sessions: [],
+      maxIdleSessions: null,
+      daemonRequest: {
+        request,
+        settle: vi.fn(),
+        nextRequestId: vi.fn(),
+      } as unknown as HostsDeps['daemonRequest'],
+    })
+    const candidates = ['first', 'second'].map((name) => ({
+      issueId: asIssueId(`issue-${name}`),
+      title: name,
+      worktreePath: `/${name}/tree`,
+      closedAt: '2026-07-01T00:00:00.000Z',
+      machineId: asMachineId(`machine-${name}`),
+      present: true,
+      protectedReason: null,
+    }))
+    const listReclaimableWorktrees = vi.fn(async () => ({
+      candidates,
+      orphans: [],
+      diagnostics: [],
+      skippedUnresolvedMachines: 1,
+      allWorktreePaths: candidates.map((row) => row.worktreePath),
+      reclaimableDiskPaths: candidates.map((row) => row.worktreePath),
+    }))
+    const state = {
+      hosts: service,
+      issues: { gitWorkflow: { listReclaimableWorktrees } },
+    } as unknown as HostState
+    const inventory = await HOST_COMMANDS_TRPC.reclaimInventory.handler(state, {})
+    expect(listReclaimableWorktrees).toHaveBeenCalledExactlyOnceWith(expect.any(Number), undefined)
+    expect(inventory).toEqual({
+      candidates,
+      orphans: [],
+      diagnostics: [],
+      skippedUnresolvedMachines: 1,
+      estimate: { status: 'unknown', recoverableBytes: null, measuredAt: null },
+    })
+    expect(request).not.toHaveBeenCalled()
+  })
+
   it('returns measuring immediately, then serves the completed bytes for the same path sets', async () => {
     const now = vi.spyOn(Date, 'now').mockReturnValue(0)
     const request = vi.fn(async () => ({
@@ -1341,6 +1390,9 @@ describe('reclaim disk estimate cache', () => {
       ),
     ).toEqual({ status: 'measuring', recoverableBytes: null, measuredAt: null })
     await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(1))
+    expect(request).toHaveBeenCalledWith(
+      expect.objectContaining({ machineId: asMachineId('local') }),
+    )
     await Promise.resolve()
 
     expect(

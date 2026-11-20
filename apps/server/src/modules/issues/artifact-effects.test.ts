@@ -66,7 +66,7 @@ const OFFLINE = asMachineId('mach_offline_6605')
 
 async function setup(files: Record<string, string> = {}) {
   const o = await makeBareOracle({ offlineMachines: [{ id: OFFLINE, name: 'Away' }] })
-  await o.store.repos.addRepo('/r', o.store.hostMachineId)
+  await o.store.repos.addRepo('/r', o.machineId)
   const rpc = fakeRpc(
     Object.fromEntries(
       Object.entries(files).map(([rel, text]) => [`${WORKTREE}/${rel}`, Buffer.from(text)]),

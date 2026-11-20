@@ -2,6 +2,7 @@ import { asSessionId, firstAdminMemberId } from '@podium/model'
 import type { MetadataChange } from '@podium/protocol'
 import { normalizeSettings } from '@podium/runtime'
 import { afterEach, expect, it, vi } from 'vitest'
+import { TEST_MACHINE_ID } from '../../test-support/machine-id'
 import { openTestStore } from '../../test-support/open-test-store'
 import { sessionReadPorts } from '../../test-support/session-facts'
 import { IssueService } from './service'
@@ -15,11 +16,12 @@ afterEach(async () => {
 /** Compare the same production mutations before and after the record retirement.
  * Timings are evidence only; exact feed rows and repository calls detect regressions. */
 it.each([16, 64])('publishes only the changed normalized issue among %i rows', async (count) => {
-  const store = await openTestStore(':memory:')
+  const store = await openTestStore(':memory:', TEST_MACHINE_ID)
   stores.push(store)
-  await store.repos.addRepo('/repo', store.hostMachineId)
+  await store.repos.addRepo('/repo', TEST_MACHINE_ID)
   const published: MetadataChange[] = []
   const svc = await IssueService.create({
+    resolveMachine: async () => TEST_MACHINE_ID,
     store,
     ...sessionReadPorts(() => []),
     getSettings: async () =>
@@ -38,8 +40,13 @@ it.each([16, 64])('publishes only the changed normalized issue among %i rows', a
   const ids: string[] = []
   for (let index = 0; index < count; index++) {
     ids.push(
-      (await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/repo', title: `Fixture issue ${index}`, startNow: false }))
-        .id,
+      (
+        await svc.crud.create(svc.reports.store.serverWriter, {
+          repoPath: '/repo',
+          title: `Fixture issue ${index}`,
+          startNow: false,
+        })
+      ).id,
     )
   }
   const [target, parent] = ids as [string, string, ...string[]]
@@ -59,7 +66,11 @@ it.each([16, 64])('publishes only the changed normalized issue among %i rows', a
   }> = []
   const emitted: MetadataChange[][] = []
   const operations = [
-    ['update', () => svc.crud.update(svc.reports.store.serverWriter, target, { title: 'Changed fixture title' })],
+    [
+      'update',
+      () =>
+        svc.crud.update(svc.reports.store.serverWriter, target, { title: 'Changed fixture title' }),
+    ],
     ['reparent', () => svc.hierarchy.reparent(svc.reports.store.serverWriter, target, parent)],
     ['close', () => svc.crud.close(svc.reports.store.serverWriter, target)],
   ] as const
@@ -101,11 +112,12 @@ it.each([16, 64])('publishes only the changed normalized issue among %i rows', a
 })
 
 it('publishes read-only receipts without issue writes or collection discovery', async () => {
-  const store = await openTestStore(':memory:')
+  const store = await openTestStore(':memory:', TEST_MACHINE_ID)
   stores.push(store)
-  await store.repos.addRepo('/repo', store.hostMachineId)
+  await store.repos.addRepo('/repo', TEST_MACHINE_ID)
   const published: MetadataChange[] = []
   const svc = await IssueService.create({
+    resolveMachine: async () => TEST_MACHINE_ID,
     store,
     ...sessionReadPorts(() => []),
     getSettings: async () => normalizeSettings({}),
@@ -144,7 +156,11 @@ it('publishes read-only receipts without issue writes or collection discovery', 
     expect(stateWrite).toHaveBeenCalledTimes(1)
     // Duplicate and out-of-order receipts neither regress the cursor nor write.
     await svc.crud.markIssueRead(svc.reports.store.serverWriter, root.id, seen)
-    await svc.crud.markIssueRead(svc.reports.store.serverWriter, root.id, '2026-10-29T11:00:00.000Z')
+    await svc.crud.markIssueRead(
+      svc.reports.store.serverWriter,
+      root.id,
+      '2026-10-29T11:00:00.000Z',
+    )
     expect(stateWrite).toHaveBeenCalledTimes(1)
     await svc.crud.markIssueUnread(svc.reports.store.serverWriter, root.id)
     expect((await store.issues.getIssueUserState(user, root.id))?.readAt ?? null).toBeNull()
@@ -156,11 +172,12 @@ it('publishes read-only receipts without issue writes or collection discovery', 
 })
 
 it('keeps explicit mark-read covering the current issue and descendants', async () => {
-  const store = await openTestStore(':memory:')
+  const store = await openTestStore(':memory:', TEST_MACHINE_ID)
   stores.push(store)
-  await store.repos.addRepo('/repo', store.hostMachineId)
+  await store.repos.addRepo('/repo', TEST_MACHINE_ID)
   let now = '2026-10-29T12:00:00.000Z'
   const svc = await IssueService.create({
+    resolveMachine: async () => TEST_MACHINE_ID,
     store,
     ...sessionReadPorts(() => []),
     getSettings: async () => normalizeSettings({}),
@@ -169,7 +186,11 @@ it('keeps explicit mark-read covering the current issue and descendants', async 
     ...issueTestPlumbing(() => {}, { store }),
     now: () => now,
   })
-  const root = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/repo', title: 'Covering root', startNow: false })
+  const root = await svc.crud.create(svc.reports.store.serverWriter, {
+    repoPath: '/repo',
+    title: 'Covering root',
+    startNow: false,
+  })
   now = '2026-10-29T12:00:10.000Z'
   const child = await svc.crud.create(svc.reports.store.serverWriter, {
     repoPath: '/repo',
@@ -188,8 +209,12 @@ it('keeps explicit mark-read covering the current issue and descendants', async 
   await svc.crud.markIssueRead(svc.reports.store.serverWriter, root.id, '2026-10-29T12:00:10.000Z')
   expect((await store.issues.getIssueUserState(user, root.id))?.readAt).toBe(now)
   now = '2026-11-01T12:00:00.000Z'
-  await svc.crud.update(svc.reports.store.serverWriter, child.id, { title: 'New unseen child activity' })
+  await svc.crud.update(svc.reports.store.serverWriter, child.id, {
+    title: 'New unseen child activity',
+  })
   await svc.crud.markIssueUnread(svc.reports.store.serverWriter, root.id)
   await svc.crud.markIssueRead(svc.reports.store.serverWriter, root.id, '2026-10-29T12:00:10.000Z')
-  expect((await store.issues.getIssueUserState(user, root.id))?.readAt).toBe('2026-10-29T12:00:10.000Z')
+  expect((await store.issues.getIssueUserState(user, root.id))?.readAt).toBe(
+    '2026-10-29T12:00:10.000Z',
+  )
 })

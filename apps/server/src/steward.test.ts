@@ -24,6 +24,7 @@ import {
 import type { SessionStore } from './store'
 import { NotificationArbiter } from './store/notification-facts'
 import { captureLogs } from './test-support/capture-logs'
+import { TEST_MACHINE_ID } from './test-support/machine-id'
 import { openTestStore } from './test-support/open-test-store'
 import { seedRows } from './test-support/seed-rows'
 import { sessionReadPorts } from './test-support/session-facts'
@@ -44,7 +45,7 @@ const AS_OPERATOR = userCommandPrincipal(firstAdminMemberId(), 'admin')
 async function harness(
   opts: { enabled?: boolean; sessions?: SessionMeta[]; seedCursor?: boolean } = {},
 ) {
-  const store = await openTestStore(':memory:')
+  const store = await openTestStore(':memory:', TEST_MACHINE_ID)
   // Issues are placed on a machine that reported their repo (2b803efb5 refuses
   // implicit placement), so the fixture's repo is reported by the host machine.
   await store.repos.addRepo('/r', store.hostMachineId)
@@ -66,6 +67,7 @@ async function harness(
     clockMs += ms
   }
   const issueDeps: IssueDeps = {
+    resolveMachine: async () => TEST_MACHINE_ID,
     store,
     ...sessionReadPorts(() => sessions),
     getSettings: async () => settings,

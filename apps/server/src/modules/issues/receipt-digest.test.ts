@@ -19,7 +19,7 @@ afterEach(() => disposeOracles())
 
 async function issue(o: Oracle): Promise<IssueId> {
   if (!(await o.store.repos.listRepoPaths()).includes('/p')) {
-    await o.store.repos.addRepo('/p', o.store.hostMachineId)
+    await o.store.repos.addRepo('/p', o.machineId)
   }
   return (await o.call.issues.create({ repoPath: '/p', title: 'digest', startNow: false })).id
 }

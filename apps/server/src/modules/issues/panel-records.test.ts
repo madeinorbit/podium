@@ -4,6 +4,7 @@ import { fixtureWriteScope } from '@podium/sync/testing'
 import { afterEach, expect, it } from 'vitest'
 import { type RecordReads, serverRecordBuilders } from '../../sync/record-builders'
 import { issueRowFixture } from '../../test-support/issue-row'
+import { TEST_MACHINE_ID } from '../../test-support/machine-id'
 import { openTestStore } from '../../test-support/open-test-store'
 import { expectConstantStatements } from '../../test-support/statement-count'
 import { disposeOracles, makeOracle } from '../sessions/oracle-support'
@@ -12,7 +13,7 @@ import { appliedReply, envelope, rowsOf, submit } from '../sync-write/outbox-tes
 afterEach(() => disposeOracles())
 it('ticks just its stable todo record; position selectors resolve the current ordered list and an absent ID never retargets', async () => {
   const o = await makeOracle()
-  await o.store.repos.addRepo('/r', o.store.hostMachineId)
+  await o.store.repos.addRepo('/r', o.machineId)
   const issue = appliedReply(
     await submit(
       o,
@@ -95,7 +96,7 @@ it('ticks just its stable todo record; position selectors resolve the current or
 })
 it('replaces an artifact in place, keeps its record ID distinct from its snapshot, and clears only the selected issue', async () => {
   const o = await makeOracle()
-  await o.store.repos.addRepo('/r', o.store.hostMachineId)
+  await o.store.repos.addRepo('/r', o.machineId)
   const writer = o.reg.issues.reports.store.serverWriter
   const issue = await o.reg.issues.crud.create(writer, {
     repoPath: '/r',
@@ -144,8 +145,8 @@ it('builds all todo IDs with one statement at 5 and 200 items', async () => {
     {
       name: 'issuePanelTodo builder',
       setup: async (size) => {
-        const store = await openTestStore(':memory:')
-        await store.repos.addRepo('/repo', store.hostMachineId)
+        const store = await openTestStore(':memory:', TEST_MACHINE_ID)
+        await store.repos.addRepo('/repo', TEST_MACHINE_ID)
         const owner = await firstAdminMemberId(store)
         await store.issues.upsertIssue(
           fixtureWriteScope(),

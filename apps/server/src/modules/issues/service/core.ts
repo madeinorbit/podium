@@ -89,18 +89,14 @@ export class IssueStore {
   /**
    * Freeze the machine choice an implicit operation would otherwise make inside
    * DaemonRpcService. Explicit pins already bypass that resolver and keep winning.
-   * The fallback preserves lightweight test fixtures that do not wire the port;
-   * the relay always supplies MachinesService.resolveMachine.
    */
   async resolveWorktreeMachine(
     machineId: MachineId | null | undefined,
     cwd: string,
   ): Promise<MachineId> {
-    return (
-      machineId ??
-      (await this.deps.resolveMachine?.(undefined, cwd)) ??
-      this.deps.store.hostMachineId
-    )
+    const resolved = machineId ?? (await this.deps.resolveMachine(undefined, cwd))
+    if (resolved === undefined) throw new IssueRefusal(`no machine for this worktree: ${cwd}`)
+    return resolved
   }
 
   /**

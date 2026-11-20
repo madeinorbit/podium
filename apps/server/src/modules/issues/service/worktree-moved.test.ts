@@ -1,3 +1,4 @@
+import { TEST_MACHINE_ID } from '../../../test-support/machine-id'
 /**
  * A committed issue write that changes where the issue's worktree is emits
  * `issue.worktreeMoved` on the bus, after the outermost commit (POD-6158, for
@@ -21,8 +22,8 @@ describe('issue.worktreeMoved (POD-6158)', () => {
   })
 
   async function build() {
-    const store = await openTestStore(':memory:')
-    await store.repos.addRepo('/repo', store.hostMachineId)
+    const store = await openTestStore(':memory:', TEST_MACHINE_ID)
+    await store.repos.addRepo('/repo', TEST_MACHINE_ID)
     const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(registry)
     const moves: EventMap['issue.worktreeMoved'][] = []
