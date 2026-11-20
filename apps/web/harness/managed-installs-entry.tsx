@@ -9,10 +9,10 @@ import '@/index.css'
 import '@/styles.css'
 
 const scene = new URLSearchParams(location.search).get('state') ?? 'managed'
-const kind = scene === 'shared' ? 'grok' : 'codex'
+const kind = scene === 'shared' ? 'opencode' : 'codex'
 const managed = ['managed', 'both', 'shared', 'installing'].includes(scene)
 const own = ['own', 'own-too-old', 'both', 'shared'].includes(scene)
-const current = kind === 'codex' ? '0.171.0' : '1.0.89'
+const current = kind === 'codex' ? '0.171.0' : '1.19.6'
 const agent: AgentInventory = {
   kind,
   installed: managed || own,
@@ -20,12 +20,15 @@ const agent: AgentInventory = {
   ...(own
     ? {
         path: `/person/bin/${kind}`,
-        version: scene === 'own-too-old' ? '0.100.0' : kind === 'codex' ? '0.170.0' : '1.0.80',
+        version: scene === 'own-too-old' ? '0.100.0' : kind === 'codex' ? '0.170.0' : '1.19.5',
       }
     : {}),
   management: {
     installable: scene !== 'shared',
     ...(kind === 'codex' ? { homeVariable: 'CODEX_HOME' } : {}),
+    ...(kind === 'codex' && managed
+      ? { updateNotice: 'Codex updates its own server; a session may move to that newer server.' }
+      : {}),
   },
   ...(managed
     ? {
@@ -34,7 +37,7 @@ const agent: AgentInventory = {
             ? {
                 external: {
                   path: `/person/bin/${kind}`,
-                  version: kind === 'codex' ? '0.170.0' : '1.0.80',
+                  version: kind === 'codex' ? '0.170.0' : '1.19.5',
                 },
               }
             : {}),
@@ -44,7 +47,7 @@ const agent: AgentInventory = {
               version: current,
               release: 3,
             },
-            previousVersion: kind === 'codex' ? '0.169.0' : '1.0.87',
+            previousVersion: kind === 'codex' ? '0.169.0' : '1.19.4',
             paused: false,
             lastCheckAt: new Date(Date.now() - 2 * 3600000).toISOString(),
             ...(scene === 'installing' ? { installing: { version: '0.172.0' } } : {}),

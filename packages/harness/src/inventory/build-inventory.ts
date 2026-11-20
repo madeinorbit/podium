@@ -598,12 +598,14 @@ export async function buildResolvedInventory(
         const section = manifest.managedInstall
         const reason = !section.supported ? section.reason : refusal
         const homeVariable = harnessHomeVariable(agent.kind)
+        const updateNotice = declaredValue(section)?.updateNotice
         const row = {
           ...agent,
           management: {
             installable: !reason,
             ...(reason ? { reason } : {}),
             ...(homeVariable ? { homeVariable } : {}),
+            ...(updateNotice ? { updateNotice } : {}),
           },
         }
         // Argv-only under an injected exec, as candidatePaths (POD-2826): the

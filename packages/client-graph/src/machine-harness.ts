@@ -84,6 +84,9 @@ export class MachineHarness {
   @lazy get installReason(): string | undefined {
     return this.inventory?.management?.reason
   }
+  @lazy get updateNotice(): string | undefined {
+    return this.managed ? this.inventory?.management?.updateNotice : undefined
+  }
   @lazy get canAct(): boolean {
     return (
       this.machine.online &&

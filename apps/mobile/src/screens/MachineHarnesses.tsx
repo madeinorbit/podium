@@ -52,6 +52,7 @@ const PhoneHarnessRow = observer(function PhoneHarnessRow({ row }: { row: Machin
       <Text style={{ color: color.text, fontSize: font.body, fontWeight: '600' }}>{row.label}</Text>
       {row.ownLabel && <Text style={{ color: color.textDim }}>{row.ownLabel}</Text>}
       {row.managedLabel && <Text style={{ color: color.textDim }}>{row.managedLabel}</Text>}
+      {row.updateNotice && <Text style={{ color: color.textDim }}>{row.updateNotice}</Text>}
       {row.managed?.lastCheckAt && (
         <Text style={{ color: color.textDim }}>
           Checked {new Date(row.managed.lastCheckAt).toLocaleString()}

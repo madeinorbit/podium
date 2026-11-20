@@ -77,6 +77,7 @@ export const MachineHarnessRow = observer(function MachineHarnessRow({
               Both installs are sharing one folder for settings and conversations.
             </p>
           )}
+          {row.updateNotice && <p className="settings-prose mt-2">{row.updateNotice}</p>}
           {row.installReason && !row.managed && (
             <p className="settings-prose mt-2 max-w-prose">{row.installReason}</p>
           )}

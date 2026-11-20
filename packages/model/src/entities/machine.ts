@@ -166,6 +166,7 @@ export const AgentInventory = z.object({
       installable: z.boolean(),
       reason: z.string().optional(),
       homeVariable: z.string().optional(),
+      updateNotice: z.string().optional(),
     })
     .optional(),
 })

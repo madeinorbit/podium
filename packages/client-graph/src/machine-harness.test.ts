@@ -37,6 +37,28 @@ function fixture(value: AgentInventory) {
   return { machine, row: new MachineHarness(machine as unknown as MachineModel, 'codex') }
 }
 describe('machine harness state', () => {
+  it('shows the daemon’s vendor update disclosure only for its managed side', () => {
+    const own = agent(true, false)
+    const { row, machine } = fixture({
+      ...own,
+      management: { ...own.management!, updateNotice: 'Vendor updates its own server.' },
+    })
+    expect(row.updateNotice).toBeUndefined()
+    machine.inventory = {
+      ...machine.inventory,
+      agents: [
+        {
+          ...agent(true, true),
+          management: {
+            installable: true,
+            homeVariable: 'CODEX_HOME',
+            updateNotice: 'Vendor updates its own server.',
+          },
+        },
+      ],
+    }
+    expect(row.updateNotice).toBe('Vendor updates its own server.')
+  })
   it.each([
     ['not-installed', agent(false, false)],
     ['own', agent(true, false)],

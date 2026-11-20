@@ -808,6 +808,8 @@ export interface HarnessInstallPorts extends HarnessCheckPorts {
  * nothing outside Podium's folders; and `--version` prints the release's version.
  */
 export interface HarnessInstall {
+  /** Explain vendor update behavior that can change a managed session's executable. */
+  readonly updateNotice?: string
   /**
    * The newest release on the vendor's stable channel for this platform.
    * One small request. Never a pre-release.
