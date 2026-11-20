@@ -62,7 +62,7 @@ async function fixture(count = 1, file = ':memory:') {
       new Session({
         sessionId: asSessionId(`activity-${index}`),
         ownerUserId,
-        machineId: store.hostMachineId,
+        machineId: store.hostMachine!.id,
         durableLabel: `activity-${index}`,
         agentKind: 'codex',
         cwd: '/work',
@@ -263,7 +263,7 @@ describe('session activity publication', () => {
     f.session.status = 'exited'
     await f.save()
     const cursor = await f.ledger.cursor()
-    const machine = f.store.hostMachineId
+    const machine = f.store.hostMachine!.id
     await f.store.close()
     stores.delete(f.store)
     const store = await openTestStore(file, machine)

@@ -86,28 +86,30 @@ describe('startServer with the hub role disabled (node shape)', () => {
     expect(await trpc.sessions.list.query()).toEqual([])
     // Reading the fleet is core (a node lists its own host machine)…
     const machines = await trpc.machines.list.query()
-    expect(machines.some((m) => m.id === handle.registry.modules.machines.hostMachineId)).toBe(true)
+    expect(machines.some((m) => m.id === handle.registry.modules.machines.hostMachine!.id)).toBe(
+      true,
+    )
   })
 
   it('pairing/fleet procs are ABSENT: 404 NOT_FOUND, not permission-denied', async () => {
     for (const call of [
       () => trpc.machines.pairingCode.mutate(),
-      () => trpc.machines.revoke.mutate({ id: handle.registry.modules.machines.hostMachineId }),
+      () => trpc.machines.revoke.mutate({ id: handle.registry.modules.machines.hostMachine!.id }),
       () =>
         trpc.machines.moveServer.mutate({
-          targetMachineId: handle.registry.modules.machines.hostMachineId,
+          targetMachineId: handle.registry.modules.machines.hostMachine!.id,
           publicUrl: 'https://podium.example.com',
           bindHost: '0.0.0.0',
           confirmation: 'TRANSFER SERVER',
         }),
       () =>
         trpc.machines.transferOwnership.mutate({
-          id: handle.registry.modules.machines.hostMachineId,
+          id: handle.registry.modules.machines.hostMachine!.id,
           newOwnerUserId: 'user:nobody',
         }),
       () =>
         trpc.machines.adopt.mutate({
-          id: handle.registry.modules.machines.hostMachineId,
+          id: handle.registry.modules.machines.hostMachine!.id,
           newOwnerUserId: 'user:nobody',
         }),
     ]) {
@@ -139,7 +141,7 @@ describe('startServer with the hub role disabled (node shape)', () => {
     // agent execution with its daemon attached (34aa06cf2) — the all-in-one host
     // with its local daemon. The enrolled fixture host is server-only and has no
     // daemon, so give it the shape the node actually runs, for this test only.
-    const host = handle.registry.modules.machines.hostMachineId
+    const host = handle.registry.modules.machines.hostMachine!.id
     const before = (await handle.registry.sessionStore.machines.getMachine(host))?.serviceAssignment
     await handle.registry.sessionStore.machines.setServiceAssignment(host, {
       server: true,
@@ -208,7 +210,7 @@ describe('startServer with the hub role disabled (node shape)', () => {
     // the same file this server read, hence the same value the service reports.
     const auth = await handle.registry.modules.machines.authenticateDaemon({
       type: 'hello',
-      machineId: handle.registry.modules.machines.hostMachineId,
+      machineId: handle.registry.modules.machines.hostMachine!.id,
       token: handle.machineToken,
       hostname: 'same-host',
     })
@@ -218,10 +220,20 @@ describe('startServer with the hub role disabled (node shape)', () => {
   it('local raw output stays asynchronous and preserves batch references', async () => {
     const dialer = createHandshakeDialer({
       peerRole: 'machine',
-      credential: { kind: 'machineToken', token: handle.machineToken, machineHint: handle.registry.modules.machines.hostMachineId },
-      claims: { machineId: handle.registry.modules.machines.hostMachineId, hostname: 'same-host' },
+      credential: {
+        kind: 'machineToken',
+        token: handle.machineToken,
+        machineHint: handle.registry.modules.machines.hostMachine!.id,
+      },
+      claims: {
+        machineId: handle.registry.modules.machines.hostMachine!.id,
+        hostname: 'same-host',
+      },
     })
-    const attachment = await handle.localDaemonLink.attach({ hello: dialer.hello(), deliver: vi.fn() })
+    const attachment = await handle.localDaemonLink.attach({
+      hello: dialer.hello(),
+      deliver: vi.fn(),
+    })
     expect(attachment.established).toBe(true)
     if (!attachment.established) throw new Error('local daemon handshake failed')
 
@@ -299,7 +311,7 @@ describe('startServer default role keeps hub surfaces on', () => {
     const trpc = createTRPCClient<AppRouter>({
       links: [httpBatchLink({ url: `http://127.0.0.1:${handle.port}/trpc` })],
     })
-    const host = handle.registry.modules.machines.hostMachineId
+    const host = handle.registry.modules.machines.hostMachine!.id
     // A rename is a generic edit of the machine record (POD-6644).
     const submitter = { sync: { submit: (envelope: never) => trpc.sync.submit.mutate(envelope) } }
     await renameMachine(submitter as never, host, 'renamed-host')

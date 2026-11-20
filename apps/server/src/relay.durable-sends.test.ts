@@ -85,7 +85,7 @@ describe('interrupt and file sends ride the durable queue (POD-4795)', () => {
       agentKind: 'claude-code',
       cwd: '/repo',
     })
-    await reg1.gateway.routeDaemonFrame(reg1.sessionStore.hostMachineId, bind(sessionId))
+    await reg1.gateway.routeDaemonFrame(reg1.sessionStore.hostMachine!.id, bind(sessionId))
     const attachment = staged(sessionId)
 
     const sent = await reg1.modules.messages.send(
@@ -119,7 +119,7 @@ describe('interrupt and file sends ride the durable queue (POD-4795)', () => {
     const reg2 = await boot(file, second)
     try {
       expect(await reg2.modules.sessions.hasQueuedMessage(sessionId, sent.message.id)).toBe(true)
-      await reg2.gateway.routeDaemonFrame(reg2.sessionStore.hostMachineId, bind(sessionId))
+      await reg2.gateway.routeDaemonFrame(reg2.sessionStore.hostMachine!.id, bind(sessionId))
       await vi.waitFor(() => expect(durableSends(second, sessionId)).toHaveLength(1))
       // Same row, same id, mode, files and all — as a recovery, because the
       // first server reserved it before the forward.
@@ -145,7 +145,7 @@ describe('interrupt and file sends ride the durable queue (POD-4795)', () => {
         agentKind: 'claude-code',
         cwd: '/repo',
       })
-      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, bind(sessionId))
       const chat = await reg.modules.messages.send(
         reg.modules.sessions.serverWriter,
         { kind: 'operator' },
@@ -185,7 +185,7 @@ describe('interrupt and file sends ride the durable queue (POD-4795)', () => {
       agentKind: 'claude-code',
       cwd: '/repo',
     })
-    await reg1.gateway.routeDaemonFrame(reg1.sessionStore.hostMachineId, bind(sessionId))
+    await reg1.gateway.routeDaemonFrame(reg1.sessionStore.hostMachine!.id, bind(sessionId))
 
     const sent = await reg1.modules.messages.send(
       reg1.modules.sessions.serverWriter,
@@ -210,7 +210,7 @@ describe('interrupt and file sends ride the durable queue (POD-4795)', () => {
     const second: ControlMessage[] = []
     const reg2 = await boot(file, second)
     try {
-      await reg2.gateway.routeDaemonFrame(reg2.sessionStore.hostMachineId, bind(sessionId))
+      await reg2.gateway.routeDaemonFrame(reg2.sessionStore.hostMachine!.id, bind(sessionId))
       await vi.waitFor(() => expect(durableSends(second, sessionId)).toHaveLength(1))
       // The daemon recognises the id; a recovery is confirm-or-fail, never a
       // second cut or a second typing.

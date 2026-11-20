@@ -48,9 +48,9 @@ import { describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
 import type { SessionStore } from './store'
 import { issueRowFixture } from './test-support/issue-row'
+import { seedRows } from './test-support/seed-rows'
 import { statementBudget } from './test-support/statement-budget'
 import type { WriteContexts } from './write-contexts'
-import { seedRows } from './test-support/seed-rows'
 
 const OWNER = firstAdminMemberId()
 
@@ -82,7 +82,7 @@ async function seedConversations(reg: SessionRegistry, count: number): Promise<n
     id: `conv-${i}`,
     agentKind: 'claude-code' as const,
     providerId: 'claude-code-jsonl',
-    machineId: store.hostMachineId,
+    machineId: store.hostMachine!.id,
   }))
   const committed = await writes.system('conversations.discovery').commit({
     write: async (scope) => {
@@ -220,16 +220,20 @@ describe('POD-1614 — a bootstrap does not re-read the sessions table per row',
         onBehalfOf: OWNER,
       })
     }
-    await seedRows(store, async () => await store.repos.addRepo('/r', store.hostMachineId))
+    await seedRows(store, async () => await store.repos.addRepo('/r', store.hostMachine!.id))
     await store.transact(async () => {
       for (const [index, id] of ['i1', 'i2'].entries()) {
-        await seedRows(store, async () => await store.issues.upsertIssue(fixtureWriteScope(), {
-          ...issueRowFixture({ id, repoPath: '/r', seq: index + 1, ownerUserId: OWNER }),
-          repoId: undefined,
-          machineId: store.hostMachineId,
-          parentId: null,
-          worktreePath: null,
-        } as never))
+        await seedRows(
+          store,
+          async () =>
+            await store.issues.upsertIssue(fixtureWriteScope(), {
+              ...issueRowFixture({ id, repoPath: '/r', seq: index + 1, ownerUserId: OWNER }),
+              repoId: undefined,
+              machineId: store.hostMachine!.id,
+              parentId: null,
+              worktreePath: null,
+            } as never),
+        )
       }
     })
     // RE-POINTED, NOT RELAXED [POD-3261]. The conserved quantity this test names
@@ -356,7 +360,7 @@ const OTHER_OWNER = asUserId('usr_someone_else')
 async function seedGrantedIssues(reg: SessionRegistry, count: number): Promise<number> {
   const { store } = internals(reg)
   const ids = Array.from({ length: count }, (_, i) => `iss_shared_${i}`)
-  await seedRows(store, async () => await store.repos.addRepo('/r', store.hostMachineId))
+  await seedRows(store, async () => await store.repos.addRepo('/r', store.hostMachine!.id))
   for (const id of ids) {
     await store.grants.upsert({
       resourceKind: 'issue',
@@ -373,13 +377,17 @@ async function seedGrantedIssues(reg: SessionRegistry, count: number): Promise<n
   }
   await store.transact(async () => {
     for (const [index, id] of ids.entries()) {
-      await seedRows(store, async () => await store.issues.upsertIssue(fixtureWriteScope(), {
-        ...issueRowFixture({ id, repoPath: '/r', seq: index + 1, ownerUserId: OTHER_OWNER }),
-        repoId: undefined,
-        machineId: store.hostMachineId,
-        parentId: null,
-        worktreePath: null,
-      } as never))
+      await seedRows(
+        store,
+        async () =>
+          await store.issues.upsertIssue(fixtureWriteScope(), {
+            ...issueRowFixture({ id, repoPath: '/r', seq: index + 1, ownerUserId: OTHER_OWNER }),
+            repoId: undefined,
+            machineId: store.hostMachine!.id,
+            parentId: null,
+            worktreePath: null,
+          } as never),
+      )
     }
   })
   // The feed's head: the load is stamped with it.
@@ -549,7 +557,7 @@ describe('POD-6155 — feed passes read grants in one grouped query', () => {
                     lastOutputAt: null,
                     lastInputAt: null,
                     lastResumedAt: null,
-                    machineId: store.hostMachineId,
+                    machineId: store.hostMachine!.id,
                     headless: false,
                     issueId: null,
                     archived: false,

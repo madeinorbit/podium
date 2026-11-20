@@ -67,7 +67,7 @@ async function harness(sessions: SessionMeta[] = [], opts: { originUrl?: string 
   // that moves an issue between checkouts BY IDENTITY passes `originUrl`.
   await seedRows(
     store,
-    async () => await store.repos.addRepo('/r', store.hostMachineId, opts.originUrl),
+    async () => await store.repos.addRepo('/r', store.hostMachine!.id, opts.originUrl),
   )
   const setSessionArchived = vi.fn()
   const clearSessionOffer = vi.fn()
@@ -90,7 +90,7 @@ async function harness(sessions: SessionMeta[] = [], opts: { originUrl?: string 
       machine: 'machine-under-test',
     })),
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
-    resolveMachine: vi.fn(async () => store.hostMachineId),
+    resolveMachine: vi.fn(async () => store.hostMachine!.id),
     broadcast,
     ...issueTestPlumbing((msg) => broadcast(msg), { store }),
     setSessionArchived,
@@ -280,7 +280,7 @@ describe('IssueService CRUD', () => {
       worktreePath: '/r/wt',
       stage: 'planning',
     })
-    expect(updated.machineId).toBe(store.hostMachineId)
+    expect(updated.machineId).toBe(store.hostMachine!.id)
     expect(deps.resolveMachine).toHaveBeenCalledWith(undefined, '/r/wt')
     expect(updated).not.toHaveProperty('sessions')
     expect(updated).not.toHaveProperty('sessionSummary')
@@ -611,7 +611,7 @@ describe('IssueService unread (#124)', () => {
     // (computeUnread uses lastActivity > readAt, not >=).
     let clock = '2026-06-30T00:00:00.000Z'
     const store = await openTestStore(':memory:', TEST_MACHINE_ID)
-    await seedRows(store, async () => await store.repos.addRepo('/r', store.hostMachineId))
+    await seedRows(store, async () => await store.repos.addRepo('/r', store.hostMachine!.id))
     /** Every change row the service published — see `issueTestPlumbing`. */
     const broadcast = vi.fn()
     const deps: IssueDeps & { broadcast: ReturnType<typeof vi.fn> } = {
@@ -727,7 +727,7 @@ describe('IssueService tuck-away (POD-333)', () => {
     // Mutable clock so a repeated tuck could visibly move the stamp if it did.
     let clock = '2026-06-30T00:00:00.000Z'
     const store = await openTestStore(':memory:', TEST_MACHINE_ID)
-    await seedRows(store, async () => await store.repos.addRepo('/r', store.hostMachineId))
+    await seedRows(store, async () => await store.repos.addRepo('/r', store.hostMachine!.id))
     /** Every change row the service published — see `issueTestPlumbing`. */
     const broadcast = vi.fn()
     const deps: IssueDeps & { broadcast: ReturnType<typeof vi.fn> } = {
@@ -1646,7 +1646,7 @@ describe('new agent after worktree free (POD-580)', () => {
       'worktreeAddExisting',
       '/r',
       { path: '/r/.worktrees/issue-x', branch: 'issue/x' },
-      store.hostMachineId,
+      store.hostMachine!.id,
     )
     expect((await svc.reports.get(w.id))!.worktreePath).toBe('/r/.worktrees/issue-x')
     expect(deps.spawnSession).toHaveBeenCalledWith(
@@ -1690,7 +1690,7 @@ describe('new agent after worktree free (POD-580)', () => {
       'worktreeAddExisting',
       '/r',
       { path: '/r/.worktrees/issue-x', branch: 'issue/x' },
-      store.hostMachineId,
+      store.hostMachine!.id,
     )
     expect(
       (deps.repoOp as ReturnType<typeof vi.fn>).mock.calls.every(
@@ -1717,7 +1717,7 @@ describe('new agent after worktree free (POD-580)', () => {
       'worktreeAdd',
       '/r',
       expect.objectContaining({ branch: 'issue/1-brand-new' }),
-      store.hostMachineId,
+      store.hostMachine!.id,
     )
     expect(
       (deps.repoOp as ReturnType<typeof vi.fn>).mock.calls.every(
@@ -1873,13 +1873,13 @@ describe('IssueService.start', () => {
     expect(started.stage).toBe('in_progress')
     expect(started.branch).toBe('issue/1-fix-login')
     expect(started.worktreePath).toBe('/r/.worktrees/issue-1-fix-login')
-    expect(started.machineId).toBe(store.hostMachineId)
+    expect(started.machineId).toBe(store.hostMachine!.id)
     expect(deps.resolveMachine).toHaveBeenCalledWith(undefined, '/r')
     expect(deps.repoOp).toHaveBeenCalledWith(
       'worktreeAdd',
       '/r',
       { path: '/r/.worktrees/issue-1-fix-login', branch: 'issue/1-fix-login', startPoint: 'main' },
-      store.hostMachineId,
+      store.hostMachine!.id,
     )
     expect(deps.spawnSession).toHaveBeenCalledWith({
       cwd: '/r/.worktrees/issue-1-fix-login',
@@ -1890,7 +1890,7 @@ describe('IssueService.start', () => {
       initialPrompt: 'do the thing',
       ownerUserId: firstAdminMemberId(),
       spawnedBy: `issue:${created.id}`,
-      machineId: store.hostMachineId,
+      machineId: store.hostMachine!.id,
     })
   })
 
@@ -1924,7 +1924,7 @@ describe('IssueService.start', () => {
     const machineId = asMachineId('catalog-remote')
     deps.resolveMachine = vi.fn(async () => machineId)
     await store.settings.setModelCatalog({
-      machineId: store.hostMachineId,
+      machineId: store.hostMachine!.id,
       version: MODEL_CATALOG_VERSION,
       fetchedAt: 1,
       byAgent: { 'claude-code': [{ value: 'server-model', label: 'Server model' }] },
@@ -1953,7 +1953,7 @@ describe('IssueService.start', () => {
   it('with no machine online, a stale catalog never blocks placement (POD-3911)', async () => {
     const { svc, deps, store } = await harness()
     await store.settings.setModelCatalog({
-      machineId: store.hostMachineId,
+      machineId: store.hostMachine!.id,
       version: MODEL_CATALOG_VERSION,
       fetchedAt: 1,
       byAgent: { 'claude-code': [{ value: 'old-model', label: 'Old model' }] },
@@ -2016,7 +2016,7 @@ describe('IssueService.start', () => {
       startNow: false,
     })
     await svc.gitWorkflow.start(created.id)
-    expect(onWorktreesChanged).toHaveBeenCalledWith('/r', store.hostMachineId)
+    expect(onWorktreesChanged).toHaveBeenCalledWith('/r', store.hostMachine!.id)
   })
 
   it('does NOT fire onWorktreesChanged when worktreeAdd fails (POD-665)', async () => {
@@ -2038,7 +2038,7 @@ describe('IssueService.start', () => {
   it('starts on Auto when the stored model is one the catalog does not know', async () => {
     const { svc, deps, store } = await harness()
     await store.settings.setModelCatalog({
-      machineId: store.hostMachineId,
+      machineId: store.hostMachine!.id,
       version: MODEL_CATALOG_VERSION,
       fetchedAt: 1_000_000,
       byAgent: {
@@ -2072,7 +2072,7 @@ describe('IssueService.start', () => {
         roles: { coding: { accountId: 'native:claude-code', model: 'Codex', effort: 'auto' } },
       })
     await store.settings.setModelCatalog({
-      machineId: store.hostMachineId,
+      machineId: store.hostMachine!.id,
       version: MODEL_CATALOG_VERSION,
       fetchedAt: 1_000_000,
       byAgent: { 'claude-code': [{ value: 'claude-opus-4-8', label: 'Opus 4.8' }] },
@@ -2091,7 +2091,7 @@ describe('IssueService.start', () => {
   it('keeps an inherited effort the chosen model takes, drops one it does not', async () => {
     const { svc, deps, store } = await harness()
     await store.settings.setModelCatalog({
-      machineId: store.hostMachineId,
+      machineId: store.hostMachine!.id,
       version: MODEL_CATALOG_VERSION,
       fetchedAt: 1_000_000,
       byAgent: {
@@ -2126,7 +2126,7 @@ describe('IssueService.start', () => {
   it('force lets an unlisted issue model start', async () => {
     const { svc, deps, store } = await harness()
     await store.settings.setModelCatalog({
-      machineId: store.hostMachineId,
+      machineId: store.hostMachine!.id,
       version: MODEL_CATALOG_VERSION,
       fetchedAt: 1_000_000,
       byAgent: { 'claude-code': [{ value: 'claude-opus-4-8', label: 'Opus 4.8' }] },
@@ -2559,7 +2559,7 @@ describe('IssueService.start', () => {
     expect(result.output).toMatch(/already present/)
     expect(await svc.reports.get(created.id)).toMatchObject({
       worktreePath: '/r/.worktrees/issue-1-present',
-      machineId: store.hostMachineId,
+      machineId: store.hostMachine!.id,
     })
   })
 
@@ -2738,7 +2738,7 @@ describe('IssueService.start', () => {
       effort: 'auto',
       ownerUserId: firstAdminMemberId(),
       spawnedBy: `issue:${a.id}`,
-      machineId: store.hostMachineId,
+      machineId: store.hostMachine!.id,
     })
   })
 
@@ -2766,7 +2766,7 @@ describe('IssueService.start', () => {
     // DECISION: issue profiles now hold picks, so Settings equality no longer
     // identifies legacy inheritance. The machine's catalog rejects the old slug.
     await store.settings.setModelCatalog({
-      machineId: store.hostMachineId,
+      machineId: store.hostMachine!.id,
       version: MODEL_CATALOG_VERSION,
       fetchedAt: 1_000_000,
       byAgent: { codex: [{ value: 'gpt-5.6', label: 'GPT-5.6', efforts: [] }] },
@@ -2802,7 +2802,7 @@ describe('IssueService.start', () => {
       effort: 'high',
       ownerUserId: firstAdminMemberId(),
       spawnedBy: `issue:${a.id}`,
-      machineId: store.hostMachineId,
+      machineId: store.hostMachine!.id,
     })
   })
 
@@ -2936,7 +2936,7 @@ describe('IssueService.start', () => {
     it('refuses a nonsense effort with the valid set, before mutating any start state', async () => {
       const { svc, deps, store } = await harness()
       await store.settings.setModelCatalog({
-        machineId: store.hostMachineId,
+        machineId: store.hostMachine!.id,
         version: MODEL_CATALOG_VERSION,
         fetchedAt: 1_000_000,
         byAgent: {
@@ -2963,7 +2963,7 @@ describe('IssueService.start', () => {
     it('refuses a nonsense model and leaves the stored profile untouched', async () => {
       const { svc, deps, store } = await harness()
       await store.settings.setModelCatalog({
-        machineId: store.hostMachineId,
+        machineId: store.hostMachine!.id,
         version: MODEL_CATALOG_VERSION,
         fetchedAt: 1_000_000,
         byAgent: { 'claude-code': [{ value: 'claude-opus-5', label: 'Opus 5' }] },
@@ -3011,7 +3011,7 @@ describe('IssueService.start', () => {
     it('--force-unknown-model still lets an explicit unlisted model through', async () => {
       const { svc, deps, store } = await harness()
       await store.settings.setModelCatalog({
-        machineId: store.hostMachineId,
+        machineId: store.hostMachine!.id,
         version: MODEL_CATALOG_VERSION,
         fetchedAt: 1_000_000,
         byAgent: { 'claude-code': [{ value: 'claude-opus-5', label: 'Opus 5' }] },
@@ -3058,7 +3058,7 @@ describe('IssueService.start', () => {
       effort: 'auto',
       ownerUserId: firstAdminMemberId(),
       spawnedBy: `issue:${a.id}`,
-      machineId: store.hostMachineId,
+      machineId: store.hostMachine!.id,
     })
     await svc.gitWorkflow.addShell(a.id)
     expect(deps.spawnSession).toHaveBeenLastCalledWith(
@@ -4473,7 +4473,7 @@ describe('IssueService ready/blocked lists (P2a)', () => {
 describe('IssueService graph (P2a)', () => {
   it('returns nodes for repo issues and edges from issue_deps', async () => {
     const { svc, store } = await harness()
-    await seedRows(store, async () => await store.repos.addRepo('/other', store.hostMachineId))
+    await seedRows(store, async () => await store.repos.addRepo('/other', store.hostMachine!.id))
     const a = await svc.crud.create(svc.reports.store.serverWriter, {
       repoPath: '/r',
       title: 'A',
@@ -5089,7 +5089,8 @@ describe('IssueService.prime (P1a)', () => {
 
     await seedRows(
       store,
-      async () => await store.repos.addRepo('/home/u/other', store.hostMachineId, undefined, 'OTH'),
+      async () =>
+        await store.repos.addRepo('/home/u/other', store.hostMachine!.id, undefined, 'OTH'),
     )
     const issue = await svc.crud.create(svc.reports.store.serverWriter, {
       repoPath: '/home/u/other',
@@ -5312,7 +5313,7 @@ describe('IssueService.resolveRef (display seq → internal id)', () => {
   it('throws on a seq that exists in several repos (per-repo counters collide)', async () => {
     const { svc, store } = await harness()
     await seedRows(store, async () => {
-      for (const path of ['/r1', '/r2']) await store.repos.addRepo(path, store.hostMachineId)
+      for (const path of ['/r1', '/r2']) await store.repos.addRepo(path, store.hostMachine!.id)
     })
     await svc.crud.create(svc.reports.store.serverWriter, {
       repoPath: '/r1',
@@ -5330,7 +5331,7 @@ describe('IssueService.resolveRef (display seq → internal id)', () => {
   it('resolves repo-qualified refs — the exact form the ambiguity error prints', async () => {
     const { svc, store } = await harness()
     for (const path of ['/home/u/r1', '/home/u/r2'])
-      await seedRows(store, async () => await store.repos.addRepo(path, store.hostMachineId))
+      await seedRows(store, async () => await store.repos.addRepo(path, store.hostMachine!.id))
     const a = await svc.crud.create(svc.reports.store.serverWriter, {
       repoPath: '/home/u/r1',
       title: 'A',
@@ -5353,7 +5354,7 @@ describe('IssueService.resolveRef (display seq → internal id)', () => {
   it('the ambiguity error is copy-paste actionable: its printed refs resolve', async () => {
     const { svc, store } = await harness()
     for (const path of ['/home/u/r1', '/home/u/r2'])
-      await seedRows(store, async () => await store.repos.addRepo(path, store.hostMachineId))
+      await seedRows(store, async () => await store.repos.addRepo(path, store.hostMachine!.id))
     const a = await svc.crud.create(svc.reports.store.serverWriter, {
       repoPath: '/home/u/r1',
       title: 'A',
@@ -5379,7 +5380,7 @@ describe('IssueService.resolveRef (display seq → internal id)', () => {
   it('a suffix ref matching several repos throws instead of guessing', async () => {
     const { svc, store } = await harness()
     for (const path of ['/a/podium', '/b/podium'])
-      await seedRows(store, async () => await store.repos.addRepo(path, store.hostMachineId))
+      await seedRows(store, async () => await store.repos.addRepo(path, store.hostMachine!.id))
     await svc.crud.create(svc.reports.store.serverWriter, {
       repoPath: '/a/podium',
       title: 'A',
@@ -5594,7 +5595,7 @@ describe('IssueService worktree reconciliation and root safety (POD-2662)', () =
 
   it('rejects repository roots at the write seam and before any removal probe', async () => {
     const h = await harness()
-    await seedRows(h.store, async () => await h.store.repos.addRepo('/r', h.store.hostMachineId))
+    await seedRows(h.store, async () => await h.store.repos.addRepo('/r', h.store.hostMachine!.id))
     const issue = await prepared(h)
     await expect(
       h.svc.crud.update(h.svc.reports.store.serverWriter, issue.id, { worktreePath: '/r' }),
@@ -5629,7 +5630,10 @@ describe('IssueService worktree reconciliation and root safety (POD-2662)', () =
     const issue = await prepared(h)
     // The harness reports /r so the issue can be created (2b803efb5); this case is
     // about a free with NO repos-table match, so the report is withdrawn first.
-    await seedRows(h.store, async () => await h.store.repos.removeRepo('/r', h.store.hostMachineId))
+    await seedRows(
+      h.store,
+      async () => await h.store.repos.removeRepo('/r', h.store.hostMachine!.id),
+    )
     // A historical row the write seam would now refuse, planted in the store.
     const row = (await h.store.issues.getIssue(issue.id))!
     row.worktreePath = '/r'
@@ -6773,7 +6777,7 @@ describe('IssueService children + depReport (epic ergonomics)', () => {
 
   it('depReport without id covers the repo', async () => {
     const { svc, store } = await harness()
-    await seedRows(store, async () => await store.repos.addRepo('/other', store.hostMachineId))
+    await seedRows(store, async () => await store.repos.addRepo('/other', store.hostMachine!.id))
     await svc.crud.create(svc.reports.store.serverWriter, {
       repoPath: '/r',
       title: 'x',
@@ -6944,7 +6948,7 @@ describe('IssueService panelArtifactAdd/Remove (permanent snapshots)', () => {
       issueId: w.id,
       root: '/wt/issue-1',
       sourcePath: 'shots/a.png',
-      machineId: store.hostMachineId,
+      machineId: store.hostMachine!.id,
     })
     const a = wire.panel?.artifacts[0]
     expect(a).toMatchObject({
@@ -8679,7 +8683,7 @@ describe('worktree GC sweep for closed work (POD-564)', () => {
 
   it('reports a git worktree that no issue row claims as an orphan', async () => {
     const h = await gcHarness({ mode: 'propose', afterDays: 14 })
-    await seedRows(h.store, async () => await h.store.repos.addRepo('/r', h.store.hostMachineId))
+    await seedRows(h.store, async () => await h.store.repos.addRepo('/r', h.store.hostMachine!.id))
     const claimed = await closedIssueWithCheckout(h, { path: '/r/.worktrees/claimed' })
     h.deps.repoOp = vi.fn(async (op) =>
       op === 'worktreeList'
@@ -8694,7 +8698,7 @@ describe('worktree GC sweep for closed work (POD-564)', () => {
         : { ok: true, output: '' },
     )
 
-    const inventory = await h.svc.gitWorkflow.listReclaimableWorktrees(DUE, h.store.hostMachineId)
+    const inventory = await h.svc.gitWorkflow.listReclaimableWorktrees(DUE, h.store.hostMachine!.id)
 
     expect(inventory.candidates).toEqual([
       expect.objectContaining({ issueId: claimed, present: true, protectedReason: null }),
@@ -8719,7 +8723,7 @@ describe('worktree GC sweep for closed work (POD-564)', () => {
     String.raw`C:\repo`,
   ])('machine paths: worktree inventory recognizes claimed paths under %s', async (root) => {
     const h = await gcHarness({ mode: 'propose', afterDays: 14 })
-    await seedRows(h.store, async () => await h.store.repos.addRepo(root, h.store.hostMachineId))
+    await seedRows(h.store, async () => await h.store.repos.addRepo(root, h.store.hostMachine!.id))
     const worktree = root + '/.worktrees/claimed'
     const claimed = await closedIssueWithCheckout(h, { path: worktree })
     h.deps.repoOp = vi.fn(async (op) =>
@@ -8733,7 +8737,7 @@ describe('worktree GC sweep for closed work (POD-564)', () => {
           }
         : { ok: true, output: '' },
     )
-    const inventory = await h.svc.gitWorkflow.listReclaimableWorktrees(DUE, h.store.hostMachineId)
+    const inventory = await h.svc.gitWorkflow.listReclaimableWorktrees(DUE, h.store.hostMachine!.id)
     expect(inventory.candidates).toEqual([
       expect.objectContaining({ issueId: claimed, present: true }),
     ])
@@ -9072,7 +9076,7 @@ it.each([
   'C:\\repo',
 ])('machine paths: shared roots remain unowned while nested worktrees attach under %s', async (root) => {
   const { svc, store } = await harness()
-  await seedRows(store, async () => await store.repos.addRepo(root, store.hostMachineId))
+  await seedRows(store, async () => await store.repos.addRepo(root, store.hostMachine!.id))
   const w = await svc.crud.create(svc.reports.store.serverWriter, {
     repoPath: root,
     title: 'shared',
@@ -9092,7 +9096,7 @@ it.each([
   'C:\\repo',
 ])('machine paths: worktree creation and qualified issue reference under %s', async (root) => {
   const { svc, deps, store } = await harness()
-  await seedRows(store, async () => await store.repos.addRepo(root, store.hostMachineId))
+  await seedRows(store, async () => await store.repos.addRepo(root, store.hostMachine!.id))
   const w = await svc.crud.create(svc.reports.store.serverWriter, {
     repoPath: root,
     title: 'feature',
@@ -9145,7 +9149,7 @@ describe('landing verdict over real git (POD-2151)', () => {
     appendFileSync(join(root, '.git', 'info', 'exclude'), '.worktrees/\n')
     commit(root, 'base.txt', 'base')
     const h = await harness()
-    await seedRows(h.store, async () => await h.store.repos.addRepo(root, h.store.hostMachineId))
+    await seedRows(h.store, async () => await h.store.repos.addRepo(root, h.store.hostMachine!.id))
     // The merge stamp reads the wall clock, so the service's must too.
     h.deps.now = () => new Date().toISOString()
     const calls: { op: string; cwd: string }[] = []

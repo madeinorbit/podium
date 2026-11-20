@@ -47,7 +47,7 @@ async function fixture(size: number): Promise<Fixture> {
       agentKind: 'codex',
       cwd: `/w${i}`,
     })
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
       type: 'bind',
       sessionId,
       cmd: 'codex',
@@ -110,7 +110,7 @@ const pin: StatementPin<Fixture> = {
   target: (f) => f.store,
   run: async (f) => {
     await f.reg.gateway.routeDaemonFrame(
-      f.reg.sessionStore.hostMachineId,
+      f.reg.sessionStore.hostMachine!.id,
       stateSnapshot(f.ids[0]!, 30) as never,
     )
     await settle(f.reg)

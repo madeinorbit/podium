@@ -53,7 +53,11 @@ function fullView(subject: SessionSubject): unknown {
 
 async function parkedSession(reg: SessionRegistry, store: SessionStore): Promise<SessionId> {
   const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/x' })
-  await reg.gateway.routeDaemonFrame(store.hostMachineId, { type: 'agentExit', sessionId, code: 0 })
+  await reg.gateway.routeDaemonFrame(store.hostMachine!.id, {
+    type: 'agentExit',
+    sessionId,
+    code: 0,
+  })
   await reg.modules.sessions.flushActivity()
   return sessionId
 }
@@ -187,7 +191,7 @@ describe('session residency (POD-6160 D2f)', () => {
       lastResumedAt: null,
       archived: false,
       workState: null,
-      machineId: store.hostMachineId,
+      machineId: store.hostMachine!.id,
       headless: true,
       issueId: null,
       stoppedAt: '2026-10-16T00:00:00.000Z',

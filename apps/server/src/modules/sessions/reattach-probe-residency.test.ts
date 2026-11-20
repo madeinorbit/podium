@@ -27,7 +27,7 @@ afterEach(async () => {
 
 async function exitedSessions(count: number) {
   const store = await openTestStore(':memory:')
-  await store.repos.addRepo('/r', store.hostMachineId)
+  await store.repos.addRepo('/r', store.hostMachine!.id)
   const reg = await SessionRegistry.create(store, undefined, {
     instanceId: 'default',
     sessionResidency: { evictParked: true, sweepIntervalMs: 0 },
@@ -35,7 +35,7 @@ async function exitedSessions(count: number) {
   registries.push(reg)
   await attachHostDaemon(reg)
   const sessions = reg.modules.sessions
-  const machine = store.hostMachineId
+  const machine = store.hostMachine!.id
   const ids: SessionId[] = []
   for (let i = 0; i < count; i++) {
     const cwd = `/r/w${i}`

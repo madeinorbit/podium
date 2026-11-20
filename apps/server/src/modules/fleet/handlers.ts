@@ -343,6 +343,11 @@ export const machineMoveServerHandler = async ({
   port?: number
   confirmation: 'TRANSFER SERVER'
 }>) => {
+  if (!mods(ctx).machines.hostMachine)
+    throw new TRPCError({
+      code: 'PRECONDITION_FAILED',
+      message: 'Server move is unavailable on this server: it has no host machine.',
+    })
   // The input's own checks answer as before, before any record exists.
   resolvedTransferPort(input, normalizedPublicUrl(input))
   const id = mintDeviceId('eff_')

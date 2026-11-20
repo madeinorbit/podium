@@ -48,7 +48,7 @@ async function harness(
   const store = await openTestStore(':memory:', TEST_MACHINE_ID)
   // Issues are placed on a machine that reported their repo (2b803efb5 refuses
   // implicit placement), so the fixture's repo is reported by the host machine.
-  await store.repos.addRepo('/r', store.hostMachineId)
+  await store.repos.addRepo('/r', store.hostMachine!.id)
   // Most tests want the events they emit consumed — pin the cursor to the log
   // start, as if the steward had been enabled since boot. First-enable seeding
   // tests pass seedCursor: false to exercise the absent-row path.
@@ -1663,7 +1663,7 @@ describe('StewardService stored subscriptions (Phase B)', () => {
       lastResumedAt: null,
       archived: false,
       workState: null,
-      machineId: store.hostMachineId,
+      machineId: store.hostMachine!.id,
       headless: false,
       issueId: epic.id,
       stoppedAt: null,

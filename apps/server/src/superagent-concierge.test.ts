@@ -59,7 +59,7 @@ async function harness(opts?: { eventReadLimit?: number }) {
   // completed events, then history/snapshot reads for output and resume), so
   // the conciergeTurn flow completes without a real harness.
   const turnReqs: TurnReq[] = []
-  const host = registry.sessionStore.hostMachineId
+  const host = registry.sessionStore.hostMachine!.id
   const resolveTurn = (m: TurnReq, epoch: number) => {
     void registry.gateway.routeDaemonFrame(host, {
       type: 'runtimeSendResult',
@@ -102,11 +102,11 @@ async function harness(opts?: { eventReadLimit?: number }) {
   await assignHostMachine(registry.sessionStore)
   await attachDaemonWithInventory(
     registry,
-    registry.sessionStore.hostMachineId,
+    registry.sessionStore.hostMachine!.id,
     (m) => {
       if (m.type === 'repoOpRequest') {
         queueMicrotask(() =>
-          registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+          registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachine!.id, {
             type: 'repoOpResult',
             requestId: m.requestId,
             ok: true,
@@ -637,7 +637,7 @@ describe('search_all tool', () => {
       sessionId,
       name: 'capacitor refactor',
     })
-    registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+    registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachine!.id, {
       type: 'sessionResumeRef',
       sessionId,
       resume: { kind: 'claude-session', value: 'native-conv' },
@@ -655,7 +655,7 @@ describe('search_all tool', () => {
             // Memory visibility is default-closed (POD-322): the conversation is only
             // readable through a session that resumes it ON THE SAME MACHINE — which
             // since POD-318 is this host's minted id, not a sentinel.
-            machineId: registry.sessionStore.hostMachineId,
+            machineId: registry.sessionStore.hostMachine!.id,
           },
         ]),
     )
@@ -786,7 +786,7 @@ it.each([
   await seedRows(
     registry.sessionStore,
     async () =>
-      await registry.sessionStore.repos.addRepo(repoPath, registry.sessionStore.hostMachineId),
+      await registry.sessionStore.repos.addRepo(repoPath, registry.sessionStore.hostMachine!.id),
   )
   const thread = await sa.ensureConciergeThread({ ownerUserId: firstAdminMemberId(), repoPath })
   expect(
@@ -808,7 +808,8 @@ it.each([
   const { registry, sa, turnReqs, settle } = await harness()
   await seedRows(
     registry.sessionStore,
-    async () => await registry.sessionStore.repos.addRepo(cwd, registry.sessionStore.hostMachineId),
+    async () =>
+      await registry.sessionStore.repos.addRepo(cwd, registry.sessionStore.hostMachine!.id),
   )
   expect(await registry.sessionStore.repos.listRepoPaths()).toContain(cwd)
   const created = await registry.modules.sessions.createSession({

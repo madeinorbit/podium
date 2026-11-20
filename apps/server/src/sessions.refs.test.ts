@@ -16,7 +16,7 @@ import { clientSessionViews } from './test-support/session-views'
 
 async function harness() {
   const store = await openTestStore(':memory:')
-  await store.repos.addRepo('/r/podium', store.hostMachineId) // prefix POD
+  await store.repos.addRepo('/r/podium', store.hostMachine!.id) // prefix POD
   const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   await attachHostDaemon(reg, () => {})
   const issue = await reg.modules.issues.crud.create(
@@ -185,7 +185,7 @@ describe('session birth naming (#474)', () => {
 
   it('boot backfill names historical unnamed sessions once, deterministically', async () => {
     const store = await openTestStore(':memory:')
-    await store.repos.addRepo('/r/podium', store.hostMachineId)
+    await store.repos.addRepo('/r/podium', store.hostMachine!.id)
     const reg1 = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     await attachHostDaemon(reg1, () => {})
     const a = (await reg1.modules.sessions.createSession({ agentKind: 'shell', cwd: '/r/podium' }))

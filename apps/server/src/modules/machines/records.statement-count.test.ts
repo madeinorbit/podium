@@ -46,7 +46,7 @@ interface Fixture {
 
 async function fixture(size: number): Promise<Fixture> {
   const o = await makeOracle()
-  const machine = o.store.hostMachineId
+  const machine = o.store.hostMachine!.id
   for (let i = 0; i < size; i++) {
     await memberFacts(o.store).create(
       {

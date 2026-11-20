@@ -88,11 +88,11 @@ describe('SessionStore repos', () => {
   it('starts empty, adds, dedupes, lists in insertion order, removes', async () => {
     const store = await openTestStore(':memory:')
     expect(await store.repos.listRepoPaths()).toEqual([])
-    await store.repos.addRepo('/home/u/b', store.hostMachineId)
-    await store.repos.addRepo('/home/u/a', store.hostMachineId)
-    await store.repos.addRepo('/home/u/b', store.hostMachineId) // dedupe
+    await store.repos.addRepo('/home/u/b', store.hostMachine!.id)
+    await store.repos.addRepo('/home/u/a', store.hostMachine!.id)
+    await store.repos.addRepo('/home/u/b', store.hostMachine!.id) // dedupe
     expect(await store.repos.listRepoPaths()).toEqual(['/home/u/b', '/home/u/a'])
-    await store.repos.removeRepo('/home/u/b', store.hostMachineId)
+    await store.repos.removeRepo('/home/u/b', store.hostMachine!.id)
     expect(await store.repos.listRepoPaths()).toEqual(['/home/u/a'])
     await store.close()
   })
@@ -102,9 +102,9 @@ describe('SessionStore repos', () => {
     async () => {
       const store = await openTestStore(':memory:')
       await store.beginTransferFence()
-      await expect(store.repos.addRepo('/home/u/fenced', store.hostMachineId)).rejects.toThrow()
+      await expect(store.repos.addRepo('/home/u/fenced', store.hostMachine!.id)).rejects.toThrow()
       await store.endTransferFence()
-      await store.repos.addRepo('/home/u/reopened', store.hostMachineId)
+      await store.repos.addRepo('/home/u/reopened', store.hostMachine!.id)
       await store.close()
     },
   )
@@ -112,7 +112,7 @@ describe('SessionStore repos', () => {
   it('persists repos across instances on the same file', async () => {
     const file = await tmpDbPath()
     const a = await openTestStore(file)
-    await a.repos.addRepo('/abs/one', a.hostMachineId)
+    await a.repos.addRepo('/abs/one', a.hostMachine!.id)
     await a.close()
     const b = await openTestStore(file)
     expect(await b.repos.listRepoPaths()).toEqual(['/abs/one'])
@@ -143,7 +143,7 @@ describe('SessionStore repos', () => {
 
   it('resolves subpaths under a registered filesystem root repo', async () => {
     const store = await openTestStore(':memory:')
-    await store.repos.addRepo('/', store.hostMachineId)
+    await store.repos.addRepo('/', store.hostMachine!.id)
     const repoId = (await store.repos.listRepos())[0]?.repoId
 
     expect(await store.repos.resolveRepoIdForPath('/home/till/src/podium')).toBe(repoId)

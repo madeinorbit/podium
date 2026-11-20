@@ -138,7 +138,7 @@ describe('records.pin', () => {
 describe('an issue pin (POD-6692)', () => {
   async function task(o: Oracle, title: string): Promise<{ id: string; seq: number }> {
     if ((await o.store.repos.listRepos()).every((repo) => repo.path !== '/r')) {
-      await o.store.repos.addRepo('/r', o.store.hostMachineId)
+      await o.store.repos.addRepo('/r', o.store.hostMachine!.id)
     }
     return (await o.call.issues.create({ repoPath: '/r', title, startNow: false })) as {
       id: string
@@ -497,7 +497,7 @@ describe('the per-user records reach their owner only', () => {
     const authority = o.reg.changeLedger.authority
     const before = await authority.cursor()
     const sessionId = await shellSession(o)
-    await o.store.repos.addRepo('/r', o.store.hostMachineId)
+    await o.store.repos.addRepo('/r', o.store.hostMachine!.id)
     const task = (await o.call.issues.create({ repoPath: '/r', title: 't', startNow: false })) as {
       id: string
     }

@@ -1,8 +1,8 @@
-import { fixtureWriteScope } from '@podium/sync/testing'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asIssueId, asMachineId, firstAdminMemberId } from '@podium/model'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { sql } from 'drizzle-orm'
 import { describe, expect, it } from 'vitest'
 import { deriveRepoId } from './repo-id'
@@ -118,9 +118,23 @@ describe('repo_id schema (v8, #74)', () => {
   it('updateRepoOrigin upgrades a path-fallback id (and its issues) but not an origin-derived id', async () => {
     const s = await openTestStore(':memory:')
     await s.repos.addRepo('/r', asMachineId('m1')) // no origin → path fallback
-    await s.issues.upsertIssue(fixtureWriteScope(), issueRow({ id: asIssueId('iss_1'), repoPath: '/r' }))
-    await s.issues.upsertIssue(fixtureWriteScope(), issueRow({ id: asIssueId('iss_2'), repoPath: '/r/nested', seq: 2 }))
-    await s.issues.upsertIssue(fixtureWriteScope(), issueRow({ id: asIssueId('iss_3'), repoPath: '/other', seq: 3, machineId: s.hostMachineId }))
+    await s.issues.upsertIssue(
+      fixtureWriteScope(),
+      issueRow({ id: asIssueId('iss_1'), repoPath: '/r' }),
+    )
+    await s.issues.upsertIssue(
+      fixtureWriteScope(),
+      issueRow({ id: asIssueId('iss_2'), repoPath: '/r/nested', seq: 2 }),
+    )
+    await s.issues.upsertIssue(
+      fixtureWriteScope(),
+      issueRow({
+        id: asIssueId('iss_3'),
+        repoPath: '/other',
+        seq: 3,
+        machineId: s.hostMachine!.id,
+      }),
+    )
     const fallback = deriveRepoId({ machineId: asMachineId('m1'), path: '/r' })
     expect((await s.repos.listRepos())[0]?.repoId).toBe(fallback)
     expect((await s.issues.getIssue('iss_1'))?.repoId).toBe(fallback)
@@ -136,7 +150,7 @@ describe('repo_id schema (v8, #74)', () => {
     expect((await s.issues.getIssue('iss_2'))?.repoId).toBe(originId)
     // untouched: issue outside the repo (path-fallback under THIS host — see above)
     expect((await s.issues.getIssue('iss_3'))?.repoId).toBe(
-      deriveRepoId({ machineId: s.hostMachineId, path: '/other' }),
+      deriveRepoId({ machineId: s.hostMachine!.id, path: '/other' }),
     )
 
     // A later, different origin must NOT rewrite the established identity.
@@ -150,7 +164,10 @@ describe('repo_id schema (v8, #74)', () => {
   it('upsertIssue dual-writes repo_id from the registered repo prefix match', async () => {
     const s = await openTestStore(':memory:')
     await s.repos.addRepo('/repo', asMachineId('m1'), 'https://github.com/o/repo')
-    await s.issues.upsertIssue(fixtureWriteScope(), issueRow({ id: asIssueId('iss_1'), repoPath: '/repo' }))
+    await s.issues.upsertIssue(
+      fixtureWriteScope(),
+      issueRow({ id: asIssueId('iss_1'), repoPath: '/repo' }),
+    )
     expect((await s.issues.getIssue('iss_1'))?.repoId).toBe(
       deriveRepoId({
         originUrl: 'https://github.com/o/repo',
@@ -188,7 +205,9 @@ describe('the repo-identity boot refusal (POD-1360)', () => {
       )
       await first.close()
 
-      await expect(openTestStore(file)).rejects.toThrow(/legacy repo identity is unfilled.*repos: 1/s)
+      await expect(openTestStore(file)).rejects.toThrow(
+        /legacy repo identity is unfilled.*repos: 1/s,
+      )
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
@@ -210,7 +229,9 @@ describe('the repo-identity boot refusal (POD-1360)', () => {
       )
       await first.close()
 
-      await expect(openTestStore(file)).rejects.toThrow(/legacy repo identity is unfilled.*issues: 1/s)
+      await expect(openTestStore(file)).rejects.toThrow(
+        /legacy repo identity is unfilled.*issues: 1/s,
+      )
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
@@ -224,7 +245,7 @@ describe('the repo-identity boot refusal (POD-1360)', () => {
     try {
       const file = join(dir, 'podium.db')
       const first = await openTestStore(file)
-      await first.repos.addRepo('/ordinary', first.hostMachineId)
+      await first.repos.addRepo('/ordinary', first.hostMachine!.id)
       await first.close()
 
       const second = await openTestStore(file)
@@ -262,9 +283,12 @@ describe('stored repo ids are read, never re-derived', () => {
     const stored = (await s.repos.listRepos())[0]?.repoId
     expect(await s.repos.resolveRepoIdForPath('/legacy')).toBe(stored)
     expect(await s.repos.resolveRepoIdForPath('/legacy/deep/inside')).toBe(stored)
-    expect(deriveRepoId({ machineId: s.hostMachineId, path: '/legacy' })).not.toBe(stored)
+    expect(deriveRepoId({ machineId: s.hostMachine!.id, path: '/legacy' })).not.toBe(stored)
     // And its issues keep pointing at it.
-    await s.issues.upsertIssue(fixtureWriteScope(), issueRow({ id: asIssueId('iss_1'), repoPath: '/legacy' }))
+    await s.issues.upsertIssue(
+      fixtureWriteScope(),
+      issueRow({ id: asIssueId('iss_1'), repoPath: '/legacy' }),
+    )
     expect((await s.issues.getIssue('iss_1'))?.repoId).toBe(stored)
     await s.close()
   })
@@ -272,11 +296,15 @@ describe('stored repo ids are read, never re-derived', () => {
   it('uses an issue caller machine and refuses an unplaced issue', async () => {
     const s = await openTestStore(':memory:')
     try {
-      await expect(s.issues.upsertIssue(fixtureWriteScope(), issueRow({ repoPath: '/undiscovered' })))
-        .rejects.toThrow('no reporting machine')
+      await expect(
+        s.issues.upsertIssue(fixtureWriteScope(), issueRow({ repoPath: '/undiscovered' })),
+      ).rejects.toThrow('no reporting machine')
       expect(await s.issues.getIssue('iss_x')).toBeNull()
       const machineId = asMachineId('caller-machine')
-      await s.issues.upsertIssue(fixtureWriteScope(), issueRow({ repoPath: '/undiscovered', machineId }))
+      await s.issues.upsertIssue(
+        fixtureWriteScope(),
+        issueRow({ repoPath: '/undiscovered', machineId }),
+      )
       expect((await s.issues.getIssue('iss_x'))?.repoId).toBe(
         deriveRepoId({ machineId, path: '/undiscovered' }),
       )
@@ -290,8 +318,8 @@ describe('stored repo ids are read, never re-derived', () => {
     try {
       await expect(s.repos.resolveRepoIdForPath('/nowhere')).rejects.toThrow('no reporting machine')
       expect((await s.repos.repoIdResolver())('/nowhere')).toBeNull()
-      expect(await s.repos.resolveRepoIdForPath('/nowhere', s.hostMachineId)).toBe(
-        deriveRepoId({ machineId: s.hostMachineId, path: '/nowhere' }),
+      expect(await s.repos.resolveRepoIdForPath('/nowhere', s.hostMachine!.id)).toBe(
+        deriveRepoId({ machineId: s.hostMachine!.id, path: '/nowhere' }),
       )
     } finally {
       await s.close()
@@ -299,11 +327,14 @@ describe('stored repo ids are read, never re-derived', () => {
   })
 })
 
-
 it.each([
   ['/src/Podium', '/src/Podium/.worktrees/feature', '/src/Podium-other'],
   ['C:\\src\\Podium', 'c:/SRC/podium/.worktrees/feature', 'C:\\src\\Podium-other'],
-  ['\\\\NAS\\Share\\Podium', '\\\\nas\\share/Podium/.worktrees/feature', '\\\\NAS\\Share\\Podium-other'],
+  [
+    '\\\\NAS\\Share\\Podium',
+    '\\\\nas\\share/Podium/.worktrees/feature',
+    '\\\\NAS\\Share\\Podium-other',
+  ],
 ])('machine paths: registered repo attribution and identity for %s', async (root, child, sibling) => {
   const s = await openTestStore(':memory:')
   const machineId = asMachineId('machine-paths')
@@ -324,9 +355,10 @@ it.each([
     )
     await s.repos.removeRepo(root, machineId)
     expect(await s.repos.listRepos(machineId)).toHaveLength(0)
-  } finally { await s.close() }
+  } finally {
+    await s.close()
+  }
 })
-
 
 it('machine paths: Windows registration and origin refresh preserve the first display spelling', async () => {
   const store = await openTestStore(':memory:')
@@ -338,9 +370,15 @@ it('machine paths: Windows registration and origin refresh preserve the first di
     await store.repos.addRepo('c:/src/podium', machineId)
     expect(await store.repos.listRepoPaths(machineId)).toEqual([root])
     expect(await store.repos.resolveRepoIdForPath('c:/SRC/podium/src', machineId)).toBe(id)
-    await store.repos.updateRepoOrigin(machineId, 'c:/src/podium', 'https://example.test/o/podium.git')
+    await store.repos.updateRepoOrigin(
+      machineId,
+      'c:/src/podium',
+      'https://example.test/o/podium.git',
+    )
     expect(await store.repos.listRepoPaths(machineId)).toEqual([root])
     await store.repos.removeRepo('c:/SRC/PODIUM', machineId)
     expect(await store.repos.listRepoPaths(machineId)).toEqual([])
-  } finally { await store.close() }
+  } finally {
+    await store.close()
+  }
 })

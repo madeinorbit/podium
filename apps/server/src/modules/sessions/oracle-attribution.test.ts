@@ -47,7 +47,7 @@ type Oracle = Awaited<ReturnType<typeof makeOracle>>
  * (POD-4544's shape, extended with /r for this file's issue-repo tests.)
  */
 async function provisionHost(o: Oracle): Promise<void> {
-  const host = o.store.hostMachineId
+  const host = o.store.hostMachine!.id
   if (!(await o.store.machines.getMachine(host))) {
     await o.store.machines.upsertMachine({
       id: host,
@@ -75,7 +75,7 @@ async function provisionHost(o: Oracle): Promise<void> {
  * and adds the retirement confirmation.
  */
 async function answerLifecycle(o: Oracle): Promise<void> {
-  const host = o.store.hostMachineId
+  const host = o.store.hostMachine!.id
   await o.reg.gateway.attachDaemon(host, (msg) => {
     o.daemon.push(msg)
     if (msg.type === 'repoOpRequest') {
@@ -217,7 +217,7 @@ describe('oracle: who ended this session', () => {
     await provisionHost(o)
     await answerLifecycle(o)
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
-    await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+    await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachine!.id, {
       type: 'bind',
       sessionId,
       cmd: 'bash',
@@ -246,7 +246,7 @@ describe('oracle: who typed into this session', () => {
     // A chat send waits for the shell's real PTY bind; creating its row alone
     // cannot make raw bytes deliverable. Establish that transport fact before
     // comparing direct and controller input attribution.
-    await o.reg.gateway.routeDaemonFrame(o.store.hostMachineId, {
+    await o.reg.gateway.routeDaemonFrame(o.store.hostMachine!.id, {
       type: 'bind',
       sessionId,
       cmd: 'bash',

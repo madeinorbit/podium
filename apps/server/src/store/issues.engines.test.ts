@@ -82,7 +82,7 @@ function issueRow(over: Partial<IssueRow> = {}): IssueRow {
 /** A store whose host machine reports `/r` and each of `repos`. */
 async function openStore(...repos: string[]): Promise<IssueEngineStore> {
   const store = await openIssueEngineStore()
-  for (const repo of ['/r', ...repos]) await store.repos.addRepo(repo, store.hostMachineId)
+  for (const repo of ['/r', ...repos]) await store.repos.addRepo(repo, store.hostMachine!.id)
   return store
 }
 

@@ -254,7 +254,7 @@ async function worker(config: Config, workerIndex: number): Promise<void> {
           agentKind: HarnessAgent.enum.codex,
           cwd,
         })
-        await registry.gateway.routeDaemonFrame(store.hostMachineId, {
+        await registry.gateway.routeDaemonFrame(store.hostMachine!.id, {
           type: 'bind',
           sessionId,
           cmd: HarnessAgent.enum.codex,
@@ -279,7 +279,7 @@ async function worker(config: Config, workerIndex: number): Promise<void> {
       const unique = `${workerIndex}-${writer.index}-${n}`
       // A distinct assistant transcript item reaches runtime events, checkpoint,
       // session state and the change feed through the production daemon gateway.
-      await registry.gateway.routeDaemonFrame(store.hostMachineId, {
+      await registry.gateway.routeDaemonFrame(store.hostMachine!.id, {
         type: 'runtimeEvent',
         sessionId: writer.sessionId,
         deliveryId: `load-${unique}`,
@@ -320,7 +320,7 @@ async function worker(config: Config, workerIndex: number): Promise<void> {
         throw new Error(`effect command refused: ${JSON.stringify(reply)}`)
       if (measuring) operations.effects++
       // Output then the real coalesced activity path persists session upserts.
-      await registry.gateway.routeDaemonFrame(store.hostMachineId, {
+      await registry.gateway.routeDaemonFrame(store.hostMachine!.id, {
         type: 'agentFrame',
         sessionId: writer.sessionId,
         seq: n,

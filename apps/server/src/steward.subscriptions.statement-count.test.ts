@@ -77,7 +77,7 @@ const stale = (i: number): Subscription => {
 
 async function setup(size: number): Promise<Fixture> {
   const store = await openTestStore(':memory:', TEST_MACHINE_ID)
-  await store.repos.addRepo('/r', store.hostMachineId)
+  await store.repos.addRepo('/r', store.hostMachine!.id)
   await store.events.setStewardState('cursor', '0')
   const sessions: SessionMeta[] = []
   const settings = normalizeSettings({

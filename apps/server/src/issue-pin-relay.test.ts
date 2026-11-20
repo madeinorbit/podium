@@ -40,7 +40,7 @@ describe('issue pins from an agent, over the relay (POD-6692)', () => {
   beforeEach(async () => {
     registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     registries.push(registry)
-    machineId = registry.sessionStore.hostMachineId
+    machineId = registry.sessionStore.hostMachine!.id
     daemonInbox = []
     relayReplies = new Map()
     await attachHostDaemon(

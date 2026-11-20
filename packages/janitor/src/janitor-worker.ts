@@ -60,6 +60,7 @@ export async function serveJanitorWorker(
       serverUrl: options.serverUrl,
       token: options.token,
       database: openDatabase(options),
+      localMachineId: options.localMachineId,
       ...(options.tickMs !== undefined ? { tickMs: options.tickMs } : {}),
       onCompatibilityRefusal: refuse,
     })

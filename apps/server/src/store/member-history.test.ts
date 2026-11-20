@@ -30,7 +30,7 @@ it('preserves a one-member daemon’s complete legacy usage response', async () 
       caller: { userId: owner.id },
       privateAccess: { mayReadMachineFiles: async () => true },
       modules: {
-        rpc: { answeringMachineId: async () => store.hostMachineId, usage: async () => usage },
+        rpc: { answeringMachineId: async () => store.hostMachine!.id, usage: async () => usage },
       },
     } as unknown as FamilyState
     expect(await USAGE_QUERIES.summary.run(state, undefined)).toEqual(usage)

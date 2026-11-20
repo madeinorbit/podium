@@ -212,7 +212,7 @@ async function harness(
   })
   const machines = new MachinesService({
     store,
-    hostMachineId: store.hostMachineId,
+    hostMachine: { id: store.hostMachine!.id },
     instanceId: 'default',
   })
   await machines.attach(machineId, () => {})

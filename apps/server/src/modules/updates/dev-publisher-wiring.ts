@@ -181,7 +181,7 @@ export function isRemoteUpdateConsumer(
     readonly id: string
     readonly deliveryCaps: readonly string[]
   },
-  hostMachineId: string,
+  hostMachineId: string | undefined,
 ): boolean {
   return machine.id !== hostMachineId && machine.deliveryCaps.includes('update.delivery.feed')
 }

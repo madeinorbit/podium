@@ -63,7 +63,7 @@ describe('assistant target machine home', () => {
     '/Users/u',
   ])('stores and spawns a global thread in the remote home: %s', async (homePath) => {
     const h = await harness(homePath)
-    expect(h.machineId).not.toBe(h.registry.sessionStore.hostMachineId)
+    expect(h.machineId).not.toBe(h.registry.sessionStore.hostMachine!.id)
     const { podiumSessionId } = await h.start()
     expect(h.spawns()).toEqual([
       expect.objectContaining({ sessionId: podiumSessionId, cwd: homePath }),

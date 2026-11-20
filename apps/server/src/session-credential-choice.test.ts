@@ -69,7 +69,7 @@ async function fixture(): Promise<Fixture> {
     'not-a-real-hash',
   )
   const daemon: ControlMessage[] = []
-  const machineId = store.hostMachineId
+  const machineId = store.hostMachine!.id
   // A daemon that answers git as a healthy checkout does: every op succeeds.
   await attachHostDaemon(
     reg,
@@ -422,7 +422,7 @@ describe('acceptance 5 and 7: the session records what the harness said', () => 
       ownerUserId: f.admin,
       credentialId: record.id,
     })
-    await f.reg.gateway.routeDaemonFrame(f.store.hostMachineId, {
+    await f.reg.gateway.routeDaemonFrame(f.store.hostMachine!.id, {
       type: 'bind',
       sessionId: created.sessionId,
       cmd: 'claude',
@@ -431,7 +431,7 @@ describe('acceptance 5 and 7: the session records what the harness said', () => 
       geometry: { cols: 80, rows: 24 },
     })
     // A conversation it can be woken back into, so a restart is a resume.
-    await f.reg.gateway.routeDaemonFrame(f.store.hostMachineId, {
+    await f.reg.gateway.routeDaemonFrame(f.store.hostMachine!.id, {
       type: 'sessionResumeRef',
       sessionId: created.sessionId,
       resume: { kind: 'claude-session', value: 'conv-choice-1' },
@@ -444,7 +444,7 @@ describe('acceptance 5 and 7: the session records what the harness said', () => 
     f: Fixture,
     sessionId: SessionId,
     frame: Record<string, unknown>,
-    machineId: string = f.store.hostMachineId,
+    machineId: string = f.store.hostMachine!.id,
   ) => {
     await f.reg.gateway.routeDaemonFrame(
       machineId as never,

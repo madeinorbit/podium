@@ -137,7 +137,7 @@ export interface JanitorReads {
   /** The newest event id, 0 with none. */
   maxEventId(): Promise<number>
   /** Every machine but `localMachineId`, newest handshake first. */
-  remoteMachines(input: { localMachineId: string; limit: number }): Promise<MachineRow[]>
+  remoteMachines(input: { localMachineId: string | null; limit: number }): Promise<MachineRow[]>
 }
 
 export interface ExpiryRow {
@@ -1391,7 +1391,10 @@ export class StewardPollReader {
 export class ConnectScanReader {
   constructor(private readonly source: JanitorReadSource) {}
 
-  async read(_nowIso: string, localMachineId = 'local'): Promise<ConnectScanObservation[]> {
+  async read(
+    _nowIso: string,
+    localMachineId: string | null = 'local',
+  ): Promise<ConnectScanObservation[]> {
     const rows = await this.source.scan(
       async (reads) => await reads.remoteMachines({ localMachineId, limit: CANDIDATE_LIMIT }),
     )
@@ -1494,6 +1497,7 @@ export async function startJanitor(options: {
    */
   database: JanitorDatabase
   tickMs?: number
+  localMachineId?: string | null
   /**
    * What a MID-RUN compatibility refusal means for this host process.
    *
@@ -1581,7 +1585,7 @@ export async function startJanitor(options: {
     readWorktreeGcCandidates: (input) => worktreeGcReader.read(input),
     readDueAutomations: (nowIso) => automationReader.read(nowIso),
     readStewardPollWindow: () => stewardReader.read(),
-    readConnectScanCandidates: (nowIso) => connectScanReader.read(nowIso),
+    readConnectScanCandidates: (nowIso) => connectScanReader.read(nowIso, options.localMachineId),
   })
   try {
     await service.tick()

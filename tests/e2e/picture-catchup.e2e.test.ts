@@ -273,7 +273,7 @@ describe.skipIf(RUST_HOST === undefined)('viewer catch-up from host pictures (re
     daemon = await startDaemon({
       serverUrl: `ws://127.0.0.1:${port}`,
       machineToken: token,
-      machineId: srv.registry.modules.machines.hostMachineId,
+      machineId: srv.registry.modules.machines.hostMachine!.id,
       hooks: { port: 0 },
       agentRelay: { port: 0 },
       launch: () => ({ cmd: process.execPath, args: [FIXTURE], cwd: '/tmp' }),
@@ -350,7 +350,7 @@ describe.skipIf(RUST_HOST === undefined)('viewer catch-up from host pictures (re
       sessionId: sid,
       agentKind: 'shell',
       cwd: '/tmp',
-      machineId: srv.registry.modules.machines.hostMachineId,
+      machineId: srv.registry.modules.machines.hostMachine!.id,
     })
     await until(
       () => sessionOf(sid).status === 'live',
@@ -491,7 +491,8 @@ describe.skipIf(RUST_HOST === undefined)('viewer catch-up from host pictures (re
       )
       await daemon.close()
       await until(
-        () => !srv.registry.modules.machines.hasDaemon(srv.registry.modules.machines.hostMachineId),
+        () =>
+          !srv.registry.modules.machines.hasDaemon(srv.registry.modules.machines.hostMachine!.id),
         () => 'the server never saw the daemon connection go',
       )
       expect(sessionOf(sid).status).toBe('live')

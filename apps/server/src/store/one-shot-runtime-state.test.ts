@@ -1,7 +1,7 @@
 /** One-shot state acceptance through the real daemon ingress, durable gate,
  * session projection and client publication. Only the hosted runner is fake. */
 import { createHash } from 'node:crypto'
-import { asAccountId, firstAdminMemberId, type AgentRuntimeState } from '@podium/model'
+import { type AgentRuntimeState, asAccountId, firstAdminMemberId } from '@podium/model'
 import { CLIENT_WIRE_VERSION, type ServerMessage } from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -11,13 +11,6 @@ import {
   type TurnInput,
 } from '../../../../packages/harness/src/driver/contract.js'
 import {
-  createMemoryAttachmentStager,
-  createMemoryDriverSlots,
-  testHarnessContext,
-  testSessionTerms,
-  testTurnPosturePort,
-} from '../../../../packages/harness/src/driver/testing/index.js'
-import {
   createHeadlessRuntime,
   type HeadlessDriverHost,
   type HeadlessDriverRunners,
@@ -25,6 +18,13 @@ import {
 } from '../../../../packages/harness/src/driver/families/headless/runtime.js'
 import { testHarnessSnapshot } from '../../../../packages/harness/src/driver/families/headless/test-support.js'
 import type { HeadlessTurnOutcome } from '../../../../packages/harness/src/driver/families/headless/types.js'
+import {
+  createMemoryAttachmentStager,
+  createMemoryDriverSlots,
+  testHarnessContext,
+  testSessionTerms,
+  testTurnPosturePort,
+} from '../../../../packages/harness/src/driver/testing/index.js'
 import { SessionRegistry } from '../relay'
 import { attachTestClient } from '../test-support/client-transport'
 import { attachHostDaemon } from '../test-support/host-daemon'
@@ -48,21 +48,38 @@ async function fixture() {
   const store = await openTestStore(':memory:')
   const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   const controls: ControlMessage[] = []
-  await attachHostDaemon(registry, (frame) => { controls.push(frame) })
-  const clients: ServerMessage[] = []
-  const clientId = attachTestClient(registry.clientGateway, (frame) => { clients.push(frame) })
-  const { sessionId } = await registry.modules.sessions.headless.createHeadlessSession(registry.modules.superagentTurnsWriter, {
-    agentKind: 'claude-code', cwd: '/fixture', ownerUserId: firstAdminMemberId(),
+  await attachHostDaemon(registry, (frame) => {
+    controls.push(frame)
   })
-  const machineId = registry.sessionStore.hostMachineId
+  const clients: ServerMessage[] = []
+  const clientId = attachTestClient(registry.clientGateway, (frame) => {
+    clients.push(frame)
+  })
+  const { sessionId } = await registry.modules.sessions.headless.createHeadlessSession(
+    registry.modules.superagentTurnsWriter,
+    {
+      agentKind: 'claude-code',
+      cwd: '/fixture',
+      ownerUserId: firstAdminMemberId(),
+    },
+  )
+  const machineId = registry.sessionStore.hostMachine!.id
   await registry.gateway.routeDaemonFrame(machineId, {
-    type: 'bind', sessionId, cmd: 'headless', cwd: '/fixture', agentKind: 'claude-code',
-    geometry: { cols: 80, rows: 24 }, driverId: 'headless',
+    type: 'bind',
+    sessionId,
+    cmd: 'headless',
+    cwd: '/fixture',
+    agentKind: 'claude-code',
+    geometry: { cols: 80, rows: 24 },
+    driverId: 'headless',
   })
   await registry.modules.sessions.flushBroadcasts()
   await registry.clientGateway.routeClientFrame(clientId, {
-    type: 'hello', caps: ['sync.http.v1'], wireVersion: CLIENT_WIRE_VERSION,
-    clientId: '', viewport: { cols: 80, rows: 24, dpr: 1 },
+    type: 'hello',
+    caps: ['sync.http.v1'],
+    wireVersion: CLIENT_WIRE_VERSION,
+    clientId: '',
+    viewport: { cols: 80, rows: 24, dpr: 1 },
   })
   await vi.waitFor(() => expect(clients.some((frame) => frame.type === 'feedResume')).toBe(true))
 
@@ -82,7 +99,8 @@ async function fixture() {
       const turn: ControlledTurn = { finish, fail, permission: input.hooks?.onPermission }
       turns.push(turn)
       return {
-        done, interrupt() {},
+        done,
+        interrupt() {},
         answerPermission() {
           if (turn.answerError) throw turn.answerError
           if (turn.answerThenFinish) turn.finish({ harnessSessionId: 'finished', output: 'done' })
@@ -94,24 +112,40 @@ async function fixture() {
   const host: HeadlessDriverHost = {
     ...testTurnPosturePort(),
     stageAttachment: createMemoryAttachmentStager(),
-    send: (frame) => { sent.push(frame) },
+    send: (frame) => {
+      sent.push(frame)
+    },
     snapshot: async () => testHarnessSnapshot(),
     engines: () => ({
-      startEngine: async () => { throw new Error('no processes in projection regression') },
-      reattachEngine: async () => { throw new Error('no processes in projection regression') },
-      engineAlive: async () => false, destroyEngine: async () => {},
+      startEngine: async () => {
+        throw new Error('no processes in projection regression')
+      },
+      reattachEngine: async () => {
+        throw new Error('no processes in projection regression')
+      },
+      engineAlive: async () => false,
+      destroyEngine: async () => {},
     }),
     turnChildEnv: () => ({ env: {}, stripEnv: [] }),
-    assertNativeAccount() {}, sessionEnv: () => ({}),
-    durableLabel: (id) => `podium-${id}`, bindHeadlessSession() {},
+    assertNativeAccount() {},
+    sessionEnv: () => ({}),
+    durableLabel: (id) => `podium-${id}`,
+    bindHeadlessSession() {},
     readHistory: async () => ({ items: [], hasMore: false }),
     archiveTranscript: async () => ({ path: '/fixture/transcript' }),
-    readFileBytes: async () => new Uint8Array(), now: () => now,
+    readFileBytes: async () => new Uint8Array(),
+    now: () => now,
   }
   const runtime = createHeadlessRuntime(host, createMemoryDriverSlots(), runners)
-  cleanups.push(async () => { runtime.dispose(); await registry.dispose(); await store.close() })
+  cleanups.push(async () => {
+    runtime.dispose()
+    await registry.dispose()
+    await store.close()
+  })
   const spec: SessionSpec = {
-    harness: 'claude-code', workdir: '/fixture', model: {},
+    harness: 'claude-code',
+    workdir: '/fixture',
+    model: {},
     ...testSessionTerms(),
     harnessContext: testHarnessContext({ kind: 'claude-code' }),
     selection: { auth: 'unknown' as const, platform: 'linux', available: [] },
@@ -129,10 +163,14 @@ async function fixture() {
       if (frame.type === 'runtimeEvent') {
         const deliveryId = `one-shot-${forwarded}`
         await registry.gateway.routeDaemonFrame(machineId, { ...frame, deliveryId })
-        const ack = controls.find((item) => item.type === 'runtimeEventAck' && item.deliveryId === deliveryId)
-        expect(ack).toMatchObject(frame.event.turnEpoch === rejectedEpoch
-          ? { outcome: 'rejected', rejectionReason: 'turn-epoch-regressed' }
-          : { outcome: 'committed' })
+        const ack = controls.find(
+          (item) => item.type === 'runtimeEventAck' && item.deliveryId === deliveryId,
+        )
+        expect(ack).toMatchObject(
+          frame.event.turnEpoch === rejectedEpoch
+            ? { outcome: 'rejected', rejectionReason: 'turn-epoch-regressed' }
+            : { outcome: 'committed' },
+        )
       } else {
         await registry.gateway.routeDaemonFrame(machineId, frame)
       }
@@ -140,11 +178,21 @@ async function fixture() {
     await registry.modules.sessions.flushBroadcasts()
   }
   const localState = () => handle.state()
-  const projectedState = async () => (await registry.modules.sessions.sessionById(sessionId))?.agentState
-  const publishedStates = () => clients.flatMap((frame) =>
-    frame.type === 'feedDelta' ? frame.changes.flatMap((change) =>
-      change.entity === 'session' && change.entityId === sessionId && change.op === 'upsert'
-        && change.value?.agentState ? [change.value.agentState] : []) : [])
+  const projectedState = async () =>
+    (await registry.modules.sessions.sessionById(sessionId))?.agentState
+  const publishedStates = () =>
+    clients.flatMap((frame) =>
+      frame.type === 'feedDelta'
+        ? frame.changes.flatMap((change) =>
+            change.entity === 'session' &&
+            change.entityId === sessionId &&
+            change.op === 'upsert' &&
+            change.value?.agentState
+              ? [change.value.agentState]
+              : [],
+          )
+        : [],
+    )
   async function agree(expected: Partial<AgentRuntimeState>) {
     const local = await localState()
     expect(local).toMatchObject(expected)
@@ -174,7 +222,8 @@ async function fixture() {
   }
   async function send(id: string, structured = false, interrupt = false) {
     const receipt = await handle.send(input(id, structured), {
-      origin: 'system', delivery: interrupt ? 'interrupt' : 'when-ready',
+      origin: 'system',
+      delivery: interrupt ? 'interrupt' : 'when-ready',
     })
     expect(receipt).toMatchObject({ outcome: 'accepted', turnEpoch: turns.length })
     await forward()
@@ -182,9 +231,24 @@ async function fixture() {
   }
   await forward()
   return {
-    registry, runtime, handle, spec, sent, turns, send, input, forward, agree, projectedState,
-    publishedStates, tick: () => { now += 1000 },
-    dispatchError: (error?: Error) => { dispatchError = error },
+    registry,
+    runtime,
+    handle,
+    spec,
+    sent,
+    turns,
+    send,
+    input,
+    forward,
+    agree,
+    projectedState,
+    publishedStates,
+    tick: () => {
+      now += 1000
+    },
+    dispatchError: (error?: Error) => {
+      dispatchError = error
+    },
   }
 }
 
@@ -195,7 +259,7 @@ describe('one-shot runtime state publication', () => {
     f.tick()
     const turn = await f.send('done')
     await f.agree({ phase: 'working' })
-    const start = f.sent.flatMap((frame) => frame.type === 'runtimeEvent' ? [frame.event] : [])
+    const start = f.sent.flatMap((frame) => (frame.type === 'runtimeEvent' ? [frame.event] : []))
     expect(start.slice(-2)).toMatchObject([
       { t: 'turn', turnEpoch: 1, ev: { ev: 'started' } },
       { t: 'state', turnEpoch: 1, change: { kind: 'prompt_submitted' } },
@@ -205,8 +269,11 @@ describe('one-shot runtime state publication', () => {
     await f.forward()
     await f.agree({ phase: 'idle', idle: { kind: 'done' }, workingMsTotal: 1000 })
     expect(f.publishedStates().map((state) => state.phase)).toEqual(['idle', 'working', 'idle'])
-    expect((await f.registry.sessionStore.events.listRuntimeEvents(f.handle.binding.sessionId))
-      .filter((event) => event.t === 'state')).toHaveLength(3)
+    expect(
+      (await f.registry.sessionStore.events.listRuntimeEvents(f.handle.binding.sessionId)).filter(
+        (event) => event.t === 'state',
+      ),
+    ).toHaveLength(3)
   })
 
   it.each([
@@ -219,26 +286,47 @@ describe('one-shot runtime state publication', () => {
     turn.fail(new Error(message))
     await f.forward()
     await f.agree({ phase: 'errored', error: { class: errorClass, retryable, detail: message } })
-    f.registry.modules.sessions.headless.broadcastHeadlessActivity(f.handle.binding.sessionId, { kind: 'turn-end', error: message })
-    f.registry.modules.sessions.headless.broadcastHeadlessActivity(f.handle.binding.sessionId, { kind: 'partial-text', text: 'late progress' })
+    f.registry.modules.sessions.headless.broadcastHeadlessActivity(f.handle.binding.sessionId, {
+      kind: 'turn-end',
+      error: message,
+    })
+    f.registry.modules.sessions.headless.broadcastHeadlessActivity(f.handle.binding.sessionId, {
+      kind: 'partial-text',
+      text: 'late progress',
+    })
     await f.agree({ phase: 'errored' })
     await f.send('retry')
     await f.agree({ phase: 'working' })
     expect((await f.handle.state()).error).toBeUndefined()
   })
 
-  it.each(['allow-once', 'deny'] as const)('publishes a permission wait and resumes after %s', async (decision) => {
+  it.each([
+    'allow-once',
+    'deny',
+  ] as const)('publishes a permission wait and resumes after %s', async (decision) => {
     const f = await fixture()
     const turn = await f.send('permission', true)
     f.tick()
     turn.permission?.({ id: 'ask', toolName: 'Bash', input: { command: 'true' } })
     await f.forward()
-    await f.agree({ phase: 'needs_user', need: { kind: 'permission', summary: 'Bash', ask: { toolName: 'Bash', detail: '{"command":"true"}' } } })
-    f.registry.modules.sessions.headless.broadcastHeadlessActivity(f.handle.binding.sessionId, { kind: 'turn-start' })
+    await f.agree({
+      phase: 'needs_user',
+      need: {
+        kind: 'permission',
+        summary: 'Bash',
+        ask: { toolName: 'Bash', detail: '{"command":"true"}' },
+      },
+    })
+    f.registry.modules.sessions.headless.broadcastHeadlessActivity(f.handle.binding.sessionId, {
+      kind: 'turn-start',
+    })
     await f.agree({ phase: 'needs_user' })
     // A failed answer leaves the live wait intact.
     turn.answerError = new Error('answer transport failed')
-    expect(await f.handle.answer('ask', { kind: 'permission', decision })).toMatchObject({ ok: false, reason: 'delivery-failed' })
+    expect(await f.handle.answer('ask', { kind: 'permission', decision })).toMatchObject({
+      ok: false,
+      reason: 'delivery-failed',
+    })
     await f.forward()
     await f.agree({ phase: 'needs_user' })
     turn.answerError = undefined
@@ -256,10 +344,14 @@ describe('one-shot runtime state publication', () => {
     turn.permission?.({ id: 'second', toolName: 'Edit' })
     await f.forward()
     await f.agree({ phase: 'needs_user', need: { kind: 'permission', summary: 'Bash' } })
-    expect(await f.handle.answer('first', { kind: 'permission', decision: 'allow-once' })).toEqual({ ok: true })
+    expect(await f.handle.answer('first', { kind: 'permission', decision: 'allow-once' })).toEqual({
+      ok: true,
+    })
     await f.forward()
     await f.agree({ phase: 'needs_user', need: { kind: 'permission', summary: 'Edit' } })
-    expect(await f.handle.answer('second', { kind: 'permission', decision: 'deny' })).toEqual({ ok: true })
+    expect(await f.handle.answer('second', { kind: 'permission', decision: 'deny' })).toEqual({
+      ok: true,
+    })
     await f.forward()
     await f.agree({ phase: 'working' })
   })
@@ -274,7 +366,9 @@ describe('one-shot runtime state publication', () => {
     await f.forward()
     await f.agree({ phase: 'idle', idle: { kind: 'interrupted' } })
     expect(await f.handle.interactions()).toEqual([])
-    expect(await f.handle.answer('stopped-ask', { kind: 'permission', decision: 'deny' })).toMatchObject({ ok: false, reason: 'already-answered' })
+    expect(
+      await f.handle.answer('stopped-ask', { kind: 'permission', decision: 'deny' }),
+    ).toMatchObject({ ok: false, reason: 'already-answered' })
   })
 
   it('keeps a superseded outcome in its own epoch and preserves the replacement wait', async () => {
@@ -294,7 +388,10 @@ describe('one-shot runtime state publication', () => {
     expect(f.publishedStates()).toHaveLength(statesBefore)
     expect(f.handle.binding.resume).toBeNull()
     expect(await f.handle.interactions()).toMatchObject([{ id: 'new-ask' }])
-    expect(f.sent.at(-1)).toMatchObject({ type: 'runtimeEvent', event: { t: 'turn', turnEpoch: 1, ev: { turnEpoch: 1 } } })
+    expect(f.sent.at(-1)).toMatchObject({
+      type: 'runtimeEvent',
+      event: { t: 'turn', turnEpoch: 1, ev: { turnEpoch: 1 } },
+    })
     next.fail(new Error('provider exploded'))
     await f.forward()
     await f.agree({ phase: 'errored' })
@@ -304,8 +401,9 @@ describe('one-shot runtime state publication', () => {
     const f = await fixture()
     const before = f.sent.length
     f.dispatchError(new Error('spawn ENOENT'))
-    expect(await f.handle.send(f.input('refused'), { origin: 'system', delivery: 'when-ready' }))
-      .toMatchObject({ outcome: 'refused', refusal: { reason: 'not_running' } })
+    expect(
+      await f.handle.send(f.input('refused'), { origin: 'system', delivery: 'when-ready' }),
+    ).toMatchObject({ outcome: 'refused', refusal: { reason: 'not_running' } })
     await f.forward()
     expect(f.sent).toHaveLength(before)
     expect((await f.handle.snapshot()).turnEpoch).toBe(0)
@@ -318,7 +416,11 @@ describe('one-shot runtime state publication', () => {
   it('bootstraps replacement observer generations before subsequent state events', async () => {
     const f = await fixture()
     const turn = await f.send('resume', true)
-    await f.runtime.resumeWithId(f.handle.binding.sessionId, { kind: 'claude-session', value: 'resume' }, f.spec)
+    await f.runtime.resumeWithId(
+      f.handle.binding.sessionId,
+      { kind: 'claude-session', value: 'resume' },
+      f.spec,
+    )
     await f.forward()
     await f.agree({ phase: 'working' })
     turn.permission?.({ id: 'resumed-ask', toolName: 'Bash' })
@@ -327,7 +429,9 @@ describe('one-shot runtime state publication', () => {
     await f.runtime.adopt(f.handle.binding)
     await f.forward()
     await f.agree({ phase: 'needs_user' })
-    expect(await f.handle.answer('resumed-ask', { kind: 'permission', decision: 'deny' })).toEqual({ ok: true })
+    expect(await f.handle.answer('resumed-ask', { kind: 'permission', decision: 'deny' })).toEqual({
+      ok: true,
+    })
     await f.forward()
     await f.agree({ phase: 'working' })
   })
@@ -338,8 +442,9 @@ describe('one-shot runtime state publication', () => {
     turn.permission?.({ id: 'race-ask', toolName: 'Bash' })
     await f.forward()
     turn.answerThenFinish = true
-    expect(await f.handle.answer('race-ask', { kind: 'permission', decision: 'deny' }))
-      .toMatchObject({ ok: false, reason: 'delivery-failed' })
+    expect(
+      await f.handle.answer('race-ask', { kind: 'permission', decision: 'deny' }),
+    ).toMatchObject({ ok: false, reason: 'delivery-failed' })
     await f.forward()
     await f.agree({ phase: 'idle', idle: { kind: 'done' } })
   })

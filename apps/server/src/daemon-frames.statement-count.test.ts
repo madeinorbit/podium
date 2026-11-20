@@ -144,7 +144,7 @@ async function fixture(size: number, contract = false): Promise<Fixture> {
       }),
     )
     await settledOperation(() =>
-      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
         type: 'bind',
         sessionId,
         cmd: 'codex',
@@ -174,7 +174,7 @@ async function settle(reg: SessionRegistry): Promise<void> {
 
 const route = async (f: Fixture, frame: unknown) => {
   await settledOperation(() =>
-    f.reg.gateway.routeDaemonFrame(f.reg.sessionStore.hostMachineId, frame as never),
+    f.reg.gateway.routeDaemonFrame(f.reg.sessionStore.hostMachine!.id, frame as never),
   )
   await settle(f.reg)
 }
@@ -506,7 +506,7 @@ describe('daemon frames that read an observation checkpoint: pinned at 5 and 200
       .mockImplementation(async () => await gate)
     let completed = false
     const frame = f.reg.gateway
-      .routeDaemonFrame(f.reg.sessionStore.hostMachineId, {
+      .routeDaemonFrame(f.reg.sessionStore.hostMachine!.id, {
         type: 'agentExit',
         sessionId: f.ids[0]!,
         code: 0,
@@ -543,7 +543,7 @@ describe('daemon frames that read an observation checkpoint: pinned at 5 and 200
       .mockImplementation(async () => await gate)
     let completed = false
     const frame = settledOperation(() =>
-      f.reg.gateway.routeDaemonFrame(f.store.hostMachineId, {
+      f.reg.gateway.routeDaemonFrame(f.store.hostMachine!.id, {
         type: 'runtimeEvent',
         sessionId: f.ids[0]!,
         deliveryId: 'retained-state',
@@ -707,7 +707,7 @@ describe('daemon frames that read an observation checkpoint: pinned at 5 and 200
               value: 'native-thread',
             })
             expect(
-              await f.store.conversations.registry.podiumIds(f.store.hostMachineId, [
+              await f.store.conversations.registry.podiumIds(f.store.hostMachine!.id, [
                 'native-thread',
               ]),
             ).toHaveProperty('size', 1)

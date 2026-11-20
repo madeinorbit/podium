@@ -96,7 +96,7 @@ describe("Ledger.commit's apply arm runs on the outermost commit (POD-3366)", ()
           ledger.modelOperation({
             write: async () => {
               await store.conversations.index.upsert(fixtureWriteScope(), [
-                { ...conversationRow('c-rolled-back'), machineId: store.hostMachineId },
+                { ...conversationRow('c-rolled-back'), machineId: store.hostMachine!.id },
               ])
             },
             rows: () => [upsert('c-rolled-back')],

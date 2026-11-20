@@ -93,7 +93,7 @@ async function fixture(size: number, issueMail = true): Promise<Fixture> {
       cwd,
       ...(issueId ? { issueId } : {}),
     })
-    await reg.gateway.routeDaemonFrame(store.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(store.hostMachine!.id, {
       type: 'bind',
       sessionId,
       cmd: 'sh',
@@ -141,7 +141,7 @@ const relay = (
   const requestId = `pod6227-${relayed++}`
   return new Promise((resolve) => {
     f.replies.set(requestId, resolve)
-    void f.reg.gateway.routeDaemonFrame(f.store.hostMachineId, {
+    void f.reg.gateway.routeDaemonFrame(f.store.hostMachine!.id, {
       type: 'agentRelayRequest',
       requestId,
       sessionId: asSessionId(f.sender),

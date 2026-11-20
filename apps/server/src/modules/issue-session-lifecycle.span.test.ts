@@ -25,7 +25,7 @@ describe('closed-issue cleanup under the async store (POD-3806)', () => {
   it('a close inside a span neither breaks the span nor strands the cleanup', async () => {
     const store = await openTestStore(':memory:', TEST_MACHINE_ID)
     // Issues are placed under a machine that REPORTED their repo (2b803efb5).
-    await store.repos.addRepo('/repo', store.hostMachineId)
+    await store.repos.addRepo('/repo', store.hostMachine!.id)
     const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const logs = captureLogs()
     try {
@@ -73,7 +73,7 @@ describe('closed-issue cleanup under the async store (POD-3806)', () => {
 describe('IssueService.onIssueClosed under the async store (POD-3820)', () => {
   it('a close awaits a hook that opens its own transaction, and the span survives it', async () => {
     const store = await openTestStore(':memory:', TEST_MACHINE_ID)
-    await store.repos.addRepo('/repo', store.hostMachineId)
+    await store.repos.addRepo('/repo', store.hostMachine!.id)
     const closed: string[] = []
     const deps: IssueDeps = {
       resolveMachine: async () => TEST_MACHINE_ID,

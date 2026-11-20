@@ -23,7 +23,7 @@ afterEach(async () => {
 async function storeWithCatalog(): Promise<SessionStore> {
   const store = await openTestStore(':memory:')
   await store.settings.setModelCatalog({
-    machineId: store.hostMachineId,
+    machineId: store.hostMachine!.id,
     version: MODEL_CATALOG_VERSION,
     fetchedAt: 1_000_000,
     byAgent: {
@@ -33,7 +33,9 @@ async function storeWithCatalog(): Promise<SessionStore> {
   return store
 }
 
-async function makeRegistry(store: SessionStore): Promise<{ reg: SessionRegistry; daemon: ControlMessage[] }> {
+async function makeRegistry(
+  store: SessionStore,
+): Promise<{ reg: SessionRegistry; daemon: ControlMessage[] }> {
   const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   registries.push(reg)
   const daemon: ControlMessage[] = []
@@ -48,7 +50,11 @@ it('rejects an unlisted model before spawning — no frame, no session', async (
   const { reg, daemon } = await makeRegistry(store)
   let err: unknown
   try {
-    await reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/tmp/x', model: 'gpt-5.7' })
+    await reg.modules.sessions.createSession({
+      agentKind: 'codex',
+      cwd: '/tmp/x',
+      model: 'gpt-5.7',
+    })
   } catch (e) {
     err = e
   }

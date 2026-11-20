@@ -551,6 +551,22 @@ describe('memberOfRequest', () => {
     expect(isNearbyProxyAddress(undefined)).toBe(false)
   })
 
+  it('never reports the same machine when the server has no host machine', async () => {
+    const resolve = createMemberOfRequest({
+      identity: workspace,
+      users: store.users,
+      trustedProxyHops: 0,
+      hostMachine: null,
+    })
+    const local = request('http://127.0.0.1:18787/x', {}, '127.0.0.1')
+    expect(resolve.factsOf(local)).toEqual({
+      scheme: 'http',
+      sameMachine: false,
+      clientAddress: '127.0.0.1',
+    })
+    expect(await resolve(local)).toEqual({ kind: 'unauthenticated' })
+  })
+
   it('works out the connection facts at the server boundary', () => {
     const { factsOf } = resolver()
     expect(factsOf(request('http://127.0.0.1:18787/x', {}, '127.0.0.1'))).toEqual({

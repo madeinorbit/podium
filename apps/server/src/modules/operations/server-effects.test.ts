@@ -24,7 +24,7 @@ async function oracle(): Promise<Oracle> {
   return await makeOracle({ offlineMachines: [{ id: OTHER, name: 'Other box' }] })
 }
 
-const updateCreate = (o: Oracle, id: string, target = o.store.hostMachineId) =>
+const updateCreate = (o: Oracle, id: string, target = o.store.hostMachine!.id) =>
   envelope(
     'effects.create',
     { id, kind: UPDATE_EFFECT_KIND, target: updateEffectTarget(target), input: {} },
@@ -79,7 +79,7 @@ describe('who may ask', () => {
     const o = await oracle()
     const env = moveCreate(mintDeviceId('eff_'))
     const input = env.input as { target: { kind: string; id: string } }
-    input.target = { kind: 'machine', id: o.store.hostMachineId }
+    input.target = { kind: 'machine', id: o.store.hostMachine!.id }
     const reply = await submit(o, env)
     expect(reply.outcome === 'rejected' && reply.refusal.kind).toBe('invalid')
   })
@@ -114,7 +114,7 @@ describe('an update record', () => {
         modules: o.reg.modules,
         capability: { role: 'admin' },
         principal: userCommandPrincipal(asUserId('usr_admin_6358'), 'admin'),
-        serverPlacement: { kind: 'fleet', machineId: o.store.hostMachineId },
+        serverPlacement: { kind: 'fleet', machineId: o.store.hostMachine!.id },
       } as unknown as Parameters<typeof updateStartPortsOf>[0]),
     )
     for (let i = 0; i < 100 && (await o.store.effects.get(id))?.status === 'pending'; i++) {

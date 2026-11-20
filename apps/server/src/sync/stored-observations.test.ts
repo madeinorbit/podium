@@ -28,7 +28,7 @@ describe('stored observations (POD-6765)', () => {
     const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const builders = serverRecordBuilders()
     const owner = await firstAdminMemberId(store)
-    const machine = store.hostMachineId
+    const machine = store.hostMachine!.id
     const reads: RecordReads = {
       store,
       effectExecutors: registry.modules.effects!.executors,
@@ -37,7 +37,7 @@ describe('stored observations (POD-6765)', () => {
     let expected: Map<string, unknown[]>
     try {
       await quietShipping(registry)
-      await store.repos.addRepo('/repo', store.hostMachineId, undefined, 'POD')
+      await store.repos.addRepo('/repo', store.hostMachine!.id, undefined, 'POD')
       await store.machines.recordContext.setFleetChannel('edge')
       expect(await store.machines.recordContext.setFleetChannel('edge')).toBe(false)
       await store.machines.setUpdateChannel(machine, 'edge')
@@ -182,7 +182,7 @@ describe('stored observations (POD-6765)', () => {
     const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     try {
       await quietShipping(registry)
-      await store.repos.addRepo('/repo', store.hostMachineId, undefined, 'POD')
+      await store.repos.addRepo('/repo', store.hostMachine!.id, undefined, 'POD')
       const issue = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
         repoPath: '/repo',
         title: 'Rollback',

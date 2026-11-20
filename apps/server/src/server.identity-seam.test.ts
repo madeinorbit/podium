@@ -119,7 +119,7 @@ describe('startServer identity seam: memberships pending at boot', () => {
     // and one machine whose access records the members' changes move.
     const seeded = await SessionStore.open(
       join(stateDir, 'podium.db'),
-      asMachineId(readOrCreateLocalMachineId(stateDir)),
+      { id: asMachineId(readOrCreateLocalMachineId(stateDir)) },
       { changeCapture: 'whenLogAttaches' },
     )
     await seeded.users.memberRows.write(member({ memberId: stays, version: 1 }))

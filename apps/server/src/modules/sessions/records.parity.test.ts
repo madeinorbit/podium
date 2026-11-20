@@ -98,7 +98,7 @@ describe('measured driver facts across session publication paths', () => {
         cwd: '/driver-publication',
       })
       const bind = () =>
-        reg.gateway.routeDaemonFrame(store.hostMachineId, {
+        reg.gateway.routeDaemonFrame(store.hostMachine!.id, {
           type: 'bind',
           sessionId,
           cmd: 'claude',
@@ -114,7 +114,7 @@ describe('measured driver facts across session publication paths', () => {
 
       // Reproduce the live failure: boot reconciles before any daemon can rebind.
       const beforeBoot = await store.sync.maxChangeSeq()
-      const machineId = store.hostMachineId
+      const machineId = store.hostMachine!.id
       await reg.dispose()
       await store.close()
       store = await openTestStore(file, machineId)
@@ -210,7 +210,7 @@ describe('measured driver facts across session publication paths', () => {
       cwd: '/driver-replacement',
     })
     const bind = (facts: DriverFacts) =>
-      reg.gateway.routeDaemonFrame(store.hostMachineId, {
+      reg.gateway.routeDaemonFrame(store.hostMachine!.id, {
         type: 'bind',
         sessionId,
         cmd: 'claude',
@@ -306,11 +306,11 @@ describe('durable session records: the database answers as the session does', ()
   it('over a lifecycle walk, in-process and after a reboot', async () => {
     const file = join(mkdtempSync(join(tmpdir(), 'podium-session-records-')), 'state.sqlite')
     const store = await openTestStore(file)
-    await store.repos.addRepo('/r/podium', store.hostMachineId)
+    await store.repos.addRepo('/r/podium', store.hostMachine!.id)
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     await attachHostDaemon(reg)
     const sessions = reg.modules.sessions
-    const machine = store.hostMachineId
+    const machine = store.hostMachine!.id
     const issue = await reg.modules.issues.crud.create(
       reg.modules.issues.reports.store.serverWriter,
       { repoPath: '/r/podium', title: 'T', startNow: false },
@@ -459,7 +459,7 @@ describe('durable session records: the database answers as the session does', ()
           lastResumedAt: null,
           archived: s.archived,
           workState: null,
-          machineId: store.hostMachineId,
+          machineId: store.hostMachine!.id,
           headless: s.headless,
           issueId: s.issueId === null ? null : asIssueId(s.issueId),
           stoppedAt: s.stoppedAt,
@@ -513,8 +513,8 @@ describe('durable session records: the database answers as the session does', ()
     }
     await ask(
       'onMachine',
-      records.onMachine(store.hostMachineId, 'test'),
-      oracle.onMachine(store.hostMachineId, 'test'),
+      records.onMachine(store.hostMachine!.id, 'test'),
+      oracle.onMachine(store.hostMachine!.id, 'test'),
     )
     for (const s of all.filter((_, index) => index % 200 === 0)) {
       for (const length of [2, 4]) {

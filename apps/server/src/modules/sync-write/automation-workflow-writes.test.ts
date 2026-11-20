@@ -495,7 +495,7 @@ describe('the agent relay', () => {
     proc: string,
     input: unknown,
   ): Promise<RelayResult> {
-    await o.reg.gateway.routeDaemonFrame(o.store.hostMachineId, {
+    await o.reg.gateway.routeDaemonFrame(o.store.hostMachine!.id, {
       type: 'agentRelayRequest',
       requestId,
       sessionId,
@@ -549,7 +549,7 @@ describe('the agent relay', () => {
 
   it('lock.acquire on the relay runs on the plain command path, not the sync write entry point', async () => {
     const o = await makeOracle()
-    await o.store.repos.addRepo('/r', o.store.hostMachineId)
+    await o.store.repos.addRepo('/r', o.store.hostMachine!.id)
     const agent = (
       await o.reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/r' })
     ).sessionId
@@ -578,7 +578,7 @@ describe('the agent relay', () => {
 
   it('lock.acquire on tRPC runs on the plain path too, and sync.submit does not take it', async () => {
     const o = await makeOracle()
-    await o.store.repos.addRepo('/r', o.store.hostMachineId)
+    await o.store.repos.addRepo('/r', o.store.hostMachine!.id)
     const scopes: (string | undefined)[] = []
     const acquire = o.reg.modules.locks.acquire.bind(o.reg.modules.locks)
     vi.spyOn(o.reg.modules.locks, 'acquire').mockImplementation(async (caller, input) => {

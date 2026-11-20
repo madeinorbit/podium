@@ -22,7 +22,7 @@ async function harness(sessions: SessionMeta[] = [], extra: Partial<IssueDeps> =
   const store = await openTestStore(':memory:', TEST_MACHINE_ID)
   // Issues are placed on a machine that reported their repo (2b803efb5 refuses
   // implicit placement), so the fixture's repo is reported by the host machine.
-  await store.repos.addRepo('/r', store.hostMachineId)
+  await store.repos.addRepo('/r', store.hostMachine!.id)
   const broadcast = vi.fn()
   const deps: IssueDeps & { broadcast: ReturnType<typeof vi.fn> } = {
     resolveMachine: async () => TEST_MACHINE_ID,
@@ -1009,7 +1009,7 @@ describe('SessionRegistry session.phase events', () => {
         cwd: '/proj',
       })
       // First state after boot/spawn: prev is undefined → no phantom row.
-      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
         type: 'agentState',
         sessionId,
         state: st('working'),
@@ -1017,13 +1017,13 @@ describe('SessionRegistry session.phase events', () => {
       // The phase rows are written in a group after the frame (POD-6233).
       await store.events.settleGroupedAppends()
       expect(await store.events.listEventsSince(0, { kinds: ['session.phase'] })).toEqual([])
-      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
         type: 'agentState',
         sessionId,
         state: st('idle', { kind: 'question' }),
       })
       // Same-phase refresh → no second row.
-      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
         type: 'agentState',
         sessionId,
         state: st('idle'),

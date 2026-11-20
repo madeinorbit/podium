@@ -56,7 +56,7 @@ describe('machines store [bun:sqlite]', () => {
 
     const store = openTestStore(file)
     const rows = store.listRepos()
-    expect(rows.find((r) => r.path === '/projects/alpha')?.machineId).toBe(store.hostMachineId)
+    expect(rows.find((r) => r.path === '/projects/alpha')?.machineId).toBe(store.hostMachine!.id)
     expect(rows.find((r) => r.path === '/projects/alpha')?.originUrl).toBeNull()
     store.addRepo('/projects/gamma')
     expect(store.listRepoPaths()).toContain('/projects/gamma')

@@ -50,7 +50,7 @@ const custodyGranting =
   (message: ControlMessage): void => {
     daemon.push(message)
     if (message.type !== 'runtimeDurableSendRequest') return
-    void reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    void reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
       type: 'runtimeSendResult',
       requestId: message.requestId,
       sessionId: message.sessionId,
@@ -77,7 +77,7 @@ async function deliverRows(
     .at(-1)
   const observerGeneration = spawn!.observationGeneration!
   const cursor = (seq: number) => ({ segmentId: `delivery-${sessionId}`, components: { seq } })
-  await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+  await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
     type: 'runtimeEvent',
     deliveryId: `bootstrap-${sessionId}-${observerGeneration}`,
     sessionId,
@@ -95,7 +95,7 @@ async function deliverRows(
     },
   })
   for (const [index, rowId] of rowIds.entries()) {
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
       type: 'runtimeEvent',
       deliveryId: `delivery-${rowId}`,
       sessionId,
@@ -141,8 +141,8 @@ describe('session queue counts come from the durable rows', () => {
         agentKind: 'claude-code',
         cwd: '/w',
       })
-      await regA.gateway.routeDaemonFrame(regA.sessionStore.hostMachineId, bind(sessionId))
-      await regA.gateway.routeDaemonFrame(regA.sessionStore.hostMachineId, {
+      await regA.gateway.routeDaemonFrame(regA.sessionStore.hostMachine!.id, bind(sessionId))
+      await regA.gateway.routeDaemonFrame(regA.sessionStore.hostMachine!.id, {
         type: 'sessionResumeRef',
         sessionId,
         resume: { kind: 'claude-session', value: 'abc-123' },
@@ -160,7 +160,7 @@ describe('session queue counts come from the durable rows', () => {
         await vi.advanceTimersByTimeAsync(0)
         await expectParity(regA, sessionId)
       }
-      await regA.gateway.routeDaemonFrame(regA.sessionStore.hostMachineId, {
+      await regA.gateway.routeDaemonFrame(regA.sessionStore.hostMachine!.id, {
         type: 'agentExit',
         sessionId,
         code: 137,
@@ -178,7 +178,7 @@ describe('session queue counts come from the durable rows', () => {
       await attachHostDaemon(regB, custodyGranting(regB, daemon))
       await expectParity(regB, sessionId)
       await expectParity(regB, idle.sessionId)
-      await regB.gateway.routeDaemonFrame(regB.sessionStore.hostMachineId, {
+      await regB.gateway.routeDaemonFrame(regB.sessionStore.hostMachine!.id, {
         type: 'reattachFailed',
         sessionId,
         reason: 'process gone',
@@ -186,7 +186,7 @@ describe('session queue counts come from the durable rows', () => {
       await vi.waitFor(() =>
         expect(daemon.some((m) => m.type === 'spawn' && m.sessionId === sessionId)).toBe(true),
       )
-      await regB.gateway.routeDaemonFrame(regB.sessionStore.hostMachineId, bind(sessionId))
+      await regB.gateway.routeDaemonFrame(regB.sessionStore.hostMachine!.id, bind(sessionId))
       await vi.waitFor(() => expect(handedOn(daemon, sessionId).length).toBeGreaterThan(0))
       await vi.advanceTimersByTimeAsync(0)
       await expectParity(regB, sessionId)

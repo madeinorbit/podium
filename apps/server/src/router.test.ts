@@ -230,7 +230,7 @@ describe('appRouter', () => {
     const req = daemon.find((m) => m.type === 'transcriptRead') as { requestId: string } | undefined
     expect(req).toBeDefined()
     if (!req) throw new Error('transcriptRead not sent')
-    registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+    registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachine!.id, {
       type: 'transcriptReadResult',
       requestId: req.requestId,
       sessionId,
@@ -420,7 +420,7 @@ describe('repos router', () => {
     expect(req?.includeHome).toBe(false)
     expect(req?.maxDepth).toBe(0)
     if (!req) throw new Error('no scanReposRequest')
-    registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+    registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachine!.id, {
       type: 'scanReposResult',
       requestId: req.requestId,
       repositories: [],
@@ -448,7 +448,7 @@ describe('repos router', () => {
     expect(req?.includeHome).toBe(false)
     expect(req?.maxDepth).toBe(6)
     if (!req) throw new Error('no scanReposRequest')
-    registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+    registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachine!.id, {
       type: 'scanReposResult',
       requestId: req.requestId,
       repositories: [],

@@ -49,7 +49,7 @@ async function plantTranscript(store: SessionStore, sessionId: SessionId) {
 
 async function scenario(evict: boolean) {
   const store = await openTestStore(':memory:')
-  await store.repos.addRepo('/r', store.hostMachineId)
+  await store.repos.addRepo('/r', store.hostMachine!.id)
   const reg = await SessionRegistry.create(store, undefined, {
     instanceId: 'default',
     sessionResidency: { evictParked: true, sweepIntervalMs: 0 },
@@ -57,7 +57,7 @@ async function scenario(evict: boolean) {
   registries.push(reg)
   await attachHostDaemon(reg)
   const sessions = reg.modules.sessions
-  const machine = store.hostMachineId
+  const machine = store.hostMachine!.id
   const admin = firstAdminMemberId()
   const issue = await reg.modules.issues.crud.create(
     reg.modules.issues.reports.store.serverWriter,

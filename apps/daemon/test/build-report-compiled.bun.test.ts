@@ -72,7 +72,7 @@ describe('compiled installed daemon build report', () => {
           `ws://127.0.0.1:${server.port}`,
           server.machineToken,
           join(dir, 'daemon-hooks'),
-          server.registry.sessionStore.hostMachineId,
+          server.registry.sessionStore.hostMachine!.id,
         ],
         { env: childEnv, stdio: ['ignore', 'pipe', 'pipe'] },
       )

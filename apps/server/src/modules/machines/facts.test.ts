@@ -61,7 +61,7 @@ async function fleet(
   const svc = new MachinesService({
     instanceId: 'default',
     store,
-    hostMachineId: store.hostMachineId,
+    hostMachine: { id: store.hostMachine!.id },
 
     ...deps,
   } as MachinesDeps)

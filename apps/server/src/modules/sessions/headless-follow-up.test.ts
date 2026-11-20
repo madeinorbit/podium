@@ -33,19 +33,19 @@ async function headlessOpencode() {
   registries.push(registry)
   const commands: ControlMessage[] = []
   await store.machines.upsertMachine({
-    id: store.hostMachineId,
+    id: store.hostMachine!.id,
     name: 'Host',
     hostname: 'test',
     tokenHash: 'test',
     ownerUserId: firstAdminMemberId(),
     assignment: { server: true, agentExecution: true },
   })
-  await registry.gateway.attachDaemon(store.hostMachineId, (message) => commands.push(message))
+  await registry.gateway.attachDaemon(store.hostMachine!.id, (message) => commands.push(message))
   const { sessionId } = await registry.modules.sessions.createSession({
     agentKind: 'opencode',
     cwd: '/project',
   })
-  await registry.gateway.routeDaemonFrame(store.hostMachineId, {
+  await registry.gateway.routeDaemonFrame(store.hostMachine!.id, {
     type: 'bind',
     sessionId,
     cmd: 'opencode serve (opencode-server)',
@@ -65,7 +65,7 @@ async function headlessOpencode() {
       observerGeneration: 1,
       turnEpoch: 1,
     } as unknown as RuntimeEvent
-    await registry.gateway.routeDaemonFrame(store.hostMachineId, {
+    await registry.gateway.routeDaemonFrame(store.hostMachine!.id, {
       type: 'runtimeEvent',
       sessionId,
       deliveryId: `opencode-${seq}`,

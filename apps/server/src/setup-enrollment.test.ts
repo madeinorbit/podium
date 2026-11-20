@@ -285,7 +285,7 @@ describe('offline server-assignment promotion on a transfer target', () => {
       const target = asMachineId('transfer-target')
       let before: SyncKindTokens | undefined
       try {
-        const store = await SessionStore.open(join(dir, 'podium.db'), source)
+        const store = await SessionStore.open(join(dir, 'podium.db'), { id: source })
         try {
           const owner = await firstAdminMemberId(store)
           // Setup: two enrolled machines, the source serving.
@@ -316,7 +316,7 @@ describe('offline server-assignment promotion on a transfer target', () => {
         await promoteMachineAssignment(input)
         await promoteMachineAssignment(input)
 
-        const reopened = await SessionStore.open(join(dir, 'podium.db'), target)
+        const reopened = await SessionStore.open(join(dir, 'podium.db'), { id: target })
         try {
           expect((await reopened.machines.getMachine(source))?.serviceAssignment).toEqual({
             server: false,

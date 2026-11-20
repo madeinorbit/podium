@@ -30,7 +30,7 @@ async function harness(
   const store = await openTestStore(':memory:')
   // Issues are placed under a machine that REPORTED their repo (2b803efb5), so
   // the fixture repos are reported by the host machine.
-  for (const repo of repos) await store.repos.addRepo(repo, store.hostMachineId)
+  for (const repo of repos) await store.repos.addRepo(repo, store.hostMachine!.id)
   const issueBySession = new Map<SessionId, IssueId | null>()
   const broadcast = vi.fn()
   const deps: IssueDeps & { broadcast: ReturnType<typeof vi.fn> } = {
@@ -56,7 +56,7 @@ async function harness(
       machine: 'machine-under-test',
     })),
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
-    resolveMachine: vi.fn(async () => store.hostMachineId),
+    resolveMachine: vi.fn(async () => store.hostMachine!.id),
     broadcast,
     ...issueTestPlumbing((msg) => broadcast(msg), { store }),
     now: () => '2026-07-06T00:00:00.000Z',
@@ -341,7 +341,7 @@ describe('attachSession', () => {
       sess(asSessionId('s2'), '/r/.worktrees/epic'),
     ])
     await seedRows(store, () =>
-      store.repos.setRepoDefaultParentBranch(store.hostMachineId, '/r', 'release'),
+      store.repos.setRepoDefaultParentBranch(store.hostMachine!.id, '/r', 'release'),
     )
     const parent = await svc.crud.create(svc.reports.store.serverWriter, {
       repoPath: '/r',
@@ -581,7 +581,7 @@ describe('attachSession', () => {
       .poll(async () => (await svc.reports.get(spun.id))?.worktreePath)
       .toBe('/r/.worktrees/o')
     expect((await svc.reports.get(spun.id))?.branch).toBe('issue/1-origin')
-    expect((await svc.reports.get(spun.id))?.machineId).toBe(deps.store.hostMachineId)
+    expect((await svc.reports.get(spun.id))?.machineId).toBe(deps.store.hostMachine!.id)
     expect((await svc.reports.get(origin.id))?.worktreePath).toBeNull()
     expect((await svc.reports.get(origin.id))?.branch).toBeNull()
   })
@@ -715,7 +715,7 @@ describe('soleOwnerForCwd', () => {
     })
     // Model a pre-existing claim: new claims on a registered root are refused.
     await svc.crud.update(svc.reports.store.serverWriter, squatter.id, { worktreePath: '/r' })
-    await seedRows(store, () => store.repos.addRepo('/r', store.hostMachineId))
+    await seedRows(store, () => store.repos.addRepo('/r', store.hostMachine!.id))
     await expect(
       svc.crud.update(svc.reports.store.serverWriter, squatter.id, { worktreePath: '/r' }),
     ).rejects.toThrow('a repository root cannot be recorded as an issue worktree')
@@ -890,7 +890,7 @@ describe('store: sessions.issue_id round-trip', () => {
         cwd: '/r',
         title: 't',
         name: null,
-        machineId: store.hostMachineId,
+        machineId: store.hostMachine!.id,
         originKind: 'spawn',
         conversationId: null,
         resumeKind: null,

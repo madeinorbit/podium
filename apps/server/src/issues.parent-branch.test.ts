@@ -27,9 +27,9 @@ async function harness(opts: {
   answers?: boolean
 }) {
   const store = await openTestStore(':memory:')
-  await store.repos.addRepo('/r', store.hostMachineId)
+  await store.repos.addRepo('/r', store.hostMachine!.id)
   if (opts.repoDefault) {
-    await store.repos.setRepoDefaultParentBranch(store.hostMachineId, '/r', opts.repoDefault)
+    await store.repos.setRepoDefaultParentBranch(store.hostMachine!.id, '/r', opts.repoDefault)
   }
   const git = { refs: new Set(opts.refs), answers: opts.answers ?? true }
   const ops: { op: string; args?: Record<string, string> }[] = []
@@ -65,7 +65,7 @@ async function harness(opts: {
       }
       return { ok: true, output: '' }
     },
-    resolveMachine: vi.fn(async () => store.hostMachineId),
+    resolveMachine: vi.fn(async () => store.hostMachine!.id),
     ...issueTestPlumbing((msg) => broadcast(msg), { store }),
     setSessionArchived: vi.fn(),
     clearSessionOffer: vi.fn(),
@@ -177,7 +177,7 @@ describe('parent branch for a new issue (POD-2065)', () => {
       startNow: false,
     })
     await seedRows(h.store, () =>
-      h.store.repos.setRepoDefaultParentBranch(h.store.hostMachineId, '/r', 'tf.dev'),
+      h.store.repos.setRepoDefaultParentBranch(h.store.hostMachine!.id, '/r', 'tf.dev'),
     )
     const after = await h.svc.crud.create(h.svc.reports.store.serverWriter, {
       repoPath: '/r',

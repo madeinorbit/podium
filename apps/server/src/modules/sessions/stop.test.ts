@@ -57,7 +57,7 @@ async function makeRegistry(
 }> {
   const store = await openTestStore(':memory:')
   await store.machines.upsertMachine({
-    id: store.hostMachineId,
+    id: store.hostMachine!.id,
     name: 'test-host',
     hostname: 'test-host',
     tokenHash: 'test',
@@ -74,7 +74,7 @@ async function makeRegistry(
   // its own registration.
   await reg.sessionStore.repos.addRepo(
     '/r',
-    reg.sessionStore.hostMachineId,
+    reg.sessionStore.hostMachine!.id,
     'git@github.com:example/r.git',
   )
   const repoOps: { op: string; cwd: string; args?: Record<string, string> }[] = []
@@ -153,7 +153,7 @@ async function bindLive(
   cwd: string,
   resumable = true,
 ): Promise<void> {
-  await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+  await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
     type: 'bind',
     sessionId: asSessionId(sessionId),
     cmd: 'claude',
@@ -162,7 +162,7 @@ async function bindLive(
     geometry: { cols: 80, rows: 24 },
   })
   if (!resumable) return
-  await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+  await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
     type: 'sessionResumeRef',
     sessionId: asSessionId(sessionId),
     resume: { kind: 'claude-session', value: 'native-1' },
@@ -198,7 +198,7 @@ describe('stopSession', () => {
       observerGeneration: 1,
       turnEpoch: 1,
     })
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
       type: 'runtimeEvent',
       sessionId,
       deliveryId: 'working-before-stop',
@@ -241,7 +241,7 @@ describe('stopSession', () => {
 
     // The provider's timestamp is old; receipt and notification creation are fresh.
     clock = Date.parse('2026-09-30T15:14:56.000Z')
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
       type: 'runtimeEvent',
       sessionId,
       deliveryId: 'terminal-after-stop',
@@ -250,7 +250,7 @@ describe('stopSession', () => {
     // Repeated late frames must stay on the cheap rejection path. The old
     // ingress restored and immediately evicted the whole session each time.
     for (let i = 0; i < 20; i++) {
-      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
         type: 'runtimeEvent',
         sessionId,
         event: delayed,
@@ -307,7 +307,7 @@ describe('stopSession', () => {
       observerGeneration: 1,
       turnEpoch: 0,
     }
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
       type: 'runtimeEvent',
       sessionId,
       deliveryId: 'before-stop',
@@ -321,7 +321,7 @@ describe('stopSession', () => {
     const materialize = vi.spyOn(reg.modules.sessions.residency, 'acquire')
     const recordFine = vi.spyOn(reg.modules.sessions.runtimeEventGate, 'record')
     const readFine = vi.spyOn(reg.sessionStore.sessions, 'loadSession')
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
       type: 'runtimeFineEvent',
       sessionId,
       event: { ...item, item: { kind: 'delta', itemId: 'preview', textDelta: 'late fragment' } },
@@ -332,13 +332,13 @@ describe('stopSession', () => {
     readFine.mockRestore()
 
     for (let i = 0; i < 20; i++) {
-      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
         type: 'runtimeEvent',
         sessionId,
         deliveryId: `duplicate-${i}`,
         event: item,
       })
-      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
         type: 'runtimeEvent',
         sessionId,
         deliveryId: `stale-${i}`,
@@ -376,7 +376,7 @@ describe('stopSession', () => {
         item: { id: 'after-stop', role: 'assistant', text: 'Late evidence', ts: item.at },
       },
     }
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
       type: 'runtimeEvent',
       sessionId,
       deliveryId: 'late-item',
@@ -391,7 +391,7 @@ describe('stopSession', () => {
     expect(materialize).toHaveBeenCalled()
     materialize.mockClear()
     reg.modules.sessions.residency.sweep()
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
       type: 'runtimeEvent',
       sessionId,
       deliveryId: 'late-item-replay',
@@ -417,7 +417,7 @@ describe('stopSession', () => {
       turnEpoch: 0,
     }
     reg.modules.sessions.residency.sweep()
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
       type: 'runtimeEvent',
       sessionId,
       deliveryId: 'late-exit',
@@ -431,7 +431,7 @@ describe('stopSession', () => {
     expect(await reg.sessionStore.events.listRuntimeEvents(sessionId)).toHaveLength(3)
     expect((await reg.modules.sessions.sessionById(sessionId))?.status).toBe('hibernated')
     materialize.mockClear()
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
       type: 'runtimeEvent',
       sessionId,
       deliveryId: 'late-exit-replay',
@@ -463,7 +463,7 @@ describe('stopSession', () => {
       payload: pending,
     })
     await reg.sessionStore.events.saveRuntimeEventCheckpoint({ ...head, cursor: pending.cursor })
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
       type: 'runtimeEvent',
       sessionId,
       deliveryId: 'recover-projection',
@@ -479,7 +479,7 @@ describe('stopSession', () => {
       outcome: 'committed',
     })
     materialize.mockClear()
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
       type: 'runtimeEvent',
       sessionId,
       deliveryId: 'recovered-replay',
@@ -495,7 +495,7 @@ describe('stopSession', () => {
       cwd: '/r',
     })
     await bindLive(reg, sessionId, '/r')
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
       type: 'agentState',
       sessionId,
       state: { phase: 'working', since: '2026-09-30T01:40:00.000Z', nativeSubagentCount: 0 },
@@ -520,7 +520,7 @@ describe('stopSession', () => {
     })
     const effects = vi.fn()
     reg.bus.on('session.stateChanged', effects)
-    const pending = reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    const pending = reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
       type: 'runtimeEvent',
       sessionId,
       deliveryId: 'stop-during-admission',

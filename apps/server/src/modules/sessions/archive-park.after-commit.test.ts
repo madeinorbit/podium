@@ -34,7 +34,7 @@ afterEach(async () => {
 async function makeRegistry(): Promise<{ reg: SessionRegistry; daemon: ControlMessage[] }> {
   const store = await openTestStore(':memory:')
   await store.machines.upsertMachine({
-    id: store.hostMachineId,
+    id: store.hostMachine!.id,
     name: 'test-host',
     hostname: 'test-host',
     tokenHash: 'test',
@@ -47,7 +47,7 @@ async function makeRegistry(): Promise<{ reg: SessionRegistry; daemon: ControlMe
   await attachHostDaemon(reg, (m) => {
     daemon.push(m)
     if (m.type === 'runtimeLifecycleRequest')
-      void reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      void reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
         type: 'runtimeLifecycleResult',
         requestId: m.requestId,
         sessionId: m.sessionId,
@@ -62,7 +62,7 @@ async function liveResumable(reg: SessionRegistry): Promise<SessionId> {
     agentKind: 'claude-code',
     cwd: '/r',
   })
-  const machine = reg.sessionStore.hostMachineId
+  const machine = reg.sessionStore.hostMachine!.id
   await reg.gateway.routeDaemonFrame(machine, {
     type: 'bind',
     sessionId,
@@ -130,7 +130,7 @@ describe('archive park runs its stop after the commit (POD-6349)', () => {
 
   it('an issue archive inside a unit of work stops its member sessions after the commit', async () => {
     const { reg, daemon } = await makeRegistry()
-    await reg.sessionStore.repos.addRepo('/r', reg.sessionStore.hostMachineId)
+    await reg.sessionStore.repos.addRepo('/r', reg.sessionStore.hostMachine!.id)
     const issue = await reg.modules.issues.crud.create(
       reg.modules.issues.reports.store.serverWriter,
       {
@@ -172,7 +172,7 @@ describe('archive park runs its stop after the commit (POD-6349)', () => {
     })
     daemon.length = 0
 
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
       type: 'durableSessionCensus',
       labels: [`podium-${sessionId}`],
     })
@@ -193,7 +193,7 @@ describe('archive park runs its stop after the commit (POD-6349)', () => {
     })
     daemon.length = 0
 
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
       type: 'durableSessionCensus',
       labels: [],
     })

@@ -23,7 +23,7 @@ import { storeSql } from './test-support/store-sql'
  *  implicit placement), so the host machine reports the fixture repo. */
 async function reportingStore(): Promise<SessionStore> {
   const store = await openTestStore(':memory:', TEST_MACHINE_ID)
-  await store.repos.addRepo('/r', store.hostMachineId)
+  await store.repos.addRepo('/r', store.hostMachine!.id)
   return store
 }
 

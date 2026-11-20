@@ -56,7 +56,7 @@ interface Fixture {
 /** The oracle, an issue with a worktree on the host, and an agent bound in it. */
 async function makeFixture(): Promise<Fixture> {
   const o = await makeBareOracle()
-  await o.store.repos.addRepo('/r', o.store.hostMachineId)
+  await o.store.repos.addRepo('/r', o.store.hostMachine!.id)
   const issue = await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, {
     repoPath: '/r',
     title: 'Mail',
@@ -71,7 +71,7 @@ async function makeFixture(): Promise<Fixture> {
     cwd: worktree,
     issueId: issue.id,
   })
-  await o.reg.gateway.routeDaemonFrame(o.store.hostMachineId, {
+  await o.reg.gateway.routeDaemonFrame(o.store.hostMachine!.id, {
     type: 'bind',
     sessionId,
     cmd: 'sh',

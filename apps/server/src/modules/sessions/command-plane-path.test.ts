@@ -48,7 +48,7 @@ async function bindLive(
   agentKind: 'claude-code' | 'shell',
   cwd: string,
 ): Promise<void> {
-  const machineId = o.reg.sessionStore.hostMachineId
+  const machineId = o.reg.sessionStore.hostMachine!.id
   await o.reg.gateway.routeDaemonFrame(machineId, {
     type: 'bind',
     sessionId,
@@ -68,7 +68,7 @@ async function bindLive(
 }
 
 async function errored(o: Oracle, sessionId: SessionId): Promise<void> {
-  await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+  await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachine!.id, {
     type: 'agentState',
     sessionId,
     state: ERRORED,
@@ -99,7 +99,7 @@ const keystrokes = (daemon: ControlMessage[], sessionId: SessionId) =>
 
 /** Two issues, each with its own worktree under the reported repo `/r`. */
 async function twoIssues(o: Oracle) {
-  await o.store.repos.addRepo('/r', o.store.hostMachineId)
+  await o.store.repos.addRepo('/r', o.store.hostMachine!.id)
   const a = await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, {
     repoPath: '/r',
     title: 'A',
@@ -407,7 +407,7 @@ describe('sessions.setIssueId is on sync.submit only', () => {
 
   it('attaches with provenance and a receipt; a replay returns its result and changes nothing', async () => {
     const o = await makeOracle()
-    await o.store.repos.addRepo('/p', o.store.hostMachineId)
+    await o.store.repos.addRepo('/p', o.store.hostMachine!.id)
     const issue = await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, {
       repoPath: '/p',
       title: 't',
@@ -447,7 +447,7 @@ describe('the lifecycle routes act only through the path', () => {
   async function liveAgent(o: Oracle): Promise<SessionId> {
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
     await bindLive(o, sessionId, 'claude-code', '/p')
-    await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+    await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachine!.id, {
       type: 'agentState',
       sessionId,
       state: { phase: 'idle', since: new Date().toISOString(), nativeSubagentCount: 0 },
@@ -458,7 +458,7 @@ describe('the lifecycle routes act only through the path', () => {
   it('a stop while the machine is offline answers pending and calls no service; the reconnect stops it once', async () => {
     const o = await makeOracle()
     const sessionId = await liveAgent(o)
-    const machineId = o.reg.sessionStore.hostMachineId
+    const machineId = o.reg.sessionStore.hostMachine!.id
     const stopSession = vi.spyOn(o.reg.modules.issueSessionLifecycle, 'stopSession')
     o.reg.gateway.detachDaemon(machineId)
 
@@ -506,7 +506,7 @@ describe('the lifecycle routes act only through the path', () => {
 describe('create and interrupt never act from inside the request', () => {
   it('create with no daemon attached refuses at once and starts nothing', async () => {
     const o = await makeOracle()
-    o.reg.gateway.detachDaemon(o.reg.sessionStore.hostMachineId)
+    o.reg.gateway.detachDaemon(o.reg.sessionStore.hostMachine!.id)
     const createSession = vi.spyOn(o.reg.modules.sessions, 'createSession')
 
     await expect(o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })).rejects.toThrow(

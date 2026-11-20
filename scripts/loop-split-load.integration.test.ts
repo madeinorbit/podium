@@ -82,7 +82,7 @@ async function until(check: () => boolean, timeoutMs = 5_000): Promise<void> {
 describe('loop split representative load', () => {
   it('holds publication interaction and event-loop targets at 588 sessions / 800 issues', async () => {
     const store = await openTestStore(':memory:')
-    await store.repos.addRepo('/representative-load', store.hostMachineId)
+    await store.repos.addRepo('/representative-load', store.hostMachine!.id)
     await store.transact(async () => {
       for (let seq = 1; seq <= ISSUE_COUNT; seq += 1)
         await store.issues.upsertIssue(fixtureWriteScope(), issueRow(seq))

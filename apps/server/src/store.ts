@@ -1,4 +1,5 @@
 import { bootStage } from './boot-timing'
+import type { HostMachine } from './host-machine'
 /**
  * Durable server-side store. Single writer (the server).
  *
@@ -297,8 +298,8 @@ export class StoreDatabase {
   get legacyIdentityStorage(): boolean {
     return this.lifecycle.legacyIdentityStorage
   }
-  /** See {@link SessionStore.hostMachineId}; one per process, so one per database. */
-  readonly hostMachineId: MachineId
+  /** See {@link SessionStore.hostMachine}; one per process, so one per database. */
+  readonly hostMachine: HostMachine
   private readonly publicationIdleSubscriptions = new Set<() => void>()
   /** Each workspace's store, made once: a workspace's repositories hold its caches. */
   private readonly workspaces = new Map<WorkspaceId, Promise<SessionStore>>()
@@ -319,7 +320,7 @@ export class StoreDatabase {
 
   static async open(
     location: string,
-    hostMachineId: MachineId,
+    hostMachine: HostMachine,
     options: StoreDatabaseOptions,
     watchdog: WatchdogOptions = {
       report: (report) => log.warn('transaction lease exceeded idle budget', { ...report }),
@@ -377,7 +378,7 @@ export class StoreDatabase {
     try {
       if (lifecycle.applied.length > 0)
         log.info('applied migrations', { applied: lifecycle.applied })
-      const store = new StoreDatabase(location, hostMachineId, lifecycle, {
+      const store = new StoreDatabase(location, hostMachine, lifecycle, {
         vaultKeyPath:
           options.vaultKeyFile ?? resolveVaultKeyPath(process.env, resolveInstanceId(process.env)),
         queryOnly: options.queryOnly === true,
@@ -419,7 +420,7 @@ export class StoreDatabase {
      * a URL carries its credential.
      */
     readonly location: string,
-    hostMachineId: MachineId,
+    hostMachine: HostMachine,
     /** The engine's lifecycle steps, and the executor every repository runs on. */
     private readonly lifecycle: StoreLifecycle,
     /**
@@ -433,10 +434,7 @@ export class StoreDatabase {
       readonly legacyPlaintext: LegacyPlaintextOptions
     },
   ) {
-    // The value crosses into its id space HERE, once: it arrives as the bytes of a
-    // state-dir file (or a fresh mint) and leaves as the machine identity every row,
-    // route and grant in this process is keyed by.
-    this.hostMachineId = asMachineId(hostMachineId)
+    this.hostMachine = hostMachine
     this.executor = lifecycle.executor
     this.db = lifecycle.connection
     this.queries = lifecycle.executor.queries
@@ -963,14 +961,14 @@ export class SessionStore {
    */
   static async open(
     path: string = defaultDbPath(),
-    hostMachineId: MachineId = asMachineId(randomUUID()),
+    hostMachine: HostMachine = { id: asMachineId(randomUUID()) },
     options: Omit<StoreDatabaseOptions, 'bootWorkspace'> & { workspace?: WorkspaceId } = {},
     watchdog?: WatchdogOptions,
   ): Promise<SessionStore> {
     const { workspace = SELF_HOSTED_WORKSPACE_ID, ...rest } = options
     const database = await StoreDatabase.open(
       path,
-      hostMachineId,
+      hostMachine,
       { ...rest, bootWorkspace: workspace },
       watchdog,
     )
@@ -1143,7 +1141,7 @@ export class SessionStore {
   async refuseAndRepair(): Promise<void> {
     await this.settings.initializeSnapshot()
     await this.refuseLegacyIdentities()
-    await this.backfillLegacyWorktreeMachines(this.hostMachineId)
+    await this.backfillLegacyWorktreeMachines(this.hostMachine?.id)
   }
 
   /**
@@ -1215,21 +1213,12 @@ export class SessionStore {
   }
 
   /**
-   * The id of the machine this store's rows are written on — `<stateDir>/machine.id`,
-   * read by the composition root and handed down (`readOrCreateLocalMachineId`).
-   *
-   * It is an OPEN ARGUMENT rather than a file read here because the store must
-   * not decide who it is: the server, the split daemon and the CLI all read the same
-   * file, and a second reader is a second opinion waiting to happen.
-   *
-   * The default MINTS one instead of falling back to a constant. An unconfigured
-   * store — a test fixture, a script — is genuinely a fresh host with no prior rows,
-   * and saying so with a real UUID keeps the "an id is minted material or nothing"
-   * rule true everywhere. The old `'__local__'` default said the opposite: that
-   * unattributed rows are a legitimate durable state.
+   * The server's own install, supplied once by the composition root. Null means
+   * it has no fleet machine; workspace content always names its own machine.
+   * Standalone stores mint a fixture identity unless explicitly passed null.
    */
-  get hostMachineId(): MachineId {
-    return this.database.hostMachineId
+  get hostMachine(): HostMachine {
+    return this.database.hostMachine
   }
 
   /** The database's per-table write announcement ({@link StoreDatabase.tableWrites}). */

@@ -70,7 +70,7 @@ function draftFixture() {
 async function draftWithSession(reg: SessionRegistry, repo = '/repo') {
   // Issues are placed on a machine that reported their repo (2b803efb5 refuses
   // implicit placement), so the host machine reports it first.
-  await reg.sessionStore.repos.addRepo(repo, reg.sessionStore.hostMachineId)
+  await reg.sessionStore.repos.addRepo(repo, reg.sessionStore.hostMachine!.id)
   const draft = await reg.issues.attention.createDraftFor(
     reg.issues.reports.store.serverWriter,
     repo,
@@ -110,11 +110,11 @@ describe('draft retention on session death', () => {
     const file = join(mkdtempSync(join(tmpdir(), 'podium-updater-exit-')), 'state.sqlite')
     const reg = await regWithDaemon(await openTestStore(file))
     const { draft, sessionId } = await draftWithSession(reg)
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, bind(sessionId))
 
     // Codex exits cleanly while replacing itself during an update. The daemon
     // has no distinct update-exit frame, so the server must retain recoverability.
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
       type: 'agentExit',
       sessionId,
       code: 0,
@@ -139,8 +139,8 @@ describe('draft retention on session death', () => {
   it('hibernation does NOT delete the draft (intentional park)', async () => {
     const reg = await regWithDaemon()
     const { draft, sessionId } = await draftWithSession(reg)
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, bind(sessionId))
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
       type: 'sessionResumeRef',
       sessionId,
       resume: { kind: 'claude', value: 'conv-1' },
@@ -148,7 +148,7 @@ describe('draft retention on session death', () => {
     const r = await reg.modules.sessions.hibernateSession({ sessionId })
     expect(r.ok).toBe(true)
     // The hibernate kill produces an agentExit like any death — still no reap.
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
       type: 'agentExit',
       sessionId,
       code: 0,
@@ -167,7 +167,7 @@ describe('draft retention on session death', () => {
         issueId: draft.id,
       })
     ).sessionId
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(second))
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, bind(second))
     await reg.modules.sessions.killSession(reg.modules.sessions.serverWriter, { sessionId })
     expect(await reg.issues.reports.get(draft.id)).not.toBeNull()
     expect(await reg.modules.sessions.readSessionIssueId(second)).toBe(draft.id)
@@ -223,8 +223,8 @@ describe('explicit rehome draft cleanup', () => {
   it('keeps the draft and exited sibling attached when its live session is rehomed', async () => {
     const reg = await regWithDaemon()
     const exited = await draftWithSession(reg)
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(exited.sessionId))
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, bind(exited.sessionId))
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
       type: 'agentExit',
       sessionId: exited.sessionId,
       code: 0,
@@ -304,11 +304,11 @@ describe('boot-time draft retention', () => {
     await attachHostDaemon(reg1, () => {})
     // Live session draft: comes back live, awaiting a rebind, at boot — must survive.
     const live = await draftWithSession(reg1, '/repo-a')
-    await reg1.gateway.routeDaemonFrame(reg1.sessionStore.hostMachineId, bind(live.sessionId))
+    await reg1.gateway.routeDaemonFrame(reg1.sessionStore.hostMachine!.id, bind(live.sessionId))
     // Hibernated session draft: parked on purpose — must survive.
     const hib = await draftWithSession(reg1, '/repo-b')
-    await reg1.gateway.routeDaemonFrame(reg1.sessionStore.hostMachineId, bind(hib.sessionId))
-    await reg1.gateway.routeDaemonFrame(reg1.sessionStore.hostMachineId, {
+    await reg1.gateway.routeDaemonFrame(reg1.sessionStore.hostMachine!.id, bind(hib.sessionId))
+    await reg1.gateway.routeDaemonFrame(reg1.sessionStore.hostMachine!.id, {
       type: 'sessionResumeRef',
       sessionId: hib.sessionId,
       resume: { kind: 'claude', value: 'conv-h' },

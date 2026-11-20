@@ -182,7 +182,7 @@ describe('kind generations (POD-6959 design 2.7)', () => {
 
 describe('the workspace column stays off the records', () => {
   it('no record value of any kind carries workspace_id', async () => {
-    const machineId = asMachineId(a.hostMachineId)
+    const machineId = asMachineId(a.hostMachine!.id)
     await seedRows(a, async () => {
       const t = storeTables(raw)
       await captureWrite(

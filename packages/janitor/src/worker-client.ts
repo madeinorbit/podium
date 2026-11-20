@@ -19,6 +19,7 @@ export interface JanitorWorkerStartOptions {
   /** The store's location, which names its engine: a SQLite file path or a Postgres URL. */
   dbPath: string
   tickMs?: number
+  localMachineId?: string | null
 }
 
 /** Host-only options: resolve a fresh credential before cloning each generation. */

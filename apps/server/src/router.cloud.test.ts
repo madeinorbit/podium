@@ -1,5 +1,5 @@
-import { asMachineId } from '@podium/model'
 import type { SessionId } from '@podium/model'
+import { asMachineId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { describe, expect, it } from 'vitest'
 import type { CloudAgentRequest, CloudRuntime, CloudRuntimeProvider } from './cloud-runtime'
@@ -124,7 +124,7 @@ describe('cloud router', () => {
     const { call, registry } = await caller(cloud.provider)
     await registry.sessionStore.repos.addRepo(
       '/workspace/podium',
-      registry.sessionStore.hostMachineId,
+      registry.sessionStore.hostMachine!.id,
       'git@github.com:madeinorbit/podium.git',
     )
     const { sessionId } = await registry.modules.issueSessionLifecycle.resumeSession({
@@ -155,7 +155,7 @@ describe('cloud router', () => {
           agent: 'codex',
           resumeRef: 'thread-1',
           cwd: '/workspace/podium',
-          machineId: registry.sessionStore.hostMachineId,
+          machineId: registry.sessionStore.hostMachine!.id,
         },
       },
     ])
@@ -167,7 +167,7 @@ describe('cloud router', () => {
     const { call, registry } = await caller(cloud.provider, (message) => daemon.push(message))
     await registry.sessionStore.repos.addRepo(
       '/workspace/podium',
-      registry.sessionStore.hostMachineId,
+      registry.sessionStore.hostMachine!.id,
       'https://github.com/madeinorbit/podium.git',
     )
     const { sessionId } = await registry.modules.sessions.createSession({
@@ -176,10 +176,10 @@ describe('cloud router', () => {
       spawnedBy: 'user',
     })
     await registry.gateway.routeDaemonFrame(
-      registry.sessionStore.hostMachineId,
+      registry.sessionStore.hostMachine!.id,
       bind(sessionId, '/workspace/podium', 'claude-code'),
     )
-    await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+    await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachine!.id, {
       type: 'sessionResumeRef',
       sessionId,
       resume: { kind: 'claude-session', value: 'claude-resume-1' },
@@ -203,7 +203,9 @@ describe('cloud router', () => {
     ])
     expect(daemon.filter((m) => m.type === 'kill')).toEqual([])
     expect(
-      (await registry.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)?.status,
+      (await registry.modules.sessions.listSessions(undefined, 'rpc')).find(
+        (s) => s.sessionId === sessionId,
+      )?.status,
     ).toBe('hibernated')
     expect(cloud.createdAgents.at(-1)).toMatchObject({
       sourceSession: {
@@ -211,7 +213,7 @@ describe('cloud router', () => {
         agent: 'claude-code',
         resumeRef: 'claude-resume-1',
         cwd: '/workspace/podium',
-        machineId: registry.sessionStore.hostMachineId,
+        machineId: registry.sessionStore.hostMachine!.id,
       },
     })
   })

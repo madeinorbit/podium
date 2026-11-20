@@ -145,7 +145,7 @@ describe('the fleet writes are on the sync write entry point', () => {
 
   it('repos.add, setPrefix and remove write repo rows carrying their mutationId (POD-6524)', async () => {
     const o = await oracle()
-    const host = o.store.hostMachineId
+    const host = o.store.hostMachine!.id
     const path = '/abs/repo-6417'
     const repoIdOf = async () =>
       (await o.store.repos.listRepos(host)).find((r) => r.path === path)?.repoId ?? undefined
@@ -194,7 +194,7 @@ describe('the fleet writes are on the sync write entry point', () => {
 
   it('a repo write that changes nothing appends no repo row', async () => {
     const o = await oracle()
-    const host = o.store.hostMachineId
+    const host = o.store.hostMachine!.id
     const path = '/abs/repo-noop-6524'
     await submit(o, envelope('repos.add', { path, machineId: host, prefix: 'NOP' }, 'm-noop-1'))
     const again = await expectAppliedOnPath(
@@ -207,7 +207,7 @@ describe('the fleet writes are on the sync write entry point', () => {
 
   it('a server repo source write appends rows with no command provenance', async () => {
     const o = await oracle()
-    const host = o.store.hostMachineId
+    const host = o.store.hostMachine!.id
     const before = await o.reg.changeLedger.cursor()
     const issues = o.reg.modules.issues.reports.store
     await issues.commitRepoWrite(
@@ -225,7 +225,7 @@ describe('the fleet writes are on the sync write entry point', () => {
 
   it('repos.addMany registers the good paths and returns the refused ones, in one write', async () => {
     const o = await oracle()
-    const host = o.store.hostMachineId
+    const host = o.store.hostMachine!.id
     const reply = await submit(
       o,
       envelope(
@@ -245,7 +245,7 @@ describe('the fleet writes are on the sync write entry point', () => {
     'repos.addMany',
   ] as const)('%s gathers the machine origin before the write transaction', async (command) => {
     const o = await oracle()
-    const machineId = o.store.hostMachineId
+    const machineId = o.store.hostMachine!.id
     const path = '/abs/origin-before-write'
     const originUrl = 'https://example.test/team/project.git'
     const asked: boolean[] = []
@@ -375,7 +375,7 @@ describe('the target check is the fleet gate, before the handler', () => {
     const core = await fleetTarget(
       deps,
       'repos.remove',
-      { path: '/abs/none', machineId: o.store.hostMachineId },
+      { path: '/abs/none', machineId: o.store.hostMachine!.id },
       operator,
     )
     expect(isTargetRefused(core)).toBe(false)
@@ -463,7 +463,7 @@ describe('work outside the database runs once after the commit, never after a ro
 
   it('setDefaultParentBranch asks the machine before the unit of work; a missing branch refuses', async () => {
     const o = await oracle()
-    const host = o.store.hostMachineId
+    const host = o.store.hostMachine!.id
     await o.store.repos.addRepo('/abs/branches-6417', host)
     const store = vi.spyOn(o.store.repos, 'setRepoDefaultParentBranch')
     const asked: boolean[] = []
@@ -505,7 +505,7 @@ describe('work outside the database runs once after the commit, never after a ro
 describe('the folder picker and apply-update are effect records', () => {
   it('createFolder, createRepo and renameFolder create their records and answer their old shapes', async () => {
     const o = await oracle()
-    const host = o.store.hostMachineId
+    const host = o.store.hostMachine!.id
     const created: string[] = []
     const entry = vi.spyOn(o.reg.modules.syncWrite, 'submitDetailed')
     const inSpan: boolean[] = []
@@ -546,7 +546,7 @@ describe('the folder picker and apply-update are effect records', () => {
 
   it('a rename of a registered folder fails from its record with the old precondition', async () => {
     const o = await oracle()
-    const host = o.store.hostMachineId
+    const host = o.store.hostMachine!.id
     await o.store.repos.addRepo('/abs/g/kept', host)
     const dirOp = vi.spyOn(o.reg.modules.rpc, 'dirOp')
     const error = await o.call.repos

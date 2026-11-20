@@ -29,7 +29,7 @@ afterEach(async () => {
 async function gateHarness() {
   const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
   registries.push(registry)
-  const host = registry.sessionStore.hostMachineId
+  const host = registry.sessionStore.hostMachine!.id
   await assignHostMachine(registry.sessionStore)
   await (
     registry.sessionStore as unknown as {

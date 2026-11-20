@@ -649,7 +649,7 @@ const MACHINE_CONTEXT_VALUE = `CASE WHEN {row}.${meta.key.name} = 'updates.execu
  * An update checkpoint that publishes no target reads as no checkpoint, so its
  * first write (the updates module's boot) reaches no record.
  */
-const MACHINE_CONTEXT_ROWS = `{row}.${meta.key.name} = 'machines.fleet-channel.v1' OR ({row}.${meta.key.name} = 'updates.execution.v1' AND (${MACHINE_CONTEXT_VALUE}) IS NOT NULL)`
+const MACHINE_CONTEXT_ROWS = `{row}.${meta.key.name} IN ('machines.fleet-channel.v1', 'machines.server-move.v1') OR ({row}.${meta.key.name} = 'updates.execution.v1' AND (${MACHINE_CONTEXT_VALUE}) IS NOT NULL)`
 
 /**
  * {@link MACHINE_CONTEXT_VALUE} on Postgres, where `meta.value` is text: `IS JSON`
@@ -659,7 +659,7 @@ const MACHINE_CONTEXT_ROWS = `{row}.${meta.key.name} = 'machines.fleet-channel.v
 const MACHINE_CONTEXT_VALUE_PG = `CASE WHEN {row}.${meta.key.name} = 'updates.execution.v1' AND {row}.${meta.value.name} IS JSON THEN (SELECT string_agg(((target.value ->> 0) || '=' || coalesce(target.value #>> '{1,version}', '')) COLLATE "C", ',' ORDER BY target.n) FROM json_array_elements(CASE WHEN json_typeof({row}.${meta.value.name}::json -> 'targets') = 'array' THEN {row}.${meta.value.name}::json -> 'targets' END) WITH ORDINALITY AS target(value, n)) ELSE {row}.${meta.value.name} END`
 
 /** {@link MACHINE_CONTEXT_ROWS} on Postgres. */
-const MACHINE_CONTEXT_ROWS_PG = `{row}.${meta.key.name} = 'machines.fleet-channel.v1' OR ({row}.${meta.key.name} = 'updates.execution.v1' AND (${MACHINE_CONTEXT_VALUE_PG}) IS NOT NULL)`
+const MACHINE_CONTEXT_ROWS_PG = `{row}.${meta.key.name} IN ('machines.fleet-channel.v1', 'machines.server-move.v1') OR ({row}.${meta.key.name} = 'updates.execution.v1' AND (${MACHINE_CONTEXT_VALUE_PG}) IS NOT NULL)`
 
 /** The machine context rows, captured by key and by {@link MACHINE_CONTEXT_VALUE}. */
 const machineContext = (ids: RecordSource['ids']): RecordSource =>

@@ -34,7 +34,7 @@ async function goLive(
   o: Awaited<ReturnType<typeof makeOracle>>,
   sessionId: SessionId,
 ): Promise<void> {
-  const machineId = o.reg.sessionStore.hostMachineId
+  const machineId = o.reg.sessionStore.hostMachine!.id
   await o.reg.gateway.routeDaemonFrame(machineId, {
     type: 'bind',
     sessionId,
@@ -177,7 +177,7 @@ describe('oracle: setArchived', () => {
   it(`${MUST_NOT_CHANGE}: archiving persists the flag AND parks a running session, keeping readAt untouched`, async () => {
     const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
-    await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+    await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachine!.id, {
       type: 'bind',
       sessionId,
       cmd: 'bash',
@@ -212,7 +212,7 @@ describe('oracle: setArchived', () => {
   it(`${MUST_NOT_CHANGE}: unarchiving does NOT resurrect the process — that stays an explicit resume`, async () => {
     const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
-    await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+    await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachine!.id, {
       type: 'bind',
       sessionId,
       cmd: 'bash',
@@ -232,7 +232,7 @@ describe('oracle: setArchived', () => {
   it(`${MUST_NOT_CHANGE}: archiving an already-parked session does not re-kill it`, async () => {
     const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
-    await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+    await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachine!.id, {
       type: 'agentExit',
       sessionId,
       code: 0,
@@ -392,7 +392,7 @@ describe('oracle: setIssueId', () => {
   it(`${MUST_NOT_CHANGE}: attaching an issue is a NAMING POINT (it allocates a ref letter) for a session born unnamed; detaching is not`, async () => {
     const o = await makeOracle()
     // Issues are placed on a machine that reported their repo (2b803efb5).
-    await o.store.repos.addRepo('/p', o.store.hostMachineId)
+    await o.store.repos.addRepo('/p', o.store.hostMachine!.id)
     const issue = await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, {
       repoPath: '/p',
       title: 'target',
@@ -422,7 +422,7 @@ describe('oracle: setIssueId', () => {
 
   it(`${MUST_NOT_CHANGE}: a session born in a reported repo is named at birth with a draft ordinal, and attaching an issue does not rename it`, async () => {
     const o = await makeOracle()
-    await o.store.repos.addRepo('/p', o.store.hostMachineId)
+    await o.store.repos.addRepo('/p', o.store.hostMachine!.id)
     const issue = await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, {
       repoPath: '/p',
       title: 'target',

@@ -60,7 +60,7 @@ describe('session topics on a real server (POD-6764)', () => {
       agentKind: 'shell',
       cwd: '/w',
     })
-    const host = first.sessionStore.hostMachineId
+    const host = first.sessionStore.hostMachine!.id
     await first.gateway.routeDaemonFrame(host, {
       type: 'bind',
       sessionId,
@@ -126,7 +126,7 @@ describe('session topics on a real server (POD-6764)', () => {
       agentKind: 'shell',
       cwd: '/w',
     })
-    const host = first.sessionStore.hostMachineId
+    const host = first.sessionStore.hostMachine!.id
     await first.gateway.routeDaemonFrame(host, {
       type: 'bind',
       sessionId,

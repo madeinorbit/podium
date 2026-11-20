@@ -102,7 +102,7 @@ async function world(history: number): Promise<World> {
   const store = await openTestStore(path)
   await store.transact(async () => {
     for (const [index, repo] of corpus.repos.entries())
-      await store.repos.addRepo(repo, store.hostMachineId, undefined, prefixOf(index))
+      await store.repos.addRepo(repo, store.hostMachine!.id, undefined, prefixOf(index))
   })
   for (let start = 0; start < corpus.issues.length; start += 500) {
     await store.transact(async () => {
@@ -112,7 +112,7 @@ async function world(history: number): Promise<World> {
           rowOf(
             { ...issue, parentId: null },
             issue.repoPath ?? corpus.repos[0]!,
-            store.hostMachineId,
+            store.hostMachine!.id,
           ),
         )
     })
@@ -156,7 +156,7 @@ async function world(history: number): Promise<World> {
           lastResumedAt: null,
           archived: s.archived,
           workState: null,
-          machineId: store.hostMachineId,
+          machineId: store.hostMachine!.id,
           headless: s.headless,
           issueId: s.issueId !== null && ids.has(s.issueId) ? asIssueId(s.issueId) : null,
           stoppedAt: s.stoppedAt,

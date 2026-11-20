@@ -236,7 +236,7 @@ function makeService(
   const deps = {
     stateRoot: root,
     sourceInstanceId: 'instance-1',
-    sourceMachineId: asMachineId('source-1'),
+    hostMachine: { id: asMachineId('source-1') },
     sourceFeedIdentity: () => ({ feedId: 'feed-1', feedEpoch: 'epoch-1' }),
     sourceApplicationVersion: 'test',
     sourceSchemaVersion: async () => 'schema-1',
@@ -755,7 +755,7 @@ describe('ServerTransferService vault key hand-over', () => {
           committed: { subscribe: () => () => {} },
         },
       } as unknown as MachinesDeps['store'],
-      hostMachineId: asMachineId('source-1'),
+      hostMachine: { id: asMachineId('source-1') },
     } satisfies MachinesDeps)
     const wire = new DaemonRpcService({
       toMachine: machines.toMachine,

@@ -17,8 +17,8 @@ async function memStore(): Promise<SessionStore> {
 describe('repo prefixes', () => {
   it('derives POD for podium and a distinct prefix on a name collision', async () => {
     const s = await memStore()
-    await s.repos.addRepo('/a/podium', s.hostMachineId)
-    await s.repos.addRepo('/b/podium', s.hostMachineId) // same basename, different logical repo
+    await s.repos.addRepo('/a/podium', s.hostMachine!.id)
+    await s.repos.addRepo('/b/podium', s.hostMachine!.id) // same basename, different logical repo
     const prefixes = (await s.repos.listRepos()).map((r) => r.prefix)
     expect(prefixes[0]).toBe('POD')
     expect(prefixes[1]).not.toBe('POD')
@@ -41,7 +41,7 @@ describe('repo prefixes', () => {
 
   it('resolves a prefix back to its repo', async () => {
     const s = await memStore()
-    await s.repos.addRepo('/a/podium', s.hostMachineId)
+    await s.repos.addRepo('/a/podium', s.hostMachine!.id)
     const repo = await s.repos.repoForPrefix('POD')
     expect(repo?.path).toBe('/a/podium')
     expect(await s.repos.repoForPrefix('ZZZ')).toBeNull()
@@ -50,16 +50,16 @@ describe('repo prefixes', () => {
 
   it('setRepoPrefix renames server-wide and enforces uniqueness', async () => {
     const s = await memStore()
-    await s.repos.addRepo('/a/podium', s.hostMachineId)
-    await s.repos.addRepo('/b/other', s.hostMachineId)
+    await s.repos.addRepo('/a/podium', s.hostMachine!.id)
+    await s.repos.addRepo('/b/other', s.hostMachine!.id)
     // On the machine that reports the checkout: a prefix is set per machine's
     // view of the path, and `__local__` reports no `/a/podium` here.
-    await s.repos.setRepoPrefix(s.hostMachineId, '/a/podium', 'PODX')
+    await s.repos.setRepoPrefix(s.hostMachine!.id, '/a/podium', 'PODX')
     expect(await s.repos.prefixForPath('/a/podium')).toBe('PODX')
     const otherPrefix = (await s.repos.prefixForPath('/b/other'))!
-    await expect(s.repos.setRepoPrefix(s.hostMachineId, '/a/podium', otherPrefix)).rejects.toThrow(
-      /already used/,
-    )
+    await expect(
+      s.repos.setRepoPrefix(s.hostMachine!.id, '/a/podium', otherPrefix),
+    ).rejects.toThrow(/already used/)
     await s.close()
   })
 })
@@ -71,7 +71,7 @@ describe('repo base branches (POD-2065)', () => {
     const asked: string[] = []
     const reg = {
       modules: {
-        machines: { defaultMachine: async () => s.hostMachineId },
+        machines: { defaultMachine: async () => s.hostMachine!.id },
         rpc: {
           repoOp: async (_op: string, _cwd: string, args?: Record<string, string>) => {
             asked.push(args?.ref ?? '')
@@ -98,7 +98,7 @@ describe('repo base branches (POD-2065)', () => {
 
   it('stores a branch the repository has, for every checkout of it, and clears with null', async () => {
     const s = await memStore()
-    await s.repos.addRepo('/a/podium', s.hostMachineId)
+    await s.repos.addRepo('/a/podium', s.hostMachine!.id)
     const { repos, asked } = registry(s, ['main', 'tf.dev'])
     await repos.setDefaultParentBranch(repos.serverWriter, '/a/podium', 'tf.dev')
     expect(asked).toEqual(['refs/heads/tf.dev'])
@@ -114,7 +114,7 @@ describe('repo base branches (POD-2065)', () => {
 
   it('refuses a branch the repository does not have, and says so', async () => {
     const s = await memStore()
-    await s.repos.addRepo('/a/podium', s.hostMachineId)
+    await s.repos.addRepo('/a/podium', s.hostMachine!.id)
     const { repos } = registry(s, ['main'])
     await expect(
       repos.setDefaultParentBranch(repos.serverWriter, '/a/podium', 'tf.dev'),
@@ -125,7 +125,7 @@ describe('repo base branches (POD-2065)', () => {
 
   it('refuses revision syntax before asking the repository', async () => {
     const s = await memStore()
-    await s.repos.addRepo('/a/podium', s.hostMachineId)
+    await s.repos.addRepo('/a/podium', s.hostMachine!.id)
     const { repos, asked } = registry(s, ['tf.dev', 'feature/tf.dev'])
     for (const bad of [
       'tf.dev~1',
@@ -205,7 +205,7 @@ describe('repo base branches (POD-2065)', () => {
 
   it('does not blame the branch when the repository did not answer', async () => {
     const s = await memStore()
-    await s.repos.addRepo('/a/podium', s.hostMachineId)
+    await s.repos.addRepo('/a/podium', s.hostMachine!.id)
     const { repos } = registry(s, ['tf.dev'], false)
     await expect(
       repos.setDefaultParentBranch(repos.serverWriter, '/a/podium', 'tf.dev'),

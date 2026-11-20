@@ -19,7 +19,7 @@ function service(): MachinesService {
         committed: { subscribe: () => () => {} },
       },
     } as unknown as MachinesDeps['store'],
-    hostMachineId: MACHINE,
+    hostMachine: { id: MACHINE },
   })
 }
 

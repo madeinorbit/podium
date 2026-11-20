@@ -23,7 +23,7 @@ const REPO = '/repo-6419'
 
 async function lockOracle(): Promise<Oracle> {
   const o = await makeOracle()
-  await o.store.repos.addRepo(REPO, o.store.hostMachineId)
+  await o.store.repos.addRepo(REPO, o.store.hostMachine!.id)
   return o
 }
 
@@ -102,12 +102,19 @@ describe('lock writes on the plain path', () => {
 
   it("a release that grants the next waiter still mails it: the server's own write", async () => {
     const o = await lockOracle()
-    const issue = await o.reg.modules.issues.crud.create(o.reg.modules.issues.reports.store.serverWriter, {
-      repoPath: REPO,
-      title: 'waiting for the lock',
-      startNow: false,
-    })
-    await o.reg.modules.issues.crud.update(o.reg.modules.issues.reports.store.serverWriter, issue.id, { worktreePath: `${REPO}/.worktrees/w` })
+    const issue = await o.reg.modules.issues.crud.create(
+      o.reg.modules.issues.reports.store.serverWriter,
+      {
+        repoPath: REPO,
+        title: 'waiting for the lock',
+        startNow: false,
+      },
+    )
+    await o.reg.modules.issues.crud.update(
+      o.reg.modules.issues.reports.store.serverWriter,
+      issue.id,
+      { worktreePath: `${REPO}/.worktrees/w` },
+    )
     const { sessionId: waiter } = await o.reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: `${REPO}/.worktrees/w`,

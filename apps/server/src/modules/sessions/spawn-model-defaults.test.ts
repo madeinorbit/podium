@@ -71,7 +71,7 @@ async function resurrectFrame(agentKind: 'claude-code' | 'codex') {
     resume,
     conversationId: 'conversation-1',
   })
-  await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+  await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachine!.id, {
     type: 'bind',
     sessionId,
     cmd: agentKind === 'codex' ? 'codex' : 'claude',

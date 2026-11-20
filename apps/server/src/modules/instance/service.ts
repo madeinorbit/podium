@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import type { HostMachine } from '../../host-machine'
 import type { SettingsRepository } from '../../store/settings'
 import type { UserAccountRow } from '../../store/users'
 
@@ -66,6 +67,8 @@ export interface InstanceLoginPolicy {
 }
 
 export interface InstanceDeps {
+  /** Whether this server owns an install. Omitted only in standalone service fixtures. */
+  readonly hostMachine?: HostMachine
   readonly onSettingsChanged?:
     | ((
         previous: import('@podium/runtime').PodiumSettings,
@@ -277,7 +280,7 @@ export class InstanceService {
        * Updates section hides the server-update affordance instead of offering
        * a button whose step nothing will ever take.
        */
-      updateScope: scope.value,
+      updateScope: this.deps.hostMachine === null ? ('fleet-only' as const) : scope.value,
       updateScopeSource: scope.source,
       desktopUpdateEndpoint: desktopUpdaterEndpoint(channel, resolvePublicUrl(config)),
     }

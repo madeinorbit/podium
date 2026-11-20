@@ -67,7 +67,7 @@ async function fixture(size: number): Promise<Fixture> {
       }),
     )
     await settledOperation(() =>
-      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
         type: 'bind',
         sessionId,
         cmd: 'claude',
@@ -92,7 +92,7 @@ async function settle(reg: SessionRegistry): Promise<void> {
 
 const route = async (f: Fixture, frame: unknown) => {
   await settledOperation(() =>
-    f.reg.gateway.routeDaemonFrame(f.reg.sessionStore.hostMachineId, frame as never),
+    f.reg.gateway.routeDaemonFrame(f.reg.sessionStore.hostMachine!.id, frame as never),
   )
   await settle(f.reg)
 }
@@ -236,7 +236,7 @@ describe('daemon frames, the rest: pinned statement counts at 5 and 200', () => 
       },
       async (f, size) => {
         expect(
-          (await f.store.machines.getMachine(f.store.hostMachineId))?.inventory?.tools,
+          (await f.store.machines.getMachine(f.store.hostMachine!.id))?.inventory?.tools,
         ).toEqual(inventory(size, version).tools)
       },
     )

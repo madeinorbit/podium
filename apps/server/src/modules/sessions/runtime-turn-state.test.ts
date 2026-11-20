@@ -28,7 +28,11 @@ afterEach(async () => {
 
 const at = '2026-10-16T12:00:00.000Z'
 
-function stateEvent(seq: number, change: Record<string, unknown>, provenance: RuntimeEvent['provenance'] = 'live'): RuntimeEvent {
+function stateEvent(
+  seq: number,
+  change: Record<string, unknown>,
+  provenance: RuntimeEvent['provenance'] = 'live',
+): RuntimeEvent {
   return {
     t: 'state',
     change,
@@ -43,8 +47,11 @@ function stateEvent(seq: number, change: Record<string, unknown>, provenance: Ru
 async function runtimeSession(reg: SessionRegistry, store: SessionStore): Promise<SessionId> {
   // The host daemon double confirms process retirement, which hibernation waits for.
   await attachHostDaemon(reg)
-  const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/project' })
-  await reg.gateway.routeDaemonFrame(store.hostMachineId, {
+  const { sessionId } = await reg.modules.sessions.createSession({
+    agentKind: 'codex',
+    cwd: '/project',
+  })
+  await reg.gateway.routeDaemonFrame(store.hostMachine!.id, {
     type: 'bind',
     sessionId,
     cmd: 'codex app-server',
@@ -56,8 +63,13 @@ async function runtimeSession(reg: SessionRegistry, store: SessionStore): Promis
   return sessionId
 }
 
-async function send(reg: SessionRegistry, store: SessionStore, sessionId: SessionId, event: RuntimeEvent) {
-  await reg.gateway.routeDaemonFrame(store.hostMachineId, {
+async function send(
+  reg: SessionRegistry,
+  store: SessionStore,
+  sessionId: SessionId,
+  event: RuntimeEvent,
+) {
+  await reg.gateway.routeDaemonFrame(store.hostMachine!.id, {
     type: 'runtimeEvent',
     sessionId,
     deliveryId: `turn-state-${event.cursor.components.seq}`,
@@ -72,11 +84,20 @@ describe('durable runtime turn state (POD-6160 D2h)', () => {
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const sessionId = await runtimeSession(reg, store)
     await send(reg, store, sessionId, stateEvent(1, { kind: 'session_started' }, 'bootstrap'))
-    const waiting = { phase: 'needs_user', since: at, nativeSubagentCount: 0, workingMsTotal: 1_500 }
+    const waiting = {
+      phase: 'needs_user',
+      since: at,
+      nativeSubagentCount: 0,
+      workingMsTotal: 1_500,
+    }
     await send(reg, store, sessionId, stateEvent(2, { kind: 'state_snapshot', state: waiting }))
-    expect((await reg.modules.sessions.sessionById(sessionId))?.agentState?.phase).toBe('needs_user')
+    expect((await reg.modules.sessions.sessionById(sessionId))?.agentState?.phase).toBe(
+      'needs_user',
+    )
     // The checkpoint row carries what the session shows.
-    expect((await store.events.runtimeEventCheckpoint(sessionId))?.turnState?.phase).toBe('needs_user')
+    expect((await store.events.runtimeEventCheckpoint(sessionId))?.turnState?.phase).toBe(
+      'needs_user',
+    )
 
     // A runtime session learns its resume ref from a binding event.
     await send(reg, store, sessionId, {
@@ -101,7 +122,11 @@ describe('durable runtime turn state (POD-6160 D2h)', () => {
     const record = (await reg.modules.sessions.records.read([sessionId])).get(sessionId)
     expect(record?.status).toBe('hibernated')
     expect(record?.agentState).toMatchObject({ phase: 'needs_user' })
-    const replayed = await reg.modules.sessions.readSessionFactsWithStatuses(['starting', 'live', 'hibernated'])
+    const replayed = await reg.modules.sessions.readSessionFactsWithStatuses([
+      'starting',
+      'live',
+      'hibernated',
+    ])
     expect(replayed.find((s) => s.sessionId === sessionId)?.agentState?.phase).toBe('needs_user')
 
     // After a restart: restored with the session, and replayed again.
@@ -110,8 +135,14 @@ describe('durable runtime turn state (POD-6160 D2h)', () => {
     const store2 = await openTestStore(file)
     const reg2 = await SessionRegistry.create(store2, undefined, { instanceId: 'default' })
     registries.push(reg2)
-    expect((await reg2.modules.sessions.sessionById(sessionId))?.agentState?.phase).toBe('needs_user')
-    const replayedAfterRestart = await reg2.modules.sessions.readSessionFactsWithStatuses(['hibernated'])
-    expect(replayedAfterRestart.find((s) => s.sessionId === sessionId)?.agentState?.phase).toBe('needs_user')
+    expect((await reg2.modules.sessions.sessionById(sessionId))?.agentState?.phase).toBe(
+      'needs_user',
+    )
+    const replayedAfterRestart = await reg2.modules.sessions.readSessionFactsWithStatuses([
+      'hibernated',
+    ])
+    expect(replayedAfterRestart.find((s) => s.sessionId === sessionId)?.agentState?.phase).toBe(
+      'needs_user',
+    )
   })
 })

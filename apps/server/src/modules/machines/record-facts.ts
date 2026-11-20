@@ -37,7 +37,7 @@ export async function storedMachineRecordFacts(
   const custodians = new Map(
     records.map((machine) => [machine.id, custodianFromEdges(grants.get(machine.id))]),
   )
-  const { fleetChannel, targets } = await store.machines.recordContext.read()
+  const { fleetChannel, targets, serverMoveAvailable } = await store.machines.recordContext.read()
   return records.map((m) => {
     const updateChannel = resolveMachineChannel(m.updateChannelOverride, fleetChannel)
     let target: string | undefined
@@ -74,6 +74,7 @@ export async function storedMachineRecordFacts(
         ...(m.podiumManaged === false ? { podiumManaged: false } : {}),
         hostsServer: m.serviceAssignment.server,
         serverMoveSupported:
+          serverMoveAvailable &&
           m.wireSchemaDigest === wireSchemaDigest() &&
           m.deliveryCaps.includes(SERVER_MOVE_CAPABILITY),
         // No heartbeat times on a synced record: they moved every few seconds

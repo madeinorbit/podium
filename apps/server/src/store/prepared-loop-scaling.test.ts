@@ -76,7 +76,7 @@ const loops: MeasuredLoop[] = [
     run: async (store, n) =>
       await store.conversations.index.upsert(
         fixtureWriteScope(),
-        conversationRows(n, store.hostMachineId),
+        conversationRows(n, store.hostMachine!.id),
       ),
     check: async (store, n) => {
       expect(await store.conversations.index.recentPage({ limit: n + 1 })).toHaveLength(n)

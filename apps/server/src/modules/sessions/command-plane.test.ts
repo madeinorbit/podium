@@ -683,7 +683,7 @@ describe('draft launch compensation', () => {
     const o = await makeOracle()
     await provisionHost(o)
     await colleagueConnectionOnHost(o)
-    const host = o.store.hostMachineId
+    const host = o.store.hostMachine!.id
     const task = await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, {
       repoPath: '/p',
       title: 'Admin work',
@@ -747,7 +747,7 @@ describe('draft launch compensation', () => {
     const o = await makeOracle()
     await provisionHost(o)
     await colleagueConnectionOnHost(o)
-    const host = o.store.hostMachineId
+    const host = o.store.hostMachine!.id
     const task = await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, {
       repoPath: '/p',
       title: 'Admin work',
@@ -937,7 +937,7 @@ async function colleagueConnectionOnHost(o: Oracle): Promise<void> {
     accountKey: id,
     type: 'openai.api-key',
     secret: 'sk-colleague',
-    sentTo: [o.store.hostMachineId],
+    sentTo: [o.store.hostMachine!.id],
   })
   const settings = await o.store.settings.getSettingsFor(COLLEAGUE)
   await o.store.settings.setSettingsFor(
@@ -951,7 +951,7 @@ async function colleagueConnectionOnHost(o: Oracle): Promise<void> {
 }
 
 async function provisionHost(o: Oracle): Promise<void> {
-  const host = o.store.hostMachineId
+  const host = o.store.hostMachine!.id
   // Fill the boot gap only: if a future makeOracle provisions the host
   // itself, its row, assignment and owner stand.
   if (!(await o.store.machines.getMachine(host))) {
@@ -1077,7 +1077,7 @@ describe('the machine `use` gate, on every command that starts or feeds work', (
     // arm underneath any more, so this exercises the same rule as any other machine.
     const o = await makeOracle()
     await provisionHost(o)
-    const host = o.store.hostMachineId
+    const host = o.store.hostMachine!.id
     // The kill below retires the process through the daemon (POD-4302): answer
     // the lifecycle RPC the way a real daemon does, or retirement is never
     // confirmed and the kill fails after the tombstone committed. makeOracle's

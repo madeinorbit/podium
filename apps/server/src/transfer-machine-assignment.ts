@@ -18,10 +18,9 @@ export async function promoteMachineAssignment(input: {
   targetMachineId: string
   requestId: string
 }): Promise<void> {
-  const store = await SessionStore.open(
-    join(stateDir(), 'podium.db'),
-    asMachineId(input.targetMachineId),
-  )
+  const store = await SessionStore.open(join(stateDir(), 'podium.db'), {
+    id: asMachineId(input.targetMachineId),
+  })
   try {
     await store.transact(async () => {
       const mark = await store.sync.captureMark()

@@ -6,7 +6,7 @@ import { openTestStore } from './test-support/open-test-store'
 describe('SessionRegistry model catalog wiring', () => {
   it('defaults to an empty catalog and never shells out when no probe is injected', async () => {
     const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    const machineId = registry.sessionStore.hostMachineId
+    const machineId = registry.sessionStore.hostMachine!.id
     // No modelProbe → empty snapshot, and get() must not throw (default no-op probe).
     expect(await registry.modules.settings.getModelCatalog(machineId)).toEqual({
       machineId,
@@ -25,13 +25,13 @@ describe('SessionRegistry model catalog wiring', () => {
       instanceId: 'default',
       modelProbe,
     })
-    const machineId = registry.sessionStore.hostMachineId
+    const machineId = registry.sessionStore.hostMachine!.id
     const snapshot = await registry.modules.settings.refreshModelCatalog(machineId)
     expect(snapshot.machineId).toBe(machineId)
     expect(snapshot.byAgent.grok?.[0]?.value).toBe('grok-build')
-    expect((await registry.modules.settings.getModelCatalog(machineId)).byAgent.cursor?.[0]?.value).toBe(
-      'composer-2.5',
-    )
+    expect(
+      (await registry.modules.settings.getModelCatalog(machineId)).byAgent.cursor?.[0]?.value,
+    ).toBe('composer-2.5')
     expect(modelProbe).toHaveBeenCalledWith(machineId)
     expect(modelProbe).toHaveBeenCalledTimes(1)
     await registry.dispose()
@@ -39,7 +39,7 @@ describe('SessionRegistry model catalog wiring', () => {
 
   it('persists the catalog so a restart serves it instantly without re-probing', async () => {
     const store = await openTestStore(':memory:')
-    const machineId = store.hostMachineId
+    const machineId = store.hostMachine!.id
     const probe = vi.fn(async () => ({ grok: [{ value: 'grok-build', label: 'grok-build' }] }))
 
     // First "boot": probe once, which persists to the shared store under this machine.
@@ -56,9 +56,12 @@ describe('SessionRegistry model catalog wiring', () => {
       instanceId: 'default',
       modelProbe: probe2,
     })
-    await expect.poll(async () => (await second.modules.settings.getModelCatalog(machineId)).byAgent.grok?.[0]?.value).toBe(
-      'grok-build',
-    )
+    await expect
+      .poll(
+        async () =>
+          (await second.modules.settings.getModelCatalog(machineId)).byAgent.grok?.[0]?.value,
+      )
+      .toBe('grok-build')
     expect(probe2).not.toHaveBeenCalled()
     await second.dispose()
   })
@@ -70,7 +73,7 @@ describe('SessionRegistry model catalog wiring', () => {
    */
   it('two machines keep distinct catalogs through settings+store — neither sees the other', async () => {
     const store = await openTestStore(':memory:')
-    const host = store.hostMachineId
+    const host = store.hostMachine!.id
     const other = 'other-machine'
     const probe = vi.fn(async (machineId: string) =>
       machineId === host
@@ -112,12 +115,18 @@ describe('SessionRegistry model catalog wiring', () => {
       instanceId: 'default',
       modelProbe: probe2,
     })
-    await expect.poll(async () => (await second.modules.settings.getModelCatalog(host)).byAgent.grok?.[0]?.value).toBe(
-      'host-model',
-    )
-    await expect.poll(
-      async () => (await second.modules.settings.getModelCatalog(asMachineId(other))).byAgent.grok?.[0]?.value,
-    ).toBe('other-model')
+    await expect
+      .poll(
+        async () => (await second.modules.settings.getModelCatalog(host)).byAgent.grok?.[0]?.value,
+      )
+      .toBe('host-model')
+    await expect
+      .poll(
+        async () =>
+          (await second.modules.settings.getModelCatalog(asMachineId(other))).byAgent.grok?.[0]
+            ?.value,
+      )
+      .toBe('other-model')
     expect(probe2).not.toHaveBeenCalled()
     await second.dispose()
   })

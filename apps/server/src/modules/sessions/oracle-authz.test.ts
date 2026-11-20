@@ -96,7 +96,7 @@ function classifyRelay(
 async function twoIssueOracle() {
   const o = await makeOracle()
   // Issues are placed on a machine that reported their repo (2b803efb5).
-  await o.store.repos.addRepo('/r', o.store.hostMachineId)
+  await o.store.repos.addRepo('/r', o.store.hostMachine!.id)
   const a = await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, {
     repoPath: '/r',
     title: 'issue A',
@@ -319,7 +319,7 @@ describe('oracle: continue and stop ARE reachable by an agent, under different g
   it(`${AGENT_ONLY}: a self-stop is allowed, reports deferredKill, and the kill reaches the daemon strictly AFTER the reply`, async () => {
     const { o, agentSessionId } = await twoIssueOracle()
     // The session must be RUNNING for a kill to be deferred at all.
-    o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+    o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachine!.id, {
       type: 'bind',
       sessionId: agentSessionId,
       cmd: 'bash',

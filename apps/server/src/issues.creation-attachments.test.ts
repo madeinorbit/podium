@@ -17,7 +17,7 @@ describe('creation attachments at review', () => {
 
   async function harness() {
     store = await openTestStore(':memory:', TEST_MACHINE_ID)
-    await store.repos.addRepo('/r', store.hostMachineId)
+    await store.repos.addRepo('/r', store.hostMachine!.id)
     let nextArtifact = 0
     const upload = vi.fn(async ({ filename }: { filename: string }) => ({
       artifactId: asArtifactId(`creation-${++nextArtifact}`),

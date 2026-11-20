@@ -488,7 +488,7 @@ export async function reachMethodDefinitions(
 ): Promise<void> {
   // The full-text tables are made at runtime when search is enabled, not by a migration.
   await target.conversations.ensureFts(true)
-  const machineId = asMachineId(target.hostMachineId)
+  const machineId = asMachineId(target.hostMachine!.id)
   const now = new Date().toISOString()
   database
     .prepare(

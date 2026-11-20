@@ -31,7 +31,7 @@ import { logStoreRecords } from '../../../../server/src/test-support/record-writ
 const [phase, dbPath, repoPath, daemonJournal] = process.argv.slice(2)
 if (!phase || !dbPath || !repoPath || !daemonJournal) throw new Error('missing recovery arguments')
 const machineId = asMachineId('shipping-recovery-machine')
-const store = await SessionStore.open(dbPath, machineId)
+const store = await SessionStore.open(dbPath, { id: machineId })
 const ownerUserId = await firstAdminMemberId(store)
 const ledger = new Ledger({
   repo: store.sync,

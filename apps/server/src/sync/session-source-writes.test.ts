@@ -36,7 +36,7 @@ async function fixture() {
   const session = new Session({
     sessionId: asSessionId('source-session'),
     ownerUserId: await firstAdminMemberId(store),
-    machineId: store.hostMachineId,
+    machineId: store.hostMachine!.id,
     durableLabel: 'source-session',
     agentKind: 'claude-code',
     cwd: '/repo/work',
@@ -78,13 +78,13 @@ describe('session source writes compare before they write', () => {
     f.session.resume = { kind: 'claude-session', value: 'native-session' }
     await f.save()
     const cursor = await f.ledger.cursor()
-    await f.store.conversations.registry.ensureMany(f.store.hostMachineId, [
+    await f.store.conversations.registry.ensureMany(f.store.hostMachine!.id, [
       { nativeId: 'native-session', providerId: 'claude-code' },
     ])
     expect(await f.changes(cursor)).toHaveLength(1)
     const after = await f.ledger.cursor()
     await f.store.conversations.registry.ensure({
-      machineId: f.store.hostMachineId,
+      machineId: f.store.hostMachine!.id,
       nativeId: 'native-session',
       providerId: 'claude-code',
     })
@@ -98,13 +98,13 @@ describe('session source writes compare before they write', () => {
     const cursor = await f.ledger.cursor()
     await f.store.repos.addRepo(
       '/repo',
-      f.store.hostMachineId,
+      f.store.hostMachine!.id,
       'https://example.com/team/repo.git',
       'TEST',
     )
     expect(await f.changes(cursor)).toHaveLength(1)
     const after = await f.ledger.cursor()
-    await f.store.repos.removeRepo('/repo', f.store.hostMachineId)
+    await f.store.repos.removeRepo('/repo', f.store.hostMachine!.id)
     expect(await f.changes(after)).toHaveLength(1)
   })
 

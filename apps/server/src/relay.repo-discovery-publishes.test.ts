@@ -31,7 +31,7 @@ describe('repo discovery publishes the repo it registers', () => {
   it('appends the repo record with the row, and its remove when the row goes', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     registries.push(reg)
-    const machineId = reg.sessionStore.hostMachineId
+    const machineId = reg.sessionStore.hostMachine!.id
     const writes = discoveryWrites(reg)
 
     const before = await reg.changeLedger.cursor()

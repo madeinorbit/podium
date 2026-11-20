@@ -7,6 +7,7 @@ import { asMachineId, type MachineId } from '@podium/model'
 import { validatePublicUrl } from '@podium/runtime/setup'
 import { vaultCheckValue } from '@podium/runtime/vault-key'
 import type { DaemonLinkKind } from '../../gateway/daemon-link-kind'
+import type { HostMachine } from '../../host-machine'
 import { afterCommit } from '../../store/executor/executor'
 import { isActiveTransfer, TransferJournal } from './journal'
 import { TransferLock } from './lock'
@@ -62,7 +63,7 @@ export interface ServerTransferTargetState {
 export interface ServerTransferDeps {
   stateRoot: string
   sourceInstanceId: string
-  sourceMachineId: MachineId
+  hostMachine: HostMachine
   sourceFeedIdentity: () =>
     | { feedId: string; feedEpoch: string }
     | Promise<{ feedId: string; feedEpoch: string }>
@@ -312,7 +313,12 @@ export class ServerTransferService {
   }
 
   sourceMachineId(): MachineId {
-    return this.deps.sourceMachineId
+    if (!this.deps.hostMachine)
+      throw fail(
+        TRANSFER_FAILURE_CODES.TARGET_UNSUPPORTED,
+        'Server move is unavailable on this server: it has no host machine.',
+      )
+    return this.deps.hostMachine.id
   }
 
   mintTransferId(): string {
@@ -365,10 +371,12 @@ export class ServerTransferService {
     // a round trip per machine on a networked backend.
     const targetOf = await this.deps.targetStateResolver()
     return {
-      sourceMachineId: promoted?.sourceMachineId ?? this.deps.sourceMachineId,
+      sourceMachineId: promoted?.sourceMachineId ?? this.deps.hostMachine?.id ?? null,
       targetEligibility: await Promise.all(
         machines.map(async ({ id }) => {
-          if (id === this.deps.sourceMachineId) {
+          if (!this.deps.hostMachine)
+            return { targetMachineId: id, eligible: false, reason: 'unsupported' } as const
+          if (id === this.deps.hostMachine.id) {
             return { targetMachineId: id, eligible: false, reason: 'current-server' } as const
           }
           const target = await targetOf(asMachineId(id))
@@ -484,7 +492,7 @@ export class ServerTransferService {
         publicUrl,
         bindHost,
         port,
-        sourceMachineId: this.deps.sourceMachineId,
+        sourceMachineId: this.sourceMachineId(),
         sourceInstanceId: this.deps.sourceInstanceId,
         packageDir: initialPackageDir,
         manifest: null,
@@ -814,7 +822,7 @@ export class ServerTransferService {
       operationId: record.operationId,
       transferId: record.transferId,
       sourceInstanceId: this.deps.sourceInstanceId,
-      sourceMachineId: this.deps.sourceMachineId,
+      sourceMachineId: this.sourceMachineId(),
       targetMachineId: record.targetMachineId,
       sourceFeedId: identity.feedId,
       sourceFeedEpoch: identity.feedEpoch,
@@ -837,7 +845,7 @@ export class ServerTransferService {
     const result = await this.deps.rpc.serverTransferPrepare(
       {
         transferId: manifest.transferId,
-        sourceMachineId: this.deps.sourceMachineId,
+        sourceMachineId: this.sourceMachineId(),
         manifest,
         publicUrl,
         bindHost,
@@ -1095,6 +1103,7 @@ export class ServerTransferService {
   }
 
   private async preflight(input: ServerTransferInput): Promise<void> {
+    this.sourceMachineId()
     // AWAITED. With a bare call this reads a Promise, which is never `=== false`,
     // so the refusal could never fire and an incapable source would proceed.
     if ((await this.deps.sourceCapable?.()) === false) {
@@ -1117,7 +1126,7 @@ export class ServerTransferService {
   }
 
   private async assertTarget(targetMachineId: MachineId): Promise<void> {
-    if (targetMachineId === this.deps.sourceMachineId) {
+    if (targetMachineId === this.sourceMachineId()) {
       throw fail(TRANSFER_FAILURE_CODES.TARGET_IS_SOURCE, 'target machine is the current server')
     }
     const target = await this.deps.targetState(targetMachineId)

@@ -27,7 +27,7 @@ async function harness() {
   const store = await openTestStore(':memory:', TEST_MACHINE_ID)
   // Issues are placed on a machine that reported their repo (2b803efb5 refuses
   // implicit placement), so the fixture's repo is reported by the host machine.
-  await store.repos.addRepo('/r', store.hostMachineId)
+  await store.repos.addRepo('/r', store.hostMachine!.id)
   const applyCommit = { spanOpen, onCommit: applyAfterCommit }
   const ledger = new Ledger({
     repo: store.sync,

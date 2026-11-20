@@ -34,7 +34,7 @@ function makeService(link: { kind: DaemonLinkKind | undefined }): MachinesServic
         committed: { subscribe: () => () => {} },
       },
     } as unknown as MachinesDeps['store'],
-    hostMachineId: asMachineId('host-under-test'),
+    hostMachine: { id: asMachineId('host-under-test') },
   } satisfies MachinesDeps)
 }
 

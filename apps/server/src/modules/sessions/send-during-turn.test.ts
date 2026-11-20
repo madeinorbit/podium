@@ -10,10 +10,11 @@
  * bottom, forever (durable on both sides). The ambiguous failure now leaves
  * the ledger queued and the turn boundary confirms it.
  */
-import { afterEach, describe, expect, it } from 'vitest'
-import type { ControlMessage } from '@podium/protocol/daemon'
+
 import type { SessionId } from '@podium/model'
 import { MESSAGE_PENDING } from '@podium/model'
+import type { ControlMessage } from '@podium/protocol/daemon'
+import { afterEach, describe, expect, it } from 'vitest'
 import type { MessageRow } from '../../store/types'
 import { disposeOracles, makeOracle, waitFor } from './oracle-support'
 
@@ -49,7 +50,7 @@ async function durableSendsOnceHandedOn(
 }
 
 async function goLive(o: Oracle, sessionId: SessionId, phase: 'idle' | 'working'): Promise<void> {
-  await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+  await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachine!.id, {
     type: 'bind',
     sessionId,
     cmd: 'claude',
@@ -57,13 +58,13 @@ async function goLive(o: Oracle, sessionId: SessionId, phase: 'idle' | 'working'
     agentKind: 'claude-code',
     geometry: { cols: 80, rows: 24 },
   })
-  await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+  await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachine!.id, {
     type: 'sessionResumeRef',
     sessionId,
     resume: { kind: 'claude-session', value: 'native-1' },
     confidence: 'exact',
   })
-  await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+  await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachine!.id, {
     type: 'agentState',
     sessionId,
     state: { phase, since: new Date().toISOString(), nativeSubagentCount: 0 },
@@ -83,7 +84,7 @@ describe('pod-4802: queued-during-turn send settles delivered', () => {
     expect(send).toMatchObject({ text: 'mid-turn note' })
 
     // Daemon takes custody (queued) while the turn runs.
-    await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+    await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachine!.id, {
       type: 'runtimeSendResult',
       requestId: send!.requestId,
       sessionId,
@@ -102,7 +103,7 @@ describe('pod-4802: queued-during-turn send settles delivered', () => {
     expect(pending(statusOf(await o.store.messages.getMessage(ledgerId)))).toBe(true)
 
     // Turn ends; daemon types and reports delivered.
-    await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+    await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachine!.id, {
       type: 'agentState',
       sessionId,
       state: { phase: 'idle', since: new Date().toISOString(), nativeSubagentCount: 0 },
@@ -112,7 +113,7 @@ describe('pod-4802: queued-during-turn send settles delivered', () => {
         m.type === 'spawn' && m.sessionId === sessionId,
     )
     const generation = spawn?.observationGeneration ?? 1
-    await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+    await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachine!.id, {
       type: 'runtimeEvent',
       deliveryId: `delivery-${send!.rowId}`,
       sessionId,
@@ -149,7 +150,7 @@ describe('pod-4802: queued-during-turn send settles delivered', () => {
     const sent = await o.call.sessions.sendText({ sessionId, text: 'mid-turn note' })
     expect(sent.ok).toBe(true)
     const [send] = await durableSendsOnceHandedOn(o, sessionId, 1)
-    await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+    await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachine!.id, {
       type: 'runtimeSendResult',
       requestId: send!.requestId,
       sessionId,
@@ -195,7 +196,7 @@ describe('pod-4802: queued-during-turn send settles delivered', () => {
     // Typed but unproven: the daemon says `cause: 'unconfirmed'` (POD-4775),
     // so this must NOT dead-letter (POD-4802).
     await o.reg.gateway.routeDaemonFrame(
-      o.reg.sessionStore.hostMachineId,
+      o.reg.sessionStore.hostMachine!.id,
       delivery(
         'failed',
         1,
@@ -217,7 +218,7 @@ describe('pod-4802: queued-during-turn send settles delivered', () => {
     // The turn ends (runtime state, the contract path — legacy agentState
     // frames are fenced once the runtime stream owns the session); the
     // boundary confirms what the daemon typed.
-    await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+    await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachine!.id, {
       type: 'runtimeEvent',
       deliveryId: `state-${sessionId}-idle`,
       sessionId,
@@ -225,7 +226,11 @@ describe('pod-4802: queued-during-turn send settles delivered', () => {
         t: 'state',
         change: {
           kind: 'state_snapshot',
-          state: { phase: 'idle', since: new Date(Date.now() + 60_000).toISOString(), nativeSubagentCount: 0 },
+          state: {
+            phase: 'idle',
+            since: new Date(Date.now() + 60_000).toISOString(),
+            nativeSubagentCount: 0,
+          },
         },
         at: new Date().toISOString(),
         provenance: 'live',
@@ -260,7 +265,7 @@ describe('pod-4802: queued-during-turn send settles delivered', () => {
     const sent = await o.call.sessions.sendText({ sessionId, text: 'never typed' })
     expect(sent.ok).toBe(true)
     const [send] = await durableSendsOnceHandedOn(o, sessionId, 1)
-    await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+    await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachine!.id, {
       type: 'runtimeSendResult',
       requestId: send!.requestId,
       sessionId,
@@ -280,7 +285,7 @@ describe('pod-4802: queued-during-turn send settles delivered', () => {
         m.type === 'spawn' && m.sessionId === sessionId,
     )
     const generation = spawn?.observationGeneration ?? 1
-    await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+    await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachine!.id, {
       type: 'runtimeEvent',
       deliveryId: `delivery-${send!.rowId}-lost`,
       sessionId,

@@ -240,7 +240,7 @@ async function harness(sessions: SessionMeta[] = [], opts?: HarnessOpts) {
   const store = opts?.store ?? (await openTestStore(':memory:'))
   // Issues are placed on a machine that reported their repo (2b803efb5 refuses
   // implicit placement), so the fixture's repo is reported by the host machine.
-  await store.repos.addRepo('/r', store.hostMachineId)
+  await store.repos.addRepo('/r', store.hostMachine!.id)
   // Real rows so the legacy issue_messages mirror's FK holds.
   await store.issues.upsertIssue(
     fixtureWriteScope(),

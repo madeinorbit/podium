@@ -157,14 +157,14 @@ describe('start_agent tool wiring (issue #60)', () => {
     // Sessions are placed only on an assigned machine with a daemon, and issues
     // only on a machine that reported their repo (2b803efb5).
     await assignHostMachine(registry.sessionStore)
-    await registry.sessionStore.repos.addRepo('/r', registry.sessionStore.hostMachineId)
+    await registry.sessionStore.repos.addRepo('/r', registry.sessionStore.hostMachine!.id)
     await attachDaemonWithInventory(
       registry,
-      registry.sessionStore.hostMachineId,
+      registry.sessionStore.hostMachine!.id,
       (m) => {
         if (m.type === 'repoOpRequest') {
           queueMicrotask(() =>
-            registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+            registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachine!.id, {
               type: 'repoOpResult',
               requestId: m.requestId,
               ok: true,
@@ -247,7 +247,7 @@ describe('start_agent tool wiring (issue #60)', () => {
       accountKey: accountId,
       type: 'anthropic.api-key',
       secret: 'sk-ant-colleague',
-      sentTo: [store.hostMachineId],
+      sentTo: [store.hostMachine!.id],
     })
     const settings = await store.settings.getSettingsFor(colleague)
     await store.settings.setSettingsFor(
@@ -511,7 +511,7 @@ describe('session-steering tool belt (issue #62)', () => {
       if (m.type === 'runtimeAnswerRequest') {
         answers.push(m)
         queueMicrotask(() =>
-          registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+          registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachine!.id, {
             type: 'runtimeAnswerResult',
             requestId: m.requestId,
             sessionId: m.sessionId,
@@ -521,7 +521,7 @@ describe('session-steering tool belt (issue #62)', () => {
       }
       if (m.type === 'repoOpRequest') {
         queueMicrotask(() =>
-          registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+          registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachine!.id, {
             type: 'repoOpResult',
             requestId: m.requestId,
             ok: true,
@@ -531,7 +531,7 @@ describe('session-steering tool belt (issue #62)', () => {
       }
       if (m.type === 'transcriptRead') {
         queueMicrotask(() =>
-          registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+          registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachine!.id, {
             type: 'transcriptReadResult',
             requestId: m.requestId,
             sessionId: m.sessionId,
@@ -552,7 +552,7 @@ describe('session-steering tool belt (issue #62)', () => {
         cwd: '/w',
       })
       if (live)
-        await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+        await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachine!.id, {
           type: 'bind',
           sessionId,
           cmd: 'claude',
@@ -591,7 +591,7 @@ describe('session-steering tool belt (issue #62)', () => {
     const ask = async (sessionId: string, multiSelect = false, id = 'ask-1') => {
       const observerGeneration = spawns.get(sessionId)
       if (observerGeneration === undefined) throw new Error('spawn was not fenced')
-      await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+      await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachine!.id, {
         type: 'runtimeEvent',
         deliveryId: `ask-${id}`,
         sessionId: asSessionId(sessionId),
@@ -663,7 +663,7 @@ describe('session-steering tool belt (issue #62)', () => {
     })
 
   const markPending = (h: Awaited<ReturnType<typeof harness>>, sessionId: string) =>
-    h.registry.gateway.routeDaemonFrame(h.registry.sessionStore.hostMachineId, {
+    h.registry.gateway.routeDaemonFrame(h.registry.sessionStore.hostMachine!.id, {
       type: 'agentState',
       sessionId: asSessionId(sessionId),
       state: pendingQuestion,
@@ -713,7 +713,7 @@ describe('session-steering tool belt (issue #62)', () => {
     // Enter) must never reach the PTY, and the result must not claim success.
     const h = await harness({ transcriptItems: [askItem()] })
     const sessionId = await h.spawn(true)
-    h.registry.gateway.routeDaemonFrame(h.registry.sessionStore.hostMachineId, {
+    h.registry.gateway.routeDaemonFrame(h.registry.sessionStore.hostMachine!.id, {
       type: 'agentState',
       sessionId: asSessionId(sessionId),
       state: st('working'),
@@ -832,7 +832,7 @@ describe('session-steering tool belt (issue #62)', () => {
   it("continue_session sends 'continue' through the contract to an errored live session only", async () => {
     const h = await harness()
     const sessionId = await h.spawn(true)
-    h.registry.gateway.routeDaemonFrame(h.registry.sessionStore.hostMachineId, {
+    h.registry.gateway.routeDaemonFrame(h.registry.sessionStore.hostMachine!.id, {
       type: 'agentState',
       sessionId: asSessionId(sessionId),
       state: st('errored'),
@@ -851,7 +851,7 @@ describe('session-steering tool belt (issue #62)', () => {
     })
     expect(h.inputs).toEqual([])
     // Not errored anymore → refused, with the gate surfaced.
-    h.registry.gateway.routeDaemonFrame(h.registry.sessionStore.hostMachineId, {
+    h.registry.gateway.routeDaemonFrame(h.registry.sessionStore.hostMachine!.id, {
       type: 'agentState',
       sessionId: asSessionId(sessionId),
       state: st('idle'),
@@ -869,7 +869,7 @@ describe('session-steering tool belt (issue #62)', () => {
   it('hibernate_session parks a live session with a resume ref', async () => {
     const h = await harness()
     const sessionId = await h.spawn(true)
-    await h.registry.gateway.routeDaemonFrame(h.registry.sessionStore.hostMachineId, {
+    await h.registry.gateway.routeDaemonFrame(h.registry.sessionStore.hostMachine!.id, {
       type: 'sessionResumeRef',
       sessionId: asSessionId(sessionId),
       resume: { kind: 'claude-session', value: 'r1' },
@@ -984,14 +984,14 @@ describe('session-steering tool belt (issue #62)', () => {
     const h = await harness({ waitPollMs: 5 })
     const sessionId = await h.spawn(true)
     // Seed a phase so the NEXT one is a real transition (prev==null logs nothing).
-    h.registry.gateway.routeDaemonFrame(h.registry.sessionStore.hostMachineId, {
+    h.registry.gateway.routeDaemonFrame(h.registry.sessionStore.hostMachine!.id, {
       type: 'agentState',
       sessionId: asSessionId(sessionId),
       state: st('working'),
     })
     const p = h.tool('wait_for_session', { sessionId, timeoutSeconds: 10 })
     await new Promise((r) => setTimeout(r, 15))
-    h.registry.gateway.routeDaemonFrame(h.registry.sessionStore.hostMachineId, {
+    h.registry.gateway.routeDaemonFrame(h.registry.sessionStore.hostMachine!.id, {
       type: 'agentState',
       sessionId: asSessionId(sessionId),
       state: st('idle', { idle: { kind: 'done' } }),
@@ -1002,7 +1002,7 @@ describe('session-steering tool belt (issue #62)', () => {
   it('wait_for_session returns instantly when the session is already settled', async () => {
     const h = await harness({ waitPollMs: 60_000 }) // a poll sleep would blow the test timeout
     const sessionId = await h.spawn(true)
-    h.registry.gateway.routeDaemonFrame(h.registry.sessionStore.hostMachineId, {
+    h.registry.gateway.routeDaemonFrame(h.registry.sessionStore.hostMachine!.id, {
       type: 'agentState',
       sessionId: asSessionId(sessionId),
       state: st('idle', { idle: { kind: 'question' } }),
@@ -1016,7 +1016,7 @@ describe('session-steering tool belt (issue #62)', () => {
   it('wait_for_session times out quietly with the last-known phase (never throws)', async () => {
     const h = await harness({ waitPollMs: 5 })
     const sessionId = await h.spawn(true)
-    h.registry.gateway.routeDaemonFrame(h.registry.sessionStore.hostMachineId, {
+    h.registry.gateway.routeDaemonFrame(h.registry.sessionStore.hostMachine!.id, {
       type: 'agentState',
       sessionId: asSessionId(sessionId),
       state: st('working'),

@@ -27,7 +27,7 @@ async function relay(
   proc: string,
   input: unknown,
 ): Promise<RelayResult> {
-  await o.reg.gateway.routeDaemonFrame(o.store.hostMachineId, {
+  await o.reg.gateway.routeDaemonFrame(o.store.hostMachine!.id, {
     type: 'agentRelayRequest',
     requestId,
     sessionId,

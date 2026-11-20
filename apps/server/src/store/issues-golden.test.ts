@@ -34,7 +34,7 @@ import { StaleIssueRevisionError } from './issue-revision'
  */
 async function openIssueStore(...repos: string[]): Promise<IssueEngineStore> {
   const store = await openIssueEngineStore()
-  for (const repo of ['/r', ...repos]) await store.repos.addRepo(repo, store.hostMachineId)
+  for (const repo of ['/r', ...repos]) await store.repos.addRepo(repo, store.hostMachine!.id)
   return store
 }
 

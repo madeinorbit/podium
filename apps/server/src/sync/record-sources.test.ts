@@ -125,7 +125,7 @@ async function buildCorpus(): Promise<Corpus> {
   const issueStore = reg.issues.reports.store
   await issueStore.commitRepoWrite(
     issueStore.serverWriter,
-    async () => await store.repos.addRepo('/repo', store.hostMachineId),
+    async () => await store.repos.addRepo('/repo', store.hostMachine!.id),
   )
   await quietShipping(reg)
   const owner = await firstAdminMemberId(store)
@@ -220,7 +220,7 @@ async function buildCorpus(): Promise<Corpus> {
         id: 'conv-1',
         agentKind: 'claude-code',
         providerId: 'claude-code-jsonl',
-        machineId: store.hostMachineId,
+        machineId: store.hostMachine!.id,
       },
     ])
     await store.agentProfiles.insert({
@@ -255,7 +255,7 @@ async function buildCorpus(): Promise<Corpus> {
     await db.run(sql`INSERT INTO workflow_bindings (workspace_id, target_kind, target_id, revision_id, updated_by_kind, updated_at, owner_user_id)
       VALUES (${SELF_HOSTED_WORKSPACE_ID}, 'global', 'default', 'rev-row-1', 'operator', ${AT}, ${owner})`)
     await db.run(sql`INSERT INTO checkouts (workspace_id, machine_id, path, root, kind, branch, updated_at)
-      VALUES (${SELF_HOSTED_WORKSPACE_ID}, ${store.hostMachineId}, '/row-checkout', '/row-checkout', 'repository', 'main', ${AT})`)
+      VALUES (${SELF_HOSTED_WORKSPACE_ID}, ${store.hostMachine!.id}, '/row-checkout', '/row-checkout', 'repository', 'main', ${AT})`)
     await db.run(sql`INSERT INTO subscriptions (workspace_id, id, subscriber_kind, subscriber_id, event, source_kind, source_ref, deliver_nudge, deliver_notify, origin, enabled, created_at)
       VALUES (${SELF_HOSTED_WORKSPACE_ID}, 'sub-row-1', 'issue', ${first}, 'issue.closed', 'issue', ${second}, ${true}, ${false}, 'custom', ${true}, ${AT})`)
     for (const [id, createdBy] of [
@@ -264,7 +264,7 @@ async function buildCorpus(): Promise<Corpus> {
     ] as const) {
       await db.run(
         // The workspace has no default since the keys migration (POD-7024).
-        sql`INSERT INTO effects (workspace_id, id, kind, target_kind, target_id, input_json, result_json, status, attempts, created_by, created_at, updated_at) VALUES ('local', ${id}, 'machine.scan', 'machine', ${store.hostMachineId}, '{"deep":false}', '{"repos":[]}', 'succeeded', 1, ${createdBy}, 1, 2)`,
+        sql`INSERT INTO effects (workspace_id, id, kind, target_kind, target_id, input_json, result_json, status, attempts, created_by, created_at, updated_at) VALUES ('local', ${id}, 'machine.scan', 'machine', ${store.hostMachine!.id}, '{"deep":false}', '{"repos":[]}', 'succeeded', 1, ${createdBy}, 1, 2)`,
       )
     }
   })
@@ -727,7 +727,16 @@ describe('record sources (POD-6920)', () => {
       expect(
         triggers
           .filter((text) => !text.includes('"sync_capture__inboxNotice__'))
-          .map((text) => withoutWorkspaceTerms(text).replace(CREDENTIAL_COLUMNS_WATCHED, '')),
+          .map((text) =>
+            withoutWorkspaceTerms(text)
+              .replace(CREDENTIAL_COLUMNS_WATCHED, '')
+              // The frozen oracle predates the server's optional install capability.
+              // Its capture and worker visibility are proved in store/host-machine.test.ts.
+              .replaceAll(
+                "IN ('machines.fleet-channel.v1', 'machines.server-move.v1')",
+                "= 'machines.fleet-channel.v1'",
+              ),
+          ),
       ).toEqual(frozen.triggers)
       // `meta` is an install table: its fleet keys capture no workspace.
       for (const trigger of triggers.filter((text) => !text.includes(' ON "meta" '))) {

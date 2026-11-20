@@ -112,6 +112,7 @@ import {
   type NativeServer,
   serveNative,
 } from './gateway/ws-server'
+import type { HostMachine } from './host-machine'
 import { hostSignIns } from './host-sign-ins'
 import { isAllowedHttpOrigin, podiumCors } from './http-cors'
 import { httpsSignInWarning, registerHttpsRequiredPage } from './https-required'
@@ -603,6 +604,8 @@ export async function startServer(
   opts: {
     port?: number
     host?: string
+    /** False when this server has no fleet machine of its own. Default: the local install. */
+    hostMachine?: false
     role?: Partial<ServerRoleConfig>
     /** Build-time extensions (the cloud seam — plugins.ts). OSS ships none. */
     plugins?: PodiumPlugin[]
@@ -696,10 +699,13 @@ export async function startServer(
   // repos aggregate, `MachinesService` takes it as a dep, and the maintenance realm
   // and in-process daemon link below name this same value. The split-mode daemon
   // reads the same file in its own process; all-in-one is handed it in memory.
-  const hostMachineId = readOrCreateLocalMachineId()
-  // This composition is self-hosted. Hosted composition supplies external placement
-  // without choosing a fleet member or deriving placement from update policy.
-  const serverPlacement: ServerPlacement = { kind: 'fleet', machineId: hostMachineId }
+  const hostMachine: HostMachine =
+    opts.hostMachine === false ? null : { id: asMachineId(readOrCreateLocalMachineId()) }
+  const serverPlacement: ServerPlacement = hostMachine
+    ? { kind: 'fleet', machineId: hostMachine.id }
+    : { kind: 'external' }
+  const isHostLocal = (request: Request): boolean =>
+    hostMachine !== null && isHostLocalRequest(request)
   const transferBootMode = serverTransferBootMode(stateDir())
   const recoveryOnly = transferBootMode === 'recovery-only'
   if (!recoveryOnly) assertWritableServerBoot(stateDir())
@@ -722,7 +728,7 @@ export async function startServer(
   // the Postgres database PODIUM_DATABASE_URL names. The sync worker and the
   // janitor open their read sessions on the same location.
   const databaseLocation = storeLocation(process.env, config)
-  const database = await StoreDatabase.open(databaseLocation, asMachineId(hostMachineId), {
+  const database = await StoreDatabase.open(databaseLocation, hostMachine, {
     queryOnly: recoveryOnly,
     bootWorkspace: SELF_HOSTED_WORKSPACE_ID,
     migrateAtBoot: storeMigratesAtBoot(),
@@ -983,7 +989,7 @@ export async function startServer(
   if (!recoveryOnly) {
     const supervisorSetup = loadSupervisorState(stateDir())
     const setupRequest = supervisorSetup.setupEnrollment
-    if (setupRequest && !supervisorSetup.enrolledPublicKey) {
+    if (hostMachine && setupRequest && !supervisorSetup.enrolledPublicKey) {
       const stagedHash = readLegacyInstancePasswordHash()
       const passwordHash =
         stagedHash ??
@@ -1142,17 +1148,18 @@ export async function startServer(
    * to say "there is no server step here" is to not have one, rather than to
    * rely on a container happening to have no parent supervisor.
    */
-  const requestCoordinatorRestart = fleetOnly
-    ? undefined
-    : developmentRuntime.runningFromSource
-      ? createSourceRedeployRequest({ instanceId })
-      : createInstalledCoordinatorRestart({
-          instanceId,
-          port: () => boundPort,
-          pendingVersion: () => pendingCoordinatorVersion,
-        })
+  const requestCoordinatorRestart =
+    !hostMachine || fleetOnly
+      ? undefined
+      : developmentRuntime.runningFromSource
+        ? createSourceRedeployRequest({ instanceId })
+        : createInstalledCoordinatorRestart({
+            instanceId,
+            port: () => boundPort,
+            pendingVersion: () => pendingCoordinatorVersion,
+          })
   const prepareCoordinatorUpdate =
-    fleetOnly || developmentRuntime.runningFromSource
+    !hostMachine || fleetOnly || developmentRuntime.runningFromSource
       ? undefined
       : createInstalledCoordinatorUpdate({
           pinnedPubkey: updateSigningKey.publicKey,
@@ -1161,14 +1168,16 @@ export async function startServer(
           },
         })
   const devPublisher = await wireDevBundlePublisher({
-    sourceRoot: rehearsal ? undefined : developmentSourceRoot,
+    sourceRoot: rehearsal || !hostMachine ? undefined : developmentSourceRoot,
     instanceId,
     artifactOrigin:
-      !rehearsal && developmentSourceRoot ? resolveDevArtifactOrigin(config) : undefined,
+      !rehearsal && hostMachine && developmentSourceRoot
+        ? resolveDevArtifactOrigin(config)
+        : undefined,
     localArtifactOrigin: () => `http://127.0.0.1:${boundPort}`,
     hasRemoteUpdateConsumers: async () =>
       (await store.machines.listMachines()).some(
-        (machine) => !machine.revokedAt && isRemoteUpdateConsumer(machine, hostMachineId),
+        (machine) => !machine.revokedAt && isRemoteUpdateConsumer(machine, hostMachine?.id),
       ),
     // FLEET-SCOPED darwin production: this host mints a Mac
     // bundle when a Mac has enrolled, and not otherwise. Read at build time, from the
@@ -1199,6 +1208,7 @@ export async function startServer(
 
   /** One real host participant when an installed parent can apply its grants. */
   const localUpdateParticipant =
+    hostMachine &&
     process.env.PODIUM_MACHINE_UPDATE_OWNER !== 'supervisor' &&
     !recoveryOnly &&
     !rehearsal &&
@@ -1207,7 +1217,7 @@ export async function startServer(
     prepareCoordinatorUpdate &&
     requestCoordinatorRestart
       ? startLocalUpdateParticipant({
-          machineId: hostMachineId,
+          machineId: hostMachine.id,
           appVersion,
           runtimeDir: join(stateDir(), 'runtime'),
           pinnedPubkey: updateSigningKey.publicKey,
@@ -1252,7 +1262,7 @@ export async function startServer(
    * applies our grants), are documented shapes and stay quiet. Which reason gets
    * named is `updateParticipantSkip`, tested there.
    */
-  if (localUpdateParticipant === undefined) {
+  if (hostMachine && localUpdateParticipant === undefined) {
     const { why, level } = updateParticipantSkip({
       fleetOnly,
       supervisorOwnsUpdates: process.env.PODIUM_MACHINE_UPDATE_OWNER === 'supervisor',
@@ -1338,7 +1348,7 @@ export async function startServer(
             promoted: bootTargetPromotion?.state === 'promoted' ? bootTargetPromotion : null,
             promoting: bootTargetPromotion?.state === 'promoting' ? bootTargetPromotion : null,
             journal: registry.modules.serverTransfer.status(),
-            machineId: hostMachineId,
+            machineId: hostMachine?.id,
             targetOnline:
               targetMachineId !== undefined &&
               registry.modules.machines.hasDaemon(asMachineId(targetMachineId)),
@@ -1431,7 +1441,7 @@ export async function startServer(
   const deferredSourceMove =
     deferredSourceJournal &&
     ['preparing', 'staged', 'validated', 'fence-pending'].includes(deferredSourceJournal.state) &&
-    deferredSourceJournal.record.sourceMachineId === hostMachineId &&
+    deferredSourceJournal.record.sourceMachineId === hostMachine?.id &&
     registry.modules.operations.engine.isAdoptionDeferred(deferredSourceJournal.record.operationId)
       ? {
           operationId: deferredSourceJournal.record.operationId,
@@ -1479,7 +1489,7 @@ export async function startServer(
           deferredPromotion.operationId,
           {
             promoted,
-            machineId: hostMachineId,
+            machineId: hostMachine?.id,
             journal: registry.modules.serverTransfer.status(),
             now: Date.now(),
           },
@@ -1529,7 +1539,7 @@ export async function startServer(
           deferredSourceMove.operationId,
           {
             journal: registry.modules.serverTransfer.status(),
-            machineId: hostMachineId,
+            machineId: hostMachine?.id,
             targetOnline,
             now: Date.now(),
           },
@@ -1696,7 +1706,7 @@ export async function startServer(
      * a stack that is missing a child (review finding 7).
      */
     daemonConnected: () =>
-      registry.modules.machines.onlineMachineIds().includes(asMachineId(hostMachineId)),
+      hostMachine === null || registry.modules.machines.onlineMachineIds().includes(hostMachine.id),
     janitor: () =>
       janitorHost
         ? {
@@ -1711,10 +1721,9 @@ export async function startServer(
       const expected = Buffer.from(maintenanceToken)
       const received = Buffer.from(token)
       return (
-        (expected.length > 0 &&
-          expected.length === received.length &&
-          timingSafeEqual(expected, received)) ||
-        (await store.machines.getMachineByToken(hostMachineId, token))
+        expected.length > 0 &&
+        expected.length === received.length &&
+        timingSafeEqual(expected, received)
       )
     },
     service: new MaintenanceService(store, registry.modules.funnel, {
@@ -1730,7 +1739,7 @@ export async function startServer(
       stewardTick: async () => await registry.runStewardTick(),
       // A `machine.scan` effect record under a system principal (POD-6396).
       connectScan: async (machineId) => await connectScanThroughEffect(registry.modules, machineId),
-      localMachineId: asMachineId(hostMachineId),
+      localMachineId: hostMachine?.id,
     }),
   })
   // The setup UI fetches /setup/config from the desktop webview, whose origin (tauri://localhost)
@@ -1762,6 +1771,7 @@ export async function startServer(
     identity: identity.workspace,
     users: store.users,
     trustedProxyHops,
+    hostMachine,
     publicUrl: claimedPublicUrl,
   })
   // SIGN-INS FROM BEFORE SHARED SIGN-IN (POD-6751): only on a server that
@@ -1791,7 +1801,7 @@ export async function startServer(
     return resolution.kind === 'member' ? resolution.principal : undefined
   }
   const guard = clientAuthGuard({ memberOfRequest, renew: identity.workspace.renew })
-  const boundary = readinessBoundary({ readiness, isHostLocal: isHostLocalRequest })
+  const boundary = readinessBoundary({ readiness, isHostLocal })
   /**
    * Event-loop accounting, when the level installs it (it is started further
    * down, inside the listen promise). Declared at THIS scope — above the /trpc
@@ -1811,7 +1821,7 @@ export async function startServer(
     readiness,
     // A source launcher is not enough on its own: PODIUM_HOST=0.0.0.0 is an explicit
     // reachability choice, so that server must retain password/reachability setup.
-    localSetupDefault: shouldAdvertiseLocalSetupDefault({ ...opts, host }),
+    localSetupDefault: hostMachine !== null && shouldAdvertiseLocalSetupDefault({ ...opts, host }),
   })
   // Human-client login (web/desktop UI). Same cross-origin reason as /setup: the desktop
   // webview's origin differs from the server in the all-in-one case. Login itself is
@@ -1829,7 +1839,7 @@ export async function startServer(
     controlPlaneAvailable: () => controlPlaneAvailable(readiness()),
     memberOfAccount: (accountId) => store.users.findMemberByAccount(accountId),
     allowedOrigins,
-    isLocalRequest: isHostLocalRequest,
+    isLocalRequest: isHostLocal,
     readiness,
     // Signing a device out closes that device's open sockets at once.
     onDeviceSignInEnded: (deviceSignInId) => revokeConnectedDeviceSignIn(deviceSignInId),
@@ -1968,7 +1978,7 @@ export async function startServer(
     // A host-local first run must remain possible when PODIUM_PASSWORD already
     // provisioned a credential. Login itself is not a bootstrap surface, so the
     // exact setup allowlist bypasses the ordinary login guard only while blocked.
-    if (isHostSetupBootstrap(readiness(), c.req.path, c.req.raw)) return await next()
+    if (isHostSetupBootstrap(readiness(), c.req.path, c.req.raw, isHostLocal)) return await next()
     return await guard(c, next)
   })
   app.use(
@@ -1985,7 +1995,12 @@ export async function startServer(
         // SETUP BOOTSTRAP, before there is anything to authenticate with: the
         // first admin is RESOLVED here too, so the account this acts as is a row
         // that exists rather than an id the build named.
-        const bootstrapAccount = isHostSetupBootstrap(readiness(), hono.req.path, hono.req.raw)
+        const bootstrapAccount = isHostSetupBootstrap(
+          readiness(),
+          hono.req.path,
+          hono.req.raw,
+          isHostLocal,
+        )
           ? await store.users.earliestAdmin()
           : undefined
         const principal =
@@ -2016,7 +2031,7 @@ export async function startServer(
           // login as OFF over tRPC no matter how many credentials existed.
           loginRequired: credentialsRequired,
           loginPolicy,
-          hostLocalRequest: isHostLocalRequest(hono.req.raw),
+          hostLocalRequest: isHostLocal(hono.req.raw),
           modules: registry.modules,
           // Absent at profile level `off`, and absent until the level resolves
           // during listen — `perf.snapshot` then omits its `loop` section, which
@@ -2281,6 +2296,7 @@ export async function startServer(
         port: boundPort,
         token: rotateMaintenanceToken,
         dbPath: databaseLocation,
+        localMachineId: hostMachine?.id ?? null,
         ...(opts.janitorWorkerForTests ? { start: opts.janitorWorkerForTests } : {}),
       })
       if (janitorHostClosing) {
@@ -2722,7 +2738,7 @@ export async function startServer(
           : await listenUserSocket(
               serverControlSocketPath({ instanceId }),
               controlSocketHandler({
-                ...(identity.workspace.core.capabilities().adminEndDeviceSignIn
+                ...(hostMachine && identity.workspace.core.capabilities().adminEndDeviceSignIn
                   ? {
                       hostSignIns: hostSignIns(
                         identity.workspace,

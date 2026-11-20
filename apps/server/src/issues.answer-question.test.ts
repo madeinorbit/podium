@@ -25,7 +25,7 @@ async function harness(
 ) {
   const store = await openTestStore(':memory:', TEST_MACHINE_ID)
   // An issue is placed under a machine that REPORTED its repo (2b803efb5).
-  await store.repos.addRepo('/r', store.hostMachineId)
+  await store.repos.addRepo('/r', store.hostMachine!.id)
   const deps: IssueDeps = {
     resolveMachine: async () => TEST_MACHINE_ID,
     store,

@@ -1,25 +1,24 @@
-import { setParentControlLink, type ParentRequest } from '@podium/runtime/parent-control'
-import { prepareSetupEnrollment, confirmSetupEnrollment } from '@podium/runtime/setup-enrollment'
-import { readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
-import { loadSupervisorState } from '@podium/runtime/machine-supervisor'
-import { openTestStore } from './test-support/open-test-store'
-import { openTestIdentity } from './test-support/test-identity'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { firstAdminMemberId, type ServerReadiness } from '@podium/model'
 import { LAYERED_KEYS, loadConfig, saveConfig } from '@podium/runtime/config'
 import { encodeJoin } from '@podium/runtime/join'
+import { readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
+import { loadSupervisorState } from '@podium/runtime/machine-supervisor'
+import { type ParentRequest, setParentControlLink } from '@podium/runtime/parent-control'
+import { confirmSetupEnrollment, prepareSetupEnrollment } from '@podium/runtime/setup-enrollment'
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { resolvePrincipal } from './command-principal'
 import { desktopUpdaterEndpoint, InstanceService } from './modules/instance/service'
-
 import { SuperagentService } from './modules/superagent'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
 import { createServerReadiness } from './server-readiness'
 import { OPERATOR } from './test-support/capabilities'
+import { openTestStore } from './test-support/open-test-store'
+import { openTestIdentity } from './test-support/test-identity'
 
 /**
  * ONE registry per test, memoised: `setup.complete`'s optional password is a CREDENTIAL ROW
@@ -29,21 +28,28 @@ import { OPERATOR } from './test-support/capabilities'
 let harness: Awaited<ReturnType<typeof makeHarness>> | undefined
 
 function installSetupParent() {
-    setParentControlLink({
-      open: () => true,
-      post: async () => {},
-      request: async (requestId, raw) => {
-        const request = raw as unknown as ParentRequest
-        const enrollment = request.enrollment!
-        return {
-          requestId, kind: 'enrollment', ok: true,
-          enrollment: enrollment.action === 'prepare'
+  setParentControlLink({
+    open: () => true,
+    post: async () => {},
+    request: async (requestId, raw) => {
+      const request = raw as unknown as ParentRequest
+      const enrollment = request.enrollment!
+      return {
+        requestId,
+        kind: 'enrollment',
+        ok: true,
+        enrollment:
+          enrollment.action === 'prepare'
             ? prepareSetupEnrollment(enrollment.agentExecution, false, process.env.PODIUM_STATE_DIR)
-            : confirmSetupEnrollment(enrollment.setupRequestId!, enrollment.publicKey!, process.env.PODIUM_STATE_DIR),
-          completedAt: new Date().toISOString(),
-        }
-      },
-    })
+            : confirmSetupEnrollment(
+                enrollment.setupRequestId!,
+                enrollment.publicKey!,
+                process.env.PODIUM_STATE_DIR,
+              ),
+        completedAt: new Date().toISOString(),
+      }
+    },
+  })
 }
 
 /**
@@ -60,9 +66,13 @@ async function makeHarness() {
   installSetupParent()
   const store = await openTestStore(':memory:', readOrCreateLocalMachineId())
   const { credentials } = await openTestIdentity(store)
-  const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default', installationId: 'setup-test-installation', memberCredentials: credentials })
+  const registry = await SessionRegistry.create(store, undefined, {
+    instanceId: 'default',
+    installationId: 'setup-test-installation',
+    memberCredentials: credentials,
+  })
   opened.push(registry)
-  registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
+  registry.gateway.attachDaemon(registry.sessionStore.hostMachine!.id, () => {})
   const repos = new RepoRegistry(registry, registry.sessionStore)
   const superagent = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
   const users = registry.sessionStore.users
@@ -97,9 +107,12 @@ async function activationHarness(opts: {
   requestCoordinatorRestart?: () => void | Promise<void>
 }) {
   const store = await openTestStore(':memory:', readOrCreateLocalMachineId())
-  const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default', installationId: 'setup-test-installation' })
+  const registry = await SessionRegistry.create(store, undefined, {
+    instanceId: 'default',
+    installationId: 'setup-test-installation',
+  })
   opened.push(registry)
-  registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
+  registry.gateway.attachDaemon(registry.sessionStore.hostMachine!.id, () => {})
   const repos = new RepoRegistry(registry, registry.sessionStore)
   const superagent = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
   const users = registry.sessionStore.users
@@ -174,9 +187,13 @@ describe('setup tRPC', () => {
   it('has no host row before setup and confirms the enrolled key only after completion', async () => {
     const api = await caller()
     const machines = harness!.registry.modules.machines
-    expect(await harness!.registry.sessionStore.machines.getMachine(machines.hostMachineId)).toBeUndefined()
+    expect(
+      await harness!.registry.sessionStore.machines.getMachine(machines.hostMachine!.id),
+    ).toBeUndefined()
     await api.setup.complete({ publicUrl: 'https://setup.example', acknowledgeNoPassword: true })
-    expect(await harness!.registry.sessionStore.machines.custodian(machines.hostMachineId)).toBe(firstAdminMemberId())
+    expect(await harness!.registry.sessionStore.machines.custodian(machines.hostMachine!.id)).toBe(
+      firstAdminMemberId(),
+    )
     expect(loadSupervisorState(dir).enrolledPublicKey).toBeTruthy()
   })
 
@@ -203,11 +220,18 @@ describe('setup tRPC', () => {
   it('a URL written by setup.complete prods the Connect publisher, and only when it changed (POD-4640)', async () => {
     installSetupParent()
     const store = await openTestStore(':memory:', readOrCreateLocalMachineId())
-    const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default', installationId: 'setup-test-installation' })
+    const registry = await SessionRegistry.create(store, undefined, {
+      instanceId: 'default',
+      installationId: 'setup-test-installation',
+    })
     opened.push(registry)
-    registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
+    registry.gateway.attachDaemon(registry.sessionStore.hostMachine!.id, () => {})
     const repos = new RepoRegistry(registry, registry.sessionStore)
-    const superagent = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
+    const superagent = await SuperagentService.create(
+      registry.modules,
+      repos,
+      registry.sessionStore,
+    )
     const publicUrlChanged = vi.fn()
     const api = appRouter.createCaller({
       registry,

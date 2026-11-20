@@ -15,9 +15,12 @@ import { strandedRefusal } from './folder-effects'
 
 afterEach(() => disposeOracles())
 
-async function oracle(): Promise<{ o: Oracle; machineId: Oracle['store']['hostMachineId'] }> {
+async function oracle(): Promise<{
+  o: Oracle
+  machineId: NonNullable<Oracle['store']['hostMachine']>['id']
+}> {
   const o = await makeOracle()
-  return { o, machineId: o.store.hostMachineId }
+  return { o, machineId: o.store.hostMachine!.id }
 }
 
 const dirOpAnswering = (o: Oracle, answer: { path?: string; error?: string }) =>

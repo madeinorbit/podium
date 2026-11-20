@@ -17,7 +17,7 @@ import { lockRegistry } from './registry'
 const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
 // A lock's repo resolves only through a machine that reported it (2b803efb5),
 // so the fixture repo is reported by the host machine.
-await registry.sessionStore.repos.addRepo('/repo', registry.sessionStore.hostMachineId)
+await registry.sessionStore.repos.addRepo('/repo', registry.sessionStore.hostMachine!.id)
 afterAll(() => registry.dispose())
 
 const dispatch = async (

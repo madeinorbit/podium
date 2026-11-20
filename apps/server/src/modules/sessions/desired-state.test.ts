@@ -28,7 +28,7 @@ async function goLive(
   sessionId: SessionId,
   phase: 'idle' | 'working' = 'idle',
 ): Promise<void> {
-  const machineId = o.reg.sessionStore.hostMachineId
+  const machineId = o.reg.sessionStore.hostMachine!.id
   await o.reg.gateway.routeDaemonFrame(machineId, {
     type: 'bind',
     sessionId,
@@ -104,7 +104,7 @@ function refusal(reply: SyncSubmitReply) {
 
 /** The oracle's daemon again, as it attached it (answers retirements and repo ops). */
 async function reattach(o: Oracle): Promise<void> {
-  const machineId = o.reg.sessionStore.hostMachineId
+  const machineId = o.reg.sessionStore.hostMachine!.id
   await o.reg.gateway.attachDaemon(
     machineId,
     confirmingRetirement(o.reg, machineId, (msg: ControlMessage) => {
@@ -185,11 +185,13 @@ describe('records.session.edit', () => {
   it('an edit for an offline machine stays pending and is made true when its daemon reconnects', async () => {
     const o = await makeOracle()
     const id = await liveSession(o)
-    o.reg.gateway.detachDaemon(o.reg.sessionStore.hostMachineId)
+    o.reg.gateway.detachDaemon(o.reg.sessionStore.hostMachine!.id)
 
     appliedReply(await editAndSettle(o, id, { desired: 'stopped' }, 1, 'stop-offline'))
     expect(await lifecycle(o, id)).toMatchObject({ revision: 2, observedRevision: 1 })
-    expect(await o.store.sessions.lifecyclePending(o.reg.sessionStore.hostMachineId)).toEqual([id])
+    expect(await o.store.sessions.lifecyclePending(o.reg.sessionStore.hostMachine!.id)).toEqual([
+      id,
+    ])
 
     await reattach(o)
     await waitFor(
@@ -197,7 +199,7 @@ describe('records.session.edit', () => {
       'the reconnect to reconcile the pending stop',
     )
     expect(await lifecycle(o, id)).toMatchObject({ desired: 'stopped', failure: null })
-    expect(await o.store.sessions.lifecyclePending(o.reg.sessionStore.hostMachineId)).toEqual([])
+    expect(await o.store.sessions.lifecyclePending(o.reg.sessionStore.hostMachine!.id)).toEqual([])
     expect(retirements(o, id).length).toBeGreaterThan(0)
   })
 
@@ -211,14 +213,14 @@ describe('records.session.edit', () => {
       observedRevision: 2,
     })
 
-    await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+    await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachine!.id, {
       type: 'agentExit',
       sessionId: id,
       code: 0,
     })
     const spawned = spawns(o, id).length
     await o.reg.modules.sessionLifecycleController.reconcileMachine(
-      o.reg.sessionStore.hostMachineId,
+      o.reg.sessionStore.hostMachine!.id,
     )
     await o.reg.modules.sessionLifecycleController.reconcile(id)
 
@@ -308,7 +310,7 @@ describe('a start is re-authorized when it is acted on', () => {
       },
       'test-only',
     )
-    const host = o.reg.sessionStore.hostMachineId
+    const host = o.reg.sessionStore.hostMachine!.id
     await o.reg.modules.machines.transferMachineOwnership(host, other, firstAdminMemberId())
     const ownership = await ownershipSnapshotFromMachines(o.reg.modules.machines)
     expect(
@@ -322,7 +324,7 @@ describe('a start is re-authorized when it is acted on', () => {
     const id = await liveSession(o)
     appliedReply(await editAndSettle(o, id, { desired: 'hibernated' }, 1, 'park-1'))
     expect((await lifecycle(o, id)).status).toBe('hibernated')
-    o.reg.gateway.detachDaemon(o.reg.sessionStore.hostMachineId)
+    o.reg.gateway.detachDaemon(o.reg.sessionStore.hostMachine!.id)
     appliedReply(await editAndSettle(o, id, { desired: 'running' }, 2, 'resume-2'))
     expect(await lifecycle(o, id)).toMatchObject({ revision: 3, observedRevision: 2 })
     const spawnedBefore = spawns(o, id).length
@@ -345,7 +347,7 @@ describe('a start is re-authorized when it is acted on', () => {
   it('a stop applied before the writer lost use still stops the agent on attach', async () => {
     const o = await makeOracle()
     const id = await liveSession(o)
-    o.reg.gateway.detachDaemon(o.reg.sessionStore.hostMachineId)
+    o.reg.gateway.detachDaemon(o.reg.sessionStore.hostMachine!.id)
     appliedReply(await editAndSettle(o, id, { desired: 'stopped' }, 1, 'stop-1'))
 
     await revokeWriterUse(o)
@@ -426,7 +428,7 @@ describe('the old lifecycle routes are adapters onto the path', () => {
   it('a hibernate of a session that is not running keeps its pinned refusal', async () => {
     const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
-    await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+    await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachine!.id, {
       type: 'agentExit',
       sessionId,
       code: 0,

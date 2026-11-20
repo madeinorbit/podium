@@ -114,7 +114,7 @@ async function world(size: number, delta = false): Promise<World> {
   // The attach scans the machine's checkouts. Finish that scan here, before the
   // world's head is read: left to its timeout it wrote a checkout change 10 s
   // later, inside the delta's window on a slow enough run (POD-7061).
-  await reg.modules.checkouts.rescan(store.hostMachineId)
+  await reg.modules.checkouts.rescan(store.hostMachine!.id)
   await quietShipping(reg)
   const owner = await firstAdminMemberId(store)
   const issues: IssueId[] = []
@@ -136,7 +136,7 @@ async function world(size: number, delta = false): Promise<World> {
   // when it runs, which a short setup can finish before. The first download
   // holds every checkout (POD-7085), so the load must not see one at one size
   // and none at the other.
-  await reg.modules.checkouts.registrationsChanged(asMachineId(store.hostMachineId))
+  await reg.modules.checkouts.registrationsChanged(asMachineId(store.hostMachine!.id))
   await settle(reg)
   // The notice record is part of the current bootstrap, not just an empty
   // builder whose extra query happens to change the pin (POD-6881).
@@ -172,7 +172,7 @@ async function world(size: number, delta = false): Promise<World> {
 function answeringRepoScans(reg: SessionRegistry): ControlSend {
   return (message) => {
     if (message.type !== 'scanReposRequest') return
-    void reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    void reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
       type: 'scanReposResult',
       requestId: message.requestId,
       repositories: message.roots.map((path) => ({ path, kind: 'repository', worktrees: [] })),

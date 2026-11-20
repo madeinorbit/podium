@@ -48,7 +48,7 @@ const withWarning = (v: unknown): string | undefined => (v as { warning?: string
  *  through a machine that reported it (2b803efb5 refuses implicit placement). */
 async function registryWithRepo(): Promise<SessionRegistry> {
   const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-  await reg.sessionStore.repos.addRepo('/r', reg.sessionStore.hostMachineId)
+  await reg.sessionStore.repos.addRepo('/r', reg.sessionStore.hostMachine!.id)
   return reg
 }
 
@@ -338,7 +338,10 @@ describe('proposed lane bypass paths are closed (B1-B4)', () => {
     try {
       // Effects reauthorize their writer from the persisted session, so use a
       // real actor as well as an assigned execution target to reach this guard.
-      await reg.sessionStore.machines.addMachineComponent(reg.sessionStore.hostMachineId, 'daemon')
+      await reg.sessionStore.machines.addMachineComponent(
+        reg.sessionStore.hostMachine!.id,
+        'daemon',
+      )
       await attachHostDaemon(reg)
       const actor = await reg.modules.sessions.createSession({
         agentKind: 'claude-code',

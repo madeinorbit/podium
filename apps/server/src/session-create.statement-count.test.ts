@@ -64,7 +64,7 @@ async function settle(reg: SessionRegistry): Promise<void> {
 function answeringRepoScans(reg: SessionRegistry): ControlSend {
   return (message) => {
     if (message.type !== 'scanReposRequest') return
-    void reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    void reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
       type: 'scanReposResult',
       requestId: message.requestId,
       repositories: message.roots.map((path) => ({ path, kind: 'repository', worktrees: [] })),
@@ -107,7 +107,7 @@ async function fixture(size: number): Promise<Fixture> {
       cwd,
       issueId: issue.id,
     })
-    await reg.gateway.routeDaemonFrame(store.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(store.hostMachine!.id, {
       type: 'bind',
       sessionId,
       cmd: 'codex',

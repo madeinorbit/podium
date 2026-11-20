@@ -64,10 +64,10 @@ beforeEach(async () => {
   store = await openTestStore(':memory:')
   // Issues are placed on a machine that reported their repo (2b803efb5 refuses
   // implicit placement), so the fixture's repo is reported by the host machine.
-  await store.repos.addRepo('/repo', store.hostMachineId)
+  await store.repos.addRepo('/repo', store.hostMachine!.id)
   daemon = daemonHarness()
   service = new CostService(store, daemon.rpc)
-  machineId = store.hostMachineId
+  machineId = store.hostMachine!.id
   const home = mkdtempSync(join(tmpdir(), 'podium-cost-'))
   tmpDirs.push(home)
   CLAUDE_DIR = join(home, '.claude', 'projects', '-repo')

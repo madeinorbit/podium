@@ -65,7 +65,7 @@ describe('coarse runtime events across a daemon disconnect', () => {
   it('retains a disconnected coarse event, replays it after reconnect, and retires it on commit ack', async () => {
     const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     await assignHostMachine(registry.sessionStore)
-    const machineId: MachineId = registry.sessionStore.hostMachineId
+    const machineId: MachineId = registry.sessionStore.hostMachine!.id
     const runtimeOutbox = createRuntimeEventOutbox(temp())
     const sockets = [new FakeSocket(), new FakeSocket(), new FakeSocket()]
     const receipts: Array<{

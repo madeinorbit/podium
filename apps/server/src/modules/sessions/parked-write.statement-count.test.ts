@@ -85,7 +85,7 @@ async function fixture(size: number): Promise<Fixture> {
         lastResumedAt: null,
         archived: false,
         workState: null,
-        machineId: store.hostMachineId,
+        machineId: store.hostMachine!.id,
         headless: false,
         issueId: null,
         stoppedAt: '2026-09-02T00:00:00.000Z',

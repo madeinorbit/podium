@@ -63,7 +63,7 @@ async function drive(): Promise<{ registry: SessionRegistry; inbox: unknown[] }>
   const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
   // Issues are placed on a machine that reported their repo (2b803efb5 refuses
   // implicit placement), so the fixture's repo is reported by the host machine.
-  await registry.sessionStore.repos.addRepo('/r', registry.sessionStore.hostMachineId)
+  await registry.sessionStore.repos.addRepo('/r', registry.sessionStore.hostMachine!.id)
   const inbox: unknown[] = []
   const id = attachTestClient(registry.clientGateway, (msg) => inbox.push(msg))
   registry.clientGateway.routeClientFrame(id, {

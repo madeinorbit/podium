@@ -16,7 +16,7 @@ import { sessionReadPorts } from './test-support/session-facts'
 
 async function harness() {
   const store = await openTestStore(':memory:')
-  await store.repos.addRepo('/r', store.hostMachineId)
+  await store.repos.addRepo('/r', store.hostMachine!.id)
   const broadcast = vi.fn()
   const agentProfiles = new AgentProfileService({
     store: store.agentProfiles,
@@ -48,7 +48,7 @@ async function harness() {
       }),
     spawnSession,
     repoOp,
-    resolveMachine: vi.fn(async () => store.hostMachineId),
+    resolveMachine: vi.fn(async () => store.hostMachine!.id),
     ...issueTestPlumbing((msg) => broadcast(msg), { store }),
     setSessionArchived: vi.fn(),
     clearSessionOffer: vi.fn(),
@@ -56,7 +56,14 @@ async function harness() {
     now: () => '2026-10-14T00:00:00.000Z',
     agentProfiles,
   }
-  return { svc: await IssueService.create(deps), store, spawnSession, agentProfiles, sessions, repoOp }
+  return {
+    svc: await IssueService.create(deps),
+    store,
+    spawnSession,
+    agentProfiles,
+    sessions,
+    repoOp,
+  }
 }
 
 /** Single-candidate profiles, so no probing decides the pick and each is recognisable. */
@@ -118,7 +125,11 @@ describe('issues with agent profiles', () => {
     })
     // Without a profile the harness stays `auto` too (POD-6133): the issue stores
     // picks only, and Settings apply when each session starts.
-    const plain = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'Plain', startNow: false })
+    const plain = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'Plain',
+      startNow: false,
+    })
     expect(plain).toMatchObject({
       defaultAgent: 'auto',
       defaultModel: 'auto',
@@ -130,7 +141,12 @@ describe('issues with agent profiles', () => {
   it('refuses an unknown profile before creating anything', async () => {
     const { svc } = await harness()
     await expect(
-      svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'Nope', startNow: false, agentProfile: 'nope' }),
+      svc.crud.create(svc.reports.store.serverWriter, {
+        repoPath: '/r',
+        title: 'Nope',
+        startNow: false,
+        agentProfile: 'nope',
+      }),
     ).rejects.toThrow(/no agent profile 'nope'/)
     expect(await svc.reports.list('/r')).toHaveLength(0)
   })
@@ -145,7 +161,9 @@ describe('issues with agent profiles', () => {
       defaultAgent: 'codex',
       defaultEffort: 'low',
     })
-    const updated = await svc.crud.update(svc.reports.store.serverWriter, issue.id, { agentProfile: 'review' })
+    const updated = await svc.crud.update(svc.reports.store.serverWriter, issue.id, {
+      agentProfile: 'review',
+    })
     expect(updated).toMatchObject({
       agentProfileId: review.id,
       defaultAgent: 'auto',
@@ -153,16 +171,25 @@ describe('issues with agent profiles', () => {
       defaultEffort: 'auto',
     })
     // A field named in the same patch still wins.
-    const kept = await svc.crud.update(svc.reports.store.serverWriter, issue.id, { agentProfile: 'build', defaultEffort: 'max' })
+    const kept = await svc.crud.update(svc.reports.store.serverWriter, issue.id, {
+      agentProfile: 'build',
+      defaultEffort: 'max',
+    })
     expect(kept).toMatchObject({ defaultEffort: 'max' })
-    const cleared = await svc.crud.update(svc.reports.store.serverWriter, issue.id, { agentProfile: null })
+    const cleared = await svc.crud.update(svc.reports.store.serverWriter, issue.id, {
+      agentProfile: null,
+    })
     expect(cleared).not.toHaveProperty('agentProfileId')
   })
 
   it('start spawns the first runnable candidate and records the profile on the session', async () => {
     const { svc, spawnSession, agentProfiles } = await harness()
     const review = await agentProfiles.show('review')
-    const issue = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'Reviewed', startNow: false })
+    const issue = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'Reviewed',
+      startNow: false,
+    })
     const started = await svc.gitWorkflow.start(issue.id, undefined, { agentProfile: 'review' })
     // `review` prefers codex, which is not installed here.
     expect(spawnSession).toHaveBeenCalledWith(
@@ -267,7 +294,12 @@ describe('agent profile inheritance on start', () => {
       startNow: false,
       stage: 'proposed',
     })
-    await svc.hierarchy.addDep(svc.reports.store.serverWriter, proposal.id, task.id, 'discovered-from')
+    await svc.hierarchy.addDep(
+      svc.reports.store.serverWriter,
+      proposal.id,
+      task.id,
+      'discovered-from',
+    )
     const started = await svc.gitWorkflow.start(proposal.id)
     expect(spawnedWith(spawnSession)).toMatchObject({ agentProfileId: p.mission.id })
     // Starting keeps the placement: still top level, still discovered from the task.
@@ -279,7 +311,11 @@ describe('agent profile inheritance on start', () => {
 
   it('with no profile anywhere the launch is the issue fields and Settings, as before', async () => {
     const { svc, spawnSession } = await harness()
-    const root = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'Bare', startNow: false })
+    const root = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'Bare',
+      startNow: false,
+    })
     const proposal = await svc.crud.create(svc.reports.store.serverWriter, {
       repoPath: '/r',
       title: 'Bare child',
@@ -365,11 +401,17 @@ describe('agent profile inheritance on start', () => {
       startNow: false,
       defaultModel: 'opus',
     })
-    expect(await svc.crud.update(svc.reports.store.serverWriter, issue.id, { defaultAgent: 'claude-code' })).toMatchObject({
+    expect(
+      await svc.crud.update(svc.reports.store.serverWriter, issue.id, {
+        defaultAgent: 'claude-code',
+      }),
+    ).toMatchObject({
       defaultAgent: 'claude-code',
       defaultModel: 'opus',
     })
-    expect(await svc.crud.update(svc.reports.store.serverWriter, issue.id, { defaultAgent: 'codex' })).toMatchObject({
+    expect(
+      await svc.crud.update(svc.reports.store.serverWriter, issue.id, { defaultAgent: 'codex' }),
+    ).toMatchObject({
       defaultAgent: 'codex',
       defaultModel: 'auto',
     })
@@ -432,7 +474,11 @@ describe('start failures and retries', () => {
 
   it('a non-proposal keeps its started stage after a failed spawn, and a retry still spawns', async () => {
     const { svc, spawnSession } = await harness()
-    const issue = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'Backlog', startNow: false })
+    const issue = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'Backlog',
+      startNow: false,
+    })
     spawnSession.mockRejectedValueOnce(new Error('machine offline'))
     await expect(svc.gitWorkflow.start(issue.id)).rejects.toThrow(/offline/)
     expect(await svc.reports.get(issue.id)).toMatchObject({ stage: 'in_progress' })
@@ -443,7 +489,11 @@ describe('start failures and retries', () => {
 
   it('starting an issue that already has a session is still a no-op', async () => {
     const { svc, spawnSession, sessions } = await harness()
-    const issue = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'Once', startNow: false })
+    const issue = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'Once',
+      startNow: false,
+    })
     const started = await svc.gitWorkflow.start(issue.id)
     sessions.push(sessionOn(issue.id, started.worktreePath as string))
     const again = await svc.gitWorkflow.start(issue.id)

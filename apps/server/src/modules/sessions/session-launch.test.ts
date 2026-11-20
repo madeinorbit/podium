@@ -59,7 +59,7 @@ async function settled(o: Oracle, id: string) {
 
 /** The oracle's daemon again, as it attached it, with its inventory report. */
 async function reattach(o: Oracle): Promise<void> {
-  const machineId = o.reg.sessionStore.hostMachineId
+  const machineId = o.reg.sessionStore.hostMachine!.id
   await o.reg.gateway.attachDaemon(
     machineId,
     confirmingRetirement(o.reg, machineId, (msg: ControlMessage) => {
@@ -136,7 +136,7 @@ describe('a session.launch effect', () => {
 
   it('waits pending while no daemon is attached, starts on the attach, and a second attach never spawns again', async () => {
     const o = await makeOracle()
-    o.reg.gateway.detachDaemon(o.reg.sessionStore.hostMachineId)
+    o.reg.gateway.detachDaemon(o.reg.sessionStore.hostMachine!.id)
     const effectId = mintDeviceId('eff_')
     const sessionId = newSessionId()
 
@@ -155,7 +155,7 @@ describe('a session.launch effect', () => {
     expect((await settled(o, effectId))?.status).toBe('succeeded')
     expect(spawns(o, sessionId)).toHaveLength(1)
 
-    o.reg.gateway.detachDaemon(o.reg.sessionStore.hostMachineId)
+    o.reg.gateway.detachDaemon(o.reg.sessionStore.hostMachine!.id)
     await reattach(o)
     await o.reg.modules.effects?.runner.sweep()
     await o.reg.modules.effects?.runner.idle()
@@ -164,7 +164,7 @@ describe('a session.launch effect', () => {
 
   it('a launch whose writer lost use of its machine before the attach fails and starts nothing', async () => {
     const o = await makeOracle()
-    const host = o.reg.sessionStore.hostMachineId
+    const host = o.reg.sessionStore.hostMachine!.id
     o.reg.gateway.detachDaemon(host)
     const effectId = mintDeviceId('eff_')
     const sessionId = newSessionId()
@@ -204,7 +204,7 @@ describe('a session.launch effect', () => {
   it('a launch whose machine stays away past the deadline expires and never runs', async () => {
     let clock = Date.parse('2026-11-04T10:00:00.000Z')
     const o = await makeOracle({ now: () => clock })
-    o.reg.gateway.detachDaemon(o.reg.sessionStore.hostMachineId)
+    o.reg.gateway.detachDaemon(o.reg.sessionStore.hostMachine!.id)
     const effectId = mintDeviceId('eff_')
     const sessionId = newSessionId()
     appliedReply(
@@ -276,7 +276,7 @@ describe('a session.launch effect', () => {
    */
   it('refused for its credential, the record the feed carries still names the credential', async () => {
     const o = await makeOracle()
-    await o.store.repos.addRepo('/p', o.store.hostMachineId)
+    await o.store.repos.addRepo('/p', o.store.hostMachine!.id)
     const sessionId = newSessionId()
     const credentialId = 'cred_00000000-0000-4000-8000-00000000dead' as CredentialId
     // The composer's own start: the effect the web queues on Start.
@@ -284,7 +284,7 @@ describe('a session.launch effect', () => {
       effectId: mintDeviceId('eff_'),
       sessionId,
       issueId: asIssueId(mintDeviceId('iss_')),
-      target: { path: '/p', repoPath: '/p', machineId: o.store.hostMachineId },
+      target: { path: '/p', repoPath: '/p', machineId: o.store.hostMachine!.id },
       agentKind: 'claude-code',
       credentialId,
     })
@@ -324,7 +324,7 @@ describe('sessions.create is an adapter onto the effect', () => {
     // LEGACY(remove-after: 2027-01): pre-chat-upload web clients (POD-6601).
     const o = await makeOracle()
     // The draft task is filed in a repo the host reports.
-    await o.store.repos.addRepo('/p', o.store.hostMachineId)
+    await o.store.repos.addRepo('/p', o.store.hostMachine!.id)
     const sessionId = newSessionId()
 
     await o.call.sessions.create({
@@ -361,7 +361,7 @@ describe('sessions.create is an adapter onto the effect', () => {
 
   it('with no daemon attached it refuses at once as before, and creates no record', async () => {
     const o = await makeOracle()
-    o.reg.gateway.detachDaemon(o.reg.sessionStore.hostMachineId)
+    o.reg.gateway.detachDaemon(o.reg.sessionStore.hostMachine!.id)
     const sessionId = newSessionId()
 
     await expect(

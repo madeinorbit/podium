@@ -48,7 +48,11 @@ describe('machine build report over a live daemon socket', () => {
     const ws = new WebSocket(`ws://127.0.0.1:${server.port}/${options.endpoint ?? 'daemon'}`)
     const dialer = createHandshakeDialer({
       peerRole: 'machine',
-      credential: { kind: 'machineToken', token: server.machineToken, machineHint: server.registry.modules.machines.hostMachineId },
+      credential: {
+        kind: 'machineToken',
+        token: server.machineToken,
+        machineHint: server.registry.modules.machines.hostMachine!.id,
+      },
       caps: options.caps ?? (build ? ['update.delivery.feed'] : []),
       ...(build === undefined ? {} : { build }),
     })

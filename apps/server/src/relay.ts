@@ -1063,7 +1063,7 @@ export class SessionRegistry {
       // ONE READER of `<stateDir>/machine.id`: the composition root passes the id to
       // the store, and every consumer takes the store's copy. A second `readOrCreate*`
       // call anywhere in the process would be a second opinion about who this host is.
-      hostMachineId: this.store.hostMachineId,
+      hostMachine: this.store.hostMachine,
       bus: this.bus,
       ...(options.pairing ? { pairing: options.pairing } : {}),
       ...(options.installationId ? { installationId: options.installationId } : {}),
@@ -1161,7 +1161,7 @@ export class SessionRegistry {
             // local participant owns it the parent hands over, and when the
             // machine's own daemon owns it the process being replaced is this
             // all-in-one. Both take this server with them.
-            ...(machine.id === machines.hostMachineId ? { coordinator: true } : {}),
+            ...(machine.id === machines.hostMachine?.id ? { coordinator: true } : {}),
             // Explicit source checkouts are visible machines, but they are not
             // package rollout targets. Unknown stays absent and therefore fails
             // toward visibility for older daemons.
@@ -1794,7 +1794,7 @@ export class SessionRegistry {
     const serverTransfer = new ServerTransferService({
       stateRoot: stateDir(),
       sourceInstanceId: options.instanceId,
-      sourceMachineId: this.store.hostMachineId,
+      hostMachine: this.store.hostMachine,
       sourceFeedIdentity: async () => {
         const identity = await feedServing.identity()
         return { feedId: identity.feedId, feedEpoch: identity.epoch }
@@ -1803,8 +1803,9 @@ export class SessionRegistry {
       sourceSchemaVersion: () => this.store.schemaVersionForTransfer(),
       sourceWireSchemaDigest: wireSchemaDigest(),
       sourceCapable: async () => {
+        if (!this.store.hostMachine) return false
         const source = (await machines.listMachines()).find(
-          (machine) => machine.id === this.store.hostMachineId,
+          (machine) => machine.id === this.store.hostMachine?.id,
         )
         return (
           source?.online === true &&
@@ -5268,7 +5269,7 @@ export class SessionRegistry {
       executors: effectExecutors,
       runner: this.effectsRunner,
       engine: operationsModule.engine,
-      hostMachineId: this.store.hostMachineId,
+      hostMachine: this.store.hostMachine,
     })
     registerServerMoveEffect({
       executors: effectExecutors,

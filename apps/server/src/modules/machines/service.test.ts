@@ -2,7 +2,13 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Inventory, UserId } from '@podium/model'
-import { asMachineId, asSessionId, asUserId, firstAdminMemberId, isMachineOfflineForLiveTerminal } from '@podium/model'
+import {
+  asMachineId,
+  asSessionId,
+  asUserId,
+  firstAdminMemberId,
+  isMachineOfflineForLiveTerminal,
+} from '@podium/model'
 import type { DaemonPtyInputBatch, MachineSupervisorControlMessage } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { mintSigningKeyPair, publicKeyWire } from '@podium/runtime/signing'
@@ -14,12 +20,12 @@ import type { MachineOwnershipIndex } from '../../machine-access'
 import { SessionStore } from '../../store'
 import { memberFacts } from '../../store/fixtures/test-support'
 import { openTestStore } from '../../test-support/open-test-store'
+import { seedRows } from '../../test-support/seed-rows'
 import { EventBus } from '../bus'
 import { machinesForPrincipal } from '../sessions/command-ctx'
 import type { Send } from '../sessions/session'
 import { sha256 } from './enrollment'
 import { type MachinesDeps, MachinesService, type PairingGrant } from './service'
-import { seedRows } from '../../test-support/seed-rows'
 
 /** Only the socket bookkeeping is exercised here — none of these paths touch the store. */
 function makeService(): MachinesService {
@@ -39,8 +45,7 @@ function makeService(): MachinesService {
         committed: { subscribe: () => () => {} },
       },
     } as unknown as MachinesDeps['store'],
-    hostMachineId: asMachineId('host-under-test'),
-
+    hostMachine: { id: asMachineId('host-under-test') },
   } satisfies MachinesDeps
   return new MachinesService(deps)
 }
@@ -50,9 +55,14 @@ test('default machine refuses without an available assigned daemon, then selects
   try {
     await expect(svc.defaultMachine()).rejects.toThrow('no assigned and available daemon')
     const serverOnly = asMachineId('server-only')
-    await store.machines.upsertMachine({ id: serverOnly, name: 'server', hostname: 'server',
-      tokenHash: 'test', ownerUserId: firstAdminMemberId(),
-      assignment: { server: true, agentExecution: false } })
+    await store.machines.upsertMachine({
+      id: serverOnly,
+      name: 'server',
+      hostname: 'server',
+      tokenHash: 'test',
+      ownerUserId: firstAdminMemberId(),
+      assignment: { server: true, agentExecution: false },
+    })
     await svc.attach(serverOnly, () => {})
     await expect(svc.defaultMachine()).rejects.toThrow('no assigned and available daemon')
     await svc.attach(MACHINE, () => {})
@@ -90,8 +100,7 @@ async function storedService(
     instanceId: 'default',
     store,
     recoveryOnly,
-    hostMachineId: store.hostMachineId,
-
+    hostMachine: { id: store.hostMachine!.id },
   } satisfies MachinesDeps)
   return { svc, store }
 }
@@ -470,10 +479,14 @@ describe('promoted server host identity', () => {
   test('a server-only promoted host reuses its target row without minting another machine', async () => {
     const source = asMachineId('former-host')
     const target = asMachineId('promoted-host')
-    const store = await SessionStore.open(':memory:', target, { changeCapture: 'whenLogAttaches' })
+    const store = await SessionStore.open(
+      ':memory:',
+      { id: target },
+      { changeCapture: 'whenLogAttaches' },
+    )
     for (const id of [source, target]) {
       await store.machines.upsertMachine({
-    assignment: { server: false, agentExecution: true },
+        assignment: { server: false, agentExecution: true },
         id,
         name: id,
         hostname: id,
@@ -484,8 +497,7 @@ describe('promoted server host identity', () => {
     const svc = new MachinesService({
       instanceId: 'default',
       store,
-      hostMachineId: target,
-
+      hostMachine: { id: target },
     } satisfies MachinesDeps)
     const before = (await store.machines.listMachines()).map(({ id }) => id)
 
@@ -505,7 +517,12 @@ describe('MachinesService.requireAgent refuses rather than falling through (POD-
    *  `use` decision Phase 4 (POD-1079) will eventually put on the projection. */
   function serviceListing(machines: unknown[]): MachinesService {
     const svc = makeService()
-    ;(svc as unknown as { listMachines: () => unknown[] }).listMachines = () => machines.map((machine) => ({ serviceAssignment: { server: false, agentExecution: true }, availability: { daemon: true }, ...(machine as object) }))
+    ;(svc as unknown as { listMachines: () => unknown[] }).listMachines = () =>
+      machines.map((machine) => ({
+        serviceAssignment: { server: false, agentExecution: true },
+        availability: { daemon: true },
+        ...(machine as object),
+      }))
     return svc
   }
   async function refusal(machines: unknown[]): Promise<TRPCError> {
@@ -597,12 +614,23 @@ describe('pair/hello writes are visible to the next read (POD-1479)', () => {
 
   async function pairingService(): Promise<{ svc: MachinesService; store: SessionStore }> {
     const store = await openTestStore(':memory:')
-    if (!await store.users.get(firstAdminMemberId())) await memberFacts(store).create({ id: firstAdminMemberId(), displayName: 'Pairer', role: 'admin', createdAt: new Date().toISOString(), disabledAt: null }, 'hash')
+    if (!(await store.users.get(firstAdminMemberId())))
+      await memberFacts(store).create(
+        {
+          id: firstAdminMemberId(),
+          displayName: 'Pairer',
+          role: 'admin',
+          createdAt: new Date().toISOString(),
+          disabledAt: null,
+        },
+        'hash',
+      )
     const codes = new Map<string, PairingGrant>()
     const svc = new MachinesService({
-      instanceId: 'default', installationId: 'installation-test',
+      instanceId: 'default',
+      installationId: 'installation-test',
       store,
-      hostMachineId: store.hostMachineId,
+      hostMachine: { id: store.hostMachine!.id },
       pairing: {
         mint: (grant = {}) => {
           codes.set('code-1', { ...grant, installationId: 'installation-test' })
@@ -615,7 +643,6 @@ describe('pair/hello writes are visible to the next read (POD-1479)', () => {
           return grant
         },
       },
-
     } satisfies MachinesDeps)
     return { svc, store }
   }
@@ -637,7 +664,11 @@ describe('pair/hello writes are visible to the next read (POD-1479)', () => {
       name: 'Builder',
     })
     expect(result.ok).toBe(true)
-    expect((await svc.grantsForMachine(MACHINE)).map(({ grantee, verb, custody }) => ({ grantee, verb, custody: custody === true })).sort((a, b) => a.verb.localeCompare(b.verb))).toEqual([
+    expect(
+      (await svc.grantsForMachine(MACHINE))
+        .map(({ grantee, verb, custody }) => ({ grantee, verb, custody: custody === true }))
+        .sort((a, b) => a.verb.localeCompare(b.verb)),
+    ).toEqual([
       { grantee: firstAdminMemberId(), verb: 'manage', custody: true },
       { grantee: firstAdminMemberId(), verb: 'use', custody: false },
     ])
@@ -645,22 +676,32 @@ describe('pair/hello writes are visible to the next read (POD-1479)', () => {
     expect(await svc.machineName(MACHINE)).toBe('Builder')
     expect((await svc.listMachines()).find((m) => m.id === MACHINE)?.name).toBe('Builder')
     // Ownership reads the same table, and it is the authorization input.
-    expect((await svc.effectiveOwner(MACHINE))).toBe(
-      firstAdminMemberId(),
-    )
+    expect(await svc.effectiveOwner(MACHINE)).toBe(firstAdminMemberId())
   })
 
   test('an inventory lookup failure leaves the one-use pairing code retryable', async () => {
     const { svc, store } = await pairingService()
     const code = svc.mintPairingCode({ ownerUserId: firstAdminMemberId() })
-    const lookup = vi.spyOn(store.sessions, 'bindingConfirmations')
+    const lookup = vi
+      .spyOn(store.sessions, 'bindingConfirmations')
       .mockRejectedValueOnce(new Error('lookup unavailable'))
-    const frame = { type: 'pair' as const, publicKey: publicKeyWire(mintSigningKeyPair()), code, machineId: MACHINE, hostname: 'vmi.local' }
-    await expect(svc.authenticateDaemon(frame, { bindingSessionIds: ['missing'] })).rejects.toThrow('lookup unavailable')
+    const frame = {
+      type: 'pair' as const,
+      publicKey: publicKeyWire(mintSigningKeyPair()),
+      code,
+      machineId: MACHINE,
+      hostname: 'vmi.local',
+    }
+    await expect(svc.authenticateDaemon(frame, { bindingSessionIds: ['missing'] })).rejects.toThrow(
+      'lookup unavailable',
+    )
     const retried = await svc.authenticateDaemon(frame, { bindingSessionIds: ['missing'] })
-    expect(retried).toMatchObject({ ok: true, bindingConfirmations: {
-      missing: { owner: null, machineId: null, closed: false },
-    } })
+    expect(retried).toMatchObject({
+      ok: true,
+      bindingConfirmations: {
+        missing: { owner: null, machineId: null, closed: false },
+      },
+    })
     expect(lookup).toHaveBeenCalledTimes(2)
     lookup.mockRestore()
   })
@@ -669,7 +710,7 @@ describe('pair/hello writes are visible to the next read (POD-1479)', () => {
     const { svc, store } = await pairingService()
     const token = 'tok-vmi'
     await store.machines.upsertMachine({
-    assignment: { server: false, agentExecution: true },
+      assignment: { server: false, agentExecution: true },
       id: MACHINE,
       name: 'Builder',
       hostname: 'old.local',
@@ -714,8 +755,7 @@ describe('MachinesService inventory persistence (#222)', () => {
     const svc = new MachinesService({
       instanceId: 'default',
       store,
-      hostMachineId: store.hostMachineId,
-
+      hostMachine: { id: store.hostMachine!.id },
     } satisfies MachinesDeps)
     return { svc, store }
   }
@@ -733,8 +773,11 @@ describe('MachinesService inventory persistence (#222)', () => {
   test('async predicate regression: agent placement rejects every incapable repo owner', async () => {
     const { svc, store } = await makeStoreService()
     await store.machines.upsertMachine({
-    assignment: { server: false, agentExecution: true },
-      id: MACHINE, name: 'Missing', hostname: 'a', tokenHash: 'x',
+      assignment: { server: false, agentExecution: true },
+      id: MACHINE,
+      name: 'Missing',
+      hostname: 'a',
+      tokenHash: 'x',
       ownerUserId: firstAdminMemberId(),
     })
     await store.repos.addRepo('/repo', MACHINE)
@@ -749,13 +792,14 @@ describe('MachinesService inventory persistence (#222)', () => {
     const store = await openTestStore(':memory:')
     const fanout: string[] = []
     const bus = new EventBus()
-    bus.on('machine.metadataChanged', ({ machineId }) => { fanout.push(machineId) })
+    bus.on('machine.metadataChanged', ({ machineId }) => {
+      fanout.push(machineId)
+    })
     const svc = new MachinesService({
       instanceId: 'default',
       store,
-      hostMachineId: store.hostMachineId,
+      hostMachine: { id: store.hostMachine!.id },
       bus,
-
     } satisfies MachinesDeps)
     await store.machines.upsertMachine({
       assignment: { server: false, agentExecution: true },
@@ -785,9 +829,10 @@ describe('MachinesService inventory persistence (#222)', () => {
     expect(fanout).toEqual([MACHINE, MACHINE, MACHINE])
   })
 
-  test('recordInventory persists the report and it survives a hello reconnect', async () => {    const { svc, store } = await makeStoreService()
+  test('recordInventory persists the report and it survives a hello reconnect', async () => {
+    const { svc, store } = await makeStoreService()
     await store.machines.upsertMachine({
-    assignment: { server: false, agentExecution: true },
+      assignment: { server: false, agentExecution: true },
       id: MACHINE,
       name: 'vmi',
       hostname: 'vmi',
@@ -807,7 +852,7 @@ describe('MachinesService inventory persistence (#222)', () => {
   test('recordInventory keeps served descriptors in memory and clears them with the incarnation (POD-4475)', async () => {
     const { svc, store } = await makeStoreService()
     await store.machines.upsertMachine({
-    assignment: { server: false, agentExecution: true },
+      assignment: { server: false, agentExecution: true },
       id: MACHINE,
       name: 'vmi',
       hostname: 'vmi',
@@ -837,7 +882,7 @@ describe('MachinesService inventory persistence (#222)', () => {
   test('coalesces inventory while the transfer fence is read-only and resumes after abort', async () => {
     const { svc, store } = await makeStoreService()
     await store.machines.upsertMachine({
-    assignment: { server: false, agentExecution: true },
+      assignment: { server: false, agentExecution: true },
       id: MACHINE,
       name: 'vmi',
       hostname: 'vmi',
@@ -865,7 +910,7 @@ describe('MachinesService inventory persistence (#222)', () => {
   test('names the harness login the target machine reports', async () => {
     const { svc, store } = await makeStoreService()
     await store.machines.upsertMachine({
-    assignment: { server: false, agentExecution: true },
+      assignment: { server: false, agentExecution: true },
       id: MACHINE,
       name: 'Builder',
       hostname: 'vmi',
@@ -891,7 +936,7 @@ describe('MachinesService inventory persistence (#222)', () => {
   test('a reconnect treats persisted absence as probing and a spawn wait joins the report', async () => {
     const { svc, store } = await makeStoreService()
     await store.machines.upsertMachine({
-    assignment: { server: false, agentExecution: true },
+      assignment: { server: false, agentExecution: true },
       id: MACHINE,
       name: 'Builder',
       hostname: 'vmi',
@@ -905,7 +950,9 @@ describe('MachinesService inventory persistence (#222)', () => {
     const daemon = recorder()
     await svc.attach(MACHINE, daemon.send)
 
-    expect((await svc.listMachines()).find((machine) => machine.id === MACHINE)?.inventory).toBeUndefined()
+    expect(
+      (await svc.listMachines()).find((machine) => machine.id === MACHINE)?.inventory,
+    ).toBeUndefined()
     await expect(svc.requireAgent(MACHINE, 'claude-code')).rejects.toThrow(
       "machine 'Builder' is still probing whether claude-code is installed",
     )
@@ -931,7 +978,7 @@ describe('MachinesService inventory persistence (#222)', () => {
   test('explicit session placement rejects a missing harness but starts logged out', async () => {
     const { svc, store } = await makeStoreService()
     await store.machines.upsertMachine({
-    assignment: { server: false, agentExecution: true },
+      assignment: { server: false, agentExecution: true },
       id: MACHINE,
       name: 'Builder',
       hostname: 'vmi',
@@ -957,7 +1004,7 @@ describe('MachinesService inventory persistence (#222)', () => {
     const { svc, store } = await makeStoreService()
     const other = 'capable'
     await store.machines.upsertMachine({
-    assignment: { server: false, agentExecution: true },
+      assignment: { server: false, agentExecution: true },
       id: MACHINE,
       name: 'Missing',
       hostname: 'a',
@@ -965,7 +1012,7 @@ describe('MachinesService inventory persistence (#222)', () => {
       ownerUserId: firstAdminMemberId(),
     })
     await store.machines.upsertMachine({
-    assignment: { server: false, agentExecution: true },
+      assignment: { server: false, agentExecution: true },
       id: other,
       name: 'Capable',
       hostname: 'b',
@@ -1024,7 +1071,7 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
     svc = new MachinesService({
       instanceId: 'default',
       store,
-      hostMachineId: store.hostMachineId,
+      hostMachine: { id: store.hostMachine!.id },
       userExists: (id) => known.has(id),
 
       // Called on every write of the machine's records (POD-6644). Reading the
@@ -1038,7 +1085,7 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
       },
     } satisfies MachinesDeps)
     await store.machines.upsertMachine({
-    assignment: { server: false, agentExecution: true },
+      assignment: { server: false, agentExecution: true },
       id: MACHINE,
       name: 'Builder',
       hostname: 'vmi.local',
@@ -1058,15 +1105,15 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
     const { svc, store, dir, broadcasts } = await transferWorld()
     try {
       // Read on the pre-transfer fleet first, so the read-back is a second read.
-      expect((await svc.effectiveOwner(MACHINE))).toBe(OWNER_A)
+      expect(await svc.effectiveOwner(MACHINE)).toBe(OWNER_A)
 
       await svc.transferMachineOwnership(MACHINE, asUserId(OWNER_B), asUserId(OWNER_A))
 
       // 1 — THE ROW. Read straight from the store.
-      expect((await store.machines.custodian(MACHINE))).toBe(OWNER_B)
+      expect(await store.machines.custodian(MACHINE)).toBe(OWNER_B)
       // 2 — THE FLEET. The same public read as above, with no manual step in
       // between.
-      expect((await svc.effectiveOwner(MACHINE))).toBe(OWNER_B)
+      expect(await svc.effectiveOwner(MACHINE)).toBe(OWNER_B)
       // 3 — THE RECORDS, and their ORDERING: they were written, and every
       // write already read the new owner, so none was made before the
       // transition committed (the grant change may republish them too).
@@ -1085,56 +1132,142 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
     try {
       await svc.shareMachine(MACHINE, OWNER_B, 'use', { actor: admin, onBehalfOf: admin })
       {
-      const currentCustodian = await svc.effectiveOwner(MACHINE)
-      expect((await svc.grantsForMachine(MACHINE)).filter(edge => edge.grantee !== currentCustodian)).toHaveLength(1)
+        const currentCustodian = await svc.effectiveOwner(MACHINE)
+        expect(
+          (await svc.grantsForMachine(MACHINE)).filter((edge) => edge.grantee !== currentCustodian),
+        ).toHaveLength(1)
       }
-      await expect(svc.shareMachine(MACHINE, OWNER_B, 'manage', { actor: OWNER_B, onBehalfOf: OWNER_B })).rejects.toThrow('only the machine owner or an admin')
-      await expect(svc.transferMachineOwnership(MACHINE, admin, admin, { manage: () => false })).rejects.toThrow('only the machine owner or an admin')
-      expect((await store.machines.custodian(MACHINE))).toBe(OWNER_A)
+      await expect(
+        svc.shareMachine(MACHINE, OWNER_B, 'manage', { actor: OWNER_B, onBehalfOf: OWNER_B }),
+      ).rejects.toThrow('only the machine owner or an admin')
+      await expect(
+        svc.transferMachineOwnership(MACHINE, admin, admin, { manage: () => false }),
+      ).rejects.toThrow('only the machine owner or an admin')
+      expect(await store.machines.custodian(MACHINE)).toBe(OWNER_A)
       await svc.transferMachineOwnership(MACHINE, admin, admin, {
         manage: () => true,
         attribution: { actorKind: 'agent', actorId: 'session:admin-agent', onBehalfOf: admin },
       })
-      expect((await store.machines.custodian(MACHINE))).toBe(admin)
+      expect(await store.machines.custodian(MACHINE)).toBe(admin)
       {
-      const currentCustodian = await svc.effectiveOwner(MACHINE)
-      expect((await svc.grantsForMachine(MACHINE)).filter(edge => edge.grantee !== currentCustodian)).toEqual([])
+        const currentCustodian = await svc.effectiveOwner(MACHINE)
+        expect(
+          (await svc.grantsForMachine(MACHINE)).filter((edge) => edge.grantee !== currentCustodian),
+        ).toEqual([])
       }
       // The admin's share is audited too (POD-6700), under the admin's own name.
       expect(await store.settingsAudit.list()).toEqual([
         expect.objectContaining({
-          command: 'machines.share', actorKind: 'user', actorId: admin, onBehalfOf: admin,
+          command: 'machines.share',
+          actorKind: 'user',
+          actorId: admin,
+          onBehalfOf: admin,
           detail: { machineId: MACHINE, grantee: OWNER_B, verb: 'use' },
         }),
         expect.objectContaining({
-          command: 'takeover', actorKind: 'agent', actorId: 'session:admin-agent', onBehalfOf: admin,
+          command: 'takeover',
+          actorKind: 'agent',
+          actorId: 'session:admin-agent',
+          onBehalfOf: admin,
           detail: { machineId: MACHINE, previousOwnerUserId: OWNER_A, newOwnerUserId: admin },
         }),
       ])
-    } finally { rmSync(dir, { recursive: true, force: true }) }
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 
   test('admin SEE discloses management and health but no USE detail; agent scope only narrows', async () => {
     const { svc, dir } = await transferWorld()
     try {
-      const inventory: Inventory = { os: 'linux', arch: 'x64', agents: [{ kind: 'claude-code', installed: true, path: '/private/bin/claude', login: { state: 'in', account: 'private@example.com' } }], tools: [] }
+      const inventory: Inventory = {
+        os: 'linux',
+        arch: 'x64',
+        agents: [
+          {
+            kind: 'claude-code',
+            installed: true,
+            path: '/private/bin/claude',
+            login: { state: 'in', account: 'private@example.com' },
+          },
+        ],
+        tools: [],
+      }
       await svc.recordInventory(MACHINE, inventory)
-      const principal: CommandPrincipal = { kind: 'user', user: firstAdminMemberId(), capability: { role: 'admin', scope: { kind: 'all' } } }
-      const ownership: MachineOwnershipIndex = { rowFor: (id) => id === MACHINE ? { machine: id, owner: asUserId(OWNER_A), grants: [{ subject: asUserId(OWNER_A), verb: 'use' }, { subject: asUserId(OWNER_A), verb: 'manage', custody: true }], daemonAssigned: true, daemonAvailable: true } : undefined }
+      const principal: CommandPrincipal = {
+        kind: 'user',
+        user: firstAdminMemberId(),
+        capability: { role: 'admin', scope: { kind: 'all' } },
+      }
+      const ownership: MachineOwnershipIndex = {
+        rowFor: (id) =>
+          id === MACHINE
+            ? {
+                machine: id,
+                owner: asUserId(OWNER_A),
+                grants: [
+                  { subject: asUserId(OWNER_A), verb: 'use' },
+                  { subject: asUserId(OWNER_A), verb: 'manage', custody: true },
+                ],
+                daemonAssigned: true,
+                daemonAvailable: true,
+              }
+            : undefined,
+      }
       const raw = (await svc.listMachines()).find((m) => m.id === MACHINE)!
       const projected = (await machinesForPrincipal({ machines: svc }, principal, ownership))[0]!
-      expect(projected).toMatchObject({ id: MACHINE, hostname: 'vmi.local', owned: false, transferable: true, adoptable: false, use: 'denied' })
+      expect(projected).toMatchObject({
+        id: MACHINE,
+        hostname: 'vmi.local',
+        owned: false,
+        transferable: true,
+        adoptable: false,
+        use: 'denied',
+      })
       expect(projected).not.toHaveProperty('inventory')
       expect(projected).not.toHaveProperty('harnessVersions')
-      expect(Object.keys(projected).sort()).toEqual([...Object.keys(raw).filter((key) => !['inventory', 'harnessVersions'].includes(key)), 'use', 'owned', 'transferable', 'unowned', 'adoptable', 'supersedable'].sort())
-      const granted: MachineOwnershipIndex = { rowFor: (id) => { const row = ownership.rowFor(id); return row && { ...row, grants: [...row.grants, { subject: firstAdminMemberId(), verb: 'use' }] } } }
-      expect((await machinesForPrincipal({ machines: svc }, principal, granted))[0]?.inventory).toEqual(inventory)
-      const agent: CommandPrincipal = { kind: 'agent', agentSessionId: asSessionId('leaf'), chain: [asSessionId('parent')], onBehalfOf: firstAdminMemberId(), capability: { role: 'admin', scope: { kind: 'all' }, actorSessionId: asSessionId('leaf') } }
-      const narrowed = { ...granted, delegatedMachines: (id: string) => new Set(id === 'parent' ? [] : [MACHINE]) }
+      expect(Object.keys(projected).sort()).toEqual(
+        [
+          ...Object.keys(raw).filter((key) => !['inventory', 'harnessVersions'].includes(key)),
+          'use',
+          'owned',
+          'transferable',
+          'unowned',
+          'adoptable',
+          'supersedable',
+        ].sort(),
+      )
+      const granted: MachineOwnershipIndex = {
+        rowFor: (id) => {
+          const row = ownership.rowFor(id)
+          return (
+            row && {
+              ...row,
+              grants: [...row.grants, { subject: firstAdminMemberId(), verb: 'use' }],
+            }
+          )
+        },
+      }
+      expect(
+        (await machinesForPrincipal({ machines: svc }, principal, granted))[0]?.inventory,
+      ).toEqual(inventory)
+      const agent: CommandPrincipal = {
+        kind: 'agent',
+        agentSessionId: asSessionId('leaf'),
+        chain: [asSessionId('parent')],
+        onBehalfOf: firstAdminMemberId(),
+        capability: { role: 'admin', scope: { kind: 'all' }, actorSessionId: asSessionId('leaf') },
+      }
+      const narrowed = {
+        ...granted,
+        delegatedMachines: (id: string) => new Set(id === 'parent' ? [] : [MACHINE]),
+      }
       const limited = (await machinesForPrincipal({ machines: svc }, agent, narrowed))[0]!
       expect(limited).toMatchObject({ use: 'denied', transferable: false })
       expect(limited).not.toHaveProperty('inventory')
-    } finally { rmSync(dir, { recursive: true, force: true }) }
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 
   test('an audit failure rolls back takeover and its grant removal', async () => {
@@ -1144,16 +1277,24 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
       // The share writes its own audit row (POD-6700); the takeover must add none.
       const auditBefore = await store.settingsAudit.list()
       expect(auditBefore).toEqual([expect.objectContaining({ command: 'machines.share' })])
-      const append = vi.spyOn(store.settingsAudit, 'append').mockRejectedValueOnce(new Error('audit unavailable'))
-      await expect(svc.transferMachineOwnership(MACHINE, firstAdminMemberId(), firstAdminMemberId())).rejects.toThrow('audit unavailable')
+      const append = vi
+        .spyOn(store.settingsAudit, 'append')
+        .mockRejectedValueOnce(new Error('audit unavailable'))
+      await expect(
+        svc.transferMachineOwnership(MACHINE, firstAdminMemberId(), firstAdminMemberId()),
+      ).rejects.toThrow('audit unavailable')
       append.mockRestore()
-      expect((await store.machines.custodian(MACHINE))).toBe(OWNER_A)
+      expect(await store.machines.custodian(MACHINE)).toBe(OWNER_A)
       {
-      const currentCustodian = await svc.effectiveOwner(MACHINE)
-      expect((await svc.grantsForMachine(MACHINE)).filter(edge => edge.grantee !== currentCustodian)).toHaveLength(1)
+        const currentCustodian = await svc.effectiveOwner(MACHINE)
+        expect(
+          (await svc.grantsForMachine(MACHINE)).filter((edge) => edge.grantee !== currentCustodian),
+        ).toHaveLength(1)
       }
       expect(await store.settingsAudit.list()).toEqual(auditBefore)
-    } finally { rmSync(dir, { recursive: true, force: true }) }
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 
   test('admin transfer to another member is not a takeover', async () => {
@@ -1161,7 +1302,9 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
     try {
       await svc.transferMachineOwnership(MACHINE, asUserId(OWNER_B), firstAdminMemberId())
       expect((await store.settingsAudit.list()).at(-1)?.command).toBe('machines.transferOwnership')
-    } finally { rmSync(dir, { recursive: true, force: true }) }
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 
   test('the outgoing owner’s audience does not travel with the machine', async () => {
@@ -1180,8 +1323,10 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
         onBehalfOf: OWNER_A,
       })
       {
-      const currentCustodian = await svc.effectiveOwner(MACHINE)
-      expect((await svc.grantsForMachine(MACHINE)).filter(edge => edge.grantee !== currentCustodian)).toHaveLength(1)
+        const currentCustodian = await svc.effectiveOwner(MACHINE)
+        expect(
+          (await svc.grantsForMachine(MACHINE)).filter((edge) => edge.grantee !== currentCustodian),
+        ).toHaveLength(1)
       }
 
       await svc.transferMachineOwnership(MACHINE, asUserId(OWNER_B), asUserId(OWNER_A))
@@ -1189,8 +1334,10 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
       // Carol's `use` was Alice's deliberate act on Alice's hardware. It is not
       // Bob's, and `use` is a code-execution boundary (readiness M2).
       {
-      const currentCustodian = await svc.effectiveOwner(MACHINE)
-      expect((await svc.grantsForMachine(MACHINE)).filter(edge => edge.grantee !== currentCustodian)).toHaveLength(0)
+        const currentCustodian = await svc.effectiveOwner(MACHINE)
+        expect(
+          (await svc.grantsForMachine(MACHINE)).filter((edge) => edge.grantee !== currentCustodian),
+        ).toHaveLength(0)
       }
     } finally {
       rmSync(dir, { recursive: true, force: true })
@@ -1206,7 +1353,7 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
       await expect(
         svc.transferMachineOwnership(MACHINE, asUserId(OWNER_A), asUserId(OWNER_B)),
       ).rejects.toThrow('only the machine owner or an admin may transfer ownership')
-      expect((await store.machines.custodian(MACHINE))).toBe(OWNER_A)
+      expect(await store.machines.custodian(MACHINE)).toBe(OWNER_A)
       // A refused transfer is SILENT — no ledger append, no broadcast.
       expect(broadcasts).toEqual([])
       expect(await svc.effectiveOwner(MACHINE)).toBe(OWNER_A)
@@ -1224,7 +1371,7 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
       // The hazard this closes: an owner the ledger records but `userExists`
       // cannot resolve is quarantined by the next reconcile — owner null, usable
       // by nobody. Nothing was appended, so nothing to reconcile.
-      expect((await store.machines.custodian(MACHINE))).toBe(OWNER_A)
+      expect(await store.machines.custodian(MACHINE)).toBe(OWNER_A)
       expect(await svc.effectiveOwner(MACHINE)).toBe(OWNER_A)
       expect(broadcasts).toEqual([])
     } finally {
@@ -1274,13 +1421,12 @@ describe('adoption of an unowned machine (POD-1494)', () => {
       new MachinesService({
         instanceId: 'default',
         store,
-        hostMachineId: store.hostMachineId,
+        hostMachine: { id: store.hostMachine!.id },
         userExists: (id) => known.has(id),
-
       } satisfies MachinesDeps)
     const svc = build()
     await store.machines.upsertMachine({
-    assignment: { server: false, agentExecution: true },
+      assignment: { server: false, agentExecution: true },
       id: MACHINE,
       name: 'Builder',
       hostname: 'vmi.local',
@@ -1289,7 +1435,10 @@ describe('adoption of an unowned machine (POD-1494)', () => {
     })
     await store.machines.setMachineOwner(MACHINE, opts.rowOwner ?? null)
     return {
-      svc, store, dir, known,
+      svc,
+      store,
+      dir,
+      known,
       reboot: async () => {
         return build()
       },
@@ -1304,9 +1453,13 @@ describe('adoption of an unowned machine (POD-1494)', () => {
     const { svc, store, dir } = await adoptWorld()
     try {
       await expect(svc.adoptMachine(MACHINE, ALICE, BOB)).rejects.toThrow('only an admin')
-      await expect(svc.adoptMachine(MACHINE, ALICE, firstAdminMemberId(), { manage: () => false })).rejects.toThrow('only an admin')
-      expect((await store.machines.custodian(MACHINE))).toBeNull()
-    } finally { rmSync(dir, { recursive: true, force: true }) }
+      await expect(
+        svc.adoptMachine(MACHINE, ALICE, firstAdminMemberId(), { manage: () => false }),
+      ).rejects.toThrow('only an admin')
+      expect(await store.machines.custodian(MACHINE)).toBeNull()
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 
   test('state 1 — NEVER RECORDED: no owner event was ever appended', async () => {
@@ -1318,7 +1471,7 @@ describe('adoption of an unowned machine (POD-1494)', () => {
       await svc.adoptMachine(MACHINE, asUserId(ALICE), firstAdminMemberId())
 
       expect(await svc.effectiveOwner(MACHINE)).toBe(ALICE)
-      expect((await store.machines.custodian(MACHINE))).toBe(ALICE)
+      expect(await store.machines.custodian(MACHINE)).toBe(ALICE)
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
@@ -1335,7 +1488,7 @@ describe('adoption of an unowned machine (POD-1494)', () => {
       await svc.adoptMachine(MACHINE, asUserId(BOB), firstAdminMemberId())
 
       expect(await svc.effectiveOwner(MACHINE)).toBe(BOB)
-      expect((await store.machines.custodian(MACHINE))).toBe(BOB)
+      expect(await store.machines.custodian(MACHINE)).toBe(BOB)
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
@@ -1346,12 +1499,15 @@ describe('adoption of an unowned machine (POD-1494)', () => {
     try {
       known.delete(ALICE)
       const rebooted = await reboot()
-      expect((await store.machines.custodian(MACHINE))).toBe(ALICE)
+      expect(await store.machines.custodian(MACHINE)).toBe(ALICE)
       expect(await rebooted.effectiveOwner(MACHINE)).toBe(ALICE)
-      await expect(rebooted.adoptMachine(MACHINE, BOB, firstAdminMemberId())).rejects.toThrow('machine already has an owner')
-    } finally { rmSync(dir, { recursive: true, force: true }) }
+      await expect(rebooted.adoptMachine(MACHINE, BOB, firstAdminMemberId())).rejects.toThrow(
+        'machine already has an owner',
+      )
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
-
 
   test('a machine with a LIVE owner is refused — that is transfer’s act, not this one', async () => {
     const { svc, store, dir } = await adoptWorld({ rowOwner: ALICE })
@@ -1361,14 +1517,16 @@ describe('adoption of an unowned machine (POD-1494)', () => {
       // TWO PRINCIPALS' WORTH OF ROUTE, at the service seam: adoption refuses
       // Alice's machine whether the adopter meant to take it themselves or hand
       // it to someone else. Neither recipient makes the machine unowned.
-      await expect(svc.adoptMachine(MACHINE, asUserId(BOB), firstAdminMemberId())).rejects.toThrow('machine already has an owner')
-      await expect(svc.adoptMachine(MACHINE, asUserId(ALICE), firstAdminMemberId())).rejects.toThrow(
+      await expect(svc.adoptMachine(MACHINE, asUserId(BOB), firstAdminMemberId())).rejects.toThrow(
         'machine already has an owner',
       )
+      await expect(
+        svc.adoptMachine(MACHINE, asUserId(ALICE), firstAdminMemberId()),
+      ).rejects.toThrow('machine already has an owner')
 
       // Refused means SILENT: the ledger was not appended and the row is intact.
       expect(await svc.effectiveOwner(MACHINE)).toBe(ALICE)
-      expect((await store.machines.custodian(MACHINE))).toBe(ALICE)
+      expect(await store.machines.custodian(MACHINE)).toBe(ALICE)
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
@@ -1377,26 +1535,33 @@ describe('adoption of an unowned machine (POD-1494)', () => {
   test('adoption reads database ownership even when legacy enrollment disagrees', async () => {
     const { svc, store, dir } = await adoptWorld({ rowOwner: ALICE })
     try {
-      openEnrollmentLedger(dir).appendEnroll({ id: 'legacy-alice', machineId: MACHINE, serial: 1, ownerUserId: ALICE, at: '2026-09-01T00:00:00Z' })
+      openEnrollmentLedger(dir).appendEnroll({
+        id: 'legacy-alice',
+        machineId: MACHINE,
+        serial: 1,
+        ownerUserId: ALICE,
+        at: '2026-09-01T00:00:00Z',
+      })
       await store.machines.setMachineOwner(MACHINE, null)
       expect(await svc.effectiveOwner(MACHINE)).toBeNull()
       await svc.adoptMachine(MACHINE, BOB, firstAdminMemberId())
       expect(await svc.effectiveOwner(MACHINE)).toBe(BOB)
-    } finally { rmSync(dir, { recursive: true, force: true }) }
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
-
 
   test('an unknown recipient is refused rather than re-quarantining the machine', async () => {
     const { svc, store, dir } = await adoptWorld()
     try {
-      await expect(svc.adoptMachine(MACHINE, asUserId('user:typo'), firstAdminMemberId())).rejects.toThrow(
-        'unknown user: user:typo',
-      )
+      await expect(
+        svc.adoptMachine(MACHINE, asUserId('user:typo'), firstAdminMemberId()),
+      ).rejects.toThrow('unknown user: user:typo')
       // The hazard: adopting to an unresolvable id appends an owner the next
       // reconcile cannot resolve, so the machine comes out of adoption in
       // exactly the quarantine it went in with. Nothing was appended.
       expect(await svc.effectiveOwner(MACHINE)).toBeNull()
-      expect((await store.machines.custodian(MACHINE))).toBeNull()
+      expect(await store.machines.custodian(MACHINE)).toBeNull()
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
@@ -1406,18 +1571,18 @@ describe('adoption of an unowned machine (POD-1494)', () => {
     const { svc, store, dir } = await adoptWorld()
     try {
       await store.machines.upsertMachine({
-    assignment: { server: false, agentExecution: true },
-        id: store.hostMachineId,
+        assignment: { server: false, agentExecution: true },
+        id: store.hostMachine!.id,
         name: 'host',
         hostname: 'host.local',
         tokenHash: sha256('host-tok'),
         ownerUserId: null,
       })
       expect(await svc.grantHostMachineIfUnowned(asUserId(ALICE))).toBe(true)
-      expect((await store.machines.custodian(store.hostMachineId))).toBe(ALICE)
+      expect(await store.machines.custodian(store.hostMachine!.id)).toBe(ALICE)
       // Idempotent and never a takeover: an owned row is left exactly as it is.
       expect(await svc.grantHostMachineIfUnowned(asUserId(BOB))).toBe(false)
-      expect((await store.machines.custodian(store.hostMachineId))).toBe(ALICE)
+      expect(await store.machines.custodian(store.hostMachine!.id)).toBe(ALICE)
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
@@ -1426,9 +1591,9 @@ describe('adoption of an unowned machine (POD-1494)', () => {
   test('an unknown machine is refused before anything is read', async () => {
     const { svc, dir } = await adoptWorld()
     try {
-      await expect(svc.adoptMachine(asMachineId('ghost'), asUserId(ALICE), firstAdminMemberId())).rejects.toThrow(
-        "unknown machine 'ghost'",
-      )
+      await expect(
+        svc.adoptMachine(asMachineId('ghost'), asUserId(ALICE), firstAdminMemberId()),
+      ).rejects.toThrow("unknown machine 'ghost'")
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
@@ -1444,11 +1609,12 @@ describe('adoption of an unowned machine (POD-1494)', () => {
       await svc.adoptMachine(MACHINE, ALICE, firstAdminMemberId())
       await store.machines.setMachineOwner(MACHINE, null)
       const rebooted = await reboot()
-      expect((await store.machines.custodian(MACHINE))).toBeNull()
+      expect(await store.machines.custodian(MACHINE)).toBeNull()
       expect(await rebooted.effectiveOwner(MACHINE)).toBeNull()
-    } finally { rmSync(dir, { recursive: true, force: true }) }
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
-
 
   test('a restored member cannot displace the database adopter', async () => {
     const { svc, store, dir, known, reboot } = await adoptWorld({ rowOwner: ALICE })
@@ -1459,9 +1625,10 @@ describe('adoption of an unowned machine (POD-1494)', () => {
       await svc.adoptMachine(MACHINE, BOB, firstAdminMemberId())
       known.add(ALICE)
       expect(await (await reboot()).effectiveOwner(MACHINE)).toBe(BOB)
-    } finally { rmSync(dir, { recursive: true, force: true }) }
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
-
 
   test('grant edges surviving on the unowned row do not reach the adopter', async () => {
     const { svc, store, dir } = await adoptWorld()
@@ -1482,8 +1649,10 @@ describe('adoption of an unowned machine (POD-1494)', () => {
         onBehalfOf: ALICE,
       })
       {
-      const currentCustodian = await svc.effectiveOwner(MACHINE)
-      expect((await svc.grantsForMachine(MACHINE)).filter(edge => edge.grantee !== currentCustodian)).toHaveLength(1)
+        const currentCustodian = await svc.effectiveOwner(MACHINE)
+        expect(
+          (await svc.grantsForMachine(MACHINE)).filter((edge) => edge.grantee !== currentCustodian),
+        ).toHaveLength(1)
       }
 
       await svc.adoptMachine(MACHINE, asUserId(BOB), firstAdminMemberId())
@@ -1491,8 +1660,10 @@ describe('adoption of an unowned machine (POD-1494)', () => {
       // Carol's `use` was approved under a regime that is gone, on hardware that
       // is now Bob's. `use` is a code-execution boundary (readiness M2).
       {
-      const currentCustodian = await svc.effectiveOwner(MACHINE)
-      expect((await svc.grantsForMachine(MACHINE)).filter(edge => edge.grantee !== currentCustodian)).toHaveLength(0)
+        const currentCustodian = await svc.effectiveOwner(MACHINE)
+        expect(
+          (await svc.grantsForMachine(MACHINE)).filter((edge) => edge.grantee !== currentCustodian),
+        ).toHaveLength(0)
       }
     } finally {
       rmSync(dir, { recursive: true, force: true })
@@ -1507,16 +1678,15 @@ describe('listMachines resolves the fleet channel once per call (POD-3840)', () 
     const svc = new MachinesService({
       instanceId: 'default',
       store,
-      hostMachineId: store.hostMachineId,
+      hostMachine: { id: store.hostMachine!.id },
       fleetUpdateChannel: () => {
         resolved++
         return 'stable'
       },
-
     } satisfies MachinesDeps)
     for (const id of ['m-1', 'm-2', 'm-3']) {
       await store.machines.upsertMachine({
-    assignment: { server: false, agentExecution: true },
+        assignment: { server: false, agentExecution: true },
         id,
         name: id,
         hostname: `${id}.local`,
@@ -1543,19 +1713,50 @@ describe('retained revocation and explicit replacement', () => {
     const codes = new Map<string, PairingGrant>()
     let serial = 0
     const svc = new MachinesService({
-      instanceId: 'revocation-test', installationId: 'installation-test', store, hostMachineId: store.hostMachineId,
+      instanceId: 'revocation-test',
+      installationId: 'installation-test',
+      store,
+      hostMachine: { id: store.hostMachine!.id },
       pairing: {
-        mint: (grant = {}) => { const code = `code-${++serial}`; codes.set(code, { ...grant, installationId: 'installation-test' }); return code },
+        mint: (grant = {}) => {
+          const code = `code-${++serial}`
+          codes.set(code, { ...grant, installationId: 'installation-test' })
+          return code
+        },
         peek: (code) => codes.get(code),
-        redeem: (code) => { const grant = codes.get(code); codes.delete(code); return grant },
+        redeem: (code) => {
+          const grant = codes.get(code)
+          codes.delete(code)
+          return grant
+        },
       },
-      
     })
-    if (!await store.users.get(firstAdminMemberId())) await memberFacts(store).create({ id: firstAdminMemberId(), displayName: 'Pairer', role: 'admin', createdAt: new Date().toISOString(), disabledAt: null }, 'hash')
-    const frame = { type: 'pair' as const, publicKey: publicKeyWire(mintSigningKeyPair()), machineId: MACHINE, hostname: 'revocation.test' }
+    if (!(await store.users.get(firstAdminMemberId())))
+      await memberFacts(store).create(
+        {
+          id: firstAdminMemberId(),
+          displayName: 'Pairer',
+          role: 'admin',
+          createdAt: new Date().toISOString(),
+          disabledAt: null,
+        },
+        'hash',
+      )
+    const frame = {
+      type: 'pair' as const,
+      publicKey: publicKeyWire(mintSigningKeyPair()),
+      machineId: MACHINE,
+      hostname: 'revocation.test',
+    }
     // Explicit stage-1 fixture: replacement moves this old bearer row to a keypair.
     const token = 'stage-1-token'
-    await store.machines.upsertMachine({ id: MACHINE, hostname: frame.hostname, name: 'old machine', tokenHash: sha256(token), ownerUserId: firstAdminMemberId() })
+    await store.machines.upsertMachine({
+      id: MACHINE,
+      hostname: frame.hostname,
+      name: 'old machine',
+      tokenHash: sha256(token),
+      ownerUserId: firstAdminMemberId(),
+    })
     return { svc, store, frame, token, codes }
   }
 
@@ -1570,18 +1771,35 @@ describe('retained revocation and explicit replacement', () => {
       const row = await store.machines.getMachine(MACHINE)
       expect(row?.revokedAt).toEqual(expect.any(String))
       expect(await store.machines.custodian(MACHINE)).toBe(firstAdminMemberId())
-      expect(await svc.authenticateDaemon({ type: 'hello', machineId: MACHINE, hostname: frame.hostname, token })).toMatchObject({ ok: false })
+      expect(
+        await svc.authenticateDaemon({
+          type: 'hello',
+          machineId: MACHINE,
+          hostname: frame.hostname,
+          token,
+        }),
+      ).toMatchObject({ ok: false })
       expect(await store.machines.getMachineByToken(MACHINE, token)).toBe(false)
-      expect((await svc.listMachines()).find(m => m.id === MACHINE)).toMatchObject({ revokedAt: row?.revokedAt, online: false })
-      expect((await store.settingsAudit.list()).some(e => e.command === 'machines.revoke')).toBe(true)
-      const replacement = await svc.authenticateDaemon({ ...frame, code: await svc.mintReplacementPairingCode(MACHINE, { ownerUserId: firstAdminMemberId() }) })
+      expect((await svc.listMachines()).find((m) => m.id === MACHINE)).toMatchObject({
+        revokedAt: row?.revokedAt,
+        online: false,
+      })
+      expect((await store.settingsAudit.list()).some((e) => e.command === 'machines.revoke')).toBe(
+        true,
+      )
+      const replacement = await svc.authenticateDaemon({
+        ...frame,
+        code: await svc.mintReplacementPairingCode(MACHINE, { ownerUserId: firstAdminMemberId() }),
+      })
       expect(replacement.ok).toBe(true)
       const got: ControlMessage[] = []
       await svc.attach(MACHINE, (message) => got.push(message), [])
       await svc.flushQueued(MACHINE)
       expect(got).not.toContainEqual(keystroke)
       expect(await store.machines.getMachineByToken(MACHINE, token)).toBe(false)
-    } finally { await store.close() }
+    } finally {
+      await store.close()
+    }
   })
 
   test('ordinary pairing cannot replace a revoked row; concurrent explicit replacements have one winner', async () => {
@@ -1589,22 +1807,35 @@ describe('retained revocation and explicit replacement', () => {
     try {
       await svc.revokeMachine(MACHINE)
       const ordinary = svc.mintPairingCode({ ownerUserId: firstAdminMemberId() })
-      expect(await svc.authenticateDaemon({ ...frame, code: ordinary })).toMatchObject({ ok: false })
+      expect(await svc.authenticateDaemon({ ...frame, code: ordinary })).toMatchObject({
+        ok: false,
+      })
       expect(codes.has(ordinary)).toBe(true)
-      const replacementCodes = await Promise.all([0, 1].map(() => svc.mintReplacementPairingCode(MACHINE, { ownerUserId: firstAdminMemberId() })))
-      const results = await Promise.all(replacementCodes.map(code => svc.authenticateDaemon({ ...frame, code })))
-      expect(results.filter(r => r.ok)).toHaveLength(1)
-      expect(replacementCodes.filter(code => codes.has(code))).toHaveLength(1)
-      const winner = results.find(r => r.ok)
+      const replacementCodes = await Promise.all(
+        [0, 1].map(() =>
+          svc.mintReplacementPairingCode(MACHINE, { ownerUserId: firstAdminMemberId() }),
+        ),
+      )
+      const results = await Promise.all(
+        replacementCodes.map((code) => svc.authenticateDaemon({ ...frame, code })),
+      )
+      expect(results.filter((r) => r.ok)).toHaveLength(1)
+      expect(replacementCodes.filter((code) => codes.has(code))).toHaveLength(1)
+      const winner = results.find((r) => r.ok)
       if (!winner?.ok || !winner.enrolledPublicKey) throw new Error('no replacement credential')
       expect(await store.machines.credentialIncarnation(MACHINE)).toBe(winner.enrolledPublicKey)
       expect(await store.machines.getMachineByToken(MACHINE, token)).toBe(false)
       expect((await store.machines.getMachine(MACHINE))?.revokedAt).toBeNull()
       await svc.revokeMachine(MACHINE)
-      const unused = replacementCodes.find(code => codes.has(code))!
-      expect(await svc.authenticateDaemon({ ...frame, code: unused })).toMatchObject({ ok: false, reason: 'replacement credential has changed' })
+      const unused = replacementCodes.find((code) => codes.has(code))!
+      expect(await svc.authenticateDaemon({ ...frame, code: unused })).toMatchObject({
+        ok: false,
+        reason: 'replacement credential has changed',
+      })
       expect(codes.has(unused)).toBe(true)
-    } finally { await store.close() }
+    } finally {
+      await store.close()
+    }
   })
 })
 
@@ -1616,9 +1847,21 @@ describe('current daemon recovery projection', () => {
     try {
       await svc.attach(MACHINE, first.send)
       const row = async () => (await svc.listMachines()).find((m) => m.id === MACHINE)!
-      expect((await row()).daemonReadiness).toEqual({ state: 'attached', reason: 'inventory pending', quarantinedBindings: 0 })
-      svc.recordDaemonReadiness(MACHINE, { state: 'recovering', reason: '2 quarantined', quarantinedBindings: 2 })
-      expect((await row()).daemonReadiness).toEqual({ state: 'recovering', reason: '2 quarantined', quarantinedBindings: 2 })
+      expect((await row()).daemonReadiness).toEqual({
+        state: 'attached',
+        reason: 'inventory pending',
+        quarantinedBindings: 0,
+      })
+      svc.recordDaemonReadiness(MACHINE, {
+        state: 'recovering',
+        reason: '2 quarantined',
+        quarantinedBindings: 2,
+      })
+      expect((await row()).daemonReadiness).toEqual({
+        state: 'recovering',
+        reason: '2 quarantined',
+        quarantinedBindings: 2,
+      })
       // The observation must not withdraw execution from confirmed bindings.
       expect((await row()).availability?.daemon).toBe(true)
       svc.recordDaemonReadiness(MACHINE, { state: 'ready', reason: '', quarantinedBindings: 0 })
@@ -1641,7 +1884,6 @@ describe('current daemon recovery projection', () => {
   })
 })
 
-
 test.each([
   ['/repo', '/repo/wt/src', '/repository'],
   ['C:\\repo', 'c:/REPO/wt/src', 'C:\\repository'],
@@ -1653,7 +1895,10 @@ test.each([
     expect(await svc.pickMachineForRepo(undefined, cwd)).toBe(MACHINE)
     await expect(svc.requireMachineForRepo(MACHINE, cwd)).resolves.toBeUndefined()
     await expect(svc.requireMachineForRepo(MACHINE, sibling)).rejects.toThrow('no repo registered')
-  } finally { svc.dispose(); await store.close() }
+  } finally {
+    svc.dispose()
+    await store.close()
+  }
 })
 
 // The authenticated desktop uses the same replacement transaction as explicit
@@ -1667,9 +1912,8 @@ describe('administrator client registration recovery', () => {
       instanceId: 'default',
       installationId: 'client-recovery',
       store,
-      hostMachineId: store.hostMachineId,
+      hostMachine: { id: store.hostMachine!.id },
       pairing,
-
     })
     const actor = firstAdminMemberId()
     const key = publicKeyWire(mintSigningKeyPair())

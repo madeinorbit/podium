@@ -66,7 +66,7 @@ describe('session writes on the write-seam Ledger (#256)', () => {
     // The issue's repo is reported only AFTER the spawn, as before 2b803efb5: a
     // session born inside a reported repo takes a draft ref at spawn, and this
     // test is about the issue ref the attachment allocates.
-    await registry.sessionStore.repos.addRepo('/w', registry.sessionStore.hostMachineId)
+    await registry.sessionStore.repos.addRepo('/w', registry.sessionStore.hostMachine!.id)
     const issue = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
       repoPath: '/w',
       title: 'Attachment',
@@ -441,7 +441,7 @@ describe('session writes on the write-seam Ledger (#256)', () => {
       cwd: '/w',
     })
     await registry.modules.sessions.flushBroadcasts()
-    const host = registry.modules.machines.hostMachineId
+    const host = registry.modules.machines.hostMachine!.id
     let cursor = await cursorOf(registry)
     for (const name of ['adopting-host', 'renamed-host']) {
       if (name === 'adopting-host') await registry.modules.machines.ensureHostMachine(name)
@@ -475,7 +475,7 @@ describe('session writes on the write-seam Ledger (#256)', () => {
       cwd: '/w',
     })
     // The host daemon attaches under the id the session is already attributed to.
-    const host = registry.modules.machines.hostMachineId
+    const host = registry.modules.machines.hostMachine!.id
     await registry.gateway.attachDaemon(host, () => {})
     await registry.modules.sessions.flushBroadcasts()
     const cursor = await cursorOf(registry)
@@ -512,7 +512,7 @@ describe('session writes on the write-seam Ledger (#256)', () => {
       rows: 40,
     })
     // The forward moves nothing; the daemon's report of the new size does (POD-4771).
-    await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+    await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachine!.id, {
       type: 'geometryApplied',
       sessionId,
       geometry: { cols: 100, rows: 40 },
@@ -650,7 +650,7 @@ describe('session writes on the write-seam Ledger (#256)', () => {
     // stored one, POD-6646), so the first change after the restart is the bind.
     expect(second.modules.sessions.sessionsGeneration()).toBeLessThan(generationBeforeRestart)
     await attachHostDaemon(second, () => {})
-    await second.gateway.routeDaemonFrame(second.sessionStore.hostMachineId, {
+    await second.gateway.routeDaemonFrame(second.sessionStore.hostMachine!.id, {
       type: 'bind',
       sessionId,
       cmd: 'bash',
@@ -746,7 +746,7 @@ describe('session writes on the write-seam Ledger (#256)', () => {
     // (POD-4771 — the report, not the ask, moves the copy).
     for (let i = 0; i < 200; i++) {
       frames.push(
-        registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+        registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachine!.id, {
           type: 'geometryApplied',
           sessionId,
           geometry: { cols: 100 + i, rows: 40 + i },
@@ -850,7 +850,7 @@ describe('session writes on the write-seam Ledger (#256)', () => {
       visible: [sessionId],
       focused: sessionId,
     })
-    await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+    await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachine!.id, {
       type: 'geometryApplied',
       sessionId,
       geometry: { cols: 123, rows: 47 },
@@ -1174,7 +1174,7 @@ describe('session writes on the write-seam Ledger (#256)', () => {
     expect(listed).toEqual(broadcast)
 
     // The mapper sends source identity; the client joins the display name.
-    expect(listed?.machineId).toBe(registry.sessionStore.hostMachineId)
+    expect(listed?.machineId).toBe(registry.sessionStore.hostMachine!.id)
     expect(listed).not.toHaveProperty('machineName')
   })
 })

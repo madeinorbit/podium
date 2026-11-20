@@ -29,7 +29,7 @@ for (const kind of kinds) {
       const dbPath = join(dir, 'test.db')
       const store = await openTestStore(dbPath)
       try {
-        await store.repos.addRepo('/repo', store.hostMachineId)
+        await store.repos.addRepo('/repo', store.hostMachine!.id)
         const owner = await firstAdminMemberId(store)
         const issueId = asIssueId('issue')
         await store.issues.upsertIssue(

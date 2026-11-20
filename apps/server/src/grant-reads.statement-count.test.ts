@@ -89,7 +89,7 @@ async function fixture(size: number): Promise<Fixture> {
       cwd,
       ...(issueId ? { issueId } : {}),
     })
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
       type: 'bind',
       sessionId,
       cmd: 'codex',
@@ -222,7 +222,7 @@ describe('grant reads per change, a running session on an issue: pinned at 5 and
       pin(
         'agentObservation (on an issue)',
         async (f) =>
-          await f.reg.gateway.routeDaemonFrame(f.reg.sessionStore.hostMachineId, {
+          await f.reg.gateway.routeDaemonFrame(f.reg.sessionStore.hostMachine!.id, {
             type: 'agentObservation',
             observation: observation(f.sessionId),
           } as never),

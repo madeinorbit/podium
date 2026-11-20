@@ -23,7 +23,7 @@ describe('definitive issue refusals (POD-5429)', () => {
 
   beforeEach(async () => {
     registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    await registry.sessionStore.repos.addRepo('/repo', registry.sessionStore.hostMachineId)
+    await registry.sessionStore.repos.addRepo('/repo', registry.sessionStore.hostMachine!.id)
   })
 
   afterEach(async () => {
@@ -156,7 +156,7 @@ describe('definitive issue refusals (POD-5429)', () => {
   ] as const)('refuses %s while shipping owns the issue', async (command) => {
     if (['start', 'addSession', 'addShell'].includes(command)) {
       await registry.sessionStore.machines.addMachineComponent(
-        registry.sessionStore.hostMachineId,
+        registry.sessionStore.hostMachine!.id,
         'daemon',
       )
       await attachHostDaemon(registry)
@@ -362,7 +362,7 @@ describe('definitive issue refusals (POD-5429)', () => {
       () =>
         registry.issues.gitWorkflow.rehome(registry.issues.reports.store.serverWriter, issue.id, {
           repoPath: '/other',
-          machineId: registry.sessionStore.hostMachineId,
+          machineId: registry.sessionStore.hostMachine!.id,
           worktreePath: '/other/wt',
         }),
       issue.id,

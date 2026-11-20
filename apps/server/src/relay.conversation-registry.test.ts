@@ -1,7 +1,7 @@
 import {
-  type ConversationSummaryWire,
   type ConversationDiscoveryWire,
   type ConversationDiscoveryWireInput,
+  type ConversationSummaryWire,
   firstAdminMemberId,
 } from '@podium/model'
 import type { ServerMessage } from '@podium/protocol'
@@ -106,8 +106,9 @@ describe('SessionRegistry conversation registry', () => {
       conversations: [conv('parent-1')],
       diagnostics: [],
     })
-    const again = (await registry.modules.memory.allConversations())
-      .find((conversation) => conversation.id === 'parent-1')
+    const again = (await registry.modules.memory.allConversations()).find(
+      (conversation) => conversation.id === 'parent-1',
+    )
     expect(again?.podiumId).toBe(parent?.podiumId)
   })
 
@@ -117,7 +118,7 @@ describe('SessionRegistry conversation registry', () => {
     await attachHostDaemon(registry, (m) => {
       daemon.push(m)
       if (m.type === 'transcriptRead') {
-        void registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+        void registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachine!.id, {
           type: 'transcriptReadResult',
           requestId: m.requestId,
           sessionId: m.sessionId,
@@ -130,13 +131,13 @@ describe('SessionRegistry conversation registry', () => {
       agentKind: 'claude-code',
       cwd: '/moved/to',
     })
-    await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+    await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachine!.id, {
       type: 'sessionResumeRef',
       sessionId,
       resume: { kind: 'claude-session', value: 'native-x' },
     })
     // A discovery scan recorded where the file actually lives (original bucket).
-    await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+    await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachine!.id, {
       type: 'conversationsChanged',
       conversations: [
         conv('native-x', { path: '/home/u/.claude/projects/-original-spot/native-x.jsonl' }),
@@ -163,7 +164,7 @@ describe('SessionRegistry conversation registry', () => {
       cwd: '/w',
     })
 
-    await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+    await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachine!.id, {
       type: 'sessionResumeRef',
       sessionId,
       resume: { kind: 'claude-session', value: 'native-first' },
@@ -175,7 +176,7 @@ describe('SessionRegistry conversation registry', () => {
     expect(podiumId).toMatch(/^conv_/)
 
     // The harness rolls into a fresh file (resume): new native id, SAME identity.
-    await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+    await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachine!.id, {
       type: 'sessionResumeRef',
       sessionId,
       resume: { kind: 'claude-session', value: 'native-rolled' },

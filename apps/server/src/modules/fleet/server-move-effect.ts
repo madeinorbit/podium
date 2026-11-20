@@ -25,8 +25,8 @@ import { checkMachineVerb, ownershipSnapshotFromMachines } from '../../machine-a
 import type { RegistryModules } from '../../relay'
 import type { EffectExecutorRegistry } from '../effects/registry'
 import { operationEffectExecutor } from '../operations/effects'
-import { SERVER_MOVE_EFFECT_KIND } from '../operations/instance-effect-kinds'
 import type { OperationEngine } from '../operations/engine'
+import { SERVER_MOVE_EFFECT_KIND } from '../operations/instance-effect-kinds'
 import { serverMoveAuthorization } from '../server-transfer/authorization'
 import {
   SERVER_MOVE_OPERATION_KIND,
@@ -67,6 +67,13 @@ export function registerServerMoveEffect(deps: {
         input.targetMachineId === target.id ? undefined : { kind: 'invalid', details: ['target'] },
       prepare: async (record, input) => {
         const modules = deps.modules()
+        if (!modules.machines.hostMachine)
+          return {
+            refused: {
+              code: 'not-available',
+              message: 'Server move is unavailable on this server: it has no host machine.',
+            },
+          }
         const publicUrl = normalizedPublicUrl(input)
         const port = resolvedTransferPort(input, publicUrl)
         const authorizedBy = record.actor ?? `system:effect:${record.id}`

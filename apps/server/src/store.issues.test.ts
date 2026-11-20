@@ -10,7 +10,7 @@ import { storeSql } from './test-support/store-sql'
 /** A store whose host reports `/r`: an issue row resolves its repo only through a machine that REPORTED it (2b803efb5). */
 async function openIssueStore(): Promise<SessionStore> {
   const store = await openTestStore(':memory:')
-  await store.repos.addRepo('/r', store.hostMachineId)
+  await store.repos.addRepo('/r', store.hostMachine!.id)
   return store
 }
 
@@ -644,7 +644,7 @@ describe('subscriptions store (Phase B)', () => {
         lastResumedAt: null,
         archived: false,
         workState: null,
-        machineId: store.hostMachineId,
+        machineId: store.hostMachine!.id,
         headless: false,
         issueId: asIssueId(issueId),
         stoppedAt: null,

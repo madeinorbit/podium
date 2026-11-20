@@ -33,7 +33,7 @@ async function fixture() {
   let store: SessionStore
   let registry: SessionRegistry
   const open = async (recoveryOnly = false) => {
-    store = await SessionStore.open(file, host, recoveryOnly ? { queryOnly: true } : {})
+    store = await SessionStore.open(file, { id: host }, recoveryOnly ? { queryOnly: true } : {})
     registry = await SessionRegistry.create(store, undefined, {
       instanceId: 'canary-recovery',
       recoveryOnly,
@@ -133,12 +133,13 @@ describe('production adoption restores supervised execution proof', () => {
       // server.ts ordering: adoption consumes updates.fleet() BEFORE transports
       // attach, then builds the production context for the resumed runner.
       await boot.modules.operations.engine.adoptOnBoot(
-        async () => ({
-          appVersion: target.version,
-          servedWebDigest: undefined,
-          machineDirectory: await boot.modules.updates.fleet(),
-          now: Date.now(),
-        } satisfies UpdateReality),
+        async () =>
+          ({
+            appVersion: target.version,
+            servedWebDigest: undefined,
+            machineDirectory: await boot.modules.updates.fleet(),
+            now: Date.now(),
+          }) satisfies UpdateReality,
         () => h.context(ids),
       )
       await boot.modules.operations.engine.whenSettled(id)
@@ -149,8 +150,7 @@ describe('production adoption restores supervised execution proof', () => {
       expect((await machines())?.state).not.toBe('done')
       expect((await machines())?.places?.find((p) => p.id === 'a')?.state).not.toBe('current')
       expect(h.sent.map((s) => s.id)).toEqual(['a'])
-      for (const machine of ids)
-        await h.hello(machine, machine === 'a' ? target.version : '0.4.1')
+      for (const machine of ids) await h.hello(machine, machine === 'a' ? target.version : '0.4.1')
       await boot.modules.updateFleetBridge?.onFleetChanged()
       await boot.modules.operations.engine.whenSettled(id)
       expect(h.sent.map((s) => s.id)).toEqual(['a'])
@@ -171,9 +171,9 @@ describe('production adoption restores supervised execution proof', () => {
       await boot.modules.operations.engine.whenSettled(id)
       expect((await machines())?.places?.find((p) => p.id === 'a')?.state).toBe('current')
       expect(h.sent.map((s) => s.id)).toEqual(ids)
-      expect((await boot.modules.updates.fleet()).find((m) => m.id === 'already-healthy')?.state).toBe(
-        'current',
-      )
+      expect(
+        (await boot.modules.updates.fleet()).find((m) => m.id === 'already-healthy')?.state,
+      ).toBe('current')
       if (count === 1) expect((await machines())?.state).toBe('done')
       else expect(boot.modules.updates.waveRounds('dev')[0]?.gate).toBe('widen')
     } finally {
@@ -212,7 +212,9 @@ describe('production adoption restores supervised execution proof', () => {
         canceled: true,
       })
       expect(await updates.operationActive('dev')).toBe(false)
-      expect((await h.store.updateRecovery.read())?.retiredGrants?.[0]?.[1].grantId).toBe(grant.grantId)
+      expect((await h.store.updateRecovery.read())?.retiredGrants?.[0]?.[1].grantId).toBe(
+        grant.grantId,
+      )
       if (reboot) {
         const boot = await h.reboot()
         await boot.modules.operations.engine.adoptOnBoot(
@@ -280,11 +282,17 @@ describe('production adoption restores supervised execution proof', () => {
       const boot = await h.reboot(true)
       const write = vi.spyOn(h.store.updateRecovery, 'write')
       await boot.modules.updates.onStatus(asMachineId('a'), {
-        type: 'updateStatus', state: 'current', version: target.version,
-        targetVersion: target.version, grantId: grant.grantId, phaseDetail: 'current',
+        type: 'updateStatus',
+        state: 'current',
+        version: target.version,
+        targetVersion: target.version,
+        grantId: grant.grantId,
+        phaseDetail: 'current',
       })
       for (let read = 0; read < 3; read++) {
-        expect((await boot.modules.updates.fleet()).find((m) => m.id === 'a')?.state).toBe('current')
+        expect((await boot.modules.updates.fleet()).find((m) => m.id === 'a')?.state).toBe(
+          'current',
+        )
         expect(await boot.modules.updates.operationActive('dev')).toBe(false)
       }
       expect(write).not.toHaveBeenCalled()

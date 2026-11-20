@@ -31,7 +31,7 @@ function rawDb(s: SessionStore): {
  *  through a machine that reported it (2b803efb5). */
 async function storeWithRepo(): Promise<SessionStore> {
   const s = await openTestStore(':memory:')
-  await s.repos.addRepo('/r', s.hostMachineId)
+  await s.repos.addRepo('/r', s.hostMachine!.id)
   return s
 }
 

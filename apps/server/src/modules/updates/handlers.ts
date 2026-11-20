@@ -619,7 +619,7 @@ export async function startUpdateOperation(
   assertMayUpdate(ctx)
   const state = familyState(ctx)
   const updateEffects = state.modules.updateEffects
-  if (updateEffects === undefined) {
+  if (updateEffects === undefined || state.store.hostMachine === null) {
     throw new TRPCError({
       code: 'PRECONDITION_FAILED',
       message: 'This server cannot run update operations.',
@@ -633,7 +633,7 @@ export async function startUpdateOperation(
       input: {
         id,
         kind: UPDATE_EFFECT_KIND,
-        target: updateEffectTarget(state.store.hostMachineId),
+        target: updateEffectTarget(state.store.hostMachine.id),
         input: {
           ...(extra.surface ? { surface: extra.surface } : {}),
           ...(extra.onlyMachines ? { onlyMachines: [...extra.onlyMachines] } : {}),

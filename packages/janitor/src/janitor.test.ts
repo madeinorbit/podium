@@ -494,6 +494,18 @@ describe('JanitorService', () => {
     ])
   })
 
+  it('ConnectScanReader skips nothing when there is no host machine', async () => {
+    const port = portOf({
+      remoteMachines: async ({ localMachineId }) => {
+        expect(localMachineId).toBeNull()
+        return [{ id: 'local', lastSeenAt: '2026-07-18T00:00:00.000Z' }]
+      },
+    })
+    expect(await new ConnectScanReader(port).read('2026-07-18T00:06:00.000Z', null)).toEqual([
+      { machineId: 'local', lastSeenAt: '2026-07-18T00:00:00.000Z', deep: false },
+    ])
+  })
+
   it('[POD-925 review] ChangeLogPrunePlanner advances fromSeq so recovery cannot starve', async () => {
     let feed = { headSeq: 250, floorSeq: 1, agedSeq: 250 as number | null }
     const planner = new ChangeLogPrunePlanner(portOf({ changeFeed: async () => feed }), 'local')

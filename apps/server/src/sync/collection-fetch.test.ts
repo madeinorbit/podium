@@ -248,7 +248,7 @@ async function plant(store: SessionStore): Promise<{ owner: UserId }> {
   await store.issues.setIssueUserState(fixtureWriteScope(), BOB, 'iss_root' as IssueId, {
     readAt: ago(2),
   })
-  const machine = asMachineId(store.hostMachineId)
+  const machine = asMachineId(store.hostMachine!.id)
   for (const planted of SESSIONS) {
     const who = planted.owner === 'a' ? owner : BOB
     await store.sessions.upsertSession(fixtureWriteScope(), sessionRow(planted, who, machine))

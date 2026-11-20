@@ -672,7 +672,7 @@ describe('sessions.stop relay authz', () => {
 
   beforeEach(async () => {
     registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    machineId = registry.sessionStore.hostMachineId
+    machineId = registry.sessionStore.hostMachine!.id
     registries.push(registry)
     // The host runs the sessions and reports the repo their issues sit under.
     await attachHostDaemon(registry, () => {}, { repos: ['/r'] })
@@ -1077,7 +1077,7 @@ describe('sessions.title — an agent names its own session (#490)', () => {
 
   beforeEach(async () => {
     registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    machineId = registry.sessionStore.hostMachineId
+    machineId = registry.sessionStore.hostMachine!.id
     registries.push(registry)
     // The host runs the sessions and reports the repo their issues sit under.
     await attachHostDaemon(registry, () => {}, { repos: ['/r'] })
@@ -1233,7 +1233,7 @@ describe('offer.set / offer.clear — an agent offers the user next actions', ()
 
   beforeEach(async () => {
     registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    machineId = registry.sessionStore.hostMachineId
+    machineId = registry.sessionStore.hostMachine!.id
     registries.push(registry)
     // The host runs the sessions and reports the repo their issues sit under.
     await attachHostDaemon(registry, () => {}, { repos: ['/r'] })

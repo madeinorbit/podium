@@ -54,7 +54,7 @@ describe('approvals.request on the entry point', () => {
     expect(reply).toMatchObject({ outcome: 'applied', result: { status: 'pending' } })
     const filed = await pending(o)
     expect(filed.map((row) => row.id)).toEqual([reply.result.id])
-    expect(filed[0]).toMatchObject({ sessionId, machineId: o.store.hostMachineId })
+    expect(filed[0]).toMatchObject({ sessionId, machineId: o.store.hostMachine!.id })
 
     // Provenance: the request is recorded under the envelope's mutationId, and
     // its activity event once. The approval record is on the change log (an
@@ -115,7 +115,7 @@ describe('approvals.request on the entry point', () => {
     })
     const forged = envelope(
       'approvals.request',
-      { op: { kind: 'update' }, sessionId: other, machineId: o.store.hostMachineId },
+      { op: { kind: 'update' }, sessionId: other, machineId: o.store.hostMachine!.id },
       'mut_apr_forged',
     )
 

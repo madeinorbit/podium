@@ -588,6 +588,7 @@ export const INSTALL_META_KEYS: readonly KeyPattern[] = [
   // Fleet update execution and the fleet channel (recovery-store.ts, machine-record-context.ts).
   { key: 'updates.execution.v1' },
   { key: 'machines.fleet-channel.v1' },
+  { key: 'machines.server-move.v1' },
   // Read by the migrator before any repository exists (migrations/index.ts).
   { key: 'identity.legacyLinksImported' },
   // The one-time boot imports and upgrade marks.
