@@ -776,6 +776,7 @@
         "apps/server/src/store/quota-history.test.ts",
         "apps/server/src/store/read-watermarks.test.ts",
         "apps/server/src/store/remaining.workspace.test.ts",
+        "apps/server/src/store/repo-origin.test.ts",
         "apps/server/src/store/repos-read-cost.test.ts",
         "apps/server/src/store/repos-registry-golden.test.ts",
         "apps/server/src/store/retention-prune-plans.test.ts",
@@ -1892,6 +1893,7 @@
         "src/store/read-watermarks.test.ts",
         "src/store/read-watermarks.ts",
         "src/store/remaining.workspace.test.ts",
+        "src/store/repo-origin.test.ts",
         "src/store/repos-read-cost.test.ts",
         "src/store/repos-registry-golden.test.ts",
         "src/store/repos.ts",
@@ -3467,7 +3469,6 @@
       "inputs": [
         "$TURBO_ROOT$/apps/cli/src/**",
         "$TURBO_ROOT$/apps/daemon/src/**",
-        "$TURBO_ROOT$/apps/web/src/**",
         "$TURBO_ROOT$/packages/blob-store/src/**",
         "$TURBO_ROOT$/packages/client-core/src/**",
         "$TURBO_ROOT$/packages/commands/src/**",

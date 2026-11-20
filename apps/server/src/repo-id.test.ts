@@ -1,14 +1,6 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { asMachineId } from '@podium/model'
-import { afterEach, describe, expect, it } from 'vitest'
-import {
-  canonicalizeRepoOrigin,
-  deriveRepoId,
-  isPathFallbackRepoId,
-  readLocalOriginUrl,
-} from './repo-id'
+import { describe, expect, it } from 'vitest'
+import { canonicalizeRepoOrigin, deriveRepoId, isPathFallbackRepoId } from './repo-id'
 
 describe('canonicalizeRepoOrigin', () => {
   it('normalizes ssh scp-style, ssh:// and https:// spellings identically', () => {
@@ -80,47 +72,6 @@ describe('deriveRepoId', () => {
     expect(isPathFallbackRepoId(originId, asMachineId('m1'), '/x')).toBe(false)
   })
 })
-
-describe('readLocalOriginUrl', () => {
-  let dir: string
-  afterEach(() => {
-    if (dir) rmSync(dir, { recursive: true, force: true })
-  })
-
-  it('reads origin url from a plain .git dir', () => {
-    dir = mkdtempSync(join(tmpdir(), 'repoid-'))
-    mkdirSync(join(dir, '.git'))
-    writeFileSync(
-      join(dir, '.git', 'config'),
-      '[core]\n\tbare = false\n[remote "origin"]\n\turl = git@github.com:o/r.git\n',
-    )
-    expect(readLocalOriginUrl(dir)).toBe('git@github.com:o/r.git')
-  })
-
-  it('follows gitdir + commondir indirection (worktrees)', () => {
-    dir = mkdtempSync(join(tmpdir(), 'repoid-'))
-    const main = join(dir, 'main')
-    const wt = join(dir, 'wt')
-    mkdirSync(join(main, '.git', 'worktrees', 'wt'), { recursive: true })
-    mkdirSync(wt)
-    writeFileSync(
-      join(main, '.git', 'config'),
-      '[remote "origin"]\n\turl = https://github.com/o/r.git\n',
-    )
-    writeFileSync(join(wt, '.git'), `gitdir: ${join(main, '.git', 'worktrees', 'wt')}\n`)
-    writeFileSync(join(main, '.git', 'worktrees', 'wt', 'commondir'), '../..\n')
-    expect(readLocalOriginUrl(wt)).toBe('https://github.com/o/r.git')
-  })
-
-  it('returns null for nonexistent paths and repos without an origin', () => {
-    expect(readLocalOriginUrl('/definitely/not/a/real/path')).toBeNull()
-    dir = mkdtempSync(join(tmpdir(), 'repoid-'))
-    mkdirSync(join(dir, '.git'))
-    writeFileSync(join(dir, '.git', 'config'), '[core]\n\tbare = false\n')
-    expect(readLocalOriginUrl(dir)).toBeNull()
-  })
-})
-
 
 it('machine paths: Windows spelling variants have one path-fallback repo identity', () => {
   const machineId = asMachineId('windows')

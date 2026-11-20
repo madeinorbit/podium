@@ -309,6 +309,10 @@ async function repoCaller({ repos: reported = [] }: { repos?: readonly string[] 
   const repos = new RepoRegistry(registry, registry.sessionStore)
   const daemon: import('@podium/protocol/daemon').ControlMessage[] = []
   await attachHostDaemon(registry, (m) => daemon.push(m), { repos: reported })
+  vi.spyOn(registry.modules.rpc, 'scanRepos').mockResolvedValue({
+    repositories: [],
+    diagnostics: [],
+  })
   return {
     registry,
     repos,

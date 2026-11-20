@@ -30,7 +30,7 @@ import {
   sql,
 } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/sqlite-core'
-import { deriveRepoId, isPathFallbackRepoId, readLocalOriginUrl } from '../repo-id'
+import { deriveRepoId, isPathFallbackRepoId } from '../repo-id'
 import { captureWrite } from '../sync/capture-pg'
 import { dialectOf } from './executor/dialect-prepared'
 import type {
@@ -641,9 +641,9 @@ export class ReposRepository {
   }
 
   // No path validation here by design — RepoRegistry (the caller) rejects empty/non-absolute paths.
-  // readLocalOriginUrl is a no-op (null) for paths that don't exist on this host, so remote-machine
-  // repos simply get the path-fallback id until a scan reports their origin (updateRepoOrigin then
-  // upgrades it). An explicit `prefix` overrides derivation (validated + uniqueness-checked, #474).
+  // Origins come only from the caller's machine-side evidence. Without one, use a
+  // path-fallback id until a scan reports the origin (updateRepoOrigin upgrades it).
+  // An explicit `prefix` overrides derivation (validated + uniqueness-checked, #474).
   async addRepo(
     path: string,
     machineId: MachineId,
@@ -668,10 +668,9 @@ export class ReposRepository {
             (row) => machinePathKey(normalizeRepoPath(row.path)) === machinePathKey(requestedPath),
           )?.path ?? requestedPath)
         : requestedPath
-    const origin = originUrl ?? readLocalOriginUrl(normalizedPath) ?? undefined
     // The repo's machine may be Windows while this server is not: its path's own separator.
     const repoName = machinePathBasename(path.trim()) || null
-    const repoId = deriveRepoId({ originUrl: origin, machineId, path: normalizedPath })
+    const repoId = deriveRepoId({ originUrl, machineId, path: normalizedPath })
     await this.invalidateRegistry()
     // CONVERTED, and the enumeration is why [POD-3403 rule 31]. The two forms
     // agree exactly when no NOT NULL and no CHECK violation is reachable here,
@@ -703,7 +702,7 @@ export class ReposRepository {
     await insertRepo(this.db).run({
       machineId,
       path: normalizedPath,
-      originUrl: origin ?? null,
+      originUrl: originUrl ?? null,
       repoName,
       repoId,
       addedAt: new Date().toISOString(),

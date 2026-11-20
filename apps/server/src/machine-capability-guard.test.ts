@@ -57,6 +57,10 @@ async function fleet() {
     laptopMessages.push(message)
   }
   await registry.gateway.attachDaemon(laptop, laptopSocket)
+  vi.spyOn(registry.modules.rpc, 'scanRepos').mockResolvedValue({
+    repositories: [],
+    diagnostics: [],
+  })
   const repos = new RepoRegistry(registry, store)
   const superagent = await SuperagentService.create(registry.modules, repos, store)
   return {

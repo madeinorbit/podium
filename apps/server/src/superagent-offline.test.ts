@@ -103,6 +103,10 @@ async function offlineHarness() {
     },
   })
   const repos = new RepoRegistry(registry, registry.sessionStore)
+  vi.spyOn(registry.modules.rpc, 'scanRepos').mockResolvedValue({
+    repositories: [],
+    diagnostics: [],
+  })
   await repos.add(repos.serverWriter, '/r', host)
   const sa = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
   attachTestClient(registry.clientGateway, () => {})

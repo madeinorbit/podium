@@ -5,7 +5,7 @@
 import type { SessionId } from '@podium/model'
 import { asThreadId, BUILTIN_HARNESS_KINDS, firstAdminMemberId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from '../../relay'
 import { RepoRegistry } from '../../repo-registry'
 import { assignHostMachine } from '../../test-support/host-daemon'
@@ -100,6 +100,10 @@ async function onlineHarness() {
     },
   })
   const repos = new RepoRegistry(registry, registry.sessionStore)
+  vi.spyOn(registry.modules.rpc, 'scanRepos').mockResolvedValue({
+    repositories: [],
+    diagnostics: [],
+  })
   await repos.add(repos.serverWriter, '/r', host)
   const sa = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
   return { registry, repos, sa, frames, host, peer }

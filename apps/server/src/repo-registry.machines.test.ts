@@ -4,7 +4,7 @@ import { asMachineId, firstAdminMemberId } from '@podium/model'
  * checkouts service's since POD-6644: `modules/checkouts/service.test.ts`.)
  */
 import type { ControlMessage } from '@podium/protocol/daemon'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { openTestStore } from './test-support/open-test-store'
@@ -29,6 +29,7 @@ async function regWithTwoDaemons() {
   })
   const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   const repos = new RepoRegistry(reg, store)
+  vi.spyOn(reg.modules.rpc, 'scanRepos').mockResolvedValue({ repositories: [], diagnostics: [] })
   const m1Out: ControlMessage[] = []
   const m2Out: ControlMessage[] = []
   await reg.gateway.attachDaemon('m1', (msg) => m1Out.push(msg))

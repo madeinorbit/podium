@@ -51,6 +51,7 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 50))
 /** The fixture, once its own attach-time work (inventory, broadcasts) has settled. */
 const oracle = async () => {
   const o = await makeOracle({ offlineMachines: [{ id: OFFLINE, name: 'offline-6417' }] })
+  vi.spyOn(o.reg.modules.rpc, 'scanRepos').mockResolvedValue({ repositories: [], diagnostics: [] })
   await settle()
   return o
 }
@@ -129,7 +130,11 @@ describe('the fleet writes are on the sync write entry point', () => {
     const rename = vi.spyOn(o.reg.modules.machines, 'renameMachine')
     const { result } = await expectAppliedOnPath(
       o,
-      envelope('records.machine.edit', { id: OFFLINE, patch: { name: 'renamed-6417' } }, 'm-fleet-rename-1'),
+      envelope(
+        'records.machine.edit',
+        { id: OFFLINE, patch: { name: 'renamed-6417' } },
+        'm-fleet-rename-1',
+      ),
       // The machine's feed projection is written in the unit, with provenance.
       { writes: true },
     )
@@ -157,9 +162,9 @@ describe('the fleet writes are on the sync write entry point', () => {
     expect(repoId).toBeDefined()
     // The registered root's checkout record commits with it (POD-6644).
     expect(added.rows.filter((r) => r.entity === 'checkout').map((r) => r.op)).toEqual(['upsert'])
-    expect(added.rows.filter((r) => r.entity === 'repo').map((r) => [r.entity, r.entityId, r.op])).toEqual([
-      ['repo', repoId, 'upsert'],
-    ])
+    expect(
+      added.rows.filter((r) => r.entity === 'repo').map((r) => [r.entity, r.entityId, r.op]),
+    ).toEqual([['repo', repoId, 'upsert']])
     expect(added.rows[0]?.mutationId).toBe('m-fleet-add-1')
 
     const prefixed = await expectAppliedOnPath(
@@ -180,9 +185,9 @@ describe('the fleet writes are on the sync write entry point', () => {
       envelope('repos.remove', { path, machineId: host }, 'm-fleet-remove-1'),
       { writes: true },
     )
-    expect(removed.rows.filter((r) => r.entity === 'repo').map((r) => [r.entity, r.entityId, r.op])).toEqual([
-      ['repo', repoId, 'remove'],
-    ])
+    expect(
+      removed.rows.filter((r) => r.entity === 'repo').map((r) => [r.entity, r.entityId, r.op]),
+    ).toEqual([['repo', repoId, 'remove']])
     // ...and the root's checkout record goes with the registration (POD-6644).
     expect(removed.rows.filter((r) => r.entity === 'checkout').map((r) => r.op)).toEqual(['remove'])
   })
@@ -205,8 +210,9 @@ describe('the fleet writes are on the sync write entry point', () => {
     const host = o.store.hostMachineId
     const before = await o.reg.changeLedger.cursor()
     const issues = o.reg.modules.issues.reports.store
-    await issues.commitRepoWrite(issues.serverWriter, async () =>
-      await o.store.repos.addRepo('/abs/repo-scan-6524', host, undefined, 'SCN'),
+    await issues.commitRepoWrite(
+      issues.serverWriter,
+      async () => await o.store.repos.addRepo('/abs/repo-scan-6524', host, undefined, 'SCN'),
     )
     const rows = (await o.store.sync.changesSince(before)).filter((r) => r.entity === 'repo')
     expect(rows.length).toBeGreaterThan(0)
@@ -234,6 +240,35 @@ describe('the fleet writes are on the sync write entry point', () => {
     expect(await o.store.repos.listRepoPaths(host)).toContain('/abs/many-6417')
   })
 
+  it.each([
+    'repos.add',
+    'repos.addMany',
+  ] as const)('%s gathers the machine origin before the write transaction', async (command) => {
+    const o = await oracle()
+    const machineId = o.store.hostMachineId
+    const path = '/abs/origin-before-write'
+    const originUrl = 'https://example.test/team/project.git'
+    const asked: boolean[] = []
+    vi.spyOn(o.reg.modules.checkouts, 'rescanSoon').mockImplementation(() => {})
+    const scan = vi.spyOn(o.reg.modules.rpc, 'scanRepos').mockImplementation(async (roots) => {
+      asked.push(spanOpen())
+      return {
+        repositories: roots.map((path) => ({ path, originUrl, kind: 'repository', worktrees: [] })),
+        diagnostics: [],
+      }
+    })
+    const insert = vi.spyOn(o.store.repos, 'addRepo')
+    const input = command === 'repos.add' ? { path, machineId } : { paths: [path], machineId }
+    const reply = await submit(o, envelope(command, input, `m-origin-${command}`))
+    expect(reply.outcome).toBe('applied')
+    expect(asked).toEqual([false])
+    expect(scan).toHaveBeenCalledWith([path], { includeHome: false, maxDepth: 0 }, machineId)
+    expect(insert).toHaveBeenCalledWith(path, machineId, originUrl, undefined)
+    expect(
+      (await o.store.repos.listRepos(machineId)).find((repo) => repo.path === path)?.originUrl,
+    ).toBe(originUrl)
+  })
+
   it('the kept routes are adapters onto submit, as the tRPC transport', async () => {
     const o = await oracle()
     const entry = vi.spyOn(o.reg.modules.syncWrite, 'submitDetailed')
@@ -253,12 +288,7 @@ describe('the fleet writes are on the sync write entry point', () => {
     for (const name of FLEET_SUBMIT_ONLY) {
       expect(machines[name.split('.')[1]!], name).toBeUndefined()
     }
-    for (const key of [
-      'transferOwnership',
-      'adopt',
-      'supersede',
-      'revoke',
-    ]) {
+    for (const key of ['transferOwnership', 'adopt', 'supersede', 'revoke']) {
       expect(machines[key], key).toBeDefined()
     }
     const repos = routerRecord('repos')
@@ -276,7 +306,11 @@ describe('the target check is the fleet gate, before the handler', () => {
     const { reply } = await submitAs(
       o,
       user,
-      envelope('records.machine.edit', { id: OFFLINE, patch: { name: 'nope' } }, 'm-fleet-refused-1'),
+      envelope(
+        'records.machine.edit',
+        { id: OFFLINE, patch: { name: 'nope' } },
+        'm-fleet-refused-1',
+      ),
     )
     // The gate's own words, the ones a never-paired id gets (no existence oracle).
     expect(reply).toMatchObject({
@@ -286,7 +320,11 @@ describe('the target check is the fleet gate, before the handler', () => {
     const absent = await submitAs(
       o,
       user,
-      envelope('records.machine.edit', { id: 'm-never-paired', patch: { name: 'nope' } }, 'm-fleet-refused-2'),
+      envelope(
+        'records.machine.edit',
+        { id: 'm-never-paired', patch: { name: 'nope' } },
+        'm-fleet-refused-2',
+      ),
     )
     expect(absent.reply).toMatchObject({
       outcome: 'rejected',
@@ -300,7 +338,11 @@ describe('the target check is the fleet gate, before the handler', () => {
     const user = await member(o)
     await grantManage(o, OFFLINE, user)
     const rename = vi.spyOn(o.reg.modules.machines, 'renameMachine')
-    const env = envelope('records.machine.edit', { id: OFFLINE, patch: { name: 'by-member' } }, 'm-fleet-grant-1')
+    const env = envelope(
+      'records.machine.edit',
+      { id: OFFLINE, patch: { name: 'by-member' } },
+      'm-fleet-grant-1',
+    )
 
     // `action: write` with the `member` floor: the coarse check admits the
     // member, and the machine verb decides the row.
@@ -345,7 +387,9 @@ describe('work outside the database runs once after the commit, never after a ro
       envelope('records.machine.edit', { id: OFFLINE, patch: { name } }, mutationId)
 
     failAfter(o, 'renameMachine')
-    await expect(submit(o, rename('rolled-back', 'm-fleet-rb-1'))).rejects.toThrow('forced rollback')
+    await expect(submit(o, rename('rolled-back', 'm-fleet-rb-1'))).rejects.toThrow(
+      'forced rollback',
+    )
     await settle()
     expect(heard).toEqual([])
     expect((await o.store.machines.getMachine(OFFLINE))?.name).not.toBe('rolled-back')
@@ -389,7 +433,11 @@ describe('work outside the database runs once after the commit, never after a ro
     await expect(
       submit(
         o,
-        envelope('records.machine.edit', { id: OFFLINE, patch: { updateChannelOverride: 'edge' } }, 'm-fleet-ch-1'),
+        envelope(
+          'records.machine.edit',
+          { id: OFFLINE, patch: { updateChannelOverride: 'edge' } },
+          'm-fleet-ch-1',
+        ),
       ),
     ).rejects.toThrow('forced rollback')
     await settle()
@@ -399,7 +447,11 @@ describe('work outside the database runs once after the commit, never after a ro
     const refreshAgain = vi.spyOn(o.reg.modules.updates, 'refreshTarget').mockResolvedValue(true)
     await submit(
       o,
-      envelope('records.machine.edit', { id: OFFLINE, patch: { updateChannelOverride: 'edge' } }, 'm-fleet-ch-2'),
+      envelope(
+        'records.machine.edit',
+        { id: OFFLINE, patch: { updateChannelOverride: 'edge' } },
+        'm-fleet-ch-2',
+      ),
     )
     await settle()
     expect(refreshAgain).toHaveBeenCalledTimes(1)
@@ -537,7 +589,7 @@ describe('cloud and the repository refresh are plain commands', () => {
     expect((error as TRPCError).code).toBe('PRECONDITION_FAILED')
   })
 
-  it('refreshRepos answers its scans\' diagnostics through the plain entry, no machine list', async () => {
+  it("refreshRepos answers its scans' diagnostics through the plain entry, no machine list", async () => {
     const o = await oracle()
     const entry = vi.spyOn(o.reg.modules.syncWrite, 'submitDetailed')
     const answer = await o.call.discovery.refreshRepos()

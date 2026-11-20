@@ -642,6 +642,10 @@ describe('the derived fleet router actually calls the gate', () => {
     })
     await registry.modules.machines.ensureHostMachine('machine-under-test')
     await registry.modules.machines.attach(asMachineId('m1'), () => {})
+    vi.spyOn(registry.modules.rpc, 'scanRepos').mockResolvedValue({
+      repositories: [],
+      diagnostics: [],
+    })
     const repos = new RepoRegistry(registry, registry.sessionStore)
     const superagent = await SuperagentService.create(
       registry.modules,
@@ -754,7 +758,12 @@ describe('the derived fleet router actually calls the gate', () => {
         }),
       )
     expect(
-      await submit('machines.share', { id: 'm1', grantee: COLLEAGUE, verb: 'use', acknowledgeSharedMachine: true }),
+      await submit('machines.share', {
+        id: 'm1',
+        grantee: COLLEAGUE,
+        verb: 'use',
+        acknowledgeSharedMachine: true,
+      }),
     ).toMatchObject({ outcome: 'applied' })
     expect(
       (await store.grants.listForResource('machine', 'm1')).filter(

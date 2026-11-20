@@ -260,6 +260,10 @@ async function harness() {
     },
   })
   const repos = new RepoRegistry(registry, registry.sessionStore)
+  vi.spyOn(registry.modules.rpc, 'scanRepos').mockResolvedValue({
+    repositories: [],
+    diagnostics: [],
+  })
   await repos.add(repos.serverWriter, '/r', registry.sessionStore.hostMachineId)
   const sa = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
   // A connected web client, to observe headlessActivity broadcasts.

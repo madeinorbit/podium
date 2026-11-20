@@ -18,9 +18,9 @@
  * WORK OUTSIDE THE DATABASE runs after the commit (ADR 2 D10): the daemon push
  * of an assignment, retiring a revoked or superseded machine's transports, the
  * release-feed refresh of a channel change and the clients' `machinesChanged`
- * (`machines/service.ts`, `machines/enrollment.ts`). The one daemon call that
- * DECIDES the write, whether a repository's base branch exists, is part of the
- * target: it is asked before the unit of work, and a missing branch refuses.
+ * (`machines/service.ts`, `machines/enrollment.ts`). Daemon reads that inform
+ * a write (a repository's origin or whether its base branch exists) run in the
+ * target before the unit of work. A missing branch refuses the write.
  *
  * Not here: the writes that are effects on a machine (scans, clone, folder and
  * repository creation, apply update, server move) are effect records, and their
@@ -38,7 +38,7 @@ import type { MachineId, UserId, UserRole } from '@podium/model'
 import { TRPCError } from '@trpc/server'
 import { type CommandPrincipal, onBehalfOfUser } from '../../command-principal'
 import type { RegistryModules } from '../../relay'
-import type { RepoRegistry } from '../../repo-registry'
+import type { PreparedRepoAdd, RepoRegistry } from '../../repo-registry'
 import type { SessionStore } from '../../store'
 import { SyncWriteRefused } from '../sync-write/entry'
 import { trpcErrorRefusal } from '../sync-write/family'
@@ -113,12 +113,34 @@ export async function fleetTarget(
 }
 
 export function registerFleetCommands(registry: SyncWriteRegistry, deps: FleetSyncDeps): void {
+  // One parsed command's machine evidence, held only until that command is gone.
+  // The target runs outside the write transaction; its handler must not make an RPC.
+  const repoAdds = new WeakMap<object, ReadonlyMap<string, PromiseSettledResult<PreparedRepoAdd>>>()
   for (const name of FLEET_SYNC_COMMANDS) {
     const { contract, handler } = FLEET_COMMANDS[name]
     const run = handler as FleetSyncHandler<unknown, unknown>
     registry.register({
       contract,
-      target: async (input, { principal }) => await fleetTarget(deps, name, input, principal),
+      target: async (input, { principal }) => {
+        const target = await fleetTarget(deps, name, input, principal)
+        if (target === NO_TARGET && (name === 'repos.add' || name === 'repos.addMany')) {
+          const add = input as { path: string; paths: string[]; machineId?: MachineId }
+          const prepared = new Map<string, PromiseSettledResult<PreparedRepoAdd>>()
+          for (const path of name === 'repos.add' ? [add.path] : add.paths) {
+            try {
+              prepared.set(path, {
+                status: 'fulfilled',
+                value: await deps.repos().prepareAdd(path, add.machineId),
+              })
+            } catch (reason) {
+              // addMany still reports each bad path independently in its handler.
+              prepared.set(path, { status: 'rejected', reason })
+            }
+          }
+          repoAdds.set(add, prepared)
+        }
+        return target
+      },
       handle: async (ctx, input) => {
         const env: FleetWriteEnv = {
           modules: deps.modules(),
@@ -127,6 +149,7 @@ export function registerFleetCommands(registry: SyncWriteRegistry, deps: FleetSy
           repos: deps.repos(),
           store: deps.store(),
           writer: ctx.ledger,
+          repoAdds: typeof input === 'object' && input !== null ? repoAdds.get(input) : undefined,
         }
         try {
           return await run({ env, input })

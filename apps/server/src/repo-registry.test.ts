@@ -2,7 +2,7 @@ import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asMachineId, asRepoId } from '@podium/model'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
 import { inferRepoFromRoots, RepoRegistry } from './repo-registry'
 import type { SessionStore } from './store'
@@ -16,6 +16,10 @@ import { openTestStore } from './test-support/open-test-store'
 async function singleMachineRepos(store: SessionStore): Promise<RepoRegistry> {
   const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   await attachHostDaemon(registry, () => {})
+  vi.spyOn(registry.modules.rpc, 'scanRepos').mockResolvedValue({
+    repositories: [],
+    diagnostics: [],
+  })
   return new RepoRegistry(registry, store)
 }
 
