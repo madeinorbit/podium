@@ -83,8 +83,10 @@ describe('ref links when the prefix registry arrives after the row rendered', ()
       role: 'user',
       text: frame('msg_1', 'issue:POD-84', 'See POD-86.'),
     } as TranscriptItem)
-    click(host.querySelector('[data-testid="message-envelope-toggle"]'))
-    click(host.querySelector('[data-testid="mail-item"] .mail-item-head'))
+    const toggle = host.querySelector('[data-testid="mail-item"] .mail-item-head')
+    expect(toggle).not.toBeNull()
+    click(toggle)
+    expect(toggle?.getAttribute('aria-expanded')).toBe('true')
     expect(host.querySelector('a.ref-link')).toBeNull()
     act(() => setKnownRefPrefixes(['POD']))
     expect(host.querySelector('a.ref-link[data-ref="POD-86"]')).not.toBeNull()

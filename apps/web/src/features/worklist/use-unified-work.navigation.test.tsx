@@ -73,8 +73,8 @@ describe('issue navigation gesture', () => {
     )
     commits.mockClear()
     act(() => result.current.work.selectPanelForIssue(child.id, asSessionId('member')))
-    // S5: one gesture batch per click — navigation + optimistic paints share it.
-    expect(fixture.store.batchGesture).toHaveBeenCalledTimes(1)
+    // The MobX action publishes the selected child once, alongside navigation.
+    // The former runtime batchGesture helper no longer owns this boundary.
     expect(fixture.store.navigateWorkspace).toHaveBeenCalledExactlyOnceWith({
       selectedIssueId: root.id,
       selectedWorktree: '/repo',

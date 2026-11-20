@@ -89,7 +89,7 @@ const fakeTrpc = {
   settings: {
     get: {
       query: vi.fn(async () => ({
-        sidebar: { repoSort: 'lastUsed', repoOrder: [], },
+        sidebar: { repoSort: 'lastUsed', repoOrder: [] },
       })),
     },
   },
@@ -225,7 +225,7 @@ describe('workspace deep link with unknown wt/pane', () => {
     expect(params.get('pane')).toBe(pane)
   })
 
-  it('navigating (popstate) to an unknown wt settles without a loop (React #185 regression)', async () => {
+  it('popstate retains an unknown session destination without a URL update loop', async () => {
     await mountAt('/workspace?wt=%2Ftmp%2Fknown-repo')
     expect(snapshot?.selectedWorktree).toBe('/tmp/known-repo')
     renderCount = 0
@@ -241,10 +241,17 @@ describe('workspace deep link with unknown wt/pane', () => {
     expect(renderCount).toBeLessThan(60)
     // The pane is adopted (Workspace holds/clears unknown panes safely) …
     expect(snapshot?.paneA).toBe('s1')
-    // … while the unknown worktree settles on the known fallback, mirrored into
-    // the URL exactly once.
-    expect(snapshot?.selectedWorktree).toBe('/tmp/known-repo')
-    expect(new URLSearchParams(window.location.search).get('wt')).toBe('/tmp/known-repo')
+    // The addressed session may still arrive. Preserve its destination until
+    // that lookup resolves, as for a cold session deep link at initial boot.
+    expect(snapshot?.selectedWorktree).toBe('/tmp/other')
+    const params = new URLSearchParams(window.location.search)
+    expect(params.get('wt')).toBe('/tmp/other')
+    expect(params.get('pane')).toBe('s1')
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    })
+    expect(renderCount).toBeLessThan(60)
+    expect(snapshot?.selectedWorktree).toBe('/tmp/other')
   })
 
   it('settles when there are no known worktrees at all', async () => {

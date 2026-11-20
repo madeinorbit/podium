@@ -188,13 +188,13 @@ afterEach(() => {
 
 describe('IssuePanelView inspector', () => {
   // THE CALM COLUMN (POD-2077): head, description, the latest update, then
-  // artifacts, relations, comments and cost. The roster, the activity log, the
+  // artifacts, relations and comments. Cost is owned by the session view. The roster, the activity log, the
   // branch address and the needs-you band all left the panel — the deck, the
   // chat and the footer already say those things.
   it('renders one scroll in the design order', () => {
     render(<IssuePanelView cwd="/r" />)
 
-    expect(parts()).toEqual(['Current update', 'Comments', 'Cost'])
+    expect(parts()).toEqual(['Current update', 'Comments'])
     for (const gone of ['dock-sessions', 'dock-checkout', 'dock-recent-activity']) {
       expect(screen.queryByTestId(gone)).toBeNull()
     }
@@ -203,7 +203,7 @@ describe('IssuePanelView inspector', () => {
   it('keeps headings as text, not toggles', () => {
     render(<IssuePanelView cwd="/r" />)
 
-    for (const title of ['Comments', 'Cost']) {
+    for (const title of ['Comments']) {
       expect(screen.getByText(title).closest('button')).toBeNull()
     }
   })

@@ -6,6 +6,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SidebarUnified } from './SidebarUnified'
 
 // A minimal session shaped like the wire; `phase` drives the row's motion phase.
+const recentClose = new Date(Date.now() - 60 * 60 * 1000).toISOString()
+
 function sess(id: string, issueId: string, phase: 'working' | 'idle' | 'question') {
   return {
     sessionId: id,
@@ -107,7 +109,7 @@ vi.mock('@/app/store', () => {
         // Recent relative to the render's real clock (the sidebar reads live
         // `now`): a hard-coded past date would age out of the finished-visibility
         // window and silently drop the row, rotting the test over wall time.
-        closedAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+        closedAt: recentClose,
         unread: true,
         gitState: {
           updatedAt: '2026-07-06T12:00:00.000Z',
@@ -153,7 +155,7 @@ vi.mock('@/app/store', () => {
     fileTabs: [],
     view: 'workspace',
     setView: vi.fn(),
-    sidebarSettings: { },
+    sidebarSettings: {},
     setSidebarSettings: vi.fn(),
   })
   // The selector-store hook (refactor) reads slices off the same store shape.

@@ -185,7 +185,7 @@ function FixedList({
 }
 
 describe('worklist row memo (POD-4421)', () => {
-  it('commits only the changed row on an unrelated publish with the last green text', () => {
+  it('updates only the changed row and preserves neighboring title, progress and reference paint', () => {
     shellCounts.clear()
     fixedResolvers.clear()
     const fixedIssues = baseIssues()
@@ -230,15 +230,13 @@ describe('worklist row memo (POD-4421)', () => {
     expect(fixedAfter.get('a') ?? 0).toBe(0)
     expect(fixedAfter.get('c') ?? 0).toBe(0)
 
-    // Frozen output from the last green parity control, ages (which move with
-    // the wall clock) stripped.
-    expect(fixedText.replace(/\d+[mhd](?=In )/g, '')).toBe(
-      'AlphaIn progress· 1/3POD-1Bravo!In progress· 0/2⤷ POD-1POD-2CharlieIn progress· 2/4POD-3',
-    )
+    // The removed origin chip is not part of the live row. Assert its own
+    // fields and the unchanged neighbors instead of freezing retired markup.
+    expect(fixedText).toContain('· 0/2')
+    for (const ref of ['POD-1', 'POD-2', 'POD-3']) expect(fixedText).toContain(ref)
     for (const title of ['Alpha', 'Bravo!', 'Charlie']) {
       expect(fixedText).toContain(title)
     }
-    // The addressed origin tick remains visible.
-    expect(fixedText).toContain('⤷ POD-1')
+    expect(fixedText).not.toContain('⤷')
   })
 })

@@ -92,6 +92,7 @@ beforeEach(() => {
       interactions: { answer: { mutate: mock.answer } },
     },
     navigateToSession: mock.open,
+    answerSession: mock.answer,
     recoverOutbox: { discard: mock.discard, retry: mock.retry, edit: mock.edit },
   }
   for (const fn of [
@@ -162,8 +163,9 @@ it('uses zero legacy selectors and derivations and retains open, dismiss, answer
   await click('Discard')
   expect(mock.open).toHaveBeenCalledWith('missing-session')
   expect(mock.dismiss).toHaveBeenCalledWith({ id: 'notice-message-2' })
-  expect(mock.answer).toHaveBeenCalledWith({
-    id: 'notice-ask-8',
+  expect(mock.answer).toHaveBeenCalledExactlyOnceWith('selected-session', {
+    via: 'interaction',
+    interactionId: 'notice-ask-8',
     answer: { kind: 'login', outcome: 'completed' },
   })
   expect(mock.discard).toHaveBeenCalledWith('notice-mutation-0')
