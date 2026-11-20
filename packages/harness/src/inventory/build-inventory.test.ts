@@ -292,6 +292,7 @@ describe('buildInventory', () => {
       version: '2.1.50',
       path: resolvedClaude,
       login: { state: 'unknown' },
+      management: { installable: true, homeVariable: 'CLAUDE_CONFIG_DIR' },
     })
   })
 
