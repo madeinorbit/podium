@@ -1189,7 +1189,10 @@ export function describeCollectionStore(instantiation: SyncInstantiation): void 
           replica.disconnect()
 
           const restored = Object.assign(deviceServer(), { epoch: 'restored-epoch' })
-          restored.changesRange = async () => ({ kind: 'bootstrap-required', reason: 'identity' })
+          restored.changesRange = async () => ({
+            kind: 'bootstrap-required',
+            reason: 'feed-identity-mismatch',
+          })
           expect(restored.head).toBeLessThan(before.head)
           const opened = await boot(instantiation, restored, storage)
           expect(opened.cache.readCursor()).toEqual(restored.cursorAt())
@@ -1233,7 +1236,10 @@ export function describeCollectionStore(instantiation: SyncInstantiation): void 
             policy: server.policy,
             loadingSince: server.head,
           })
-          server.changesRange = async () => ({ kind: 'bootstrap-required', reason: 'identity' })
+          server.changesRange = async () => ({
+            kind: 'bootstrap-required',
+            reason: 'feed-identity-mismatch',
+          })
 
           const { cache, replica } = await boot(instantiation, server, storage)
           expect.soft(cache.readCursor()).toEqual(server.cursorAt())
