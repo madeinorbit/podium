@@ -4,7 +4,7 @@ import { directPtyDurableForTests } from '@podium/process/durable'
 import { CAP_SYNC_HTTP_V1, CLIENT_WIRE_VERSION, encode, parseServerMessage } from '@podium/protocol'
 import { saveConfig } from '@podium/runtime/config'
 import { readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
-import { afterAll, describe, it } from 'vitest'
+import { afterAll, describe, expect, it } from 'vitest'
 import WebSocket from 'ws'
 import { startDaemon } from '../../apps/daemon/src/daemon'
 import { startServer } from '../../apps/server/src/test-support/enrolled-server'
@@ -141,6 +141,9 @@ describe('e2e: daemon -> server -> client', () => {
       client.send(encode({ type: 'redrawRequest', sessionId }))
       // 1) live fixture output reaches the client through the full chain
       await waitFor('initial fixture output', () => c.text.includes('cols=80 rows=24'))
+      const initial = c.seen.find((message) => message.type === 'attached')
+      if (!initial) throw new Error('initial output arrived without an attachment')
+      expect(initial.geometry).toEqual({ cols: 80, rows: 24 })
 
       // 2) input typed at the client round-trips to the agent and back
       client.send(
@@ -167,32 +170,47 @@ describe('e2e: daemon -> server -> client', () => {
             claimControl: true,
           }),
         )
-        const getSess = async () =>
-          (await srv.registry.modules.sessions.listSessions()).find(
-            (s) => s.sessionId === sessionId,
-          )
-        await waitFor('takeover epoch', async () => ((await getSess())?.epoch ?? 0) >= 1)
-        // The child observes the real PTY resize. This direct-PTY fixture
-        // has no kernel-size reporting port, so the server must keep its last
-        // reported grid instead of claiming that an ask was acknowledged.
+        // Controller and epoch are live wire facts, not session-list fields.
+        // Observe the takeover as a client would: both viewers see the new
+        // controller, and subsequent output belongs to the next epoch.
+        await waitFor('takeover controller', () =>
+          [c, c2].every((viewer) =>
+            viewer.seen.some((message) => message.type === 'controllerChanged'),
+          ),
+        )
+        const welcome = c2.seen.find((message) => message.type === 'welcome')
+        if (!welcome) throw new Error('takeover arrived without a client welcome')
+        for (const viewer of [c, c2]) {
+          const takeover = viewer.seen.find((message) => message.type === 'controllerChanged')
+          expect(takeover).toMatchObject({
+            sessionId,
+            controllerId: welcome.clientId,
+            // This direct-PTY fixture has no kernel-size reporting port. The
+            // server keeps its last reported grid until an acknowledgement.
+            geometry: initial.geometry,
+          })
+        }
+        await waitFor('takeover epoch', () =>
+          c2.seen.some(
+            (message) => message.type === 'outputFrame' && message.epoch > initial.epoch,
+          ),
+        )
+        const output = c2.seen.find(
+          (message) => message.type === 'outputFrame' && message.epoch > initial.epoch,
+        )
+        expect(output).toMatchObject({ sessionId, epoch: initial.epoch + 1 })
+        // Separately prove the requested size reached the actual child PTY.
         await waitFor('takeover PTY output', () => c2.text.includes('cols=100 rows=30'))
-        expect((await getSess())?.geometry).toEqual({ cols: 80, rows: 24 })
       } finally {
         client2.close()
       }
     } catch (error) {
-      const sessions = await srv.registry.modules.sessions.listSessions()
       throw new Error(
         `relay fixture failed: ${String(error)}; ${JSON.stringify({
           clients: clients.map((client) => client.readyState),
           traces: traces.map((trace) => ({
             text: trace.text.slice(-1500),
             messages: trace.seen.slice(-12).map((message) => message.type),
-          })),
-          sessions: sessions.map(({ sessionId, epoch, geometry }) => ({
-            sessionId,
-            epoch,
-            geometry,
           })),
         })}`,
         { cause: error },
