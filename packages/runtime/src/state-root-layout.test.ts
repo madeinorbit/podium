@@ -5,7 +5,9 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { saveConfig } from './config'
 import { writeConnectivity } from './connectivity'
+import { prepareInstanceStateIdentity } from './instance'
 import {
+  loadMachineState,
   readMachineState,
   readOrCreateDaemonSecret,
   readOrCreateLocalMachineId,
@@ -106,6 +108,47 @@ it('imports all four legacy files without changing credentials and removes them 
   expect(readFileSync(join(dir, 'machine.json'), 'utf8')).toBe(persisted)
 })
 
+it('retains old startup bytes through refusal and refreshes rollback inputs before accepted retirement', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'podium-state-admission-'))
+  roots.push(dir)
+  const files = {
+    'instance.json': '{"version":1,"instanceId":"blue"}\n',
+    'config.json': '{"mode":"daemon","serverUrl":"ws://old.example.test"}\n',
+    'machine.id': 'legacy-machine\n',
+    'daemon.json': '{"machineId":"legacy-machine","token":"old-token"}\n',
+    'supervisor.json': '{"machineId":"legacy-machine","generation":1}\n',
+    'connectivity.json': '{"state":"connected"}\n',
+  }
+  for (const [name, bytes] of Object.entries(files)) writeFileSync(join(dir, name), bytes)
+  const first = loadMachineState(dir)
+  expect(first.daemon?.token).toBe('old-token')
+  writeConnectivity({ state: 'blocked', blockedReason: 'protocol mismatch' }, dir)
+  for (const [name, bytes] of Object.entries(files))
+    expect(readFileSync(join(dir, name), 'utf8')).toBe(bytes)
+
+  // The genuine old daemon is allowed to run again. Its retained startup files
+  // change while this candidate was never admitted; the next attempt must use
+  // those bytes, including a newly issued credential, instead of its stale copy.
+  const daemon = '{"machineId":"legacy-machine","token":"rollback-token"}\n'
+  writeFileSync(join(dir, 'daemon.json'), daemon)
+  writeFileSync(join(dir, 'connectivity.json'), '{"state":"disconnected"}\n')
+  const retry = loadMachineState(dir)
+  expect(retry.machineId).toBe('legacy-machine')
+  expect(retry.daemon?.token).toBe('rollback-token')
+  expect(retry.connectivity?.state).toBe('disconnected')
+  expect(retry.importedFiles['daemon.json']).not.toBe(first.importedFiles['daemon.json'])
+  expect(readFileSync(join(dir, 'daemon.json'), 'utf8')).toBe(daemon)
+
+  const admitted = prepareInstanceStateIdentity({ instanceId: 'blue', dir })
+  admitted.commit()
+  const accepted = loadMachineState(dir)
+  expect(accepted.daemon?.token).toBe('rollback-token')
+  const remaining = readdirSync(dir)
+  for (const name of ['machine.id', 'daemon.json', 'supervisor.json', 'connectivity.json'])
+    expect(remaining).not.toContain(name)
+  expect(readFileSync(join(dir, 'config.json'), 'utf8')).toBe(files['config.json'])
+})
+
 it('resumes a crash after durable publication and before legacy removal', () => {
   const dir = mkdtempSync(join(tmpdir(), 'podium-state-crash-'))
   roots.push(dir)
@@ -155,7 +198,7 @@ it('resolves disagreeing legacy identities by credential: supervisor, then daemo
   expect(state?.daemon).toEqual({ machineId: 'stale-daemon-id', token: 'd' })
   expect(state?.supervisor).toEqual({ machineId: 'host-id', token: 's' })
 
-  // flatblock's real state root: a re-paired legacy daemon with no supervisor keeps a
+  // A re-paired legacy daemon with no supervisor keeps a
   // stale machine.id while daemon.json names the live row. The credential wins.
   const dir2 = mkdtempSync(join(tmpdir(), 'podium-state-disagree2-'))
   roots.push(dir2)

@@ -66,6 +66,7 @@ async function createCloseHost(
   const instance = {
     instanceId: 'default',
     instanceUuid: '11111111-1111-4111-8111-111111111111',
+    commitIdentity: () => {},
     runtimeDir: join(root, 'runtime'),
     settingsDir: join(root, 'settings'),
     hookSocketPath: join(root, 'runtime', 'codex-hooks.sock'),
