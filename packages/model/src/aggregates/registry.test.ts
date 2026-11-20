@@ -348,6 +348,10 @@ const SESSION_AGGREGATE_KEYS = [
   'agentProfileId',
   'agentState',
   'archived',
+  // POD-7211: the Concertmaster mark. Durable truth by this list's test: it
+  // has a column (`concertmaster`), nothing derives it, it reads the same for
+  // every viewer of the session, and it is no provenance and no right.
+  'concertmaster',
   'createdAt',
   'createdBy',
   'cwd',

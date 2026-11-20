@@ -56,6 +56,7 @@
 import {
   type Clause,
   clausesOf,
+  concertmasterEntryRowId,
   issueDepId,
   issueUserStateRowId,
   type PageSpec,
@@ -83,6 +84,7 @@ import { bindingFor } from '../store/executor/binding'
  *  both engines. */
 const {
   automationRuns,
+  concertmasterEntries,
   conversations,
   issueDeps,
   issueGitStates,
@@ -356,6 +358,17 @@ const TABLES = {
   issuePanelState: table(issuePanelStates, [issuePanelStates.id], {
     id: plain(issuePanelStates, issuePanelStates.id),
   }),
+  // One Concertmaster session's conversation (POD-7211). Its keys are the
+  // feed id's parts, in the order of `idx_concertmaster_entries_session`.
+  concertmasterEntry: table(
+    concertmasterEntries,
+    [concertmasterEntries.sessionId, concertmasterEntries.id],
+    {
+      sessionId: plain(concertmasterEntries, concertmasterEntries.sessionId),
+      entryId: plain(concertmasterEntries, concertmasterEntries.id),
+    },
+    { idOf: (keys) => concertmasterEntryRowId(String(keys[0]), String(keys[1])) },
+  ),
 } as const satisfies Readonly<Record<string, CollectionTable>>
 
 /** The record types whose collections the server answers in SQL. */

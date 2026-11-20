@@ -40,14 +40,15 @@ import {
   issueExecutionSessionIds,
   type MachineId,
   parseCheckoutRowId,
+  parseConcertmasterEntryRowId,
   parseInteractionRowId,
   parseIssueDepId,
   parseIssueEventRowId,
   parseIssueUserStateRowId,
   parseLayoutRowId,
   parseMachineAccessRowId,
-  parseNoticeRowId,
   parseMessageRecordRowId,
+  parseNoticeRowId,
   parsePinRowId,
   parseReadPositionRowId,
   parseSessionUserStateRowId,
@@ -341,6 +342,10 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
           // exactly the audience of the SESSION it blocks, which is what
           // `personal` + `mayRead` already spells.
           entity === 'pendingInteraction' ||
+          // An entry of a Concertmaster's curated conversation (POD-7211).
+          // `personal`, by the argument one line up: it is readable by exactly
+          // the audience of the SESSION it was said in.
+          entity === 'concertmasterEntry' ||
           // A person's chat message (POD-4764). `personal`: readable by the
           // person who sent it and the owner of the session it went to, both
           // named in its row id — see the `message` arm of `mayRead`.
@@ -422,6 +427,13 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
         if (ref.entity === 'pendingInteraction') {
           try {
             return maySeeSession(userId, parseInteractionRowId(ref.entityId).sessionId)
+          } catch {
+            return false
+          }
+        }
+        if (ref.entity === 'concertmasterEntry') {
+          try {
+            return maySeeSession(userId, parseConcertmasterEntryRowId(ref.entityId).sessionId)
           } catch {
             return false
           }
@@ -703,6 +715,13 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
         // question about it, which reads only what this pass prefetched.
         try {
           sessionIds.add(parseInteractionRowId(ref.entityId).sessionId)
+        } catch {
+          // Unparseable ids are refused by `mayRead`; nothing to prefetch.
+        }
+      } else if (ref.entity === 'concertmasterEntry') {
+        // As `pendingInteraction`: the session is in the id.
+        try {
+          sessionIds.add(parseConcertmasterEntryRowId(ref.entityId).sessionId)
         } catch {
           // Unparseable ids are refused by `mayRead`; nothing to prefetch.
         }

@@ -46,7 +46,7 @@ import { SessionDelegation } from '../identity/delegation'
  * not there.
  */
 
-import { z } from 'zod'
+import type { z } from 'zod'
 import { Attribution } from '../fields/attribution'
 import { Ownership } from '../fields/ownership'
 import {
@@ -60,6 +60,7 @@ import {
   SessionProvenance,
   SessionRef,
   SessionResume,
+  SessionRole,
   SessionRuntimeConfig,
   SessionTombstone,
   SessionWorkflowLink,
@@ -87,6 +88,7 @@ export const SessionAggregate = SessionIdentity.extend(SessionPlacement.shape)
   .extend(SessionLifecycle.shape)
   .extend(SessionActivity.shape)
   .extend(SessionWorkState.shape)
+  .extend(SessionRole.shape)
   .extend(SessionWorkflowLink.shape)
   .extend(SessionTombstone.shape)
   .extend(Ownership.shape)

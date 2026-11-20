@@ -147,6 +147,9 @@ export const TABLE_RETENTION: Readonly<Record<string, TableRetention>> = {
   notices: unbounded(
     "One row per notice a person gets (credential events, mentions); resolved notices are kept as the person's inbox history and nothing removes them.",
   ),
+  concertmaster_entries: unbounded(
+    "One row per message or ask of a Concertmaster session's curated conversation, settled asks included: the conversation its person reads back. Nothing removes them.",
+  ),
   telegram_chat_bindings: bounded('One row per person who bound a chat.'),
   machines: bounded('The fleet: one row per enrolled machine.'),
   repos: bounded('One row per repository checkout per machine.'),

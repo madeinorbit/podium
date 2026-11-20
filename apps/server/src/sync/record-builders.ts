@@ -128,6 +128,7 @@ export interface RecordReads {
     | 'workflows'
     | 'checkouts'
     | 'notices'
+    | 'concertmaster'
     | 'settings'
     | 'machines'
     | 'grants'
@@ -733,6 +734,7 @@ export const DATABASE_ONLY_BUILDERS: readonly Builder[] = [
   ROW_RECORDS.effect.builder,
   ROW_RECORDS.checkout.builder,
   ROW_RECORDS.inboxNotice.builder,
+  ROW_RECORDS.concertmasterEntry.builder,
   issueEvent,
   pendingInteraction,
   message,

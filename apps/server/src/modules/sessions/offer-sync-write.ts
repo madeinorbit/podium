@@ -33,6 +33,7 @@ import { bareSelfRefCount, selfRefNudge } from '@podium/protocol'
 import { z } from 'zod'
 import type { CommandPrincipal } from '../../command-principal'
 import type { RegistryModules } from '../../relay'
+import { CONCERTMASTER_OFFER_REFUSAL } from '../concertmaster/briefing'
 import { seatRefusal } from '../issues/service/seat'
 import { SyncWriteRefused } from '../sync-write/entry'
 import {
@@ -150,6 +151,11 @@ export function registerOfferCommands(registry: SyncWriteRegistry, deps: OfferSy
       const seat = await deps.modules().issues.reports.seatFor(actor)
       if (seat.kind === 'below') {
         return refuseTarget({ kind: 'unauthorized', message: seatRefusal(seat, '`podium offer`') })
+      }
+      // A Concertmaster's person reads its curated chat, where an offer is not
+      // shown: it says and asks there instead (POD-7211).
+      if ((await deps.modules().concertmaster?.isConcertmaster(actor)) === true) {
+        return refuseTarget({ kind: 'unauthorized', message: CONCERTMASTER_OFFER_REFUSAL })
       }
       return NO_TARGET
     },

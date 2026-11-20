@@ -10,6 +10,7 @@ import {
   instancePreferencesRecordOf,
   issueUserStateToWire,
   parseCheckoutRowId,
+  parseConcertmasterEntryRowId,
   parseIssueDepId,
   parseIssueUserStateRowId,
   parseLayoutRowId,
@@ -31,6 +32,7 @@ import {
   type RowRecordReader,
 } from '@podium/sync/record-builders'
 import { type Column, getTableColumns, type Table } from 'drizzle-orm'
+import { concertmasterEntryWireOf } from '../modules/concertmaster/records'
 import { effectOnFeed, effectRecordOf } from '../modules/effects/feed'
 import { SYSTEM_EFFECT_KINDS_OFF_FEED } from '../modules/effects/published-input'
 import {
@@ -55,6 +57,7 @@ const {
   automationRuns,
   automations,
   checkouts,
+  concertmasterEntries,
   effects,
   issueDeps,
   issues,
@@ -457,5 +460,22 @@ export const ROW_RECORDS = {
       all: ({ store }) => store.notices.allOpen(),
     },
     noticeWireOf,
+  ),
+  concertmasterEntry: rowRecord(
+    'concertmasterEntry',
+    {
+      table: concertmasterEntries,
+      // The feed id names the session first: who may read an entry is who may
+      // see its session, answered from the id (`feed-visibility.ts`).
+      key: { sessionId: concertmasterEntries.sessionId, entryId: concertmasterEntries.id },
+    },
+    {
+      byIds: ({ store }, ids) =>
+        store.concertmaster.entriesByIds(
+          parsed(ids, parseConcertmasterEntryRowId).map((key) => key.entryId),
+        ),
+      all: ({ store }) => store.concertmaster.entryPages(RECORD_PAGE_SIZE),
+    },
+    concertmasterEntryWireOf,
   ),
 } as const

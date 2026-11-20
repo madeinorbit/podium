@@ -226,6 +226,9 @@ export interface IssueCommandDeps {
     answer: string,
     caller: IssueCaller,
   ): Promise<{ ok: true; via: 'menu' | 'text' } | { ok: false; message: string }>
+  /** Whether the session is a Concertmaster right now (POD-7211): its `seat`
+   *  then refuses a harness's own ask-the-user tool. Optional in bare tests. */
+  isConcertmaster?(sessionId: SessionId): Promise<boolean>
   /** Stop every session on an issue and free its worktree (keep branch)
    * Injected from SessionLifecycle; optional in bare tests. */
   stopIssueSessions?(input: {

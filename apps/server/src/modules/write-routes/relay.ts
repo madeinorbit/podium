@@ -155,6 +155,14 @@ export const RELAY_ARMS: Readonly<Record<string, RelayArm>> = {
   },
   'offer.set': SYNC_ADAPTER,
   'offer.clear': SYNC_ADAPTER,
+  // A Concertmaster's own conversation (POD-7211). The writes are reached only
+  // inside a `sync.submit` envelope: there is no direct arm.
+  'concertmaster.say': entry('concertmaster.say'),
+  'concertmaster.ask': entry('concertmaster.ask'),
+  'concertmaster.update': entry('concertmaster.update'),
+  'concertmaster.resolve': entry('concertmaster.resolve'),
+  'concertmaster.retract': entry('concertmaster.retract'),
+  'concertmaster.list': READ,
   // The human's own issue pin, from `podium issue update --pinned` (POD-6692).
   // Reached only inside a `sync.submit` envelope: there is no direct arm.
   'records.pin.create': entry('records.pin.create'),

@@ -7,9 +7,10 @@
  * The queued commands are `outbox-commands.ts`.
  */
 
-import { NOTICE_SYNC_COMMANDS } from '@podium/commands'
+import { CONCERTMASTER_SYNC_COMMANDS, NOTICE_SYNC_COMMANDS } from '@podium/commands'
 import { APPROVAL_REQUEST_COMMAND, registerApprovalRequest } from '../approvals/request-sync-write'
 import { AUTOMATION_SYNC_FAMILY } from '../automations/sync-write'
+import { registerConcertmasterCommands } from '../concertmaster/sync-write'
 import { CONVERSATION_SYNC_FAMILY } from '../conversations/sync-write'
 import { FLEET_SYNC_COMMANDS, type FleetSyncDeps, registerFleetCommands } from '../fleet/sync-write'
 import {
@@ -71,6 +72,8 @@ export const FAMILY_COMMAND_NAMES = [
   MAIL_AWAIT_OBSERVED,
   // A person's read marks on their own notices (POD-6881).
   ...NOTICE_SYNC_COMMANDS,
+  // A Concertmaster's curated conversation: its agent's, and its person's (POD-7211).
+  ...CONCERTMASTER_SYNC_COMMANDS,
 ] as const
 
 /** What the families need beyond the shared deps. */
@@ -92,4 +95,5 @@ export function registerFamilyCommands(registry: SyncWriteRegistry, deps: Family
   registerShellCommands(registry, deps)
   registerFleetCommands(registry, { ...deps.fleet, modules: deps.modules, roleOf: deps.roleOf })
   registerNoticeCommands(registry, { notices: () => deps.modules().notices })
+  registerConcertmasterCommands(registry, deps)
 }

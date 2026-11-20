@@ -88,6 +88,7 @@ import { AgentProfilesRepository } from './store/agent-profiles'
 import { ArtifactUploadsRepository } from './store/artifact-uploads'
 import { AutomationsRepository } from './store/automations'
 import { CheckoutsRepository } from './store/checkouts'
+import { ConcertmasterRepository } from './store/concertmaster'
 import { ConversationsRepository } from './store/conversations'
 import { CredentialsRepository, type VaultKeyCheck } from './store/credentials'
 import { provisionWorkspaceFeed } from './store/database'
@@ -1074,6 +1075,8 @@ export class SessionStore {
   readonly notificationFacts: NotificationFactsRepository
   /** Each person's notice inbox (POD-6881, credential management spec §13). */
   readonly notices: NoticesRepository
+  /** Concertmaster sessions' curated conversations (POD-7211). */
+  readonly concertmaster: ConcertmasterRepository
   /** One row per run of a plan quota window (POD-1571) — the only place Podium
    *  keeps a quota number after the live read that produced it goes stale. */
   readonly quotaHistory: QuotaHistoryRepository
@@ -1207,6 +1210,7 @@ export class SessionStore {
     this.events = new EventsRepository(this.queries)
     this.notificationFacts = new NotificationFactsRepository(this.queries)
     this.notices = new NoticesRepository(this.queries)
+    this.concertmaster = new ConcertmasterRepository(this.queries)
     this.quotaHistory = new QuotaHistoryRepository(this.queries)
     this.transcriptCosts = new TranscriptCostsRepository(this.queries)
     this.messages = new MessagesRepository(this.queries)

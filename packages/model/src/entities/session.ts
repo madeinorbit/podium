@@ -783,6 +783,13 @@ export const SessionMetaEntity = z.object({
    *  web hides it from the ordinary session lists (Phase C). Additive: absent =
    *  a normal PTY session. */
   headless: z.boolean().optional(),
+  /** This session is a CONCERTMASTER (POD-7211): its person talks to it through
+   *  a curated chat, which shows what the agent sends with `podium concertmaster
+   *  say`, the person's own messages and the agent's asks, and never the
+   *  transcript or the terminal. Set and cleared by the session's own person;
+   *  a client reads it only while the `concertmaster` feature is on. Additive:
+   *  absent = an ordinary session. */
+  concertmaster: z.boolean().optional(),
   /**
    * WHO CREATED THIS SESSION, AND FOR WHOM — the ADR 9 D5 A3 attribution PAIR,
    * projected onto the wire (POD-1516, readiness §3.1.3 A3).

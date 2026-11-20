@@ -131,6 +131,7 @@ const HELP_DELEGATED = new Set([
   'workspace',
   'mail',
   'offer',
+  'concertmaster',
   'agent',
   'workflow',
   'telemetry',
@@ -264,6 +265,7 @@ export type LaunchPlan =
   | { kind: 'session'; args: string[] }
   | { kind: 'mail'; args: string[] }
   | { kind: 'offer'; args: string[] }
+  | { kind: 'concertmaster'; args: string[] }
   | { kind: 'agent'; args: string[] }
   | { kind: 'auth'; args: string[] }
   | { kind: 'worktree'; args: string[] }
@@ -863,6 +865,7 @@ export function resolvePlan(
   if (argv[0] === 'session') return { kind: 'session', args: argv.slice(1) }
   if (argv[0] === 'mail') return { kind: 'mail', args: argv.slice(1) }
   if (argv[0] === 'offer') return { kind: 'offer', args: argv.slice(1) }
+  if (argv[0] === 'concertmaster') return { kind: 'concertmaster', args: argv.slice(1) }
   if (argv[0] === 'agent') return { kind: 'agent', args: argv.slice(1) }
   if (argv[0] === 'auth') return { kind: 'auth', args: argv.slice(1) }
   if (argv[0] === 'worktree') return { kind: 'worktree', args: argv.slice(1) }
@@ -1074,6 +1077,9 @@ export function helpText(enabledFeatures: ReadonlySet<FeatureId> = new Set()): s
     '  automation schedule --at <ISO> --message <text> [--session <id> | --fresh ...]',
     '                        Request a one-off session wake (agent sessions only)',
     '  mail <command>        Send/read/reply to agent messages (unified substrate)',
+    ...(enabledFeatures.has('concertmaster')
+      ? ['  concertmaster <command>  A Concertmaster session: say to its person, keep its asks']
+      : []),
     '  agent <command>       Spawn cross-harness subagents; bounded await on a child',
     '  profile <command>     Named agent setups (harness, model, effort, instructions)',
     '  machine <command>     List machines and see which can take work',
@@ -2343,6 +2349,13 @@ export async function main(
     case 'offer': {
       const { offerCliMain } = await import('./offer-cli')
       await offerCliMain(plan.args)
+      return
+    }
+    // `podium concertmaster <command>`: a Concertmaster session's curated chat
+    // and ask list (POD-7211).
+    case 'concertmaster': {
+      const { concertmasterCliMain } = await import('./concertmaster-cli')
+      await concertmasterCliMain(plan.args)
       return
     }
     case 'mail': {

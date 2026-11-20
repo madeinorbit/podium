@@ -22,6 +22,7 @@ import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import { AgentProfilesRepository } from '../store/agent-profiles'
 import { AutomationsRepository } from '../store/automations'
 import { CheckoutsRepository } from '../store/checkouts'
+import { ConcertmasterRepository } from '../store/concertmaster'
 import { ConversationsRepository } from '../store/conversations'
 import { EffectsRepository } from '../store/effects'
 import { EventsRepository } from '../store/events'
@@ -83,6 +84,7 @@ export function recordReadsOf(base: GlobalQueries, options: RecordReadsOptions):
       workflows: new WorkflowsRepository(q),
       checkouts: new CheckoutsRepository(q),
       notices: new NoticesRepository(q),
+      concertmaster: new ConcertmasterRepository(q),
       settings: new SettingsRepository(q),
       // The session record's satellites and joins (POD-6764): reads only.
       observationCheckpoints: new ObservationCheckpointsRepository(q),

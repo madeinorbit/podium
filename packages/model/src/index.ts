@@ -53,6 +53,8 @@ export * from './entities/agent'
 // Named agent setups (flight deck D3/D4): the shared resolver and the .md shape.
 export * from './entities/agent-profile'
 export * from './entities/automation'
+// The Concertmaster's curated conversation (POD-7211).
+export * from './entities/concertmaster'
 export * from './entities/conversation'
 // The issue DEPENDENCY EDGE and the LOGICAL REPO as first-class entities
 // (POD-822; decided POD-1254, ported from main at the POD-1246 catch-up). Each
@@ -154,9 +156,9 @@ export * from './identity/worktree'
 export * from './ids'
 export * from './machine-path'
 export * from './net/cidr'
-export * from './predicates/issue-landing'
 export * from './predicates/agent-computing'
 export * from './predicates/idle-verdict'
+export * from './predicates/issue-landing'
 export { isClosed, isExcluded, isFinished } from './predicates/issue-lifecycle'
 export * from './predicates/issue-stage'
 export * from './predicates/machine-capability'
