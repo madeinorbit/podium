@@ -309,6 +309,7 @@ describe('daemon *Result frames: pinned statement counts at 5 and 200', () => {
   })
 
   interface Approval extends Fixture {
+    messagesBefore: number
     approvalId: string
   }
 
@@ -323,7 +324,8 @@ describe('daemon *Result frames: pinned statement counts at 5 and 200', () => {
       })
       await decideApproval(f.reg, id)
       await settle(f.reg)
-      return { ...f, approvalId: id }
+      const messagesBefore = (await f.store.issues.listIssueMessages(f.issueId)).length
+      return { ...f, approvalId: id, messagesBefore }
     },
     async (f) =>
       await route(f, {
@@ -335,6 +337,9 @@ describe('daemon *Result frames: pinned statement counts at 5 and 200', () => {
       }),
     async (f) => {
       expect((await f.reg.modules.approvals.get({ id: f.approvalId })).status).toBe('succeeded')
+      const notices = await f.store.issues.listIssueMessages(f.issueId)
+      expect(notices).toHaveLength(f.messagesBefore + 1)
+      expect(notices.at(-1)?.body).toBeTruthy()
     },
   )
 
@@ -353,12 +358,14 @@ describe('daemon *Result frames: pinned statement counts at 5 and 200', () => {
   // the log's append and latest-state rows); the broadcast and its approvals
   // list are gone.
   it('approvalExecResult of a session on an issue', async () => {
-    // POD-6920: derived change capture (no build before the write; one drain after it): approvalExecResult 17 -> 20.
-    await expectConstantStatements(approval, 20)
+    // Diffed against the original pin: issueAccessByIds adds one scoped
+    // SELECT of execution pointers and quarantine fields for the sharing rules
+    // before publishing the notice/effect (POD-7153). Fixed cost 20 -> 21.
+    await expectConstantStatements(approval, 21)
   })
 
   it('approvalExecResult pin is armed', async () => {
-    await expectArmed(approval, 20, plantPerSession)
+    await expectArmed(approval, 21, plantPerSession)
   })
 
   it('sessionKillResult that confirms the kill', async () => {

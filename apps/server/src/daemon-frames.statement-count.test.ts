@@ -195,11 +195,13 @@ const observation = (sessionId: SessionId): AgentObservation => ({
 const pin = (
   name: string,
   run: (f: Fixture, size: number) => Promise<unknown>,
+  check?: (f: Fixture) => Promise<void>,
 ): StatementPin<Fixture> => ({
   name,
   setup: fixture,
   target: (f) => f.store,
   run,
+  ...(check ? { check: async (_result: unknown, f: Fixture) => await check(f) } : {}),
   teardown: async (f) => {
     await f.reg.dispose()
     await f.store.close()
@@ -278,11 +280,23 @@ describe('daemon frames: pinned statement counts at 5 and 200', () => {
                 turnEpoch: 1,
               },
             }),
+          async (f) => {
+            expect(await f.store.events.runtimeEventCheckpoint(f.ids[0]!)).toMatchObject({
+              sessionId: f.ids[0],
+              observerGeneration: 1,
+              turnEpoch: 1,
+              cursor: { segmentId: 'runtime-segment', components: { seq: 20 } },
+            })
+            expect(f.reg.modules.sessions.sessions.get(f.ids[0]!)?.status).toBe('live')
+          },
         ),
         setup: async (size) => await fixture(size, true),
       },
-      // POD-6920: derived change capture (no build before the write; one drain after it): 36 -> 29.
-      29,
+      // Diffed against the original pin: the grouped queued_messages COUNT
+      // runs four times, formerly three, for current queue state in session
+      // projection/publication. Transcript presence moved from podium_events
+      // GROUP BY to an indexed sessions SELECT (one for one). Net 29 -> 30.
+      30,
     )
     expectGrantReads(counts, 0)
   })
@@ -477,9 +491,14 @@ describe('daemon frames that read an observation checkpoint: pinned at 5 and 200
       pin(
         'agentState',
         async (f) => await route(f, { type: 'agentState', sessionId: f.ids[0], state: idle }),
+        async (f) => {
+          expect(f.reg.modules.sessions.sessions.get(f.ids[0]!)?.agentState).toMatchObject(idle)
+        },
       ),
-      // POD-6920: derived change capture (no build before the write; one drain after it): 33 -> 26.
-      26,
+      // As for runtimeEvent: one more grouped queued_messages COUNT supplies
+      // the fresh queue tally; transcript presence switches tables one for one.
+      // Measured at both sizes, 26 -> 27, without another session write.
+      27,
     )
     // The accepted state is part of the existing row upsert, never a second write.
     for (const tally of [counts.small, counts.large])

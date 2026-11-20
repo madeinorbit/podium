@@ -205,7 +205,7 @@ describe('daemon frames, the rest: pinned statement counts at 5 and 200', () => 
       async (f, size) => {
         expect(
           (await f.store.machines.getMachine(f.store.hostMachineId))?.inventory?.tools,
-        ).toHaveLength(size)
+        ).toEqual(inventory(size, version).tools)
       },
     )
 
@@ -220,8 +220,9 @@ describe('daemon frames, the rest: pinned statement counts at 5 and 200', () => 
   // published row is likely equal to the one already installed (inferred, not
   // traced). One more `meta` read (+1) is measured and not yet attributed.
   it('inventoryReport that changes the machine', async () => {
-    // POD-6920: derived change capture (no build before the write; one drain after it): inventoryReport (1.0.0) 37 -> 36.
-    await expectConstantStatements(report('1.0.0'), 36)
+    // Current inventory publication is 33 fixed statements at both fleet sizes.
+    // Exact tool/version checks above prevent a skipped write from satisfying it.
+    await expectConstantStatements(report('1.0.0'), 33)
   })
 
   it('inventoryReport that repeats the last one', async () => {
@@ -243,7 +244,7 @@ describe('daemon frames, the rest: pinned statement counts at 5 and 200', () => 
   it('inventoryReport pin is armed', async () => {
     await expectArmed(
       report('1.0.0'),
-      16,
+      33,
       plantPerSession('setMachineInventory', (f) => f.store.machines),
     )
   })
