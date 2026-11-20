@@ -152,7 +152,11 @@ const pin = (
   },
   check: async (result, f) => {
     const { sessionId } = result as { sessionId: string }
-    expect(await f.store.sessions.getSession(sessionId as never)).toBeDefined()
+    const row = await f.store.sessions.getSession(sessionId as never)
+    expect(row).toMatchObject({ ownerUserId: f.owner, agentKind: 'codex' })
+    expect(['/repo/new', '/repo/w0']).toContain(row?.cwd)
+    // No selected/default credential: custody permits the machine's own login.
+    expect(row?.credentialId ?? null).toBeNull()
   },
   teardown: async (f) => {
     f.superagent.dispose()
@@ -204,12 +208,22 @@ describe('session create: pinned statement counts at 5 and 200', () => {
   // The combined tRPC pin carries both deltas (51 + 7 + 31 = 89);
   // this merge resolution does not remeasure it.
   it('in process, a draft session in a repo', async () => {
-    // POD-6920: derived change capture (no build before the write; one drain after it): createSession (draft, no issue) 40 -> 41.
-    await expectConstantStatements(draft, 41)
+    // POD-6920 derived capture had put this at 41; the current resolver is measured below.
+    // Credential resolution replaced the old accounts environment lookup (POD-6890).
+    // The no-credential path no longer reads accounts, but still checks native opt-in.
+    const counts = await expectConstantStatements(draft, 40)
+    for (const tally of [counts.small, counts.large]) {
+      expect([...tally.byQuery.keys()].some((key) => /from "accounts"/.test(key))).toBe(false)
+      expect(
+        [...tally.byQuery]
+          .filter(([key]) => /from "native_login_opt_ins"/.test(key))
+          .reduce((n, [, count]) => n + count, 0),
+      ).toBe(1)
+    }
   })
 
   it('in-process pin is armed', async () => {
-    await expectArmed(draft, 41, plantPerSession)
+    await expectArmed(draft, 40, plantPerSession)
   })
 
   // ROUND TRIPS ON HOSTED POSTGRES [POD-6992, POD-6958 design 2.11]: the driver calls that
@@ -217,7 +231,7 @@ describe('session create: pinned statement counts at 5 and 200', () => {
   // statement or with the workspace lock, one per statement, one per COMMIT). About 2.6 ms
   // each on hosted Postgres; docs/measurements/pod-6958-hosted-round-trips.md.
   it('in process, a draft session in a repo: round trips', async () => {
-    await expectConstantRoundTrips(draft, 49)
+    await expectConstantRoundTrips(draft, 48)
   }, 60_000)
 
   it('in process, a session on an issue', async () => {
@@ -231,8 +245,8 @@ describe('session create: pinned statement counts at 5 and 200', () => {
             issueId: f.issueId,
           }),
       ),
-      // POD-6920: derived change capture (no build before the write; one drain after it): 45 -> 46.
-      46,
+      // POD-6890: the credential resolver removes the old accounts environment read: 46 -> 45.
+      45,
     )
   })
 
@@ -250,12 +264,12 @@ describe('session create: pinned statement counts at 5 and 200', () => {
   const onSqliteFeedTiming = it.runIf(testStoreEngine() !== 'pg')
 
   onSqliteFeedTiming('over tRPC', async () => {
-    // POD-6920: derived change capture (no build before the write; one drain after it): tRPC sessions.create 103 -> 106.
-    await expectConstantStatements(trpc, 106)
+    // POD-6890: the same removed accounts environment read applies over tRPC: 106 -> 105.
+    await expectConstantStatements(trpc, 105)
   })
 
   onSqliteFeedTiming('tRPC pin is armed', async () => {
-    await expectArmed(trpc, 106, plantPerSession)
+    await expectArmed(trpc, 105, plantPerSession)
   })
 
   onSqliteFeedTiming(
@@ -263,7 +277,7 @@ describe('session create: pinned statement counts at 5 and 200', () => {
     async () => {
       // The session's activity publication runs on a timer the create starts; at 200 rows
       // the create outlasts its delay, and its root read lands inside the window.
-      await expectConstantRoundTrips(trpc, 144, undefined, /idx_sessions_pending_activity/)
+      await expectConstantRoundTrips(trpc, 143, undefined, /idx_sessions_pending_activity/)
     },
     60_000,
   )

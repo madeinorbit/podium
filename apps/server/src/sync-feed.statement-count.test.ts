@@ -132,6 +132,19 @@ async function world(size: number, delta = false): Promise<World> {
   // and none at the other.
   await reg.modules.checkouts.registrationsChanged(asMachineId(store.hostMachineId))
   await settle(reg)
+  // The notice record is part of the current bootstrap, not just an empty
+  // builder whose extra query happens to change the pin (POD-6881).
+  await store.notices.open({
+    id: 'ntc_statement_bootstrap',
+    recipientUserId: owner,
+    kind: 'mention',
+    subjectKind: 'issue',
+    subjectId: issues[0]!,
+    title: 'You were mentioned',
+    dedupeKey: 'statement-bootstrap-mention',
+    createdAt: '2026-11-13T00:00:00.000Z',
+  })
+  await settle(reg)
   const from = await store.sync.maxChangeSeq()
   if (delta) {
     for (const id of issues)
@@ -385,6 +398,9 @@ describe('sync worker: pinned statement counts at 5 and 200', () => {
       expect(new Set(rows.map((row) => `${row.entity}:${row.entityId}`)).size).toBe(rows.length)
       expect(rows.filter((row) => row.entity === 'issueProjection')).toHaveLength(size)
       expect(rows.filter((row) => row.entity === 'session')).toHaveLength(size)
+      expect(rows.filter((row) => row.entity === 'inboxNotice')).toMatchObject([
+        { entity: 'inboxNotice', entityId: 'ntc_statement_bootstrap' },
+      ])
     },
     true,
   )
@@ -408,19 +424,21 @@ describe('sync worker: pinned statement counts at 5 and 200', () => {
   // building and discarding them. The issue-access reader is also thin. SQLite
   // and Postgres now both execute 78 statements (79 trips including close),
   // with complete, unique issue/session output at both sizes.
+  // POD-6881 adds the notice builder: 79 statements / 80 trips. The fixture
+  // above carries a real recipient notice and the output check proves it arrives.
   it('a bootstrap for the owner', async () => {
-    await expectConstantStatements(bootstrap, 78)
+    await expectConstantStatements(bootstrap, 79)
   })
 
   it('a bootstrap pin is armed', async () => {
-    await expectArmed(bootstrap, 78, plantPerSessionRead)
+    await expectArmed(bootstrap, 79, plantPerSessionRead)
   })
 
   // ROUND TRIPS ON HOSTED POSTGRES [POD-6992, POD-6958 design 2.11]: the worker's read
   // session's driver calls that wait for the server, by the Postgres driver's pipelining.
   // About 2.6 ms each on hosted Postgres; docs/measurements/pod-6958-hosted-round-trips.md.
   it('a bootstrap for the owner: round trips', async () => {
-    await expectConstantRoundTrips(bootstrap, 79, (_w, go) => countWorkerTrips(go))
+    await expectConstantRoundTrips(bootstrap, 80, (_w, go) => countWorkerTrips(go))
   }, 60_000)
 
   const delta = pin(
