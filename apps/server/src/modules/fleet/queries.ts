@@ -14,7 +14,6 @@ import { HOST_REPOS, MachineIdField } from '@podium/model'
 import { GitHubCliResultMessage } from '@podium/protocol'
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
-import { browseDirectories } from '../../repo-registry'
 import type { FamilyState } from '../derived-family'
 import { defineQuery } from '../query-table'
 
@@ -32,58 +31,43 @@ export const REPO_QUERIES = {
   })),
   /**
    * Browse a machine's directories for the repo picker (POD-814) [spec:SP-3701].
-   * With `machineId` the listing comes from THAT machine's daemon — the only
-   * filesystem the user means. Without it, the legacy server-local browse: kept
-   * strictly for old clients that predate the machine-aware picker, which reads
-   * the hub host's own disk (wrong tree, and empty-to-absent in mode=server).
+   * The caller names the machine; only that machine's daemon can list its disk.
    */
   browse: q(
-    z
-      .object({
-        path: z.string().optional(),
-        includeHidden: z.boolean().optional(),
-        machineId: MachineIdField.optional(),
-      })
-      .optional(),
+    z.object({
+      path: z.string().optional(),
+      includeHidden: z.boolean().optional(),
+      machineId: MachineIdField,
+    }),
     async (s, input) => {
-      if (input?.machineId) {
-        // POD-2700: browsing a machine's disk is `host-repos` work, so refuse a
-        // machine that has no daemon to browse WITH — otherwise the picker's
-        // first action against the server-only coordinator spends 35 seconds in
-        // a queue and comes back "directory browse failed", which names neither
-        // the machine nor the reason.
-        try {
-          await s.modules.machines.requireCapability(
-            input.machineId,
-            HOST_REPOS,
-            'browse directories',
-          )
-        } catch (e) {
-          throw new TRPCError({
-            code: 'PRECONDITION_FAILED',
-            message: describeError(e),
-          })
-        }
-        const res = await s.modules.rpc.browseDirs(
-          input.path,
-          { ...(input.includeHidden === undefined ? {} : { includeHidden: input.includeHidden }) },
-          input.machineId,
-        )
-        if (!res.listing)
-          throw new TRPCError({
-            code: 'BAD_REQUEST',
-            message: res.error ?? 'directory browse failed',
-          })
-        return res.listing
-      }
+      // POD-2700: browsing a machine's disk is `host-repos` work, so refuse a
+      // machine that has no daemon to browse WITH — otherwise the picker's
+      // first action against the server-only coordinator spends 35 seconds in
+      // a queue and comes back "directory browse failed", which names neither
+      // the machine nor the reason.
       try {
-        return await browseDirectories(input?.path, { includeHidden: input?.includeHidden })
+        await s.modules.machines.requireCapability(
+          input.machineId,
+          HOST_REPOS,
+          'browse directories',
+        )
       } catch (e) {
         throw new TRPCError({
-          code: 'BAD_REQUEST',
+          code: 'PRECONDITION_FAILED',
           message: describeError(e),
         })
       }
+      const res = await s.modules.rpc.browseDirs(
+        input.path,
+        { ...(input.includeHidden === undefined ? {} : { includeHidden: input.includeHidden }) },
+        input.machineId,
+      )
+      if (!res.listing)
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: res.error ?? 'directory browse failed',
+        })
+      return res.listing
     },
   ),
   /** Live CLI/auth readiness. The response contains identity labels, never credentials. */

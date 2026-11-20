@@ -1612,11 +1612,6 @@ type CheckError = 'INVALID_URL' | 'DNS_FAILED' | 'PRIVATE_ADDRESS' | 'REDIRECTED
 /** Connect itself could not be reached or refused the request. Never a failed check. */
  | 'CONNECT_UNAVAILABLE';
 
-type DirectoryBrowserEntry = {
-    name: string;
-    path: string;
-};
-
 interface TelegramSetupStartResult {
     setupId: string;
     code: string;
@@ -5990,12 +5985,6 @@ type Output_operations_cancel = ({
     canceled: true;
     operation: Protocol.Operation;
 });
-type Output_repos_browse = {
-    entries: DirectoryBrowserEntry[];
-    homePath: string;
-    parentPath: null | string;
-    path: string;
-};
 type Output_repos_githubList = {
     error?: string | undefined;
     path?: string | undefined;
@@ -8236,12 +8225,12 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             meta: unknown;
         }>;
         "browse": TRPC.TRPCQueryProcedure<{
-            input: (undefined) | ({
+            input: {
                 includeHidden?: boolean | undefined;
-                machineId?: string | undefined;
+                machineId: string;
                 path?: string | undefined;
-            });
-            output: Output_repos_browse;
+            };
+            output: _podium_model.DirectoryListingWire;
             meta: unknown;
         }>;
         "cloneGithub": TRPC.TRPCMutationProcedure<{

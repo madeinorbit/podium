@@ -92,7 +92,6 @@ import { updateProcedures } from './modules/updates/trpc'
 import { vaultFamilyProcedures } from './modules/vault/trpc'
 import type { RegistryModules } from './relay'
 import { canonicalizeRepoOrigin } from './repo-id'
-import { browseDirectories } from './repo-registry'
 import { isAllowedRoot } from './root-allowlist'
 
 // The request Context, the shared `t` instance, and the ctx accessors live in

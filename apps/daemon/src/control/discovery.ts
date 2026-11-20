@@ -156,9 +156,9 @@ export async function mapLimit<T, R>(
 
 /**
  * One directory's sub-directories on THIS machine's disk (POD-814) [spec:SP-3701].
- * Ported from the server's browseDirectories(): the picker used to browse the hub
- * host's own disk, which is the wrong filesystem — the user picks a machine, and a
- * hub in mode=server may have no disk of interest (or no daemon) at all.
+ * The picker used to browse the hub host's own disk, which is the wrong filesystem.
+ * The user picks a machine, and a hub in mode=server may have no disk of interest
+ * (or no daemon) at all.
  *
  * Directories only (the picker adds repos, and files are never repo roots), hidden
  * ones filtered unless asked for, sorted by name. Throws on an unusable path; the
