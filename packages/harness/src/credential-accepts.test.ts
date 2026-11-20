@@ -20,7 +20,7 @@ import { BUNDLED_DESCRIPTORS } from './browser.js'
 import { buildBundledDescriptors, buildServedDescriptors } from './descriptors.js'
 import { declaredValue } from './manifest.js'
 import { harnessAccepts, harnessHideFromCommands } from './metadata.js'
-import { AGENT_MANIFESTS } from './registry.js'
+import { AGENT_MANIFESTS, unmetHideFromCommandsPrerequisites } from './registry.js'
 
 const bundled = (): AcceptsConsumer[] =>
   Object.values(AGENT_MANIFESTS).map((manifest) => ({
@@ -149,9 +149,17 @@ describe('harnessAccepts', () => {
 })
 
 describe('hideFromCommands', () => {
-  it('Claude Code scrubs credentials from the commands it runs', () => {
+  it('Claude Code scrubs credentials from the commands it runs, which needs bubblewrap on Linux', () => {
     expect(harnessHideFromCommands('claude-code')).toEqual({
       env: { CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: '1' },
+      requires: [
+        {
+          executable: 'bwrap',
+          package: 'bubblewrap',
+          platforms: ['linux'],
+          missing: expect.stringContaining('bubblewrap'),
+        },
+      ],
     })
   })
 
@@ -168,6 +176,28 @@ describe('hideFromCommands', () => {
     )
     expect(excluded).toEqual(delivered)
     expect(excluded).not.toContain('GH_TOKEN')
+  })
+
+  it('names bubblewrap as unmet only for Claude Code on Linux without bwrap (POD-7375)', () => {
+    const none = () => undefined
+    const found = (command: string) => `/usr/bin/${command}`
+    const unmet = unmetHideFromCommandsPrerequisites('claude-code', {
+      platform: 'linux',
+      resolve: none,
+    })
+    expect(unmet.map((need) => need.package)).toEqual(['bubblewrap'])
+    expect(unmet[0]?.missing).toContain('sudo apt-get install bubblewrap')
+    expect(
+      unmetHideFromCommandsPrerequisites('claude-code', { platform: 'linux', resolve: found }),
+    ).toEqual([])
+    expect(
+      unmetHideFromCommandsPrerequisites('claude-code', { platform: 'darwin', resolve: none }),
+    ).toEqual([])
+    for (const kind of ['codex', 'not-a-harness']) {
+      expect(
+        unmetHideFromCommandsPrerequisites(kind, { platform: 'linux', resolve: none }),
+      ).toEqual([])
+    }
   })
 })
 

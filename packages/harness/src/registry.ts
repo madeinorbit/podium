@@ -33,6 +33,7 @@ import {
   type HarnessTranscript,
   type HarnessUsage,
   type HideFromCommands,
+  type HostPrerequisite,
   type PortableCredential,
   type ServerRuntimeSpec,
 } from './manifest.js'
@@ -205,6 +206,22 @@ export function harnessAccepts(kind: AgentKind | string): readonly AcceptedCrede
 /** What a launch adds to keep credentials out of the agent's commands, if the harness has a switch. */
 export function harnessHideFromCommands(kind: AgentKind | string): HideFromCommands | undefined {
   return manifestFor(kind)?.inventory.hideFromCommands
+}
+
+/**
+ * The programs the harness's hide-from-commands switch needs and `resolve`
+ * does not find, on `platform` (POD-7375). Empty when the harness has no
+ * switch, needs nothing there, or everything is found. `resolve` looks a
+ * command up the way the start would: the inventory's command environment, or
+ * the PATH of the exact environment a process gets.
+ */
+export function unmetHideFromCommandsPrerequisites(
+  kind: AgentKind | string,
+  host: { platform: NodeJS.Platform; resolve: (command: string) => string | undefined },
+): readonly HostPrerequisite[] {
+  return (manifestFor(kind)?.inventory.hideFromCommands?.requires ?? []).filter(
+    (need) => need.platforms.includes(host.platform) && host.resolve(need.executable) === undefined,
+  )
 }
 
 export function harnessSupportsCredentialPropagation(

@@ -2,7 +2,7 @@ import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:f
 import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { createCommandEnvironment } from './command-environment'
+import { createCommandEnvironment, resolveOnPath } from './command-environment'
 
 const roots: string[] = []
 function root(): string {
@@ -131,5 +131,22 @@ describe('createCommandEnvironment', () => {
     })
     expect(environment.machineHome).toBe('/explicit-home')
     expect(environment.loginShell).toBe('/explicit-shell')
+  })
+})
+
+describe('resolveOnPath (POD-7375)', () => {
+  it('finds a command on exactly the PATH of the environment given', () => {
+    const bin = join(root(), 'bin')
+    mkdirSync(bin)
+    writeFileSync(join(bin, 'bwrap'), '#!/bin/sh\n')
+    chmodSync(join(bin, 'bwrap'), 0o755)
+    writeFileSync(join(bin, 'not-runnable'), '')
+    chmodSync(join(bin, 'not-runnable'), 0o644)
+    expect(resolveOnPath('bwrap', { PATH: ['/nowhere', bin].join(delimiter) }, 'linux')).toBe(
+      join(bin, 'bwrap'),
+    )
+    expect(resolveOnPath('bwrap', { PATH: '/nowhere' }, 'linux')).toBeUndefined()
+    expect(resolveOnPath('bwrap', {}, 'linux')).toBeUndefined()
+    expect(resolveOnPath('not-runnable', { PATH: bin }, 'linux')).toBeUndefined()
   })
 })

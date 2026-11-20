@@ -228,6 +228,20 @@ function resolveExecutable(
   return undefined
 }
 
+/**
+ * Where `command` resolves on the PATH of `env`, the way a process started with
+ * exactly that environment would find it. Undefined when it is not there.
+ */
+export function resolveOnPath(
+  command: string,
+  env: Readonly<Record<string, string | undefined>>,
+  platform: NodeJS.Platform = process.platform,
+): string | undefined {
+  const strings = stringEnv(env)
+  const entries = splitPath(strings[environmentPathKey(strings, platform)], platform)
+  return resolveExecutable(command, entries, strings, platform)
+}
+
 export async function createCommandEnvironment(
   options: CreateCommandEnvironmentOptions = {},
 ): Promise<CommandEnvironment> {

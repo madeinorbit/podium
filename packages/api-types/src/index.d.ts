@@ -5928,6 +5928,12 @@ type Output_machines_applyUpdate = {
                     };
                     state: "in" | "out" | "unknown";
                 }[];
+                missingPrerequisites?: undefined | {
+                    executable: string;
+                    message: string;
+                    neededFor: "passed-in-credential";
+                    package: string;
+                }[];
                 path?: string | undefined;
                 probeError?: undefined | {
                     reason: "timed-out";

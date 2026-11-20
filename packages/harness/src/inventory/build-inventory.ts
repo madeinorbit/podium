@@ -24,7 +24,11 @@ import {
   type HarnessLogin,
   type LoginCommandResult,
 } from '../manifest.js'
-import { AGENT_MANIFESTS, harnessLoginReadEnv } from '../registry.js'
+import {
+  AGENT_MANIFESTS,
+  harnessLoginReadEnv,
+  unmetHideFromCommandsPrerequisites,
+} from '../registry.js'
 import { AGENT_VERSION_PROBE_TIMEOUT_MS } from '../version-probe.js'
 
 const log = createLogger('harness:inventory')
@@ -579,13 +583,46 @@ export async function buildResolvedInventory(
   return Object.freeze({
     inventory: {
       ...inventoryPlatformFields(hostPlatform),
-      agents: agentResults.map((result) => result.inventory),
+      agents: agentResults.map((result) =>
+        // Argv-only under an injected exec, as candidatePaths (POD-2826): the
+        // test host's own PATH says nothing about the machine described.
+        legacyInjectedExec
+          ? result.inventory
+          : withMissingPrerequisites(result.inventory, hostPlatform, commandEnvironment),
+      ),
       tools,
     },
     executables,
     managed: managedExecutables,
     commandEnvironment,
   })
+}
+
+/**
+ * An installed harness's row with what its hide-from-commands switch needs
+ * here and the command environment does not find (POD-7375). The switch is
+ * set only for a credential Podium passes in, so that is the use named.
+ */
+function withMissingPrerequisites(
+  row: AgentInventory,
+  platform: NodeJS.Platform,
+  environment: CommandEnvironment,
+): AgentInventory {
+  if (row.installed !== true) return row
+  const unmet = unmetHideFromCommandsPrerequisites(row.kind, {
+    platform,
+    resolve: (command) => environment.resolve(command),
+  })
+  if (unmet.length === 0) return row
+  return {
+    ...row,
+    missingPrerequisites: unmet.map((need) => ({
+      executable: need.executable,
+      package: need.package,
+      neededFor: 'passed-in-credential' as const,
+      message: need.missing,
+    })),
+  }
 }
 
 async function readManaged(

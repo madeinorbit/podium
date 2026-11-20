@@ -382,6 +382,27 @@ export interface HarnessAuthStatusProbe {
 export interface HideFromCommands {
   env?: Readonly<Record<string, string>>
   args?: readonly string[]
+  /**
+   * Programs the switch needs on the machine. Without one the harness refuses
+   * to start at all, so a start that would set the switch is refused before
+   * the process runs, with {@link HostPrerequisite.missing} (POD-7375).
+   */
+  requires?: readonly HostPrerequisite[]
+}
+
+/** A program a harness feature needs on the machine, found on the start's PATH. */
+export interface HostPrerequisite {
+  /** The executable looked for (`bwrap`). */
+  readonly executable: string
+  /** The package a person installs to get it (`bubblewrap`). */
+  readonly package: string
+  /** The platforms that need it. */
+  readonly platforms: readonly NodeJS.Platform[]
+  /**
+   * What happens without it, for the person: the refusal and the inventory
+   * row. Names the package and how to install it.
+   */
+  readonly missing: string
 }
 
 /** Prefer a recognizable name + email without duplicating equal values. */

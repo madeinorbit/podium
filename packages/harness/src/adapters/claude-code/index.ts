@@ -161,7 +161,26 @@ export const claudeCodeManifest: AgentManifest = {
     ],
     // Claude Code's documented switch: scrub Anthropic and cloud-provider
     // credentials from the environment of the commands it runs.
-    hideFromCommands: { env: { CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: '1' } },
+    //
+    // On Linux the switch also runs every command in a bubblewrap sandbox, and
+    // Claude exits at start when it finds no `bwrap` ("bubblewrap is required
+    // for subprocess env scrubbing and isolation", measured on 2.1.311 and
+    // 2.1.329, POD-7375). With bwrap found it creates empty mount points on
+    // every start: dotfiles in HOME, package and `.env` files in the working
+    // directory, and a block appended to `.git/info/exclude`. No vendor setting
+    // keeps the scrub and skips them.
+    hideFromCommands: {
+      env: { CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: '1' },
+      requires: [
+        {
+          executable: 'bwrap',
+          package: 'bubblewrap',
+          platforms: ['linux'],
+          missing:
+            'Claude Code needs bubblewrap (bwrap) on this machine to keep a credential Podium passes in out of the commands it runs, and none was found on PATH. Install the bubblewrap package (for example: sudo apt-get install bubblewrap), then start the session again.',
+        },
+      ],
+    },
     // What a started session is on, in Claude Code's own words (credential
     // management §9 "Launching"): the same command as the login probe.
     authStatusProbe: {

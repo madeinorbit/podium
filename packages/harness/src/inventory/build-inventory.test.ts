@@ -3,11 +3,11 @@ import { platform, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { CommandEnvironment } from '@podium/runtime/command-environment'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { fingerprintForLoginIdentity } from '../adapters/shared/login-identity.js'
 import {
   readFreshnessFromAuthContents,
   readIdentityFromAuthContents,
 } from '../adapters/codex/auth-identity.js'
+import { fingerprintForLoginIdentity } from '../adapters/shared/login-identity.js'
 import { harnessLoginReadEnv } from '../registry.js'
 import { AGENT_VERSION_PROBE_TIMEOUT_MS } from '../version-probe.js'
 import {
@@ -91,7 +91,14 @@ function commandEnvironment(
     generation: 7,
     machineHome: home,
     loginShell: '/bin/sh',
-    resolve: (command) => (installed && command === 'claude' ? resolvedClaude : undefined),
+    // bwrap is found so Claude's passed-in-credential prerequisite (POD-7375)
+    // is met on a Linux test host; the bubblewrap test below takes it away.
+    resolve: (command) =>
+      command === 'bwrap'
+        ? '/usr/bin/bwrap'
+        : installed && command === 'claude'
+          ? resolvedClaude
+          : undefined,
   }
 }
 
@@ -190,6 +197,55 @@ describe('buildInventory', () => {
         identity: { email: 'keychain@example.com', fingerprint: expect.any(String) },
       },
     })
+  })
+
+  it('reports bubblewrap missing on the Claude row on Linux, and nothing when bwrap is found (POD-7375)', async () => {
+    const env = Object.freeze({ PATH: '/verified/bin', HOME: home })
+    const loginExec: LoginProbeExec = async () => ({
+      stdout: JSON.stringify({ loggedIn: false }),
+      stderr: '',
+      exitCode: 1,
+      timedOut: false,
+    })
+    const withoutBwrap: CommandEnvironment = {
+      ...commandEnvironment(env),
+      resolve: (command) => (command === 'claude' ? resolvedClaude : undefined),
+    }
+    const missing = await buildInventory({
+      credentialHome: home,
+      commandEnvironment: withoutBwrap,
+      exec: async () => '2.1.50',
+      loginExec,
+      platform: 'linux',
+    })
+    const claude = missing.agents.find((agent) => agent.kind === 'claude-code')
+    expect(claude?.missingPrerequisites).toEqual([
+      {
+        executable: 'bwrap',
+        package: 'bubblewrap',
+        neededFor: 'passed-in-credential',
+        message: expect.stringContaining('bubblewrap'),
+      },
+    ])
+    // Only an installed harness gets the row; one that is not here needs nothing yet.
+    for (const agent of missing.agents.filter((a) => a.kind !== 'claude-code')) {
+      expect(agent.missingPrerequisites).toBeUndefined()
+    }
+    for (const [platform, environment] of [
+      ['linux', commandEnvironment(env)],
+      ['darwin', withoutBwrap],
+    ] as const) {
+      const inv = await buildInventory({
+        credentialHome: home,
+        commandEnvironment: environment,
+        exec: async () => '2.1.50',
+        loginExec,
+        platform,
+      })
+      expect(
+        inv.agents.find((agent) => agent.kind === 'claude-code')?.missingPrerequisites,
+      ).toBeUndefined()
+    }
   })
 
   it('preserves absent Claude config variables in the command environment', async () => {

@@ -137,6 +137,25 @@ export const AgentInventory = z.object({
    * Podium's.
    */
   install: AgentInstallWire.optional(),
+  /**
+   * Programs this harness needs here for one use and does not find on PATH
+   * (POD-7375): Claude Code on Linux needs bubblewrap to run on a credential
+   * Podium passes in. Absent when nothing is missing.
+   */
+  missingPrerequisites: z
+    .array(
+      z.object({
+        /** The executable looked for (`bwrap`). */
+        executable: z.string().min(1),
+        /** The package a person installs (`bubblewrap`). */
+        package: z.string().min(1),
+        /** The use that needs it. */
+        neededFor: z.enum(['passed-in-credential']),
+        /** What happens without it, and how to install it, for the person. */
+        message: z.string().min(1),
+      }),
+    )
+    .optional(),
 })
 export type AgentInventory = z.infer<typeof AgentInventory>
 
