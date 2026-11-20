@@ -569,8 +569,24 @@ describe('message delivery under real failures', { retry: 0 }, () => {
       const busy = phone.send(session, 'keeps the agent busy')
       await waitTyped(world, busy.id)
       const retracted = phone.send(session, 'retracted while the machine is away')
-      // The daemon holds it, waiting behind the running turn.
-      await waitCarried(world, retracted.id)
+      // Crossing the proxy is not an acknowledgement: cutting then can lose
+      // bytes the daemon has not read yet. Establish its actual held receipt.
+      const carried = await waitCarried(world, retracted.id)
+      await waitFor(
+        () =>
+          world.link.crossed({ dir: 'up', type: 'runtimeSendResult' }).some((frame) => {
+            const receipt = frame.body?.receipt as { outcome?: string; held?: string } | undefined
+            return (
+              frame.body?.requestId === carried.requestId &&
+              (receipt?.outcome === 'queued' ||
+                (receipt?.outcome === 'accepted' && receipt.held !== undefined))
+            )
+          }),
+        30_000,
+        `${retracted.id} acknowledged as held by the daemon`,
+        () => world.logs(),
+      )
+      expect(world.typedCount(retracted.id)).toBe(0)
       world.link.cut()
       await world.device('laptop').retract(session, retracted.id)
       const whileAway = (await world.rows()).find((row) => row.id === retracted.id)
