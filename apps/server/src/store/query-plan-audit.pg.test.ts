@@ -873,6 +873,15 @@ const RECENT_RANGE =
   "A collection's recent records (POD-7085): those after a cutoff of the last N days. The generic plan cannot know the cutoff and takes a third of the rows as recent; for a real one, the newest few, Postgres reads the time index."
 
 const PLANNER_CHOICES: ReadonlyMap<string, PlannerChoice> = new Map<string, PlannerChoice>([
+  [
+    'apps/server/src/store/credentials.ts:livePlacementsOfOwner',
+    {
+      off: NESTED_LOOP_ONLY,
+      reads: 'idx_credentials_owner',
+      reason:
+        "The owner's person-configured credentials are a small table. On the analyzed fixture Postgres scans and sorts them by created_at/id before joining their placements. The proof reads that same order through idx_credentials_owner and each credential's placements through its workspace-scoped primary key; no work-history table is scanned or sorted.",
+    },
+  ],
   ...(['implicitExpiryFirst', 'implicitExpiryAfter'] as const).map(
     (name) =>
       [
