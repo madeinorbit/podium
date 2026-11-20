@@ -754,6 +754,40 @@ describe('supervisor socket ceded and taken back', () => {
     })
   }
 
+  it.each([
+    true,
+    false,
+  ])('keeps an admission wait pending through an outage, then settles on a real handshake (%s)', async (accepted) => {
+    vi.useFakeTimers()
+    const connection = cededConnection()
+    const admitted = connection.waitUntilConnected(null)
+    let settled: boolean | undefined
+    void admitted.then((value) => {
+      settled = value
+    })
+    const bounded = connection.waitUntilConnected(10_000)
+    try {
+      connection.start()
+      const first = Socket.all[0]
+      if (!first) throw new Error('initial dial did not create a socket')
+      first.open()
+      first.drop()
+      await vi.advanceTimersByTimeAsync(20_000)
+      expect(await bounded).toBe(false)
+      expect(settled).toBeUndefined()
+      const retry = Socket.all.at(-1)
+      if (!retry || retry === first) throw new Error('outage did not redial')
+      if (accepted) retry.accept()
+      else {
+        retry.open()
+        retry.message({ type: 'peerHelloRejected', reason: 'auth-failed' })
+      }
+      await expect(admitted).resolves.toBe(accepted)
+    } finally {
+      connection.close()
+    }
+  })
+
   it('puts nothing on a live socket once it has been ceded', () => {
     vi.useFakeTimers()
     const connection = cededConnection()

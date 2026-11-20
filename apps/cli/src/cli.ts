@@ -2213,7 +2213,7 @@ export async function main(
         // A legacy remote runtime must be admitted before its configuration is
         // upgraded or children start. A refused candidate remains restartable
         // by the retained release with its original startup files.
-        if (!(await supervisorConnection.waitUntilConnected())) {
+        if (!(await supervisorConnection.waitUntilConnected(null))) {
           const { DAEMON_BLOCKED_EXIT_CODE } = await import('@podium/runtime/connectivity')
           await supervisorConnection.close()
           process.exit(DAEMON_BLOCKED_EXIT_CODE)

@@ -500,7 +500,8 @@ export interface MachineSupervisorConnectionDeps {
 
 export interface MachineSupervisorConnection {
   start(): void
-  waitUntilConnected(timeoutMs?: number): Promise<boolean>
+  /** null waits for admission/refusal without treating a network outage as refusal. */
+  waitUntilConnected(timeoutMs?: number | null): Promise<boolean>
   report(): void
   /** Re-resolve topology now; stale socket callbacks cannot mutate the new connection. */
   reconfigure(): void
@@ -1014,7 +1015,8 @@ export function createMachineSupervisorConnection(
 
   return {
     start: connect,
-    async waitUntilConnected(timeoutMs = 10_000) {
+    async waitUntilConnected(timeoutMs: number | null = 10_000) {
+      if (timeoutMs === null) return firstConnection
       let timer: ReturnType<typeof setTimeout> | undefined
       const timeout = new Promise<boolean>((resolve) => {
         timer = setTimeout(() => resolve(false), timeoutMs)
