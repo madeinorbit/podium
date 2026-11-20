@@ -41,7 +41,7 @@ const linger = run([lab, 'exec', slot, 'cat', '/etc/systemd/system/lab-linger.se
 const user = linger.match(/enable-linger\s+([A-Za-z0-9_.-]+)/)?.[1]
 assert(user, 'The lab image must identify its disposable user in lab-linger.service.')
 const home = run([lab, 'exec', slot, 'getent', 'passwd', user], true).trim().split(':')[5]
-assert(home?.startsWith('/home/'), 'The lab user must have a separate account home.')
+assert(home && home.startsWith('/home/'), 'The lab user must have a separate account home.')
 const inside = (command: string[], capture = false) =>
   run(
     [
