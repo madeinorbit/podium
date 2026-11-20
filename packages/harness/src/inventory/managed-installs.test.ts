@@ -4,9 +4,20 @@
  * previous one when the current fails the probe) is probed beside the
  * person's install, and the person's is found exactly as before.
  */
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { execFile } from 'node:child_process'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, relative } from 'node:path'
+import { promisify } from 'node:util'
 import { AgentInventory } from '@podium/model'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { buildResolvedInventory, type ProbeExec } from './build-inventory.js'
@@ -49,7 +60,12 @@ function receipt(kind: InstallReceipt['harness'], version: string): InstallRecei
 }
 
 /** Install one release the way the install mechanism does: allocate, fill, publish. */
-function publish(ledger: InstallLedger, kind: InstallReceipt['harness'], version: string): string {
+function publish(
+  ledger: InstallLedger,
+  kind: InstallReceipt['harness'],
+  version: string,
+  script = '#!/bin/sh\n',
+): string {
   ledger.requestInstall(kind, 'person')
   const result = ledger.acquireInstallLock({ label: 'test', autoRenew: false })
   if (!result.acquired) throw new Error('lock not acquired')
@@ -58,7 +74,7 @@ function publish(ledger: InstallLedger, kind: InstallReceipt['harness'], version
     const dir = join(harnessesDir, kind, releaseFolderName(number, version))
     const written = receipt(kind, version)
     mkdirSync(join(dir, 'bin'), { recursive: true })
-    writeFileSync(join(dir, written.executable), '#!/bin/sh\n', { mode: 0o755 })
+    writeFileSync(join(dir, written.executable), script, { mode: 0o755 })
     writeInstallReceipt(dir, written)
     ledger.publishRelease(kind, number, result.lock)
     return join(dir, written.executable)
@@ -89,6 +105,21 @@ function build(exec: ProbeExec) {
     exec,
     managedInstalls: managedInstallsReader(harnessesDir),
   })
+}
+
+/** Every path under `dir` with its size, so a write anywhere below shows. */
+function treeListing(dir: string): string[] {
+  const out: string[] = []
+  const walk = (at: string) => {
+    for (const name of readdirSync(at).sort()) {
+      const path = join(at, name)
+      const stat = statSync(path)
+      out.push(`${relative(dir, path)}:${stat.isDirectory() ? 'dir' : stat.size}`)
+      if (stat.isDirectory()) walk(path)
+    }
+  }
+  walk(dir)
+  return out
 }
 
 const claudeOf = (inventory: { agents: AgentInventory[] }) =>
@@ -186,6 +217,69 @@ describe('the inventory reads the install ledger (managed installs §6.1)', () =
     }
     const snapshot = await build(answers)
     expect(snapshot.managed?.has('pi')).toBe(false)
+  })
+
+  it('probes a managed binary in a temporary home it removes, never the person’s folders (POD-7382)', async () => {
+    // Codex 0.171.0 creates `.codex/tmp/arg0-linux` helper links even for
+    // `--version`. This binary writes the same way into wherever its home is.
+    const observed = join(root, 'observed')
+    const script = [
+      '#!/bin/sh',
+      'state="$HOME/.codex"; [ -n "$CODEX_HOME" ] && state="$CODEX_HOME"',
+      'mkdir -p "$state/tmp/arg0-linux"',
+      'echo link > "$state/tmp/arg0-linux/codex-linux-sandbox"',
+      `printf "HOME=%s\\nCODEX_HOME=%s\\nOPENAI_API_KEY=%s\\nPATH=%s\\nKEPT=%s\\n" "$HOME" "$CODEX_HOME" "$OPENAI_API_KEY" "$PATH" "$KEPT" > "${observed}"`,
+      'echo "codex-cli 0.171.0"',
+      '',
+    ].join('\n')
+    const managedPath = publish(openLedger(), 'codex', '0.171.0', script)
+    const personCodex = join(root, 'person-codex')
+    for (const dir of [home, personCodex]) {
+      mkdirSync(dir, { recursive: true })
+      writeFileSync(join(dir, 'sentinel'), 'personal state\n')
+    }
+    const releaseDir = join(managedPath, '..', '..')
+    const before = [home, personCodex, releaseDir].map(treeListing)
+    const run = promisify(execFile)
+    // Only the managed binary really runs; the person's installs are absent.
+    const exec: ProbeExec = async (argv, timeoutMs, env) => {
+      if (argv[0] !== managedPath) throw new Error(`ENOENT: ${argv[0]}`)
+      const { stdout } = await run(managedPath, argv.slice(1), {
+        timeout: timeoutMs,
+        ...(env ? { env } : {}),
+      })
+      return stdout
+    }
+    const snapshot = await buildResolvedInventory({
+      homeDir: home,
+      env: {
+        PATH: '/usr/bin:/bin',
+        HOME: home,
+        CODEX_HOME: personCodex,
+        OPENAI_API_KEY: 'foreign-key',
+        KEPT: 'kept',
+      },
+      exec,
+      managedInstalls: managedInstallsReader(harnessesDir),
+    })
+
+    expect(snapshot.managed?.get('codex')).toMatchObject({
+      path: managedPath,
+      version: 'codex-cli 0.171.0',
+    })
+    // Neither the person's folders nor the immutable release folder changed.
+    expect([home, personCodex, releaseDir].map(treeListing)).toEqual(before)
+    const seen = Object.fromEntries(
+      readFileSync(observed, 'utf8')
+        .trim()
+        .split('\n')
+        .map((line) => [line.slice(0, line.indexOf('=')), line.slice(line.indexOf('=') + 1)]),
+    )
+    expect(seen).toMatchObject({ CODEX_HOME: '', OPENAI_API_KEY: '', KEPT: 'kept' })
+    expect(seen.PATH?.split(':')).toEqual(expect.arrayContaining(['/usr/bin', '/bin']))
+    expect(seen.HOME?.startsWith(join(tmpdir(), 'podium-probe-codex-'))).toBe(true)
+    // The probe home, and what the binary wrote there, is gone.
+    expect(existsSync(seen.HOME as string)).toBe(false)
   })
 
   it('leaves the inventory exactly as before when nothing is managed', async () => {

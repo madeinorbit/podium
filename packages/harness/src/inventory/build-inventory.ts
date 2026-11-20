@@ -4,7 +4,9 @@
  * bounded probe that expires is explicitly unknown (`installed: null`).
  */
 import { execFile } from 'node:child_process'
-import { homedir, platform as nodePlatform } from 'node:os'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { homedir, platform as nodePlatform, tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { createLogger } from '@podium/logger'
 import type {
@@ -31,6 +33,7 @@ import {
   unmetHideFromCommandsPrerequisites,
 } from '../registry.js'
 import { AGENT_VERSION_PROBE_TIMEOUT_MS } from '../version-probe.js'
+import { installerEnvFor, managedInstallEnv } from './managed-install.js'
 import { managedInstallRefusal } from './requested-install.js'
 
 const log = createLogger('harness:inventory')
@@ -169,24 +172,21 @@ type ExecutableProbe =
 /**
  * THE VERSION AND IDENTITY PROBE OF ONE CANDIDATE, the same for the person's
  * install and a managed release (managed installs §6.1): `<path> <versionArgs>`
- * must answer, and a declared identity probe must accept its output. Runs in
- * the machine command environment, never an account's.
+ * must answer, and a declared identity probe must accept its output. Runs with
+ * the machine command environment, never an account's; a managed release runs
+ * it in a temporary home (see {@link probeManaged}).
  */
 async function probeExecutable(
   manifest: AgentManifest,
   candidate: string,
-  environment: CommandEnvironment,
+  env: Readonly<Record<string, string>>,
   exec: ProbeExec,
 ): Promise<ExecutableProbe> {
   const declaration = manifest.inventory.executable
   let version: string
   try {
     version = (
-      await exec(
-        [candidate, ...declaration.versionArgs],
-        AGENT_VERSION_PROBE_TIMEOUT_MS,
-        environment.env,
-      )
+      await exec([candidate, ...declaration.versionArgs], AGENT_VERSION_PROBE_TIMEOUT_MS, env)
     ).trim()
   } catch (error) {
     // Missing, or no longer executable: the caller tries its next path.
@@ -197,7 +197,7 @@ async function probeExecutable(
       const output = await exec(
         [candidate, ...declaration.identityProbe.args],
         AGENT_VERSION_PROBE_TIMEOUT_MS,
-        environment.env,
+        env,
       )
       if (!declaration.identityProbe.accepts(output)) return { kind: 'failed' }
     } catch (error) {
@@ -214,21 +214,59 @@ async function probeExecutable(
  * current release, or its previous one when the current fails the probe.
  * Nothing else: an older release is never reached for, and a managed binary
  * never runs a login probe, which reads the person's own folder (M9).
+ *
+ * Even `--version` can write harness state (Codex creates its arg0 helper
+ * links), so the probes run in a temporary home outside the release folders,
+ * which stay immutable, and outside the person's harness folders: the machine
+ * command environment with its foreign credentials and harness folder
+ * variables removed, PATH kept. The home is removed after the probes.
  */
 async function probeManaged(
   manifest: AgentManifest,
   record: ManagedHarnessRecord,
   environment: CommandEnvironment,
   exec: ProbeExec,
+  hostPlatform: NodeJS.Platform,
 ): Promise<{ executable?: ResolvedHarnessExecutable; currentFailed?: ManagedReleaseCandidate }> {
-  if (record.removingAt) return {}
+  if (record.removingAt || (!record.current && !record.previous)) return {}
+  let probeHome: string
+  try {
+    probeHome = await mkdtemp(join(tmpdir(), `podium-probe-${manifest.kind}-`))
+  } catch (err) {
+    // Without a home of its own a managed binary is not run at all: running it
+    // in the person's folder is the one thing this must never do.
+    log.warn('no temporary home for the managed probe; reporting no managed install', {
+      kind: manifest.kind,
+      err,
+    })
+    return {}
+  }
+  try {
+    const env = Object.freeze(
+      installerEnvFor(managedInstallEnv(environment.env), probeHome, hostPlatform),
+    )
+    return await probeManagedCandidates(manifest, record, environment, env, exec)
+  } finally {
+    await rm(probeHome, { recursive: true, force: true }).catch((err: unknown) => {
+      log.warn('the managed probe home could not be removed', { path: probeHome, err })
+    })
+  }
+}
+
+async function probeManagedCandidates(
+  manifest: AgentManifest,
+  record: ManagedHarnessRecord,
+  environment: CommandEnvironment,
+  env: Readonly<Record<string, string>>,
+  exec: ProbeExec,
+): Promise<{ executable?: ResolvedHarnessExecutable; currentFailed?: ManagedReleaseCandidate }> {
   let currentFailed: ManagedReleaseCandidate | undefined
   for (const [role, candidate] of [
     ['current', record.current],
     ['previous', record.previous],
   ] as const) {
     if (!candidate) continue
-    const probed = await probeExecutable(manifest, candidate.executable, environment, exec)
+    const probed = await probeExecutable(manifest, candidate.executable, env, exec)
     if (probed.kind === 'verified') {
       const executable: ResolvedHarnessExecutable = Object.freeze({
         kind: manifest.kind,
@@ -353,7 +391,7 @@ async function probeExternal(
   const commandProbe = declaredValue(manifest.inventory.loginCommandProbe)
   let timedOut = false
   for (const candidate of candidatePaths(manifest, environment, legacyInjectedExec)) {
-    const probed = await probeExecutable(manifest, candidate, environment, exec)
+    const probed = await probeExecutable(manifest, candidate, environment.env, exec)
     if (probed.kind === 'timed-out') timedOut = true
     if (probed.kind !== 'verified') continue
     const version = probed.version
@@ -439,7 +477,9 @@ async function probeAgent(
       legacyInjectedExec,
       hostPlatform,
     ),
-    record ? probeManaged(manifest, record, environment, exec) : Promise.resolve(undefined),
+    record
+      ? probeManaged(manifest, record, environment, exec, hostPlatform)
+      : Promise.resolve(undefined),
   ])
   if (!record || !podium) return external
   const install = installWire(
