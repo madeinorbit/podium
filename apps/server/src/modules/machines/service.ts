@@ -65,8 +65,8 @@ import { requestParentEnrollment } from '@podium/runtime/parent-control'
 import { TRPCError } from '@trpc/server'
 import type { DaemonLinkKind } from '../../gateway/daemon-link-kind'
 import type { DaemonControlPeer } from '../../gateway/daemon-ports'
-import { isPrivateOwner } from '../../private-resources'
 import type { MemberCredentials } from '../../identity/member-credentials'
+import { isPrivateOwner } from '../../private-resources'
 import { enrollSetupMachine, readSetupEnrollment } from '../../setup-enrollment'
 import type { MachineRecord, SessionStore } from '../../store'
 import { afterCommit, spanOpen } from '../../store/executor/executor'
@@ -443,7 +443,9 @@ export class MachinesService {
     if (!supervisor || this.revokedMachines.has(machineId))
       return Promise.resolve(unknownUpdateSpace('The machine is offline.'))
     if (!supervisor.caps.includes(UPDATE_SPACE_CAPABILITY))
-      return Promise.resolve(unknownUpdateSpace('This machine does not support space previews yet.'))
+      return Promise.resolve(
+        unknownUpdateSpace('This machine does not support space previews yet.'),
+      )
     return this.spaceRequests.request(machineId, supervisor.send, target, fingerprint)
   }
 
@@ -494,7 +496,10 @@ export class MachinesService {
     )
     if (result === 'missing') throw new TRPCError({ code: 'NOT_FOUND', message: 'unknown machine' })
     if (result === 'server-transfer-required')
-      throw new TRPCError({ code: 'BAD_REQUEST', message: 'move the server through server transfer' })
+      throw new TRPCError({
+        code: 'BAD_REQUEST',
+        message: 'move the server through server transfer',
+      })
     // The daemon is told once the assignment has committed (ADR 2 D10, POD-6417).
     await this.outsideTheWrite(async () => {
       this.supervisors.get(machineId)?.send({ type: 'serviceAssignment', assignment })
@@ -981,9 +986,35 @@ export class MachinesService {
     const pending = this.pendingByMachine.get(machineId)
     if (pending && pending.length > 0) {
       this.pendingByMachine.delete(machineId)
+      // A retract recorded while the transport was away must reach the daemon
+      // before the buffered input it withdraws. The durable inbox will send the
+      // retract on its next drain too, but this older transport copy would type
+      // first. Keep preceding setup frames and unrelated delivery order intact.
+      const retracts = new Map<string, PendingDaemonDelivery[]>()
+      const key = (sessionId: SessionId, rowId: string) => JSON.stringify([sessionId, rowId])
       for (const delivery of pending) {
+        if (delivery.kind !== 'control') continue
+        const message = delivery.message
+        if (message.type !== 'runtimeInterruptRequest' || !message.cancelRowId) continue
+        const row = key(message.sessionId, message.cancelRowId)
+        const requests = retracts.get(row) ?? []
+        requests.push(delivery)
+        retracts.set(row, requests)
+      }
+      const sent = new Set<PendingDaemonDelivery>()
+      for (const delivery of pending) {
+        if (delivery.kind === 'control' && delivery.message.type === 'runtimeDurableSendRequest') {
+          const message = delivery.message
+          for (const retract of retracts.get(key(message.sessionId, message.rowId)) ?? []) {
+            if (sent.has(retract) || retract.kind !== 'control') continue
+            sendControl(transport, retract.message)
+            sent.add(retract)
+          }
+        }
+        if (sent.has(delivery)) continue
         if (delivery.kind === 'control') sendControl(transport, delivery.message)
         else sendPtyInput(transport, delivery.input)
+        sent.add(delivery)
       }
     }
   }
