@@ -7,6 +7,7 @@
 
 import type { ReplicaAddressedBatch, ReplicaKind } from '@podium/client-core/replica'
 import { SESSION_CONFIGURE_KIND } from '@podium/client-core/spawn-agent'
+import { fixtureRoot } from '@podium/client-core/test-support/command-hooks'
 import type { EffectStatus } from '@podium/model'
 import { runInAction } from 'mobx'
 import { describe, expect, it } from 'vitest'
@@ -66,7 +67,7 @@ function runtime() {
     attachPoolWriter: () => () => {},
     spawnNotices: { error: () => {}, info: () => {} },
   }
-  const handle = createRuntimeWorklistPool(rt as unknown as WorklistRuntime)
+  const handle = createRuntimeWorklistPool(fixtureRoot(rt) as unknown as WorklistRuntime)
   return {
     pool: handle.pool,
     record(value: Row) {

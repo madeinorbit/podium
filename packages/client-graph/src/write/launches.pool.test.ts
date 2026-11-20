@@ -14,6 +14,7 @@
 import type { OutboxEntry } from '@podium/client-core/outbox'
 import type { ReplicaAddressedBatch, ReplicaKind } from '@podium/client-core/replica'
 import { draftLaunchEffect, SESSION_LAUNCH_KIND } from '@podium/client-core/spawn-agent'
+import { fixtureRoot } from '@podium/client-core/test-support/command-hooks'
 import { asIssueId, asMutationId, asSessionId, type EffectStatus } from '@podium/model'
 import { autorun, runInAction } from 'mobx'
 import { describe, expect, it } from 'vitest'
@@ -103,34 +104,30 @@ function runtime(boot: { effects?: Row[]; queued?: OutboxEntry[] } = {}) {
         }
       },
     },
-    services: {
-      outbox: {
-        queue: {
-          pending: () => queue,
-          awaiting: () => [],
-          deadLetters: () => [],
-          subscribe(listener: (size: number) => void) {
-            outboxListeners.add(listener)
-            return () => {
-              outboxListeners.delete(listener)
-            }
-          },
-          enqueue: async (
-            kind: string,
-            input: unknown,
-            opts: { mutationId: string; queuedAt: number },
-          ) => {
-            queue = [...queue, { kind, input, ...opts } as OutboxEntry]
-            publishOutbox()
-          },
-        },
+    outbox: {
+      pending: () => queue,
+      awaiting: () => [],
+      deadLetters: () => [],
+      subscribe(listener: (size: number) => void) {
+        outboxListeners.add(listener)
+        return () => {
+          outboxListeners.delete(listener)
+        }
+      },
+      enqueue: async (
+        kind: string,
+        input: unknown,
+        opts: { mutationId: string; queuedAt: number },
+      ) => {
+        queue = [...queue, { kind, input, ...opts } as OutboxEntry]
+        publishOutbox()
       },
     },
     subscribeOutboxOutcomes: () => () => {},
     attachPoolWriter: () => () => {},
     spawnNotices: { error: (message: string) => errors.push(message), info: () => {} },
   }
-  const handle = createRuntimeWorklistPool(rt as unknown as WorklistRuntime)
+  const handle = createRuntimeWorklistPool(fixtureRoot(rt) as unknown as WorklistRuntime)
   return {
     pool: handle.pool,
     errors,
