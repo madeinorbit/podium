@@ -1840,15 +1840,15 @@
       "tokens": "deb5fa5fb591685ae7357daecc5a6e329b644fa83785bc6c102e7846d35bcce7",
       "gate": [],
       "origin": [
-        "9d5b29571b9582f133b7fc1c024f6658618ebc188fab0a6cb37d194585893f09"
+        "6e471a1dbf091e151a8806ef1d25cf9a9d565ccdddc41697efb49425a9c110e4"
       ],
-      "fingerprint": "a92f850e07bfee280b2c2c8145dae814a0b19124e19c3ca15ac544d3f1f77c6f",
+      "fingerprint": "131ad51302e029e98be715f52520fd5d6fd48f4e2779b76f9f4a0f5cf6759806",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5866",
       "trigger": "Invocation of useAutomationList/view",
       "bound": "Opening ownership bounds lifetime, not collection cardinality; the existing collection path still requires a named-demand or cardinality bound.",
-      "reason": "Per-opening context and query ownership expose the existing reader-summary collection path. This lifetime change does not claim to repair its collection work.",
+      "reason": "Per-opening context and query ownership expose the existing reader-summary collection path. This lifetime change does not claim to repair its collection work. POD-7196: the same reader now reaches the structural worktree selector, retaining root queries across unrelated repository metadata. Its collection-work debt remains unchanged.",
       "guard": "Exact fingerprint and multiplicity only; POD-5866 opening tests prove release, and speed:structural compares work with the pilot baseline. This entry is not a collection-work fix."
     },
     {
@@ -1858,15 +1858,15 @@
       "tokens": "deb5fa5fb591685ae7357daecc5a6e329b644fa83785bc6c102e7846d35bcce7",
       "gate": [],
       "origin": [
-        "9d5b29571b9582f133b7fc1c024f6658618ebc188fab0a6cb37d194585893f09"
+        "6e471a1dbf091e151a8806ef1d25cf9a9d565ccdddc41697efb49425a9c110e4"
       ],
-      "fingerprint": "dfe7aa02dea96eda25effbd521bb5add40713d7b669a8dbba5eaf95d7cc3b45a",
+      "fingerprint": "9cb5b81c268fe50f48ff58b826e420167710f4c3dcb87b2dcf19b90d5104d64a",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5866",
-      "trigger": "Invocation of useAutomationRunSession/view",
+      "trigger": "Invocation of useAutomationList/view",
       "bound": "Opening ownership bounds lifetime, not collection cardinality; the existing collection path still requires a named-demand or cardinality bound.",
-      "reason": "Per-opening context and query ownership expose the existing reader-summary collection path. This lifetime change does not claim to repair its collection work.",
+      "reason": "Per-opening context and query ownership expose the existing reader-summary collection path. This lifetime change does not claim to repair its collection work. POD-7196: the same reader now reaches the structural worktree selector, retaining root queries across unrelated repository metadata. Its collection-work debt remains unchanged.",
       "guard": "Exact fingerprint and multiplicity only; POD-5866 opening tests prove release, and speed:structural compares work with the pilot baseline. This entry is not a collection-work fix."
     },
     {
@@ -1876,15 +1876,15 @@
       "tokens": "deb5fa5fb591685ae7357daecc5a6e329b644fa83785bc6c102e7846d35bcce7",
       "gate": [],
       "origin": [
-        "9d5b29571b9582f133b7fc1c024f6658618ebc188fab0a6cb37d194585893f09"
+        "6e471a1dbf091e151a8806ef1d25cf9a9d565ccdddc41697efb49425a9c110e4"
       ],
-      "fingerprint": "2ea2133b8a103fabcf5777d092565866442fdc52985bb20d954849dbe6fc13be",
+      "fingerprint": "e94461f6c99176248efb8f284b63fa6c5943da3b33af592d3542b41210644161",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5866",
-      "trigger": "Invocation of useAutomationTarget/view",
+      "trigger": "Invocation of useAutomationList/view",
       "bound": "Opening ownership bounds lifetime, not collection cardinality; the existing collection path still requires a named-demand or cardinality bound.",
-      "reason": "Per-opening context and query ownership expose the existing reader-summary collection path. This lifetime change does not claim to repair its collection work.",
+      "reason": "Per-opening context and query ownership expose the existing reader-summary collection path. This lifetime change does not claim to repair its collection work. POD-7196: the same reader now reaches the structural worktree selector, retaining root queries across unrelated repository metadata. Its collection-work debt remains unchanged.",
       "guard": "Exact fingerprint and multiplicity only; POD-5866 opening tests prove release, and speed:structural compares work with the pilot baseline. This entry is not a collection-work fix."
     },
     {
@@ -1894,15 +1894,15 @@
       "tokens": "deb5fa5fb591685ae7357daecc5a6e329b644fa83785bc6c102e7846d35bcce7",
       "gate": [],
       "origin": [
-        "9d5b29571b9582f133b7fc1c024f6658618ebc188fab0a6cb37d194585893f09"
+        "6e471a1dbf091e151a8806ef1d25cf9a9d565ccdddc41697efb49425a9c110e4"
       ],
-      "fingerprint": "02d55a3219882be0049e54adc8327f1d76eda627c41f3116e6214781c8c17d6f",
+      "fingerprint": "cbfb20987ace2fc354eaa3d8a1d5d52c458a4104903b374c36d284ac324435e9",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5866",
-      "trigger": "Invocation of useAutomationTargetForPath/view",
+      "trigger": "Invocation of useAutomationList/view",
       "bound": "Opening ownership bounds lifetime, not collection cardinality; the existing collection path still requires a named-demand or cardinality bound.",
-      "reason": "Per-opening context and query ownership expose the existing reader-summary collection path. This lifetime change does not claim to repair its collection work.",
+      "reason": "Per-opening context and query ownership expose the existing reader-summary collection path. This lifetime change does not claim to repair its collection work. POD-7196: the same reader now reaches the structural worktree selector, retaining root queries across unrelated repository metadata. Its collection-work debt remains unchanged.",
       "guard": "Exact fingerprint and multiplicity only; POD-5866 opening tests prove release, and speed:structural compares work with the pilot baseline. This entry is not a collection-work fix."
     },
     {
@@ -1912,15 +1912,15 @@
       "tokens": "deb5fa5fb591685ae7357daecc5a6e329b644fa83785bc6c102e7846d35bcce7",
       "gate": [],
       "origin": [
-        "9d5b29571b9582f133b7fc1c024f6658618ebc188fab0a6cb37d194585893f09"
+        "6e471a1dbf091e151a8806ef1d25cf9a9d565ccdddc41697efb49425a9c110e4"
       ],
-      "fingerprint": "bfc002f7185902aa22d15d6dd4820dfc66f34c9867c6bd04b9ddd2f93ba9397f",
+      "fingerprint": "1350cc72407ae2c261660c4d3b413bbfeabaace21677363e532d17cb644d9e62",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5866",
-      "trigger": "Invocation of useAutomationTargetMachine/view",
+      "trigger": "Invocation of useAutomationList/view",
       "bound": "Opening ownership bounds lifetime, not collection cardinality; the existing collection path still requires a named-demand or cardinality bound.",
-      "reason": "Per-opening context and query ownership expose the existing reader-summary collection path. This lifetime change does not claim to repair its collection work.",
+      "reason": "Per-opening context and query ownership expose the existing reader-summary collection path. This lifetime change does not claim to repair its collection work. POD-7196: the same reader now reaches the structural worktree selector, retaining root queries across unrelated repository metadata. Its collection-work debt remains unchanged.",
       "guard": "Exact fingerprint and multiplicity only; POD-5866 opening tests prove release, and speed:structural compares work with the pilot baseline. This entry is not a collection-work fix."
     },
     {
@@ -1930,15 +1930,15 @@
       "tokens": "deb5fa5fb591685ae7357daecc5a6e329b644fa83785bc6c102e7846d35bcce7",
       "gate": [],
       "origin": [
-        "9d5b29571b9582f133b7fc1c024f6658618ebc188fab0a6cb37d194585893f09"
+        "6e471a1dbf091e151a8806ef1d25cf9a9d565ccdddc41697efb49425a9c110e4"
       ],
-      "fingerprint": "5cc130561dce23cbcb4ca6a07ac8ce2d61a522ea13231e31138350f756383b5d",
+      "fingerprint": "d929cac34adbe1c963bad962bac34927bd12aeea624f790b35a16fd6cbd64521",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5866",
-      "trigger": "Invocation of useAutomationTargets/view",
+      "trigger": "Invocation of useAutomationList/view",
       "bound": "Opening ownership bounds lifetime, not collection cardinality; the existing collection path still requires a named-demand or cardinality bound.",
-      "reason": "Per-opening context and query ownership expose the existing reader-summary collection path. This lifetime change does not claim to repair its collection work.",
+      "reason": "Per-opening context and query ownership expose the existing reader-summary collection path. This lifetime change does not claim to repair its collection work. POD-7196: the same reader now reaches the structural worktree selector, retaining root queries across unrelated repository metadata. Its collection-work debt remains unchanged.",
       "guard": "Exact fingerprint and multiplicity only; POD-5866 opening tests prove release, and speed:structural compares work with the pilot baseline. This entry is not a collection-work fix."
     },
     {
@@ -1948,15 +1948,15 @@
       "tokens": "deb5fa5fb591685ae7357daecc5a6e329b644fa83785bc6c102e7846d35bcce7",
       "gate": [],
       "origin": [
-        "9d5b29571b9582f133b7fc1c024f6658618ebc188fab0a6cb37d194585893f09"
+        "6e471a1dbf091e151a8806ef1d25cf9a9d565ccdddc41697efb49425a9c110e4"
       ],
-      "fingerprint": "071708b6bf6417a0787b4ef76b76e6129ab47515230745307a0af4be891a2c1f",
+      "fingerprint": "b8c37da1ed83f89feab6646f60ddc1028c86bd36204e2cb8326212b4628b0d6d",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5866",
-      "trigger": "Invocation of useSpecsRepositories/view",
+      "trigger": "Invocation of useAutomationList/view",
       "bound": "Opening ownership bounds lifetime, not collection cardinality; the existing collection path still requires a named-demand or cardinality bound.",
-      "reason": "Per-opening context and query ownership expose the existing reader-summary collection path. This lifetime change does not claim to repair its collection work.",
+      "reason": "Per-opening context and query ownership expose the existing reader-summary collection path. This lifetime change does not claim to repair its collection work. POD-7196: the same reader now reaches the structural worktree selector, retaining root queries across unrelated repository metadata. Its collection-work debt remains unchanged.",
       "guard": "Exact fingerprint and multiplicity only; POD-5866 opening tests prove release, and speed:structural compares work with the pilot baseline. This entry is not a collection-work fix."
     },
     {
@@ -25759,56 +25759,20 @@
     },
     {
       "file": "packages/client-graph/src/automation-targets.ts",
-      "holder": "createAutomationTargets/cache/keyedComputed:callback",
+      "holder": "createAutomationTargets/worktrees",
       "rule": "reader-summary",
-      "tokens": "6d2d07a80cdbaacfd88384053a1b3edb39822d87f19b33f2a6dea440db0bf45b",
+      "tokens": "603568ef9ecbddd7f1173535d47a973fb8374ad89a5d913e856458213b2ff643",
       "gate": [],
       "origin": [
-        "9d5b29571b9582f133b7fc1c024f6658618ebc188fab0a6cb37d194585893f09"
+        "6e471a1dbf091e151a8806ef1d25cf9a9d565ccdddc41697efb49425a9c110e4"
       ],
-      "fingerprint": "5310df679a45eb6ed2dcec5f772177fbc66e70e84838e7f993b4253aa2340a1a",
+      "fingerprint": "61e29c69762a95ade7b23fd760961197b1c42d513caa9b6c1c505d894ed9b9a9",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5571",
       "trigger": "Setup/automation choice derivation while mounted",
       "bound": "Session history is addressed and flat; repository/worktree catalog cardinality is still unconstrained.",
-      "reason": "The session roster scan was removed. Choice metadata still needs demand bounds when its picker is closed; this entry does not waive that remaining repair.",
-      "guard": "packages/client-graph/src/settings-questions.test.ts proves flat session-history work and release after close; repository cardinality remains a required follow-up."
-    },
-    {
-      "file": "packages/client-graph/src/automation-targets.ts",
-      "holder": "createAutomationTargets/memo/callback",
-      "rule": "reader-summary",
-      "tokens": "8c3fbe32500365c237ea6a5507e3c149695293bb7520544c29db768b4092cf1a",
-      "gate": [],
-      "origin": [
-        "9d5b29571b9582f133b7fc1c024f6658618ebc188fab0a6cb37d194585893f09"
-      ],
-      "fingerprint": "fb128a1a799673528b1a406c52537efdeba5e4b19aa8888b07ab29c23745e152",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5571",
-      "trigger": "Setup/automation choice derivation while mounted",
-      "bound": "Session history is addressed and flat; repository/worktree catalog cardinality is still unconstrained.",
-      "reason": "The session roster scan was removed. Choice metadata still needs demand bounds when its picker is closed; this entry does not waive that remaining repair.",
-      "guard": "packages/client-graph/src/settings-questions.test.ts proves flat session-history work and release after close; repository cardinality remains a required follow-up."
-    },
-    {
-      "file": "packages/client-graph/src/automation-targets.ts",
-      "holder": "createAutomationTargets/worktrees/callback",
-      "rule": "reader-summary",
-      "tokens": "7f3bb01511432b4a3f5f2e984908d0434fe7d413a47e91e94a871b6a152fd143",
-      "gate": [],
-      "origin": [
-        "9d5b29571b9582f133b7fc1c024f6658618ebc188fab0a6cb37d194585893f09"
-      ],
-      "fingerprint": "59c61b0b71166a9462a2347f6e95a4498f93689cf5d8869d3a817e0f5c08b0b2",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5571",
-      "trigger": "Setup/automation choice derivation while mounted",
-      "bound": "Session history is addressed and flat; repository/worktree catalog cardinality is still unconstrained.",
-      "reason": "The session roster scan was removed. Choice metadata still needs demand bounds when its picker is closed; this entry does not waive that remaining repair.",
+      "reason": "The session roster scan was removed. Choice metadata still needs demand bounds when its picker is closed; this entry does not waive that remaining repair. POD-7196: worktrees now has a structurally compared keyed computation, so unchanged roots retain their query across scalar repository edits. The indirect cache/memo summary paths moved here; their remaining picker-demand debt is retained, not waived.",
       "guard": "packages/client-graph/src/settings-questions.test.ts proves flat session-history work and release after close; repository cardinality remains a required follow-up."
     },
     {
@@ -27213,27 +27177,27 @@
     },
     {
       "file": "packages/client-graph/src/header-source.ts",
-      "holder": "attachHeaderSource/callback",
+      "holder": "attachHeaderSource/runInAction:callback/callback/runInAction:callback",
       "rule": "loop:for-of",
       "tokens": "f59483bb72dd12893543227676c844583f1d3053b456095aee60f5be664b7422",
       "gate": [
         "exit:then:f58ab47fb47bd3cd4a94c1071592857da01ddc19950d44ee3ac8e9622ded2ec8"
       ],
       "origin": [
-        "25b844bdd6ee55df3454ab1c5554778c8c0f8457c1d14478fe7f6965b190505a"
+        "eae36d49e780a9f33ece8bb02db5f632d007b8519f8ecd74ace75e6cde1fa0e0"
       ],
-      "fingerprint": "38e4051b8bfe9324c9a772ceb975def30f69c4bc75e2329338b6c5ee72865584",
+      "fingerprint": "7f8327e37bd3307f31fa8fce23f5264b22e346ab020c80b521027305c6813e26",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of attachHeaderSource/callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7196: attachment and teardown now execute inside their owned applying actions. The underlying collection tokens and classification are unchanged; the extra action appears in the holder path and gate.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
       "file": "packages/client-graph/src/header-source.ts",
-      "holder": "attachHeaderSource/runInAction:callback",
+      "holder": "attachHeaderSource/runInAction:callback/runInAction:callback",
       "rule": "reader-summary",
       "tokens": "eb974849d59bc965df7b19ef67dd8e3b6286d44bfd507e95d5a9a98d513afdb7",
       "gate": [],
@@ -27241,13 +27205,13 @@
         "fcbb6b685809a542e02057934bbc6b0a0c88acdbd7a8d45c9a79b354bc0422e1",
         "ffaf8fa3a1e9fa3f19cca08bd45b0776cb2a10367f0f308a0364f69c56ca39e2"
       ],
-      "fingerprint": "6582b657b109df86ffc72f5e7005cee609118a8c79b99930883dd3b2bf033268",
+      "fingerprint": "7d96e3f155ffc8e8641048f7832b1e5ace8b3b0c96426a73cc145ca41b853f99",
       "count": 1,
       "classification": "ingest",
       "owner": "POD-5530",
       "trigger": "Pool construction, source attachment or a replace/fresh publication.",
       "bound": "Resident table membership at attachment or replacement; subsequent publications follow named rows.",
-      "reason": "Source tracing confines this walk to ingestion or one attachment seed; ongoing interaction answers are separate census entries.",
+      "reason": "Source tracing confines this walk to ingestion or one attachment seed; ongoing interaction answers are separate census entries. POD-7196: attachment and teardown now execute inside their owned applying actions. The underlying collection tokens and classification are unchanged; the extra action appears in the holder path and gate.",
       "guard": "Construction/attachment call sites or publish replace/fresh branch, captured in source tokens and control-gate fingerprints."
     },
     {
@@ -31218,15 +31182,15 @@
         "then:9e99ff28b72d46b70094fd9167e6ea39eef61d3890965aa55c93cbf2c33aa71d"
       ],
       "origin": [
-        "9d5b29571b9582f133b7fc1c024f6658618ebc188fab0a6cb37d194585893f09"
+        "6e471a1dbf091e151a8806ef1d25cf9a9d565ccdddc41697efb49425a9c110e4"
       ],
-      "fingerprint": "c80b85d21b4b34023257b406271bbaebdb590a9e0891ed3c087c61298b9a65df",
+      "fingerprint": "d125744f12444d1072ef4879a70aaf811da8d512357e07ca32ac749fd33dd72e",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5571",
       "trigger": "Setup/automation choice derivation while mounted",
       "bound": "Session history is addressed and flat; repository/worktree catalog cardinality is still unconstrained.",
-      "reason": "The session roster scan was removed. Choice metadata still needs demand bounds when its picker is closed; this entry does not waive that remaining repair.",
+      "reason": "The session roster scan was removed. Choice metadata still needs demand bounds when its picker is closed; this entry does not waive that remaining repair. POD-7196: the unchanged helper now reaches the structural automation worktree selector. Its existing collection-work debt remains required.",
       "guard": "packages/client-graph/src/settings-questions.test.ts proves flat session-history work and release after close; repository cardinality remains a required follow-up."
     },
     {
@@ -31279,15 +31243,15 @@
         "exit:then:20aba40a100d587b33abe8783fe94cd6fcd1c3240df4efc7b49dd4072378969e"
       ],
       "origin": [
-        "9d5b29571b9582f133b7fc1c024f6658618ebc188fab0a6cb37d194585893f09"
+        "6e471a1dbf091e151a8806ef1d25cf9a9d565ccdddc41697efb49425a9c110e4"
       ],
-      "fingerprint": "937e2fd7f7bbaeb6a829eadd89717905d9a7333eca2a6332ba3f6c4264e34a4a",
+      "fingerprint": "693287b4a82e81371407d7c7d1d2f22537d4d2d033342aa627906d85e260ac4e",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5571",
       "trigger": "Setup/automation choice derivation while mounted",
       "bound": "Session history is addressed and flat; repository/worktree catalog cardinality is still unconstrained.",
-      "reason": "The session roster scan was removed. Choice metadata still needs demand bounds when its picker is closed; this entry does not waive that remaining repair.",
+      "reason": "The session roster scan was removed. Choice metadata still needs demand bounds when its picker is closed; this entry does not waive that remaining repair. POD-7196: the unchanged helper now reaches the structural automation worktree selector. Its existing collection-work debt remains required.",
       "guard": "packages/client-graph/src/settings-questions.test.ts proves flat session-history work and release after close; repository cardinality remains a required follow-up."
     },
     {
@@ -31321,15 +31285,15 @@
         "exit:then:20aba40a100d587b33abe8783fe94cd6fcd1c3240df4efc7b49dd4072378969e"
       ],
       "origin": [
-        "9d5b29571b9582f133b7fc1c024f6658618ebc188fab0a6cb37d194585893f09"
+        "6e471a1dbf091e151a8806ef1d25cf9a9d565ccdddc41697efb49425a9c110e4"
       ],
-      "fingerprint": "3c0a2b3e0e79391c871825d09937a94d08a749c5047962cdc8ec86b25b448603",
+      "fingerprint": "adf10bad0d7a74fafc1271753121bfb886244caf7e87ef155a739ff081c9ae2b",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5571",
       "trigger": "Setup/automation choice derivation while mounted",
       "bound": "Session history is addressed and flat; repository/worktree catalog cardinality is still unconstrained.",
-      "reason": "The session roster scan was removed. Choice metadata still needs demand bounds when its picker is closed; this entry does not waive that remaining repair.",
+      "reason": "The session roster scan was removed. Choice metadata still needs demand bounds when its picker is closed; this entry does not waive that remaining repair. POD-7196: the unchanged helper now reaches the structural automation worktree selector. Its existing collection-work debt remains required.",
       "guard": "packages/client-graph/src/settings-questions.test.ts proves flat session-history work and release after close; repository cardinality remains a required follow-up."
     },
     {
@@ -32230,40 +32194,40 @@
       "file": "apps/web/src/test-support/mock-screen-pool.ts",
       "holder": "useFixturePool/useLayoutEffect:callback",
       "rule": "helper-consumer",
-      "tokens": "1ebf90f02ac522924e07430adf28b72633f1588133b55be429abad77be2624aa",
+      "tokens": "74d278cfe5d5b4554d347cff221c4d950bf5f0e1c9ac8589f500e40af331da0c",
       "gate": [],
       "origin": [
         "5641f8f84581485a31d010b99e085652ec205d16df8e17343cb00db585a2e662",
         "a835815122562d1d0dd22a71ddbd055fbfba7f823cba8712a4b31941ff575f25",
         "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
       ],
-      "fingerprint": "8a3af8ad93efb054d5610ef61558fd60f17937ad4de5eb1425882b2f8c2a386c",
+      "fingerprint": "7d6cfc8b6baa519c35a271e63d3264bf5c5d80461d591cedfea8fd7b3b92b52f",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5872",
       "trigger": "A provider-free screen fixture mounts or publishes its synthetic snapshot.",
       "bound": "Only the finite synthetic record arrays supplied by the mounted test fixture; this module has no production import caller.",
-      "reason": "The fixture adapter publishes its existing input into the real pool so warm services keep canonical session identities. The copied snapshot and publication are test-only setup. POD-6400: a helper it reaches now formats issue refs through issueRefText; its enumeration is unchanged. Predecessor: 840d1564f2c4885f340c3a03323dff9ded81cf83256fb7591a372343b43b4323. POD-6682 moved the command or transport home; its collection strategy is unchanged. POD-6682 integration repair: refreshed the command/root home and transitive evidence; the collection strategy and classification are unchanged. Predecessors: 9af5ef01ec1845af8a5e6824679ab380ac708170d33628b24c7c43f04d38cb32, 18ce29d94b37ccfbfb7d7f8369f1615a4cdfdee3363eda65ee4abcfbc23401f5. POD-6764: the live fixture it reaches gained the two session reading setters; its enumeration is unchanged. Predecessor: 98855960fae31a521f495c82dcfc7b612b247d21e38f47942251654fdff1d5ee. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged. The credential epic merge with the workspace store (POD-6857) moved its tokens; the classification is unchanged.",
+      "reason": "The fixture adapter publishes its existing input into the real pool so warm services keep canonical session identities. The copied snapshot and publication are test-only setup. POD-6400: a helper it reaches now formats issue refs through issueRefText; its enumeration is unchanged. Predecessor: 840d1564f2c4885f340c3a03323dff9ded81cf83256fb7591a372343b43b4323. POD-6682 moved the command or transport home; its collection strategy is unchanged. POD-6682 integration repair: refreshed the command/root home and transitive evidence; the collection strategy and classification are unchanged. Predecessors: 9af5ef01ec1845af8a5e6824679ab380ac708170d33628b24c7c43f04d38cb32, 18ce29d94b37ccfbfb7d7f8369f1615a4cdfdee3363eda65ee4abcfbc23401f5. POD-6764: the live fixture it reaches gained the two session reading setters; its enumeration is unchanged. Predecessor: 98855960fae31a521f495c82dcfc7b612b247d21e38f47942251654fdff1d5ee. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged. The credential epic merge with the workspace store (POD-6857) moved its tokens; the classification is unchanged. POD-7196: the reachable fixture publisher now attaches the pool and binds its row feed atomically, keeping this existing setup/ingestion classification and bound.",
       "guard": "apps/web/src/features/chat/ChatView.test.tsx preserves all 37 original assertions; production build excludes the Vitest fixture. Exact fingerprint and multiplicity remain enforced."
     },
     {
       "file": "apps/web/src/test-support/mock-screen-pool.ts",
       "holder": "useFixturePool/useMemo:callback/records/callback",
       "rule": "helper-consumer",
-      "tokens": "c33cc07771f0524e5617aec5fd778522525196444aee8382d98f62a75276b128",
+      "tokens": "ea6b17df6735683cb8b6ec5b22259c08876031fab5bfae37420fb7660ff2640e",
       "gate": [],
       "origin": [
         "5641f8f84581485a31d010b99e085652ec205d16df8e17343cb00db585a2e662",
         "a835815122562d1d0dd22a71ddbd055fbfba7f823cba8712a4b31941ff575f25",
         "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
       ],
-      "fingerprint": "244186ccada74dc1e533cfeb6d339276286d30685fb6fb7de6614fb28607d1c8",
+      "fingerprint": "62786af3018655b20fd4464139d007d324f7bf09a6c83b83635f3be6503dca8f",
       "count": 1,
       "classification": "ingest",
       "owner": "POD-5888",
       "trigger": "Provider-free screen fixtures load their declared synthetic records.",
       "bound": "The component suite supplies the complete synthetic snapshot; this test-only bridge seeds the real fixture pool.",
-      "reason": "Fixture normalization belongs to the test ingestion boundary; board and detail consumers exercise real models and readers. POD-6400: a helper it reaches now formats issue refs through issueRefText; its enumeration is unchanged. Predecessor: 789ed0db44187b00a33b30a0c8ef8d7ec384269af8cdae0694a319ddb2e08661. POD-6682 moved the command or transport home; its collection strategy is unchanged. POD-6682 integration repair: refreshed the command/root home and transitive evidence; the collection strategy and classification are unchanged. Predecessors: 57eb98f67be2c257b0fdf375436baf462eafa96e74b5d9f19d6974691112a730, 73b783a52bd4861a2cc6fc2338c89088ec8080d4f90d73d2381581e920e9e9fe. POD-6764: the live fixture it reaches gained the two session reading setters; its enumeration is unchanged. Predecessor: 24b69e01dbdba201e64398981955dde517b8bbaca71b72050c5601537954512c. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged. The credential epic merge with the workspace store (POD-6857) moved its tokens; the classification is unchanged.",
+      "reason": "Fixture normalization belongs to the test ingestion boundary; board and detail consumers exercise real models and readers. POD-6400: a helper it reaches now formats issue refs through issueRefText; its enumeration is unchanged. Predecessor: 789ed0db44187b00a33b30a0c8ef8d7ec384269af8cdae0694a319ddb2e08661. POD-6682 moved the command or transport home; its collection strategy is unchanged. POD-6682 integration repair: refreshed the command/root home and transitive evidence; the collection strategy and classification are unchanged. Predecessors: 57eb98f67be2c257b0fdf375436baf462eafa96e74b5d9f19d6974691112a730, 73b783a52bd4861a2cc6fc2338c89088ec8080d4f90d73d2381581e920e9e9fe. POD-6764: the live fixture it reaches gained the two session reading setters; its enumeration is unchanged. Predecessor: 24b69e01dbdba201e64398981955dde517b8bbaca71b72050c5601537954512c. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged. The credential epic merge with the workspace store (POD-6857) moved its tokens; the classification is unchanged. POD-7196: the reachable fixture publisher now attaches the pool and binds its row feed atomically, keeping this existing setup/ingestion classification and bound.",
       "guard": "Focused IssuesView.bulk-close and IssuePanelView.subissue-nav component suites; this helper is test-support only."
     },
     {
@@ -32836,7 +32800,7 @@
     },
     {
       "file": "packages/client-graph/src/header-source.ts",
-      "holder": "attachHeaderSource/offSessions/observe:callback",
+      "holder": "attachHeaderSource/runInAction:callback/offSessions/observe:callback",
       "rule": "reader-summary",
       "tokens": "daa25f6c75ea99fa2cc78527d9cd4e267cc70814e07c85a62fdcd21874e6dc22",
       "gate": [],
@@ -32844,59 +32808,59 @@
         "476a4c6ba0b104e23dcfaa9ca70c159377836a1c7d4e54db7c120e98f72f6d89",
         "cadc566af21b67f23d0f5de0834255cdda8495bf99c77bd863dfe1f5f7ed76d3"
       ],
-      "fingerprint": "9c121f565bbe30cbecb7c998af1af4dd0dc995d95c532645e4b7dade7924d4f9",
+      "fingerprint": "d4d07cb830795e8df3e25de3e80c38d9b6248445417d11233433be1d6746ea85",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-6644",
       "trigger": "A machine or checkout record change, or the first read of my fleet",
       "bound": "One instance's machines (my fleet: the machine records with my access row) and the registered repositories derived from its checkout records: tens per instance, never sessions or issues",
-      "reason": "Machines and checkouts are synced records (POD-6644); online and load are LiveStore conditions read per machine model. The collection is the fleet or the repository list, derived once per record change.",
+      "reason": "Machines and checkouts are synced records (POD-6644); online and load are LiveStore conditions read per machine model. The collection is the fleet or the repository list, derived once per record change. POD-7196: attachment and teardown now execute inside their owned applying actions. The underlying collection tokens and classification are unchanged; the extra action appears in the holder path and gate.",
       "guard": "header-source.test.ts, header-point-questions.test.ts, header-idle-cap.test.ts, settings-demand.test.ts, synced-record-models.test.ts"
     },
     {
       "file": "packages/client-graph/src/header-source.ts",
-      "holder": "attachHeaderSource/replace/runInAction:callback",
+      "holder": "attachHeaderSource/runInAction:callback/replace/runInAction:callback",
       "rule": "loop:for-of",
       "tokens": "f1af3d508f353469dacc75385fb2241983dee5eb0f4f5c98161a35474e2e52f9",
       "gate": [
         "exit:then:f58ab47fb47bd3cd4a94c1071592857da01ddc19950d44ee3ac8e9622ded2ec8"
       ],
       "origin": [
-        "2360bdb854efbc676644feb450d3ddf043bab2e5a2cf0eb6e9b705c36746bb2d",
-        "e477c2b26b01d4f17a3c975d08ef7559712918e0f85a1d8e803b4c3809d9ccf3"
+        "7f019be031501d972af8a74f5984b25cbc6dfa1262707fbd437d98c6d6032955",
+        "ab83a0b0f8ccc3b58dbab45ae99d07a32614432ba2096c39282afa443f050e80"
       ],
-      "fingerprint": "af3ea29e4fdf0621b0fbdc0b1e100e70b6727566e70a16642e344d717ca7096d",
+      "fingerprint": "78dbfeb56f895a0e10d3ba8bd2a4edd419cf5d6f82eeaaff04428b8b2cba324c",
       "count": 1,
       "classification": "ingest",
       "owner": "POD-5540",
       "trigger": "Full header snapshot arrival: initial attachment/rescope, metrics or connection snapshots, and quota/history/lifecycle API responses.",
       "bound": "Existing IDs in one header entity table plus the received snapshot IDs. Ordinary keyed machine, repository and shipping-order deltas bypass replace.",
-      "reason": "Reconcile authoritative snapshot membership against actual table keys, including leftovers from a prior partial apply. This replaces the previous known-ID membership walk; it does not enumerate issue or session history.",
+      "reason": "Reconcile authoritative snapshot membership against actual table keys, including leftovers from a prior partial apply. This replaces the previous known-ID membership walk; it does not enumerate issue or session history. POD-7196: attachment and teardown now execute inside their owned applying actions. The underlying collection tokens and classification are unchanged; the extra action appears in the holder path and gate.",
       "guard": "packages/client-graph/src/header-source.test.ts: removes partially applied quota rows when a later poll replaces them; reads only changed header keys between 1x/4x and preserves removal and rescope. header-attachment-strict.test.ts: attaches the header source under the strict trap and reconciles a stale connection row without untracked reads."
     },
     {
       "file": "packages/client-graph/src/header-source.ts",
-      "holder": "attachHeaderSource/replace/runInAction:callback",
+      "holder": "attachHeaderSource/runInAction:callback/replace/runInAction:callback",
       "rule": "enumerate:keys",
       "tokens": "170b1126750dda1742b756c288ed6259fc058bbcf55b01392e7c18a0edf135e2",
       "gate": [
         "exit:then:f58ab47fb47bd3cd4a94c1071592857da01ddc19950d44ee3ac8e9622ded2ec8"
       ],
       "origin": [
-        "2360bdb854efbc676644feb450d3ddf043bab2e5a2cf0eb6e9b705c36746bb2d"
+        "ab83a0b0f8ccc3b58dbab45ae99d07a32614432ba2096c39282afa443f050e80"
       ],
-      "fingerprint": "10e7428428c1b80fc8614050d19f303ebe91a0aa3b275b5c3d8fe0f0f666f1fd",
+      "fingerprint": "8450df5072c2fe399e4ed93d9f558840854fb1df1f43c5f25dfd36a5606346e4",
       "count": 1,
       "classification": "ingest",
       "owner": "POD-5540",
       "trigger": "Full header snapshot arrival: initial attachment/rescope, metrics or connection snapshots, and quota/history/lifecycle API responses.",
       "bound": "Existing IDs in one header entity table plus the received snapshot IDs. Ordinary keyed machine, repository and shipping-order deltas bypass replace.",
-      "reason": "Reconcile authoritative snapshot membership against actual table keys, including leftovers from a prior partial apply. This replaces the previous known-ID membership walk; it does not enumerate issue or session history.",
+      "reason": "Reconcile authoritative snapshot membership against actual table keys, including leftovers from a prior partial apply. This replaces the previous known-ID membership walk; it does not enumerate issue or session history. POD-7196: attachment and teardown now execute inside their owned applying actions. The underlying collection tokens and classification are unchanged; the extra action appears in the holder path and gate.",
       "guard": "packages/client-graph/src/header-source.test.ts: removes partially applied quota rows when a later poll replaces them; reads only changed header keys between 1x/4x and preserves removal and rescope. header-attachment-strict.test.ts: attaches the header source under the strict trap and reconciles a stale connection row without untracked reads."
     },
     {
       "file": "packages/client-graph/src/header-source.ts",
-      "holder": "attachHeaderSource/replace/runInAction:callback",
+      "holder": "attachHeaderSource/runInAction:callback/replace/runInAction:callback",
       "rule": "reader-summary",
       "tokens": "daa25f6c75ea99fa2cc78527d9cd4e267cc70814e07c85a62fdcd21874e6dc22",
       "gate": [
@@ -32906,18 +32870,18 @@
         "476a4c6ba0b104e23dcfaa9ca70c159377836a1c7d4e54db7c120e98f72f6d89",
         "cadc566af21b67f23d0f5de0834255cdda8495bf99c77bd863dfe1f5f7ed76d3"
       ],
-      "fingerprint": "38238f5198d87de6ba14743d2b215a70445788f0121d7681da24c261e29a770a",
+      "fingerprint": "ec56d3eda60bcfc9361599332829b9db084c52cdd96c922e6e8dd51b8be6d54c",
       "count": 3,
       "classification": "bounded local work",
       "owner": "POD-6644",
       "trigger": "A machine or checkout record change, or the first read of my fleet",
       "bound": "One instance's machines (my fleet: the machine records with my access row) and the registered repositories derived from its checkout records: tens per instance, never sessions or issues",
-      "reason": "Machines and checkouts are synced records (POD-6644); online and load are LiveStore conditions read per machine model. The collection is the fleet or the repository list, derived once per record change.",
+      "reason": "Machines and checkouts are synced records (POD-6644); online and load are LiveStore conditions read per machine model. The collection is the fleet or the repository list, derived once per record change. POD-7196: attachment and teardown now execute inside their owned applying actions. The underlying collection tokens and classification are unchanged; the extra action appears in the holder path and gate.",
       "guard": "header-source.test.ts, header-point-questions.test.ts, header-idle-cap.test.ts, settings-demand.test.ts, synced-record-models.test.ts"
     },
     {
       "file": "packages/client-graph/src/header-source.ts",
-      "holder": "attachHeaderSource/replace/runInAction:callback",
+      "holder": "attachHeaderSource/runInAction:callback/replace/runInAction:callback",
       "rule": "reader-summary",
       "tokens": "7bf7624e39c7b3c39dd27331304f6f3597905fc570172c701ec5e1513e275639",
       "gate": [
@@ -32927,18 +32891,18 @@
         "476a4c6ba0b104e23dcfaa9ca70c159377836a1c7d4e54db7c120e98f72f6d89",
         "cadc566af21b67f23d0f5de0834255cdda8495bf99c77bd863dfe1f5f7ed76d3"
       ],
-      "fingerprint": "c0b98cf7267c63cff06ea52f4bf1619bb94be2281cc684df0f4b220d3b297f2a",
+      "fingerprint": "3a90c78fa4de9eb0e2d8b13e853e0cd359e963bc75d9c35766f27ece0310f263",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-6644",
       "trigger": "A machine or checkout record change, or the first read of my fleet",
       "bound": "One instance's machines (my fleet: the machine records with my access row) and the registered repositories derived from its checkout records: tens per instance, never sessions or issues",
-      "reason": "Machines and checkouts are synced records (POD-6644); online and load are LiveStore conditions read per machine model. The collection is the fleet or the repository list, derived once per record change.",
+      "reason": "Machines and checkouts are synced records (POD-6644); online and load are LiveStore conditions read per machine model. The collection is the fleet or the repository list, derived once per record change. POD-7196: attachment and teardown now execute inside their owned applying actions. The underlying collection tokens and classification are unchanged; the extra action appears in the holder path and gate.",
       "guard": "header-source.test.ts, header-point-questions.test.ts, header-idle-cap.test.ts, settings-demand.test.ts, synced-record-models.test.ts"
     },
     {
       "file": "packages/client-graph/src/header-source.ts",
-      "holder": "attachHeaderSource/runInAction:callback",
+      "holder": "attachHeaderSource/runInAction:callback/runInAction:callback",
       "rule": "reader-summary",
       "tokens": "daa25f6c75ea99fa2cc78527d9cd4e267cc70814e07c85a62fdcd21874e6dc22",
       "gate": [],
@@ -32946,18 +32910,18 @@
         "476a4c6ba0b104e23dcfaa9ca70c159377836a1c7d4e54db7c120e98f72f6d89",
         "cadc566af21b67f23d0f5de0834255cdda8495bf99c77bd863dfe1f5f7ed76d3"
       ],
-      "fingerprint": "e54ed780d40323f4df7da66b8e330c2a37ae151f75fbcabd0f46ceae2ced930b",
+      "fingerprint": "b2dfbe350ea62bb40a19a2eab10322d8f10374f93ce19bcc77ee75540e2e653c",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-6644",
       "trigger": "A machine or checkout record change, or the first read of my fleet",
       "bound": "One instance's machines (my fleet: the machine records with my access row) and the registered repositories derived from its checkout records: tens per instance, never sessions or issues",
-      "reason": "Machines and checkouts are synced records (POD-6644); online and load are LiveStore conditions read per machine model. The collection is the fleet or the repository list, derived once per record change.",
+      "reason": "Machines and checkouts are synced records (POD-6644); online and load are LiveStore conditions read per machine model. The collection is the fleet or the repository list, derived once per record change. POD-7196: attachment and teardown now execute inside their owned applying actions. The underlying collection tokens and classification are unchanged; the extra action appears in the holder path and gate.",
       "guard": "header-source.test.ts, header-point-questions.test.ts, header-idle-cap.test.ts, settings-demand.test.ts, synced-record-models.test.ts"
     },
     {
       "file": "packages/client-graph/src/header-source.ts",
-      "holder": "attachHeaderSource/runInAction:callback",
+      "holder": "attachHeaderSource/runInAction:callback/runInAction:callback",
       "rule": "loop:for-of",
       "tokens": "57d846edf99cbb5d7ea8464b515b68c53464b31bd5c79c49a222b6de1a227c16",
       "gate": [],
@@ -32965,18 +32929,18 @@
         "fcbb6b685809a542e02057934bbc6b0a0c88acdbd7a8d45c9a79b354bc0422e1",
         "ffaf8fa3a1e9fa3f19cca08bd45b0776cb2a10367f0f308a0364f69c56ca39e2"
       ],
-      "fingerprint": "e176929e45fc3d6a301a5eca3034ba0468b2bf97a7f255d1d77aef2561270cc2",
+      "fingerprint": "2434d54ca73dae4f1e7bc7155b4d681d0104d8f2cd25dfc3b8ffb1ab6b7ac6b4",
       "count": 1,
       "classification": "ingest",
       "owner": "POD-5530",
       "trigger": "Pool construction, source attachment or a replace/fresh publication.",
       "bound": "Resident table membership at attachment or replacement; subsequent publications follow named rows.",
-      "reason": "Source tracing confines this walk to ingestion or one attachment seed; ongoing interaction answers are separate census entries.",
+      "reason": "Source tracing confines this walk to ingestion or one attachment seed; ongoing interaction answers are separate census entries. POD-7196: attachment and teardown now execute inside their owned applying actions. The underlying collection tokens and classification are unchanged; the extra action appears in the holder path and gate.",
       "guard": "Construction/attachment call sites or publish replace/fresh branch, captured in source tokens and control-gate fingerprints."
     },
     {
       "file": "packages/client-graph/src/header-source.ts",
-      "holder": "attachHeaderSource/stops/subscribeAddressedBatch:callback",
+      "holder": "attachHeaderSource/runInAction:callback/stops/subscribeAddressedBatch:callback",
       "rule": "reader-summary",
       "tokens": "7bf7624e39c7b3c39dd27331304f6f3597905fc570172c701ec5e1513e275639",
       "gate": [
@@ -32986,18 +32950,18 @@
         "476a4c6ba0b104e23dcfaa9ca70c159377836a1c7d4e54db7c120e98f72f6d89",
         "cadc566af21b67f23d0f5de0834255cdda8495bf99c77bd863dfe1f5f7ed76d3"
       ],
-      "fingerprint": "34785b5d90b9a79813fa454910d716d323a7a94f8f08a4be74d5513741e9c8a2",
+      "fingerprint": "5275fe7e2983fd8be90e43086e87ef97221661d6ce7bff1a77c268cd52f3b5d0",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-6644",
       "trigger": "A machine or checkout record change, or the first read of my fleet",
       "bound": "One instance's machines (my fleet: the machine records with my access row) and the registered repositories derived from its checkout records: tens per instance, never sessions or issues",
-      "reason": "Machines and checkouts are synced records (POD-6644); online and load are LiveStore conditions read per machine model. The collection is the fleet or the repository list, derived once per record change.",
+      "reason": "Machines and checkouts are synced records (POD-6644); online and load are LiveStore conditions read per machine model. The collection is the fleet or the repository list, derived once per record change. POD-7196: attachment and teardown now execute inside their owned applying actions. The underlying collection tokens and classification are unchanged; the extra action appears in the holder path and gate.",
       "guard": "header-source.test.ts, header-point-questions.test.ts, header-idle-cap.test.ts, settings-demand.test.ts, synced-record-models.test.ts"
     },
     {
       "file": "packages/client-graph/src/header-source.ts",
-      "holder": "attachHeaderSource/stops/subscribeAddressedBatch:callback",
+      "holder": "attachHeaderSource/runInAction:callback/stops/subscribeAddressedBatch:callback",
       "rule": "reader-summary",
       "tokens": "daa25f6c75ea99fa2cc78527d9cd4e267cc70814e07c85a62fdcd21874e6dc22",
       "gate": [
@@ -33007,18 +32971,18 @@
         "476a4c6ba0b104e23dcfaa9ca70c159377836a1c7d4e54db7c120e98f72f6d89",
         "cadc566af21b67f23d0f5de0834255cdda8495bf99c77bd863dfe1f5f7ed76d3"
       ],
-      "fingerprint": "df7c3127acd6d3eed888038f5025ed0f2f351eded61a19b7b71b63c7d2dd405a",
+      "fingerprint": "81f9f5deb222aba5f7e5600ccb6fc75f66241d81b9b81753d008544576ac6f45",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-6644",
       "trigger": "A machine or checkout record change, or the first read of my fleet",
       "bound": "One instance's machines (my fleet: the machine records with my access row) and the registered repositories derived from its checkout records: tens per instance, never sessions or issues",
-      "reason": "Machines and checkouts are synced records (POD-6644); online and load are LiveStore conditions read per machine model. The collection is the fleet or the repository list, derived once per record change.",
+      "reason": "Machines and checkouts are synced records (POD-6644); online and load are LiveStore conditions read per machine model. The collection is the fleet or the repository list, derived once per record change. POD-7196: attachment and teardown now execute inside their owned applying actions. The underlying collection tokens and classification are unchanged; the extra action appears in the holder path and gate.",
       "guard": "header-source.test.ts, header-point-questions.test.ts, header-idle-cap.test.ts, settings-demand.test.ts, synced-record-models.test.ts"
     },
     {
       "file": "packages/client-graph/src/header-source.ts",
-      "holder": "attachHeaderSource/repositories",
+      "holder": "attachHeaderSource/runInAction:callback/repositories",
       "rule": "reader-summary",
       "tokens": "daa25f6c75ea99fa2cc78527d9cd4e267cc70814e07c85a62fdcd21874e6dc22",
       "gate": [
@@ -33029,41 +32993,40 @@
         "476a4c6ba0b104e23dcfaa9ca70c159377836a1c7d4e54db7c120e98f72f6d89",
         "cadc566af21b67f23d0f5de0834255cdda8495bf99c77bd863dfe1f5f7ed76d3"
       ],
-      "fingerprint": "60bd0f29ce52ea4c4bf60ede85f9c75da75e6ad02c6cc84be2ca1c650cd48eaf",
+      "fingerprint": "fa41893dc5785a3e6a1a5c1207ab21c740ba277ae937b00117f4a01c04730033",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-6644",
       "trigger": "A machine or checkout record change, or the first read of my fleet",
       "bound": "One instance's machines (my fleet: the machine records with my access row) and the registered repositories derived from its checkout records: tens per instance, never sessions or issues",
-      "reason": "Machines and checkouts are synced records (POD-6644); online and load are LiveStore conditions read per machine model. The collection is the fleet or the repository list, derived once per record change.",
+      "reason": "Machines and checkouts are synced records (POD-6644); online and load are LiveStore conditions read per machine model. The collection is the fleet or the repository list, derived once per record change. POD-7196: attachment and teardown now execute inside their owned applying actions. The underlying collection tokens and classification are unchanged; the extra action appears in the holder path and gate.",
       "guard": "header-source.test.ts, header-point-questions.test.ts, header-idle-cap.test.ts, settings-demand.test.ts, synced-record-models.test.ts"
     },
     {
       "file": "packages/client-graph/src/header-source.ts",
-      "holder": "attachHeaderSource/repositories/runInAction:callback",
+      "holder": "attachHeaderSource/runInAction:callback/repositories/runInAction:callback",
       "rule": "reader-summary",
       "tokens": "daa25f6c75ea99fa2cc78527d9cd4e267cc70814e07c85a62fdcd21874e6dc22",
       "gate": [
         "exit:then:f58ab47fb47bd3cd4a94c1071592857da01ddc19950d44ee3ac8e9622ded2ec8",
-        "exit:then:2a5b386bdf000b3e055fbd551164d839fa130b7474237d10e7c117d7ad800f14",
-        "then:7898e31c658570d4b82f6a5c26ac185745da037da8111ca0c7bdf13a9cdc7ec2"
+        "exit:then:2a5b386bdf000b3e055fbd551164d839fa130b7474237d10e7c117d7ad800f14"
       ],
       "origin": [
         "476a4c6ba0b104e23dcfaa9ca70c159377836a1c7d4e54db7c120e98f72f6d89",
         "cadc566af21b67f23d0f5de0834255cdda8495bf99c77bd863dfe1f5f7ed76d3"
       ],
-      "fingerprint": "686251a7c6022e1d834607ac6b28e9446cef2fbd3c031902c38f37f52ce355e1",
-      "count": 1,
+      "fingerprint": "2bd5aad060991635bacd10b7875e83fe4c4bf671c92efd6d2ee3f1e3435747ba",
+      "count": 2,
       "classification": "bounded local work",
       "owner": "POD-6644",
       "trigger": "A machine or checkout record change, or the first read of my fleet",
       "bound": "One instance's machines (my fleet: the machine records with my access row) and the registered repositories derived from its checkout records: tens per instance, never sessions or issues",
-      "reason": "Machines and checkouts are synced records (POD-6644); online and load are LiveStore conditions read per machine model. The collection is the fleet or the repository list, derived once per record change.",
+      "reason": "Machines and checkouts are synced records (POD-6644); online and load are LiveStore conditions read per machine model. The collection is the fleet or the repository list, derived once per record change. POD-7196: attachment and teardown now execute inside their owned applying actions. The underlying collection tokens and classification are unchanged; the extra action appears in the holder path and gate.",
       "guard": "header-source.test.ts, header-point-questions.test.ts, header-idle-cap.test.ts, settings-demand.test.ts, synced-record-models.test.ts"
     },
     {
       "file": "packages/client-graph/src/header-source.ts",
-      "holder": "attachHeaderSource/repositories/runInAction:callback",
+      "holder": "attachHeaderSource/runInAction:callback/repositories/runInAction:callback",
       "rule": "enumerate:keys",
       "tokens": "7797179dec1db29bcf22661d5c715bad1ed4e390de507f4e9b012b501d75ee66",
       "gate": [
@@ -33071,20 +33034,20 @@
         "exit:then:2a5b386bdf000b3e055fbd551164d839fa130b7474237d10e7c117d7ad800f14"
       ],
       "origin": [
-        "9bb1420a603b377483095bf02a65bb5e0ef89916bb20113f36e69bec2b1a036f"
+        "f45c1f24cd266df8ef55cfb23818a367886c62813a5c1ed6b915a9483369759e"
       ],
-      "fingerprint": "8e87b4c2cc28d96e87787465c94a24e4c4fff0e63fdfbf7dc81337b6fcd5a91b",
+      "fingerprint": "b1d12d594f2f4896460bde17826b3ca39d008430ab3e676d230f411076d77ea1",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-6644",
       "trigger": "A machine or checkout record change, or the first read of my fleet",
       "bound": "One instance's machines (my fleet: the machine records with my access row) and the registered repositories derived from its checkout records: tens per instance, never sessions or issues",
-      "reason": "Machines and checkouts are synced records (POD-6644); online and load are LiveStore conditions read per machine model. The collection is the fleet or the repository list, derived once per record change.",
+      "reason": "Machines and checkouts are synced records (POD-6644); online and load are LiveStore conditions read per machine model. The collection is the fleet or the repository list, derived once per record change. POD-7196: attachment and teardown now execute inside their owned applying actions. The underlying collection tokens and classification are unchanged; the extra action appears in the holder path and gate.",
       "guard": "header-source.test.ts, header-point-questions.test.ts, header-idle-cap.test.ts, settings-demand.test.ts, synced-record-models.test.ts"
     },
     {
       "file": "packages/client-graph/src/header-source.ts",
-      "holder": "attachHeaderSource/repositories/runInAction:callback",
+      "holder": "attachHeaderSource/runInAction:callback/repositories/runInAction:callback",
       "rule": "reader-summary",
       "tokens": "7bf7624e39c7b3c39dd27331304f6f3597905fc570172c701ec5e1513e275639",
       "gate": [
@@ -33096,18 +33059,18 @@
         "476a4c6ba0b104e23dcfaa9ca70c159377836a1c7d4e54db7c120e98f72f6d89",
         "cadc566af21b67f23d0f5de0834255cdda8495bf99c77bd863dfe1f5f7ed76d3"
       ],
-      "fingerprint": "d58c241542d80414a48c6978a2eec6292a77782e0203bb87e4531e41e98c894e",
+      "fingerprint": "0f07d81008c9d9369170ccedbdbb4a0e05db58ef08ec7671473ae76507a8d581",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-6644",
       "trigger": "A machine or checkout record change, or the first read of my fleet",
       "bound": "One instance's machines (my fleet: the machine records with my access row) and the registered repositories derived from its checkout records: tens per instance, never sessions or issues",
-      "reason": "Machines and checkouts are synced records (POD-6644); online and load are LiveStore conditions read per machine model. The collection is the fleet or the repository list, derived once per record change.",
+      "reason": "Machines and checkouts are synced records (POD-6644); online and load are LiveStore conditions read per machine model. The collection is the fleet or the repository list, derived once per record change. POD-7196: attachment and teardown now execute inside their owned applying actions. The underlying collection tokens and classification are unchanged; the extra action appears in the holder path and gate.",
       "guard": "header-source.test.ts, header-point-questions.test.ts, header-idle-cap.test.ts, settings-demand.test.ts, synced-record-models.test.ts"
     },
     {
       "file": "packages/client-graph/src/header-source.ts",
-      "holder": "attachHeaderSource/repositories/runInAction:callback",
+      "holder": "attachHeaderSource/runInAction:callback/repositories/runInAction:callback",
       "rule": "loop:for-of",
       "tokens": "a7d15bcadbb93d43216c7c479a8a9228d2180e56cc01a88c4e6bbe55e5813446",
       "gate": [
@@ -33115,38 +33078,39 @@
         "exit:then:2a5b386bdf000b3e055fbd551164d839fa130b7474237d10e7c117d7ad800f14"
       ],
       "origin": [
-        "9bb1420a603b377483095bf02a65bb5e0ef89916bb20113f36e69bec2b1a036f",
-        "eaf49f5681ba1a837a5b2556c060a376efa71ac124fad5d927b2f74bcc2dfc5c"
+        "21fafe75239429da790bbcb6e70ca36ce6bbdb4605bc1066c5aa5c96c584ea23",
+        "f45c1f24cd266df8ef55cfb23818a367886c62813a5c1ed6b915a9483369759e"
       ],
-      "fingerprint": "db253373014e35c702855e4c1e09c0420842407316d3d691483563899ec32e52",
+      "fingerprint": "8e28a6d476d027cff6e7da5a9d067b26a0f8fdf36bdff036cacf23205892bd69",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-6644",
       "trigger": "A machine or checkout record change, or the first read of my fleet",
       "bound": "One instance's machines (my fleet: the machine records with my access row) and the registered repositories derived from its checkout records: tens per instance, never sessions or issues",
-      "reason": "Machines and checkouts are synced records (POD-6644); online and load are LiveStore conditions read per machine model. The collection is the fleet or the repository list, derived once per record change.",
+      "reason": "Machines and checkouts are synced records (POD-6644); online and load are LiveStore conditions read per machine model. The collection is the fleet or the repository list, derived once per record change. POD-7196: attachment and teardown now execute inside their owned applying actions. The underlying collection tokens and classification are unchanged; the extra action appears in the holder path and gate.",
       "guard": "header-source.test.ts, header-point-questions.test.ts, header-idle-cap.test.ts, settings-demand.test.ts, synced-record-models.test.ts"
     },
     {
       "file": "packages/client-graph/src/header-source.ts",
-      "holder": "attachHeaderSource/repositories/runInAction:callback",
+      "holder": "attachHeaderSource/runInAction:callback/repositories/runInAction:callback",
       "rule": "reader-summary",
       "tokens": "daa25f6c75ea99fa2cc78527d9cd4e267cc70814e07c85a62fdcd21874e6dc22",
       "gate": [
         "exit:then:f58ab47fb47bd3cd4a94c1071592857da01ddc19950d44ee3ac8e9622ded2ec8",
-        "exit:then:2a5b386bdf000b3e055fbd551164d839fa130b7474237d10e7c117d7ad800f14"
+        "exit:then:2a5b386bdf000b3e055fbd551164d839fa130b7474237d10e7c117d7ad800f14",
+        "then:7898e31c658570d4b82f6a5c26ac185745da037da8111ca0c7bdf13a9cdc7ec2"
       ],
       "origin": [
         "476a4c6ba0b104e23dcfaa9ca70c159377836a1c7d4e54db7c120e98f72f6d89",
         "cadc566af21b67f23d0f5de0834255cdda8495bf99c77bd863dfe1f5f7ed76d3"
       ],
-      "fingerprint": "f06098164639e694406e02dc1f28ad5456d7db55ca61963140d161808185eca5",
-      "count": 2,
+      "fingerprint": "e492cf349c765b20dff2e882579c749dcae19d341c71772758271bb6132082da",
+      "count": 1,
       "classification": "bounded local work",
       "owner": "POD-6644",
       "trigger": "A machine or checkout record change, or the first read of my fleet",
       "bound": "One instance's machines (my fleet: the machine records with my access row) and the registered repositories derived from its checkout records: tens per instance, never sessions or issues",
-      "reason": "Machines and checkouts are synced records (POD-6644); online and load are LiveStore conditions read per machine model. The collection is the fleet or the repository list, derived once per record change.",
+      "reason": "Machines and checkouts are synced records (POD-6644); online and load are LiveStore conditions read per machine model. The collection is the fleet or the repository list, derived once per record change. POD-7196: attachment and teardown now execute inside their owned applying actions. The underlying collection tokens and classification are unchanged; the extra action appears in the holder path and gate.",
       "guard": "header-source.test.ts, header-point-questions.test.ts, header-idle-cap.test.ts, settings-demand.test.ts, synced-record-models.test.ts"
     },
     {
@@ -36550,19 +36514,19 @@
       "file": "apps/web/src/features/chat/ChatView.tsx",
       "holder": "ConversationChatView/ConversationChatView/chat",
       "rule": "reader-summary",
-      "tokens": "69c3077f20ac9f8b5f4492fe0b64322bf8dfc6bfcb30d2f93821eb94f89ef560",
+      "tokens": "7abc0497efbda4ba3e2e2a1ab7de348f7a32497a0ec0b9bbf7b7044283362997",
       "gate": [],
       "origin": [
         "38fbaac9da16906de217d6806926a7bbec5c49548b92e3e9c328e6f573c27b23",
         "44118f193af3e5c903b1faaf2c4b518e087eb8281e12e9360f6ee2c7b8e3f93b"
       ],
-      "fingerprint": "8a398d4045b2544d254deecccc9b66ceeabec46b2a9b209748e106ade54ec2e8",
+      "fingerprint": "8bc19a8db474a1014631ef572d0d8fecfb2ba62eecd5c761a96dcf0563d1594b",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Mount one chat reader and its DOM layout.",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "Display facts are read by leaf observers, but inherited conversation/context initialization taint remains; this entry claims no new collection bound. POD-5872: Record facts now come from shared models and the remaining machinery is a warm service read through a per-opening view model; existing collection demand is unchanged. Predecessor: 004229d48a542972d7a2e936455fb7c6a64b21c0c8731b8dc31ba8b0d9638680. POD-2047: Async interview submission reads its captured transcript block by ID; reader multiplicity and inherited collection demand are unchanged. Predecessor: aef63c7ad31df7b5a7f7d762b326cd7669dfa56308ed9ef69fc883990f001545. POD-2047 review fixes: replies now use the conversation outbox, removing the direct-send collection origin; current-question validation stays addressed and duplicate checks inspect this conversation pending replies. Classification and owner retain the inherited reader debt. Predecessor: 73fb89f4c9705c80f9d63ec115c88d898ea535eca1cf8daf6bca23e9fa33afbb. Predecessor: 8cbdd215fec11b8585f58062e26d540be96fce8532384306a175d395fe425bb1. POD-2219: the removed tl;dr rail button no longer reads the last answer text; reader multiplicity and inherited collection demand are unchanged. Predecessor: ef264dbe228e117f58409d18bfb00f32c34ae33856db693b93bffd048b10d0c1. POD-2304 retains the displayed turn boundary through an addressed callback; unrelated collection ownership and classifications are unchanged. Predecessor: e44abe82524bfc15e9af2523e4e47ea6731942d7fc60bfa6a3b9a110810cc521. Predecessor: 3b25d8517c22fff80df79e2a30626d49549a5f7f05c6f611324cde497f413eda (POD-6415: the interview answer is a session.answer effect record awaited through the answer hook instead of a direct tRPC route; the direct-route origin is gone and collection demand is unchanged). POD-6430: the hook stores the selected image album on open as local UI state; collection origins, gates and multiplicity are identical. Predecessor: e756855e2e8530c9fb451254812c9019000850b997d85f39e958cfc1d5b61a63. POD-6682 moved the command or transport home; its collection strategy is unchanged.",
+      "reason": "Display facts are read by leaf observers, but inherited conversation/context initialization taint remains; this entry claims no new collection bound. POD-5872: Record facts now come from shared models and the remaining machinery is a warm service read through a per-opening view model; existing collection demand is unchanged. Predecessor: 004229d48a542972d7a2e936455fb7c6a64b21c0c8731b8dc31ba8b0d9638680. POD-2047: Async interview submission reads its captured transcript block by ID; reader multiplicity and inherited collection demand are unchanged. Predecessor: aef63c7ad31df7b5a7f7d762b326cd7669dfa56308ed9ef69fc883990f001545. POD-2047 review fixes: replies now use the conversation outbox, removing the direct-send collection origin; current-question validation stays addressed and duplicate checks inspect this conversation pending replies. Classification and owner retain the inherited reader debt. Predecessor: 73fb89f4c9705c80f9d63ec115c88d898ea535eca1cf8daf6bca23e9fa33afbb. Predecessor: 8cbdd215fec11b8585f58062e26d540be96fce8532384306a175d395fe425bb1. POD-2219: the removed tl;dr rail button no longer reads the last answer text; reader multiplicity and inherited collection demand are unchanged. Predecessor: ef264dbe228e117f58409d18bfb00f32c34ae33856db693b93bffd048b10d0c1. POD-2304 retains the displayed turn boundary through an addressed callback; unrelated collection ownership and classifications are unchanged. Predecessor: e44abe82524bfc15e9af2523e4e47ea6731942d7fc60bfa6a3b9a110810cc521. Predecessor: 3b25d8517c22fff80df79e2a30626d49549a5f7f05c6f611324cde497f413eda (POD-6415: the interview answer is a session.answer effect record awaited through the answer hook instead of a direct tRPC route; the direct-route origin is gone and collection demand is unchanged). POD-6430: the hook stores the selected image album on open as local UI state; collection origins, gates and multiplicity are identical. Predecessor: e756855e2e8530c9fb451254812c9019000850b997d85f39e958cfc1d5b61a63. POD-6682 moved the command or transport home; its collection strategy is unchanged. POD-7196: reachable chat helpers now own late source publication and window-bounded folds. This initialization summary retains its existing required-repair classification; it does not claim a bound for the whole path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
