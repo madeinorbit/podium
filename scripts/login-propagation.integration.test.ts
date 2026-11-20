@@ -205,13 +205,24 @@ describe('real daemon-to-daemon login propagation', () => {
           (await claudeLoginState(server, DONOR_ID)) === 'in' &&
           (await claudeLoginState(server, TARGET_ID)) === 'out'
         )
+      }).catch(async (error) => {
+        const facts = await Promise.all(
+          [DONOR_ID, TARGET_ID].map(async (id, i) => ({
+            id,
+            connected: daemons[i]?.connected,
+            attached: server?.registry.modules.machines.hasDaemon(id),
+            agents: (await server?.registry.sessionStore.machines.getMachine(id))?.inventory
+              ?.agents,
+          })),
+        )
+        throw new Error(`${String(error)}: ${JSON.stringify(facts)}`)
       })
 
       await expect(
         server.registry.modules.loginPropagation.propagate({
           targetMachineId: TARGET_ID,
           agentKind: 'claude-code',
-          principalUserId: firstAdminMemberId(),
+          principalUserId: ownerUserId,
         }),
       ).resolves.toMatchObject({
         status: 'propagated',
@@ -240,7 +251,7 @@ describe('real daemon-to-daemon login propagation', () => {
         server.registry.modules.loginPropagation.propagate({
           targetMachineId: TARGET_ID,
           agentKind: 'claude-code',
-          principalUserId: firstAdminMemberId(),
+          principalUserId: ownerUserId,
           force: true,
         }),
       ).resolves.toMatchObject({ status: 'failed' })

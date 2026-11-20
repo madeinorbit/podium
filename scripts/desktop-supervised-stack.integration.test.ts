@@ -169,7 +169,9 @@ describe('desktop-supervised local stack', () => {
       } finally {
         db.close()
       }
-    }, 'the janitor lease and daemon build report')
+    }, 'the janitor lease and daemon build report').catch((error) => {
+      throw new Error(`${String(error)}\nchild output:\n${output.slice(-16000)}`)
+    })
 
     expect(observed.lease.generation_id).toMatch(/^janitor_/)
     expect(observed.lease.protocol_version).toBeGreaterThan(0)
