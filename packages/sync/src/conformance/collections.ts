@@ -756,6 +756,91 @@ export function describeCollectionStore(instantiation: SyncInstantiation): void 
     })
 
     describe('a changed record shape', () => {
+      it('keeps a populated device whole when machine access and session kind tokens change after the feed advances', async () => {
+        const server = new CollectionServer()
+        seedWorld(server)
+        server.answerComesWith = true
+        server.policy = {
+          ...WORLD_POLICY,
+          steps: [
+            { step: 'always', collections: ['machine.all', 'machineAccess.all'] },
+            ...WORLD_POLICY.steps,
+          ],
+        }
+        server.kindTokens = {
+          machine: 'v1',
+          machineAccess: 'v1',
+          session: 'v1',
+          sessionUserState: 'v1',
+        }
+        for (const id of ['M1', 'M2']) {
+          server.put('machine', id, { id, name: id, loggedOutHarnesses: [] })
+          server.put('machineAccess', `${PRINCIPAL}\n${id}`, {
+            userId: PRINCIPAL,
+            machineId: id,
+            hostname: id,
+            use: { allowed: true },
+            owned: true,
+            serviceAssignment: { agentExecution: true },
+          })
+        }
+        // A sleeping session on a visible task comes with the task, rather
+        // than belonging to session.live. Its own read state comes with it.
+        server.put(SESSION, 'S2', session('S2', { issueId: 'A1', status: 'hibernated' }))
+        for (const id of ['S1', 'S2'])
+          server.put('sessionUserState', `${PRINCIPAL}\n${id}`, {
+            userId: PRINCIPAL,
+            sessionId: id,
+            readAt: RECENTLY,
+          })
+        const booted = await boot(instantiation, server)
+        const { cache, replica } = booted
+        const whole = (): void => {
+          for (const id of ['M1', 'M2']) {
+            expect.soft(cache.read('machine', id)?.value).toMatchObject({ id, name: id })
+            expect.soft(cache.read('machineAccess', `${PRINCIPAL}\n${id}`)?.value).toMatchObject({
+              owned: true,
+              serviceAssignment: { agentExecution: true },
+            })
+          }
+          for (const id of ['S1', 'S2']) {
+            expect.soft(cache.read(SESSION, id)?.value).toMatchObject({ sessionId: id })
+            expect
+              .soft(cache.read('sessionUserState', `${PRINCIPAL}\n${id}`)?.value)
+              .toMatchObject({
+                sessionId: id,
+                readAt: RECENTLY,
+              })
+          }
+        }
+        whole()
+        // No machine or session changed: an unrelated feed write makes the
+        // cursor newer than their last stored write before the update arrives.
+        server.put(ISSUE, 'A2', issue('A2', { stage: 'review', parentId: 'A1', title: 'renamed' }))
+        await feed(booted, server)
+        const fetchesBefore = server.fetches.length
+        server.kindTokens = {
+          machine: 'v1',
+          machineAccess: 'v2',
+          session: 'v2',
+          sessionUserState: 'v2',
+        }
+        replica.observeKindTokens(server.kindTokens)
+        await ticks()
+        await replica.settled()
+        whole()
+        expect(server.bootstraps).toBe(1)
+        expect(
+          server.fetches
+            .slice(fetchesBefore)
+            .flat()
+            .map((spec) => spec.collection),
+        ).toContain('machineAccess.all')
+        expect(cache.readKindTokens()).toEqual(server.kindTokens)
+        expectMarkersTrue(cache, server)
+        expectIndexTrue(cache, server)
+      })
+
       it('reloads only the collections of that kind through the fetch, the old rows readable meanwhile', async () => {
         const server = new CollectionServer()
         seedWorld(server)
