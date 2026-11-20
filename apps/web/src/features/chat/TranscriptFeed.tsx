@@ -286,6 +286,244 @@ export function processPosition(
 }
 
 /**
+ * THE MESSAGES A PERSON SENT THAT ARE NOT HISTORY YET: on their way, waiting
+ * behind a turn or for the session to wake, failed, or lost track of. One
+ * bubble each, with the delivery state as its caption and the actions that
+ * state allows (retract, retry, discard, send again).
+ *
+ * Its own component because two feeds end with it: the transcript, and a
+ * Concertmaster's curated chat (`ConcertmasterFeed`), where a message becomes
+ * an entry of the conversation once the agent has it. Extracted from the
+ * transcript feed unchanged (POD-7211).
+ */
+export const PendingBubbles = observer(function PendingBubbles({
+  pending,
+  session,
+  sessionId,
+  cwd,
+  openFile,
+  httpOrigin,
+  onOpenImage,
+  onRetractQueued,
+  onRetryPending,
+  onDiscardPending,
+  onSendAgain,
+  resumeTimedOut = false,
+}: {
+  pending: readonly PendingItem[]
+  session: SessionView | SessionModel | undefined
+  sessionId: SessionId
+  cwd: string
+  openFile: (sessionId: SessionId, path: string) => void
+  httpOrigin: string
+  onOpenImage: OpenChatImage
+  onRetractQueued: (id: string) => Promise<void>
+  onRetryPending?: ((id: string) => Promise<void>) | undefined
+  onDiscardPending?: ((id: string) => Promise<void>) | undefined
+  onSendAgain?: ((id: string) => Promise<void>) | undefined
+  /** The session's resume took too long: a waiting bubble stops promising it is coming up. */
+  resumeTimedOut?: boolean | undefined
+}): JSX.Element {
+  return (
+    <>
+      {pending.map((p) => {
+        // Waiting on the server: behind the turn in flight, or for the
+        // session to wake. Once handed on toward the agent the bubble keeps
+        // the same silence a message in flight keeps everywhere else in this
+        // feed (POD-1242), and it leaves when the history entry its record
+        // names is on screen (POD-4764).
+        const waiting = p.state === 'queued'
+        return (
+          <div
+            key={p.id}
+            data-testid={p.record ? 'chat-message-record' : undefined}
+            data-delivery={p.record?.status}
+            className={cn(
+              // An optimistic bubble is the operator opening an exchange, and is
+              // spaced like one — otherwise the feed's rhythm changes at the
+              // moment the real row replaces it.
+              'transcript-row transcript-turn-open',
+              // THE MESSAGE IS ON SCREEN BEFORE THE WIRE KNOWS (POD-993). The
+              // optimistic row plays the same arrival every landed row plays, so
+              // pressing send reads as the message MOVING into the conversation
+              // rather than as a row appearing where there wasn't one. The real
+              // row replaces it in the same place, at the same measure, and the
+              // swap is invisible.
+              'transcript-pending transcript-arrive-bubble',
+              (p.state === 'failed' || p.state === 'unknown') && 'transcript-pending--failed',
+            )}
+          >
+            <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
+            <div className="transcript-body transcript-you">
+              <div
+                className={cn('transcript-you-bubble', waiting && 'transcript-you-bubble--queued')}
+              >
+                <div className="transcript-you-body">
+                  <PendingMarkdown
+                    text={p.text}
+                    sessionId={sessionId}
+                    cwd={cwd}
+                    openFile={openFile}
+                  />
+                  {p.files && p.files.length > 0 ? (
+                    <ItemAttachments
+                      sessionId={sessionId}
+                      attachments={p.files.map((file) => ({
+                        id: file.attachmentId,
+                        filename: file.path,
+                        kind: file.kind ?? 'file',
+                      }))}
+                      tags={[]}
+                      httpOrigin={httpOrigin}
+                      onOpenImage={onOpenImage}
+                    />
+                  ) : (
+                    p.tags &&
+                    p.tags.length > 0 && (
+                      <div className="mt-1.5 flex flex-wrap gap-1.5">
+                        {p.tags.map((tag, i) => (
+                          <span
+                            // biome-ignore lint/suspicious/noArrayIndexKey: optimistic tags never reorder.
+                            key={`${tag.kind}-${i}`}
+                            className="inline-flex items-center gap-1 rounded border border-input px-[7px] py-0.5 text-[11px] text-muted-foreground"
+                          >
+                            <ImageIcon size={12} aria-hidden="true" />
+                            {tag.label ?? tag.kind}
+                          </span>
+                        ))}
+                      </div>
+                    )
+                  )}
+                </div>
+              </div>
+              {/* THE DELIVERY STATE IS THE CARD'S OWN CAPTION (POD-993) — no voice
+    label, because the side already said who spoke.
+
+    A message in flight says NOTHING here: the breath at the end of
+    the feed is already the "this is happening" signal, and a second
+    one under the card would be the same fact twice, competing with
+    it. Only the states the tail cannot express get a caption —
+    waiting behind another turn, not arriving, and not knowing.
+
+    The word is PENDING, not "queued" — one noun for every
+    not-yet-delivered bubble, whatever parked it (a hibernated
+    session, a turn already in flight, a server that queued it). */}
+              {p.state === 'interrupted' || p.state === 'retracted' ? (
+                <div className="msg-foot" data-side="right">
+                  <span className="transcript-delivery">{p.state}</span>
+                </div>
+              ) : p.state !== 'failed' &&
+                p.state !== 'unknown' &&
+                (waiting ||
+                  p.state === 'accepted' ||
+                  p.retractable ||
+                  p.retract ||
+                  p.retractError) ? (
+                <div className="msg-foot" data-side="right">
+                  {p.retract ? (
+                    <span className="transcript-delivery" data-testid="retract-state">
+                      {retractCaption(p.retract)}
+                    </span>
+                  ) : p.state === 'accepted' ? (
+                    // The agent program has it, its history not yet (POD-4885):
+                    // a fact the breath at the tail cannot say, so it gets words.
+                    <span className="transcript-delivery" data-testid="delivery-accepted">
+                      {ACCEPTED_CAPTION}
+                    </span>
+                  ) : waiting ? (
+                    <span className="transcript-delivery">
+                      {p.record || queueIsBlocked(session)
+                        ? queuedDeliveryLabel(session, p.queuePosition, resumeTimedOut)
+                        : `pending${queuePositionSuffix(p.queuePosition)}`}
+                    </span>
+                  ) : null}
+                  {p.retractError && (
+                    <span className="transcript-delivery transcript-delivery--error">
+                      {`couldn't retract — ${p.retractError}`}
+                    </span>
+                  )}
+                  {p.retractable && <RetractButton onRetract={() => void onRetractQueued(p.id)} />}
+                </div>
+              ) : p.state === 'failed' || p.state === 'unknown' ? (
+                <div className="msg-foot" data-side="right">
+                  <span className="transcript-delivery transcript-delivery--error">
+                    {p.state === 'unknown'
+                      ? 'not confirmed — it may or may not have arrived'
+                      : (p.failure ?? 'not delivered')}
+                  </span>
+                  {p.retract && (
+                    <span className="transcript-delivery" data-testid="retract-state">
+                      {retractCaption(p.retract)}
+                    </span>
+                  )}
+                  {p.retractable && <RetractButton onRetract={() => void onRetractQueued(p.id)} />}
+                  {p.notice !== undefined
+                    ? // THE SERVER HOLDS THIS MESSAGE AND SAYS IT DID NOT ARRIVE (or
+                      // cannot say). Never a resend of it: "send again" puts its
+                      // words back in the composer and the person sends them as a
+                      // NEW message by choice — for an unknown one knowing it may
+                      // already be there.
+                      onSendAgain && (
+                        <button
+                          data-pressable
+                          type="button"
+                          className="msg-action"
+                          aria-label={
+                            p.notice === 'unknown'
+                              ? 'Send again — it may already have arrived'
+                              : 'Send again'
+                          }
+                          title={
+                            p.notice === 'unknown'
+                              ? 'Send again — it may already have arrived'
+                              : 'Send again'
+                          }
+                          onClick={() => void onSendAgain(p.id)}
+                        >
+                          <RotateCcw size={12} strokeWidth={1.7} aria-hidden="true" />
+                        </button>
+                      )
+                    : // THE SAME MESSAGE AGAIN (POD-4762), never a new one: the
+                      // retry re-issues the entry the app still holds, under the id
+                      // the server would recognise if the first attempt had in fact
+                      // arrived. Withheld when the server refused these words,
+                      // because the same words would be refused again.
+                      p.retryable !== false &&
+                      onRetryPending && (
+                        <button
+                          data-pressable
+                          type="button"
+                          className="msg-action"
+                          aria-label="Retry sending message"
+                          title="Retry sending message"
+                          onClick={() => void onRetryPending(p.id)}
+                        >
+                          <RotateCcw size={12} strokeWidth={1.7} aria-hidden="true" />
+                        </button>
+                      )}
+                  {onDiscardPending && (
+                    <button
+                      data-pressable
+                      type="button"
+                      className="msg-action msg-action--retract"
+                      aria-label={p.notice !== undefined ? 'Dismiss' : 'Discard unsent message'}
+                      title={p.notice !== undefined ? 'Dismiss' : 'Discard unsent message'}
+                      onClick={() => void onDiscardPending(p.id)}
+                    >
+                      <MetaGlyph name="close" />
+                    </button>
+                  )}
+                </div>
+              ) : null}
+            </div>
+          </div>
+        )
+      })}
+    </>
+  )
+})
+
+/**
  * THE FEED (POD-405) — the scrollable transcript body and everything that rides
  * below it: the optimistic bubbles, the restored queued rows, the headless
  * streaming overlay and the working indicator.
@@ -668,226 +906,22 @@ export const TranscriptFeed = observer(function TranscriptFeed(
             </TranscriptWindowRow>
           ))}
           <Observer>
-            {() => {
-              const pending = props.chat?.view.pending ?? props.pending ?? []
-              const session = props.chat?.view.session ?? props.session
-              return (
-                <>
-                  {pending.map((p) => {
-                    // Waiting on the server: behind the turn in flight, or for the
-                    // session to wake. Once handed on toward the agent the bubble keeps
-                    // the same silence a message in flight keeps everywhere else in this
-                    // feed (POD-1242), and it leaves when the history entry its record
-                    // names is on screen (POD-4764).
-                    const waiting = p.state === 'queued'
-                    return (
-                      <div
-                        key={p.id}
-                        data-testid={p.record ? 'chat-message-record' : undefined}
-                        data-delivery={p.record?.status}
-                        className={cn(
-                          // An optimistic bubble is the operator opening an exchange, and is
-                          // spaced like one — otherwise the feed's rhythm changes at the
-                          // moment the real row replaces it.
-                          'transcript-row transcript-turn-open',
-                          // THE MESSAGE IS ON SCREEN BEFORE THE WIRE KNOWS (POD-993). The
-                          // optimistic row plays the same arrival every landed row plays, so
-                          // pressing send reads as the message MOVING into the conversation
-                          // rather than as a row appearing where there wasn't one. The real
-                          // row replaces it in the same place, at the same measure, and the
-                          // swap is invisible.
-                          'transcript-pending transcript-arrive-bubble',
-                          (p.state === 'failed' || p.state === 'unknown') &&
-                            'transcript-pending--failed',
-                        )}
-                      >
-                        <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
-                        <div className="transcript-body transcript-you">
-                          <div
-                            className={cn(
-                              'transcript-you-bubble',
-                              waiting && 'transcript-you-bubble--queued',
-                            )}
-                          >
-                            <div className="transcript-you-body">
-                              <PendingMarkdown
-                                text={p.text}
-                                sessionId={sessionId}
-                                cwd={cwd}
-                                openFile={openFile}
-                              />
-                              {p.files && p.files.length > 0 ? (
-                                <ItemAttachments
-                                  sessionId={sessionId}
-                                  attachments={p.files.map((file) => ({
-                                    id: file.attachmentId,
-                                    filename: file.path,
-                                    kind: file.kind ?? 'file',
-                                  }))}
-                                  tags={[]}
-                                  httpOrigin={httpOrigin}
-                                  onOpenImage={onOpenImage}
-                                />
-                              ) : (
-                                p.tags &&
-                                p.tags.length > 0 && (
-                                  <div className="mt-1.5 flex flex-wrap gap-1.5">
-                                    {p.tags.map((tag, i) => (
-                                      <span
-                                        // biome-ignore lint/suspicious/noArrayIndexKey: optimistic tags never reorder.
-                                        key={`${tag.kind}-${i}`}
-                                        className="inline-flex items-center gap-1 rounded border border-input px-[7px] py-0.5 text-[11px] text-muted-foreground"
-                                      >
-                                        <ImageIcon size={12} aria-hidden="true" />
-                                        {tag.label ?? tag.kind}
-                                      </span>
-                                    ))}
-                                  </div>
-                                )
-                              )}
-                            </div>
-                          </div>
-                          {/* THE DELIVERY STATE IS THE CARD'S OWN CAPTION (POD-993) — no voice
-                label, because the side already said who spoke.
-
-                A message in flight says NOTHING here: the breath at the end of
-                the feed is already the "this is happening" signal, and a second
-                one under the card would be the same fact twice, competing with
-                it. Only the states the tail cannot express get a caption —
-                waiting behind another turn, not arriving, and not knowing.
-
-                The word is PENDING, not "queued" — one noun for every
-                not-yet-delivered bubble, whatever parked it (a hibernated
-                session, a turn already in flight, a server that queued it). */}
-                          {p.state === 'interrupted' || p.state === 'retracted' ? (
-                            <div className="msg-foot" data-side="right">
-                              <span className="transcript-delivery">{p.state}</span>
-                            </div>
-                          ) : p.state !== 'failed' &&
-                            p.state !== 'unknown' &&
-                            (waiting ||
-                              p.state === 'accepted' ||
-                              p.retractable ||
-                              p.retract ||
-                              p.retractError) ? (
-                            <div className="msg-foot" data-side="right">
-                              {p.retract ? (
-                                <span className="transcript-delivery" data-testid="retract-state">
-                                  {retractCaption(p.retract)}
-                                </span>
-                              ) : p.state === 'accepted' ? (
-                                // The agent program has it, its history not yet (POD-4885):
-                                // a fact the breath at the tail cannot say, so it gets words.
-                                <span
-                                  className="transcript-delivery"
-                                  data-testid="delivery-accepted"
-                                >
-                                  {ACCEPTED_CAPTION}
-                                </span>
-                              ) : waiting ? (
-                                <span className="transcript-delivery">
-                                  {p.record || queueIsBlocked(session)
-                                    ? queuedDeliveryLabel(
-                                        session,
-                                        p.queuePosition,
-                                        props.resumeTimedOut,
-                                      )
-                                    : `pending${queuePositionSuffix(p.queuePosition)}`}
-                                </span>
-                              ) : null}
-                              {p.retractError && (
-                                <span className="transcript-delivery transcript-delivery--error">
-                                  {`couldn't retract — ${p.retractError}`}
-                                </span>
-                              )}
-                              {p.retractable && (
-                                <RetractButton onRetract={() => void onRetractQueued(p.id)} />
-                              )}
-                            </div>
-                          ) : p.state === 'failed' || p.state === 'unknown' ? (
-                            <div className="msg-foot" data-side="right">
-                              <span className="transcript-delivery transcript-delivery--error">
-                                {p.state === 'unknown'
-                                  ? 'not confirmed — it may or may not have arrived'
-                                  : (p.failure ?? 'not delivered')}
-                              </span>
-                              {p.retract && (
-                                <span className="transcript-delivery" data-testid="retract-state">
-                                  {retractCaption(p.retract)}
-                                </span>
-                              )}
-                              {p.retractable && (
-                                <RetractButton onRetract={() => void onRetractQueued(p.id)} />
-                              )}
-                              {p.notice !== undefined
-                                ? // THE SERVER HOLDS THIS MESSAGE AND SAYS IT DID NOT ARRIVE (or
-                                  // cannot say). Never a resend of it: "send again" puts its
-                                  // words back in the composer and the person sends them as a
-                                  // NEW message by choice — for an unknown one knowing it may
-                                  // already be there.
-                                  onSendAgain && (
-                                    <button
-                                      data-pressable
-                                      type="button"
-                                      className="msg-action"
-                                      aria-label={
-                                        p.notice === 'unknown'
-                                          ? 'Send again — it may already have arrived'
-                                          : 'Send again'
-                                      }
-                                      title={
-                                        p.notice === 'unknown'
-                                          ? 'Send again — it may already have arrived'
-                                          : 'Send again'
-                                      }
-                                      onClick={() => void onSendAgain(p.id)}
-                                    >
-                                      <RotateCcw size={12} strokeWidth={1.7} aria-hidden="true" />
-                                    </button>
-                                  )
-                                : // THE SAME MESSAGE AGAIN (POD-4762), never a new one: the
-                                  // retry re-issues the entry the app still holds, under the id
-                                  // the server would recognise if the first attempt had in fact
-                                  // arrived. Withheld when the server refused these words,
-                                  // because the same words would be refused again.
-                                  p.retryable !== false &&
-                                  onRetryPending && (
-                                    <button
-                                      data-pressable
-                                      type="button"
-                                      className="msg-action"
-                                      aria-label="Retry sending message"
-                                      title="Retry sending message"
-                                      onClick={() => void onRetryPending(p.id)}
-                                    >
-                                      <RotateCcw size={12} strokeWidth={1.7} aria-hidden="true" />
-                                    </button>
-                                  )}
-                              {onDiscardPending && (
-                                <button
-                                  data-pressable
-                                  type="button"
-                                  className="msg-action msg-action--retract"
-                                  aria-label={
-                                    p.notice !== undefined ? 'Dismiss' : 'Discard unsent message'
-                                  }
-                                  title={
-                                    p.notice !== undefined ? 'Dismiss' : 'Discard unsent message'
-                                  }
-                                  onClick={() => void onDiscardPending(p.id)}
-                                >
-                                  <MetaGlyph name="close" />
-                                </button>
-                              )}
-                            </div>
-                          ) : null}
-                        </div>
-                      </div>
-                    )
-                  })}
-                </>
-              )
-            }}
+            {() => (
+              <PendingBubbles
+                pending={props.chat?.view.pending ?? props.pending ?? []}
+                session={props.chat?.view.session ?? props.session}
+                sessionId={sessionId}
+                cwd={cwd}
+                openFile={openFile}
+                httpOrigin={httpOrigin}
+                onOpenImage={onOpenImage}
+                onRetractQueued={onRetractQueued}
+                onRetryPending={onRetryPending}
+                onDiscardPending={onDiscardPending}
+                onSendAgain={onSendAgain}
+                resumeTimedOut={props.resumeTimedOut}
+              />
+            )}
           </Observer>
           <Observer>
             {() => {

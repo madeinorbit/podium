@@ -11,6 +11,7 @@ import {
   transcriptAttributionTable,
   transcriptPhase,
 } from '@podium/client-core/values'
+import { isConcertmasterSession } from '@podium/client-graph/concertmaster'
 import { here, omitGone } from '@podium/client-graph/lookup'
 import { currentMessageRecord } from '@podium/client-graph/message-models'
 import type { SessionModel } from '@podium/client-graph/models'
@@ -162,6 +163,18 @@ export class ChatViewModel {
   }
   @lazy get headless(): boolean {
     return this.superThread !== undefined || this.session?.headless === true
+  }
+  /**
+   * This chat is a Concertmaster's curated conversation (POD-7211): the feed
+   * shows what its agent sent, its person's messages and its asks, and never
+   * the transcript. The session's mark with the feature on, and never a
+   * superagent thread.
+   */
+  @lazy get curated(): boolean {
+    return (
+      this.superThread === undefined &&
+      isConcertmasterSession(this.conversation.pool, this.session)
+    )
   }
   @lazy get stickyEnabled(): boolean {
     return this.stickyPrompts && !this.compact

@@ -148,12 +148,28 @@ export function parseConcertmasterEntryRowId(id: string): {
 export const concertmasterEntryId = (createdAt: string, unique: string): string =>
   `${createdAt}_${unique}`
 
+/** What marks an entry id as a recorded chat message's. */
+const USER_ENTRY_MARK = 'm_'
+
 /**
  * The id of the `user` entry a chat message becomes. Derived from the message
  * (its time and its own id), so recording one message twice names one entry.
  */
 export const concertmasterUserEntryId = (createdAt: string, messageId: string): string =>
-  concertmasterEntryId(createdAt, `m_${messageId}`)
+  concertmasterEntryId(createdAt, `${USER_ENTRY_MARK}${messageId}`)
+
+
+/**
+ * The chat message a `user` entry records, read back from its id; `undefined`
+ * for an entry that records none. A chat hides its own pending bubble of a
+ * message once the conversation holds that message's entry.
+ */
+export function concertmasterMessageIdOf(entryId: string): string | undefined {
+  // The time is `toISOString()` text: fixed width, and it holds no underscore.
+  const at = entryId.indexOf('_')
+  if (at < 0 || !entryId.startsWith(USER_ENTRY_MARK, at + 1)) return undefined
+  return entryId.slice(at + 1 + USER_ENTRY_MARK.length) || undefined
+}
 
 /**
  * The id prefix of the message that tells the agent an ask was settled. That
