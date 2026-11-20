@@ -1,5 +1,5 @@
-import { fixtureWriteScope } from '@podium/sync/testing'
 import { SORT_KEY_MAX_LEN } from '@podium/model'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { afterAll, describe, expect, it } from 'vitest'
 import { resolvePrincipal } from './command-principal'
 import { SessionRegistry } from './relay'
@@ -35,7 +35,7 @@ async function fixture() {
     principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }),
   })
   const create = (title: string, parentId?: string, repoPath = '/r') =>
-    op.issues.create({ repoPath, title, parentId, startNow: false })
+    op.issues.create({ repoPath, title, parentId, startNow: false, parentBranch: 'main' })
   const parent = await create('parent')
   const a = await create('a', parent.id)
   const b = await create('b', parent.id)
@@ -116,7 +116,10 @@ describe('sibling-relative issue moves', () => {
     const { registry, op, a, c, d, order } = await fixture()
     for (const row of [c, d]) {
       const stored = (await registry.sessionStore.issues.getIssue(row.id))!
-      await registry.sessionStore.issues.upsertIssue(fixtureWriteScope(), { ...stored, sortKey: null })
+      await registry.sessionStore.issues.upsertIssue(fixtureWriteScope(), {
+        ...stored,
+        sortKey: null,
+      })
     }
     expect(await registry.issues.reports.getMeta(c.id)).toMatchObject({ sortKey: null })
     await op.issues.move({ id: a.id, after: d.id })
