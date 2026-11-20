@@ -6,6 +6,7 @@ export default defineConfig(async (env) => {
   const config = await (base as (env: ConfigEnv) => Promise<UserConfig>)(env)
   return {
     ...config,
+    optimizeDeps: { ...config.optimizeDeps, entries: ['harness/managed-installs.html'] },
     plugins: ((config.plugins as PluginOption[]) ?? []).filter(
       (plugin) =>
         !(
