@@ -72,7 +72,9 @@ describe('SessionRegistry metadata deltas', () => {
 
   /** Emission is coalesced at microtask level since #256 (one ordered pipe);
    *  flush deterministically before reading a delta client's inbox. */
-  const flush = (registry: SessionRegistry): void => registry.modules.funnel.flushDeltas()
+  const flush = async (registry: SessionRegistry): Promise<void> => {
+    await registry.modules.funnel.flushDeltas()
+  }
 
   it('sends canonical per-entity deltas', async () => {
     const registry = await makeRegistry()
@@ -84,7 +86,7 @@ describe('SessionRegistry metadata deltas', () => {
       title: 'first',
       startNow: false,
     })
-    flush(registry)
+    await flush(registry)
 
     await expect.poll(() => deltas(subscriber.inbox.slice(before)).length).toBe(3)
     const published = subscriber.inbox.slice(before)
@@ -115,14 +117,14 @@ describe('SessionRegistry metadata deltas', () => {
       title: 'bystander',
       startNow: false,
     })
-    flush(registry)
+    await flush(registry)
     const subscriber = await client(registry)
     const before = subscriber.inbox.length
 
     await registry.issues.crud.update(registry.issues.reports.store.serverWriter, w.id, {
       brief: 'self-contained edit',
     })
-    flush(registry)
+    await flush(registry)
 
     // The record and its brief, a record of its own (POD-6921).
     await expect.poll(() => deltas(subscriber.inbox.slice(before)).length).toBe(2)
@@ -148,7 +150,7 @@ describe('SessionRegistry metadata deltas', () => {
       agentKind: 'shell',
       cwd: '/w',
     })
-    flush(registry)
+    await flush(registry)
     await vi.waitFor(() => {
       expect(
         deltas(delta.inbox.slice(before)).some((c) => c.entity === 'session' && c.id === sessionId),
@@ -173,7 +175,7 @@ describe('SessionRegistry metadata deltas', () => {
       title: 'b',
       startNow: false,
     })
-    flush(registry)
+    await flush(registry)
     await expect
       .poll(() => deltas(delta.inbox).filter((c) => c.entity === 'issueEvent').length)
       .toBe(2)
@@ -253,7 +255,7 @@ describe('SessionRegistry metadata deltas', () => {
       startNow: false,
     })
     await registry.issues.crud.close(registry.issues.reports.store.serverWriter, w.id)
-    flush(registry)
+    await flush(registry)
 
     // The cursor a client held while it was away — nothing tucked yet.
     const principal = userClientPrincipal('reconnecting', firstAdminMemberId(), 'admin')
@@ -268,7 +270,7 @@ describe('SessionRegistry metadata deltas', () => {
       w.id,
       true,
     )
-    flush(registry)
+    await flush(registry)
 
     await expect
       .poll(
@@ -295,7 +297,7 @@ describe('SessionRegistry metadata deltas', () => {
       title: 'before hello',
       startNow: false,
     })
-    flush(registry)
+    await flush(registry)
     expect(
       inbox.some((message) => message.type === 'feedResume' || message.type === 'feedDelta'),
     ).toBe(false)
@@ -314,7 +316,7 @@ describe('SessionRegistry metadata deltas', () => {
       title: 'after hello',
       startNow: false,
     })
-    flush(registry)
+    await flush(registry)
     await expect
       .poll(() =>
         deltas(inbox).some(
