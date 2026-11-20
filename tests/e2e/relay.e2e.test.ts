@@ -151,8 +151,16 @@ describe('e2e: daemon -> server -> client', () => {
       try {
         client2.send(encode({ type: 'attach', sessionId }))
         client2.send(encode({ type: 'viewState', visible: [sessionId], focused: sessionId }))
-        client2.send(encode({ type: 'resize', sessionId, cols: 100, rows: 30 }))
-        client2.send(encode({ type: 'requestControl', sessionId }))
+        client2.send(
+          encode({
+            type: 'viewportRequest',
+            sessionId,
+            geometry: { cols: 100, rows: 30 },
+            visible: true,
+            mode: 'native',
+            claimControl: true,
+          }),
+        )
         const getSess = async () =>
           (await srv.registry.modules.sessions.listSessions()).find(
             (s) => s.sessionId === sessionId,

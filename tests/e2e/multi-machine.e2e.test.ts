@@ -86,6 +86,7 @@ describe('e2e: two-daemon pairing + routing', () => {
     supervisorState.assignment = { server: false, agentExecution: true }
     supervisorState.generation = 1
     saveSupervisorState(tmp2, supervisorState)
+    let daemon2: Awaited<ReturnType<typeof startDaemon>> | undefined
     const supervisor = createMachineSupervisorConnection({
       serverUrl,
       stateDir: tmp2,
@@ -102,7 +103,7 @@ describe('e2e: two-daemon pairing + routing', () => {
         server: { policy: 'disabled', state: 'stopped', observedAt: new Date().toISOString() },
         agentExecution: {
           policy: 'enabled',
-          state: 'starting',
+          state: daemon2?.connected ? 'available' : 'starting',
           observedAt: new Date().toISOString(),
         },
       }),
@@ -112,7 +113,7 @@ describe('e2e: two-daemon pairing + routing', () => {
     expect(await supervisor.waitUntilConnected(15_000)).toBe(true)
 
     // daemon2: the "remote" machine that pairs with the code
-    const daemon2 = await startDaemon({
+    daemon2 = await startDaemon({
       serverUrl,
       identityDir: tmp2,
       launch: fixtureLaunch,
@@ -129,7 +130,13 @@ describe('e2e: two-daemon pairing + routing', () => {
     })
 
     try {
-      await waitFor(() => daemon1.connected && daemon2.connected)
+      await waitFor(() => daemon1.connected && daemon2?.connected === true)
+      supervisor.report()
+      await waitFor(
+        async () =>
+          (await srv.registry.sessionStore.machines.getMachine(supervisorState.machineId))
+            ?.serviceReport?.agentExecution.state === 'available',
+      )
       // 1) Both machines must appear online
       const machines = (await srv.registry.modules.machines.listMachines()).filter(
         (machine) => machine.online,

@@ -484,28 +484,34 @@ describe.skipIf(RUST_HOST === undefined)('viewer catch-up from host pictures (re
   it('a daemon restart: one reset picture, zero replayed bytes, and the host’s screen', async () => {
     const { sid, label } = await liveShell()
     const v = await viewer(port, cookie, sid)
-    await until(
-      () => v.pictures().length > 0,
-      () => 'not caught up',
-    )
-    await daemon.close()
-    await until(
-      () => sessionOf(sid).status !== 'live',
-      () => 'the server never saw the daemon go',
-    )
-    const seen = watch(sid)
-    await bootDaemon()
-    await until(
-      () => sessionOf(sid).status === 'live' && seen.resets > 0,
-      () => `no reset picture after the restart (${JSON.stringify(seen)})`,
-    )
-    // Long enough for a second request or a ring replay to have shown up.
-    await new Promise((r) => setTimeout(r, 2000))
-    expect(seen.resets).toBe(1)
-    expect(seen.dataBytes).toBe(0)
-    const host = await hostScreen(label)
-    expect(await v.text()).toBe(host.text)
-    v.close()
+    try {
+      await until(
+        () => v.pictures().length > 0,
+        () => 'not caught up',
+      )
+      await daemon.close()
+      await until(
+        () => !srv.registry.modules.machines.hasDaemon(srv.registry.modules.machines.hostMachineId),
+        () => 'the server never saw the daemon connection go',
+      )
+      expect(sessionOf(sid).status).toBe('live')
+      expect(sessionOf(sid).awaitingRebind).toBe(true)
+      const seen = watch(sid)
+      await bootDaemon()
+      await until(
+        () => !sessionOf(sid).awaitingRebind && seen.resets > 0,
+        () => `no reset picture after the restart (${JSON.stringify(seen)})`,
+      )
+      // Long enough for a second request or a ring replay to have shown up.
+      await new Promise((r) => setTimeout(r, 2000))
+      expect(seen.resets).toBe(1)
+      expect(seen.dataBytes).toBe(0)
+      const host = await hostScreen(label)
+      expect(await v.text()).toBe(host.text)
+    } finally {
+      v.close()
+      if (!daemon.connected) await bootDaemon()
+    }
   }, 90_000)
 
   it('a server restart: an idle program is not blank after its viewers reattach', async () => {
