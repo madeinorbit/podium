@@ -166,6 +166,7 @@ async function fixture(size: number, contract = false): Promise<Fixture> {
  */
 async function settle(reg: SessionRegistry): Promise<void> {
   await reg.changeLedger.authority.settled()
+  await settledOperation(() => reg.modules.messages.flushDeliveryTriggers())
   await settledOperation(() => reg.modules.sessions.flushBroadcasts())
   await reg.changeLedger.authority.settled()
 }

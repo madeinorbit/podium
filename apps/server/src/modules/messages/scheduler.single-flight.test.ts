@@ -1,5 +1,5 @@
 import { asIssueId, asThreadId } from '@podium/model'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { MessageRow } from '../../store/types'
 import { DeliveryScheduler } from './scheduler'
 
@@ -15,6 +15,60 @@ import { DeliveryScheduler } from './scheduler'
  * `listQueuedPage` is the count that matters: it is the first thing a pass does.
  */
 describe('DeliveryScheduler.sweep single-flight (POD-3258)', () => {
+  it('an explicit trigger flush waits for an in-flight timer and then drains later targets', async () => {
+    vi.useFakeTimers()
+    let release!: () => void
+    let began!: () => void
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const started = new Promise<void>((resolve) => {
+      began = resolve
+    })
+    const pendingTargets = vi
+      .fn()
+      .mockImplementationOnce(async () => {
+        began()
+        await held
+        return [false]
+      })
+      .mockResolvedValue([false])
+    const scheduler = new DeliveryScheduler({
+      messages: {
+        countQueued: async () => 0,
+        listQueuedPage: async () => [],
+        pendingForPages: async () => [],
+        pendingTargets,
+      },
+      now: () => '2026-07-13T00:00:00.000Z',
+      runner: { targetOf: () => null, attemptPass: () => {}, nowMs: () => 1_000_000 },
+    })
+    try {
+      scheduler.queueDeliveryTarget({ kind: 'issue', id: 'first' })
+      const timer = vi.advanceTimersByTimeAsync(0)
+      await started
+      scheduler.queueDeliveryTarget({ kind: 'issue', id: 'later' })
+      let complete = false
+      const explicit = scheduler.flushDeliveryTriggers().then(() => {
+        complete = true
+      })
+      await Promise.resolve()
+      expect(pendingTargets).toHaveBeenCalledTimes(1)
+      expect(complete).toBe(false)
+      release()
+      await Promise.all([timer, explicit])
+      expect(pendingTargets.mock.calls.map(([targets]) => targets)).toEqual([
+        [{ kind: 'issue', id: 'first' }],
+        [{ kind: 'issue', id: 'later' }],
+      ])
+      expect(complete).toBe(true)
+    } finally {
+      release()
+      scheduler.dispose()
+      vi.useRealTimers()
+    }
+  })
+
   const row = (id: string): MessageRow => ({
     id,
     threadId: asThreadId(id),
