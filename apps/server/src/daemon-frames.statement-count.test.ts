@@ -497,10 +497,13 @@ describe('daemon frames that read an observation checkpoint: pinned at 5 and 200
 
   it('awaits the activity observer before completing an exit frame', async () => {
     const f = await fixture(5)
-    const gate = Promise.withResolvers<void>()
+    let release: () => void = () => undefined
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
     const activity = vi
       .spyOn(f.reg.issues.gitWorkflow, 'onSessionActivity')
-      .mockImplementation(async () => await gate.promise)
+      .mockImplementation(async () => await gate)
     let completed = false
     const frame = f.reg.gateway
       .routeDaemonFrame(f.reg.sessionStore.hostMachineId, {
@@ -520,9 +523,54 @@ describe('daemon frames that read an observation checkpoint: pinned at 5 and 200
         exitCode: 0,
       })
     } finally {
-      gate.resolve()
+      release()
       await frame
       activity.mockRestore()
+      await settle(f.reg)
+      await f.reg.dispose()
+      await f.store.close()
+    }
+  })
+
+  it('retains the interaction reaction until the frame operation settles', async () => {
+    const f = await fixture(5, true)
+    let release: () => void = () => undefined
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const reaction = vi
+      .spyOn(f.reg.modules.interactions, 'onStateChanged')
+      .mockImplementation(async () => await gate)
+    let completed = false
+    const frame = settledOperation(() =>
+      f.reg.gateway.routeDaemonFrame(f.store.hostMachineId, {
+        type: 'runtimeEvent',
+        sessionId: f.ids[0]!,
+        deliveryId: 'retained-state',
+        event: {
+          t: 'state',
+          change: { kind: 'session_started' },
+          at: at(20),
+          provenance: 'bootstrap',
+          cursor: { segmentId: 'retained-segment', components: { seq: 20 } },
+          observerGeneration: 1,
+          turnEpoch: 1,
+        },
+      }),
+    ).then(() => {
+      completed = true
+    })
+    try {
+      await vi.waitFor(() => expect(reaction).toHaveBeenCalledOnce())
+      expect(completed).toBe(false)
+      expect(await f.store.events.runtimeEventCheckpoint(f.ids[0]!)).toMatchObject({
+        observerGeneration: 1,
+        turnEpoch: 1,
+      })
+    } finally {
+      release()
+      await frame
+      reaction.mockRestore()
       await settle(f.reg)
       await f.reg.dispose()
       await f.store.close()

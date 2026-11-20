@@ -5068,8 +5068,9 @@ export class SessionRegistry {
     sessionsSvc.interactionResolved = async (msg) => {
       await interactions.onInteractionResolved(msg)
     }
-    this.bus.on('session.stateChanged', (e) => {
-      void interactions.onStateChanged({ sessionId: e.sessionId, prev: e.prev, next: e.next })
+    // Retain the interaction reaction in the frame's operation, including its async reads and writes.
+    this.bus.on('session.stateChanged', async (e) => {
+      await interactions.onStateChanged({ sessionId: e.sessionId, prev: e.prev, next: e.next })
     })
     this.bus.on('session.exited', async (e) => await interactions.onSessionExited(e.sessionId))
     // CREDENTIAL HEALTH ON THE SESSION STREAM (§7, §8). An error that names the
