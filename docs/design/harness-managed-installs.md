@@ -863,6 +863,27 @@ removal.
     holds nothing of the person's is the future default and Podium has to
     provide for it.
 11. The record of installs is a database, not a file.
+12. **Codex keeps its own daemon copy** (6.3, decided 2026-11-20). Codex
+    launches the way it does by default; its copied daemon may update itself.
+    A newer Codex is welcome, so Podium does not hold Codex to the release it
+    installed. Podium installs the release, the harness row says that Codex
+    updates its own server, and a running session may move to the newer
+    server.
+13. **A harness whose own updater cannot be stopped is installed once and its
+    updates are left to the vendor** (6.3, decided 2026-11-20). Podium
+    installs it, then no longer updates it and says so on the harness row.
+    Today this applies to no harness: Cursor's `--disable-auto-update` works
+    and is checked before each install.
+14. **Leaving a machine is a `podium uninstall` command, also offered in the
+    machine menu** (section 7, decided 2026-11-20). It undoes Podium's home
+    edits, stops and removes Podium's services, and removes Podium's state.
+15. **A passed-in Claude credential reaches Claude over a pipe, not the
+    environment** (decided 2026-11-20, once proven). Claude reads
+    `CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR` or
+    `CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR`, so the secret is in no
+    environment and subprocess scrubbing (`CLAUDE_CODE_SUBPROCESS_ENV_SCRUB`,
+    which needs bubblewrap and leaves empty files in the home and repository)
+    can be turned off. A spike proves it first; if it fails, scrubbing stays.
 
 ### Calls I made, for review
 
@@ -896,20 +917,6 @@ removal.
     request or when Podium leaves the machine** (section 7).
 14. **All six harnesses are targets.** Claude Code, Codex and Grok first, then
     OpenCode, Pi and Cursor (section 9).
-
-### Open for operator review
-
-1. **Codex's own copy in the home** (6.3). Default daemon bootstrap served
-   from its copied release and updated it. The daemon setting suppresses the
-   loop. Direct stdio and terminal `--no-daemon` keep Podium's version pin.
-   Choose between using the copied daemon and disclosing it on the harness
-   row, or selecting the direct launch modes.
-2. **A harness whose own updater cannot be stopped** (6.3). Cursor's
-   2026.11.19 release recognizes `--disable-auto-update` and the static
-   channel. Ordinary state writes still matter for home isolation. If an
-   eligible vendor release has no working update control, the choice remains
-   to manage it and disclose the vendor update behavior, or install it once
-   and give that vendor ownership of updates.
 
 ### Not in this phase
 
