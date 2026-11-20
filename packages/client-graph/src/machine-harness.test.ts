@@ -41,22 +41,24 @@ describe('machine harness state', () => {
     const own = agent(true, false)
     const { row, machine } = fixture({
       ...own,
-      management: { ...own.management!, updateNotice: 'Vendor updates its own server.' },
+      management: { installable: true, updateNotice: 'Vendor updates its own server.' },
     })
     expect(row.updateNotice).toBeUndefined()
-    machine.inventory = {
-      ...machine.inventory,
-      agents: [
-        {
-          ...agent(true, true),
-          management: {
-            installable: true,
-            homeVariable: 'CODEX_HOME',
-            updateNotice: 'Vendor updates its own server.',
+    runInAction(() => {
+      machine.inventory = {
+        ...machine.inventory,
+        agents: [
+          {
+            ...agent(true, true),
+            management: {
+              installable: true,
+              homeVariable: 'CODEX_HOME',
+              updateNotice: 'Vendor updates its own server.',
+            },
           },
-        },
-      ],
-    }
+        ],
+      }
+    })
     expect(row.updateNotice).toBe('Vendor updates its own server.')
   })
   it.each([
