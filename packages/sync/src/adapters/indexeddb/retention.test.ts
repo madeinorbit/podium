@@ -1,5 +1,6 @@
 import { actorUser, asMutationId, asUserId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
+import { expectNewlySupportedKindAfterUpgrade } from '../../conformance/retained-kind-upgrade'
 import type { OutboxRecord } from '../../outbox/records'
 import { Replica } from '../../replica/replica'
 import type { EntityRecord } from '../../replica/types'
@@ -26,6 +27,17 @@ const queued: OutboxRecord = {
 }
 
 describe('IndexedDB optional entity retention', () => {
+  it.fails('device reload audit backfills a newly supported kind when only the browser app updates', async () => {
+    const factory = freshFactory()
+    await expectNewlySupportedKindAfterUpgrade((retainEntity) =>
+      IndexedDbSyncStore.open({
+        factory,
+        ...(retainEntity === undefined ? {} : { retainEntity }),
+        onDegraded: () => {},
+      }),
+    )
+  })
+
   it('keeps every kind unless the caller opts out', async () => {
     const factory = freshFactory()
     const store = await IndexedDbSyncStore.open({ factory, onDegraded: () => {} })
