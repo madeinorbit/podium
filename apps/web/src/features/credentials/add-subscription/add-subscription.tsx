@@ -19,23 +19,8 @@ import { type CredentialDeps, errorText } from '../credentials-deps'
 
 const POLL_MS = 2_000
 
-/** The two subscriptions a person signs in to in an agent program. */
-export const SUBSCRIPTION_KINDS = (
-  [
-    {
-      type: 'anthropic.claude-login',
-      title: 'Claude subscription',
-      hint: 'In the terminal, open the link Claude Code shows and sign in with the account you want to add. Then paste the code the page gives you into the terminal.',
-    },
-    {
-      type: 'openai.chatgpt-login',
-      title: 'ChatGPT subscription',
-      hint: 'In the terminal, open the link Codex shows and enter the one-time code it prints. If ChatGPT asks you to allow device codes, turn that on under Settings › Security first, then enter the code.',
-    },
-  ] as const
-).map((choice) => {
-  // Home-login acceptance and the program label share one canonical descriptor.
-  // This is a fixed bundled metadata set, independent of any user's records.
+/** Resolve presentation from the same descriptor that declares home-login acceptance. */
+function withProgram<const T extends { type: string }>(choice: T) {
   const descriptor = BUNDLED_DESCRIPTORS.find((entry) =>
     entry.accepts?.some(
       (accepted) => accepted.type === choice.type && accepted.deliver.kind === 'home',
@@ -43,7 +28,21 @@ export const SUBSCRIPTION_KINDS = (
   )
   if (!descriptor) throw new Error(`No home-login program descriptor for ${choice.type}`)
   return { ...choice, program: descriptor.label }
-})
+}
+
+/** The two subscriptions a person signs in to in an agent program. */
+export const SUBSCRIPTION_KINDS = [
+  withProgram({
+    type: 'anthropic.claude-login',
+    title: 'Claude subscription',
+    hint: 'In the terminal, open the link Claude Code shows and sign in with the account you want to add. Then paste the code the page gives you into the terminal.',
+  }),
+  withProgram({
+    type: 'openai.chatgpt-login',
+    title: 'ChatGPT subscription',
+    hint: 'In the terminal, open the link Codex shows and enter the one-time code it prints. If ChatGPT asks you to allow device codes, turn that on under Settings › Security first, then enter the code.',
+  }),
+] as const
 
 export type SubscriptionType = (typeof SUBSCRIPTION_KINDS)[number]['type']
 
