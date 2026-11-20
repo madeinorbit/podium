@@ -10,6 +10,7 @@
  */
 import { asMachineId, firstAdminMemberId, type SessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
+import * as feedServing from './gateway/feed-serving'
 import { SessionRegistry } from './relay'
 import type { SessionStore } from './store'
 import { fixtureInventory } from './test-support/daemon-inventory'
@@ -218,8 +219,21 @@ describe('daemon frames, the rest: pinned statement counts at 5 and 200', () => 
   const report = (version: string) =>
     pin(
       `inventoryReport (${version})`,
-      async (f, size) =>
-        await route(f, { type: 'inventoryReport', inventory: inventory(size, version) }),
+      async (f, size) => {
+        // This pin includes one explicit publication of the complete frame.
+        // Async engine round trips otherwise let the automatic idle/deadline
+        // flush split its two commits, adding a retention-floor read according
+        // to timing. route() still drains the real serving edge and all SQL;
+        // automatic publication cadence is covered by the funnel tests.
+        const scheduled = vi
+          .spyOn(feedServing, 'scheduleFeedFlush')
+          .mockImplementation(() => () => {})
+        try {
+          await route(f, { type: 'inventoryReport', inventory: inventory(size, version) })
+        } finally {
+          scheduled.mockRestore()
+        }
+      },
       async (f, size) => {
         expect(
           (await f.store.machines.getMachine(f.store.hostMachineId))?.inventory?.tools,
