@@ -6,7 +6,6 @@ import { join } from 'node:path'
 import { shellCommand } from '@podium/harness'
 import { createMaintenanceHttpClient } from '@podium/janitor'
 import { asMachineId, asUserId } from '@podium/model'
-import { directPtyDurableForTests } from '@podium/process/durable'
 import {
   MAINTENANCE_PROTOCOL_VERSION,
   MAINTENANCE_SCHEMA_VERSION,
@@ -14,6 +13,7 @@ import {
   stewardPollRunKey,
   wireSchemaDigest,
 } from '@podium/protocol'
+import { directPtyDurableForTests } from '../../../packages/pty/src/durable'
 import { type DaemonHandle, startDaemon } from '../../daemon/src/daemon'
 import { userCommandPrincipal } from './command-principal'
 import { createMemberOfRequest } from './identity/member-of-request'
@@ -264,10 +264,10 @@ for (const engine of ['sqlite', 'pg'] as const) {
         headers: { 'x-podium-peer-address': '127.0.0.1' },
       })
       expect(memberOfRequest.factsOf(request).sameMachine).toBe(false)
-      expect(await memberOfRequest(request)).toEqual({ kind: 'unauthenticated' })
+      expect(await memberOfRequest(request)).toEqual({ kind: 'https_required' })
       expect(await server.identity.signInRequired()).toBe(true)
       expect(await (await fetch(origin() + '/auth/status')).json()).toMatchObject({ authed: false })
-      expect((await fetch(origin() + '/sync/bootstrap')).status).toBe(401)
+      expect((await fetch(origin() + '/sync/bootstrap')).status).toBe(400)
     })
   })
 }

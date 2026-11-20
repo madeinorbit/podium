@@ -23,6 +23,7 @@ it('reports the install capability identically through server and sync-worker re
     hostname: 'remote.example.test',
     tokenHash: 'test',
     ownerUserId: null,
+    assignment: { server: true, agentExecution: true },
   })
   await store.machines.setMachineBuild(
     id,
@@ -39,6 +40,7 @@ it('reports the install capability identically through server and sync-worker re
     for (const reads of [store, worker.store]) {
       const [facts] = await storedMachineRecordFacts(reads, [id])
       expect(facts?.see.serverMoveSupported).toBe(available)
+      expect(facts?.see.hostsServer).toBe(available)
     }
   }
 })
@@ -56,6 +58,7 @@ it('publishes the changed capability to machine-access records', async () => {
     hostname: 'remote.example.test',
     tokenHash: 'test',
     ownerUserId: null,
+    assignment: { server: true, agentExecution: true },
   })
   await store.machines.setMachineBuild(
     id,

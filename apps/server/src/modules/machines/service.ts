@@ -694,9 +694,7 @@ export class MachinesService {
     return this.deps.instanceId
   }
 
-  /** This host's machine id — see {@link MachinesDeps.hostMachine}. Exposed because
-   *  the handshake's machine directory has to name the machine the loopback bootstrap
-   *  secret belongs to, and taking it from here keeps ONE answer in the process. */
+  /** The installation's public identity, supplied by the composition root. */
   get installationId(): string | undefined {
     return this.deps.installationId
   }
@@ -710,6 +708,7 @@ export class MachinesService {
     return this.deps.store.machines.rotateCredential(machineId, rotation, transcript)
   }
 
+  /** This server's own fleet install, when it has one. */
   get hostMachine(): HostMachine {
     return this.deps.hostMachine
   }

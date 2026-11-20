@@ -564,7 +564,7 @@ describe('memberOfRequest', () => {
       sameMachine: false,
       clientAddress: '127.0.0.1',
     })
-    expect(await resolve(local)).toEqual({ kind: 'unauthenticated' })
+    expect(await resolve(local)).toEqual({ kind: 'https_required' })
   })
 
   it('works out the connection facts at the server boundary', () => {

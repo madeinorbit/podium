@@ -72,7 +72,7 @@ export async function storedMachineRecordFacts(
         revokedAt: m.revokedAt,
         supersededBy: m.supersededBy ?? null,
         ...(m.podiumManaged === false ? { podiumManaged: false } : {}),
-        hostsServer: m.serviceAssignment.server,
+        hostsServer: serverMoveAvailable && m.serviceAssignment.server,
         serverMoveSupported:
           serverMoveAvailable &&
           m.wireSchemaDigest === wireSchemaDigest() &&
