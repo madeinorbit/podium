@@ -19,7 +19,7 @@ import { type ChildProcess, execFileSync, spawn } from 'node:child_process'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { SessionId } from '@podium/model'
+import { HarnessAgent, type SessionId } from '@podium/model'
 import type { StatementProbeHolder } from '../apps/server/src/store/executor/statement-probe'
 import type { WorkspaceWriteObservation } from '../apps/server/src/store/executor/workspace-write-metrics'
 
@@ -251,15 +251,15 @@ async function worker(config: Config, workerIndex: number): Promise<void> {
       for (const index of mine.filter((i) => i % config.workspaces === workspaceIndex)) {
         const cwd = `/measurement/session-${index}`
         const { sessionId } = await registry.modules.sessions.createSession({
-          agentKind: 'codex',
+          agentKind: HarnessAgent.enum.codex,
           cwd,
         })
         await registry.gateway.routeDaemonFrame(store.hostMachineId, {
           type: 'bind',
           sessionId,
-          cmd: 'codex',
+          cmd: HarnessAgent.enum.codex,
           cwd,
-          agentKind: 'codex',
+          agentKind: HarnessAgent.enum.codex,
           driverId: 'codex-app-server',
           geometry: { cols: 80, rows: 24 },
         } as never)

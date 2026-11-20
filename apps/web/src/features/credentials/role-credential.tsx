@@ -15,10 +15,11 @@ import {
   asCredentialId,
   CREDENTIAL_TYPES,
   type CredentialView,
+  HarnessAgent,
   INFERENCE_ROUTES,
   isCredentialTypeId,
 } from '@podium/model'
-import type { HarnessAgent, RoleBackend } from '@podium/runtime'
+import type { RoleBackend } from '@podium/runtime'
 import { observer } from 'mobx-react-lite'
 import { useCallback } from 'react'
 import { useSettingsRecords } from '@/features/settings/record-readers'
@@ -46,7 +47,7 @@ export function credentialModelSource(type: string): ModelSource | undefined {
   const route = INFERENCE_ROUTES[type]
   if (!route) return undefined
   if (route.kind === 'on-machine' || (route.kind === 'http' && route.api === 'openai-responses')) {
-    return { kind: 'login', harness: 'codex' }
+    return { kind: 'login', harness: HarnessAgent.enum.codex }
   }
   return { kind: 'api', provider: CREDENTIAL_TYPES[type].provider }
 }

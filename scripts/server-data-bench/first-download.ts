@@ -39,6 +39,7 @@ import { dirname, join, resolve } from 'node:path'
 import { createInterface } from 'node:readline'
 import { fileURLToPath } from 'node:url'
 import { gunzipSync, zstdDecompressSync } from 'node:zlib'
+import { CLAUDE_CODE_HARNESS_KIND, HarnessAgent } from '@podium/model'
 import { parseArgs } from './seed'
 
 const HARNESS = fileURLToPath(new URL('../..', import.meta.url))
@@ -206,7 +207,7 @@ async function seed(): Promise<void> {
     `INSERT INTO issues (id, owner_user_id, created_by_actor, created_by_on_behalf_of, repo_path, repo_id, seq,
        title, description, brief, stage, default_agent, parent_id, priority, archived, deleted_at, created_at,
        updated_at, closed_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'claude-code', ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   )
   db.transaction(() => {
     for (let i = 0; i < REAL_ROWS.issues; i++) {
@@ -235,6 +236,7 @@ async function seed(): Promise<void> {
         pad(r, 2300),
         r() < 0.6 ? pad(r, 1500) : null,
         stage,
+        CLAUDE_CODE_HARNESS_KIND,
         parent,
         Math.floor(r() * 5),
         r() < 0.2 ? 1 : 0,
@@ -272,9 +274,9 @@ async function seed(): Promise<void> {
         id,
         owner,
         pick(r, [
-          ['claude-code', 70],
-          ['codex', 20],
-          ['pi', 10],
+          [CLAUDE_CODE_HARNESS_KIND, 70],
+          [HarnessAgent.enum.codex, 20],
+          [HarnessAgent.enum.pi, 10],
         ] as const),
         `/repo/podium/.worktrees/issue-${Math.floor(r() * 9000)}`,
         pad(r, 40),
@@ -373,7 +375,7 @@ async function seed(): Promise<void> {
                 : JSON.stringify({ ...body, turnState: turnState(r, 40) })
       insObs.run(
         s.id,
-        'claude-code',
+        CLAUDE_CODE_HARNESS_KIND,
         `prov-${pad(r, 12)}`,
         1,
         Math.floor(r() * 9),
@@ -385,13 +387,14 @@ async function seed(): Promise<void> {
 
   const insConv = db.prepare(
     `INSERT INTO conversations (id, agent_kind, provider_id, title, summary, project_path, created_at, updated_at,
-       message_count, machine_id) VALUES (?, 'claude-code', ?, ?, ?, ?, ?, ?, ?, ?)`,
+       message_count, machine_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   )
   db.transaction(() => {
     for (let i = 0; i < REAL_ROWS.conversations; i++) {
       const created = T0 + r() * (T1 - T0)
       insConv.run(
         `conv_bench${String(i).padStart(6, '0')}`,
+        CLAUDE_CODE_HARNESS_KIND,
         `prov-${i}`,
         pad(r, 70),
         pad(r, 1150),

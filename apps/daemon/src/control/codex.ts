@@ -14,6 +14,7 @@ import {
   parseCodexResponsesSse,
   truncateCodexError,
 } from '@podium/harness'
+import { HarnessAgent } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import type { HarnessManagementContext } from '../harness-management.js'
 import { resolveManagementAccount } from '../harness-management.js'
@@ -64,7 +65,7 @@ export const CODEX_DAEMON_HTTP_TIMEOUT_MS = 110_000
  * folder and none is passed.
  */
 function codexCredentialsDir(credentialHome: string | undefined): string {
-  const { roots } = harnessAccount('codex', credentialHome ?? homedir(), {})
+  const { roots } = harnessAccount(HarnessAgent.enum.codex, credentialHome ?? homedir(), {})
   return roots.credentials ?? roots.state
 }
 

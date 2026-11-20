@@ -10,6 +10,7 @@
  * boolean, nested agent states.
  */
 
+import { HarnessAgent } from '../entities/agent'
 import type { IssueId, SessionId, UserId } from '../ids'
 import { issueUserStateRowId } from '../user-state/issue-state'
 import { sessionUserStateRowId } from '../user-state/session-state'
@@ -157,7 +158,7 @@ export const CORPUS_RECORDS: Readonly<Record<string, readonly Row[]>> = {
       status: 'hibernated',
       archived: false,
       issueId: 'i2',
-      agentKind: 'codex',
+      agentKind: HarnessAgent.enum.codex,
       lastActiveAt: ago(40),
       offer: { message: 'Ready to land', actions: [], createdAt: ago(40) },
     },
@@ -215,7 +216,7 @@ export const CORPUS_RECORDS: Readonly<Record<string, readonly Row[]>> = {
       status: 'live',
       archived: false,
       issueId: 'i1',
-      agentKind: 'codex',
+      agentKind: HarnessAgent.enum.codex,
       lastActiveAt: ago(3),
       agentState: { phase: 'working', since: ago(3), nativeSubagentCount: 0 },
     },

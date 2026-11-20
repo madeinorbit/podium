@@ -14,6 +14,7 @@ import { Database } from 'bun:sqlite'
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
+import { CLAUDE_CODE_HARNESS_KIND } from '@podium/model'
 import { fixtureWriteScope } from '@podium/sync/testing'
 import type { BenchCorpus } from './corpus-export'
 
@@ -167,7 +168,7 @@ async function seed(args: Record<string, string>): Promise<BenchFixture> {
           worktreePath: issue.worktreePath,
           branch: issue.branch,
           parentBranch: issue.parentBranch ?? 'main',
-          defaultAgent: 'claude-code',
+          defaultAgent: CLAUDE_CODE_HARNESS_KIND,
           defaultModel: 'auto',
           defaultEffort: 'auto',
           linearId: null,

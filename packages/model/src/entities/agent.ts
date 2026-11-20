@@ -48,6 +48,10 @@ export function isAgentKind(v: unknown): v is AgentKind {
 export const HarnessAgent = z.enum(['claude-code', 'codex', 'grok', 'opencode', 'cursor', 'pi'])
 export type HarnessAgent = z.infer<typeof HarnessAgent>
 
+/** Named identity for data consumers that cannot use the hyphenated enum member
+ * as a property. Behavior still belongs in the harness adapter. */
+export const CLAUDE_CODE_HARNESS_KIND = HarnessAgent.enum['claude-code']
+
 /**
  * Product policy (POD-4737): Claude is the default for new work. The one
  * named home for the default harness — settings, launch sheets and demo
@@ -157,6 +161,10 @@ export const COST_HARNESS_KINDS = ['claude-code', 'codex', 'grok'] as const
  * `floorOf` (entities/cost.ts) hedges to `partial` for any other harness.
  */
 export const COST_FULL_ATTRIBUTION_HARNESS: BuiltinHarnessKind = 'claude-code'
+
+/** Harnesses whose subscription login lives in a relocatable directory. The
+ * home protocol derives its unchanged closed wire vocabulary from this slice. */
+export const HOME_HARNESS_KINDS = ['claude-code', 'codex'] as const
 
 /** Harnesses whose sessions can be exported and resumed elsewhere. Read by
  *  the handoff manifest (entities/handoff.ts) and the handoff-availability

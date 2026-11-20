@@ -7,6 +7,7 @@
  * read them reads what production would for that home.
  */
 
+import { CLAUDE_CODE_HARNESS_KIND, HarnessAgent } from '@podium/model'
 import {
   type BuiltinHarnessKind,
   DEFAULT_SESSION_POSTURE,
@@ -55,7 +56,7 @@ export function testHarnessContext(input: {
 export function testBoundCommand(
   cmd: string,
   args: readonly string[] = [],
-  kind: BuiltinHarnessKind = 'codex',
+  kind: BuiltinHarnessKind = HarnessAgent.enum.codex,
 ): BoundCommand {
   return harnessCommand(
     testHarnessContext({ kind, executable: cmd }),
@@ -127,7 +128,9 @@ export function testEngineTerms(): {
 
 /** A turn's launch posture for a test turn spec (POD-6858), over a context
  *  of harness `kind`. */
-export function testTurnPosture(kind: BuiltinHarnessKind = 'claude-code'): LaunchPosture {
+export function testTurnPosture(
+  kind: BuiltinHarnessKind = CLAUDE_CODE_HARNESS_KIND,
+): LaunchPosture {
   return testLaunchPosture(testHarnessContext({ kind }))
 }
 

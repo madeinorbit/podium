@@ -41,7 +41,7 @@ import {
   tailTranscript,
 } from '@podium/harness/store'
 import { createLogger } from '@podium/logger'
-import type { AgentKind, SessionId } from '@podium/model'
+import { type AgentKind, CLAUDE_CODE_HARNESS_KIND, type SessionId } from '@podium/model'
 import type { DurableAttachment, ScreenReader } from '@podium/process/screen'
 import type { AgentObservation, ObservationInputOrigin } from '@podium/protocol'
 import { ObservationProvider, SessionObservationCheckpointV1 } from '@podium/protocol'
@@ -717,7 +717,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
   /** Where a Claude session's transcripts live: the account its observation
    *  runs under (POD-6536), else the Claude account for this daemon. */
   const claudeLocateAccount = (sessionId: SessionId) => {
-    const account = observations.get(sessionId)?.account ?? accountFor('claude-code')
+    const account = observations.get(sessionId)?.account ?? accountFor(CLAUDE_CODE_HARNESS_KIND)
     return { homeDir: account.home, env: account.env }
   }
 

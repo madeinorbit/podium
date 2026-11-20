@@ -12,6 +12,7 @@ import { keyedComputed, lazy } from '@podium/mobx-helpers'
 import type { GitRepositoryWire, MachineFacts } from '@podium/model/browser'
 import {
   asIssueId,
+  HarnessAgent,
   machinePathBasename,
   machinePathKey,
   machinePathsEqual,
@@ -452,7 +453,7 @@ export class CommandPaletteView {
   @observableRef accessor issuePositions = new Map<string, number>()
   @observableRef accessor memberOrder: { issueId: string; sessionId: string }[] = []
   @observableRef accessor memberPositions = new Map<string, number>()
-  @observable accessor defaultAgent = 'codex' as SessionView['agentKind']
+  @observable accessor defaultAgent = HarnessAgent.enum.codex as SessionView['agentKind']
   private stopLoading: (() => void) | undefined
 
   constructor(private readonly pool: MobxPool) {}

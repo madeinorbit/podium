@@ -67,6 +67,7 @@ import {
   asMutationId,
   asSessionId,
   type CredentialId,
+  DEFAULT_HARNESS_AGENT,
   type EffectRecordWire,
   type IssueBoardStage,
   type IssueId,
@@ -765,7 +766,7 @@ export class PoolLaunches {
             ? (home.defaultAgent as AgentKind)
             : // A task left on the configured agent names none: this device
               // paints the one it chose; another the fallback, until the row lands.
-              (local?.agentKind ?? 'claude-code')))
+              (local?.agentKind ?? DEFAULT_HARNESS_AGENT)))
     const session: SessionMeta = {
       ...startingSessionRow({
         sessionId: launch.sessionId,

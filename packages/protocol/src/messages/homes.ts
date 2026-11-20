@@ -13,6 +13,7 @@
  * for a copied login file to be removed when its fingerprint still matches.
  */
 
+import { HOME_HARNESS_KINDS } from '@podium/model'
 import { z } from 'zod'
 
 /** A daemon that offers this keeps homes, launches sessions in them, and
@@ -24,7 +25,7 @@ export const CAP_HARNESS_HOMES = 'harness.homes.v1'
 export const DEFAULT_HOME_ID = 'default'
 
 /** The harnesses whose login lives in a directory a variable can move. */
-export const HOME_HARNESSES = ['claude-code', 'codex'] as const
+export const HOME_HARNESSES = HOME_HARNESS_KINDS
 export const HomeHarness = z.enum(HOME_HARNESSES)
 export type HomeHarness = z.infer<typeof HomeHarness>
 
