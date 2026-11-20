@@ -1002,6 +1002,52 @@ export function describeCollectionStore(instantiation: SyncInstantiation): void 
         expectIndexTrue(cache, server)
       })
 
+      it('repairs the previously fetched page range, survives a close between pages, and stops before unfetched history', async () => {
+        const server = deviceServer()
+        server.pageRows = 1
+        server.put(ISSUE, 'D3', issue('D3', { stage: 'done', closedReason: 'completed' }))
+        const { cache, storage, replica } = await boot(instantiation, server)
+        const page: InstanceSpec = {
+          collection: 'issueProjection.byStage',
+          args: { stage: 'done' },
+          part: 'main',
+        }
+        await replica.load([page])
+        const first = cache.readInstances().get(instanceKey(page))?.range
+        await replica.load([{ ...page, after: first?.through }])
+        const before = cache.readInstances().get(instanceKey(page))?.range
+        expect(before?.end).toBe(false)
+        expect(partOf(cache, ISSUE, 'D2')).toBe('main')
+        expect(partOf(cache, ISSUE, 'D3')).toBe('stub')
+        cache.applyAtomic({
+          operations: [],
+          cursor: cache.readCursor() as Cursor,
+          kindReloadVersion: 0,
+        })
+        const collections = server.collections.bind(server)
+        server.collections = async function* (requests) {
+          for await (const chunk of collections(requests)) {
+            yield chunk
+            if (chunk.complete?.some((marker) => marker.collection === page.collection)) return
+          }
+        }
+        replica.observeKindTokens(server.kindTokens)
+        await expect(replica.settled()).rejects.toThrow('kind reload ended before the last chunk')
+        expect(cache.readKindReloadVersion()).toBe(0)
+        expect(cache.readInstances().get(instanceKey(page))?.range).toEqual(before)
+        replica.disconnect()
+        server.collections = collections
+        const restarted = kernelOver(storage, server)
+        restarted.replica.connect()
+        restarted.replica.observeKindTokens(server.kindTokens)
+        await restarted.replica.settled()
+        expect(cache.readInstances().get(instanceKey(page))?.range).toEqual(before)
+        expect(partOf(cache, ISSUE, 'D2')).toBe('main')
+        expect(partOf(cache, ISSUE, 'D3')).toBe('stub')
+        expect(cache.readKindReloadVersion()).toBe(1)
+        expect(server.bootstraps).toBe(1)
+      })
+
       it('keeps a newer feed edit or removal while an older kind reload answer is held', async () => {
         const server = deviceServer()
         const { cache, replica } = await boot(instantiation, server)

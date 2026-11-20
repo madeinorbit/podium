@@ -73,6 +73,7 @@ import {
   type HeldRows,
   policyArgs,
   policyInstances,
+  rangeReached,
   resolveInstance,
   stubFieldsOf,
   stubOfValue,
@@ -109,6 +110,7 @@ import {
   type EntityRecord,
   type ExitKind,
   type HealRung,
+  type InstanceRange,
   type InstanceRecord,
   type InstanceRequest,
   type InstanceSpec,
@@ -1760,6 +1762,18 @@ export class Replica implements DeviceCollectionReads {
     const args = policyArgs(chunk.policy ?? this.store.readPolicy())
     for (const marker of chunk.complete ?? []) {
       const key = instanceKey(marker)
+      const range = options.reload?.ranges.get(key)
+      const collection = COLLECTIONS.get(marker.collection)
+      if (marker.total !== undefined) options.reload?.totals.set(key, marker.total)
+      // Keep the old, stale range durable until every page it covered has
+      // returned. A close between pages must not forget what to request next.
+      if (
+        range !== undefined &&
+        marker.range !== undefined &&
+        collection !== undefined &&
+        !rangeReached(collection, marker.range, range)
+      )
+        continue
       options.reload?.completed.add(key)
       // POD-7159: what a record comes with is not a marker of its own; the
       // answer's end records it on the holder (`completeComesWith`).
@@ -1774,6 +1788,7 @@ export class Replica implements DeviceCollectionReads {
       // A later page carries no total: the first page's stays (POD-7158).
       const total =
         marker.total ??
+        options.reload?.totals.get(key) ??
         (start || marker.range === undefined
           ? undefined
           : this.store.readInstances().get(key)?.total)
@@ -3169,6 +3184,7 @@ export class Replica implements DeviceCollectionReads {
         const pending: BootstrapChunk[] = []
         /** POD-7160 — a stale reload's answer, merged per feed number, installed at its end. */
         const whole: BootstrapChunk[] = []
+        const followedPages = new Set<string>()
         let pendingRows = 0
         const install = async (): Promise<void> => {
           // A stale reload installs once, at the end of its answer.
@@ -3198,7 +3214,7 @@ export class Replica implements DeviceCollectionReads {
             write()
           } else await this.serial(write)
         }
-        for (let at = 0; at < fresh.length; at += FETCH_MAX_INSTANCES) {
+        for (let at = 0; at < fresh.length; ) {
           const batch = fresh.slice(at, at + FETCH_MAX_INSTANCES)
           const chunks = collections(batch, signal)[Symbol.asyncIterator]()
           let ended = false
@@ -3223,6 +3239,32 @@ export class Replica implements DeviceCollectionReads {
               if (!insideLoad)
                 for (const change of chunk.changes)
                   named.set(entityKey(change.entity, change.entityId), change)
+              if (reload !== undefined)
+                for (const marker of chunk.complete ?? []) {
+                  const key = instanceKey(marker)
+                  const range = reload.ranges.get(key)
+                  const collection = COLLECTIONS.get(marker.collection)
+                  if (
+                    range === undefined ||
+                    marker.range === undefined ||
+                    collection === undefined ||
+                    rangeReached(collection, marker.range, range)
+                  )
+                    continue
+                  const after = marker.range.through
+                  const next = `${key}|${JSON.stringify(after)}`
+                  if (after === undefined || followedPages.has(next))
+                    throw new Error('kind reload page did not advance')
+                  followedPages.add(next)
+                  const { collection: id, part, args, via } = marker
+                  fresh.push({
+                    collection: id,
+                    part,
+                    after,
+                    ...(args === undefined ? {} : { args }),
+                    ...(via === undefined ? {} : { via }),
+                  })
+                }
               // Chunks merge only as of one feed number: newest wins per record.
               if (pending.length > 0 && pending[0]?.snapshotSeq !== chunk.snapshotSeq) {
                 if (stale !== undefined) whole.push(mergeChunks(pending.splice(0)))
@@ -3252,6 +3294,7 @@ export class Replica implements DeviceCollectionReads {
             pendingRows = 0
             void chunks.return?.()?.catch(() => undefined)
           }
+          at += batch.length
         }
         // POD-7160: a stale reload replaces its instances in one step.
         if (stale !== undefined && !signal.aborted) {
@@ -3359,6 +3402,12 @@ export class Replica implements DeviceCollectionReads {
       stubs: new Map(),
       instances: new Set(marked.map((instance) => instance.key)),
       completed: new Set(),
+      ranges: new Map(
+        marked.flatMap((instance) =>
+          instance.range === undefined ? [] : [[instance.key, instance.range] as const],
+        ),
+      ),
+      totals: new Map(),
     }
     const task = this.kindReloadCompanions(kinds)
       .then((companions) =>
@@ -3834,6 +3883,8 @@ interface KindReload {
   readonly stubs: Map<string, CacheOperation & { readonly kind: 'upsert' }>
   readonly instances: ReadonlySet<string>
   readonly completed: Set<string>
+  readonly ranges: ReadonlyMap<string, InstanceRange>
+  readonly totals: Map<string, number>
 }
 
 /** An upsert of one change's record, current as of `asOf`. ADR 2 D8: provenance BESIDE the value. */
