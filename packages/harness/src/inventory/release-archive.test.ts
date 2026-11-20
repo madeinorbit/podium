@@ -26,6 +26,81 @@ import {
 } from './release-archive.js'
 
 describe('Release archive bundles', () => {
+  const member = (name: string, body: string, type = '0') =>
+    gunzipSync(opencodeTarFixture(name, body, type)).subarray(0, -1024)
+  const field = (key: string, value: string) => {
+    const payload = `${key}=${value}\n`
+    let count = Buffer.byteLength(payload) + 2
+    while (Buffer.byteLength(`${count} ${payload}`) !== count)
+      count = Buffer.byteLength(`${count} ${payload}`)
+    return `${count} ${payload}`
+  }
+  const pax = (payload: string) => member('././@PaxHeader', payload, 'x')
+
+  it('reads Codex PAX timestamps and validates a next-entry UTF-8 path override', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'podium-release-pax-'))
+    try {
+      const archive = join(root, 'download')
+      const path = 'codex-resources/évidence.txt'
+      writeFileSync(
+        archive,
+        gzipSync(
+          Buffer.concat([
+            pax(field('mtime', '1795200000.1234567')),
+            member('bin/codex', 'binary'),
+            pax(field('path', path) + field('mtime', '1795200000.1234567')),
+            member('truncated', 'resource'),
+            member('plain.txt', 'next entry has no override'),
+            Buffer.alloc(1024),
+          ]),
+        ),
+      )
+      await extractReleaseBundle(archive, 'tar.gz', root, 'package')
+      expect(readFileSync(join(root, 'package', path), 'utf8')).toBe('resource')
+      expect(readFileSync(join(root, 'package/plain.txt'), 'utf8')).toBe(
+        'next entry has no override',
+      )
+      expect(readdirSync(join(root, 'package'))).toEqual(['bin', 'codex-resources', 'plain.txt'])
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('refuses malformed, dangerous, duplicate and orphan PAX records before writing', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'podium-release-pax-'))
+    try {
+      const archive = join(root, 'download')
+      const timestamp = field('mtime', '1795200000.1234567')
+      const binary = member('bin/codex', 'binary')
+      const bad = [
+        ...['../escape', '/absolute', 'a/../../escape', 'C:\\escape'].map((name) =>
+          Buffer.concat([pax(field('path', name)), binary]),
+        ),
+        Buffer.concat([pax(field('linkpath', 'elsewhere')), binary]),
+        Buffer.concat([pax(field('size', '10000')), binary]),
+        Buffer.concat([pax(field('GNU.sparse.name', 'elsewhere')), binary]),
+        Buffer.concat([pax(timestamp + timestamp), binary]),
+        Buffer.concat([pax(timestamp), pax(timestamp), binary]),
+        Buffer.concat([pax('99 mtime=1\n'), binary]),
+        Buffer.concat([pax('0 mtime=1\n'), binary]),
+        Buffer.concat([pax('12 mtime=1'), binary]),
+        Buffer.concat([pax(field('mtime', 'not-a-time')), binary]),
+        Buffer.concat([pax(timestamp), member('bin/link', 'target', '2')]),
+        Buffer.concat([binary, pax(field('path', 'bin/codex')), member('other', 'duplicate')]),
+        pax(timestamp),
+      ]
+      for (const records of bad) {
+        writeFileSync(archive, gzipSync(Buffer.concat([records, Buffer.alloc(1024)])))
+        await expect(extractReleaseBundle(archive, 'tar.gz', root, 'package')).rejects.toThrow(
+          'regular member',
+        )
+        expect(readdirSync(root)).toEqual(['download'])
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   it('keeps multiple archive roots in one fresh directory with executable helpers', async () => {
     const root = mkdtempSync(join(tmpdir(), 'podium-release-bundle-'))
     try {

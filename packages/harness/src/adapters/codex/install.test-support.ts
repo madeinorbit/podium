@@ -20,10 +20,14 @@ export const CODEX_FIXTURE_FILES: Record<string, string> = {
 }
 
 export function codexTarFixture(files = CODEX_FIXTURE_FILES): Buffer {
+  // The live 0.171.0 package has a PAX mtime header before each entry.
+  const timestamp = gunzipSync(
+    opencodeTarFixture('././@PaxHeader', '28 mtime=1795200000.1234567\n', 'x'),
+  ).subarray(0, -1024)
   return gzipSync(
     Buffer.concat([
       ...Object.entries(files).map(([name, body]) =>
-        gunzipSync(opencodeTarFixture(name, body)).subarray(0, -1024),
+        Buffer.concat([timestamp, gunzipSync(opencodeTarFixture(name, body)).subarray(0, -1024)]),
       ),
       Buffer.alloc(1024),
     ]),

@@ -162,6 +162,7 @@ function tarEntries(archive: Buffer): ArchiveEntry[] {
   const entries: ArchiveEntry[] = []
   let offset = 0
   let longName: string | undefined
+  let pax: { path?: string } | undefined
   while (offset + 512 <= archive.length) {
     const header = archive.subarray(offset, offset + 512)
     if (header.every((byte) => byte === 0)) break
@@ -176,12 +177,23 @@ function tarEntries(archive: Buffer): ArchiveEntry[] {
     if (!Number.isSafeInteger(size) || size > MAX_MEMBER_BYTES || end > archive.length) invalid()
     const bytes = archive.subarray(offset + 512, end)
     offset += 512 + Math.ceil(size / 512) * 512
+    // Codex packages carry POSIX PAX timestamps before ordinary entries.
+    // Parse lengths rather than splitting lines: values can contain newlines.
+    // Only timestamps and a validated next-entry path are supported; size,
+    // link and sparse-file overrides must never change what we extract.
+    if (type === 120) {
+      if (longName !== undefined || pax !== undefined || size > 16 * 1024) invalid()
+      if (headerName !== '././@PaxHeader') safeName(headerName)
+      pax = paxFields(bytes)
+      continue
+    }
     // GNU tar emits a name record immediately before paths over 100 bytes.
     // It is metadata, never an extracted member or a link. Validate the full
     // effective name with the same checks as every ordinary path.
     if (type === 76) {
       if (
         longName !== undefined ||
+        pax !== undefined ||
         headerName !== '././@LongLink' ||
         size < 2 ||
         size > 4096 ||
@@ -193,8 +205,9 @@ function tarEntries(archive: Buffer): ArchiveEntry[] {
       safeName(longName)
       continue
     }
-    const name = longName ?? headerName
+    const name = pax?.path ?? longName ?? headerName
     longName = undefined
+    pax = undefined
     safeName(name)
     const regular = type === 0 || type === 48
     if (!regular && type !== 53) invalid()
@@ -208,11 +221,48 @@ function tarEntries(archive: Buffer): ArchiveEntry[] {
   }
   if (
     longName !== undefined ||
+    pax !== undefined ||
     !entries.length ||
     archive.subarray(offset).some((byte) => byte !== 0)
   )
     invalid()
   return entries
+}
+
+function paxFields(bytes: Buffer): { path?: string } {
+  if (!bytes.length) invalid()
+  const fields = new Map<string, string>()
+  let offset = 0
+  while (offset < bytes.length) {
+    const space = bytes.indexOf(32, offset)
+    if (space < offset + 1) invalid()
+    const count = bytes.subarray(offset, space).toString('ascii')
+    if (!/^[1-9]\d*$/.test(count)) invalid()
+    const end = offset + Number(count)
+    if (
+      !Number.isSafeInteger(end) ||
+      end > bytes.length ||
+      end <= space + 2 ||
+      bytes[end - 1] !== 10
+    )
+      invalid()
+    const field = bytes.subarray(space + 1, end - 1).toString('utf8')
+    const equals = field.indexOf('=')
+    if (equals < 1) invalid()
+    const key = field.slice(0, equals)
+    const value = field.slice(equals + 1)
+    if (fields.has(key)) invalid()
+    if (key === 'path') {
+      if (Buffer.byteLength(value) > 4096) invalid()
+      safeName(value)
+    } else if (!['mtime', 'atime', 'ctime'].includes(key) || !/^-?\d+(\.\d+)?$/.test(value)) {
+      invalid()
+    }
+    fields.set(key, value)
+    offset = end
+  }
+  const path = fields.get('path')
+  return path === undefined ? {} : { path }
 }
 
 /** Central directory sizes also cover ZIP members using data descriptors. */
