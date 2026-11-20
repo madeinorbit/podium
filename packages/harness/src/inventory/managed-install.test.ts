@@ -332,6 +332,36 @@ describe('installRelease: failures (§5.6)', () => {
     expect(ledger.rejectedReleases(KIND).map((r) => r.version)).toEqual(['1.1.0'])
   })
 
+  it('rejects a release whose identity probe runs and answers as another program', async () => {
+    await install()
+    vendor.publish({ version: '1.1.0' })
+    const result = await install({
+      target: {
+        ...fakeTarget(),
+        identityProbe: { args: ['--about'], accepts: (output) => output.includes('Other Harness') },
+      },
+    })
+    expect(result).toMatchObject({ outcome: 'failed', step: 'verify', rejected: true })
+    if (result.outcome === 'failed') expect(result.error).toMatch(/identity probe refused it/)
+    expect(ledger.rejectedReleases(KIND).map((r) => r.version)).toEqual(['1.1.0'])
+    expect(ledger.get(KIND)).toMatchObject({ current: 1 })
+    expect(kindEntries()).toEqual(['1-1.0.0'])
+  })
+
+  it('treats an identity probe that exits with an error as transient, not a rejection', async () => {
+    await install()
+    vendor.publish({ version: '1.1.0', behaviour: 'identity-exit' })
+    const result = await install({
+      target: { ...fakeTarget(), identityProbe: { args: ['--about'], accepts: () => true } },
+    })
+    expect(result).toMatchObject({ outcome: 'failed', step: 'verify', rejected: false })
+    if (result.outcome === 'failed') expect(result.error).toMatch(/identity probe failed \(exit\)/)
+    expect(ledger.rejectedReleases(KIND)).toEqual([])
+    expect(ledger.get(KIND)).toMatchObject({ current: 1 })
+    expect(ledger.get(KIND)?.lastInstallError).toMatchObject({ version: '1.1.0' })
+    expect(kindEntries()).toEqual(['1-1.0.0'])
+  })
+
   it('refuses an executable outside the release folder without rejecting the version', async () => {
     await install()
     vendor.publish({ version: '1.1.0' })

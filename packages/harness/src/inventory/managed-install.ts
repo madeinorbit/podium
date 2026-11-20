@@ -21,8 +21,9 @@
  * write error, a lost lock) records the error and keeps the current release;
  * the next check tries again. A binary that does not run (exec error, non-zero
  * exit, `--version` timeout), prints another version, is below the minimum or
- * fails the identity probe goes on the rejected list as well, so it is not
- * fetched again. A crash at any step leaves a staging folder or a numbered
+ * answers its identity probe as another program goes on the rejected list as
+ * well, so it is not fetched again. An identity probe that does not run, times
+ * out or exits with an error proves nothing about the release: transient. A crash at any step leaves a staging folder or a numbered
  * folder the ledger does not name; housekeeping deletes both.
  *
  * Nothing here reads the daemon's own `process.env` for an adapter: the ports
@@ -605,7 +606,7 @@ export type InstallReleaseResult =
       version: string
       step: InstallStep
       error: string
-      /** The version went on the rejected list: the binary does not run, is another version, or is too old. */
+      /** The version went on the rejected list: the binary does not run, is another version or another program, or is too old. */
       rejected: boolean
       swept: string[]
     }
@@ -750,7 +751,7 @@ async function installLocked(
       return fail(
         'verify',
         `${kind} ${version} identity probe failed (${identity.reason}): ${identity.detail}`,
-        true,
+        false,
       )
     if (!target.identityProbe.accepts(identity.output))
       return fail(

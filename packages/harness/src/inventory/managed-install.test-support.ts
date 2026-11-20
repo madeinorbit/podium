@@ -25,9 +25,10 @@ export interface FakeRelease {
   /**
    * What the binary does on `--version`: print this version (`ok`), print
    * another (`wrong-version`), exit 3 (`exit`), hang (`hang`), or not be an
-   * executable at all (`not-executable`).
+   * executable at all (`not-executable`). `identity-exit` prints the version
+   * on `--version` and exits 3 for anything else (an identity probe that errors).
    */
-  behaviour?: 'ok' | 'wrong-version' | 'exit' | 'hang' | 'not-executable'
+  behaviour?: 'ok' | 'wrong-version' | 'exit' | 'hang' | 'not-executable' | 'identity-exit'
   /** Serve a checksum that does not match the binary. */
   badChecksum?: boolean
   /** The vendor's installer script exits non-zero. */
@@ -46,6 +47,8 @@ function binaryFor(release: FakeRelease): string {
       return '#!/bin/sh\nexec sleep 30\n'
     case 'not-executable':
       return 'this is not a program\n'
+    case 'identity-exit':
+      return `#!/bin/sh\nif [ "$1" = --version ]; then echo "fake-harness ${release.version}"; exit 0; fi\nexit 3\n`
   }
 }
 
