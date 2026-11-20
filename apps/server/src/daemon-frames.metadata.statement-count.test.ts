@@ -32,9 +32,17 @@ interface Fixture {
 /** `size` bound Claude Code sessions, and `size` other machines in the fleet. */
 async function fixture(size: number): Promise<Fixture> {
   const store = await openTestStore(':memory:')
-  const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
+  // Pin one inbound frame, with no unrelated timer-driven ledger/queue/file
+  // sweeps. On a remote engine those can otherwise overlap the counted window.
+  const reg = await SessionRegistry.create(store, undefined, {
+    instanceId: 'default',
+    rehearseBoot: true,
+  })
   await attachHostDaemon(reg, () => {})
   await quietShipping(reg)
+  // Complete the normal startup cursor load explicitly; later frames still
+  // exercise the live durable board projection and all of its statements.
+  await reg.modules.sessions.runtimeGateway.replayBoardProjection()
   const owner = await firstAdminMemberId(store)
   for (let i = 0; i < size; i++) {
     await store.machines.upsertMachine({

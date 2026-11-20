@@ -44,9 +44,17 @@ interface Fixture {
 /** `size` bound sessions, the first on an issue. */
 async function fixture(size: number): Promise<Fixture> {
   const store = await openTestStore(':memory:')
-  const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
+  // Pin one inbound frame, with no unrelated timer-driven ledger/queue/file
+  // sweeps. On a remote engine those can otherwise overlap the counted window.
+  const reg = await SessionRegistry.create(store, undefined, {
+    instanceId: 'default',
+    rehearseBoot: true,
+  })
   await attachHostDaemon(reg, () => {}, { repos: ['/repo'] })
   await quietShipping(reg)
+  // Complete the normal startup cursor load explicitly; later frames still
+  // exercise the live durable board projection and all of its statements.
+  await reg.modules.sessions.runtimeGateway.replayBoardProjection()
   const host = store.hostMachineId
   const issue = await reg.issues.crud.create(reg.issues.reports.store.serverWriter, {
     repoPath: '/repo',
