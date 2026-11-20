@@ -60,11 +60,10 @@ async function tokens(
   }))
   vi.doMock('@podium/model', async (original) => {
     const actual = await original<typeof import('@podium/model')>()
-    const session = actual.recordOf('session')
-    const noIssue = {
-      ...session.collections.noIssue,
-      where: options.noIssueWhere ?? session.collections.noIssue.where,
-    }
+    const current = actual.COLLECTIONS.get('session.noIssue')
+    if (current === undefined) throw new Error('session.noIssue fixture is missing')
+    const noIssue =
+      options.noIssueWhere === undefined ? current : { ...current, where: options.noIssueWhere }
     return {
       ...actual,
       RECORDS: actual.RECORDS.map((record) =>

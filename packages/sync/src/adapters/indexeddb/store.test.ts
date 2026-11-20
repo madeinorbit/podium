@@ -273,8 +273,14 @@ describe('IndexedDbSyncStore', () => {
       const tabB = await open()
       const cacheB = tabB.viewFor(PRINCIPAL).cache
       const b = new Replica({ store: cacheB, authority: server, now: () => WORLD_NOW })
-      const started = Promise.withResolvers<void>()
-      const release = Promise.withResolvers<void>()
+      let started!: () => void
+      const fetchStarted = new Promise<void>((resolve) => {
+        started = resolve
+      })
+      let release!: () => void
+      const finishFetch = new Promise<void>((resolve) => {
+        release = resolve
+      })
       try {
         expect(cacheB.readRow('issueProjection', 'D2')?.part).toBe('stub')
         await a.load([tree])
@@ -282,12 +288,12 @@ describe('IndexedDbSyncStore', () => {
         const collections = server.collections.bind(server)
         server.collections = (requests) => {
           const answer = collections(requests)
-          started.resolve()
+          started()
           return answer
         }
-        server.gate = release.promise
+        server.gate = finishFetch
         const older = b.load([tree])
-        await started.promise
+        await fetchStarted
 
         server.gate = undefined
         server.kindTokens = { issueProjection: 'v2' }
@@ -308,7 +314,7 @@ describe('IndexedDbSyncStore', () => {
         await tabA.settled()
         expect(cacheA.read('issueProjection', 'D2')?.value).toMatchObject({ title: 'New shape' })
 
-        release.resolve()
+        release()
         await older
         await b.settled()
         await tabB.settled()
@@ -322,7 +328,7 @@ describe('IndexedDbSyncStore', () => {
           reopened.close()
         }
       } finally {
-        release.resolve()
+        release()
         tabB.close()
         tabA.close()
       }
