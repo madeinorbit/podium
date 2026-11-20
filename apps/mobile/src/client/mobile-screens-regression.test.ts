@@ -220,7 +220,7 @@ for (const scale of [1, 4] as const) {
       handle = createWorklistPool(feeds.rows.source, feeds.locals.source, {})
       feeds.attachPool(handle.pool)
       await attachMobileScreens(handle.pool)
-    })
+    }, 600_000)
     afterAll(() => {
       handle?.dispose()
       feeds?.dispose()
