@@ -45,6 +45,7 @@ vi.mock('@/features/credentials/session/use-session-credentials', () => ({
         label: 'Project key',
         ownerUserId: 'person',
         status: 'ready',
+        identity: {},
         homes: [],
         allowedMachines: ['test-machine'],
       },
