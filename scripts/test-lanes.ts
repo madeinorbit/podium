@@ -223,7 +223,6 @@ export function runnerFor(path: string): FileRunner | { error: string } {
   const parts = path.split(sep)
   const [top, second] = parts
   if (top === 'tests' && second === 'e2e') return { kind: 'vitest', lane: 'e2e' }
-  if (top === 'tests' && second === 'worklist') return { kind: 'vitest', lane: 'worklist' }
   if (
     path === 'scripts/loop-split-load.integration.test.ts' ||
     /\.acceptance\.(test|spec)\./.test(path)
@@ -235,6 +234,7 @@ export function runnerFor(path: string): FileRunner | { error: string } {
     processIntegrationTests.includes(path)
   )
     return { kind: 'vitest', lane: 'integration' }
+  if (top === 'tests' && second === 'worklist') return { kind: 'vitest', lane: 'worklist' }
   if (top === 'apps' && second === 'server') return { kind: 'vitest', lane: 'server' }
   if (top === 'apps' && second === 'web') return { kind: 'vitest', lane: 'web' }
   if (top === 'apps' && second === 'mobile') return { kind: 'vitest', lane: 'mobile' }

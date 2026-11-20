@@ -44,6 +44,7 @@ describe('test lanes', () => {
     ['packages/pty/test/example.pty.test.ts', 'integration'],
     ['packages/pty/test/session.test.ts', 'integration'],
     ['apps/daemon/src/daemon.test.ts', 'integration'],
+    ['tests/worklist/harness/browser/runtime-pool.integration.test.ts', 'integration'],
     ['tests/e2e/relay.e2e.test.ts', 'e2e'],
     ['tests/e2e/harness-env.test.ts', 'e2e'],
     ['tests/worklist/shared/src/session-homes.test.ts', 'worklist'],
