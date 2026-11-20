@@ -177,6 +177,14 @@ describe('a daemon reattach storm', () => {
     })
 
     const sessionId = asSessionId(sessionIds[0]!)
+    await handle.registry.gateway.routeDaemonFrame(machineId, {
+      type: 'bind',
+      sessionId,
+      cmd: 'sh',
+      cwd: '/repo/w0',
+      agentKind: 'shell',
+      geometry,
+    })
     const attached = new Promise<void>((resolve, reject) => {
       const onMessage = (raw: import('ws').RawData, isBinary: boolean): void => {
         if (isBinary) return
@@ -212,7 +220,7 @@ describe('a daemon reattach storm', () => {
       ws.on('message', onMessage)
     })
     const payload = Buffer.from([0x00, 0xff, 0xe2, 0x82])
-    handle.registry.gateway.routeDaemonFrame(machineId, {
+    await handle.registry.gateway.routeDaemonFrame(machineId, {
       type: 'agentFrame',
       sessionId,
       seq: 0,
@@ -276,11 +284,11 @@ describe('a daemon reattach storm', () => {
       for (let round = 0; round < ROUNDS; round++) {
         if (send) handle.registry.gateway.detachDaemon(machineId, send)
         const current: (msg: ControlMessage) => void = () => {}
-        handle.registry.gateway.attachDaemon(machineId, current)
+        await handle.registry.gateway.attachDaemon(machineId, current)
         send = current
         probes.push(fetch(health).then((r) => r.text()))
         for (const [i, sessionId] of sessionIds.entries()) {
-          handle.registry.gateway.routeDaemonFrame(machineId, {
+          await handle.registry.gateway.routeDaemonFrame(machineId, {
             type: 'bind',
             sessionId: asSessionId(sessionId),
             cmd: 'sh',

@@ -2432,7 +2432,7 @@ main() {
   for tool in awk df docker; do
     command -v "$tool" >/dev/null 2>&1 || die "missing command '$tool'"
   done
-  docker info >/dev/null
+  docker info >/dev/null || die "Docker daemon is unavailable; check its socket permissions and service"
   DOCKER_ROOT="$(docker info --format '{{.DockerRootDir}}')"
   START_FREE="$(free_bytes)"
   if (( START_FREE < MIN_FREE_GB * 1024 * 1024 * 1024 )); then

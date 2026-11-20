@@ -14,9 +14,8 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
-import { resolveHostBin } from './host-bin.js'
+import { createDurableProcess } from './durable-process.js'
 import {
-  WriterLeaseRefusedError,
   attachHostAgent,
   connectHost,
   createHostFrameDecoder,
@@ -32,9 +31,10 @@ import {
   killHostSession,
   listLiveHostLabels,
   spawnHostAgent,
+  WriterLeaseRefusedError,
 } from './host.js'
+import { resolveHostBin } from './host-bin.js'
 import type { DurableAttachment } from './session.js'
-import { createDurableProcess } from './durable-process.js'
 
 /** The Rust host, built from the vendored crate on first use; without one these tests skip. */
 const hostAvailable = resolveHostBin() !== undefined
@@ -83,7 +83,13 @@ function label(tag: string): string {
   return l
 }
 
-async function spawn(tag: string, cmd: string, args: string[], cols = 80, rows = 24): Promise<HostDurableAttachment> {
+async function spawn(
+  tag: string,
+  cmd: string,
+  args: string[],
+  cols = 80,
+  rows = 24,
+): Promise<HostDurableAttachment> {
   const s = await spawnHostAgent({ label: label(tag), cmd, args, cols, rows })
   sessions.push(s)
   return s
@@ -98,7 +104,12 @@ function rawCreate(args: string[]): { status: number | null; stderr: string } {
 beforeAll(() => {
   if (!hostAvailable) return
   root = mkdtempSync(join(tmpdir(), 'podium-host-it-'))
-  for (const k of ['PODIUM_STATE_DIR', 'PODIUM_HOST_SOCKET_DIR', 'PODIUM_NO_SCOPE', 'PODIUM_HOST_BIN']) {
+  for (const k of [
+    'PODIUM_STATE_DIR',
+    'PODIUM_HOST_SOCKET_DIR',
+    'PODIUM_NO_SCOPE',
+    'PODIUM_HOST_BIN',
+  ]) {
     saved[k] = process.env[k]
   }
   process.env.PODIUM_STATE_DIR = join(root, 'state')
@@ -139,7 +150,9 @@ afterAll(() => {
 describe.skipIf(!hostAvailable)('podium-host: SPEC-6 acceptance', () => {
   it('builds and answers version', () => {
     expect(bin).toBeDefined()
-    expect(spawnSync(bin, ['version'], { encoding: 'utf8' }).stdout).toMatch(/^podium-host \S+ features=2/)
+    expect(spawnSync(bin, ['version'], { encoding: 'utf8' }).stdout).toMatch(
+      /^podium-host \S+ features=2/,
+    )
   })
 
   it('1. create + attach: WELCOME carries the child pid and the birth size, which the child sees', async () => {
@@ -246,7 +259,11 @@ describe.skipIf(!hostAvailable)('podium-host: SPEC-6 acceptance', () => {
     s.dispose()
 
     // Reconnect from exactly where we left off.
-    const again = attachHostAgent({ label: labels[0] as string, socketPath: path, fromSeq: resumeAt })
+    const again = attachHostAgent({
+      label: labels[0] as string,
+      socketPath: path,
+      fromSeq: resumeAt,
+    })
     sessions.push(again)
     // Listeners BEFORE awaiting WELCOME: the first DATA frames can share its chunk.
     let gap = false
@@ -263,14 +280,20 @@ describe.skipIf(!hostAvailable)('podium-host: SPEC-6 acceptance', () => {
     expect(gap).toBe(false)
     expect(firstSeq).toBe(resumeAt)
     // Every line number appears exactly once, in order: no duplicate, no hole.
-    const nums = all.split('\n').filter(Boolean).map((l) => Number(l.slice(1)))
+    const nums = all
+      .split('\n')
+      .filter(Boolean)
+      .map((l) => Number(l.slice(1)))
     for (let i = 0; i < nums.length; i++) expect(nums[i]).toBe(i)
     again.dispose()
 
     // Overflow a small ring, then ask for the beginning: GAP, then data from seqLow.
     const l = label('ring')
     const sock = hostSocketPath(l)
-    expect(rawCreate(['--socket', sock, '--ring-bytes', '4096', '--', process.execPath, countingFixture]).status).toBe(0)
+    expect(
+      rawCreate(['--socket', sock, '--ring-bytes', '4096', '--', process.execPath, countingFixture])
+        .status,
+    ).toBe(0)
     const probe = connectHost(sock, { mode: 'reader', fromSeq: HOST_TAIL })
     await probe.welcome
     await waitFor(() => (probe.lastSeq ?? 0n) > 10_000n, 'the small ring to wrap', 10_000)
@@ -301,7 +324,10 @@ describe.skipIf(!hostAvailable)('podium-host: SPEC-6 acceptance', () => {
     await wait(200)
 
     // A fresh client from the tail knows nothing; REPLAY hands it the last 10 000 bytes.
-    const c = connectHost(hostSocketPath(labels[0] as string), { mode: 'writer', fromSeq: HOST_TAIL })
+    const c = connectHost(hostSocketPath(labels[0] as string), {
+      mode: 'writer',
+      fromSeq: HOST_TAIL,
+    })
     const got: Array<{ seq: bigint; data: Buffer }> = []
     c.onData((seq, d) => got.push({ seq, data: Buffer.from(d) }))
     const w = await c.welcome
@@ -340,7 +366,8 @@ describe.skipIf(!hostAvailable)('podium-host: SPEC-6 acceptance', () => {
       // continue exactly into the live stream's next line.
       const lines = text.split('\n').filter(Boolean)
       const first = Number((lines[1] as string).slice(1)) // lines[0] may be a partial line
-      for (let i = 2; i < lines.length - 1; i++) expect(Number((lines[i] as string).slice(1))).toBe(first + i - 1)
+      for (let i = 2; i < lines.length - 1; i++)
+        expect(Number((lines[i] as string).slice(1))).toBe(first + i - 1)
       // lastSeq is a max: the replay did not move the resume point backwards.
       expect(c.lastSeq).toBeGreaterThanOrEqual(before)
     } finally {
@@ -356,7 +383,19 @@ describe.skipIf(!hostAvailable)('podium-host: SPEC-6 acceptance', () => {
     const l = label('replay-ring')
     const sock = hostSocketPath(l)
     expect(
-      rawCreate(['--socket', sock, '--ring-bytes', '4096', '--cols', '80', '--rows', '24', '--', process.execPath, WINSIZE_FIXTURE]).status,
+      rawCreate([
+        '--socket',
+        sock,
+        '--ring-bytes',
+        '4096',
+        '--cols',
+        '80',
+        '--rows',
+        '24',
+        '--',
+        process.execPath,
+        WINSIZE_FIXTURE,
+      ]).status,
     ).toBe(0)
     const c2 = connectHost(sock, { mode: 'writer', fromSeq: 0n })
     let out = ''
@@ -378,7 +417,8 @@ describe.skipIf(!hostAvailable)('podium-host: SPEC-6 acceptance', () => {
     const l = label('exit')
     const sock = hostSocketPath(l)
     expect(
-      rawCreate(['--socket', sock, '--linger-secs', '2', '--', 'sh', '-c', 'echo bye; exit 7']).status,
+      rawCreate(['--socket', sock, '--linger-secs', '2', '--', 'sh', '-c', 'echo bye; exit 7'])
+        .status,
     ).toBe(0)
     const a = connectHost(sock, { mode: 'writer', fromSeq: 0n })
     const b = connectHost(sock, { mode: 'reader', fromSeq: 0n })
@@ -438,7 +478,17 @@ describe.skipIf(!hostAvailable)('podium-host: SPEC-6 acceptance', () => {
     // Its own socket dir: this case must not lean on an earlier test's spawn.
     mkdirSync(dirname(sock), { recursive: true, mode: 0o700 })
     expect(
-      rawCreate(['--socket', sock, '--linger-secs', '3600', '--no-pty', '--', 'sh', '-c', 'echo done']).status,
+      rawCreate([
+        '--socket',
+        sock,
+        '--linger-secs',
+        '3600',
+        '--no-pty',
+        '--',
+        'sh',
+        '-c',
+        'echo done',
+      ]).status,
     ).toBe(0)
     const a = connectHost(sock, { mode: 'reader', fromSeq: 0n })
     const exited = new Promise<number>((r) => a.onExit((c) => r(c)))
@@ -581,185 +631,217 @@ describe.skipIf(!hostAvailable)('podium-host: SPEC-6 acceptance', () => {
       console.log('SKIP peer-uid refusal: no second uid available on this host (sudo -n refused)')
       return
     }
-    const r = spawnSync(
-      'sudo',
-      ['-n', '-u', 'nobody', process.execPath, '-e', `require('node:net').createConnection(${JSON.stringify(sock)}).on('close',()=>process.exit(0)).on('error',()=>process.exit(2)).write(Buffer.from([0,0,0,1,5]))`],
-      { encoding: 'utf8', timeout: 5000 },
-    )
-    expect(r.status).toBe(0) // connected, then closed by the host without an answer
+    // Use a system interpreter: the test runner may live beneath a private
+    // home directory that the other uid cannot traverse. Failure to execute it
+    // says nothing about socket access. Both OS permissions and the host's uid
+    // check must refuse a foreign reader before it receives a reply.
+    const probe = `import socket, sys
+s = socket.socket(socket.AF_UNIX)
+s.settimeout(2)
+try:
+    s.connect(sys.argv[1])
+except PermissionError:
+    sys.exit(0)
+s.sendall(bytes([0, 0, 0, 1, 5]))
+sys.exit(0 if s.recv(1024) == b'' else 3)
+`
+    const r = spawnSync('sudo', ['-n', '-u', 'nobody', '/usr/bin/python3', '-c', probe, sock], {
+      encoding: 'utf8',
+      timeout: 5000,
+    })
+    expect(r.status, r.stderr).toBe(0)
   }, 30_000)
 })
 
-describe.skipIf(!hostAvailable)('podium-host writer lease: refusal and deliberate steal (POD-4434)', () => {
-  it('refuses a second writer, refuses an adopting spawn, and hands the lease to a steal', async () => {
-    const l = label('lease')
-    // First daemon: spawns and holds the one writer lease.
-    const first = await spawnHostAgent({
-      label: l,
-      cmd: 'sleep',
-      args: ['30'],
-      cols: 80,
-      rows: 24,
-      requireLease: true,
-    })
-    sessions.push(first)
-    await expect(first.ready).resolves.toMatchObject({ lease: true })
-
-    // Second daemon after an update overlap: its SPAWN adopts the live master,
-    // but the lease is held — so it refuses loudly instead of reading silently.
-    await expect(
-      spawnHostAgent({ label: l, cmd: 'sleep', args: ['30'], cols: 80, rows: 24, requireLease: true }),
-    ).rejects.toThrow(WriterLeaseRefusedError)
-    // The refusal names the label (the daemon's reattachFailed/spawnError shows it).
-    const refused = attachHostAgent({ label: l, fromSeq: 'tail', requireLease: true })
-    await expect(refused.ready).rejects.toThrow(
-      new RegExp(`refused the writer lease for '${l}'.*another writer is attached`),
-    )
-    refused.dispose()
-
-    // Deliberate takeover: attach without the lease (stays connected), then steal.
-    const taker = attachHostAgent({ label: l, fromSeq: 'tail' })
-    sessions.push(taker)
-    await expect(taker.ready).resolves.toMatchObject({ lease: false })
-    let leaseLost = false
-    first.connection.onLeaseLost(() => {
-      leaseLost = true
-    })
-    // The attachment-level lease view the daemon's foreign-write counter reads (POD-4888).
-    let attachmentLeaseLost = 0
-    first.onLeaseLost?.(() => {
-      attachmentLeaseLost += 1
-    })
-    expect(first.holdsWriterLease?.()).toBe(true)
-    expect(taker.holdsWriterLease?.()).toBe(false)
-    await taker.connection.steal()
-    await waitFor(() => leaseLost, 'LEASE_LOST on the revoked holder')
-    expect(attachmentLeaseLost).toBe(1)
-    expect(first.holdsWriterLease?.()).toBe(false)
-    expect(taker.holdsWriterLease?.()).toBe(true)
-
-    // The loser can no longer write; the taker can. Order is deterministic:
-    // STOLEN is queued after the revocation, and these writes postdate it.
-    await expect(first.connection.write(Uint8Array.of(0x41))).rejects.toThrow(/not the writer/)
-    await expect(taker.connection.write(Uint8Array.of(0x42))).resolves.toBe(1)
-
-    // While the taker holds it, a fresh attach still refuses…
-    const late = attachHostAgent({ label: l, fromSeq: 'tail', requireLease: true })
-    await expect(late.ready).rejects.toThrow(WriterLeaseRefusedError)
-    late.dispose()
-
-    // …and once the taker detaches, the lease is free again.
-    taker.dispose()
-    sessions.splice(sessions.indexOf(taker), 1)
-    const after = attachHostAgent({ label: l, fromSeq: 'tail', requireLease: true })
-    sessions.push(after)
-    await expect(after.ready).resolves.toMatchObject({ lease: true })
-  }, 30_000)
-})
-
-describe.skipIf(!hostAvailable)('podium-host pty-less engines through DurableProcess (POD-4433)', () => {
-  it('12. spawnHeadless round-trips stdin/stdout on the merged ring with hasPty=false', async () => {
-    const durable = createDurableProcess()
-    const l = label('engine')
-    const s = await durable.spawnHeadless({
-      label: l,
-      cmd: process.execPath,
-      args: ['-e', 'process.stdin.pipe(process.stdout)'],
-      cwd: root,
-    })
-    sessions.push(s)
-    const w = await s.ready
-    expect(w.hasPty).toBe(false)
-    expect(w.childPid).toBeGreaterThan(0)
-    expect(s.pid).toBe(w.childPid)
-    let out = ''
-    s.connection.onData((_seq, d) => {
-      out += d.toString()
-    })
-    await s.connection.write(Buffer.from('ping\n'))
-    await waitFor(() => out === 'ping\n', 'pipe echo through the merged ring')
-  }, 30_000)
-
-  it('13. size operations on a headless engine are refused with ERR NO_PTY', async () => {
-    const durable = createDurableProcess()
-    const l = label('nosize')
-    const s = await durable.spawnHeadless({
-      label: l,
-      cmd: process.execPath,
-      args: ['-e', 'setInterval(() => {}, 1000)'],
-      cwd: root,
-    })
-    sessions.push(s)
-    await s.ready
-    await expect(s.connection.resize(10, 10)).rejects.toMatchObject({ code: HostErr.NO_PTY })
-    await expect(s.connection.size()).rejects.toMatchObject({ code: HostErr.NO_PTY })
-  }, 30_000)
-
-  it('14. a daemon restart re-attaches to the SAME child; EXITED carries the real status', async () => {
-    const first = createDurableProcess()
-    const l = label('restart')
-    const s1 = await first.spawnHeadless({
-      label: l,
-      cmd: process.execPath,
-      args: ['-e', `process.stdin.once('data', () => process.exit(3)); setInterval(() => {}, 1000)`],
-      cwd: root,
-    })
-    const w1 = await s1.ready
-    expect(w1.hasPty).toBe(false)
-    // The daemon dies: its connection detaches, nothing is killed.
-    s1.dispose()
-    await wait(300)
-
-    // A new daemon generation: the engine is still there, and the writer lease
-    // is free again — a stale daemon holding it would refuse loudly instead.
-    const second = createDurableProcess()
-    expect(await second.has(l)).toBe(true)
-    const s2 = await second.attachHeadless({ label: l, fromSeq: 'tail' })
-    sessions.push(s2)
-    const w2 = await s2.ready
-    expect(w2.lease).toBe(true)
-    expect(w2.childPid).toBe(w1.childPid)
-
-    // Exit status arrives through the host's EXITED frame, not a dead pipe.
-    const exited = new Promise<{ code: number; signal: number }>((resolve) =>
-      s2.connection.onExit((code, signal) => resolve({ code, signal })),
-    )
-    await s2.connection.write(Buffer.from('quit\n'))
-    const status = await exited
-    expect(status.code).toBe(3)
-  }, 30_000)
-
-  it('15. stderr merges into the same ring and replay replays both', async () => {
-    const durable = createDurableProcess()
-    const l = label('merged')
-    const s = await durable.spawnHeadless({
-      label: l,
-      cmd: process.execPath,
-      args: ['-e', 'process.stdout.write("out\\n"); process.stderr.write("err\\n")'],
-      cwd: root,
-    })
-    sessions.push(s)
-    await s.ready
-    let live = ''
-    s.connection.onData((_seq, d) => {
-      live += d.toString()
-    })
-    await waitFor(() => live.includes('out\n') && live.includes('err\n'), 'both streams in the ring')
-    // A fresh reader replays the merged bytes with their original seqs.
-    const path = hostSocketPath(l)
-    const replayed = await new Promise<string>((resolve, reject) => {
-      const c = connectHost(path, { mode: 'reader', fromSeq: 0n })
-      let text = ''
-      c.onData((_seq, d) => {
-        text += d.toString()
+describe.skipIf(!hostAvailable)(
+  'podium-host writer lease: refusal and deliberate steal (POD-4434)',
+  () => {
+    it('refuses a second writer, refuses an adopting spawn, and hands the lease to a steal', async () => {
+      const l = label('lease')
+      // First daemon: spawns and holds the one writer lease.
+      const first = await spawnHostAgent({
+        label: l,
+        cmd: 'sleep',
+        args: ['30'],
+        cols: 80,
+        rows: 24,
+        requireLease: true,
       })
-      c.welcome.then(() => c.replay(1 << 20).then(() => resolve(text), reject), reject)
-      setTimeout(() => {
-        c.destroy()
-        resolve(text)
-      }, 3000).unref?.()
-    })
-    expect(replayed).toContain('out\n')
-    expect(replayed).toContain('err\n')
-  }, 30_000)
-})
+      sessions.push(first)
+      await expect(first.ready).resolves.toMatchObject({ lease: true })
+
+      // Second daemon after an update overlap: its SPAWN adopts the live master,
+      // but the lease is held — so it refuses loudly instead of reading silently.
+      await expect(
+        spawnHostAgent({
+          label: l,
+          cmd: 'sleep',
+          args: ['30'],
+          cols: 80,
+          rows: 24,
+          requireLease: true,
+        }),
+      ).rejects.toThrow(WriterLeaseRefusedError)
+      // The refusal names the label (the daemon's reattachFailed/spawnError shows it).
+      const refused = attachHostAgent({ label: l, fromSeq: 'tail', requireLease: true })
+      await expect(refused.ready).rejects.toThrow(
+        new RegExp(`refused the writer lease for '${l}'.*another writer is attached`),
+      )
+      refused.dispose()
+
+      // Deliberate takeover: attach without the lease (stays connected), then steal.
+      const taker = attachHostAgent({ label: l, fromSeq: 'tail' })
+      sessions.push(taker)
+      await expect(taker.ready).resolves.toMatchObject({ lease: false })
+      let leaseLost = false
+      first.connection.onLeaseLost(() => {
+        leaseLost = true
+      })
+      // The attachment-level lease view the daemon's foreign-write counter reads (POD-4888).
+      let attachmentLeaseLost = 0
+      first.onLeaseLost?.(() => {
+        attachmentLeaseLost += 1
+      })
+      expect(first.holdsWriterLease?.()).toBe(true)
+      expect(taker.holdsWriterLease?.()).toBe(false)
+      await taker.connection.steal()
+      await waitFor(() => leaseLost, 'LEASE_LOST on the revoked holder')
+      expect(attachmentLeaseLost).toBe(1)
+      expect(first.holdsWriterLease?.()).toBe(false)
+      expect(taker.holdsWriterLease?.()).toBe(true)
+
+      // The loser can no longer write; the taker can. Order is deterministic:
+      // STOLEN is queued after the revocation, and these writes postdate it.
+      await expect(first.connection.write(Uint8Array.of(0x41))).rejects.toThrow(/not the writer/)
+      await expect(taker.connection.write(Uint8Array.of(0x42))).resolves.toBe(1)
+
+      // While the taker holds it, a fresh attach still refuses…
+      const late = attachHostAgent({ label: l, fromSeq: 'tail', requireLease: true })
+      await expect(late.ready).rejects.toThrow(WriterLeaseRefusedError)
+      late.dispose()
+
+      // …and once the taker detaches, the lease is free again.
+      taker.dispose()
+      sessions.splice(sessions.indexOf(taker), 1)
+      const after = attachHostAgent({ label: l, fromSeq: 'tail', requireLease: true })
+      sessions.push(after)
+      await expect(after.ready).resolves.toMatchObject({ lease: true })
+    }, 30_000)
+  },
+)
+
+describe.skipIf(!hostAvailable)(
+  'podium-host pty-less engines through DurableProcess (POD-4433)',
+  () => {
+    it('12. spawnHeadless round-trips stdin/stdout on the merged ring with hasPty=false', async () => {
+      const durable = createDurableProcess()
+      const l = label('engine')
+      const s = await durable.spawnHeadless({
+        label: l,
+        cmd: process.execPath,
+        args: ['-e', 'process.stdin.pipe(process.stdout)'],
+        cwd: root,
+      })
+      sessions.push(s)
+      const w = await s.ready
+      expect(w.hasPty).toBe(false)
+      expect(w.childPid).toBeGreaterThan(0)
+      expect(s.pid).toBe(w.childPid)
+      let out = ''
+      s.connection.onData((_seq, d) => {
+        out += d.toString()
+      })
+      await s.connection.write(Buffer.from('ping\n'))
+      await waitFor(() => out === 'ping\n', 'pipe echo through the merged ring')
+    }, 30_000)
+
+    it('13. size operations on a headless engine are refused with ERR NO_PTY', async () => {
+      const durable = createDurableProcess()
+      const l = label('nosize')
+      const s = await durable.spawnHeadless({
+        label: l,
+        cmd: process.execPath,
+        args: ['-e', 'setInterval(() => {}, 1000)'],
+        cwd: root,
+      })
+      sessions.push(s)
+      await s.ready
+      await expect(s.connection.resize(10, 10)).rejects.toMatchObject({ code: HostErr.NO_PTY })
+      await expect(s.connection.size()).rejects.toMatchObject({ code: HostErr.NO_PTY })
+    }, 30_000)
+
+    it('14. a daemon restart re-attaches to the SAME child; EXITED carries the real status', async () => {
+      const first = createDurableProcess()
+      const l = label('restart')
+      const s1 = await first.spawnHeadless({
+        label: l,
+        cmd: process.execPath,
+        args: [
+          '-e',
+          `process.stdin.once('data', () => process.exit(3)); setInterval(() => {}, 1000)`,
+        ],
+        cwd: root,
+      })
+      const w1 = await s1.ready
+      expect(w1.hasPty).toBe(false)
+      // The daemon dies: its connection detaches, nothing is killed.
+      s1.dispose()
+      await wait(300)
+
+      // A new daemon generation: the engine is still there, and the writer lease
+      // is free again — a stale daemon holding it would refuse loudly instead.
+      const second = createDurableProcess()
+      expect(await second.has(l)).toBe(true)
+      const s2 = await second.attachHeadless({ label: l, fromSeq: 'tail' })
+      sessions.push(s2)
+      const w2 = await s2.ready
+      expect(w2.lease).toBe(true)
+      expect(w2.childPid).toBe(w1.childPid)
+
+      // Exit status arrives through the host's EXITED frame, not a dead pipe.
+      const exited = new Promise<{ code: number; signal: number }>((resolve) =>
+        s2.connection.onExit((code, signal) => resolve({ code, signal })),
+      )
+      await s2.connection.write(Buffer.from('quit\n'))
+      const status = await exited
+      expect(status.code).toBe(3)
+    }, 30_000)
+
+    it('15. stderr merges into the same ring and replay replays both', async () => {
+      const durable = createDurableProcess()
+      const l = label('merged')
+      const s = await durable.spawnHeadless({
+        label: l,
+        cmd: process.execPath,
+        args: ['-e', 'process.stdout.write("out\\n"); process.stderr.write("err\\n")'],
+        cwd: root,
+      })
+      sessions.push(s)
+      await s.ready
+      let live = ''
+      s.connection.onData((_seq, d) => {
+        live += d.toString()
+      })
+      await waitFor(
+        () => live.includes('out\n') && live.includes('err\n'),
+        'both streams in the ring',
+      )
+      // A fresh reader replays the merged bytes with their original seqs.
+      const path = hostSocketPath(l)
+      const replayed = await new Promise<string>((resolve, reject) => {
+        const c = connectHost(path, { mode: 'reader', fromSeq: 0n })
+        let text = ''
+        c.onData((_seq, d) => {
+          text += d.toString()
+        })
+        c.welcome.then(() => c.replay(1 << 20).then(() => resolve(text), reject), reject)
+        setTimeout(() => {
+          c.destroy()
+          resolve(text)
+        }, 3000).unref?.()
+      })
+      expect(replayed).toContain('out\n')
+      expect(replayed).toContain('err\n')
+    }, 30_000)
+  },
+)

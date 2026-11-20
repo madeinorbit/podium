@@ -13,13 +13,11 @@
  *      HEALTHY fleet either, because attach logged nothing at all — an
  *      instrument that could not say NO. It says both words now.
  *
- * THE THRESHOLD THE UI APPLIES IS: none. `MachinesService.listMachines` sets
- * `online: this.daemons.has(m.id)` — live socket membership in the gateway mux,
- * not a staleness comparison against `lastSeenAt` — and `RepoPickerModal` /
- * `MachinesPanel` render that boolean directly. So "pick a test interval against
- * the real rule" resolves to: there is no interval to beat. The assertion that
- * protects the reported symptom is that ATTACHING FLIPS `online`, which is what
- * this file pins over a real WebSocket against a really-booted server.
+ * Online presence includes a bounded reconnect grace. Daemon availability is
+ * the immediate execution signal; closing its socket removes that availability
+ * at once, keeps the machine online during grace, then makes it offline. The
+ * tests advance only the wall-clock read at the grace boundary, while the socket
+ * handshake and detach remain real.
  *
  * `lastSeenAt` is asserted to ADVANCE across two handshakes rather than merely
  * to exist — a frozen timestamp reads identically to a fresh one, which is the
@@ -31,9 +29,10 @@ import { hostname, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createHandshakeDialer } from '@podium/protocol'
 import { readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import WebSocket from 'ws'
 import { noJanitorWorkerForTests } from './janitor-host'
+import { MACHINE_PRESENCE_GRACE_MS } from './modules/machines/service'
 import { startServer } from './test-support/enrolled-server'
 
 const priorStateDir = process.env.PODIUM_STATE_DIR
@@ -82,7 +81,19 @@ describe('machine presence (live server, real daemon socket)', () => {
     return row
   }
 
-  it('flips the machine ONLINE while a daemon is attached, and back OFFLINE when it goes', async () => {
+  async function expectOfflineAfterGrace(): Promise<void> {
+    await expect.poll(async () => (await listing()).availability.daemon).toBe(false)
+    expect((await listing()).online).toBe(true)
+    const afterGrace = Date.now() + MACHINE_PRESENCE_GRACE_MS + 1
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(afterGrace)
+    try {
+      expect((await listing()).online).toBe(false)
+    } finally {
+      clock.mockRestore()
+    }
+  }
+
+  it('publishes daemon availability immediately and ends online presence after reconnect grace', async () => {
     // Explicit fixture enrollment writes the host row before any daemon exists —
     // the row's mere presence, and its `lastSeenAt`, prove nothing about reach.
     expect((await listing()).online).toBe(false)
@@ -101,10 +112,9 @@ describe('machine presence (live server, real daemon socket)', () => {
       ws.on('close', () => resolve())
       ws.close()
     })
-    // Detach is observed through the same field the UI reads, so a socket that
-    // closes without evicting its registration is caught here rather than as a
-    // machine that stays permanently, wrongly online.
-    await expect.poll(async () => (await listing()).online).toBe(false)
+    // Detach removes execution availability now; presence survives only its
+    // documented reconnect grace, never indefinitely.
+    await expectOfflineAfterGrace()
 
     // A SECOND handshake must advance it AGAIN: the reported symptom was a value
     // written once at connect and never after, which a single-connect assertion
@@ -115,14 +125,11 @@ describe('machine presence (live server, real daemon socket)', () => {
       new Date(afterConnect).getTime(),
     )
     ws2.close()
+    await expectOfflineAfterGrace()
   })
 
   it('stays ONLINE across heartbeat sweeps even though lastSeenAt never moves', async () => {
-    // THE ANSWER TO "does presence stay fresh once attached?", pinned rather than
-    // assumed: `online` is live socket membership in the gateway mux
-    // (`listMachines` → `this.daemons.has(id)`), NOT a staleness comparison, so
-    // there is no threshold to beat and a frozen `lastSeenAt` is correct rather
-    // than a bug. Two reads MORE THAN ONE DAEMON HEARTBEAT INTERVAL APART
+    // A connected daemon remains online independently of its handshake stamp. Two reads MORE THAN ONE DAEMON HEARTBEAT INTERVAL APART
     // (`DAEMON_PLANE_LIVENESS.heartbeatIntervalMs` = 10s) — the row does not
     // move and the machine is still online.
     //
@@ -143,6 +150,6 @@ describe('machine presence (live server, real daemon socket)', () => {
     expect((await listing()).lastSeenAt).toBe(atConnect)
 
     ws.close()
-    await expect.poll(async () => (await listing()).online).toBe(false)
+    await expectOfflineAfterGrace()
   }, 60_000)
 })
