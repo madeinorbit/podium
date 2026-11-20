@@ -168,10 +168,13 @@ async function seedNamedState(spec: InstanceSpec): Promise<void> {
     if (!owner) throw new Error('configured instance has no owner')
     await identity.credentials.setEmail(asUserId(owner.id), 'owner@example.test')
     await identity.credentials.setPassword(asUserId(owner.id), 'instance-owner-password')
-    const ownerSignIn = await identity.signIn({
-      email: 'owner@example.test',
-      password: 'instance-owner-password',
-    })
+    // These real servers are reached over loopback HTTP. Mint the loopback
+    // cookie variant rather than an HTTPS-only cookie the listener cannot read.
+    const facts = { scheme: 'http' as const, sameMachine: true, clientAddress: '127.0.0.1' }
+    const ownerSignIn = await identity.signIn(
+      { email: 'owner@example.test', password: 'instance-owner-password' },
+      facts,
+    )
     const ownerCookie = cookieOf(ownerSignIn)
     ownerCookies.set(spec.stateDir, ownerCookie)
     saveCachedSessionToken(
@@ -189,10 +192,10 @@ async function seedNamedState(spec: InstanceSpec): Promise<void> {
     memberCookies.set(
       spec.stateDir,
       cookieOf(
-        await identity.signIn({
-          email: 'member@example.test',
-          password: 'instance-member-password',
-        }),
+        await identity.signIn(
+          { email: 'member@example.test', password: 'instance-member-password' },
+          facts,
+        ),
       ),
     )
   } finally {
@@ -1724,6 +1727,16 @@ exec "$CANARY_REAL_CLI" "$@"
               try {
                 const rows = await targetApi.machines.list.query()
                 return (
+                  // Presence can still describe the pre-restart process during
+                  // its grace period. Wait for the actual durable endpoint
+                  // publications before judging all three finalized runtimes.
+                  specs.every((spec) => {
+                    const connectivity = read(spec, 'machine.json').connectivity
+                    return (
+                      connectivity.state === 'connected' &&
+                      connectivity.serverUrl === `ws://127.0.0.1:${target.port}`
+                    )
+                  }) &&
                   [sourceId, targetId, observerId].every((id) =>
                     rows.some(
                       (row) => row.id === id && row.online && row.presenceSource === 'supervisor',
@@ -1852,7 +1865,9 @@ exec "$CANARY_REAL_CLI" "$@"
     // S8 imports the channel into deployment settings on the first server boot.
     const namedDatabase = openDatabase(join(namedSpec.stateDir, 'podium.db'), { readOnly: true })
     try {
-      const workspaces = namedDatabase.prepare('SELECT id FROM workspaces').all() as {
+      const workspaces = namedDatabase
+        .prepare("SELECT DISTINCT workspace_id AS id FROM workspace_meta WHERE key = 'settings'")
+        .all() as {
         id: string
       }[]
       expect(workspaces).toHaveLength(1)
