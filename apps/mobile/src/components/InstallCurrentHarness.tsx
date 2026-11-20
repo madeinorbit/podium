@@ -5,7 +5,7 @@ import type { MachineHarness } from '@podium/client-graph/machine-harness'
 import { RecordRequest } from '@podium/client-graph/requested-records'
 import { sessionCredentialChoices } from '@podium/client-graph/session-credential-facts'
 import { BUNDLED_DESCRIPTORS } from '@podium/harness/browser'
-import type { CredentialId, CredentialView, SessionId } from '@podium/model'
+import type { CredentialId, CredentialView, IssueId, SessionId } from '@podium/model'
 import { useRouter } from 'expo-router'
 import { observer } from 'mobx-react-lite'
 import { useEffect, useMemo, useState } from 'react'
@@ -42,7 +42,10 @@ const Recovery = observer(function Recovery({
     () => (pool ? new RecordRequest(pool, 'credential', (record) => record.id) : undefined),
     [pool],
   )
-  const [installed, setInstalled] = useState(false)
+  const [installed, setInstalled] = useState(() => !!row.managed?.active)
+  useEffect(() => {
+    if (installed) void credentials?.read(() => client.credentials.list.query())
+  }, [installed, credentials, client])
   useEffect(
     () => () => {
       answer.close()
@@ -58,11 +61,17 @@ const Recovery = observer(function Recovery({
   })
   const start = (credentialId: CredentialId) => {
     if (!session.cwd) return
+    const input = session.launch?.input as
+      | { issueId?: IssueId; model?: string; effort?: string; firstPrompt?: string }
+      | undefined
     const launched = commands.sessions.launch({
       target: { path: session.cwd, repoPath: session.cwd, machineId: row.machine.id },
       agentKind: row.kind,
       credentialId,
       ...(session.issueId ? { issueId: session.issueId } : {}),
+      ...(input?.model ? { model: input.model } : {}),
+      ...(input?.effort ? { effort: input.effort } : {}),
+      ...(input?.firstPrompt ? { firstPrompt: input.firstPrompt } : {}),
     })
     void commands.sessions.killSession(session.sessionId)
     ui.navigateToSession(launched.sessionId)
@@ -80,7 +89,6 @@ const Recovery = observer(function Recovery({
             void answer.run(client, row, 'install').then(() => {
               if (!answer.answer?.ok) return
               setInstalled(true)
-              void credentials?.read(() => client.credentials.list.query())
             })
           }}
         >

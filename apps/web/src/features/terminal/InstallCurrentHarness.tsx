@@ -52,7 +52,7 @@ const InstallCurrentHarnessControl = observer(function InstallCurrentHarnessCont
   const openCredentials = useOpenCredentials()
   const credentials = useSessionCredentials()
   const accepts = useHarnessAccepts(row?.machine.id)
-  const [installed, setInstalled] = useState(false)
+  const [installed, setInstalled] = useState(() => !!row.managed?.active)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const choices = credentials.views
