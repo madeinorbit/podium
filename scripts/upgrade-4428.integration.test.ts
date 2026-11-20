@@ -22,13 +22,10 @@
  *  (2) a hibernated grok + generic-pty session whose row is NULLed to
  *      selected_driver_id NULL (hibernate needs a resume ref no model-less
  *      box can earn, so the ref is seeded in sessionResumeRef shape; the park
- *      itself is the real old API; grok tolerates the unresolvable ref);
+ *      itself is the real old API; the isolated native history makes it valid);
  *  (3) a live shell; (4) a login shell (agentKind shell + loginHarness);
- *  (5) a hibernated grok + generic-pty session holding two queued_messages rows
- *      (creation prompt queues row 1 at spawn — cursor is the only
- *      non-argv manifest; row 2 follows once live with a non-empty queue;
- *      pre-upgrade binds are accepted since forwarded rows persist without
- *      proof; the per-custody exactly-once is read off delivery_owner);
+ *  (5) a hibernated grok + generic-pty session holding two legacy standalone
+ *      queued_messages rows with complete attribution, no message-ledger source;
  *  (6) a live harness session holding one pending native-menu interaction row
  *      written with the exact columns the old InteractionService.ask inserts
  *      (the ask itself is driver-emitted, so only its trigger is synthetic —
@@ -42,22 +39,21 @@
  *  (3) live with no driver, and bytes relay end to end (a marker written
  *      through the server's sendText echoes back through the output frames);
  *  (4) live with no driver, keeping its login shape (shell + loginHarness)
- *      and a live relay in both directions (its PTY runs the harness auth
- *      flow, so echo is impossible by design — frames flowing is the proof);
- *  (5) the two rows drain through the gateway exactly once, in FIFO order
- *      (row 1's reservation strictly precedes row 2's, seconds apart —
- *      observed by polling owners; both rows survive with delivery_owner set
- *      by the new gateway — legacy typing would have deleted them; attempts
- *      clamp, never reset; 30s quiet proves no second forward);
+ *      and real PTY geometry control round trips while the native auth command
+ *      awaits its browser callback without completing login);
+ *  (5) both old inputs are admitted exactly once in FIFO order. The logged-out
+ *      program cannot confirm delivery: explicit unconfirmed outcomes retain
+ *      both full texts and owner in durable events. Thirty seconds after those
+ *      outcomes proves no duplicate admission, retyping, report or confirmation;
  *  (6) interactions.answer traverses the gateway to the real driver (which
  *      builds the script from the row payload and truthfully reports
  *      delivery-failed, no menu on screen); the ask is kept open, and a
  *      retry takes the same honest route.
  *
- * ARMING (DONE WHEN 1): this file must go red with POD-4426 reverted (binds
- * carry no driverId, so assertions (1)(2) fail) and red with POD-4427 reverted
- * (the typing loop deletes the queued rows on echo, so assertion (5)'s
- * rows-survive check fails). The red runs are recorded in VERIFY-4428.md.
+ * The original driver-removal arming runs are historical evidence in
+ * VERIFY-4428.md. The current queue guard checks terminal uncertainty and its
+ * durable recovery record; physical queue rows are transient custody, not the
+ * recovery record after a terminal outcome.
  *
  * ISOLATION. The hermetic setup already scrubs the ambient session env; this
  * file additionally deletes every PODIUM_* var except an explicit allowlist
@@ -87,6 +83,7 @@ import { fileURLToPath } from 'node:url'
 import type { SessionId } from '@podium/model'
 import { hostHasSession } from '@podium/process/durable'
 import { CAP_SYNC_HTTP_V1, CLIENT_WIRE_VERSION, encode, parseServerMessage } from '@podium/protocol'
+import type { RuntimeEvent } from '@podium/protocol/daemon'
 import { durableSessionLabel } from '@podium/runtime/instance'
 import { readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
 import { openDatabase, type SqlParam } from '@podium/runtime/sqlite'
@@ -705,7 +702,7 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
     let oldDaemon: DaemonHandle | undefined
     let newDaemon: DaemonHandle | undefined
     let newServer: Awaited<ReturnType<typeof startServer>> | undefined
-    const queueOutcomes: unknown[] = []
+    const queueOutcomes: Array<Extract<RuntimeEvent, { t: 'delivery' }>> = []
     let restoreFrameProbe: (() => void) | undefined
     let attemptsPre: number[] = []
     let sHarness = ''
@@ -1133,10 +1130,10 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
         }
       }
 
-      // (5) Resurrect alone re-admits both old rows, in FIFO order. The daemon
-      // ACKs custody quickly, so timestamps may tie; its actual requested/queued
-      // telemetry proves order and one forward per row. Without a model turn no
-      // delivery is proved: both durable rows remain, including after 30s quiet.
+      // (5) Resurrect alone re-admits both old inputs, in FIFO order. Neither
+      // a logged-out program nor the transport can prove delivery. The terminal
+      // outcome must be honest uncertainty with durable text, never silent loss
+      // or an invitation to send again.
       {
         // Observe pre-resurrect custody and poll the real durable owners while
         // the resumed session binds. No fresh send is needed to kick the drain.
@@ -1197,19 +1194,67 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
         } finally {
           db.close()
         }
+        const id1 = `qmsg_up4428_${sQueue.slice(0, 8)}_1`
+        const id2 = `qmsg_up4428_${sQueue.slice(0, 8)}_2`
+        await waitFor(
+          () => queueOutcomes.length >= 2,
+          '(5) both explicit delivery outcomes',
+          90_000,
+        )
+        expect(
+          queueOutcomes.map(({ rowId, outcome, cause }) => ({ rowId, outcome, cause })),
+        ).toEqual([
+          { rowId: id1, outcome: 'failed', cause: 'unconfirmed' },
+          { rowId: id2, outcome: 'failed', cause: 'unconfirmed' },
+        ])
+        for (const outcome of queueOutcomes) {
+          expect(outcome.reason).toContain('delivery could not be confirmed')
+        }
+        const store = newServer.registry.sessionStore
+        const session = await store.sessions.getSession(sQueue as SessionId)
+        expect(session?.ownerUserId, '(5) the original session owner survives').toBeTruthy()
+        const unconfirmed = () =>
+          store.events.listEventsSince(0, {
+            subject: sQueue,
+            kinds: ['session.input_unconfirmed'],
+            limit: 10,
+          })
+        await waitFor(
+          async () => (await unconfirmed()).length >= 2,
+          '(5) durable uncertainty records',
+          30_000,
+        )
+        const preserved = await unconfirmed()
+        expect(preserved.map(({ payload }) => payload)).toEqual(
+          [t1, t2].map((text) =>
+            expect.objectContaining({
+              sessionId: sQueue,
+              ownerUserId: session?.ownerUserId,
+              text,
+              unconfirmed: true,
+              reason: expect.stringContaining('delivery could not be confirmed'),
+            }),
+          ),
+        )
+        // No legacy row is invented as a confirmed message or a safe-to-retry
+        // draft. These standalone inputs recover through their durable events.
+        expect(await newApi.messages.ledger.query({ sessionId: sQueue, limit: 20 })).toEqual([])
+        const settledOutcomes = [...queueOutcomes]
         await sleep(30_000)
-        console.info('upgrade-4428 queue outcomes', JSON.stringify(queueOutcomes))
+        expect(queueOutcomes, '(5) no repeated or falsely confirmed outcome').toEqual(
+          settledOutcomes,
+        )
+        expect(await unconfirmed(), '(5) exactly the same durable recovery records').toEqual(
+          preserved,
+        )
         // NOTE: no timestamp order here — the daemon ACKs custody in
         // milliseconds (reserves land in the same poll tick by design); the
         // FIFO order is proven by the telemetry line order below instead.
-        // The daemon ACKed custody per turn ('queued' receipts) and owes the
-        // async delivery while grok stays non-idle: its per-turn telemetry
-        // must name each row id exactly once (requested + queued), in FIFO
-        // order. A duplicate forward would double a row's lines.
+        // The daemon ACKed custody per input ('queued' receipts). Its telemetry
+        // must name each id exactly once (requested + queued), in FIFO order,
+        // even through the quiet period after both unconfirmed outcomes.
         {
           const out = newDaemon?.output(100_000) ?? ''
-          const id1 = `qmsg_up4428_${sQueue.slice(0, 8)}_1`
-          const id2 = `qmsg_up4428_${sQueue.slice(0, 8)}_2`
           const count = (s: string, sub: string): number => s.split(sub).length - 1
           const detail = `daemon tail:\n${out.slice(-4000)}`
           expect(count(out, id1), `(5) row 1 telemetry lines\n${detail}`).toBe(2)
@@ -1225,13 +1270,13 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
               sQueue,
             ) as any[]
             expect(
-              again.map((r) => r.text),
-              '(5) still exactly two rows',
-            ).toEqual([t1, t2])
+              again,
+              '(5) settled custody is retired after durable uncertainty is recorded',
+            ).toEqual([])
             expect(
-              again.map((r) => r.delivery_owner),
-              '(5) owners undisturbed',
-            ).toEqual(['daemon', 'daemon'])
+              await newApi.messages.ledger.query({ sessionId: sQueue, limit: 20 }),
+              '(5) no confirmed message or retry draft appears during quiet',
+            ).toEqual([])
           } finally {
             db.close()
           }
