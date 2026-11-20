@@ -177,7 +177,9 @@ const asksOfSession = prepared((db, t) =>
     .where(
       inWorkspace(t.concertmasterEntries, sessionIs(t), isNotNull(t.concertmasterEntries.number)),
     )
-    .orderBy(desc(t.concertmasterEntries.number))
+    // Every row here has a number; the order says so for Postgres, whose
+    // descending order would otherwise put a NULL first.
+    .orderBy(sql`${t.concertmasterEntries.number} DESC NULLS LAST`)
     .limit(sql.placeholder('limit'))
     .prepare(),
 )

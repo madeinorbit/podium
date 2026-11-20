@@ -126,7 +126,7 @@ export const RightDock = observer(function RightDock({
   // own details are all still there.
   const pool = useWorklistPool()
   const concertmasterSessionId =
-    tab === 'issue' && active?.sessionId
+    pool && tab === 'issue' && active?.sessionId
       ? isConcertmasterSession(pool, here(pool.model('session', active.sessionId)))
         ? active.sessionId
         : null
@@ -237,7 +237,7 @@ export const RightDock = observer(function RightDock({
                 cwd={active.cwd}
                 machineId={active.machineId}
                 lead={
-                  concertmasterSessionId ? (
+                  pool && concertmasterSessionId ? (
                     <ConcertmasterNeedsYou
                       pool={pool}
                       transport={trpc as unknown as SyncSubmitTransport}
