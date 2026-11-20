@@ -351,6 +351,29 @@ describe('POD-7014 — the workspace scope checker', () => {
       ).toEqual([])
     })
 
+    it.each([
+      '?',
+      '$1',
+    ])('checks aliased INSERT SELECT values without trusting their alias (%s)', (placeholder) => {
+      const insert = (value: string) =>
+        `insert into locks (workspace_id, name) select distinct ${value} as "workspace_id", 'name' from meta`
+      expect(check(insert(placeholder), ['ws'])).toEqual([])
+      expect(check(insert(`cast(${placeholder} as text)`), ['ws'])).toEqual([])
+      expect(rules(check(insert("'foreign'")))).toEqual(['insert-workspace'])
+      expect(rules(check(insert(placeholder), ['foreign']))).toEqual(['insert-workspace'])
+      expect(rules(check(insert(`${placeholder} || ''`), ['ws']))).toEqual(['insert-workspace'])
+      expect(rules(check(insert(`cast((${placeholder} || 'foreign') as text)`), ['ws']))).toEqual([
+        'insert-workspace',
+      ])
+      expect(
+        rules(
+          check(
+            'insert into locks (workspace_id, name) select l.workspace_id as "workspace_id", l.name from labels l',
+          ),
+        ),
+      ).toEqual(['unconstrained', 'insert-workspace'])
+    })
+
     it('fails INSERT … SELECT from an unconstrained reference', () => {
       expect(
         rules(

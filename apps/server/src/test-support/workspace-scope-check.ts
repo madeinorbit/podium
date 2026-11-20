@@ -1377,6 +1377,21 @@ export function checkWorkspaceScope(
   return findings
 }
 
+/** A SELECT alias names its output; it does not change the value's workspace. */
+function projectionOperand(tokens: readonly Token[], item: Range): Operand {
+  let end = item.end
+  const as = tokens[end - 2]
+  if (as?.kind === 'word' && !as.quoted && as.lower === 'as' && tokens[end - 1]?.kind === 'word') {
+    let depth = 0
+    for (let i = item.start; i < end - 2; i++) {
+      if (tokens[i]?.text === '(' || tokens[i]?.text === '[') depth += 1
+      else if (tokens[i]?.text === ')' || tokens[i]?.text === ']') depth -= 1
+    }
+    if (depth === 0) end -= 2
+  }
+  return operand(tokens, item.start, end)
+}
+
 function insertFindings(tokens: readonly Token[], insert: InsertCheck): ScopeFinding[] {
   const finding = (detail: string): ScopeFinding => ({
     rule: 'insert-workspace',
@@ -1402,7 +1417,7 @@ function insertFindings(tokens: readonly Token[], insert: InsertCheck): ScopeFin
   })
   for (const select of insert.selects) {
     const item = select.items[at]
-    const value = item ? operand(tokens, item.start, item.end) : undefined
+    const value = item ? projectionOperand(tokens, item) : undefined
     const fromColumn =
       value !== undefined &&
       isWorkspaceColumn(value) &&
