@@ -1,6 +1,5 @@
 import { Buffer } from 'node:buffer'
 import { randomUUID } from 'node:crypto'
-import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { BlobStore } from '@podium/blob-store'
 import { LocalBlobStorage } from '@podium/blob-store/local'
@@ -432,6 +431,8 @@ interface SessionRegistryOptions {
    * registry (POD-6939).
    */
   clientRelocationCodes?: () => OneTimeCodeOperations
+  /** Opt-in server-move test evidence, injected by the composition root. */
+  afterServerMoveJournalCommitted?: () => void
   /** Reaction contracts to publish on the module seam. Defaults to the registry;
    *  injected only so the runtime refusal of an invalid principal is observable
    *  (POD-1470). Whatever is passed goes through the same totality check the
@@ -1903,10 +1904,7 @@ export class SessionRegistry {
       },
       // The service fsyncs committed before this callback. Desktop continuity
       // therefore sees matching daemon config + committed journal before exit.
-      afterJournalCommitted: () => {
-        const evidence = process.env.PODIUM_SERVER_MOVE_COMMIT_EVIDENCE_FILE
-        if (evidence) writeFileSync(evidence, 'after-commit\n')
-      },
+      afterJournalCommitted: options.afterServerMoveJournalCommitted,
       afterCommitted: ({ serverUrl }) => retireSourceAfterTransfer(serverUrl),
       afterRecoveredAbort: () => restartSourceAfterRecovery(),
     })

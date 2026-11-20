@@ -374,13 +374,17 @@ describe('ServerTransferService final-fence flow', () => {
   it('commits durably before acknowledging target retirement', async () => {
     let service!: ServerTransferService
     const demoteSource = vi.fn()
+    const afterJournalCommitted = vi.fn(() => {
+      expect(service.status()?.state).toBe('committed')
+    })
     const fake = fakeRpc({
       onAcknowledge: () => {
         expect(demoteSource).toHaveBeenCalledOnce()
+        expect(afterJournalCommitted).toHaveBeenCalledOnce()
         expect(service.status()?.state).toBe('committed')
       },
     })
-    service = makeService(fake.rpc, { demoteSource })
+    service = makeService(fake.rpc, { demoteSource, afterJournalCommitted })
 
     await expect(service.transfer(input, allow)).resolves.toMatchObject({
       ok: true,

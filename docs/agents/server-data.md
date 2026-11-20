@@ -4,6 +4,8 @@ How server code (`apps/server`, `packages/sync`) reads, writes and caches data. 
 
 POD-6140 removed the server's in-memory copies of tables (the world index, both sync copies, the observation checkpoint map and the issue map; the session map now holds running sessions only). The result is in `docs/measurements/pod-6140-result.md`. New code reads the database and adds no copy.
 
+Machine content is reached through the named machine's daemon; a machine id comes from the caller or its record, never from the server host as a default. `scripts/check-server-host-access.ts` enforces this rule in `bun run test` and CI (`bun run lint:server-host-access`): production server code cannot import local filesystem/process APIs, read OS home/temp/hostname values, use Bun disk/process APIs, or read `hostMachine`/`hostMachineId` outside its reasoned allowlists of installation owners and test infrastructure. An exception must name a file or directory, explain why it needs host access, and remain used; `--probe` demonstrates all five required refusals before the real scan.
+
 ## Source of truth
 
 The database is the only source of truth for stored facts. The server never holds a full copy of a table in memory.

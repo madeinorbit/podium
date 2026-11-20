@@ -32,6 +32,10 @@ jobs:
       - name: biome + boundaries (non-blocking)
         continue-on-error: true
         run: bun run lint
+      # Keep this blocking while the aggregate lint tolerates unrelated Biome debt.
+      # The script proves its refusals before checking the production server tree.
+      - name: server host access
+        run: bun run lint:server-host-access
       # BLOCKING, and deliberately its own step: the lint step above is
       # continue-on-error, so a ratchet folded into `bun run lint` would report
       # green forever. The v3 rewrite may not grow the debt it is deleting

@@ -153,7 +153,10 @@ import {
   reconcileSafeServerTransferBoot,
   serverTransferBootMode,
 } from './modules/server-transfer/journal'
-import { serverMoveFaultHook } from './modules/server-transfer/operation'
+import {
+  serverMoveCommitEvidenceHook,
+  serverMoveFaultHook,
+} from './modules/server-transfer/operation'
 import { PortableStateFence } from './modules/server-transfer/portable-fence'
 import {
   readNewestTargetPromotionMetadata,
@@ -851,6 +854,7 @@ export async function startServer(
     instanceId,
     memberCredentials: credentials,
     clientRelocationCodes: () => serverIdentity().workspace.core.codes,
+    afterServerMoveJournalCommitted: serverMoveCommitEvidenceHook(),
     devChannelFeed: () => devChannelFeed?.(),
     recoveryOnly,
     rehearseBoot: rehearsal,
