@@ -49,6 +49,7 @@ import {
   CAP_TERMINAL_OUTPUT_BINARY_V1,
   CLIENT_WIRE_VERSION,
   decodeBinaryEnvelope,
+  type FeedChange,
   PtyOutputBinaryMetadata,
   type ServerMessage,
 } from '@podium/protocol'
@@ -115,10 +116,22 @@ describe('a daemon reattach storm', () => {
   /** Connect a real /client socket and collect its frames. Resolves once open. */
   async function connectClient(port: number) {
     const frames: ServerMessage[] = []
+    const sessions = new Map<string, { status?: string }>()
+    const apply = (changes: readonly FeedChange[]) => {
+      for (const change of changes) {
+        if (change.entity !== 'session') continue
+        if (change.op === 'upsert' && change.value) sessions.set(change.entityId, change.value)
+        else sessions.delete(change.entityId)
+      }
+    }
     const ws = new WebSocket(
       `ws://127.0.0.1:${port}/client?v=${CLIENT_WIRE_VERSION}&cap=sync.http.v1`,
     )
-    ws.on('message', (raw) => frames.push(JSON.parse(raw.toString()) as ServerMessage))
+    ws.on('message', (raw) => {
+      const message = JSON.parse(raw.toString()) as ServerMessage
+      frames.push(message)
+      if (message.type === 'feedDelta') apply(message.changes)
+    })
     let closedWith: number | undefined
     ws.on('close', (code) => {
       closedWith = code
@@ -146,9 +159,18 @@ describe('a daemon reattach storm', () => {
       ws.on('message', onMessage)
       ws.on('error', reject)
     })
+    // A client starts from HTTP state and folds incremental changes into it.
+    // No single delta is required to repeat rows that did not change.
+    const response = await fetch(`http://127.0.0.1:${port}/sync/bootstrap`)
+    expect(response.status).toBe(200)
+    for (const line of (await response.text()).trim().split('\n')) {
+      const message = JSON.parse(line) as { type: string; changes?: FeedChange[] }
+      if (message.type === 'feedBootstrap') apply(message.changes ?? [])
+    }
     return {
       ws,
       frames,
+      sessions,
       closed: () => closedWith,
       /** Event-driven wait — no polling interval, no fixed sleep. */
       nextMatching(pred: (m: ServerMessage) => boolean): Promise<ServerMessage> {
@@ -260,138 +282,114 @@ describe('a daemon reattach storm', () => {
       const clients = await Promise.all(
         Array.from({ length: CLIENTS }, () => connectClient(handle.port)),
       )
-      const room = { kind: 'session' as const, id: asSessionId(sessionIds[0] as string) }
-      for (const client of clients) {
-        client.ws.send(JSON.stringify({ type: 'presenceSubscribe', room }))
-      }
-      await Promise.all(
-        clients.map((client) =>
-          client.nextMatching(
-            (message) => message.type === 'presenceRoomState' && message.room.id === room.id,
+      try {
+        const room = { kind: 'session' as const, id: asSessionId(sessionIds[0] as string) }
+        for (const client of clients) {
+          client.ws.send(JSON.stringify({ type: 'presenceSubscribe', room }))
+        }
+        await Promise.all(
+          clients.map((client) =>
+            client.nextMatching(
+              (message) => message.type === 'presenceRoomState' && message.room.id === room.id,
+            ),
           ),
-        ),
-      )
-
-      const health = `http://127.0.0.1:${handle.port}/health`
-      const probes: Promise<string>[] = []
-
-      // THE STORM. Each round is a full reattach: the old socket's sink is
-      // detached, a new one attaches, and every surviving session replays its
-      // `bind` — the exact shape that pinned the loop in the incident. A `/health`
-      // probe is issued per round WITHOUT awaiting it, so the probes are genuinely
-      // in flight while the storm runs rather than neatly between rounds.
-      let send: ((msg: ControlMessage) => void) | undefined
-      for (let round = 0; round < ROUNDS; round++) {
-        if (send) handle.registry.gateway.detachDaemon(machineId, send)
-        const current: (msg: ControlMessage) => void = () => {}
-        await handle.registry.gateway.attachDaemon(machineId, current)
-        send = current
-        probes.push(fetch(health).then((r) => r.text()))
-        for (const [i, sessionId] of sessionIds.entries()) {
-          await handle.registry.gateway.routeDaemonFrame(machineId, {
-            type: 'bind',
-            sessionId: asSessionId(sessionId),
-            cmd: 'sh',
-            cwd: `/repo/w${i}`,
-            agentKind: 'shell',
-            geometry,
-          })
-        }
-        // A populated room publishes full cursor state at a real 50Hz cadence.
-        // These frames share the client socket with the durable reattach feed,
-        // but use the lower lossy stream budget.
-        for (let tick = 0; tick < 6; tick += 1) {
-          for (const client of clients) {
-            client.ws.send(
-              JSON.stringify({
-                type: 'presenceUpdate',
-                room,
-                payload: { cursor: round * 6 + tick },
-              }),
-            )
-          }
-          await new Promise((resolve) => setTimeout(resolve, 20))
-        }
-
-        // Yield to the loop between rounds so the probes above can actually be
-        // served — a storm that never yields is a different (and unshipped) bug.
-        await Promise.resolve()
-      }
-      handle.registry.modules.sessions.flushBroadcasts()
-
-      // AC 1: /health stayed responsive. Every probe issued mid-storm resolved,
-      // and resolved with the real body — a 500 or an empty response would satisfy
-      // "it answered" while proving the surface was broken.
-      const answers = await Promise.all(probes)
-      expect(answers).toHaveLength(ROUNDS)
-      expect(answers.every((a) => a === 'ok')).toBe(true)
-      // The surface is still healthy AFTER the storm, not merely during it.
-      expect(await fetch(health).then((r) => r.text())).toBe('ok')
-
-      // WHAT MUST NOT STARVE: the client plane's 16 MB budget terminates a socket
-      // that is not draining. A healthy loopback client under a full storm is
-      // nowhere near it, so if any of these were reaped, the cap (or the sweep)
-      // is binding on live recipients — the failure mode the budget exists to
-      // avoid, not to cause.
-      for (const client of clients) {
-        expect(client.closed(), 'a healthy client was reaped during the storm').toBeUndefined()
-        expect(client.ws.readyState).toBe(WebSocket.OPEN)
-      }
-
-      // …and the fan-out actually reached them. "Socket still open" alone would
-      // pass for a client that received nothing, which is starvation by another
-      // name. Every client must see the storm's settled state: all sessions live.
-      //
-      // IDENTIFY THE SETTLED FRAME BY WHAT MARKS IT, NOT BY COUNT. The session
-      // COUNT is 40 for the whole test — before the storm as well as after — so a
-      // count-only predicate matches the CONNECT-TIME snapshot, which correctly
-      // reports every session as `starting` because publication is coalesced and
-      // that snapshot is emitted before the storm's first `bind` lands. Grading it
-      // was reading correct product output against the wrong question, and it is a
-      // race, not a constant: measured, a pre-storm `setTimeout(50)` made the old
-      // form fail 3/3, while a warm run with no yield passed 6/6, which is exactly
-      // why setup cost (POD-1509's extra MIGRATION) appeared to move it.
-      //
-      // Measured, the client receives exactly TWO `sessionsChanged` frames —
-      // 40/starting then 40/live — and `status` is the only field that separates
-      // them (`clientCount` moves too, but only for the one session in the
-      // presence room). So the wait is the ordering fence, and a client that never
-      // reaches the settled state fails by exhausting the watchdog-scale timeout:
-      // the same liveness shape the /health probes above use, by design.
-      for (const client of clients) {
-        const settled = await client.nextMatching(
-          (m) =>
-            m.type === 'feedDelta' &&
-            m.changes.filter((change) => change.entity === 'session').length === SESSIONS &&
-            m.changes
-              .filter((change) => change.entity === 'session')
-              .every((change) => change.value?.status === 'live'),
         )
-        if (settled.type !== 'feedDelta') throw new Error('expected feedDelta')
-        // NOT implied by the wait, which an empty or short snapshot satisfies
-        // vacuously: the settled frame must carry EVERY session. A client fed a
-        // subset has been starved, and that is convergence reported rather than
-        // reached.
-        expect(
-          settled.changes.filter((change) => change.entity === 'session'),
-          'the settled delta reached a client short',
-        ).toHaveLength(SESSIONS)
-      }
-      for (const client of clients) {
-        expect(
-          client.frames.some(
-            (message) => message.type === 'presenceRoomDelta' && message.room.id === room.id,
-          ),
-          'a populated room was starved during the storm',
-        ).toBe(true)
-      }
 
-      for (const client of clients) client.ws.close()
+        const health = `http://127.0.0.1:${handle.port}/health`
+        const probes: Promise<string>[] = []
+
+        // THE STORM. Each round is a full reattach: the old socket's sink is
+        // detached, a new one attaches, and every surviving session replays its
+        // `bind` — the exact shape that pinned the loop in the incident. A `/health`
+        // probe is issued per round WITHOUT awaiting it, so the probes are genuinely
+        // in flight while the storm runs rather than neatly between rounds.
+        let send: ((msg: ControlMessage) => void) | undefined
+        for (let round = 0; round < ROUNDS; round++) {
+          if (send) handle.registry.gateway.detachDaemon(machineId, send)
+          const current: (msg: ControlMessage) => void = () => {}
+          await handle.registry.gateway.attachDaemon(machineId, current)
+          send = current
+          probes.push(fetch(health).then((r) => r.text()))
+          for (const [i, sessionId] of sessionIds.entries()) {
+            await handle.registry.gateway.routeDaemonFrame(machineId, {
+              type: 'bind',
+              sessionId: asSessionId(sessionId),
+              cmd: 'sh',
+              cwd: `/repo/w${i}`,
+              agentKind: 'shell',
+              geometry,
+            })
+          }
+          // A populated room publishes full cursor state at a real 50Hz cadence.
+          // These frames share the client socket with the durable reattach feed,
+          // but use the lower lossy stream budget.
+          for (let tick = 0; tick < 6; tick += 1) {
+            for (const client of clients) {
+              client.ws.send(
+                JSON.stringify({
+                  type: 'presenceUpdate',
+                  room,
+                  payload: { cursor: round * 6 + tick },
+                }),
+              )
+            }
+            await new Promise((resolve) => setTimeout(resolve, 20))
+          }
+
+          // Yield to the loop between rounds so the probes above can actually be
+          // served — a storm that never yields is a different (and unshipped) bug.
+          await Promise.resolve()
+        }
+        handle.registry.modules.sessions.flushBroadcasts()
+
+        // AC 1: /health stayed responsive. Every probe issued mid-storm resolved,
+        // and resolved with the real body — a 500 or an empty response would satisfy
+        // "it answered" while proving the surface was broken.
+        const answers = await Promise.all(probes)
+        expect(answers).toHaveLength(ROUNDS)
+        expect(answers.every((a) => a === 'ok')).toBe(true)
+        // The surface is still healthy AFTER the storm, not merely during it.
+        expect(await fetch(health).then((r) => r.text())).toBe('ok')
+
+        // WHAT MUST NOT STARVE: the client plane's 16 MB budget terminates a socket
+        // that is not draining. A healthy loopback client under a full storm is
+        // nowhere near it, so if any of these were reaped, the cap (or the sweep)
+        // is binding on live recipients — the failure mode the budget exists to
+        // avoid, not to cause.
+        for (const client of clients) {
+          expect(client.closed(), 'a healthy client was reaped during the storm').toBeUndefined()
+          expect(client.ws.readyState).toBe(WebSocket.OPEN)
+        }
+
+        // …and the fan-out actually reached them. "Socket still open" alone would
+        // pass for a client that received nothing, which is starvation by another
+        // name. Every client must see the storm's settled state: all sessions live.
+        //
+        // Grade the accumulated consumer state: unchanged sessions may have
+        // arrived in the bootstrap or in an earlier batch during the storm.
+        for (const client of clients) {
+          const complete = () =>
+            sessionIds.every((id) => client.sessions.get(id)?.status === 'live')
+          await client.nextMatching((message) => message.type === 'feedDelta' && complete())
+          expect([...client.sessions.keys()].sort()).toEqual([...sessionIds].sort())
+          expect(complete(), 'the client did not converge after the storm').toBe(true)
+        }
+        for (const client of clients) {
+          expect(
+            client.frames.some(
+              (message) => message.type === 'presenceRoomDelta' && message.room.id === room.id,
+            ),
+            'a populated room was starved during the storm',
+          ).toBe(true)
+        }
+      } finally {
+        for (const client of clients) client.ws.close()
+      }
     },
     STORM_TIMEOUT_MS,
   )
 
-  it('a superseded socket s late close does not evict the reattached daemon', () => {
+  it('a superseded socket s late close does not evict the reattached daemon', async () => {
     // The reattach half of the storm, isolated — and the point at which THIS
     // issue's two halves meet. `MachinesService.detach` documents the ordering
     // exactly: "the keepalive sweep terminates a wedged socket a beat AFTER the
@@ -405,8 +403,8 @@ describe('a daemon reattach storm', () => {
     const staleSend = (msg: ControlMessage): void => void stale.push(msg)
     const freshSend = (msg: ControlMessage): void => void fresh.push(msg)
 
-    handle.registry.gateway.attachDaemon(machineId, staleSend)
-    handle.registry.gateway.attachDaemon(machineId, freshSend) // reconnect wins the slot
+    await handle.registry.gateway.attachDaemon(machineId, staleSend)
+    await handle.registry.gateway.attachDaemon(machineId, freshSend) // reconnect wins the slot
     handle.registry.gateway.detachDaemon(machineId, staleSend) // …then the late close arrives
     expect(machines.hasDaemon(machineId)).toBe(true)
 

@@ -1,11 +1,11 @@
 import { reposToViews, repoUsageAt } from '@podium/client-core/values'
+import { pinRowId } from '@podium/model'
 import {
   asUserId,
   type GitRepositoryWire,
   machinePathBasename,
   machinePathKey,
   machinePathsEqual,
-  pinRowId,
 } from '@podium/model/browser'
 import { autorun } from 'mobx'
 import { expect, it } from 'vitest'

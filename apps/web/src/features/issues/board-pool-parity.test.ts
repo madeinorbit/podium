@@ -173,7 +173,12 @@ function expectBoard(pool: MobxPool, options: BoardOptions, truth: Truth) {
         options,
         listMissing: expectedShown
           .filter((row) => !value.listIds.includes(row.id))
-          .map((row) => ({ id: row.id, parent: row.parentId })),
+          .map((row) => ({
+            id: row.id,
+            parent: row.parentId,
+            stage: row.stage,
+            graphParent: pool.graph.one('issue', row.id, 'treeParent'),
+          })),
       }),
     ).toEqual(ids(expectedShown))
     const positions = new Map(shown.map((row, at) => [row.id, at]))
