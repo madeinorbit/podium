@@ -78,11 +78,6 @@ export const MachineHarnessRow = observer(function MachineHarnessRow({
             </p>
           )}
           {row.updateNotice && <p className="settings-prose mt-2">{row.updateNotice}</p>}
-          {row.inventory?.missingPrerequisites?.map((prerequisite) => (
-            <p key={prerequisite.executable} role="alert" className="mt-2 text-xs text-warning">
-              {prerequisite.message}
-            </p>
-          ))}
           {row.installReason && !row.managed && (
             <p className="settings-prose mt-2 max-w-prose">{row.installReason}</p>
           )}
@@ -118,6 +113,11 @@ export const MachineHarnessRow = observer(function MachineHarnessRow({
           ))}
         </fieldset>
       </div>
+      {row.inventory?.missingPrerequisites?.map((prerequisite) => (
+        <p key={prerequisite.executable} role="alert" className="mt-2 text-xs text-warning">
+          {prerequisite.message}
+        </p>
+      ))}
       {confirmRemove && (
         <div className="mt-3 rounded-md border border-border p-3 text-sm">
           <p>
