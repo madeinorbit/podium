@@ -10,6 +10,7 @@ const INSTALL_A = {
   executable: '/usr/bin/codex',
   version: 'codex-cli 0.169.0',
   generation: 1,
+  provenance: 'external' as const,
 }
 const INSTALL_B = { ...INSTALL_A, version: 'codex-cli 0.170.0' }
 const FLAGS = ['-c', 'hooks.SessionStart=[{hooks=[{type="command",command="x"}]}]']
@@ -54,6 +55,25 @@ describe('CodexHookTrust', () => {
     expect(restarted.calls).toEqual([])
     expect(await restarted.cache.trustFor(INSTALL_B, FLAGS)).toEqual({ [KEY]: 'sha256:other' })
     expect(restarted.calls).toEqual(['codex-cli 0.170.0'])
+  })
+
+  it('stops the throwaway home with the Codex the probe ran (managed installs §6.1)', async () => {
+    const managed = {
+      ...INSTALL_A,
+      executable: '/state/harnesses/codex/1-0.169.0/codex',
+      provenance: 'managed' as const,
+    }
+    const stoppedWith: string[] = []
+    const cache = new CodexHookTrust({
+      root,
+      probe: async () => ({ [KEY]: 'sha256:aaa' }),
+      cleanProbeHome: async (probeHome, installation) => {
+        stoppedWith.push(installation.executable)
+        rmSync(probeHome, { recursive: true, force: true })
+      },
+    })
+    await cache.trustFor(managed, FLAGS)
+    expect(stoppedWith).toEqual([managed.executable])
   })
 
   it('two launches at once share one probe', async () => {

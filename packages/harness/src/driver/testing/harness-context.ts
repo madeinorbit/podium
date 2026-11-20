@@ -26,6 +26,8 @@ export function testHarnessContext(input: {
   executable?: string
   version?: string
   generation?: number
+  /** Default `external`: the person's install. */
+  provenance?: 'managed' | 'external'
   env?: Readonly<Record<string, string>>
   /** For a harness the registry does not hold (an unregistered fixture
    *  manifest): its folders, from its own `roots` rule. */
@@ -40,6 +42,7 @@ export function testHarnessContext(input: {
       executable: input.executable ?? `/opt/podium-test/bin/${kind}`,
       version: input.version ?? '',
       generation: input.generation ?? 0,
+      provenance: input.provenance ?? 'external',
     }),
     home,
     env,

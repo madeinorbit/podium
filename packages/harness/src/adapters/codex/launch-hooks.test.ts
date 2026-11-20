@@ -22,6 +22,7 @@ function context(): HarnessContext {
       executable: '/usr/bin/codex',
       version: 'codex-cli 0.169.0',
       generation: 1,
+      provenance: 'external',
     },
     home: join(root, 'person'),
     env: { HOME: join(root, 'person'), CODEX_HOME: join(root, 'person', '.codex') },

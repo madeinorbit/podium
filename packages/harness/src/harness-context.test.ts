@@ -81,6 +81,7 @@ describe('harnessContext', () => {
       executable: CODEX.path,
       version: CODEX.version,
       generation: 7,
+      provenance: 'external',
     })
   })
 

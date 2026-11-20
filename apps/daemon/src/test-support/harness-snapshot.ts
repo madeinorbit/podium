@@ -13,12 +13,20 @@ const defaults: Record<BuiltinHarnessKind, string> = {
 export function testHarnessSnapshot(
   paths: Partial<Record<BuiltinHarnessKind, string>> = {},
   generation = 1,
+  /** Podium's installs (managed installs §6.1), by harness: release folder 1. */
+  managedPaths: Partial<Record<BuiltinHarnessKind, string>> = {},
 ): ResolvedHarnessInventory {
   const all = { ...defaults, ...paths }
   const executables = new Map(
     Object.entries(all).map(([kind, path]) => [
       kind as BuiltinHarnessKind,
       { kind: kind as BuiltinHarnessKind, path, generation },
+    ]),
+  )
+  const managed = new Map(
+    Object.entries(managedPaths).map(([kind, path]) => [
+      kind as BuiltinHarnessKind,
+      { kind: kind as BuiltinHarnessKind, path, generation, release: 1 },
     ]),
   )
   const env = Object.freeze({ PATH: '/opt:/usr/bin:/bin', HOME: '/tmp' })
@@ -31,6 +39,7 @@ export function testHarnessSnapshot(
       tools: [],
     },
     executables,
+    managed,
     commandEnvironment: {
       env,
       pathEntries: ['/opt', '/usr/bin', '/bin'],

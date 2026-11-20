@@ -1,6 +1,7 @@
+import { spawnSync } from 'node:child_process'
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import {
   type HarnessContext,
   harnessChildEnv,
@@ -10,6 +11,7 @@ import {
   type ResolvedHarnessInventory,
 } from '@podium/harness'
 import { testLaunchPosture } from '@podium/harness/driver/testing'
+import { managedInstallsReader } from '@podium/harness/inventory'
 import { describe, expect, it } from 'vitest'
 import { DaemonHarnessRuntime } from './harness-runtime'
 import { testHarnessSnapshot } from './test-support/harness-snapshot'
@@ -160,6 +162,68 @@ describe('DaemonHarnessRuntime', () => {
         'CLAUDE_SECURESTORAGE_CONFIG_DIR',
         '/secure/storage',
       )
+    } finally {
+      rmSync(machineHome, { recursive: true, force: true })
+    }
+  })
+  it('shows a release another process published in the next wave, without a restart (managed installs §7)', async () => {
+    const machineHome = mkdtempSync(join(tmpdir(), 'harness-runtime-managed-'))
+    const harnessesDir = join(machineHome, 'state', 'harnesses')
+    try {
+      const managedPath = join(harnessesDir, 'codex', '1-0.167.2', 'codex')
+      const versionExec: ProbeExec = async (argv) => {
+        if (argv[0] === managedPath) return 'codex-cli 0.167.2'
+        throw new Error(`ENOENT: ${argv[0]}`)
+      }
+      const runtime = new DaemonHarnessRuntime({
+        machineHome,
+        credentialHome: machineHome,
+        env: { HOME: machineHome, PATH: machineHome },
+        exec: versionExec,
+        managedInstalls: managedInstallsReader(harnessesDir),
+      })
+      expect((await runtime.current()).managed?.has('codex')).toBe(false)
+
+      // The CLI's part, in a process of its own: fill a release folder and
+      // publish it in the ledger.
+      const script = join(machineHome, 'publish.mjs')
+      const inventory = resolve(import.meta.dirname, '../../../packages/harness/src/inventory.ts')
+      writeFileSync(
+        script,
+        `import { mkdirSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { InstallLedger, releaseFolderName, writeInstallReceipt } from ${JSON.stringify(inventory)}
+const ledger = InstallLedger.open({ harnessesDir: process.argv[2] })
+ledger.requestInstall('codex', 'machine-setup')
+const result = ledger.acquireInstallLock({ label: 'podium machine setup', autoRenew: false })
+const number = ledger.allocateReleaseNumber('codex', result.lock)
+const dir = join(process.argv[2], 'codex', releaseFolderName(number, '0.167.2'))
+mkdirSync(dir, { recursive: true })
+writeFileSync(join(dir, 'codex'), '#!/bin/sh\n', { mode: 0o755 })
+writeInstallReceipt(dir, {
+  format: 1,
+  harness: 'codex',
+  version: '0.167.2',
+  executable: 'codex',
+  integrity: { kind: 'none', reason: 'test release' },
+  source: 'https://downloads.example.com/codex/0.167.2',
+  installedAt: new Date().toISOString(),
+})
+ledger.publishRelease('codex', number, result.lock)
+result.lock.release()
+ledger.close()
+`,
+      )
+      const child = spawnSync(
+        process.execPath,
+        ['--conditions=@podium/source', script, harnessesDir],
+        { encoding: 'utf8' },
+      )
+      expect(child.status, child.stderr).toBe(0)
+
+      const next = await runtime.reprobe()
+      expect(next.managed?.get('codex')).toMatchObject({ path: managedPath, release: 1 })
+      expect(next.executables.has('codex')).toBe(false)
     } finally {
       rmSync(machineHome, { recursive: true, force: true })
     }

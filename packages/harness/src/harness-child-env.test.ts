@@ -14,7 +14,13 @@ function context(
   home = HOME,
 ): HarnessContext {
   return {
-    installation: { kind, executable: `/opt/${kind}`, version: '', generation: 1 },
+    installation: {
+      kind,
+      executable: `/opt/${kind}`,
+      version: '',
+      generation: 1,
+      provenance: 'external',
+    },
     home,
     env,
     roots: harnessRoots(kind, home, env),

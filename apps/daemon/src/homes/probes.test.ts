@@ -28,6 +28,7 @@ function codexContext(): HarnessContext {
       executable: '/usr/bin/codex',
       version: '0.169.0',
       generation: 1,
+      provenance: 'external',
     },
     home: ACCOUNT.home,
     env: { ...ACCOUNT.env, CODEX_HOME: '/home/person/.codex' },
