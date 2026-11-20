@@ -113,20 +113,20 @@ it('the registry starts exactly one watcher per demanded checkout and stops on u
   expect(start).toHaveBeenCalledTimes(2)
 })
 
-it('a real spec file write signals an open listing without a client poll', async () => {
+it('a real working file write signals an open listing without a client poll', async () => {
   const f = await fixture()
-  let specs: string[] | undefined
+  let files: string[] | undefined
   const stop = watchCheckout(
     f.root,
     () => {
       void readdir(f.root).then((names) => {
-        specs = names.filter((name) => name.endsWith('.html'))
+        files = names.filter((name) => name.endsWith('.md'))
       })
     },
     { git: f.runGit },
   )
   stops.push(stop)
-  await vi.waitFor(() => expect(specs).toEqual([]))
-  await writeFile(join(f.root, 'SP-example.html'), '<h1>A spec</h1>')
-  await vi.waitFor(() => expect(specs).toEqual(['SP-example.html']), { timeout: 2500 })
+  await vi.waitFor(() => expect(files).toEqual([]))
+  await writeFile(join(f.root, 'README.md'), '# Project')
+  await vi.waitFor(() => expect(files).toEqual(['README.md']), { timeout: 2500 })
 })

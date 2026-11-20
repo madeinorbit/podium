@@ -6,7 +6,7 @@ import { z } from 'zod'
 // FRAMES that carry them and the agent relay.
 
 // Agent relay: an agent's daemon forwards a router/proc op (a tRPC-style call for
-// issues, messages, sessions, specs, workflows, locks, approvals, …) up to the
+// issues, messages, sessions, workflows, locks, approvals, …) up to the
 // server, which runs it against the shared backend and returns the result.
 // Request is daemon→server; result is server→daemon.
 export const AgentRelayRequestMessage = z.object({

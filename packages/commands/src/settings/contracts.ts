@@ -147,8 +147,7 @@ export function preferencePathsInTier(tier: SettingsTier): readonly string[] {
  * WHAT ACTUALLY SERVES A SETTINGS WRITE, measured rather than aspirational.
  *
  * `trpc` — `apps/server/src/router.ts`'s `settings` slice, which is the only
- * dispatcher for this family. NOT `relay`: `relay.ts` has arms for `specs`,
- * `sessions`, `issues`, `workflows`, `messages`, `workspace`, `lock`, `offer`,
+ * dispatcher for this family. NOT `relay`: `relay.ts` has arms for `sessions`, `issues`, `workflows`, `messages`, `workspace`, `lock`, `offer`,
  * `approvals`, `features` and `quota`, and no `settings` arm — so declaring it
  * would be POD-385's defect verbatim, a transport nothing dispatches. NOT `cli`
  * and not `mcp`: there is no `podium settings` verb and no settings tool.

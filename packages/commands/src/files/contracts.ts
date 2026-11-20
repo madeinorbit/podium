@@ -4,8 +4,7 @@
  * The RightDock editor's save path. `read` and `list` on the same router stay
  * queries: a `visibility` class describes what a command WRITES.
  *
- * CLASSIFICATION: `owned-compute`, the same answer POD-385 reached for specs and
- * for the same ADR 9 D3 rule 3 — facts about a machine inherit the machine's
+ * CLASSIFICATION: `owned-compute`, under ADR 9 D3 rule 3 — facts about a machine inherit the machine's
  * scoping. This writes bytes into a working tree on the machine hosting it, and
  * the shipped gate already authorizes exactly that way and nothing else
  * (`isAllowedRoot(repoRoots)` for the root form). The lint requires
@@ -109,8 +108,8 @@ export const filesWriteContract = {
       'command — a redacted `files.write` cannot write — and the bytes are going to a working tree ' +
       'the caller already holds `use` on, not to a log or a third party. What redaction protects ' +
       'against is a payload leaking into telemetry or an audit record; this surface writes to disk ' +
-      'and records neither. `root` and `path` stay visible for the same reason specs keeps ' +
-      '`repoPath`: they are the routing keys a refusal must name to be actionable.',
+      'and records neither. `root` and `path` stay visible because they are the routing keys a ' +
+      'refusal must name to be actionable.',
   } satisfies RedactionPolicy,
   ownership: {
     creates: [],
@@ -125,7 +124,7 @@ export const filesWriteContract = {
     wirePlacement: 'separate-field',
     reservedWireKeys: ['actor', 'onBehalfOf'],
     rationale:
-      'Both halves from the transport principal, never from payload. As with specs the FILE records ' +
+      'Both halves from the transport principal, never from payload. The FILE records ' +
       'no writer — git is the authorship record — so this pair exists to authorize and audit the ' +
       'WRITE rather than to be persisted. `root`/`path`/`sessionId` are routing addresses, and ' +
       'Amendment 1 D17 forbids an address doubling as the accountability record.',
@@ -136,7 +135,7 @@ export const filesWriteContract = {
     distinguishesUnauthorizedFromUnreachable: true,
     note:
       'readiness §3.1.4 M5 over Amendment 1 D20.2 AT THE MACHINE BOUNDARY, and only there — the ' +
-      'same split specs makes, and the shipped behaviour it is transcribed from: a root the machine ' +
+      'shipped behaviour it is transcribed from: a root the machine ' +
       'does not register fails FORBIDDEN ("root is not a known repository path") while a registered ' +
       'root the daemon cannot reach fails as a transport error, because "not yours" and "not here" ' +
       'demand different actions. INSIDE a tree the caller may already use, D20.2 governs unchanged: ' +

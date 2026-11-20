@@ -2462,7 +2462,7 @@ export function resolveAgentRelay(env: EnvSource = process.env): string | undefi
  *
  *  Use this ONLY for commands that are the session talking about ITSELF and carry no
  *  delegate authority (the browser shim's URL open, `podium worktree`). Anything whose
- *  answer depends on WHO is asking — issues, mail, specs, locks, workflows, quota,
+ *  answer depends on WHO is asking — issues, mail, locks, workflows, quota,
  *  offers, workspace claims — must keep reading `resolveAgentRelay()`, so a human in
  *  their own terminal gets the operator path instead of a constrained agent identity.
  *

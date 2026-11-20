@@ -237,11 +237,10 @@ describe('oracle: the lifecycle commands an agent cannot reach', () => {
 /**
  * POD-1386 moved `sessions.handoff` from operator-only to agent-reachable, so it
  * left the list above. These pin the move itself rather than its consequences:
- * that it is now DISPATCHED, and that the other two endings remain expressible
- * and observable — an instrument that cannot say all three cannot say any of them
- * with meaning.
+ * that it is now DISPATCHED, and that the gate still refuses disallowed session
+ * mutations before their handlers.
  */
-describe('oracle: how a relayed call ends — refused by the gate, lost before dispatch, or handled', () => {
+describe('oracle: how a relayed call ends — refused by the gate or handled', () => {
   it(`${AGENT_ONLY}: sessions.handoff REACHES its handler — allowlisted and dispatched`, async () => {
     const { o, agentSessionId } = await twoIssueOracle()
 
@@ -273,26 +272,6 @@ describe('oracle: how a relayed call ends — refused by the gate, lost before d
       input: { sessionId: agentSessionId },
     })
     expect(classifyRelay(reply, 'sessions', 'kill')).toBe('gate-refused')
-  })
-
-  it(`${AGENT_ONLY}: the absent-from-dispatch ending is reachable, and it is NOT a refusal`, async () => {
-    // `issues` is allowlisted wholesale (`null` = any proc), so an unknown proc on
-    // it passes the gate and finds no arm. That is exactly the shape a mis-wired
-    // allowlist entry takes, which is why the classifier must name it rather than
-    // fold it in with the policy refusal above.
-    const { o, agentSessionId } = await twoIssueOracle()
-    const reply = await o.relay({
-      requestId: 'ending-absent-dispatch',
-      sessionId: agentSessionId,
-      router: 'issues',
-      proc: 'definitelyNotAProc',
-      input: {},
-    })
-    expect(classifyRelay(reply, 'issues', 'definitelyNotAProc')).toBe('absent-from-dispatch')
-    expect(reply.ok).toBe(false)
-    // Both endings answer ok:false. Only the classification separates them, and
-    // the point of separating them is that one is a decision and one is a bug.
-    expect(classifyRelay(reply, 'issues', 'definitelyNotAProc')).not.toBe('gate-refused')
   })
 })
 

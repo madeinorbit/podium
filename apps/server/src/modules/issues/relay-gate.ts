@@ -197,7 +197,7 @@ function submittedCommand(
 
 export interface AgentRelayGateDeps {
   /** Run one relayed op through the derived command surface (the registry
-   *  dispatcher for issues/repos, the specs module for specs) — router-equal
+   *  dispatcher for issues/repos) — router-equal
    *  guard + schema, no router involved.
    *
    *  NO SUCH PROCEDURE IS A VALUE, NOT AN ABSENCE. It resolves to

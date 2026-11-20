@@ -86,11 +86,9 @@ describe('the real in-process client serves every cli/mcp-exposed contract', () 
       properties: { id: { type: 'string' }, before: { type: 'string' }, after: { type: 'string' } },
     })
     expect(Object.keys(issues).sort()).toEqual([...ISSUE_COMMAND_NAMES].sort())
-    // And the specs/lock routers really are NOT served in-process — the historical
+    // And the lock router really is NOT served in-process — the historical
     // behaviour, asserted so "everything is reachable" cannot be read into this file.
-    expect(() => (client.specs as { list: { query: () => unknown } }).list.query()).toThrow(
-      /no such issue procedure/,
-    )
+    expect(() => client.lock.status.query()).toThrow(/no such issue procedure/)
   })
 
   it('every cli/mcp-exposed contract has a live procedure on the real client', async () => {

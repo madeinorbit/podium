@@ -521,7 +521,7 @@ export function derivedFamilyProcedures<Svc, Q extends Record<string, AnyDerived
  * A QUERY-ONLY SURFACE — the same builder over the state bundle itself.
  *
  * Most of what `router.ts` still declares is reads: routers whose writes another
- * issue already derived (`superagent`, `specs`, `settings`, `automations`,
+ * issue already derived (`superagent`, `settings`, `automations`,
  * `repos`, `discovery`), and routers that only ever had reads (`search`, `git`,
  * `usage`, `quota`, `features`, `sync`). They go through the SAME code path as
  * every derived family — same state bundle, same both-directions membership
