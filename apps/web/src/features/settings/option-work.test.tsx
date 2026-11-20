@@ -45,6 +45,7 @@ afterEach(() => {
   cleanup()
   seam.pool?.dispose()
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
 })
 const settle = async () => {
   for (let i = 0; i < 8; i++)
@@ -72,10 +73,10 @@ it('measures the mounted settings sections at 1x and 4x', async () => {
       worktrees: [],
     }))
     const devices = Array.from({ length: 8 * scale }, (_, i) => ({
-      sessionId: String(i).padStart(24, '0'),
+      id: String(i).padStart(24, '0'),
       userId: 'operator',
       label: 'mobile',
-      kind: 'mobile',
+      kind: 'phone',
       deviceId: `device-${i}`,
       deviceName: `Phone ${i}`,
       platform: 'ios',
@@ -197,7 +198,7 @@ it('measures the mounted settings sections at 1x and 4x', async () => {
               // An admin's viewer: Workspace pages are authorized by the viewer (POD-6299).
               String(url).endsWith('/auth/admin/viewer')
                 ? { sections: ['people', 'access', 'machines', 'instance', 'audit'] }
-                : { sessions: devices },
+                : { signIns: devices },
             ),
             { headers: { 'content-type': 'application/json' } },
           ),
