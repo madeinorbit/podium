@@ -597,15 +597,6 @@ export const DURABLE_STORES: readonly DurableStore[] = [
     writeSites: ['packages/sync/src/adapters/mobile-sqlite/schema.ts'],
   },
   {
-    store: 'source',
-    creatorSites: ['packages/sync/src/adapters/sqlite/sync-repository.suites.ts'],
-    kind: 'runtime-table',
-    row: null,
-    notEntityState:
-      'Synthetic source rows in the reusable sync-repository conformance suite, created in the test database to exercise feed capture and rollback.',
-    writeSites: ['packages/sync/src/adapters/sqlite/sync-repository.suites.ts'],
-  },
-  {
     store: '<stateDir>/runtime-event-outbox',
     kind: 'filesystem',
     row: 'daemon-observed-runtime',

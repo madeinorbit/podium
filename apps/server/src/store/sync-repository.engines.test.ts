@@ -2,7 +2,7 @@
  * THE SYNC REPOSITORY ON THE STORE'S ENGINES [POD-6989, POD-6958 design 2.4, 2.10].
  *
  * The repository's oracle is its two package suites, the golden pins and the
- * per-workspace feed tests (`packages/sync/src/adapters/sqlite/sync-repository.suites.ts`).
+ * per-workspace feed tests (`packages/sync/src/adapters/sqlite/test-support/sync-repository.suites.ts`).
  * This file runs both on the store's own database and query layer: SQLite on the store
  * lane, Postgres on `server-store-pg`, where every definition builds its Postgres form,
  * every write takes its workspace's `sync_feed` lock first, and the inbox writes are
@@ -30,7 +30,7 @@ import {
   describeTenantFeed,
   SUITE_WORKSPACE_ID,
   type SyncRepositoryFixture,
-} from '../../../../packages/sync/src/adapters/sqlite/sync-repository.suites'
+} from '../../../../packages/sync/src/adapters/sqlite/test-support/sync-repository.suites'
 import type { ChangeLogWriteRow } from '../../../../packages/sync/src/authority/change-lifecycle'
 import { syncServerTables } from '../migrations/sync-server-tables'
 import { openMigratedTestDatabase } from '../test-support/migrated-database'

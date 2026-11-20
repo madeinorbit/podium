@@ -402,13 +402,13 @@ export type OpenerExemption = SourceSite & { readonly why: string }
 export const NOT_A_SPAN_OPENER: readonly OpenerExemption[] = [
   {
     file: 'apps/server/src/store/executor/executor.ts',
-    line: 245,
-    why: "the ASYNC executor's own transact, declared on StoreExecutor. It is the MACHINERY under a span, not the span's mouth: after the flip every repository opens its unit of work through `createOrJoinTransaction`, whose implementation in sync-drizzle.ts calls this. Naming it as well would attribute each repository span twice, once at the call site and once at a body argument that arrives here as a parameter and is therefore opaque. (Was 70, then 81; POD-3498's SpanScopeDrizzle comment moved it once and POD-3802's async-store fallout — `afterCommit`, the refusal reporting and the scheduler types now above it — moved it again. The lint REPORTED each move rather than following it silently, which is what pinning by line is for. Then 212: POD-6189's `openSpanFrame` above it. Then 245: POD-7009's StoreContext and its constructors above it.)",
+    line: 220,
+    why: "the ASYNC executor's own transact, declared on StoreExecutor. It is the MACHINERY under a span, not the span's mouth: after the flip every repository opens its unit of work through `createOrJoinTransaction`, whose implementation in sync-drizzle.ts calls this. Naming it as well would attribute each repository span twice, once at the call site and once at a body argument that arrives here as a parameter and is therefore opaque. (Was 70, then 81; POD-3498's SpanScopeDrizzle comment moved it once and POD-3802's async-store fallout — `afterCommit`, the refusal reporting and the scheduler types now above it — moved it again. The lint REPORTED each move rather than following it silently, which is what pinning by line is for. Then 212: POD-6189's `openSpanFrame` above it. Then 245: POD-7009's StoreContext and its constructors above it. Then 220: extracting that context into its shared leaf removes the same declarations above this unchanged transaction interface.)",
   },
   {
     file: 'apps/server/src/store/executor/executor.ts',
-    line: 1092,
-    why: "the same declaration's implementation. (Was 676, then 680, then 678; POD-3345's idle-gap clock, the flip's own edits and POD-3802's async-store fallout moved it. Reported each time. Then 1026: POD-6189's `openSpanFrame`. Then 1036: POD-6226's root `effect` on RootStoreExecutor. Then 1078: POD-7009's workspace contexts. Then 1092: POD-6979's query-layer check.)",
+    line: 1067,
+    why: "the same declaration's implementation. (Was 676, then 680, then 678; POD-3345's idle-gap clock, the flip's own edits and POD-3802's async-store fallout moved it. Reported each time. Then 1026: POD-6189's `openSpanFrame`. Then 1036: POD-6226's root `effect` on RootStoreExecutor. Then 1078: POD-7009's workspace contexts. Then 1092: POD-6979's query-layer check. Then 1067: extracting StoreContext into its shared leaf moves this unchanged transaction machinery.)",
   },
   {
     file: 'packages/sync/src/authority/authority.ts',

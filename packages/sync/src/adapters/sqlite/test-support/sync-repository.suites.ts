@@ -5,7 +5,7 @@
  * against this package's in-memory SQLite fixture. They are the oracle for the
  * repository on every engine, so their bodies live here and take a
  * {@link SyncRepositoryFixture}: this package's test files run them on its bare
- * fixture (`./sync-repository-golden.test.ts`, `./tenant-feed.test.ts`), and the
+ * fixture (`../sync-repository-golden.test.ts`, `../tenant-feed.test.ts`), and the
  * server's store shard runs them on the store's own engine, SQLite on the store lane
  * and Postgres on `server-store-pg` (`apps/server/src/store/sync-repository.engines.test.ts`).
  *
@@ -26,10 +26,10 @@
 
 import { asMutationId, type MutationId, type SessionId } from '@podium/model'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import type { ChangeLogWriteRow } from '../../authority/change-lifecycle'
-import type { SyncServerTables } from './server-tables'
-import type { SyncQueries } from './store-queries'
-import { SyncRepository } from './sync-repository'
+import type { ChangeLogWriteRow } from '../../../authority/change-lifecycle'
+import type { SyncServerTables } from '../server-tables'
+import type { SyncQueries } from '../store-queries'
+import { SyncRepository } from '../sync-repository'
 
 /** The workspace a suite's repository belongs to unless a test names another. */
 export const SUITE_WORKSPACE_ID = 'local'

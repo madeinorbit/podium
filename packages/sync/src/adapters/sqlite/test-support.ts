@@ -15,7 +15,10 @@ import { workspaceColumn } from './schema'
 import type { SyncServerTables } from './server-tables'
 import type { StoreDrizzle, StoreQueries, SyncQueries } from './store-queries'
 import { SyncRepository } from './sync-repository'
-import { SUITE_WORKSPACE_ID, type SyncRepositoryFixture } from './sync-repository.suites'
+import {
+  SUITE_WORKSPACE_ID,
+  type SyncRepositoryFixture,
+} from './test-support/sync-repository.suites'
 
 /**
  * THE FIXTURE'S STAND-IN FOR THE TWO SERVER-OWNED TABLES (POD-3249).
