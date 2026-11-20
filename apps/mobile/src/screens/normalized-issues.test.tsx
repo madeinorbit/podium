@@ -189,7 +189,20 @@ describe('mobile normalized issue reads with no legacy issue rows', () => {
     expect(await mounted.replica.hydrate()).not.toHaveProperty('issues')
     await waitFor(() =>
       expect(screen.getAllByText('Normalized mobile mission').length).toBeGreaterThan(0),
-    )
+    ).catch((error) => {
+      console.error('normalized Tasks readiness', {
+        scope: mounted.pool?.queries.issueScope(projection.id),
+        position: mounted.pool?.row(
+          'issueBoardPosition',
+          JSON.stringify([projection.id, 'priority']),
+        ),
+        query: mounted.pool?.row(
+          'issueBoardQuery',
+          JSON.stringify({ kind: 'board', filter: {}, showAgentTasks: false }),
+        ),
+      })
+      throw error
+    })
     if (Surface === IssuesScreen) {
       expect(screen.getByText('POD')).toBeTruthy()
       expect(screen.getByText('42')).toBeTruthy()

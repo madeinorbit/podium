@@ -24,7 +24,7 @@ import { LOADING } from '@podium/client-graph/loading'
 import { MissionScreen as MissionScreenModel } from '@podium/client-graph/mission-screen'
 import { attachMissionTestPreferences } from '@podium/client-graph/mission-screen.test.fixture'
 import { settled } from '@podium/client-graph/mission-view'
-import { MobxPool } from '@podium/client-graph/pool'
+import type { MobxPool } from '@podium/client-graph/pool'
 import { refreshClocks } from '@podium/mobx-helpers'
 import { asIssueId, asSessionId } from '@podium/model'
 import { formatSessionRef } from '@podium/protocol'
@@ -504,7 +504,18 @@ it('three mounted phone screens keep cumulative legacy derivations at zero (ON=t
         expect(screen.getByTestId('details').textContent).toContain('Full')
       },
       { timeout: 30_000 },
-    )
+    ).catch((error) => {
+      console.error('mounted Tasks readiness', {
+        errors: state.errors,
+        scope: state.pool?.queries.issueScope(root.id),
+        position: state.pool?.row('issueBoardPosition', JSON.stringify([root.id, 'priority'])),
+        query: state.pool?.row(
+          'issueBoardQuery',
+          JSON.stringify({ kind: 'board', filter: {}, showAgentTasks: false }),
+        ),
+      })
+      throw error
+    })
     return { view, feed }
   }
   async function checkpoint(phase: string, parity = true) {
