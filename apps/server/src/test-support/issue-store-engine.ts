@@ -89,7 +89,7 @@ export interface IssueEngineStore {
   readonly reads: IssuesRepository
   readonly repos: IssueRepoRegistry
   readonly uploads: ArtifactUploadsRepository
-  readonly hostMachineId: MachineId
+  readonly hostMachine: { readonly id: MachineId }
   /** What `countStatements` attaches to: the store's driver, on either engine. */
   readonly probeTarget: object
   /**
@@ -151,7 +151,7 @@ export async function openIssueEngineStore(): Promise<IssueEngineStore> {
     reads,
     repos: drained(slice, repos),
     uploads: drained(slice, new ArtifactUploadsRepository(queries)),
-    hostMachineId: `mach_${randomUUID()}` as MachineId,
+    hostMachine: { id: `mach_${randomUUID()}` as MachineId },
     probeTarget: slice.probeTarget,
     captureOf: async (write) =>
       await queries.createOrJoinTransaction(async () => {

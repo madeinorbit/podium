@@ -205,7 +205,7 @@ async function moveServer(source: SessionStore) {
   const service = new ServerTransferService({
     stateRoot: sourceRoot,
     sourceInstanceId: 'source-instance',
-    sourceMachineId: SOURCE,
+    hostMachine: { id: SOURCE },
     sourceFeedIdentity: readFeed,
     sourceApplicationVersion: 'test',
     sourceSchemaVersion: () => source.schemaVersionForTransfer(),
