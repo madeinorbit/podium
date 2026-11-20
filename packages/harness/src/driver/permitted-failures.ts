@@ -23,7 +23,6 @@
  */
 
 import { canonicalDriverId } from '../manifest.js'
-import { terminalMayDeclineNativeSteer } from './families/terminal/steer-entitlement.js'
 import type { AcceptedDriverId, DriverFamily, DriverId } from './families.js'
 
 /** One named weakness a family may exhibit. */
@@ -166,14 +165,9 @@ export const NO_NATIVE_STEER_DRIVERS = [
   'grok-acp',
 ] as const satisfies readonly DriverId[]
 
-export { NO_NATIVE_STEER_TERMINAL_HARNESSES } from './families/terminal/steer-entitlement.js'
-
-/** `harness` narrows the `generic-pty` entitlement to its measured TUIs. */
-export const permitsNoNativeSteer = (driverId: AcceptedDriverId, harness?: string): boolean => {
-  const id = canonicalDriverId(driverId)
-  if (!(NO_NATIVE_STEER_DRIVERS as readonly DriverId[]).includes(id)) return false
-  return id !== 'generic-pty' || harness === undefined || terminalMayDeclineNativeSteer(harness)
-}
+/** Per-driver entitlement; host conformance separately checks the terminal harness. */
+export const permitsNoNativeSteer = (driverId: AcceptedDriverId): boolean =>
+  (NO_NATIVE_STEER_DRIVERS as readonly DriverId[]).includes(canonicalDriverId(driverId))
 
 /**
  * WHICH DRIVERS MAY ACTUALLY TAKE `no-attach` (POD-4612).
