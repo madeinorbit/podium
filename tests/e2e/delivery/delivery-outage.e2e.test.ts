@@ -606,6 +606,34 @@ describe('message delivery under real failures', { retry: 0 }, () => {
         delivered(busy.id, session),
         { id: retracted.id, sessionId: session, expect: 'retracted', sender: 'phone' },
       ])
+    } catch (error) {
+      const kinds = new Set([
+        'runtimeSendRequest',
+        'runtimeSendResult',
+        'runtimeDurableSendRequest',
+        'runtimeDurableSendResult',
+        'runtimeInterruptRequest',
+        'runtimeLifecycleResult',
+        'runtimeDeliveryOutcome',
+        'runtimeQueueDrainAbandoned',
+      ])
+      const frames = world.link.crossed().filter((frame) => kinds.has(frame.type))
+      console.error('offline retract evidence', {
+        frames: frames.map(({ at, dir, type, body }) => ({
+          at,
+          dir,
+          type,
+          requestId: body?.requestId,
+          sessionId: body?.sessionId,
+          cancelRowId: body?.cancelRowId,
+          receipt: body?.receipt,
+          result: body?.result,
+          outcome: body?.outcome,
+        })),
+        rows: await world.rows(),
+        session: await world.session(only(world.sessionIds, 'session')),
+      })
+      throw error
     } finally {
       await world.close()
     }

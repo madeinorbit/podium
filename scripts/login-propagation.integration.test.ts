@@ -18,6 +18,7 @@ const ENVIRONMENT_KEYS = [
   'PODIUM_AGENT_HOME',
   'CODEX_HOME',
   'CLAUDE_CONFIG_DIR',
+  'PATH',
 ] as const
 
 function installClaudeFixture(home: string, loggedIn: boolean): void {
@@ -152,6 +153,10 @@ describe('real daemon-to-daemon login propagation', () => {
       mkdirSync(targetHome)
       installClaudeFixture(donorHome, true)
       installClaudeFixture(targetHome, false)
+      // Both daemons resolve the fixture executable even when the runner also
+      // has a real Claude installation. Its auth command reads each daemon's
+      // own credential HOME, so the donor and target still report independently.
+      process.env.PATH = join(donorHome, '.local', 'bin') + ':' + process.env.PATH
 
       server = await startServer({
         janitorWorkerForTests: noJanitorWorkerForTests,
