@@ -401,6 +401,65 @@ describe('migration systemd operations', () => {
       }
     },
   )
+  it.skipIf(process.platform === 'win32')(
+    'removes only links to retired definitions after all stops while their fence is held',
+    async () => {
+      const root = mkdtempSync(join(tmpdir(), 'podium-retired-links-'))
+      const dir = join(root, 'units')
+      const runtimeDir = () => join(root, 'runtime')
+      const unit = 'podium-server.service'
+      const definition = join(dir, unit)
+      const dependencies = ['default.target.wants', 'other.target.requires', 'other.target.upholds']
+      for (const dependency of dependencies) mkdirSync(join(dir, dependency), { recursive: true })
+      writeFileSync(definition, '[Install]\nWantedBy=default.target\n')
+      const ownedLinks = [
+        join(dir, 'retired-alias.service'),
+        ...dependencies.map((dependency) => join(dir, dependency, unit)),
+      ]
+      symlinkSync(definition, ownedLinks[0] as string)
+      for (const path of ownedLinks.slice(1)) symlinkSync(`../${unit}`, path)
+      const foreignLink = join(dir, dependencies[0] as string, 'foreign.service')
+      symlinkSync(join(root, unit), foreignLink)
+      const regular = join(dir, dependencies[1] as string, 'operator.service')
+      writeFileSync(regular, 'operator-owned')
+      const nested = join(dir, dependencies[2] as string, 'nested')
+      mkdirSync(nested)
+      symlinkSync(definition, join(nested, unit))
+      const outside = join(root, 'operator')
+      mkdirSync(outside)
+      symlinkSync(definition, join(outside, unit))
+      symlinkSync(outside, join(dir, 'operator.target.wants'))
+      const dropin = join(dir, `${unit}.d`)
+      mkdirSync(dropin)
+      symlinkSync(definition, join(dropin, 'operator-link'))
+      const run = () => {}
+      try {
+        maskSystemdUnitsRuntime([unit], { runtimeDir, run })
+        const stillFenced = () => {
+          expect(systemdUnitRuntimeMasked(unit, { runtimeDir })).toBe(true)
+          expect(ownedLinks.every((path) => lstatSync(path).isSymbolicLink())).toBe(true)
+          expect(existsSync(definition)).toBe(true)
+        }
+        await removeUserUnits([unit], {
+          unitDir: () => dir,
+          runtimeDir,
+          run,
+          afterStop: stillFenced,
+          beforeRemove: stillFenced,
+        })
+        for (const path of ownedLinks)
+          expect(lstatSync(path, { throwIfNoEntry: false })).toBeUndefined()
+        expect(readlinkSync(foreignLink)).toBe(join(root, unit))
+        expect(readFileSync(regular, 'utf8')).toBe('operator-owned')
+        expect(readlinkSync(join(nested, unit))).toBe(definition)
+        expect(readlinkSync(join(outside, unit))).toBe(definition)
+        expect(readlinkSync(join(dir, 'operator.target.wants'))).toBe(outside)
+        expect(readlinkSync(join(dropin, 'operator-link'))).toBe(definition)
+      } finally {
+        rmSync(root, { recursive: true, force: true })
+      }
+    },
+  )
   it('ignores already-unloaded retired names but surfaces a real reset failure', async () => {
     const root = mkdtempSync(join(tmpdir(), 'podium-reset-failed-'))
     try {

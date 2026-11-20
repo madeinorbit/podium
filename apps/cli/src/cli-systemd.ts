@@ -7,6 +7,7 @@ import {
   existsSync,
   lstatSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   readlinkSync,
   rmSync,
@@ -14,7 +15,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { userInfo } from 'node:os'
-import { basename, join } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 import type { PodiumConfig } from '@podium/runtime/config'
 import { DAEMON_BLOCKED_EXIT_CODE } from '@podium/runtime/connectivity'
 import {
@@ -908,6 +909,26 @@ function resetRetiredFailedUnits(
   }
 }
 
+/** Remove enablement that systemctl cannot see through the runtime fence. */
+function removeRetiredUnitLinks(dir: string, units: readonly string[]): void {
+  if (!existsSync(dir)) return
+  const definitions = new Set(units.map((unit) => resolve(dir, unit)))
+  const removeSelectedLink = (path: string) => {
+    if (definitions.has(resolve(dirname(path), readlinkSync(path)))) rmSync(path)
+  }
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const path = join(dir, entry.name)
+    if (entry.isSymbolicLink()) removeSelectedLink(path)
+    // Only immediate dependency directories; never follow an operator's
+    // symlinked directory or recurse into drop-ins or unrelated configuration.
+    else if (entry.isDirectory() && /\.(?:wants|requires|upholds)$/.test(entry.name)) {
+      for (const link of readdirSync(path, { withFileTypes: true })) {
+        if (link.isSymbolicLink()) removeSelectedLink(join(path, link.name))
+      }
+    }
+  }
+}
+
 /**
  * Stop, disable, unlink, and daemon-reload so the definitions disappear.
  * Used only AFTER the parent reports healthy. Empty input is a no-op.
@@ -937,6 +958,10 @@ export async function removeUserUnits(
     await deps.afterStop?.(unit, units.length - i - 1)
   }
   await deps.beforeRemove?.()
+  // Keep the runtime fence and definitions until all old processes have stopped.
+  // A masked unit hides its [Install] section from systemctl disable, so remove
+  // only links to these exact definitions before removing the definitions.
+  removeRetiredUnitLinks(dir, units)
   // Clear failure while every name is still known and fenced: a crash after
   // unlink must not strand a not-found failed unit that discovery cannot see.
   resetRetiredFailedUnits(units, runCommand)
