@@ -58,8 +58,9 @@ const INV: Inventory = {
   agents: [{ kind: 'claude-code', installed: true, login: { state: 'in' } }],
   tools: [{ name: 'gh', installed: false }],
 }
-const withBaselineDrivers = (inventory: Inventory): Inventory => ({
+const withBaselineDrivers = (inventory: Inventory, homePath = '/home/u'): Inventory => ({
   ...inventory,
+  homePath,
   runtimeDrivers: [
     ...terminalRuntimeDriverInventory(),
     { harness: 'claude-code', id: 'claude-sdk', family: 'server' },
@@ -139,6 +140,7 @@ function makeRuntimeCtx(opencode2Executable?: string): {
   const snapshot = {
     inventory: withBaselineDrivers(INV),
     commandEnvironment: {
+      machineHome: '/home/u',
       resolve: (name: string) => (name === 'opencode2' ? opencode2Executable : undefined),
     },
   }
@@ -171,7 +173,7 @@ describe('daemon inventory reporting (#222)', () => {
       {
         type: 'inventoryReport',
         machineId: 'm-test',
-        inventory: withBaselineDrivers(INV),
+        inventory: withBaselineDrivers(INV, ctx.homeDir),
         descriptors: expect.any(Array),
       },
     ])
@@ -203,7 +205,7 @@ describe('daemon inventory reporting (#222)', () => {
       {
         type: 'inventoryReport',
         machineId: 'm-runtime',
-        inventory: withBaselineDrivers(INV),
+        inventory: withBaselineDrivers(INV, ctx.homeDir),
         descriptors: expect.any(Array),
       },
     ])
@@ -246,6 +248,7 @@ describe('daemon inventory reporting (#222)', () => {
         machineId: 'm-test',
         inventory: {
           ...HEADLESS_INV,
+          homePath: ctx.homeDir,
           runtimeDrivers: [
             ...terminalRuntimeDriverInventory(),
             { harness: 'claude-code', id: 'claude-sdk', family: 'server' },
@@ -286,13 +289,13 @@ describe('daemon inventory reporting (#222)', () => {
       {
         type: 'inventoryReport',
         machineId: 'm-test',
-        inventory: withBaselineDrivers(TIMED_OUT_INV),
+        inventory: withBaselineDrivers(TIMED_OUT_INV, ctx.homeDir),
         descriptors: expect.any(Array),
       },
       {
         type: 'inventoryReport',
         machineId: 'm-test',
-        inventory: withBaselineDrivers(INV),
+        inventory: withBaselineDrivers(INV, ctx.homeDir),
         descriptors: expect.any(Array),
       },
     ])
@@ -324,7 +327,7 @@ describe('daemon inventory reporting (#222)', () => {
         {
           type: 'inventoryReport',
           machineId: 'm-test',
-          inventory: withBaselineDrivers(INV),
+          inventory: withBaselineDrivers(INV, ctx.homeDir),
           descriptors: expect.any(Array),
         },
       ])
@@ -364,7 +367,7 @@ describe('daemon inventory reporting (#222)', () => {
       {
         type: 'inventoryReport',
         machineId: 'm-test',
-        inventory: withBaselineDrivers(INV),
+        inventory: withBaselineDrivers(INV, ctx.homeDir),
         descriptors: expect.any(Array),
       },
     ])
@@ -401,7 +404,7 @@ describe('daemon inventory reporting (#222)', () => {
       {
         type: 'inventoryReport',
         machineId: 'm-test',
-        inventory: withBaselineDrivers(INV),
+        inventory: withBaselineDrivers(INV, ctx.homeDir),
         descriptors: expect.any(Array),
       },
     ])

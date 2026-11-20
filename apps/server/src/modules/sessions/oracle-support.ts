@@ -290,6 +290,7 @@ export async function makeOracle(
     inventory: {
       os: 'linux',
       arch: 'x64',
+      homePath: '/home/u',
       agents: BUILTIN_HARNESS_KINDS.map((kind) => ({
         kind,
         installed: true,

@@ -247,6 +247,7 @@ const INVENTORY_FULL = {
   os: 'linux',
   arch: 'x64',
   podiumVersion: '0.1.0',
+  homePath: '/home/u',
   agents: [
     {
       kind: 'claude-code',
@@ -1008,7 +1009,13 @@ export const WIRE_FIXTURES: WireFixture[] = [
     value: {
       type: 'scanResult',
       requestId: 'req-5',
-      conversations: [{ ...CONVERSATION_SUMMARY_FULL, path: '/home/u/.claude/projects/x/native-1.jsonl', sizeBytes: 999 }],
+      conversations: [
+        {
+          ...CONVERSATION_SUMMARY_FULL,
+          path: '/home/u/.claude/projects/x/native-1.jsonl',
+          sizeBytes: 999,
+        },
+      ],
       diagnostics: [],
       removed: [],
     },

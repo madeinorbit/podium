@@ -106,6 +106,8 @@ export const Inventory = z.object({
   arch: z.enum(['x64', 'arm64']),
   /** Absent until #221 ships `podium --version`. */
   podiumVersion: z.string().optional(),
+  /** The daemon user's real home. Absent on daemons predating this field. */
+  homePath: z.string().min(1).optional(),
   /** All 5 HarnessAgent kinds, present or not. */
   agents: z.array(AgentInventory),
   /** Concrete runtime drivers admitted by this daemon's manifest and live

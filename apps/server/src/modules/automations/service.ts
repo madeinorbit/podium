@@ -12,10 +12,9 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { homedir } from 'node:os'
 import { assertScheduleFloor, nextAfter, nextRunAfter, parseCron } from '@podium/commands'
 import { createLogger, describeError } from '@podium/logger'
-import type { AutomationId, IssueId, SessionId } from '@podium/model'
+import type { AutomationId, IssueId, MachineId, SessionId } from '@podium/model'
 import {
   type AgentKind,
   AUTOMATION_RUN_RESERVED,
@@ -36,6 +35,7 @@ import type {
   AutomationRunRow,
   AutomationsRepository,
 } from '../../store/automations'
+import type { MachinesService } from '../machines/service'
 import { type AutomationDecision, decideTick, type Schedulable } from './decide'
 import type { DeliverAutomationPrompt } from './prompt'
 
@@ -46,6 +46,7 @@ export type AutomationCommandWriter = Pick<LedgerWriter, 'commit'>
 
 export interface AutomationsDeps {
   store: AutomationsRepository
+  machines: Pick<MachinesService, 'defaultMachine' | 'resolveMachineForAgent' | 'machineHome'>
   /**
    * The scheduler's own writer, a `server` origin (`automations.schedule`): the
    * runs it records and the re-arms. Never a command's: the
@@ -57,6 +58,7 @@ export interface AutomationsDeps {
    *  NOT the `sessions.create` tRPC procedure — that stamps spawnedBy 'user'. */
   createSession(input: {
     cwd: string
+    machineId: MachineId
     agentKind?: AgentKind
     model?: string
     effort?: string
@@ -98,8 +100,6 @@ export interface AutomationsDeps {
    */
   sessionOwnerUserId?(sessionId: SessionId): Promise<UserId | undefined>
   now(): Date
-  /** Where a GLOBAL (repo-less) automation runs. Injected for the tests. */
-  homeDir?(): string
 }
 
 export interface AutomationInput {
@@ -155,10 +155,6 @@ export class AutomationsService {
 
   private now(): Date {
     return this.deps.now()
-  }
-
-  private homeDir(): string {
-    return this.deps.homeDir ? this.deps.homeDir() : homedir()
   }
 
   /** The armed time for an automation, or null when it is disabled (or a cron can
@@ -688,7 +684,10 @@ export class AutomationsService {
         null,
       )
     }
-    const cwd = automation.repoPath ?? this.homeDir()
+    const machineId = automation.repoPath
+      ? await this.deps.machines.resolveMachineForAgent(undefined, automation.repoPath, agentKind)
+      : await this.deps.machines.defaultMachine()
+    const cwd = automation.repoPath ?? (await this.deps.machines.machineHome(machineId))
     const issue = await this.deps.createIssue({
       repoPath: cwd,
       title: automation.name,
@@ -703,6 +702,7 @@ export class AutomationsService {
     })
     const { sessionId } = await this.deps.createSession({
       cwd,
+      machineId,
       agentKind,
       model: automation.model,
       effort: automation.effort,

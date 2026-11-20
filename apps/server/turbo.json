@@ -2228,6 +2228,7 @@
         "src/modules/superagent/headless-spawn-delivery.test.ts",
         "src/modules/superagent/headless.ts",
         "src/modules/superagent/index.ts",
+        "src/modules/superagent/machine-home.test.ts",
         "src/modules/superagent/refusal.ts",
         "src/modules/superagent/registry.ts",
         "src/modules/superagent/send.test.ts",

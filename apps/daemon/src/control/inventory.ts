@@ -204,6 +204,7 @@ export async function reportInventory(
                 env: snapshot.commandEnvironment.env,
               })
             : snapshot.inventory),
+          homePath: snapshot.commandEnvironment.machineHome,
           runtimeDrivers: runtimeDriverInventory(snapshot.inventory, drivableAlternatives),
         },
         // Served descriptors (POD-4475): adapter DATA plus this machine's
@@ -287,6 +288,7 @@ export async function reportInventory(
               env: {},
             })
           : inventory),
+        homePath: ctx.homeDir ?? homedir(),
         runtimeDrivers: runtimeDriverInventory(inventory),
       },
       // Served descriptors (POD-4475): see the harnessRuntime path above.

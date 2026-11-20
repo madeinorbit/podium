@@ -3903,6 +3903,7 @@ export class SessionRegistry {
     // makes the next occurrence a skipped_overlap rather than a pile-up.
     const automationService = new AutomationsService({
       store: this.store.automations,
+      machines,
       ledger: writes.system('automations.schedule'),
       createSession: async (o) =>
         await sessionsSvc.createSession({ ...o, requestTerminalDriver: true }),

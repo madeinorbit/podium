@@ -1,4 +1,11 @@
-import { asAutomationId, asIssueId, asSessionId, firstAdminMemberId } from '@podium/model'
+import {
+  asAutomationId,
+  asIssueId,
+  asMachineId,
+  asSessionId,
+  BUILTIN_HARNESS_KINDS,
+  firstAdminMemberId,
+} from '@podium/model'
 import { automationOccurrenceRunId } from '@podium/protocol'
 import { Ledger } from '@podium/sync'
 import { fixtureWriteScope, testLedgerWriter } from '@podium/sync/testing'
@@ -7,6 +14,7 @@ import { userCommandPrincipal } from '../../command-principal'
 import { openTestStore } from '../../test-support/open-test-store'
 import { logStoreRecords } from '../../test-support/record-writer'
 import { seedRows } from '../../test-support/seed-rows'
+import { MachineHomeUnavailableError, MachinesService } from '../machines/service'
 import { type AutomationDecision, decideTick, GRACE_MS, type Schedulable } from './decide'
 import type { AutomationPrompt } from './prompt'
 import { type AutomationCommandWriter, type AutomationInput, AutomationsService } from './service'
@@ -189,9 +197,36 @@ async function harness(
     queueOk?: boolean
     resumeOk?: boolean
     resumeReason?: string
+    homePath?: string | null
   } = {},
 ) {
   const store = await openTestStore(':memory:')
+  const machineId = asMachineId('automation-machine')
+  await store.machines.upsertMachine({
+    id: machineId,
+    name: 'Automation machine',
+    hostname: 'automation-machine',
+    tokenHash: 'test',
+    ownerUserId: firstAdminMemberId(),
+    assignment: { server: false, agentExecution: true },
+  })
+  const machines = new MachinesService({
+    store,
+    hostMachineId: store.hostMachineId,
+    instanceId: 'default',
+  })
+  await machines.attach(machineId, () => {})
+  await machines.recordInventory(machineId, {
+    os: 'win32',
+    arch: 'x64',
+    ...(opts.homePath === null ? {} : { homePath: opts.homePath ?? 'C:\\Users\\u' }),
+    agents: BUILTIN_HARNESS_KINDS.map((kind) => ({
+      kind,
+      installed: true,
+      login: { state: 'in' as const },
+    })),
+    tools: [],
+  })
   let clock = NOW
   let n = 0
   let issueN = 0
@@ -220,6 +255,7 @@ async function harness(
   const service = asOperator(
     new AutomationsService({
       store: store.automations,
+      machines,
       ledger: writer,
       createSession,
       deliverPrompt,
@@ -228,12 +264,13 @@ async function harness(
       principalForOwner: () => (authorized ? TEST_PRINCIPAL : undefined),
       mayUseDefaultMachine: () => true,
       now: () => clock,
-      homeDir: () => '/home/tester',
     }),
     writer,
   )
   return {
     store,
+    machines,
+    machineId,
     service,
     ledger,
     createSession,
@@ -728,12 +765,49 @@ describe('AutomationsService.tick — spawn', () => {
     expect((await h.service.runs(a.id)).map((run) => run.sessionId)).toEqual(['sess_2', 'sess_1'])
   })
 
-  it('a GLOBAL automation (repo_path NULL) runs in the home directory', async () => {
-    const h = await harness()
+  it.each([
+    'C:\\Users\\u',
+    '/Users/u',
+  ])('a GLOBAL automation uses the target home for cwd and issue repoPath: %s', async (homePath) => {
+    const h = await harness({ homePath })
     await daily(h, { repoPath: null })
     h.setNow(new Date(2026, 6, 15, 9, 1))
     await h.service.tick()
-    expect((h.createSession.mock.calls[0]![0] as { cwd: string }).cwd).toBe('/home/tester')
+    expect(h.createSession).toHaveBeenCalledWith(
+      expect.objectContaining({ cwd: homePath, machineId: h.machineId }),
+    )
+    expect(h.createIssue).toHaveBeenCalledWith(expect.objectContaining({ repoPath: homePath }))
+  })
+
+  it.each([
+    'home-unreported',
+    'offline',
+  ] as const)('refuses a folderless run before creating an issue or spawning: %s', async (reason) => {
+    const h = await harness({ homePath: reason === 'home-unreported' ? null : undefined })
+    const a = await daily(h, { repoPath: null })
+    if (reason === 'offline') {
+      // The selected machine disconnects before the launch can resolve its home.
+      vi.spyOn(h.machines, 'defaultMachine').mockImplementation(async () => {
+        h.machines.detach(h.machineId)
+        return h.machineId
+      })
+    }
+    const home = vi.spyOn(h.machines, 'machineHome')
+    h.setNow(new Date(2026, 6, 15, 9, 1))
+    await h.service.tick()
+    await expect(home.mock.results[0]!.value).rejects.toMatchObject({
+      name: 'MachineHomeUnavailableError',
+      code: 'PRECONDITION_FAILED',
+      reason,
+      machineId: h.machineId,
+    })
+    await expect(home.mock.results[0]!.value).rejects.toBeInstanceOf(MachineHomeUnavailableError)
+    expect(h.createSession).not.toHaveBeenCalled()
+    expect(h.createIssue).not.toHaveBeenCalled()
+    expect((await h.service.runs(a.id))[0]).toMatchObject({
+      outcome: 'error',
+      detail: expect.stringContaining('Automation machine'),
+    })
   })
 
   it('does nothing when nothing is due', async () => {
@@ -787,6 +861,7 @@ describe('AutomationsService.tick — the missed / overlap / error policy', () =
     const live = await harness({ live: ['sess_1'] })
     const service = new AutomationsService({
       store: h.store.automations,
+      machines: h.machines,
       ledger: testLedgerWriter(h.ledger),
       createSession: live.createSession,
       deliverPrompt: live.deliverPrompt,

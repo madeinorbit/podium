@@ -430,6 +430,23 @@ export function disclosedBindingFacts(
  */
 const log = createLogger('server:machines')
 
+export class MachineHomeUnavailableError extends TRPCError {
+  constructor(
+    readonly machineId: MachineId,
+    readonly machineName: string,
+    readonly reason: 'offline' | 'home-unreported',
+  ) {
+    super({
+      code: 'PRECONDITION_FAILED',
+      message:
+        reason === 'offline'
+          ? `machine '${machineName}' is offline — reconnect it and retry`
+          : `home directory is unknown — update the daemon on '${machineName}' and retry`,
+    })
+    this.name = 'MachineHomeUnavailableError'
+  }
+}
+
 export class MachinesService {
   private readonly spaceRequests = new UpdateSpaceRequests()
 
@@ -1505,6 +1522,18 @@ export class MachinesService {
   /** Display name for a machineId (the machines table); falls back to the id. */
   async machineName(id: string): Promise<string> {
     return (await this.deps.store.machines.getMachine(id))?.name ?? id
+  }
+
+  /** A folderless launch needs a home reported by this live daemon connection. */
+  async machineHome(machineId: MachineId): Promise<string> {
+    const machine = await this.deps.store.machines.getMachine(machineId)
+    const name = machine?.name ?? machineId
+    if (!this.daemons.has(machineId)) {
+      throw new MachineHomeUnavailableError(machineId, name, 'offline')
+    }
+    const home = this.inventoryPending.has(machineId) ? undefined : machine?.inventory?.homePath
+    if (!home) throw new MachineHomeUnavailableError(machineId, name, 'home-unreported')
+    return home
   }
 
   /** {@link machineName} for many machines in one query; every asked id gets an entry. */
