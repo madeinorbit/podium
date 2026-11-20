@@ -91,7 +91,7 @@ import { durableSessionLabel } from '@podium/runtime/instance'
 import { readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
 import { openDatabase, type SqlParam } from '@podium/runtime/sqlite'
 import { createTRPCClient, httpBatchLink } from '@trpc/client'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { WebSocket } from 'ws'
 import { startServer } from '../apps/server/src/test-support/enrolled-server'
 
@@ -705,6 +705,8 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
     let oldDaemon: DaemonHandle | undefined
     let newDaemon: DaemonHandle | undefined
     let newServer: Awaited<ReturnType<typeof startServer>> | undefined
+    const queueOutcomes: unknown[] = []
+    let restoreFrameProbe: (() => void) | undefined
     let attemptsPre: number[] = []
     let sHarness = ''
     let sHib = ''
@@ -1000,6 +1002,15 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
       // -- NEW BUILD takes over the same state dir and DB --------------------
       stripLoopbackPublicUrl()
       newServer = await startServer({ port: 0 })
+      const gateway = newServer.registry.gateway
+      const routeFrame = gateway.routeDaemonFrame.bind(gateway)
+      const frameProbe = vi.spyOn(gateway, 'routeDaemonFrame').mockImplementation((peer, msg) => {
+        if (msg.type === 'runtimeEvent' && msg.sessionId === sQueue && msg.event.t === 'delivery') {
+          queueOutcomes.push(msg.event)
+        }
+        return routeFrame(peer, msg)
+      })
+      restoreFrameProbe = () => frameProbe.mockRestore()
       const newPort = (newServer as unknown as { port: number }).port
       {
         const db = openDb()
@@ -1187,6 +1198,7 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
           db.close()
         }
         await sleep(30_000)
+        console.info('upgrade-4428 queue outcomes', JSON.stringify(queueOutcomes))
         // NOTE: no timestamp order here — the daemon ACKs custody in
         // milliseconds (reserves land in the same poll tick by design); the
         // FIFO order is proven by the telemetry line order below instead.
@@ -1299,6 +1311,7 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
         }
       } catch {}
       for (const d of daemonDirs.splice(0)) rmSync(d, { recursive: true, force: true })
+      restoreFrameProbe?.()
       if (newServer) await newServer.close().catch(() => {})
       try {
         oldDaemon && (await oldDaemon.kill().catch(() => {}))
