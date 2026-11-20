@@ -76,7 +76,7 @@ export const filesWriteContract = {
       'against the machine and nothing else — which is what the shipped procedure already does via ' +
       '`isAllowedRoot(repos.list())`. `use` and not `manage`: saving a file is working IN the ' +
       'checkout, the same verb as any other edit there, and it changes nothing about the machine ' +
-      'itself. A member holding `use` may do it, matching specs. No confirmation even though this ' +
+      'itself. A member holding `use` may do it. No confirmation even though this ' +
       'OVERWRITES an existing file: the caller is an editor whose user is looking at the buffer, ' +
       '`baseHash` already guards the lost-update case the daemon can actually detect, and git holds ' +
       'the previous bytes in a repository — which the root allowlist guarantees this is.',

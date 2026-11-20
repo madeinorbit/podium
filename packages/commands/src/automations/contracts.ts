@@ -583,7 +583,7 @@ export const automationRemoveContract = {
  *
  * `list` and `runs` are QUERIES and stay hand-written in `router.ts`: a contract's
  * `visibility` classifies what a command WRITES, and a read writes nothing. That
- * is the same line `modules/workflows/queries.ts` and `SPEC_CONTRACTS` draw, and
+ * is the same line `modules/workflows/queries.ts` draws, and
  * it is why the cutover audit checks for a hand-written `.mutation(` rather than
  * for an empty router.
  */

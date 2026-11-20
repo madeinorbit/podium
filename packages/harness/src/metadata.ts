@@ -68,7 +68,7 @@ export {
 export type { AgentStateEvent } from './agent-state/types.js'
 // Two prompt-pointer string constants. Data the server renders into agent
 // prompts; they name no process and reach no host.
-export { ISSUE_SYSTEM_POINTER, SPEC_SYSTEM_POINTER } from './issue-system-pointer.js'
+export { ISSUE_SYSTEM_POINTER } from './issue-system-pointer.js'
 // Types only. Erased at build, so they carry nothing at all; listed rather than
 // starred for the same reason as everything above.
 export type {

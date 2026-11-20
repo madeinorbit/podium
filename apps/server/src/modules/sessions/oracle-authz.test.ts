@@ -97,10 +97,22 @@ async function twoIssueOracle() {
   const o = await makeOracle()
   // Issues are placed on a machine that reported their repo (2b803efb5).
   await o.store.repos.addRepo('/r', o.store.hostMachineId)
-  const a = await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, { repoPath: '/r', title: 'issue A', startNow: false })
-  await o.reg.issues.crud.update(o.reg.issues.reports.store.serverWriter, a.id, { worktreePath: '/r/.worktrees/a' })
-  const b = await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, { repoPath: '/r', title: 'issue B', startNow: false })
-  await o.reg.issues.crud.update(o.reg.issues.reports.store.serverWriter, b.id, { worktreePath: '/r/.worktrees/b' })
+  const a = await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, {
+    repoPath: '/r',
+    title: 'issue A',
+    startNow: false,
+  })
+  await o.reg.issues.crud.update(o.reg.issues.reports.store.serverWriter, a.id, {
+    worktreePath: '/r/.worktrees/a',
+  })
+  const b = await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, {
+    repoPath: '/r',
+    title: 'issue B',
+    startNow: false,
+  })
+  await o.reg.issues.crud.update(o.reg.issues.reports.store.serverWriter, b.id, {
+    worktreePath: '/r/.worktrees/b',
+  })
   // The AGENT: a session inside A's worktree ⇒ capability scoped to A's subtree.
   const agent = await o.reg.modules.sessions.createSession({
     agentKind: 'shell',
@@ -264,7 +276,7 @@ describe('oracle: how a relayed call ends — refused by the gate, lost before d
   })
 
   it(`${AGENT_ONLY}: the absent-from-dispatch ending is reachable, and it is NOT a refusal`, async () => {
-    // `specs` is allowlisted wholesale (`null` = any proc), so an unknown proc on
+    // `issues` is allowlisted wholesale (`null` = any proc), so an unknown proc on
     // it passes the gate and finds no arm. That is exactly the shape a mis-wired
     // allowlist entry takes, which is why the classifier must name it rather than
     // fold it in with the policy refusal above.
@@ -272,15 +284,15 @@ describe('oracle: how a relayed call ends — refused by the gate, lost before d
     const reply = await o.relay({
       requestId: 'ending-absent-dispatch',
       sessionId: agentSessionId,
-      router: 'specs',
+      router: 'issues',
       proc: 'definitelyNotAProc',
       input: {},
     })
-    expect(classifyRelay(reply, 'specs', 'definitelyNotAProc')).toBe('absent-from-dispatch')
+    expect(classifyRelay(reply, 'issues', 'definitelyNotAProc')).toBe('absent-from-dispatch')
     expect(reply.ok).toBe(false)
     // Both endings answer ok:false. Only the classification separates them, and
     // the point of separating them is that one is a decision and one is a bug.
-    expect(classifyRelay(reply, 'specs', 'definitelyNotAProc')).not.toBe('gate-refused')
+    expect(classifyRelay(reply, 'issues', 'definitelyNotAProc')).not.toBe('gate-refused')
   })
 })
 

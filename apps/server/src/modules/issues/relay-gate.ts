@@ -26,10 +26,6 @@ export const RELAY_ALLOWED: Readonly<Record<string, ReadonlySet<string> | null>>
   // Read-only agent plan limits. This is the same global multi-machine summary
   // the operator sees in the top-bar panel; no provider credentials cross it.
   quota: new Set(['summary']),
-  // The living spec (pspec, #135): agents read/write pspec/ files they could
-  // touch with their own tools anyway — the specs router adds no privilege
-  // beyond its repo-root allowlist.
-  specs: null,
   // status/read = read-toolkit tiers 1–2 (#237) [spec:SP-34d7] — structured
   // status + bounded transcript window, scope-gated like the send ops and
   // event-logged per read.

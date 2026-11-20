@@ -60,8 +60,6 @@ import {
 import type { SessionLifecycle } from '../sessions/lifecycle'
 import type { SessionReadToolkit } from '../sessions/read-toolkit'
 import { handoffThroughEffect } from '../sessions/session-handoff-effect'
-import { dispatchSpecRelay, NO_SUCH_SPEC_PROC } from '../specs/relay'
-import type { SpecsService } from '../specs/service'
 import { dispatchWorkflowRpc, workflowRelayWrite } from '../workflows/rpc'
 import type { WorkflowCaller, WorkflowService } from '../workflows/service'
 import { NOT_A_RELAY_WRITE, relayPlainWrite, relaySyncWrite } from '../write-routes/relay'
@@ -90,7 +88,6 @@ export interface AgentRelayDispatchDeps {
   readonly modules: () => RegistryModules
   readonly readToolkit: SessionReadToolkit
   readonly sessionsSvc: SessionLifecycle
-  readonly specs: SpecsService
   readonly workflowCallerForCapability: (
     capability: Capability,
     overrideScope?: boolean,
@@ -173,7 +170,6 @@ export function makeAgentRelayDispatch(
     modules,
     readToolkit,
     sessionsSvc,
-    specs,
     workflowCallerForCapability,
     workflows,
   } = deps
@@ -267,13 +263,6 @@ export function makeAgentRelayDispatch(
       if (!machine.online) throw new Error(`machine '${machine.name}' is offline`)
       modules().machines.toMachine(asMachineId(machine.id), { type: 'inventoryRequest' })
       return await Promise.resolve({ machineId: machine.id, requested: true })
-    }
-    if (router === 'specs') {
-      // Writes are plain registrations (POD-6418, POD-6593); reads the service's own.
-      const written = await relayPlainWrite(writeCall)
-      if (written !== NOT_A_RELAY_WRITE) return written
-      const answer = await dispatchSpecRelay(specs, proc, input)
-      return answer === NO_SUCH_SPEC_PROC ? NO_SUCH_PROCEDURE : answer
     }
     // Advisory lease locks [spec:SP-85d1]: the caller's session identity is
     // stamped server-side via the capability (actorSessionId), never from input.

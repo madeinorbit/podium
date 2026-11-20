@@ -1,6 +1,6 @@
 /**
  * THE SMALL READ-ONLY SURFACES (POD-314) — `search`, `git`, `usage`, `quota`,
- * `features`, and the remaining reads of `superagent`, `specs`, `settings` and
+ * `features`, and the remaining reads of `superagent`, `settings` and
  * `automations`.
  *
  * ONE FILE, and the grouping is by SHAPE rather than by feature: every table
@@ -39,7 +39,6 @@ import type { FamilyState } from './derived-family'
 import { assertReadableRoot } from './files/registry'
 import { defineQuery } from './query-table'
 import { QUOTA_HISTORY_DEFAULT_DAYS, recordQuotaSamples } from './quota-history/service'
-import { specsInputs } from './specs/service'
 import { readUsageSummary, UsageAttributionUnavailable } from './usage-summary'
 
 const q = defineQuery<FamilyState>()
@@ -296,15 +295,6 @@ export const SUPERAGENT_QUERIES = {
     z.object({ threadId: ThreadIdField.default(asThreadId('global')) }),
     async (s, input) => await s.superagent.history(asUserId(s.caller.userId), input.threadId),
   ),
-} as const
-
-/** POD-386 derived `create · save · remove`; these three reads carry no contract
- *  and are authorized by the identical `requireRepoRoot` call inside the
- *  service. */
-export const SPEC_QUERIES = {
-  list: q(specsInputs.list, (s, input) => s.modules.specs.list(input)),
-  get: q(specsInputs.get, (s, input) => s.modules.specs.get(input)),
-  search: q(specsInputs.search, (s, input) => s.modules.specs.search(input)),
 } as const
 
 /** POD-735 derived the four automation writes; these two reads stayed

@@ -1,5 +1,5 @@
 import { OFFLINE_FEATURE_FACTS, resolveFeatureStates } from '@podium/protocol'
-import { DEFAULT_SETTINGS, type PodiumSettings } from '@podium/runtime'
+import { DEFAULT_SETTINGS, normalizeSettings, type PodiumSettings } from '@podium/runtime'
 import type { PodiumConfig } from '@podium/runtime/config'
 import { describe, expect, it } from 'vitest'
 import { getFeatureStates, isFeatureEnabled, serverFeatureFacts } from './features'
@@ -16,6 +16,19 @@ function settings(experimental: Record<string, boolean> = {}): PodiumSettings {
 const HIDDEN = 'shipwright'
 
 describe('getFeatureStates [spec:SP-f4b9]', () => {
+  it('loads stored settings with the removed specs flag and ignores it', () => {
+    const stored = JSON.parse('{"experimental":{"specs":true,"automations":true}}')
+    const loaded = normalizeSettings(stored)
+    expect(loaded.experimental).toEqual({ specs: true, automations: true })
+
+    const result = getFeatureStates(loaded, {}, { PODIUM_APP_VERSION: 'dev' })
+    expect(result.flags.some((flag) => flag.id === 'specs')).toBe(false)
+    expect(result.flags.find((flag) => flag.id === 'automations')).toMatchObject({
+      enabled: true,
+      source: 'user',
+    })
+  })
+
   it('dev mode lists a hidden flag with its definition copy; default off', () => {
     const result = getFeatureStates(settings(), {}, { PODIUM_APP_VERSION: 'dev' })
     expect(result.devMode).toBe(true)

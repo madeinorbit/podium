@@ -10,7 +10,7 @@
  * `router.ts` spreads the result into its `automations` router alongside the two
  * QUERIES, which are not derived: they have no contracts, because a `visibility`
  * class describes what a command WRITES and a read writes nothing (the same line
- * `modules/workflows/queries.ts` and `SPEC_CONTRACTS` draw).
+ * `modules/workflows/queries.ts` draws).
  *
  * ---------------------------------------------------------------------------
  * WHAT WAS THERE BEFORE

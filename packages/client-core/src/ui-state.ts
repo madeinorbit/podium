@@ -626,14 +626,7 @@ export function createRoutedUiState(init: {
   }
 }
 
-export type MainView =
-  | 'workspace'
-  | 'settings'
-  | 'usage'
-  | 'issues'
-  | 'automations'
-  | 'specs'
-  | 'workflows'
+export type MainView = 'workspace' | 'settings' | 'usage' | 'issues' | 'automations' | 'workflows'
 
 /** Public settings destinations. Old links are canonicalized before entering history. */
 export const SETTINGS_PAGE_IDS = [
@@ -747,7 +740,6 @@ export function parseRoute(pathname: string, search: string): RouteState | null 
       }
     case 'usage':
     case 'automations':
-    case 'specs':
     case 'workflows':
       return second === undefined ? { view: head, ...base } : null
     default:
@@ -949,7 +941,6 @@ export function readStoredView(ui: Pick<RoutedUiState, 'get'>): MainView {
     value === 'usage' ||
     value === 'issues' ||
     value === 'automations' ||
-    value === 'specs' ||
     value === 'workflows'
     ? value
     : 'workspace'

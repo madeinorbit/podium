@@ -18,7 +18,6 @@ import { runsAsEffectRecord } from '../issues/work-effects'
 import { lockRegistry } from '../lock/registry'
 import { plainCommands } from '../plain-command/commands'
 import { disposeOracles, makeOracle } from '../sessions/oracle-support'
-import { SPEC_COMMANDS_TRPC } from '../specs/registry'
 import { WORKFLOW_COMMANDS } from '../workflows/registry'
 import { DIRECT_WRITE_OWNERS } from './direct'
 import { RELAY_ARMS, RELAY_FAMILY_ROUTERS } from './relay'
@@ -84,16 +83,6 @@ describe('the routers the relay opens whole', () => {
       .filter((proc) => sync.lookup(`issues.${proc}`) === undefined && !runsAsEffectRecord(proc))
     expect(unregistered).toEqual([])
     expect(sync.lookup('effects.create')).toBeDefined()
-  })
-
-  // The spec and workflow command tables hold writes only; their reads are queries.
-  it('every spec write on the relay is a plain registration', () => {
-    const missing = Object.values(SPEC_COMMANDS_TRPC)
-      .map(({ contract }) => contract)
-      .filter((contract) => contract.exposure.includes('relay'))
-      .map((contract) => contract.name)
-      .filter((name) => !relayPlain(name))
-    expect(missing).toEqual([])
   })
 
   it('every lock write on the relay is a plain registration', () => {

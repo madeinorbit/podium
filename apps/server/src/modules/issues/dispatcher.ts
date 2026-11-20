@@ -301,18 +301,7 @@ export class IssueCommandDispatcher {
     const issues = Object.fromEntries(
       ISSUE_COMMAND_NAMES.map((name) => [name, proc('issues', name)]),
     ) as Record<IssueContractName, IssueProc>
-    // The in-process surface never served the specs router (pspec rides the
-    // daemon relay / HTTP only) — keep the historical "no such procedure" throw.
-    const specProc = (name: string): IssueProc => {
-      const call = (): Promise<unknown> => {
-        throw new Error(`no such issue procedure: specs.${name}`)
-      }
-      return { query: call, mutate: call }
-    }
-    const specs = Object.fromEntries(
-      ['list', 'get', 'create', 'save', 'remove', 'search'].map((n) => [n, specProc(n)]),
-    )
-    // Like specs, the in-process surface doesn't serve the lock router
+    // The in-process surface doesn't serve the lock router
     // [spec:SP-85d1] — locks ride the daemon relay / HTTP (podium lock CLI).
     const lockProc = (name: string): IssueProc => {
       const call = (): Promise<unknown> => {
@@ -326,7 +315,6 @@ export class IssueCommandDispatcher {
     return {
       issues,
       repos: { inferFromPath: proc('repos', 'inferFromPath') },
-      specs,
       lock,
     } as IssueTrpc
   }

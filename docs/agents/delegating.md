@@ -280,8 +280,7 @@ podium issue create --title "Child session name at spawn" --parent-id 694 \
   --agent grok --model grok-4.5 --start \
   --description "Names child sessions at spawn so delegated work is legible to the human." \
   --brief "
-You are implementing POD-699 (Child session name at spawn). Read \`podium spec show SP-eb60\`
-(title doctrine) first.
+You are implementing POD-699 (Child session name at spawn).
 
 FIRST ACTION: podium session title \"Spawn child naming flag\"
 (this path spawns via --start, which names the issue, not the session — so you name

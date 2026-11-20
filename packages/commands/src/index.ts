@@ -560,18 +560,6 @@ export {
   type SettingsWriteRefusal,
 } from './settings/write-plan'
 export {
-  SPEC_CONTRACT_NAMES,
-  SPEC_CONTRACTS,
-  type SpecContractName,
-  SpecStatus,
-  specsCreateContract,
-  specsCreateInput,
-  specsRemoveContract,
-  specsRemoveInput,
-  specsSaveContract,
-  specsSaveInput,
-} from './specs/contracts'
-export {
   SUPERAGENT_COMMAND_NAMES,
   SUPERAGENT_CONTRACTS,
   type SuperagentContractName,

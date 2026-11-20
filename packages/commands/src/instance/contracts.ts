@@ -56,7 +56,7 @@ import type {
 
 /** `trpc` alone for all nine. The CLI reaches the SAME core functions
  *  (`applyJoin`, `applySetup`) directly rather than through a procedure, so a
- *  `cli` tag here would open nothing — measured, as POD-386 did for specs. */
+ *  `cli` tag here would open nothing. */
 const SERVED_ON: readonly TransportTag[] = ['trpc']
 
 const SUBSTRATE: VisibilityClass = 'deployment-substrate'

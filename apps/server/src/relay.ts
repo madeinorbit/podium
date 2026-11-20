@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import type { BlobStore } from '@podium/blob-store'
 import { LocalBlobStorage } from '@podium/blob-store/local'
 import { type HumanCeiling, workflowAssignInput } from '@podium/commands'
-import { ISSUE_SYSTEM_POINTER, SPEC_SYSTEM_POINTER } from '@podium/harness/metadata'
+import { ISSUE_SYSTEM_POINTER } from '@podium/harness/metadata'
 import type { OneTimeCodeOperations } from '@podium/identity'
 import type {
   AgentKind,
@@ -287,7 +287,6 @@ import {
   ShipwrightService,
   shipwrightApplyPatchThroughRelay,
 } from './modules/shipping/shipwright'
-import { SpecsService } from './modules/specs/service'
 import { deliverAnswerToSession } from './modules/superagent/answer-delivery'
 import type { HeadlessService } from './modules/superagent/headless'
 import type { SuperagentService } from './modules/superagent/service'
@@ -596,7 +595,6 @@ export interface RegistryModules {
   /** Durable Shipping control plane; command registration is owned by POD-889. */
   shipping: ShippingService
   issueCommands: IssueCommandDispatcher
-  specs: SpecsService
   approvals: ApprovalService
   /** The PendingInteraction aggregate (POD-2020) — every blocking ask, durable
    *  and answerable from any surface. */
@@ -1636,11 +1634,6 @@ export class SessionRegistry {
       (await ledger.authority.installedValues('issueProjection', [issueId])).get(issueId) as
         | { id: string; parentId?: string | null }
         | undefined
-    // Specs only read repository paths. Issue writes capture their affected
-    // records in the source transaction.
-    const specs = new SpecsService({
-      repoRoots: async () => await this.store.repos.listRepoPaths(),
-    })
     // Advisory named lease locks [spec:SP-85d1]. Worktree invalidation is an
     // event callback into the already-constructed gateway registry, not a
     // deferred service dependency.
@@ -3707,10 +3700,6 @@ export class SessionRegistry {
         issueId ? { content: seatText(await issues.reports.seatFor(sessionId, issueId)) } : null,
     })
     sessionInstructions.register({
-      source: 'podium:specs',
-      prepare: async () => (featureEnabled('specs') ? { content: SPEC_SYSTEM_POINTER } : null),
-    })
-    sessionInstructions.register({
       source: 'podium:workflow',
       prepare: async ({ sessionId, cwd, issueId, workflowRevisionId, existingOnly }) => {
         if (!featureEnabled('workflows')) return null
@@ -5155,7 +5144,6 @@ export class SessionRegistry {
       issueSessionLifecycle,
       sessionLifecycleController,
       issueCommands,
-      specs,
       approvals,
       interactions,
       workflows,
@@ -5327,12 +5315,11 @@ export class SessionRegistry {
     })
     const agentRelayGate = new AgentRelayGate({
       // issues/repos ops run through the registry dispatcher (guard + schema +
-      // handler, router-equal); the specs router (pspec, #135) is served by the
-      // specs module — same schemas + repo-root gate as the tRPC slice; the
-      // sessions slice exposes ONLY real-turn delivery (sendText/resumeAndSend/
-      // continue — never spawn/kill/archive or raw PTY input), scope-gated
+      // handler, router-equal); the sessions slice exposes ONLY real-turn
+      // delivery (sendText/resumeAndSend/continue — never spawn/kill/archive or
+      // raw PTY input), scope-gated
       // against the TARGET session's issue exactly like an issue write
-      // (RELAY_ALLOWED lists all four routers).
+      // (RELAY_ALLOWED lists the exposed procedures).
       dispatch: makeAgentRelayDispatch({
         approvals,
         featureStates: () => getFeatureStates(currentSettings),
@@ -5348,7 +5335,6 @@ export class SessionRegistry {
         modules: () => this.modules,
         readToolkit,
         sessionsSvc,
-        specs,
         workflowCallerForCapability,
         workflows,
       }),

@@ -14,7 +14,6 @@ import type { Trpc } from '../src/app/trpc'
 import { AutomationsView } from '../src/features/automations/AutomationsView'
 import { automationTargetChoices } from '../src/features/automations/automation-form'
 import { NewAutomationDialog } from '../src/features/automations/NewAutomationDialog'
-import { SpecsView } from '../src/features/specs/SpecsView'
 import { ConfirmProvider } from '../src/lib/hooks/use-confirm'
 import { createAutomationsFixture } from './automations-fixture'
 import '../src/index.css'
@@ -38,7 +37,7 @@ function Surface() {
   }, [])
   return (
     <Profiler
-      id="automation-specs"
+      id="automations"
       onRender={(_id, _phase, duration) => {
         commits++
         commitMs += duration
@@ -47,9 +46,6 @@ function Surface() {
       <main className="grid h-screen grid-cols-2 gap-3">
         <div data-proof-surface="automations">
           <AutomationsView />
-        </div>
-        <div data-proof-surface="specs">
-          <SpecsView />
         </div>
         {dialog && (
           <NewAutomationDialog

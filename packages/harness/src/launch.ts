@@ -8,18 +8,14 @@ import {
   shellCommand,
 } from './bound-command.js'
 import type { HarnessContext } from './harness-context-types.js'
-import { ISSUE_SYSTEM_POINTER, SPEC_SYSTEM_POINTER } from './issue-system-pointer.js'
+import { ISSUE_SYSTEM_POINTER } from './issue-system-pointer.js'
 import { agentLaunchTerms } from './launch-terms.js'
 import type { HarnessLaunchOptions, LaunchArgv } from './manifest.js'
 import type { PostureRequest } from './posture-types.js'
 import { harnessAdapterFor, harnessSupportsInitialPrompt } from './registry.js'
 
 // Re-exported so daemon/launch consumers can import them alongside agentLaunchCommand.
-export {
-  harnessSupportsInitialPrompt as agentSupportsInitialPrompt,
-  ISSUE_SYSTEM_POINTER,
-  SPEC_SYSTEM_POINTER,
-}
+export { harnessSupportsInitialPrompt as agentSupportsInitialPrompt, ISSUE_SYSTEM_POINTER }
 
 /**
  * Launch options as the session spawn path holds them. `harnessContext` and

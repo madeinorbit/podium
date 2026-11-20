@@ -17,9 +17,7 @@
  * THE ROOT ALLOWLIST STAYS IN THE HANDLER, deliberately. It is the shipped gate,
  * moved verbatim: `isAllowedRoot(repos.list(), root)` throwing FORBIDDEN. It is
  * not promoted into the contract because a contract may not encode a rule that
- * has to READ OTHER ROWS — the registered repo set is state, not classification —
- * which is the same line `modules/specs` draws by leaving `requireRepoRoot`
- * inside `SpecsService`.
+ * has to READ OTHER ROWS — the registered repo set is state, not classification.
  */
 
 import {

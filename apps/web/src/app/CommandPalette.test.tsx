@@ -228,14 +228,14 @@ describe('CommandPalette', () => {
     )
 
     fixture.enabledFeatures.delete('workflows')
-    fixture.enabledFeatures.add('specs')
+    fixture.enabledFeatures.add('automations')
     mounted.rerender(<CommandPalette />)
 
     const updated = screen.getAllByRole('option')
     expect(input.getAttribute('value')).toBe('go to')
     expect(updated).toHaveLength(order.length)
     expect(updated.map((row) => row.getAttribute('data-command-id'))).not.toEqual(order)
-    expect(screen.getByRole('option', { name: 'Go to Specs' })).toBeTruthy()
+    expect(screen.getByRole('option', { name: 'Go to Automations' })).toBeTruthy()
     expect(updated[0]?.getAttribute('aria-selected')).toBe('true')
     expect(input.getAttribute('aria-activedescendant')).toBe(updated[0]?.id)
   })

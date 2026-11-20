@@ -63,9 +63,6 @@ export const ROW = {
   repoPrefix: id('repo-prefix'),
   harnessDiscoveryCache: id('harness-discovery-cache'),
   harnessHookSettings: id('harness-hook-settings'),
-  /** The living project spec (pspec v1) — files in a repo, NOT a replicated
-   *  table. Added by POD-385; see the row for why it is `owned-compute`. */
-  pspecComponent: id('pspec-component'),
   pins: id('pins'),
   tabOrder: id('tab-order'),
   /** Sidebar/tab layout shell chrome (POD-1350) — distinct from tab_order's

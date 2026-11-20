@@ -6,7 +6,7 @@ import { machineViewsFromWire } from '@podium/client-core/values'
 import { AUTOMATION_ENTITIES } from '@podium/client-graph/automation-schema'
 import { AutomationSource } from '@podium/client-graph/automation-source'
 import { automationViews } from '@podium/client-graph/automation-views'
-import { attachPoolScreens, type PoolScreen, } from '@podium/client-graph/host'
+import { attachPoolScreens, type PoolScreen } from '@podium/client-graph/host'
 import { omitGone } from '@podium/client-graph/lookup'
 import { MobxPool } from '@podium/client-graph/pool'
 import { PoolSources } from '@podium/client-graph/source-registry'
@@ -29,7 +29,6 @@ import {
   useAutomationList,
   useAutomationRunSession,
   useAutomationTargets,
-  useSpecsRepositories,
 } from './automation-readers'
 import { attachWorklistPool, useWorklistPool } from './store-worklist-pool'
 import type { Trpc } from './trpc'
@@ -184,7 +183,7 @@ it('declared run and target relationships follow edits, deletes and replacement'
   source.dispose()
 })
 
-it('enabled list, launch, run and specs readers execute zero legacy derivations and match the old policy', async () => {
+it('enabled list, launch and run readers execute zero legacy derivations and match the old policy', async () => {
   const fixture = createAutomationsFixture()
   const fatal = vi.fn()
   function Wrapper({ children }: { children: ReactNode }) {
@@ -212,21 +211,15 @@ it('enabled list, launch, run and specs readers execute zero legacy derivations 
       list: useAutomationList(),
       targets: useAutomationTargets('/synthetic/missing'),
       session: useAutomationRunSession('synthetic-session-0'),
-      repos: useSpecsRepositories(),
     }),
     { wrapper: Wrapper },
   ).result
   await act(async () => {
     fixture.publishMachines()
   })
-  await waitFor(() =>
-    expect(
-      result.current.list.pending + result.current.targets.pending + result.current.repos.pending,
-    ).toBe(0),
-  )
+  await waitFor(() => expect(result.current.list.pending + result.current.targets.pending).toBe(0))
   const { owner, pool } = result.current
   expect(pool).toBeTruthy()
-  expect(result.current.repos.repos.map((repo) => repo.path)).toEqual(['/synthetic/project'])
   expect(result.current.list.automations).toHaveLength(6)
   expect(result.current.session?.sessionId).toBe('synthetic-session-0')
   storeStats.enable()
@@ -241,7 +234,6 @@ it('enabled list, launch, run and specs readers execute zero legacy derivations 
   expect(storeStats.snapshot().runtimes[0]?.selectorRuns ?? 0).toBe(0)
   expect(fatal).not.toHaveBeenCalled()
   const state = referenceState(owner)
-  expect(result.current.repos.repos).toEqual(state.repos)
   expect(result.current.targets.ids.map((id) => automationViews(pool!).target(id))).toEqual(
     automationTargetChoices(
       state.repos,

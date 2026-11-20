@@ -127,7 +127,6 @@ const LAUNCH_BOOL_FLAGS = ['--local', '--reconfigure', '--takeover']
 const HELP_DELEGATED = new Set([
   'issue',
   'session',
-  'spec',
   'worktree',
   'workspace',
   'mail',
@@ -266,7 +265,6 @@ export type LaunchPlan =
   | { kind: 'mail'; args: string[] }
   | { kind: 'offer'; args: string[] }
   | { kind: 'agent'; args: string[] }
-  | { kind: 'spec'; args: string[] }
   | { kind: 'auth'; args: string[] }
   | { kind: 'worktree'; args: string[] }
   | { kind: 'workspace'; args: string[] }
@@ -860,7 +858,6 @@ export function resolvePlan(
   if (argv[0] === 'mail') return { kind: 'mail', args: argv.slice(1) }
   if (argv[0] === 'offer') return { kind: 'offer', args: argv.slice(1) }
   if (argv[0] === 'agent') return { kind: 'agent', args: argv.slice(1) }
-  if (argv[0] === 'spec') return { kind: 'spec', args: argv.slice(1) }
   if (argv[0] === 'auth') return { kind: 'auth', args: argv.slice(1) }
   if (argv[0] === 'worktree') return { kind: 'worktree', args: argv.slice(1) }
   if (argv[0] === 'workspace') return { kind: 'workspace', args: argv.slice(1) }
@@ -1062,9 +1059,6 @@ export function helpText(enabledFeatures: ReadonlySet<FeatureId> = new Set()): s
     '  instance rekey         Mint a fresh owner UUID for a copied state root',
     '  vault status           Where the credential vault key file is, and whether it opens',
     '  vault reset --confirm  Delete every stored secret after the key file was lost',
-    ...(enabledFeatures.has('specs')
-      ? ['  spec <command>        Read/maintain the living project spec (<repo>/pspec/)']
-      : []),
     '  session <command>     Send turns to agent sessions; status/read for a peek',
     '  machine <command>     List the machines this session can place work on',
     '  automation schedule --at <ISO> --message <text> [--session <id> | --fresh ...]',
@@ -2345,12 +2339,6 @@ export async function main(
     case 'agent': {
       const { agentCliMain } = await import('./agent-cli')
       await agentCliMain(plan.args)
-      return
-    }
-    // `podium spec <command>`: read/maintain the living project spec (<repo>/pspec/).
-    case 'spec': {
-      const { specCliMain } = await import('./spec-cli')
-      await specCliMain(plan.args)
       return
     }
     // `podium auth <command>`: the operator's own credential — mint/inspect/revoke the

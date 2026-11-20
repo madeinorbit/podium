@@ -62,6 +62,6 @@ describe('IssueCommandDispatcher.asIssueTrpc (in-process MCP client)', () => {
 
   it('an unknown router/proc throws the historical "no such issue procedure"', async () => {
     const c = await client()
-    expect(() => c.specs.list.query({})).toThrow(/no such issue procedure: specs\.list/)
+    expect(() => c.lock.status.query({})).toThrow(/no such issue procedure: lock\.status/)
   })
 })

@@ -216,12 +216,6 @@ export const DURABLE_STORES: readonly DurableStore[] = [
   // grow a row here.
   { store: 'user_dock_shell', kind: 'drizzle-table', row: 'dock-shell-mapping' },
   {
-    store: '<repo>/pspec/SP-xxxx.html',
-    kind: 'filesystem',
-    row: 'pspec-component',
-    writeSites: ['apps/server/src/pspec.ts'],
-  },
-  {
     store: '<stateDir>/discovery.db',
     kind: 'filesystem',
     row: 'harness-discovery-cache',

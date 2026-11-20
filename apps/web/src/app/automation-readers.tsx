@@ -1,9 +1,9 @@
+import type { MobxPool } from '@podium/client-graph'
 import { createAutomationViews, EMPTY_EXCLUSIONS } from '@podium/client-graph/automation-views'
 import { omitGone } from '@podium/client-graph/lookup'
-import type { MobxPool } from '@podium/client-graph'
 import { useOpeningView } from '@podium/client-graph/react'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
-import { createContext, useContext, useCallback, type ReactNode } from 'react'
+import { createContext, type ReactNode, useCallback, useContext } from 'react'
 import { useWorklistPool, useWorklistPoolProjection } from './store-worklist-pool'
 
 const AutomationOpeningContext = createContext<ReturnType<typeof createAutomationViews> | null>(
@@ -23,7 +23,6 @@ function useAutomationOpening() {
 
 const EMPTY_LIST = { automations: [], pending: 1 }
 const EMPTY_TARGETS = { ids: [], excluded: EMPTY_EXCLUSIONS, pending: 1 }
-const EMPTY_REPOS = { repos: [], pending: 1 }
 export function useAutomationList() {
   const view = useAutomationOpening()
   const read = useCallback((_pool: MobxPool) => view?.list() ?? EMPTY_LIST, [view])
@@ -74,9 +73,4 @@ export function useAutomationRunSession(id: string | undefined) {
   const read = useCallback((pool: MobxPool) => view?.session(id), [view, id])
   const row = useWorklistPoolProjection(read, LOADING)
   return row === LOADING ? undefined : row
-}
-export function useSpecsRepositories() {
-  const view = useAutomationOpening()
-  const read = useCallback((_pool: MobxPool) => view?.repositories() ?? EMPTY_REPOS, [view])
-  return useWorklistPoolProjection(read, EMPTY_REPOS)
 }

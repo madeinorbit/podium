@@ -17,7 +17,6 @@ import { runPerfCli } from './perf-cli'
 import { runProfileCli } from './profile-cli'
 import { runQuotaCli } from './quota-cli'
 import { runSessionCli } from './session-cli'
-import { runSpecCli } from './spec-cli'
 import { telemetryCliMain } from './telemetry-cli'
 import { tunnelCliMain } from './tunnel-cli'
 import { updateKeyCliMain } from './update-key-cli'
@@ -94,7 +93,6 @@ const plan = (argv: string[]): unknown => resolvePlan({}, argv, {}, false)
 const EVERY_SUBCOMMAND: ReadonlyArray<readonly [string, () => Promise<string>]> = [
   ['vault', () => failureOf(() => runVaultCli(['status', BOGUS], noopClient))],
   ['issue', () => failureOf(() => runIssueCli(['show', '--id', '5', BOGUS], noopClient))],
-  ['spec', () => failureOf(() => runSpecCli(['show', 'SP-1', BOGUS], noopClient))],
   ['lock', () => failureOf(() => runLockCli(['status', '--repoPath', '/r', BOGUS], noopClient))],
   [
     'merge-lock',

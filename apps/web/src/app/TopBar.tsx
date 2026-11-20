@@ -2,7 +2,6 @@ import { createLogger } from '@podium/logger'
 import {
   BarChart3,
   CalendarClock,
-  FileText,
   LayoutPanelLeft,
   Minus,
   Settings,
@@ -64,7 +63,6 @@ export function TopBar({
   const view = useHeaderView()
   const { setView } = useHeaderActions()
   const workflowsEnabled = useFeature('workflows')
-  const specsEnabled = useFeature('specs')
   const automationsEnabled = useFeature('automations')
   const slotFilled = useToolbarSlotFilled()
 
@@ -119,9 +117,6 @@ export function TopBar({
             onSelect={setView}
             icon={Workflow}
           />
-        )}
-        {specsEnabled && (
-          <ModeTab label="Specs" target="specs" view={view} onSelect={setView} icon={FileText} />
         )}
         {automationsEnabled && (
           <ModeTab

@@ -37,9 +37,6 @@ export interface IssueProc {
  */
 type IssueProcName = IssueContractName
 
-/** The specs router (pspec v1, #135) — `podium spec` drives these. */
-type SpecProcName = 'list' | 'get' | 'create' | 'save' | 'remove' | 'search'
-
 /** The lock router (advisory named lease locks [spec:SP-85d1]) — `podium lock`
  *  / `podium merge-lock` drive these; the union derives from the same protocol
  *  list the server registry is satisfies-checked against. */
@@ -67,7 +64,6 @@ type WorkflowProcName =
 export interface IssueTrpc {
   issues: Record<IssueProcName, IssueProc>
   repos: { inferFromPath: IssueProc }
-  specs: Record<SpecProcName, IssueProc>
   lock: Record<LockProcName, IssueProc>
   /** The PendingInteraction aggregate (POD-2020, spec §4) — `podium
    *  interactions` drives these. The union is hand-typed rather than derived

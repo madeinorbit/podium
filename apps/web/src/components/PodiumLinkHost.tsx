@@ -392,7 +392,7 @@ function mainViewForPath(path: string): MainView | null {
   if (head === 'workspace') return 'workspace'
   if (head === 'settings') return 'settings'
   if (head === 'issues') return 'issues'
-  if (head === 'usage' || head === 'automations' || head === 'specs' || head === 'workflows') {
+  if (head === 'usage' || head === 'automations' || head === 'workflows') {
     return head
   }
   return null

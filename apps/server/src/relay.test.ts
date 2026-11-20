@@ -748,6 +748,7 @@ describe('SessionRegistry', () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     await reg.modules.settings.setSettingsFor(firstAdminMemberId(), {
       ...(await reg.modules.settings.getSettings()),
+      // An upgraded install may still have the removed feature's toggle.
       experimental: { workflows: true, specs: true },
     })
     const daemon: ControlMessage[] = []
@@ -798,7 +799,6 @@ describe('SessionRegistry', () => {
     const hiddenInstructions = spawn?.type === 'spawn' ? spawn.instructions : undefined
     expect(hiddenInstructions?.map((instruction) => instruction.source)).toEqual([
       'podium:issues',
-      'podium:specs',
       'podium:workflow',
     ])
     expect(

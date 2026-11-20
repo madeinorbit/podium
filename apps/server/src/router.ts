@@ -72,7 +72,6 @@ import {
   GIT_QUERIES,
   QUOTA_QUERIES,
   SEARCH_QUERIES,
-  SPEC_QUERIES,
   SUPERAGENT_QUERIES,
   USAGE_QUERIES,
 } from './modules/misc-queries'
@@ -84,8 +83,6 @@ import { SESSION_QUERIES, SNOOZE_QUERIES } from './modules/sessions/queries'
 import { settingsAuthzDeps, settingsCommandsPermitted } from './modules/settings/authz'
 import { settingsFamilyProcedures } from './modules/settings/trpc'
 import { shellFamilyProcedures } from './modules/shells/trpc'
-import { specsInputs } from './modules/specs/service'
-import { specFamilyProcedures } from './modules/specs/trpc'
 import { superagentFamilyProcedures } from './modules/superagent/trpc'
 import { syncWriteProcedures } from './modules/sync-write/trpc'
 import { updateProcedures } from './modules/updates/trpc'
@@ -231,14 +228,8 @@ const sessionFamily = sessionFamilyProcedures()
  *  readable at the router while the CONTRACT TABLE decides the membership. */
 const superagentFamily = superagentFamilyProcedures()
 
-/** The three spec writes, built from their contracts at module load (POD-386).
- *  Built here for the same reason as `sessionFamily` and `superagentFamily`: the
- *  spread stays readable beside the three reads the `specs` router also serves,
- *  while the CONTRACT TABLE decides the membership. */
-const specFamily = specFamilyProcedures()
-
 /** The four settings writes, built from their contracts at module load
- *  (POD-420). Same shape as `specFamily`: the CONTRACT TABLE decides membership,
+ *  (POD-420). The CONTRACT TABLE decides membership,
  *  and the spread stays readable beside the read and the three hand-written
  *  procedures the `settings` router also serves. */
 const settingsFamily = settingsFamilyProcedures()
@@ -552,10 +543,6 @@ export const appRouter = t.router({
   logs: t.router(logsFamilyProcedures()),
   git: t.router(queryProcedures('git', GIT_QUERIES)),
   files: t.router(fileFamilyProcedures()),
-  // pspec — the living spec tree in <repo>/pspec/ (modules/specs over
-  // apps/server/src/pspec.ts). Prototype scope: local-filesystem repos only
-  // (reads/writes on the server host). The repo-root allowlist gate lives in
-  // the SpecsService so the daemon-relay path enforces the identical check.
   /**
    * THE WORKFLOW SURFACE IS DERIVED (POD-732, the 3.10 cutover).
    *
@@ -587,14 +574,6 @@ export const appRouter = t.router({
     ...queryProcedures('automations', AUTOMATION_QUERIES),
     ...automationProcedures(),
   }),
-  /**
-   * THE SPEC SURFACE IS DERIVED (POD-386, the 3.3d cutover). `create · save ·
-   * remove` are built from `SPEC_CONTRACTS` by `specFamilyProcedures()`; the
-   * three reads carry no contract — a `visibility` class describes what a command
-   * WRITES — and are authorized by the identical `requireRepoRoot` call inside
-   * the service.
-   */
-  specs: t.router({ ...queryProcedures('specs', SPEC_QUERIES), ...specFamily }),
   /** The PendingInteraction aggregate (POD-2020, spec §4) — `answer` plus the
    *  two reads the headless answering path needs. */
   interactions: t.router(interactionFamilyProcedures()),

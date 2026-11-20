@@ -65,8 +65,8 @@ describe('the gate reports POD-385’s finding when it is restored', () => {
     { name: 'a drizzle table nobody classified', store: 'notification_facts' },
     // A table drizzle never sees: the half a schema-keyed gate would miss.
     { name: 'a runtime-created table nobody classified', store: 'conversation_cache' },
-    // A store with no table at all: pspec, the class that started this.
-    { name: 'a filesystem store nobody classified', store: '<repo>/pspec/SP-xxxx.html' },
+    // A filesystem store, whose write site is outside the table schemas.
+    { name: 'a filesystem store nobody classified', store: '<stateDir>/discovery.db' },
   ]
 
   for (const { name, store } of restored) {
@@ -85,7 +85,7 @@ describe('the gate reports POD-385’s finding when it is restored', () => {
       ]
       expect(findings.length).toBeGreaterThan(0)
       expect(findings.map((f) => f.where).join('\n')).toContain(
-        store.startsWith('<repo>') ? 'apps/server/src/pspec.ts' : store,
+        store.startsWith('<stateDir>') ? 'packages/harness/src/discovery/cache.ts' : store,
       )
     })
   }

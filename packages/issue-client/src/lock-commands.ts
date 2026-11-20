@@ -1,9 +1,9 @@
 import {
   type LockAcquireResultWire,
   type LockHolderWire,
-  lockNameProblem,
   type LockQueueEntryWire,
   type LockWire,
+  lockNameProblem,
 } from '@podium/protocol'
 import { z } from 'zod'
 import type { IssueCommand, IssueCommandResult } from './commands.js'
@@ -118,8 +118,7 @@ export function asQueuedGrant(res: IssueCommandResult): IssueCommandResult {
 /** The `podium lock` commands. `--wait`/`--timeout` on acquire are handled by the
  *  CLI dispatcher (a poll loop over this same acquire body), not here.
  *
- *  EVERY `args` IS `strictObject` (POD-3836), like ISSUE_COMMANDS and
- *  SPEC_COMMANDS: these schemas validate argv, and a lock is the worst place in
+ *  EVERY `args` IS `strictObject` (POD-3836), like ISSUE_COMMANDS: these schemas validate argv, and a lock is the worst place in
  *  the CLI to drop a flag silently. `lock acquire x --ttlx 1s` used to strip the
  *  key and grant the two-minute default — a lease that expires under whoever
  *  holds it, which is the one failure a mutex may never have. The CLI's argv

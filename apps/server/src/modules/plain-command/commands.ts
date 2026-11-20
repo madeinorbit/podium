@@ -30,7 +30,6 @@ import { OPERATION_PLAIN_REGISTRATIONS } from '../operations/plain-family'
 import { PERF_PLAIN_FAMILY } from '../perf/plain-family'
 import { SESSION_PLAIN_REGISTRATIONS } from '../sessions/plain-family'
 import { SETTINGS_PLAIN_REGISTRATIONS } from '../settings/plain-family'
-import { SPEC_PLAIN_FAMILY } from '../specs/plain-family'
 import { UPDATE_PLAIN_REGISTRATIONS } from '../updates/plain-family'
 import { VAULT_PLAIN_FAMILY } from '../vault/plain-family'
 import { plainFamilyRegistrations } from './declare'
@@ -50,7 +49,6 @@ const registrations = (): readonly PlainRegistration[] => [
   ...SESSION_PLAIN_REGISTRATIONS,
   ...plainFamilyRegistrations(SETUP_PLAIN_FAMILY),
   ...SETTINGS_PLAIN_REGISTRATIONS,
-  ...plainFamilyRegistrations(SPEC_PLAIN_FAMILY),
   ...plainFamilyRegistrations(TELEMETRY_PLAIN_FAMILY),
   ...plainFamilyRegistrations(VAULT_PLAIN_FAMILY),
   ...plainFamilyRegistrations(CREDENTIALS_PLAIN_FAMILY),

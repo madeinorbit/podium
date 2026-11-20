@@ -33,12 +33,6 @@ export const FEATURES = [
     visibility: 'edge',
   },
   {
-    id: 'specs',
-    name: 'Specs',
-    description: 'Long-lived documents agents plan against.',
-    visibility: 'edge',
-  },
-  {
     id: 'git-panel',
     name: 'Git panel',
     description: 'Branch and diff state beside each session.',
