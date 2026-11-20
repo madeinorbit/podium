@@ -129,7 +129,21 @@ function expectBoard(pool: MobxPool, options: BoardOptions, truth: Truth) {
       scope: pool.queries.issueScope(row.id),
       parentScope: row.parentId ? pool.queries.issueScope(row.parentId) : undefined,
     }))
-  expect([...value.active].sort(), JSON.stringify({ options, missing })).toEqual(ids(active))
+  const extra = value.active
+    .filter((id) => !byId.has(id))
+    .slice(0, 6)
+    .map((id) => ({
+      id,
+      expected: {
+        blocked: truth.rows.get(id)?.blocked,
+        deferred: truth.rows.get(id)?.deferred,
+        stage: truth.rows.get(id)?.stage,
+        closedReason: truth.rows.get(id)?.closedReason,
+        deferUntil: truth.rows.get(id)?.deferUntil,
+      },
+      actual: pool.row('issue', id),
+    }))
+  expect([...value.active].sort(), JSON.stringify({ options, missing, extra })).toEqual(ids(active))
   const roots = active.filter(
     (row) => !row.parentId || row.parentId === row.id || !byId.has(row.parentId),
   )

@@ -49,7 +49,6 @@ import {
   CAP_TERMINAL_OUTPUT_BINARY_V1,
   CLIENT_WIRE_VERSION,
   decodeBinaryEnvelope,
-  type FeedChange,
   PtyOutputBinaryMetadata,
   type ServerMessage,
 } from '@podium/protocol'
@@ -117,7 +116,14 @@ describe('a daemon reattach storm', () => {
   async function connectClient(port: number) {
     const frames: ServerMessage[] = []
     const sessions = new Map<string, { status?: string }>()
-    const apply = (changes: readonly FeedChange[]) => {
+    const apply = (
+      changes: readonly {
+        entity: string
+        entityId: string
+        op: string
+        value?: { status?: string }
+      }[],
+    ) => {
       for (const change of changes) {
         if (change.entity !== 'session') continue
         if (change.op === 'upsert' && change.value) sessions.set(change.entityId, change.value)
@@ -159,13 +165,11 @@ describe('a daemon reattach storm', () => {
       ws.on('message', onMessage)
       ws.on('error', reject)
     })
-    // A client starts from HTTP state and folds incremental changes into it.
-    // No single delta is required to repeat rows that did not change.
-    const response = await fetch(`http://127.0.0.1:${port}/sync/bootstrap`)
-    expect(response.status).toBe(200)
-    for (const line of (await response.text()).trim().split('\n')) {
-      const message = JSON.parse(line) as { type: string; changes?: FeedChange[] }
-      if (message.type === 'feedBootstrap') apply(message.changes ?? [])
+    // This fixture owns the in-process gateway, with worker threads suppressed.
+    // Seed the consumer from the same scoped session query as the HTTP list;
+    // real worker bootstrapping has its own socket/HTTP integration fixture.
+    for (const row of await handle.registry.modules.sessions.listSessions(undefined, 'rpc')) {
+      sessions.set(row.sessionId, row)
     }
     return {
       ws,
