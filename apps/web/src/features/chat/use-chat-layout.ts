@@ -277,10 +277,13 @@ export function useChatLayout(opts: UseChatLayoutOptions): ChatSurface {
     if (activeRow === undefined || activeMatch === undefined || activeMatchKey === undefined) return
     // Materialize the turn owner, then land on the selected member. Several
     // commands share one row address; cursor moves within that row still scroll.
-    const owner = presentation.turnFolds.byMember.get(activeRow)?.start ?? activeRow
-    const land = () => scroll.scrollToBlock(owner, { memberKey: activeMatchKey })
-    if (owner < presentation.renderStart) {
-      presentation.setRenderCount(presentation.rowCount - owner + RENDER_WINDOW)
+    const boundary = presentation.turnBoundaryAt(activeRow)
+    const land = () => {
+      const owner = presentation.turnFolds.byMember.get(activeRow)?.start ?? activeRow
+      scroll.scrollToBlock(owner, { memberKey: activeMatchKey })
+    }
+    if (boundary < presentation.renderStart) {
+      presentation.setRenderCount(presentation.rowCount - boundary + RENDER_WINDOW)
       const frame = requestAnimationFrame(land)
       return () => cancelAnimationFrame(frame)
     }

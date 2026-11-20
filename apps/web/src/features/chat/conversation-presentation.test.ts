@@ -2,7 +2,7 @@ import { type TranscriptGraphChange, TranscriptLog } from '@podium/client-core/c
 import { asSessionId, type TranscriptItem } from '@podium/model'
 import { autorun } from 'mobx'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { ConversationPresentation } from './conversation-presentation'
+import { ConversationPresentation, RENDER_WINDOW } from './conversation-presentation'
 import type {
   TranscriptComputeOptions,
   TranscriptGraphSource,
@@ -326,4 +326,97 @@ it('keeps complete live turn identity, counts and timing beyond both source limi
   expect(log.ids.length).toBeLessThanOrEqual(400)
   expect(log.ids).not.toContain(prompt.id)
   expect(presentation.visibleRows).toHaveLength(300)
+})
+
+it.each([
+  1, 4,
+])('reveals an off-window search inside its complete expanded turn and keeps its key through a prepend at %ix', async (scale) => {
+  worker.usesWorker = false
+  const cursor = (n: number) =>
+    Buffer.from(JSON.stringify(['file', n, `row-${n}`, 0])).toString('base64url')
+  const history: TranscriptItem[] = Array.from({ length: 300 * scale }, (_, turn) => [
+    {
+      id: `prompt-${turn}`,
+      role: 'user' as const,
+      text: `Request ${turn}`,
+      cursor: cursor(turn * 4),
+    },
+    {
+      id: `tool-${turn}`,
+      role: 'tool' as const,
+      text: '',
+      toolName: 'Read',
+      toolUseId: `use-${turn}`,
+      toolResult: 'done',
+      cursor: cursor(turn * 4 + 1),
+    },
+    {
+      id: `note-${turn}`,
+      role: 'assistant' as const,
+      text: turn === 0 ? 'far needle in old work' : `Working ${turn}`,
+      answer: false,
+      cursor: cursor(turn * 4 + 2),
+    },
+    {
+      id: `answer-${turn}`,
+      role: 'assistant' as const,
+      text: `Finished ${turn}`,
+      answer: true,
+      cursor: cursor(turn * 4 + 3),
+    },
+  ]).flat()
+  let page = { items: history, head: history[0]!.cursor, hasMore: true }
+  const presentation = new ConversationPresentation()
+  presentation.setFollowTail(false)
+  const log = new TranscriptLog({
+    sessionId: asSessionId(`fold-window-${scale}`),
+    source: { read: async () => page, subscribe: () => () => {} },
+    retainHistory: () => presentation.retainHistory,
+    retainFrom: () => presentation.retainFrom,
+    onChange: (change) => presentation.changed(change),
+  })
+  stops.push(() => {
+    presentation.dispose()
+    log.dispose()
+  })
+  presentation.bind(log)
+  await log.start()
+  expect(presentation.turnFolds.folds.length).toBeLessThanOrEqual(76)
+  // A window beginning inside a fold still carries that turn's prompt and
+  // first work row; it must not manufacture a new disclosure identity.
+  presentation.setRenderCount(2)
+  expect(presentation.renderStart).toBe(presentation.rowCount - 4)
+  expect(presentation.turnFolds.trailing?.key).toBe(`prompt-${300 * scale - 1}:work`)
+  presentation.setRenderCount(RENDER_WINDOW)
+  expect(presentation.anchorRow('turn:prompt-0:work')).toBe(0)
+  presentation.setQuery('far needle')
+  const selected = presentation.search.activeRow!
+  expect(selected).toBeLessThan(presentation.renderStart)
+  const boundary = presentation.turnBoundaryAt(selected)
+  presentation.setRenderCount(presentation.rowCount - boundary + RENDER_WINDOW)
+  const fold = presentation.turnFolds.byMember.get(selected)!
+  expect(fold.key).toBe('prompt-0:work')
+  expect(presentation.openFoldAt(selected)).toBe('note-0')
+  expect(presentation.folds.isOpen(fold.key)).toBe(true)
+  expect(presentation.closedFolds.some((line) => line.first === fold.start)).toBe(false)
+  page = {
+    items: [
+      { id: 'older-prompt', role: 'user', text: 'Older request', cursor: cursor(-4) },
+      {
+        id: 'older-answer',
+        role: 'assistant',
+        text: 'Earlier answer',
+        answer: true,
+        cursor: cursor(-3),
+      },
+    ],
+    head: cursor(-4),
+    hasMore: false,
+  }
+  await log.loadOlder()
+  const moved = presentation.turnFolds.byKey.get(fold.key)!
+  expect(moved.start).toBe(fold.start + 2)
+  expect(presentation.folds.isOpen(moved.key)).toBe(true)
+  expect(presentation.anchorRow(`turn:${moved.key}`)).toBe(moved.start)
+  expect(presentation.openFoldAt(presentation.search.activeRow!)).toBe('note-0')
 })

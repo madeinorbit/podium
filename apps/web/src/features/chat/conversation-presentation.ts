@@ -191,11 +191,20 @@ export class ConversationPresentation {
   @lazy get activeMatchKey(): string | undefined {
     return this.matches[this.search.position - 1]
   }
-  @lazy get renderStart(): number {
+  @lazy private get windowStart(): number {
     const tail = Math.max(0, this.rowCount - this.renderCount)
     const held =
       !this.followTail && this.heldHead ? this.graph?.rowPosition(this.heldHead) : undefined
-    const start = held === undefined ? tail : Math.min(tail, held)
+    return held === undefined ? tail : Math.min(tail, held)
+  }
+  /** Indexed boundary lookup also works for a search result outside the window. */
+  turnBoundaryAt(index: number): number {
+    const prompt = this.graph?.operatorBefore(index, false)
+    const row = prompt === undefined ? undefined : this.graph?.rowIdForBlock(prompt)
+    return row === undefined ? 0 : (this.graph?.rowPosition(row) ?? 0)
+  }
+  @lazy get renderStart(): number {
+    const start = this.windowStart
     // The source window may start inside one turn. Its complete boundary
     // segment owns the line, membership and disclosure identity.
     const fold = this.turnFolds.byMember.get(start)
@@ -243,8 +252,16 @@ export class ConversationPresentation {
     this.computeReady ? this.graph?.revealRow(key) : undefined
   anchorRow = (key: string): number | undefined => {
     const id = this.graph?.rowIdForBlock(key)
-    if (id === undefined && key.startsWith('turn:'))
-      return this.turnFolds.byKey.get(key.slice(5))?.start
+    if (id === undefined && key.startsWith('turn:')) {
+      const foldKey = key.slice(5)
+      const held = this.turnFolds.byKey.get(foldKey)
+      if (held) return held.start
+      // Off-window folds are not materialized. Their stable key names the
+      // preceding prompt (or the first work row of an unanchored turn).
+      const boundary = foldKey.endsWith(':work') ? foldKey.slice(0, -5) : foldKey
+      const row = this.graph?.rowIdForBlock(boundary)
+      return row === undefined ? undefined : this.graph?.rowPosition(row)
+    }
     return id === undefined ? this.revealRow(key) : this.graph?.rowPosition(id)
   }
   tailRow(row: ChatRow | undefined): ChatRow | undefined {
@@ -254,9 +271,14 @@ export class ConversationPresentation {
     return last ? { kind: 'tools', blocks: [last], blockIndices: [], title: run.title } : row
   }
 
-  /** Fold membership belongs to the loaded graph, never the sliding DOM source. */
+  /** Folds cover the render start's complete turn boundary plus the drawn
+   * window. Retained history before that boundary owns no row companions. */
   @lazy({ equals: compareShallow }) private get foldRows(): RenderableRow[] {
-    return this.rows.map((row) => this.renderedRow(row).value!)
+    if (!this.computeReady) return []
+    const start = this.turnBoundaryAt(this.windowStart)
+    return this.graph!.rowIds.slice(start).map(
+      (id) => this.renderedRow(this.graph!.structuralRow(id)!).value!,
+    )
   }
   @lazy get turnFolds(): TurnFolds {
     return this.computeReady
