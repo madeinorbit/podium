@@ -2107,6 +2107,15 @@ describe.skipIf(!isHostAvailable())('daemon podium-host survival', () => {
       await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === sessionId))
       expect(await hostHasSession(label)).toBe(true)
 
+      const output = (): string =>
+        received
+          .filter(
+            (m): m is AgentFrameBatch => m.type === 'agentFrameBatch' && m.sessionId === sessionId,
+          )
+          .flatMap((m) => m.frames.map(decode))
+          .join('')
+      await waitFor(() => output().includes('PODIUM-FIXTURE'))
+
       // Simulate a backend restart re-binding: drop everything seen so far and re-attach.
       received.length = 0
       send({
@@ -2118,24 +2127,27 @@ describe.skipIf(!isHostAvailable())('daemon podium-host survival', () => {
         lastKnownGeometry: G,
       })
       await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === sessionId))
-      const framesFlow = (): boolean =>
-        received.some(
-          (m) =>
-            m.type === 'agentFrameBatch' &&
-            m.sessionId === sessionId &&
-            m.frames.some((f) => decode(f).includes('PODIUM-FIXTURE')),
-        )
       // SPEC-6 item 13: the bind after the re-bind carries the program's real
       // size (the stage 5 record). The fresh-daemon case below is where the
       // host's size-neutral reattach itself is pinned; this daemon still holds
-      // the bridge, and that path repaints as it always has.
+      // the bridge. Rebinding it does not redraw an idle program (POD-4723).
       const bind = received.find((m) => m.type === 'bind' && m.sessionId === sessionId) as Extract<
         DaemonMessage,
         { type: 'bind' }
       >
       expect(bind.geometry).toEqual(G)
-      // So frames flow again from the re-bound session.
-      await waitFor(framesFlow)
+      // Drive new output after the bind: an idle survivor owes no unsolicited
+      // frames, and the initial paint must not accidentally satisfy this proof.
+      const input = 'after-reattach'
+      const inputHex = Buffer.from(input).toString('hex')
+      expect(output()).not.toContain(`last-input=${inputHex}`)
+      send({
+        type: 'input',
+        sessionId,
+        data: Buffer.from(input).toString('base64'),
+        inputOrigin: 'human',
+      })
+      await waitFor(() => output().includes(`last-input=${inputHex}`))
 
       // A reattach for a label no backend knows → reattachFailed.
       const goneId = `ab-gone-${process.pid}`
