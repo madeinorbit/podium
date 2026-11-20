@@ -643,8 +643,7 @@ export const REGISTERED_RESIDUE: readonly RegisteredResidue[] = [
     sites: [
       {
         file: 'apps/server/src/modules/memory/transcript-indexer.ts',
-        needle:
-          'backfillMachine(machineId: string, lakePathFor: (nativeId: string) => string): void {',
+        needle: 'async backfillMachine(machineId: MachineId): Promise<void> {',
       },
     ],
   },

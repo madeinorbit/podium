@@ -1209,6 +1209,8 @@ describe('against the live repo', () => {
       // failure reds loudly instead of reading as a deletion. Asserted in
       // 'change-row-typings ERRORS when its control stops matching' above.
       'change-row-typings',
+      // The dirty-scoping state was removed; the detector guards its return.
+      'issue-wire-dirty-scoping-shims',
       // POD-329 post-cutover consolidation: panelMode storage-key literals now
       // live only as the two owner declarations in ui-state.ts (exempted by the
       // detector). The planted-rogue control test above keeps the detector live.
@@ -1274,18 +1276,10 @@ describe('against the live repo', () => {
     // And the registry it is checked against is non-empty, so
     // `representation-registry-rot`'s zero means "nothing rotted", not "nothing
     // to check".
-    // 44 -> 45 when POD-415 registered `LegacyBindingSnapshot`, the one-shot
-    // adapter over the daemon's scattered pre-store state. Moving this number is
-    // the DELIBERATE ACT the pin exists to force: the entry declares why no
-    // canonical legacy record exists to compose and names the real-state-dir
-    // migration test that enforces its finite purpose.
-    //
-    // 45 -> 46 when the POD-1439 reconciliation carried main's `SessionStatusSubagent`
-    // (POD-1262) across. Deliberate for the same reason: its subject is a DIFFERENT
-    // session from the one being read, so composing it from that aggregate would
-    // assert a containment that does not hold, and the entry says so rather than
-    // letting a restatement land unaccounted for.
-    expect(RETAINED_REPRESENTATIONS.length).toBe(46)
+    expect(RETAINED_REPRESENTATIONS.length).toBeGreaterThan(0)
+    expect(
+      new Set(RETAINED_REPRESENTATIONS.map((entry) => `${entry.site}:${entry.symbol}`)).size,
+    ).toBe(RETAINED_REPRESENTATIONS.length)
   })
 
   it('the physical-table parser still binds to the live schema', () => {

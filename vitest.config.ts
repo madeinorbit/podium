@@ -18,6 +18,8 @@ export const nodeTestExclude = [
   // `apps/mobile/vitest.config.ts` supplies. Without this line the node lane
   // collects them and dies in the transform (POD-1220).
   'apps/mobile/**',
+  // The live rewrite-audit baseline belongs only to the explicit test:rearch lane.
+  'scripts/rearch-audit.test.ts',
 ]
 
 // Keep forked test runs below the shared development host resource ceiling by default.
@@ -74,15 +76,11 @@ export const sharedVitestConfig = {
       // path the daemon's composer-sync reaches is anchored too.
       {
         find: /^@podium\/harness\/browser$/,
-        replacement: fileURLToPath(
-          new URL('./packages/harness/src/browser.ts', import.meta.url),
-        ),
+        replacement: fileURLToPath(new URL('./packages/harness/src/browser.ts', import.meta.url)),
       },
       {
         find: /^@podium\/harness\/driver$/,
-        replacement: fileURLToPath(
-          new URL('./packages/harness/src/driver.ts', import.meta.url),
-        ),
+        replacement: fileURLToPath(new URL('./packages/harness/src/driver.ts', import.meta.url)),
       },
       {
         find: /^@podium\/harness\/driver\/host$/,
@@ -159,8 +157,9 @@ export const sharedVitestConfig = {
         replacement: fileURLToPath(
           new URL(
             './packages/harness/src/adapters/claude-code/instrumentation.ts',
-            import.meta.url),
+            import.meta.url,
           ),
+        ),
       },
       // Fixture harness (POD-4474): the test-only seventh manifest the
       // server→daemon route test registers. Same anchored shape as every
@@ -174,9 +173,7 @@ export const sharedVitestConfig = {
       },
       {
         find: /^@podium\/harness\/store$/,
-        replacement: fileURLToPath(
-          new URL('./packages/harness/src/store.ts', import.meta.url),
-        ),
+        replacement: fileURLToPath(new URL('./packages/harness/src/store.ts', import.meta.url)),
       },
       {
         find: /^@podium\/harness$/,
@@ -201,9 +198,7 @@ export const sharedVitestConfig = {
       // the unbuilt dist.
       {
         find: /^@podium\/harness\/inventory$/,
-        replacement: fileURLToPath(
-          new URL('./packages/harness/src/inventory.ts', import.meta.url),
-        ),
+        replacement: fileURLToPath(new URL('./packages/harness/src/inventory.ts', import.meta.url)),
       },
       // Anchored RegExp, not a bare string: model is the L0 root every lane resolves,
       // and the prefix-match hazard described above is not worth re-learning if it
