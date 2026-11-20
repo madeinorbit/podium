@@ -68,16 +68,13 @@ export const cursorManagedInstall: HarnessInstall = {
       } catch (error) {
         diagnostic = (error as Error).message
       }
-      if (!diagnostic.split(/\r?\n/).includes(GUARD_PROOF)) {
-        throw new Error(
-          `Cursor ${release.version} cannot be managed: its --disable-auto-update startup guard could not be verified: ${diagnostic}`,
-        )
-      }
+      const cannotStopUpdater = !diagnostic.split(/\r?\n/).includes(GUARD_PROOF)
       return {
         executable,
         source,
         // The checksum response supplies no publication time.
         integrity: { kind: 'sha256', digest },
+        ...(cannotStopUpdater ? { updater: 'cannot-stop' as const } : {}),
       }
     } finally {
       await rm(archive, { force: true })

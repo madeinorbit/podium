@@ -498,7 +498,7 @@ function installDescription(agent: AgentInventory): string {
     )
   if (managed)
     lines.push(
-      `  ${managed.active?.version ?? 'No usable release'} · managed by Podium${managed.paused ? ' · updates paused' : ''}${managed.lastCheckAt ? ` · checked ${managed.lastCheckAt}` : ''}`,
+      `  ${managed.active?.version ?? 'No usable release'} · ${managed.vendorUpdated ? 'installed by Podium · vendor updates' : `managed by Podium${managed.paused ? ' · updates paused' : ''}`}${managed.lastCheckAt ? ` · checked ${managed.lastCheckAt}` : ''}`,
     )
   if (managed?.previousVersion) lines.push(`  Can go back to ${managed.previousVersion}`)
   if (managed && agent.management?.updateNotice) lines.push(`  ${agent.management.updateNotice}`)

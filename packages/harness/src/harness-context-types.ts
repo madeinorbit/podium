@@ -25,7 +25,7 @@ export interface HarnessInstallation {
   /** Command-environment generation the executable was resolved in. */
   readonly generation: number
   /**
-   * Podium installed it and updates it (a release folder the install ledger
+   * Podium installed it (a release folder the install ledger
    * names), or the person did (found on the command path or in the adapter's
    * known folders). docs/design/harness-managed-installs.md §6.1. A managed
    * installation only ever runs in a home Podium made (§4.2, M9).
@@ -37,6 +37,8 @@ export interface HarnessInstallation {
    * so housekeeping keeps the folder while the session runs on it (§6.2).
    */
   readonly release?: number
+  /** The vendor updater cannot be stopped; launch without Podium's updater guard. */
+  readonly vendorUpdated?: boolean
 }
 
 /** Who put an installation on the machine (managed installs §6.1). */

@@ -145,6 +145,8 @@ export interface CheckForUpdateOptions extends ManagedInstallHostOptions {
 export type CheckForUpdateResult =
   /** Podium does not manage this harness here (no ledger row), or its adapter declares no install. */
   | { outcome: 'not-managed'; kind: BuiltinHarnessKind }
+  /** Its updater cannot be stopped. Do not even ask the vendor for another release. */
+  | { outcome: 'vendor-updated'; kind: BuiltinHarnessKind; swept: string[] }
   /** The vendor could not be asked. Recorded; the next check tries again. */
   | { outcome: 'check-failed'; kind: BuiltinHarnessKind; error: string; swept: string[] }
   /** The vendor answered and there is nothing to install. */
@@ -174,7 +176,10 @@ export async function checkForUpdate(
     options.ledger ??
     InstallLedger.open(options.harnessesDir ? { harnessesDir: options.harnessesDir } : {})
   try {
-    if (!ledger.get(kind) || ledger.get(kind)?.removingAt) return { outcome: 'not-managed', kind }
+    const initial = ledger.get(kind)
+    if (!initial || initial.removingAt) return { outcome: 'not-managed', kind }
+    if (initial.vendorUpdated)
+      return { outcome: 'vendor-updated', kind, swept: housekeep(ledger, kind, options) }
     const commandEnv = options.commandEnv ?? (await createCommandEnvironment()).env
     const env = Object.freeze(managedInstallEnv(commandEnv))
     const check = managedCheckPorts(env, options)
@@ -198,6 +203,8 @@ export async function checkForUpdate(
     // Read the row after the vendor answered: a pause or a go back may have landed meanwhile.
     const row = ledger.get(kind)
     if (!row || row.removingAt) return { outcome: 'not-managed', kind }
+    if (row.vendorUpdated)
+      return { outcome: 'vendor-updated', kind, swept: housekeep(ledger, kind, options) }
     const decision = decideUpdate({
       latest,
       ...(options.currentFailed !== undefined && options.currentFailed === row.current
@@ -224,6 +231,7 @@ export async function checkForUpdate(
       commandEnv,
       target,
       release: { version: latest },
+      updating: true,
       lockLabel: options.lockLabel ?? `update ${kind}`,
     })
     return { ...installed, latest }

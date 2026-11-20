@@ -79,6 +79,8 @@ export class MachineHarness {
       return `Installing${this.managed?.installing?.version ? ` ${this.managed.installing.version}` : ''}…`
     if (this.state === 'removing') return 'Removing Podium’s copy when its running sessions exit'
     if (!this.managed) return undefined
+    if (this.managed.vendorUpdated)
+      return `${this.managed.active?.version ?? 'No usable release'} · installed by Podium · vendor updates`
     return `${this.managed.active?.version ?? 'No usable release'} · managed by Podium${this.managed.paused ? ' · updates paused' : ''}`
   }
   @lazy get installReason(): string | undefined {
@@ -100,9 +102,9 @@ export class MachineHarness {
     const actions: HarnessInstallAction[] = []
     if (!this.managed) actions.push('install')
     if (this.managed) {
-      actions.push('check')
+      if (!this.managed.vendorUpdated) actions.push('check')
       if (this.managed.previousVersion) actions.push('back')
-      actions.push(this.managed.paused ? 'resume' : 'pause')
+      if (!this.managed.vendorUpdated) actions.push(this.managed.paused ? 'resume' : 'pause')
       if (this.inventory?.management?.homeVariable) actions.push('take-settings')
       actions.push('remove')
     }

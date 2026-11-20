@@ -54,7 +54,11 @@ export function cursorPosture(launch: PostureLaunch, request: PostureRequest): P
 
   let requestedMode: string | null = null
   const options: string[] = []
-  if (request.context.installation.provenance === 'managed') options.push('--disable-auto-update')
+  if (
+    request.context.installation.provenance === 'managed' &&
+    !request.context.installation.vendorUpdated
+  )
+    options.push('--disable-auto-update')
   if (headless) {
     options.push('--trust')
     requestedMode = approvalMode(request, unmet)

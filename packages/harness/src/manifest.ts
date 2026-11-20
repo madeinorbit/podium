@@ -742,6 +742,8 @@ export interface InstalledRelease {
   integrity: ReleaseIntegrityProof
   /** The vendor URL the release came from, as the vendor names it (before any test redirect). */
   source: string
+  /** The vendor updater cannot be stopped: install once and leave updates to the vendor. */
+  updater?: 'cannot-stop'
 }
 
 /**
@@ -806,6 +808,8 @@ export interface HarnessInstallPorts extends HarnessCheckPorts {
  * Declared `supported` only when all three hold: a release can be placed
  * completely inside a folder Podium picks; the harness's own updater changes
  * nothing outside Podium's folders; and `--version` prints the release's version.
+ * A release whose updater cannot be stopped reports `updater: 'cannot-stop'`:
+ * Podium installs it once and leaves future updates to the vendor (§12, decision 13).
  */
 export interface HarnessInstall {
   /** Explain vendor update behavior that can change a managed session's executable. */

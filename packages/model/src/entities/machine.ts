@@ -88,6 +88,8 @@ export const AgentInstallWire = z.object({
       removingAt: z.string().optional(),
       /** A person paused updates. */
       paused: z.boolean(),
+      /** Its updater cannot be stopped; Podium installed it once and leaves updates to the vendor. */
+      vendorUpdated: z.boolean().optional(),
       /** The last failed check or install. */
       lastError: z
         .object({ at: z.string(), message: z.string(), version: z.string().optional() })

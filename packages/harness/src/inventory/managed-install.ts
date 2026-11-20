@@ -584,6 +584,8 @@ export interface InstallReleaseOptions extends ManagedInstallHostOptions {
   target?: ManagedInstallTarget
   /** @internal Test seam: runs before each step; throwing there is a failure of that step. */
   beforeStep?: (step: InstallStep, at: { staging: string; kindDir: string }) => unknown
+  /** @internal An update check must still respect vendor ownership after taking the lock. */
+  updating?: boolean
 }
 
 export type InstallReleaseResult =
@@ -600,6 +602,7 @@ export type InstallReleaseResult =
       swept: string[]
     }
   | { outcome: 'busy'; kind: BuiltinHarnessKind; holder: InstallLockHolder }
+  | { outcome: 'vendor-updated'; kind: BuiltinHarnessKind; swept: string[] }
   | { outcome: 'check-failed'; kind: BuiltinHarnessKind; error: string; swept: string[] }
   | {
       outcome: 'failed'
@@ -614,6 +617,7 @@ export type InstallReleaseResult =
 
 type LockedOutcome =
   | Extract<InstallReleaseResult, { outcome: 'installed' }>
+  | Omit<Extract<InstallReleaseResult, { outcome: 'vendor-updated' }>, 'swept'>
   | Omit<Extract<InstallReleaseResult, { outcome: 'check-failed' }>, 'swept'>
   | Omit<Extract<InstallReleaseResult, { outcome: 'failed' }>, 'swept'>
 
@@ -647,7 +651,10 @@ export async function installRelease(
     let outcome: LockedOutcome
     let swept: string[] = []
     try {
-      outcome = await installLocked(ledger, lock, target, env, check, options)
+      outcome =
+        options.updating && ledger.get(kind)?.vendorUpdated
+          ? { outcome: 'vendor-updated', kind }
+          : await installLocked(ledger, lock, target, env, check, options)
     } finally {
       try {
         swept = sweepReleaseFolders(ledger, kind, lock)
@@ -789,6 +796,7 @@ async function installLocked(
       executable: normalize(installed.executable),
       integrity: installed.integrity,
       source: installed.source,
+      ...(installed.updater ? { updater: installed.updater } : {}),
       installedAt: new Date().toISOString(),
     })
     number = ledger.allocateReleaseNumber(kind, lock)

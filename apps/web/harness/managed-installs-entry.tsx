@@ -9,14 +9,34 @@ import '@/index.css'
 import '@/styles.css'
 
 const scene = new URLSearchParams(location.search).get('state') ?? 'managed'
-const kind = scene === 'shared' ? 'opencode' : scene === 'prerequisite' ? 'claude-code' : 'codex'
-const managed = ['managed', 'both', 'shared', 'installing', 'prerequisite'].includes(scene)
+const kind =
+  scene === 'vendor-updated'
+    ? 'cursor'
+    : scene === 'shared'
+      ? 'opencode'
+      : scene === 'prerequisite'
+        ? 'claude-code'
+        : 'codex'
+const managed = [
+  'managed',
+  'both',
+  'shared',
+  'installing',
+  'prerequisite',
+  'vendor-updated',
+].includes(scene)
 const own = ['own', 'own-too-old', 'both', 'shared'].includes(scene)
-const current = { codex: '0.171.0', opencode: '1.19.6', 'claude-code': '2.1.311' }[kind]
+const current = {
+  codex: '0.171.0',
+  opencode: '1.19.6',
+  'claude-code': '2.1.311',
+  cursor: '2026.11.19-f005e9d',
+}[kind]
 const homeVariable = {
   codex: 'CODEX_HOME',
   opencode: undefined,
   'claude-code': 'CLAUDE_CONFIG_DIR',
+  cursor: undefined,
 }[kind]
 const agent: AgentInventory = {
   kind,
@@ -47,6 +67,12 @@ const agent: AgentInventory = {
     ...(kind === 'codex' && managed
       ? { updateNotice: 'Codex updates its own server; a session may move to that newer server.' }
       : {}),
+    ...(scene === 'vendor-updated'
+      ? {
+          updateNotice:
+            'Cursor updates itself. Podium installed it once and leaves updates to the vendor.',
+        }
+      : {}),
   },
   ...(managed
     ? {
@@ -69,8 +95,10 @@ const agent: AgentInventory = {
               codex: '0.169.0',
               opencode: '1.19.4',
               'claude-code': '2.1.305',
+              cursor: undefined,
             }[kind],
             paused: false,
+            ...(scene === 'vendor-updated' ? { vendorUpdated: true } : {}),
             lastCheckAt: new Date(Date.now() - 2 * 3600000).toISOString(),
             ...(scene === 'installing' ? { installing: { version: '0.172.0' } } : {}),
           },

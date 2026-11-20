@@ -61,6 +61,7 @@ export function readManagedInstalls(
             }
           : {}),
         paused: row.paused,
+        ...(row.vendorUpdated ? { vendorUpdated: true } : {}),
         ...(!row.removingAt &&
         holder &&
         (holder.label.startsWith(`install ${row.kind}`) ||
@@ -95,6 +96,7 @@ function candidate(folder: ReleaseFolder | undefined): ManagedReleaseCandidate |
     release: folder.number,
     version: folder.receipt.version,
     executable: join(folder.dir, folder.receipt.executable),
+    ...(folder.receipt.updater === 'cannot-stop' ? { vendorUpdated: true } : {}),
   })
 }
 

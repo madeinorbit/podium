@@ -153,6 +153,18 @@ describe('a fresh ledger', () => {
 })
 
 describe('managed installs', () => {
+  it('moves update ownership with the current release, including going back', () => {
+    const ledger = openLedger()
+    ledger.requestInstall('cursor', 'person')
+    const lock = lockOf(ledger)
+    const number = ledger.allocateReleaseNumber('cursor', lock)
+    const dir = makeRelease('cursor', number, '2026.11.19-f005e9d')
+    writeInstallReceipt(dir, { ...receipt('cursor', '2026.11.19-f005e9d'), updater: 'cannot-stop' })
+    expect(ledger.publishRelease('cursor', number, lock).vendorUpdated).toBe(true)
+    expect(installNew(ledger, 'cursor', '2026.11.20-f005e9d', lock).vendorUpdated).toBe(false)
+    expect(ledger.revertToPrevious('cursor', lock, 'test').row.vendorUpdated).toBe(true)
+  })
+
   it('requestInstall creates the row once and keeps the first request', () => {
     const ledger = openLedger()
     const row = ledger.requestInstall('claude-code', 'machine-setup')
@@ -162,6 +174,7 @@ describe('managed installs', () => {
       current: null,
       previous: null,
       paused: false,
+      vendorUpdated: false,
       requested: { by: 'machine-setup', at: '2026-11-20T12:00:00.000Z' },
     })
     clock += 1000
@@ -618,10 +631,14 @@ describe('rebuilding from the release folders', () => {
     expect(ledger.get('grok')).toMatchObject({ current: 2 })
   })
 
-  it('a database with its tables gone is damaged, not silently reinitialized over', () => {
+  it.each([
+    2,
+    INSTALL_LEDGER_SCHEMA_VERSION,
+  ])('a schema %s database with its tables gone is damaged, not silently reinitialized over', (version) => {
     openLedger().close()
     open.length = 0
     const db = openDatabase(join(harnessesDir, 'ledger.db'))
+    db.prepare("UPDATE meta SET value = ? WHERE key = 'schema_version'").run(String(version))
     db.exec('DROP TABLE managed_install')
     db.close()
     const ledger = openLedger()
@@ -641,6 +658,23 @@ describe('rebuilding from the release folders', () => {
 })
 
 describe('schema version', () => {
+  it.each([1, 2])('migrates schema %s without changing existing install state', (version) => {
+    const original = openLedger()
+    original.requestInstall('cursor', 'person')
+    original.setPaused('cursor', true)
+    const lock = lockOf(original)
+    const published = installNew(original, 'cursor', '2026.11.19-f005e9d', lock)
+    lock.release()
+    original.close()
+    open.length = 0
+    const db = openDatabase(join(harnessesDir, 'ledger.db'))
+    db.exec('ALTER TABLE managed_install DROP COLUMN vendor_updated')
+    if (version === 1) db.exec('ALTER TABLE managed_install DROP COLUMN removing_at')
+    db.prepare("UPDATE meta SET value = ? WHERE key = 'schema_version'").run(String(version))
+    db.close()
+    expect(openLedger().get('cursor')).toEqual(published)
+  })
+
   it('refuses a database from a newer version and leaves the file as it was', () => {
     openLedger().close()
     open.length = 0
@@ -655,7 +689,9 @@ describe('schema version', () => {
     const before = readFileSync(path)
     expect(() => openLedger()).toThrow(InstallLedgerTooNewError)
     expect(() => openLedger()).toThrow(
-      /newer version of Podium .*schema 3; this build reads up to 2/,
+      new RegExp(
+        `newer version of Podium .*schema ${INSTALL_LEDGER_SCHEMA_VERSION + 1}; this build reads up to ${INSTALL_LEDGER_SCHEMA_VERSION}`,
+      ),
     )
     expect(readFileSync(path).equals(before)).toBe(true)
     expect(readdirSync(harnessesDir).filter((name) => name.startsWith('ledger.db'))).toEqual([

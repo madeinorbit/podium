@@ -64,6 +64,7 @@ export interface ResolvedHarnessExecutable {
   readonly generation: number
   /** The release folder's number, for a managed install. */
   readonly release?: number
+  readonly vendorUpdated?: boolean
 }
 
 export interface ResolvedHarnessInventory {
@@ -89,6 +90,7 @@ export interface ManagedReleaseCandidate {
   readonly version: string
   /** Absolute path inside the release folder. */
   readonly executable: string
+  readonly vendorUpdated?: boolean
 }
 
 /**
@@ -107,6 +109,7 @@ export interface ManagedHarnessRecord {
   readonly installing?: { readonly version?: string }
   readonly removingAt?: string
   readonly paused: boolean
+  readonly vendorUpdated?: boolean
   readonly lastCheck?:
     | { readonly at: string; readonly ok: true; readonly latest: string }
     | { readonly at: string; readonly ok: false; readonly error: string }
@@ -274,6 +277,7 @@ async function probeManagedCandidates(
         ...(probed.version ? { version: probed.version } : {}),
         generation: environment.generation,
         release: candidate.release,
+        ...(candidate.vendorUpdated ? { vendorUpdated: true } : {}),
       })
       return { executable, ...(currentFailed ? { currentFailed } : {}) }
     }
@@ -340,6 +344,7 @@ function installWire(
       ...(record.lastCheck?.ok ? { latest: record.lastCheck.latest } : {}),
       ...(record.lastCheck ? { lastCheckAt: record.lastCheck.at } : {}),
       paused: record.paused,
+      ...(record.vendorUpdated ? { vendorUpdated: true } : {}),
       ...(record.installing ? { installing: record.installing } : {}),
       ...(record.removingAt ? { removingAt: record.removingAt } : {}),
       ...(lastError ? { lastError } : {}),
@@ -638,7 +643,9 @@ export async function buildResolvedInventory(
         const section = manifest.managedInstall
         const reason = !section.supported ? section.reason : refusal
         const homeVariable = harnessHomeVariable(agent.kind)
-        const updateNotice = declaredValue(section)?.updateNotice
+        const updateNotice = agent.install?.managed?.vendorUpdated
+          ? `${manifest.descriptor.label} updates itself. Podium installed it once and leaves updates to the vendor.`
+          : declaredValue(section)?.updateNotice
         const row = {
           ...agent,
           management: {

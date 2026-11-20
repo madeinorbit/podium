@@ -49,29 +49,37 @@ export function cursorChecksumFixture(archive: Buffer): string {
 }
 
 /** The real adapter reaches only this fixture through the vendor-origin map. */
-export const cursorVendorFixture: VendorFixture = {
-  async start() {
-    const archive = cursorTarFixture()
-    const assetPath = `/${CURSOR_VERSION}/linux/x64/agent-cli-package.tar.gz`
-    const server = createServer((request, response) => {
-      if (request.url === '/install') return response.end(CURSOR_STABLE_RESPONSE)
-      if (request.url === assetPath) return response.end(archive)
-      if (request.url === `${assetPath}.sha256`) return response.end(cursorChecksumFixture(archive))
-      response.writeHead(404)
-      response.end('not found')
-    })
-    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
-    const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
-    return {
-      origins: {
-        'https://cursor.com/install': `${origin}/install`,
-        'https://downloads.cursor.com/lab': origin,
-      },
-      stop: () =>
-        new Promise<void>((resolve, reject) => {
-          server.closeAllConnections()
-          server.close((error) => (error ? reject(error) : resolve()))
-        }),
-    }
-  },
+export const cursorVendorFixture: VendorFixture = cursorVendorFixtureFor()
+
+export function cursorVendorFixtureFor(files: Record<string, string> = CURSOR_FIXTURE_FILES) {
+  return {
+    async start() {
+      const archive = cursorTarFixture(files)
+      const requests: string[] = []
+      const assetPath = `/${CURSOR_VERSION}/linux/x64/agent-cli-package.tar.gz`
+      const server = createServer((request, response) => {
+        requests.push(request.url ?? '')
+        if (request.url === '/install') return response.end(CURSOR_STABLE_RESPONSE)
+        if (request.url === assetPath) return response.end(archive)
+        if (request.url === `${assetPath}.sha256`)
+          return response.end(cursorChecksumFixture(archive))
+        response.writeHead(404)
+        response.end('not found')
+      })
+      await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+      const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+      return {
+        requests,
+        origins: {
+          'https://cursor.com/install': `${origin}/install`,
+          'https://downloads.cursor.com/lab': origin,
+        },
+        stop: () =>
+          new Promise<void>((resolve, reject) => {
+            server.closeAllConnections()
+            server.close((error) => (error ? reject(error) : resolve()))
+          }),
+      }
+    },
+  }
 }

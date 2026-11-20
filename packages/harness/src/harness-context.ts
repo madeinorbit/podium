@@ -121,6 +121,7 @@ export function harnessInstallationFor(
     generation: snapshot.commandEnvironment.generation,
     provenance: managed ? 'managed' : 'external',
     ...(managed?.release !== undefined ? { release: managed.release } : {}),
+    ...(managed?.vendorUpdated ? { vendorUpdated: true } : {}),
   })
 }
 
@@ -146,6 +147,7 @@ export function installationAtPath(
     generation: snapshot.commandEnvironment.generation,
     provenance: match ? 'managed' : 'external',
     ...(match?.release !== undefined ? { release: match.release } : {}),
+    ...(match?.vendorUpdated ? { vendorUpdated: true } : {}),
   })
 }
 

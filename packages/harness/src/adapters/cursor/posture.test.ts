@@ -63,6 +63,20 @@ const TERMINAL_MODE_REASON =
   "unmeasured: Cursor's mode flags were not run in its terminal UI (no signed-in Cursor account was available to the spike), so it starts in the mode its own settings choose"
 
 describe('cursorPosture', () => {
+  it.each(
+    LAUNCH_MODES,
+  )('%s: a vendor-updated managed release launches without the unsupported guard', (mode) => {
+    const externalRequest = request(mode, SUPERVISED)
+    const context = testHarnessContext({ kind: 'cursor', provenance: 'managed', release: 1 })
+    const vendorRequest: PostureRequest = {
+      ...externalRequest,
+      context: { ...context, installation: { ...context.installation, vendorUpdated: true } },
+    }
+    expect(cursorPosture(BUILDER[mode], vendorRequest)).toEqual(
+      cursorPosture(BUILDER[mode], externalRequest),
+    )
+  })
+
   it.each(LAUNCH_MODES)('%s: only managed installations disable the vendor updater', (mode) => {
     for (const posture of [SUPERVISED, AUTONOMOUS]) {
       const externalRequest = request(mode, posture)

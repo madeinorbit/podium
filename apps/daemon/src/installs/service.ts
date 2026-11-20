@@ -111,7 +111,9 @@ export class HarnessInstalls {
         case 'check': {
           const [result] = await this.options.updater.checkNow(harness)
           if (!result) return { ok: false, error: 'The machine returned no check result.' }
-          return result.outcome === 'installed' || result.outcome === 'no-update'
+          return result.outcome === 'installed' ||
+            result.outcome === 'no-update' ||
+            result.outcome === 'vendor-updated'
             ? {
                 ok: true,
                 outcome: result.outcome,

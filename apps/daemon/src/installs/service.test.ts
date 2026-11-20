@@ -17,6 +17,21 @@ const updater = {
   }),
 }
 describe('local install requests', () => {
+  it('reports vendor-owned updates as a successful no-op check', async () => {
+    const service = new HarnessInstalls({
+      runtime: { refresh: async () => testHarnessSnapshot({}) },
+      updater: {
+        ...updater,
+        checkNow: async () => [
+          { outcome: 'vendor-updated' as const, kind: 'cursor' as const, swept: [] },
+        ],
+      },
+      harnessesDir: '/not-written',
+      report: () => {},
+    })
+    expect(await service.run('check', 'cursor')).toEqual({ ok: true, outcome: 'vendor-updated' })
+  })
+
   it.each(
     BUILTIN_HARNESS_KINDS.filter((kind) => !harnessHomeVariable(kind)),
   )('refuses %s alongside a personal install before touching the vendor or ledger', async (kind) => {

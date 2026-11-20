@@ -62,6 +62,8 @@ export const InstallReceipt = z.object({
   integrity: ReleaseIntegrity,
   /** Where the release was downloaded from. */
   source: z.string().url(),
+  /** Preserved when rebuilding a lost ledger: Podium must not resume vendor-owned updates. */
+  updater: z.literal('cannot-stop').optional(),
   /** ISO time the release was published into its folder. */
   installedAt: z.string().datetime({ offset: true }),
 })

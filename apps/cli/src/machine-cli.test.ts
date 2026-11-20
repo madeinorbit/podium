@@ -366,6 +366,40 @@ describe('explicit machine supersession', () => {
 })
 
 describe('machine installs verbs', () => {
+  it('lists an install whose updates belong to the vendor', async () => {
+    const machine: MachineWire = {
+      ...ludovico,
+      inventory: {
+        os: 'linux',
+        arch: 'x64',
+        ...ludovico.inventory,
+        agents: [
+          {
+            kind: 'cursor',
+            installed: true,
+            login: { state: 'out' },
+            management: {
+              installable: true,
+              updateNotice:
+                'Cursor updates itself. Podium installed it once and leaves updates to the vendor.',
+            },
+            install: {
+              managed: {
+                active: { path: '/state/cursor', version: '2026.11.19-f005e9d', release: 1 },
+                paused: false,
+                vendorUpdated: true,
+              },
+            },
+          },
+        ],
+      },
+    }
+    const client = fakeClient([machine])
+    const result = await runMachineCli(['installs', 'list', 'ludovico'], client)
+    expect(result).toContain('installed by Podium · vendor updates')
+    expect(result).toContain('Podium installed it once and leaves updates to the vendor.')
+  })
+
   it('uses the public machine projection for operator installs commands', async () => {
     const client = fakeClient([ludovico])
     client.machines.list = { query: async () => [ludovico] }

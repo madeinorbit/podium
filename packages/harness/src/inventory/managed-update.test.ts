@@ -8,7 +8,7 @@ import { join } from 'node:path'
 import type { SessionId } from '@podium/model'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { InstallLedger } from './install-ledger.js'
-import { installRelease } from './managed-install.js'
+import { installRelease, type ManagedInstallTarget } from './managed-install.js'
 import { FakeVendorHost, fakeTarget } from './managed-install.test-support.js'
 import {
   type CheckForUpdateOptions,
@@ -113,6 +113,32 @@ describe('decideUpdate', () => {
 })
 
 describe('checkForUpdate', () => {
+  it('hands an installed update to the vendor and never checks or repairs it again', async () => {
+    await installFirst()
+    vendor.publish({ version: '1.1.0' })
+    const base = fakeTarget()
+    const target: ManagedInstallTarget = {
+      ...base,
+      install: {
+        ...base.install,
+        install: async (...args) => ({
+          ...(await base.install.install(...args)),
+          updater: 'cannot-stop',
+        }),
+      },
+    }
+    expect(await check({ target })).toMatchObject({ outcome: 'installed', version: '1.1.0' })
+    expect(ledger.get(KIND)).toMatchObject({ current: 2, vendorUpdated: true })
+    const requests = [...vendor.requests]
+    vendor.publish({ version: '1.2.0' })
+    expect(await check({ currentFailed: 2 })).toMatchObject({ outcome: 'vendor-updated' })
+    expect(await installRelease(KIND, { ...host(), updating: true })).toMatchObject({
+      outcome: 'vendor-updated',
+    })
+    expect(vendor.requests).toEqual(requests)
+    expect(ledger.get(KIND)?.current).toBe(2)
+  })
+
   it('does nothing for a harness Podium does not manage, and creates no row', async () => {
     expect(await check()).toEqual({ outcome: 'not-managed', kind: KIND })
     expect(ledger.get(KIND)).toBeUndefined()

@@ -61,6 +61,7 @@ try {
       'shared',
       'installing',
       'prerequisite',
+      'vendor-updated',
     ]) {
       const page = await browser.newPage({ viewport: { width: 1100, height: 540 } })
       const errors: string[] = []
@@ -68,7 +69,9 @@ try {
       await page.goto(`http://127.0.0.1:55658/harness/managed-installs.html?state=${state}`)
       try {
         await page
-          .locator(`[data-harness-state="${state === 'prerequisite' ? 'managed' : state}"]`)
+          .locator(
+            `[data-harness-state="${['prerequisite', 'vendor-updated'].includes(state) ? 'managed' : state}"]`,
+          )
           .waitFor()
       } catch (error) {
         throw new Error(`${state}: ${String(error)}\n${errors.join('\n')}\n${logs}`)
@@ -76,7 +79,7 @@ try {
       await page.evaluate(() => document.fonts.ready)
       await page.screenshot({ path: join(out, `${state}.png`), fullPage: true })
       if (errors.length) throw new Error(errors.join('\n'))
-      if (['both', 'shared', 'prerequisite'].includes(state)) {
+      if (['both', 'shared', 'prerequisite', 'vendor-updated'].includes(state)) {
         await page.setViewportSize({ width: 390, height: 820 })
         await page.screenshot({ path: join(out, `${state}-phone.png`), fullPage: true })
       }
@@ -85,7 +88,7 @@ try {
   } finally {
     await browser.close()
   }
-  console.log(`Captured all seven managed harness states and missing prerequisites in ${out}`)
+  console.log(`Captured managed harness states, missing prerequisites and vendor updates in ${out}`)
 } finally {
   server.kill('SIGTERM')
 }

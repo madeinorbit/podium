@@ -4,10 +4,15 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
+import { AgentInventory } from '@podium/model'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { harnessInstallation, installationAtPath } from '../../harness-context.js'
+import { buildResolvedInventory } from '../../inventory/build-inventory.js'
 import { InstallLedger } from '../../inventory/install-ledger.js'
 import { readInstallReceipt } from '../../inventory/install-receipt.js'
 import { installRelease } from '../../inventory/managed-install.js'
+import { managedInstallsReader } from '../../inventory/managed-installs.js'
+import { checkForUpdate, setUpdatesPaused } from '../../inventory/managed-update.js'
 import { declaredValue, type HarnessInstallPorts } from '../../manifest.js'
 import { harnessHomeVariable } from '../../registry.js'
 import { cursorManifest } from './index.js'
@@ -20,6 +25,7 @@ import {
   cursorChecksumFixture,
   cursorTarFixture,
   cursorVendorFixture,
+  cursorVendorFixtureFor,
 } from './install.test-support.js'
 
 let dir: string
@@ -191,7 +197,7 @@ describe('Cursor managed install', () => {
     expect(readdirSync(dir)).toEqual([])
   })
 
-  it('refuses a release whose updater guard cannot be verified', async () => {
+  it('installs a release whose updater guard cannot be verified and reports vendor updates', async () => {
     const host = ports({
       run: vi.fn(async () => {
         throw new Error('unknown option --disable-auto-update')
@@ -199,13 +205,11 @@ describe('Cursor managed install', () => {
     })
     await expect(
       cursorManagedInstall.install({ version: CURSOR_VERSION }, dir, host),
-    ).rejects.toThrow(
-      'cannot be managed: its --disable-auto-update startup guard could not be verified',
-    )
+    ).resolves.toMatchObject({ updater: 'cannot-stop' })
     expect(readdirSync(dir)).toEqual(['dist-package'])
   })
 
-  it('rejects a removed guard even when the CLI would bypass unknown options for --help', async () => {
+  it('reports a removed guard even when the CLI would bypass unknown options for --help', async () => {
     const archive = cursorTarFixture({
       ...CURSOR_FIXTURE_FILES,
       'dist-package/cursor-agent':
@@ -222,14 +226,90 @@ describe('Cursor managed install', () => {
     )
     await expect(
       cursorManagedInstall.install({ version: CURSOR_VERSION }, dir, host),
-    ).rejects.toThrow('cannot be managed')
+    ).resolves.toMatchObject({ updater: 'cannot-stop' })
   })
 
-  it('refuses a CLI that silently accepts the deliberately invalid probe option', async () => {
+  it('leaves updates to a CLI that silently accepts the deliberately invalid probe option', async () => {
     const host = ports({ run: vi.fn(async () => 'Cursor Agent') })
     await expect(
       cursorManagedInstall.install({ version: CURSOR_VERSION }, dir, host),
-    ).rejects.toThrow('did not reject the deliberately invalid parser probe')
+    ).resolves.toMatchObject({ updater: 'cannot-stop' })
+  })
+
+  it('installs once, preserves vendor update ownership across restarts and rebuilds, and reports it', async () => {
+    const vendor = await cursorVendorFixtureFor({
+      ...CURSOR_FIXTURE_FILES,
+      'dist-package/cursor-agent': `#!/bin/sh
+case "$*" in
+  *--disable-auto-update*) echo "unknown option --disable-auto-update" >&2; exit 2 ;;
+  *--help*) echo "Cursor Agent" ;;
+  *) echo "${CURSOR_VERSION}" ;;
+esac
+`,
+    }).start()
+    const harnessesDir = join(dir, 'harnesses')
+    let ledger = InstallLedger.open({ harnessesDir })
+    const options = {
+      commandEnv: { HOME: join(dir, 'personal-home'), PATH: '/usr/bin:/bin' },
+      vendorOrigins: vendor.origins,
+      platform: 'linux' as const,
+      arch: 'x64',
+    }
+    try {
+      const installed = await installRelease('cursor', { ...options, ledger })
+      expect(installed).toMatchObject({ outcome: 'installed', version: CURSOR_VERSION })
+      if (installed.outcome !== 'installed') throw new Error(JSON.stringify(installed))
+      expect(readInstallReceipt(installed.dir)).toMatchObject({
+        ok: true,
+        receipt: { updater: 'cannot-stop' },
+      })
+      const requestsAfterInstall = [...vendor.requests]
+      for (const rebuild of [false, true]) {
+        ledger.close()
+        if (rebuild) rmSync(join(harnessesDir, 'ledger.db'))
+        ledger = InstallLedger.open({ harnessesDir })
+        expect(ledger.get('cursor')).toMatchObject({
+          current: 1,
+          vendorUpdated: true,
+          paused: false,
+        })
+        // Resuming Podium's paused updates must never claim the vendor's updater.
+        setUpdatesPaused('cursor', true, { ledger })
+        setUpdatesPaused('cursor', false, { ledger })
+        expect(await checkForUpdate('cursor', { ...options, ledger, currentFailed: 1 })).toEqual({
+          outcome: 'vendor-updated',
+          kind: 'cursor',
+          swept: [],
+        })
+        expect(vendor.requests).toEqual(requestsAfterInstall)
+        expect(readdirSync(join(harnessesDir, 'cursor'))).toEqual([`1-${CURSOR_VERSION}`])
+      }
+      const snapshot = await buildResolvedInventory({
+        homeDir: options.commandEnv.HOME,
+        env: options.commandEnv,
+        managedInstalls: managedInstallsReader(harnessesDir),
+        exec: async (argv, timeout, env) => {
+          if (argv[0] !== installed.executable) throw new Error('ENOENT')
+          const { stdout } = await promisify(execFile)(installed.executable, argv.slice(1), {
+            env,
+            timeout,
+          })
+          return stdout
+        },
+      })
+      const cursor = AgentInventory.parse(
+        snapshot.inventory.agents.find((row) => row.kind === 'cursor'),
+      )
+      expect(cursor.install?.managed).toMatchObject({ vendorUpdated: true, active: { release: 1 } })
+      expect(cursor.management?.updateNotice).toBe(
+        'Cursor updates itself. Podium installed it once and leaves updates to the vendor.',
+      )
+      expect(harnessInstallation(snapshot, 'cursor', 'podium').vendorUpdated).toBe(true)
+      expect(installationAtPath(snapshot, 'cursor', installed.executable).vendorUpdated).toBe(true)
+    } finally {
+      ledger.close()
+      await vendor.stop()
+    }
   })
 
   it('publishes a verified receipt without inventing a vendor publication time', async () => {
@@ -259,6 +339,8 @@ describe('Cursor managed install', () => {
       })
       if (!read.ok) throw new Error(read.error)
       expect(read.receipt.integrity).not.toHaveProperty('publishedAt')
+      expect(read.receipt.updater).toBeUndefined()
+      expect(ledger.get('cursor')?.vendorUpdated).toBe(false)
     } finally {
       ledger.close()
       await vendor.stop()

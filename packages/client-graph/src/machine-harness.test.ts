@@ -37,6 +37,33 @@ function fixture(value: AgentInventory) {
   return { machine, row: new MachineHarness(machine as unknown as MachineModel, 'codex') }
 }
 describe('machine harness state', () => {
+  it('shows vendor update ownership and offers no Podium update controls', () => {
+    const inventory = agent(false, true)
+    const managed = inventory.install?.managed
+    if (!managed) throw new Error('fixture has no managed install')
+    const { row, machine } = fixture(inventory)
+    runInAction(() => {
+      machine.inventory = {
+        ...machine.inventory,
+        agents: [
+          {
+            ...inventory,
+            install: {
+              managed: { ...managed, vendorUpdated: true, paused: true },
+            },
+            management: {
+              installable: true,
+              homeVariable: 'CODEX_HOME',
+              updateNotice: 'Vendor owns updates.',
+            },
+          },
+        ],
+      }
+    })
+    expect(row.managedLabel).toBe('0.171.0 · installed by Podium · vendor updates')
+    expect(row.updateNotice).toBe('Vendor owns updates.')
+    expect(row.actions).toEqual(['back', 'take-settings', 'remove', 'home-info'])
+  })
   it('shows the daemon’s vendor update disclosure only for its managed side', () => {
     const own = agent(true, false)
     const { row, machine } = fixture({

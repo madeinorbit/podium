@@ -32,7 +32,7 @@ import type { JsonValue, PostureRequirement } from '../posture-types.js'
 import { type InstallReceipt, listReleaseFolders, type ReleaseFolder } from './install-receipt.js'
 
 /** The schema this build writes. A database recording a higher number is refused. */
-export const INSTALL_LEDGER_SCHEMA_VERSION = 2
+export const INSTALL_LEDGER_SCHEMA_VERSION = 3
 
 export const LEDGER_FILE = 'ledger.db'
 
@@ -61,6 +61,8 @@ export interface ManagedInstall {
   previous: number | null
   /** A person paused updates. */
   paused: boolean
+  /** The release's own updater cannot be stopped; Podium leaves updates to the vendor. */
+  vendorUpdated: boolean
   /**
    * Who asked for the managed install. `ledger-rebuild` marks a row rebuilt from
    * the release folders after the database was lost, when the original request
@@ -446,9 +448,9 @@ export class InstallLedger {
         )
       this.sql(
         `UPDATE managed_install
-           SET previous = current, current = ?, failing_since = NULL, last_install_error = NULL
+           SET previous = current, current = ?, vendor_updated = ?, failing_since = NULL, last_install_error = NULL
            WHERE kind = ?`,
-      ).run(number, kind)
+      ).run(number, folder.receipt.updater === 'cannot-stop' ? 1 : 0, kind)
       return this.require(kind)
     })
   }
@@ -485,9 +487,9 @@ export class InstallLedger {
           `INSERT INTO rejected_release (kind, version, reason, at) VALUES (?, ?, ?, ?)
              ON CONFLICT(kind, version) DO UPDATE SET reason = excluded.reason, at = excluded.at`,
         ).run(kind, rejected, reason, this.isoNow())
-      this.sql('UPDATE managed_install SET current = previous, previous = NULL WHERE kind = ?').run(
-        kind,
-      )
+      this.sql(
+        'UPDATE managed_install SET current = previous, previous = NULL, vendor_updated = ? WHERE kind = ?',
+      ).run(previous.receipt.updater === 'cannot-stop' ? 1 : 0, kind)
       return {
         row: this.require(kind),
         ...(rejected !== undefined && rejected !== previous.receipt.version ? { rejected } : {}),
@@ -816,9 +818,16 @@ export class InstallLedger {
       if (!current) continue
       const nextNumber = (folders[0]?.number ?? 0) + 1
       this.sql(
-        `INSERT INTO managed_install (kind, next_number, current, previous, paused, requested_by, requested_at)
-           VALUES (?, ?, ?, ?, 0, 'ledger-rebuild', ?)`,
-      ).run(kind, nextNumber, current.number, previous?.number ?? null, current.receipt.installedAt)
+        `INSERT INTO managed_install (kind, next_number, current, previous, paused, vendor_updated, requested_by, requested_at)
+           VALUES (?, ?, ?, ?, 0, ?, 'ledger-rebuild', ?)`,
+      ).run(
+        kind,
+        nextNumber,
+        current.number,
+        previous?.number ?? null,
+        current.receipt.updater === 'cannot-stop' ? 1 : 0,
+        current.receipt.installedAt,
+      )
       restored.push(kind)
     }
     return { restored, sawFolders }
@@ -891,6 +900,7 @@ const SCHEMA = `
     current INTEGER,
     previous INTEGER,
     paused INTEGER NOT NULL DEFAULT 0,
+    vendor_updated INTEGER NOT NULL DEFAULT 0,
     requested_by TEXT NOT NULL,
     requested_at TEXT NOT NULL,
     last_check TEXT,
@@ -941,6 +951,7 @@ interface ManagedInstallRow {
   current: number | null
   previous: number | null
   paused: number
+  vendor_updated: number
   requested_by: ManagedInstall['requested']['by']
   requested_at: string
   last_check: string | null
@@ -957,6 +968,7 @@ function decodeManagedInstall(row: ManagedInstallRow): ManagedInstall {
     current: row.current,
     previous: row.previous,
     paused: row.paused !== 0,
+    vendorUpdated: row.vendor_updated !== 0,
     requested: { by: row.requested_by, at: row.requested_at },
     ...(row.last_check ? { lastCheck: JSON.parse(row.last_check) } : {}),
     ...(row.last_install_error ? { lastInstallError: JSON.parse(row.last_install_error) } : {}),
@@ -1111,24 +1123,30 @@ function probeLedger(path: string): Probe {
       db.close()
       throw new InstallLedgerTooNewError(path, found)
     }
-    if (found < 2) {
+    const missing = TABLES.filter((name) => !tables.has(name))
+    if (missing.length > 0) {
+      db.close()
+      return { kind: 'damaged', detail: `tables missing: ${missing.join(', ')}`, ino }
+    }
+    if (found < INSTALL_LEDGER_SCHEMA_VERSION) {
       db.exec('BEGIN IMMEDIATE')
       try {
         // Re-read under the writer lock: the CLI and daemon can open together.
         const columns = queryOnce(db, 'PRAGMA table_info(managed_install)') as { name: string }[]
         if (!columns.some((column) => column.name === 'removing_at'))
           db.exec('ALTER TABLE managed_install ADD COLUMN removing_at TEXT')
-        db.exec("UPDATE meta SET value = '2' WHERE key = 'schema_version'")
+        if (!columns.some((column) => column.name === 'vendor_updated'))
+          db.exec(
+            'ALTER TABLE managed_install ADD COLUMN vendor_updated INTEGER NOT NULL DEFAULT 0',
+          )
+        db.exec(
+          `UPDATE meta SET value = '${INSTALL_LEDGER_SCHEMA_VERSION}' WHERE key = 'schema_version'`,
+        )
         db.exec('COMMIT')
       } catch (error) {
         db.exec('ROLLBACK')
         throw error
       }
-    }
-    const missing = TABLES.filter((name) => !tables.has(name))
-    if (missing.length > 0) {
-      db.close()
-      return { kind: 'damaged', detail: `tables missing: ${missing.join(', ')}`, ino }
     }
     db.exec('PRAGMA journal_mode = WAL')
     return { kind: 'ok', db }
