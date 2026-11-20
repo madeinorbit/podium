@@ -80,6 +80,25 @@ const layout = (board: MobileTasksBoard) => {
   return sections.map((section) => ({ ...section, rows: section.rows.map((row) => ({ ...row })) }))
 }
 
+it('resolves an observed phone board when its screen source attaches after mount', async () => {
+  const pool = new MobxPool({ selectedIssueId: null, coarseNow: now })
+  pool.apply({ type: 'replace', rows: [{ kind: 'issue', id: 'root', value: issue('root') }] })
+  const board = new MobileTasksBoard(pool, options)
+  let sections: typeof board.sections = LOADING
+  const stop = autorun(() => {
+    sections = board.sections
+  })
+  disposals.push(() => {
+    stop()
+    board.dispose()
+    pool.dispose()
+  })
+  expect(sections).toBe(LOADING)
+  await attachMobileScreens(pool)
+  expect(sections).not.toBe(LOADING)
+  expect(layout(board).flatMap((lane) => lane.rows.map((row) => row.id))).toEqual(['root'])
+})
+
 it('keeps list membership, peer rows and proposals quiet when one drawn issue changes', async () => {
   const { pool } = await setup([
     issue('root'),
