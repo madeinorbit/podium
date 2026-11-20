@@ -18,6 +18,7 @@ import {
   quietShipping,
   type StatementPin,
   type StatementTally,
+  settledCommand,
   settledOperation,
 } from './test-support/statement-count'
 
@@ -128,14 +129,14 @@ async function fixture(size: number, contract = false): Promise<Fixture> {
     instanceId: 'default',
     rehearseBoot: true,
   })
-  await attachHostDaemon(reg, () => {})
+  await settledCommand(() => attachHostDaemon(reg, () => {}))
   await quietShipping(reg)
   // Complete the normal startup cursor load explicitly; later frames still
   // exercise the live durable board projection and all of its statements.
   await reg.modules.sessions.runtimeGateway.replayBoardProjection()
   const ids: SessionId[] = []
   for (let i = 0; i < size; i++) {
-    const { sessionId } = await settledOperation(() =>
+    const { sessionId } = await settledCommand(() =>
       reg.modules.sessions.createSession({
         agentKind: 'codex',
         cwd: `/w${i}`,

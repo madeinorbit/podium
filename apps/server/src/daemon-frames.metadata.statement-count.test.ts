@@ -20,6 +20,7 @@ import {
   expectConstantStatements,
   quietShipping,
   type StatementPin,
+  settledCommand,
   settledOperation,
 } from './test-support/statement-count'
 
@@ -38,25 +39,27 @@ async function fixture(size: number): Promise<Fixture> {
     instanceId: 'default',
     rehearseBoot: true,
   })
-  await attachHostDaemon(reg, () => {})
+  await settledCommand(() => attachHostDaemon(reg, () => {}))
   await quietShipping(reg)
   // Complete the normal startup cursor load explicitly; later frames still
   // exercise the live durable board projection and all of its statements.
   await reg.modules.sessions.runtimeGateway.replayBoardProjection()
   const owner = await firstAdminMemberId(store)
   for (let i = 0; i < size; i++) {
-    await store.machines.upsertMachine({
-      id: asMachineId(`mach_other_${i}`),
-      name: `Other ${i}`,
-      hostname: `other-${i}`,
-      tokenHash: `token-${i}`,
-      ownerUserId: owner,
-      assignment: { server: false, agentExecution: true },
-    })
+    await settledCommand(() =>
+      store.machines.upsertMachine({
+        id: asMachineId(`mach_other_${i}`),
+        name: `Other ${i}`,
+        hostname: `other-${i}`,
+        tokenHash: `token-${i}`,
+        ownerUserId: owner,
+        assignment: { server: false, agentExecution: true },
+      }),
+    )
   }
   const ids: SessionId[] = []
   for (let i = 0; i < size; i++) {
-    const { sessionId } = await settledOperation(() =>
+    const { sessionId } = await settledCommand(() =>
       reg.modules.sessions.createSession({
         agentKind: 'claude-code',
         cwd: `/w${i}`,

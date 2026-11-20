@@ -22,7 +22,11 @@
  */
 
 import { expect } from 'vitest'
-import { type OperationScope, observeOperations } from '../store/executor/operation-scope'
+import {
+  type OperationScope,
+  observeOperations,
+  withOwnOperation,
+} from '../store/executor/operation-scope'
 import {
   probeStatements,
   type StatementObservation,
@@ -45,6 +49,12 @@ export async function settledOperation<T>(run: () => T | Promise<T>): Promise<T>
       await Promise.all(pending.map((operation) => operation.whenSettled()))
     }
   }
+}
+
+/** A fixture command replaces one real ingress, which owns an operation. The
+ * gateway already opens its frame operation; direct fixture service calls do not. */
+export async function settledCommand<T>(run: () => T | Promise<T>): Promise<T> {
+  return await settledOperation(() => withOwnOperation(run))
 }
 
 /** What one operation ran. */

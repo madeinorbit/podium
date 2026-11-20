@@ -30,6 +30,7 @@ import {
   quietShipping,
   type StatementPin,
   type StatementTally,
+  settledCommand,
   settledOperation,
 } from './test-support/statement-count'
 
@@ -50,21 +51,23 @@ async function fixture(size: number): Promise<Fixture> {
     instanceId: 'default',
     rehearseBoot: true,
   })
-  await attachHostDaemon(reg, () => {}, { repos: ['/repo'] })
+  await settledCommand(() => attachHostDaemon(reg, () => {}, { repos: ['/repo'] }))
   await quietShipping(reg)
   // Complete the normal startup cursor load explicitly; later frames still
   // exercise the live durable board projection and all of its statements.
   await reg.modules.sessions.runtimeGateway.replayBoardProjection()
   const host = store.hostMachineId
-  const issue = await reg.issues.crud.create(reg.issues.reports.store.serverWriter, {
-    repoPath: '/repo',
-    title: 'Results',
-    startNow: false,
-  })
+  const issue = await settledCommand(() =>
+    reg.issues.crud.create(reg.issues.reports.store.serverWriter, {
+      repoPath: '/repo',
+      title: 'Results',
+      startNow: false,
+    }),
+  )
   const ids: SessionId[] = []
   for (let i = 0; i < size; i++) {
     const cwd = i === 0 ? '/repo/w' : `/other/w${i}`
-    const { sessionId } = await settledOperation(() =>
+    const { sessionId } = await settledCommand(() =>
       reg.modules.sessions.createSession({
         agentKind: 'shell',
         cwd,
@@ -332,12 +335,14 @@ describe('daemon *Result frames: pinned statement counts at 5 and 200', () => {
       // This case owns an executing approval. Start that dispatcher explicitly
       // in the otherwise maintenance-free fixture; decideApproval awaits it.
       f.reg.modules.effects?.runner.start()
-      const { id } = await fileApproval(f.reg, {
-        op: { kind: 'update' },
-        sessionId: f.ids[0]!,
-        machineId: f.host,
-      })
-      await decideApproval(f.reg, id)
+      const { id } = await settledCommand(() =>
+        fileApproval(f.reg, {
+          op: { kind: 'update' },
+          sessionId: f.ids[0]!,
+          machineId: f.host,
+        }),
+      )
+      await settledCommand(() => decideApproval(f.reg, id))
       await settle(f.reg)
       const messagesBefore = (await f.store.issues.listIssueMessages(f.issueId)).length
       return { ...f, approvalId: id, messagesBefore }
