@@ -22,7 +22,7 @@ import type { SessionQuestionFacts, SessionQuestions } from './shared/session-qu
 import { directSessionReferenceKey, referenceKey } from './shared/session-reference'
 import type { RowSourceEvent } from './shared/source'
 import { createWorktreeQuestions } from './shared/worktree-questions'
-import { LOADING, type Loaded } from './worklist/rollup'
+import type { LOADING, Loaded } from './worklist/rollup'
 
 type SessionAtomKind =
   | 'collapsed'
@@ -840,23 +840,27 @@ export class ReaderQueries {
     afterVisible: boolean,
   ): void {
     const at = (value: SessionQuestionFacts | undefined) => Date.parse(value?.activity ?? '') || 0
-    if (
-      beforeVisible === afterVisible &&
-      before?.cwd === after?.cwd &&
-      at(before) === at(after) &&
-      (before?.agentKind === 'shell') === (after?.agentKind === 'shell') &&
-      before?.archived === after?.archived &&
-      before?.headless === after?.headless &&
-      before?.order === after?.order
-    )
-      return
+    const allActivityChanged =
+      beforeVisible !== afterVisible || before?.cwd !== after?.cwd || at(before) !== at(after)
+    const agentActivityChanged =
+      allActivityChanged || (before?.agentKind === 'shell') !== (after?.agentKind === 'shell')
+    const workspaceChanged =
+      beforeVisible !== afterVisible ||
+      before?.cwd !== after?.cwd ||
+      before?.archived !== after?.archived ||
+      before?.headless !== after?.headless ||
+      before?.order !== after?.order
+    if (!allActivityChanged && !agentActivityChanged && !workspaceChanged) return
     const keys = new Set<string>()
     const add = (value: SessionQuestionFacts | undefined, visible: boolean) => {
       if (!value || !visible) return
-      keys.add(`workspace:within:${machinePathKey(value.cwd)}`)
-      for (const ancestor of machinePathAncestors(value.cwd))
-        keys.add(`workspace:within:${machinePathKey(ancestor)}`)
+      if (workspaceChanged) {
+        keys.add(`workspace:within:${machinePathKey(value.cwd)}`)
+        for (const ancestor of machinePathAncestors(value.cwd))
+          keys.add(`workspace:within:${machinePathKey(ancestor)}`)
+      }
       for (const kind of value.agentKind === 'shell' ? ['all'] : ['all', 'agents']) {
+        if (kind === 'all' ? !allActivityChanged : !agentActivityChanged) continue
         keys.add(`activity:${kind}:exact:${machinePathKey(value.cwd)}`)
         keys.add(`activity:${kind}:within:${machinePathKey(value.cwd)}`)
         if (machinePathSeparator(value.cwd) === '\\') {
