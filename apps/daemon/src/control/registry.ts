@@ -22,6 +22,7 @@ import { sessionHandlers } from './session'
 import { shippingHandlers } from './shipping'
 import { topicHandlers } from './topics'
 import { transcriptHandlers } from './transcripts'
+import { uninstallHandlers } from './uninstall'
 import { updateHandlers } from './update'
 import { workspaceHandlers } from './workspace'
 
@@ -155,6 +156,7 @@ export const CONTROL_HANDLERS: ControlHandlers = {
   ...serverTransferHandlers,
   ...serverEndpointHandlers,
   ...shippingHandlers,
+  ...uninstallHandlers,
   agentRelayResult: (ctx, msg) => ctx.agentRelayHub.onResult(msg),
   // A live session's credential again after a reconnect (credential
   // management §8): memory only. A start that waited for it goes on now.

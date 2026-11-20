@@ -20,7 +20,22 @@ holds Podium's value and rereads it before writing. JSON undo restores only the
 key; owned-file undo restores its exact previous text or removes a newly created
 file; TOML undo removes one string and separator, retaining the other text.
 
-The uninstall lifecycle does not exist yet; POD-7369 wires its cleanup to
-`undoAllHomeEditRecords`. Ordinary daemon shutdown, restart, managed-binary
-removal and repository removal must never call this hook. The install-request
+Two callers use the hook, and both are uninstalling Podium from the machine:
+
+- `podium uninstall` (`apps/cli/src/uninstall-cli.ts`, the undo injected by
+  `scripts/cli.ts`) stops the services and sessions, runs the hook, removes the
+  service units, and removes the state folder, the installed bundle and its
+  command only when every outcome is `restored` (or with `--force`). On a server
+  or all-in-one instance the state folder holds the workspace database and is
+  kept unless `--delete-workspace-data` is given too.
+- The machine menu's "Uninstall Podium" (`machines.uninstall`, a
+  `machine.uninstall` effect record) sends `machineUninstallRequest` to the
+  daemon (`apps/daemon/src/control/uninstall.ts`). The daemon runs the hook,
+  answers with the outcomes, and starts `podium uninstall --yes` outside its own
+  service; the server then revokes the machine. It is refused for the machine
+  that runs the server, a desktop-supervised daemon, and a daemon that does not
+  offer `machine.uninstall.v1`.
+
+Ordinary daemon shutdown, restart, managed-binary removal, repository removal
+and the Settings "Remove machine" revoke must never call this hook. The install-request
 and client wiring belongs to POD-7283.

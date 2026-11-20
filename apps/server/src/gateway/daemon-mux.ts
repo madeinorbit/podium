@@ -248,6 +248,7 @@ const DISPATCH: Dispatcher = {
   harnessChangesResult: toRpc,
   harnessRemoveResult: toRpc,
   conversationPrepareResult: toRpc,
+  machineUninstallResult: toRpc,
   homeRemoveResult: toRpc,
   credentialRemoveResult: toRpc,
 

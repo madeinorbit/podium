@@ -24,6 +24,7 @@ import {
   CAP_HARNESS_HOMES_GROK,
   CAP_HARNESS_INSTALLS,
   CAP_MACHINE_PROCESSES_V1,
+  CAP_MACHINE_UNINSTALL,
   CAP_SESSION_ACCESS,
   CAP_TERMINAL_INPUT_BINARY_V1,
   CAP_TERMINAL_OUTPUT_BINARY_V1,
@@ -149,6 +150,9 @@ const createResolvedDaemonAcceptor = (deps: ResolvedDaemonAcceptorDeps): Handsha
       CAP_TOPICS_V1,
       CAP_CHECKOUT_CHANGED_V1,
       CAP_MACHINE_PROCESSES_V1,
+      // Managed installs §12 item 14: this server asks a daemon that accepted
+      // this to uninstall Podium from its machine (the machine menu).
+      CAP_MACHINE_UNINSTALL,
     ],
     transport: {
       endpoint: '/daemon',

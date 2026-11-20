@@ -181,6 +181,7 @@ export {
   machineSupersedeInput,
   machineTransferOwnershipContract,
   machineTransferOwnershipInput,
+  machineUninstallContract,
   machineUnshareContract,
   machineUnshareInput,
   repoAddContract,

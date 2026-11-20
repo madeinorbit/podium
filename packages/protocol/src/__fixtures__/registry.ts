@@ -67,6 +67,7 @@ import * as shipping from '../messages/shipping'
 import * as sync from '../messages/sync'
 import * as terminal from '../messages/terminal'
 import * as transcript from '../messages/transcript'
+import * as uninstall from '../messages/uninstall'
 import * as update from '../messages/update'
 import * as workflows from '../messages/workflows'
 import * as workspace from '../messages/workspace'
@@ -132,6 +133,8 @@ const MODULES: ReadonlyArray<readonly [family: string, module: Record<string, un
   // ClientMessage, ServerMessage, DaemonMessage and ControlMessage.
   ['topics', topics],
   ['transcript', transcript],
+  // Uninstalling Podium from a machine (managed installs §12 item 14).
+  ['uninstall', uninstall],
   ['update', update],
   ['workflows', workflows],
   ['workspace', workspace],

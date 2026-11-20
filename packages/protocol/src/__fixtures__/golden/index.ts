@@ -43,6 +43,7 @@ import sync from './sync.json' with { type: 'json' }
 import terminal from './terminal.json' with { type: 'json' }
 import topics from './topics.json' with { type: 'json' }
 import transcript from './transcript.json' with { type: 'json' }
+import uninstall from './uninstall.json' with { type: 'json' }
 import update from './update.json' with { type: 'json' }
 import workflows from './workflows.json' with { type: 'json' }
 import workspace from './workspace.json' with { type: 'json' }
@@ -90,6 +91,7 @@ export const GOLDEN: Record<string, unknown> = {
   terminal: terminal,
   topics: topics,
   transcript: transcript,
+  uninstall: uninstall,
   update: update,
   workflows: workflows,
   workspace: workspace,

@@ -277,6 +277,8 @@ export type LaunchPlan =
   | { kind: 'perf'; args: string[] }
   | { kind: 'status' }
   | { kind: 'stop' }
+  /** `podium uninstall`: leave this machine (managed installs §12 item 14). */
+  | { kind: 'uninstall'; args: string[] }
   | { kind: 'restart' }
   | { kind: 'doctor'; args: string[] }
   | { kind: 'logs'; args: string[] }
@@ -655,7 +657,11 @@ export function resolvePlan(
       }
       return { kind: 'approval-request', op: { kind: 'update' } }
     }
-    if (argv[0] === 'restart' || (argv[0] === 'doctor' && argv.includes('--fix'))) {
+    if (
+      argv[0] === 'restart' ||
+      argv[0] === 'uninstall' ||
+      (argv[0] === 'doctor' && argv.includes('--fix'))
+    ) {
       return {
         kind: 'usage-error',
         message: `podium ${argv[0]} changes running services; run it outside a managed agent session`,
@@ -873,6 +879,7 @@ export function resolvePlan(
   if (argv[0] === 'restart') return { kind: 'restart' }
   if (argv[0] === 'doctor') return { kind: 'doctor', args: argv.slice(1) }
   if (argv[0] === 'stop') return { kind: 'stop' }
+  if (argv[0] === 'uninstall') return { kind: 'uninstall', args: argv.slice(1) }
   if (argv[0] === 'logs') return { kind: 'logs', args: argv.slice(1) }
 
   // ---- launch resolution ----
@@ -1027,6 +1034,9 @@ export function helpText(enabledFeatures: ReadonlySet<FeatureId> = new Set()): s
     '  doctor [--fix] [--report] Find the first broken link, repair it, or write a support file',
     '  restart               Restart Podium and its managed tunnel',
     '  stop                  Stop managed podium processes',
+    '  uninstall [--yes] [--force] [--delete-workspace-data]',
+    "                        Undo Podium's edits in your harness folders, remove its",
+    '                        services and its files from this machine',
     '  logs [component] [-f] [--pretty]',
     '                        Show logs for managed processes (NDJSON; --pretty renders them)',
     '  logs export-crash [--limit N] [--out FILE]',
@@ -1264,6 +1274,12 @@ export interface HostModules {
 export interface CliRuntimeOptions {
   localSetupDefault?: boolean
   afterInstanceStateClaim?: () => void | Promise<void>
+  /**
+   * `podium uninstall`'s undo of the edits Podium made in harness folders. The
+   * composition root injects the daemon's guarded undo (apps/cli never imports
+   * apps/daemon); without it the command keeps Podium's files.
+   */
+  undoHomeEdits?: () => Promise<import('@podium/protocol').UninstallEditOutcome[]>
 }
 
 type InProcessPlan = Extract<LaunchPlan, { kind: 'in-process' }>
@@ -2437,6 +2453,23 @@ export async function main(
     case 'stop': {
       const { stopCommand } = await import('./cli-lifecycle')
       await stopCommand()
+      return
+    }
+    case 'uninstall': {
+      const { uninstallCommand } = await import('./uninstall-cli')
+      process.exitCode = await uninstallCommand(plan.args, {
+        ...(runtime.undoHomeEdits ? { undoHomeEdits: runtime.undoHomeEdits } : {}),
+        compiled: /\/\$bunfs\/|\/(?:~|%7E)BUN\//i.test(import.meta.url),
+        confirm: async (question) => {
+          if (!process.stdin.isTTY) {
+            console.error('podium uninstall: no terminal to confirm in; pass --yes')
+            return false
+          }
+          const p = await import('@clack/prompts')
+          const answer = await p.confirm({ message: question, initialValue: false })
+          return !p.isCancel(answer) && answer === true
+        },
+      })
       return
     }
     case 'logs': {

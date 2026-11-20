@@ -13,6 +13,7 @@ import {
   CAP_HARNESS_HOMES_GROK,
   CAP_HARNESS_INSTALLS,
   CAP_MACHINE_PROCESSES_V1,
+  CAP_MACHINE_UNINSTALL,
   CAP_OAUTH_LOOPBACK,
   CAP_SESSION_ACCESS,
   CAP_TERMINAL_INPUT_BINARY_V1,
@@ -1152,6 +1153,9 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
         CAP_TOPICS_V1,
         CAP_CHECKOUT_CHANGED_V1,
         CAP_MACHINE_PROCESSES_V1,
+        // Managed installs §12 item 14: this daemon answers the machine menu's
+        // "Uninstall Podium" (`machineUninstallRequest`).
+        CAP_MACHINE_UNINSTALL,
       ],
       ...(reportUpdateIdentity ? { build: deps.build } : {}),
       claims: {

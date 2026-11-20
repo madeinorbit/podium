@@ -31,6 +31,7 @@ import {
   machinePairingCodeHandler,
   machineSetAssignmentHandler,
   machineRevokeHandler,
+  machineUninstallHandler,
   machineShareHandler,
   machineTransferOwnershipHandler,
   machineMoveServerHandler,
@@ -91,6 +92,10 @@ export const FLEET_COMMANDS = {
   'machines.revoke': {
     contract: FLEET_CONTRACTS['machines.revoke'],
     handler: machineRevokeHandler,
+  },
+  'machines.uninstall': {
+    contract: FLEET_CONTRACTS['machines.uninstall'],
+    handler: machineUninstallHandler,
   },
   'machines.moveServer': {
     contract: FLEET_CONTRACTS['machines.moveServer'],

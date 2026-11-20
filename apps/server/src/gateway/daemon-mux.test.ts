@@ -309,9 +309,11 @@ describe('machine scope and the writer class', () => {
         'homeRemoveResult',
         'credentialRemoveResult',
         'conversationPrepareResult',
+        // The machine menu's "Uninstall Podium" (managed installs §12 item 14).
+        'machineUninstallResult',
       ]),
     )
-    expect(rpcFrames.length).toBe(48)
+    expect(rpcFrames.length).toBe(49)
     for (const type of rpcFrames) {
       const { ports, calls } = fakePorts()
       muxWith(ports).routeDaemonFrame(PRINCIPAL, sampleFrame(type))

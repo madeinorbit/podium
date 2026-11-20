@@ -158,6 +158,7 @@ export const DAEMON_FRAME_PORTS = {
   harnessChangesResult: ['rpc'],
   harnessRemoveResult: ['rpc'],
   conversationPrepareResult: ['rpc'],
+  machineUninstallResult: ['rpc'],
   homeRemoveResult: ['rpc'],
   credentialRemoveResult: ['rpc'],
   serverTransferResult: ['rpc'],

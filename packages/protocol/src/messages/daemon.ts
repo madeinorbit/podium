@@ -117,6 +117,7 @@ import {
   TranscriptMirrorResultMessage,
   TranscriptReadResultMessage,
 } from './transcript'
+import { MachineUninstallResultMessage } from './uninstall'
 import { DevArtifactProbeResultMessage, UpdateStatusMessage } from './update'
 import {
   WorkspaceCleanResultMessage,
@@ -329,6 +330,9 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   HarnessRemoveResultMessage,
   HarnessHomeInfoResultMessage,
   HarnessHomeRemoveResultMessage,
+  /** Reply to `machineUninstallRequest` (managed installs §12 item 14),
+   *  appended at the END for index stability. */
+  MachineUninstallResultMessage,
 ])
 export type DaemonMessage = z.infer<typeof DaemonMessage>
 

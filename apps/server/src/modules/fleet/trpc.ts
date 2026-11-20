@@ -170,6 +170,7 @@ function syncAdapter(name: FleetSyncCommandName, use: readonly RouteMiddleware[]
  */
 const FLEET_EFFECT_COMMANDS = [
   'machines.applyUpdate',
+  'machines.uninstall',
   'machines.moveServer',
   'repos.cloneGithub',
   'repos.createFolder',

@@ -50,6 +50,7 @@ import type {
   HomeHarness,
   HomeRemoveResultMessage,
   InteractionAnswerOutcome,
+  MachineUninstallResultMessage,
   ModelChoiceWire,
   OauthLoopbackCallbackMessage,
   OauthLoopbackResultMessage,
@@ -325,6 +326,9 @@ const CREDENTIAL_REMOVE = daemonRequestKind<Payload<CredentialRemoveResultMessag
 // A conversation placed for another credential's home (§9), on a daemon that
 // offered conversation.prepare.v1.
 const CONVERSATION_PREPARE = daemonRequestKind<Payload<ConversationPrepareResultMessage>>('cp')
+// Uninstall Podium from a machine (managed installs §12 item 14), on a daemon
+// that offered machine.uninstall.v1.
+const MACHINE_UNINSTALL = daemonRequestKind<Payload<MachineUninstallResultMessage>>('mu')
 const SERVER_TRANSFER = daemonRequestKind<Payload<ServerTransferResultMessage>>('st')
 const SERVER_ENDPOINT = daemonRequestKind<Payload<ServerEndpointResultMessage>>('sm')
 const SHIPPING_JOB = daemonRequestKind<ShippingJobResult>('sj')
@@ -507,6 +511,8 @@ const RPC_REPLY_SETTLERS: { [K in SettledFrameType]: ReplySettler<K> } = {
     void broker.settle(CREDENTIAL_REMOVE, msg.requestId, machineId, payloadOf(msg)),
   conversationPrepareResult: (broker, machineId, msg) =>
     void broker.settle(CONVERSATION_PREPARE, msg.requestId, machineId, payloadOf(msg)),
+  machineUninstallResult: (broker, machineId, msg) =>
+    void broker.settle(MACHINE_UNINSTALL, msg.requestId, machineId, payloadOf(msg)),
   runtimeStageAttachmentResult: (broker, machineId, msg) =>
     void broker.settle(RUNTIME_STAGE_ATTACHMENT, msg.requestId, machineId, payloadOf(msg)),
   runtimeSendResult: (broker, machineId, msg) =>
@@ -1552,6 +1558,27 @@ export class DaemonRpcService {
       60_000,
       () => ({ ok: false, error: 'The machine did not answer in time.' }),
       (requestId) => ({ type: 'conversationPrepareRequest', requestId, ...input }),
+      machineId,
+    )
+  }
+
+  /**
+   * Ask a daemon to uninstall Podium from its machine. Generous: the daemon
+   * undoes every recorded home edit before it answers.
+   */
+  async machineUninstall(
+    machineId: MachineId,
+    options: { force?: boolean } = {},
+  ): Promise<Payload<MachineUninstallResultMessage>> {
+    return await this.request(
+      MACHINE_UNINSTALL,
+      60_000,
+      () => ({ ok: false, error: 'The machine did not answer in time.' }),
+      (requestId) => ({
+        type: 'machineUninstallRequest',
+        requestId,
+        ...(options.force ? { force: true } : {}),
+      }),
       machineId,
     )
   }

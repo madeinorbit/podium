@@ -60,6 +60,11 @@ import {
   REPO_CREATE_KIND,
 } from './folder-effects'
 import { SERVER_MOVE_EFFECT_KIND } from './server-move-effect'
+import {
+  MACHINE_UNINSTALL_KIND,
+  MACHINE_UNINSTALL_WAIT_MS,
+  type MachineUninstallResult,
+} from './uninstall-effect'
 import { MACHINE_UPDATE_KIND, MACHINE_UPDATE_WAIT_MS } from './update-effect'
 
 /** What the composition root supplies that core may not import for itself. */
@@ -308,6 +313,29 @@ export const machineRevokeHandler = async ({ env, input }: FleetSyncArgs<{ id: s
     attribution: settingsAuditAttribution(env.principal),
   })
   return await machinesFor(env)
+}
+
+/**
+ * Uninstall Podium from a machine and remove it (managed installs §12 item 14).
+ * An adapter like `machines.applyUpdate`: a `machine.uninstall` effect record
+ * asks the daemon, which answers with each home edit's outcome; the route
+ * answers that and the machines the caller sees now.
+ */
+export const machineUninstallHandler = async ({
+  ctx,
+  input,
+}: FleetArgs<{ id: string; force?: boolean }>) => {
+  const row = await runMachineEffect(ctx, {
+    command: 'machines.uninstall',
+    kind: MACHINE_UNINSTALL_KIND,
+    machineId: asMachineId(input.id),
+    input: input.force ? { force: true } : {},
+    waitMs: MACHINE_UNINSTALL_WAIT_MS,
+  })
+  return {
+    machines: await machinesForPrincipal(mods(ctx), (await fleetAuthzDeps(ctx)).principal),
+    ...(row.result as MachineUninstallResult),
+  }
 }
 
 /** How long `machines.moveServer` waits for its record to name its operation. */

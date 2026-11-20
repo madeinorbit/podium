@@ -1,5 +1,6 @@
 import { observer } from '@podium/client-graph/react'
 import { machineWrites } from '@podium/commands/fleet-synced'
+import type { UninstallEditOutcome } from '@podium/protocol'
 import { useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import {
@@ -23,11 +24,16 @@ export const MachineRemove = observer(function MachineRemove({ view }: { view: S
     () => new MachineReplacementOptions(view.machine, machines),
     [view.machine, machines],
   )
-  const [confirming, setConfirming] = useState<'replace' | 'remove' | null>(null)
+  const [confirming, setConfirming] = useState<'replace' | 'remove' | 'uninstall' | null>(null)
+  const [uninstalled, setUninstalled] = useState<UninstallAnswer | null>(null)
   const [replacementId, setReplacementId] = useState('')
   const [busy, setBusy] = useState(false)
-  if (!view.canManage) return null
   const machine = view.machine
+  if (uninstalled)
+    return (
+      <UninstallReport machineName={machine.name} answer={uninstalled} onDone={closeTakeover} />
+    )
+  if (!view.canManage) return null
   return (
     <Section title="Remove">
       {view.canReplace && (
@@ -162,6 +168,100 @@ export const MachineRemove = observer(function MachineRemove({ view }: { view: S
           }}
         />
       )}
+      {view.canUninstall && (
+        <Row
+          label="Uninstall Podium"
+          description="Undoes Podium’s changes in its harness folders, removes Podium’s services and files there, then removes it. Your own harness installs stay."
+        >
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="text-destructive"
+            disabled={busy}
+            onClick={() => setConfirming('uninstall')}
+          >
+            Uninstall…
+          </Button>
+        </Row>
+      )}
+      {confirming === 'uninstall' && view.canUninstall && (
+        <ConfirmInline
+          sentence={
+            <>
+              Uninstall Podium from {machine.name}? Its sessions stop, Podium’s changes in its
+              harness folders are undone, Podium’s services and files there are deleted, and it
+              leaves this workspace. Sign-ins kept in Podium’s own folders there are deleted too.
+            </>
+          }
+          actionLabel="Uninstall Podium"
+          destructive
+          pending={busy}
+          onCancel={() => setConfirming(null)}
+          onConfirm={async () => {
+            if (!view.canUninstall) return
+            setBusy(true)
+            try {
+              const answer = await trpc.machines.uninstall.mutate({ id: machine.id })
+              setUninstalled({ outcomes: answer.outcomes, removesState: answer.removesState })
+            } finally {
+              setBusy(false)
+            }
+          }}
+        />
+      )}
     </Section>
   )
 })
+
+interface UninstallAnswer {
+  outcomes: readonly UninstallEditOutcome[]
+  removesState: boolean
+}
+
+/** What the machine said it did, once "Uninstall Podium" has been answered. */
+function UninstallReport({
+  machineName,
+  answer,
+  onDone,
+}: {
+  machineName: string
+  answer: UninstallAnswer
+  onDone: () => void
+}) {
+  const count = (status: UninstallEditOutcome['status']) =>
+    answer.outcomes.filter((outcome) => outcome.status === status).length
+  const kept = answer.outcomes.filter((outcome) => outcome.status !== 'restored')
+  return (
+    <Section title="Uninstall Podium">
+      <div className="py-2" role="status">
+        <p className="settings-prose">
+          Podium is being removed from {machineName}, and the machine has left this workspace.
+        </p>
+        <p className="settings-prose mt-2">
+          {answer.outcomes.length === 0
+            ? 'Podium had made no changes in its harness folders.'
+            : `Podium’s changes in its harness folders: ${count('restored')} undone, ${count('changed')} changed since and left as they are, ${count('failed')} could not be undone.`}
+        </p>
+        {kept.length > 0 && (
+          <ul className="settings-prose mt-2 list-disc pl-5">
+            {kept.map((outcome) => (
+              <li key={`${outcome.harness}:${outcome.file}`}>
+                {outcome.file} ({outcome.harness}): {outcome.reason ?? outcome.status}
+              </li>
+            ))}
+          </ul>
+        )}
+        {!answer.removesState && (
+          <p className="settings-prose mt-2">
+            Podium’s files stay on the machine until these are resolved. To remove them anyway, run{' '}
+            <code>podium uninstall --force</code> there.
+          </p>
+        )}
+        <Button type="button" variant="outline" size="sm" className="mt-3" onClick={onDone}>
+          Done
+        </Button>
+      </div>
+    </Section>
+  )
+}

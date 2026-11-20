@@ -114,6 +114,7 @@ import {
   StealWriterMessage,
 } from './terminal'
 import { TranscriptMirrorReadMessage, TranscriptReadRequestMessage } from './transcript'
+import { MachineUninstallRequestMessage } from './uninstall'
 import { DevArtifactProbeRequestMessage, UpdateGrantMessage } from './update'
 import {
   WorkspaceCleanRequestMessage,
@@ -253,6 +254,10 @@ export const ControlMessage = z.discriminatedUnion('type', [
   HarnessRemoveRequestMessage,
   HarnessHomeInfoRequestMessage,
   HarnessHomeRemoveRequestMessage,
+  /** Uninstall Podium from the machine (managed installs §12 item 14).
+   *  Appended at the END for index stability; sent only to a daemon that
+   *  accepted `CAP_MACHINE_UNINSTALL`. */
+  MachineUninstallRequestMessage,
 ])
 export type ControlMessage = z.infer<typeof ControlMessage>
 

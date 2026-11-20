@@ -158,6 +158,7 @@ import { registerFileWriteEffect } from './modules/files/write-effect'
 import { registerDiscoveryEffects } from './modules/fleet/discovery-effects'
 import { registerFolderEffects } from './modules/fleet/folder-effects'
 import { registerServerMoveEffect } from './modules/fleet/server-move-effect'
+import { registerMachineUninstallEffect } from './modules/fleet/uninstall-effect'
 import { registerMachineUpdateEffect } from './modules/fleet/update-effect'
 import { WriteFunnel } from './modules/funnel'
 import { HIBERNATION_HOLDER, HibernationMetricsDemand } from './modules/hosts/metrics-demand'
@@ -5342,6 +5343,13 @@ export class SessionRegistry {
       modules: () => this.modules,
       roleOf: async (userId) => await this.store.users.roleOf(userId),
       servesHub: () => options.servesHub !== false,
+    })
+    // The machine menu's "Uninstall Podium" (managed installs §12 item 14).
+    registerMachineUninstallEffect({
+      modules: () => this.modules,
+      roleOf: async (userId) => await this.store.users.roleOf(userId),
+      servesHub: () => options.servesHub !== false,
+      hostMachineId: () => this.store.hostMachineId,
     })
     const agentRelayGate = new AgentRelayGate({
       // issues/repos ops run through the registry dispatcher (guard + schema +
