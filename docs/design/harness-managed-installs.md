@@ -759,12 +759,24 @@ POD-7267 report has the exact fetch commands, hashes and launch results.
 
 | Harness | Stable pointer | File and integrity | Home and managed install implications |
 |---|---|---|---|
-| **Claude Code** | `downloads.claude.ai/claude-code-releases/stable` → 2.1.311 | `<version>/<platform>/claude` and `manifest.json` SHA-256. Windows entries are `win32-x64/claude.exe` and `win32-arm64/claude.exe`. | Direct download. `CLAUDE_CONFIG_DIR` contains state and sessions. |
+| **Claude Code** | `downloads.claude.ai/claude-code-releases/stable` → 2.1.311 | `<version>/<platform>/claude` and `manifest.json` SHA-256. Windows entries are `win32-x64/claude.exe` and `win32-arm64/claude.exe`. | Direct download. `CLAUDE_CONFIG_DIR` contains state and sessions. Managed posture sets `disableDeepLinkRegistration: "disable"` in the Podium home's settings so the copy does not register an OS URL handler. A terminal start still creates `~/.claude/ssh` and `~/.config/anthropic`; see below. |
 | **Codex** | `releases.openai.com/codex/channels/latest` → 0.171.0, with [GitHub Releases](https://github.com/openai/codex/releases/latest) as installer fallback | `codex-package-<target>.tar.gz` or `.tar.zst`, with `bin/codex` plus helpers and resources. SHA-256 in `codex-package_SHA256SUMS`. | Keep the complete release package. `CODEX_HOME` contains session state and any daemon copy. See 6.3 for the version pin. |
 | **Grok** | `x.ai/cli/stable` → 1.0.89 | `grok-<version>-<platform>`, direct binary. The installer checks the binary runs. No published checksum was found in the installer or at the asset's `.sha256` URL. | `GROK_HOME` directs `auth.json`, config, logs and session storage into the same folder. A live login refresh was outside the lab's available credentials. |
 | **OpenCode** | [GitHub releases/latest](https://api.github.com/repos/anomalyco/opencode/releases/latest) → v1.19.6 | `opencode-linux-x64.tar.gz` opens to a top-level `opencode`. The GitHub API asset `digest` matches the archive SHA-256. | One override for all state was not found. `OPENCODE_CONFIG_DIR` is config only. Together the XDG config, data, state and cache variables redirected the session database and file-backed key. The personal `~/.opencode/.gitignore` write remained. The `--version` probe alone creates empty default XDG config, data, state and cache folders (POD-7277). |
 | **Pi** | `pi.dev/api/installer/releases/latest` → 1.6.0, also present in [GitHub Releases](https://github.com/earendil-works/pi/releases/tag/v1.6.0) | `pi-linux-x64.tar.gz` contains `pi/pi` and its assets. GitHub publishes `SHA256SUMS` and per-asset digests. The installer API separately publishes npm package integrity. | Direct download of the complete standalone bundle. `PI_CODING_AGENT_DIR` moves `auth.json`, settings, model state and sessions. The managed install's version and identity probes create empty `auth.json` and `models-store.json` under the default `~/.pi/agent` when absent (POD-7278). |
 | **Cursor** | `DashboardService/GetCliDownloadUrl` at `api2.cursor.sh`, with `channel=prod`, returned 2026.11.19-f005e9d and its download prefix. | `linux/x64/agent-cli-package.tar.gz` strips one `dist-package/` directory. Keep the launcher, Node and its assets together. The adjacent `agent-cli-package.tar.gz.sha256` matched the archive. | No single variable found. `CURSOR_CONFIG_DIR` moved config, `CURSOR_DATA_DIR` directed project storage, and Linux file auth uses XDG config. Agent CLI state still used `~/.cursor` with both dedicated variables. See 4.7. |
+
+The POD-7274 terminal check of Claude Code 2.1.311 found writes the bounded
+turn in 6.3 did not: the two empty directories in the Claude Code row, and
+an OS URL-handler registration unless the
+[documented registration setting](https://code.claude.com/docs/en/settings-reference#disabledeeplinkregistration)
+is disabled. The direct install left the person's home byte-identical, and
+the terminal turn left existing files, profiles and both binaries unchanged;
+the whole home was not byte-identical. On a passed-in credential, Podium's
+existing `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1` also requires Linux `bubblewrap`
+and creates empty home and workdir mountpoints. That prerequisite and those
+scrubbing writes are tracked in POD-7375. The issue evidence contains the
+complete before/after hash lists, including new entries.
 
 With an empty Podium home, Claude Code accepted the API-key header and the
 `CLAUDE_CODE_OAUTH_TOKEN` bearer header on completed loopback turns. Its
