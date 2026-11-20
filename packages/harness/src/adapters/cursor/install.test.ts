@@ -1,7 +1,9 @@
+import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { promisify } from 'node:util'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { InstallLedger } from '../../inventory/install-ledger.js'
 import { readInstallReceipt } from '../../inventory/install-receipt.js'
@@ -45,7 +47,7 @@ function ports(
       writeFileSync(out, archive)
     }),
     vendorUrl: (url) => url,
-    run: vi.fn(async () => 'Cursor Agent'),
+    run: vi.fn(async () => '12345678-1234-1234-1234-123456789abc\n'),
     runTool: vi.fn(async () => {
       throw new Error('must not execute the vendor installer or an extraction tool')
     }),
@@ -120,7 +122,7 @@ describe('Cursor managed install', () => {
     expect(statSync(join(dir, result.executable)).mode & 0o777).toBe(0o755)
     expect(host.run).toHaveBeenCalledExactlyOnceWith(
       join(dir, result.executable),
-      ['--disable-auto-update', '--help'],
+      ['--disable-auto-update', 'create-chat'],
       {
         ...host.installerEnv,
         CURSOR_CONFIG_DIR: join(host.home, '.cursor'),
@@ -199,6 +201,26 @@ describe('Cursor managed install', () => {
       'cannot be managed: its --disable-auto-update startup guard could not be verified',
     )
     expect(readdirSync(dir)).toEqual(['dist-package'])
+  })
+
+  it('rejects a removed guard even when the CLI would bypass unknown options for --help', async () => {
+    const archive = cursorTarFixture({
+      ...CURSOR_FIXTURE_FILES,
+      'dist-package/cursor-agent':
+        '#!/bin/sh\ncase "$*" in *--help*) echo "Cursor Agent"; exit 0;; esac\necho "unknown option --disable-auto-update" >&2\nexit 2\n',
+    })
+    const host = ports(
+      {
+        run: async (cmd, args, env) => {
+          const result = await promisify(execFile)(cmd, [...args], { env })
+          return result.stdout
+        },
+      },
+      archive,
+    )
+    await expect(
+      cursorManagedInstall.install({ version: CURSOR_VERSION }, dir, host),
+    ).rejects.toThrow('cannot be managed')
   })
 
   it('publishes a verified receipt without inventing a vendor publication time', async () => {

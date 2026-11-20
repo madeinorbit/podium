@@ -5,6 +5,7 @@ import { chmod, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { extractReleaseDirectory } from '../../inventory/release-archive.js'
 import { type HarnessCheckPorts, type HarnessInstall, unsupported } from '../../manifest.js'
+import { parseCursorChatId } from './chat.js'
 
 export const cursorInstall = unsupported(
   "cursor-agent is distributed through Cursor's own installer (curl https://cursor.com/install | bash)",
@@ -52,15 +53,21 @@ export const cursorManagedInstall: HarnessInstall = {
         throw new Error('Cursor archive checksum verification FAILED')
       await extractReleaseDirectory(archive, 'tar.gz', 'dist-package', dir)
       await chmod(join(dir, executable), 0o755)
-      // The update guard is hidden in --help. Passing it must succeed before
-      // publishing; use only the contained install home for this startup.
+      // --help/--version may short-circuit unknown-option validation. Allocate
+      // an empty chat to exercise parsing without a login, using only the
+      // contained install home. No conversation reaches the person's home.
       try {
-        await ports.run(join(dir, executable), ['--disable-auto-update', '--help'], {
-          ...ports.installerEnv,
-          CURSOR_CONFIG_DIR: join(ports.home, '.cursor'),
-          CURSOR_DATA_DIR: join(ports.home, '.cursor-data'),
-          NODE_COMPILE_CACHE: join(ports.home, '.cache'),
-        })
+        const output = await ports.run(
+          join(dir, executable),
+          ['--disable-auto-update', 'create-chat'],
+          {
+            ...ports.installerEnv,
+            CURSOR_CONFIG_DIR: join(ports.home, '.cursor'),
+            CURSOR_DATA_DIR: join(ports.home, '.cursor-data'),
+            NODE_COMPILE_CACHE: join(ports.home, '.cache'),
+          },
+        )
+        parseCursorChatId(output.trim())
       } catch (error) {
         throw new Error(
           `Cursor ${release.version} cannot be managed: its --disable-auto-update startup guard could not be verified: ${(error as Error).message}`,
