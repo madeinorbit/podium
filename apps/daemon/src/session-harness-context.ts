@@ -9,10 +9,12 @@
  * two installations.
  *
  * Lifetime: daemon memory, with the session (`DaemonSession.harnessContext`).
- * The binding store is not extended. A daemon restart rebuilds the context
- * from the current inventory on reattach: roots depend only on the home and
- * the account env, so the rebuilt context names the same folders, and the
- * running process is never relaunched.
+ * The binding store is not extended. A daemon restart rebuilds the context on
+ * reattach from the installation the session's row in the install ledger
+ * records (managed installs §6.2), so it names the binary that really runs;
+ * from the current inventory only when there is no row. Roots depend only on
+ * the home and the account env, so the rebuilt context names the same
+ * folders, and the running process is never relaunched.
  */
 import { homedir } from 'node:os'
 import { join } from 'node:path'
@@ -21,6 +23,7 @@ import {
   type HarnessExecutableSnapshot,
   type HarnessHomeSide,
   harnessContext,
+  harnessContextOn,
   harnessDriverContext,
   harnessLoginReadEnv,
   harnessRoots,
@@ -33,11 +36,12 @@ import type { DaemonContext } from './control/context'
 import { resolveManagementCredentialHome } from './harness-management'
 import type { HarnessHome } from './homes/registry'
 import { prepareHomeLaunch } from './homes/share'
+import { recordedInstallation } from './session-installs'
 
 const log = createLogger('daemon:harness-context')
 
 type ContextSource = Pick<DaemonContext, 'harnessRuntime' | 'accountHome' | 'homeDir'> &
-  Partial<Pick<DaemonContext, 'access' | 'homes'>>
+  Partial<Pick<DaemonContext, 'access' | 'homes' | 'sessionInstalls'>>
 
 /** A session's credential names a home this machine does not hold. */
 export class HomeNotOnMachineError extends Error {
@@ -185,14 +189,42 @@ export function driverHarnessContextFrom(
 }
 
 /**
+ * The context a session's row in the install ledger records (managed
+ * installs §6.2): the installation its process was started on, in the home
+ * its access names, whatever the inventory holds now. Undefined when there is
+ * no row for this harness, or no inventory to read the account half from.
+ */
+export async function recordedSessionHarnessContext(
+  ctx: ContextSource,
+  sessionId: SessionId,
+  kind: BuiltinHarnessKind,
+): Promise<HarnessContext | undefined> {
+  if (!ctx.harnessRuntime || !ctx.sessionInstalls) return undefined
+  const row = ctx.sessionInstalls.get(sessionId)
+  if (!row || row.kind !== kind) return undefined
+  const snapshot = await ctx.harnessRuntime.current()
+  const home = resolveManagementCredentialHome(ctx) ?? snapshot.commandEnvironment.machineHome
+  const installation = recordedInstallation(row, snapshot.commandEnvironment.generation)
+  return inSessionHome(ctx, sessionId, kind, () => harnessContextOn(snapshot, installation, home))
+}
+
+/**
  * THE ENGINE FAMILIES' `harnessContextFor` (POD-6546): the context an engine
- * launch with no spec in hand (adopt, wake) runs under.
+ * launch with no spec in hand (adopt, wake) runs under, and what a client
+ * attached to the engine runs.
  *
  * The one the session holds — the context it was spawned with, so a wake
  * after an inventory refresh relaunches the installation the session started
- * on. After a daemon restart the held one went with the old process: rebuilt
- * from the current inventory for this driver and kept on the session from
- * then on, which is also what native attach reads.
+ * on — with one exception (managed installs §6.2): when that installation is
+ * a release Podium manages and is no longer the current one, and no engine of
+ * the session runs, a new context is built from the inventory as it stands,
+ * in the same home. A parked session then never pins an old release; an
+ * engine still running on it keeps its context, so its client runs the same
+ * binary. The person's own install keeps today's rule.
+ *
+ * After a daemon restart the held one went with the old process: rebuilt from
+ * the session's row in the install ledger (the binary that really runs), else
+ * from the current inventory, and kept on the session from then on.
  *
  * Throws when the harness has left the inventory: an engine never falls back
  * to a basename on the daemon's PATH.
@@ -202,20 +234,83 @@ export async function engineSessionHarnessContext(
   sessionId: SessionId,
   kind: BuiltinHarnessKind,
   driverId: string | undefined,
+  /**
+   * Whether the engine under a durable label still runs (the session engine
+   * scope's `engineAlive`). Absent: an engine is taken to run, so the held
+   * context is kept.
+   */
+  engineAlive?: (label: string) => Promise<boolean>,
 ): Promise<HarnessContext> {
   const held = ctx.sessions.get(sessionId)?.harnessContext
-  if (held) return held
-  const rebuilt = await buildDriverHarnessContext(ctx, kind, driverId, sessionId)
-  // Kept on an entry that already exists, as on the terminal reattach path.
+  if (held) {
+    if (
+      !(await outdatedManagedRelease(ctx, held)) ||
+      (await engineRunning(ctx, sessionId, engineAlive))
+    )
+      return held
+  } else {
+    const recorded = await recordedSessionHarnessContext(ctx, sessionId, kind)
+    if (recorded) return keepOnSession(ctx, sessionId, recorded)
+  }
+  return keepOnSession(
+    ctx,
+    sessionId,
+    await buildDriverHarnessContext(ctx, kind, driverId, sessionId),
+  )
+}
+
+/** Kept on an entry that already exists, as on the terminal reattach path. */
+function keepOnSession(
+  ctx: Pick<DaemonContext, 'sessions'>,
+  sessionId: SessionId,
+  context: HarnessContext,
+): HarnessContext {
   const entry = ctx.sessions.get(sessionId)
-  if (entry) entry.harnessContext = rebuilt
-  return rebuilt
+  if (entry) entry.harnessContext = context
+  return context
+}
+
+/**
+ * Whether `context` runs a release Podium manages that the inventory no
+ * longer offers: Podium's install of the harness is now another release, or
+ * there is none. The person's own install is never outdated here.
+ */
+async function outdatedManagedRelease(
+  ctx: ContextSource,
+  context: HarnessContext,
+): Promise<boolean> {
+  if (context.installation.provenance !== 'managed' || !ctx.harnessRuntime) return false
+  const snapshot = await ctx.harnessRuntime.current()
+  return snapshot.managed?.get(context.installation.kind)?.path !== context.installation.executable
+}
+
+/**
+ * Whether the session's engine process runs: the label the session layer
+ * started or re-attached it under, still live in its host. No label: no
+ * engine of the session is known to run. A check that cannot be made, or
+ * fails, reads as running, so the held context is kept.
+ */
+async function engineRunning(
+  ctx: Pick<DaemonContext, 'sessions'>,
+  sessionId: SessionId,
+  engineAlive: ((label: string) => Promise<boolean>) | undefined,
+): Promise<boolean> {
+  const label = ctx.sessions.get(sessionId)?.engine?.label
+  if (label === undefined) return false
+  if (!engineAlive) return true
+  try {
+    return await engineAlive(label)
+  } catch (err) {
+    log.warn('could not tell whether the session engine runs', { err, sessionId, label })
+    return true
+  }
 }
 
 /**
  * The context a session already holds, or — after a daemon restart, when the
- * survivor's context went with the old process — one rebuilt from the current
- * inventory and kept on the session from then on.
+ * survivor's context went with the old process — one rebuilt from the
+ * session's row in the install ledger (the binary that really runs), else
+ * from the current inventory, and kept on the session from then on.
  *
  * Undefined for a plain shell, and when no context can be rebuilt (the harness
  * has since left the inventory). Reattach must not fail on that: the process
@@ -231,12 +326,12 @@ export async function sessionHarnessContextFor(
   const held = ctx.sessions.get(sessionId)?.harnessContext
   if (held) return held
   try {
-    const rebuilt = await buildSessionHarnessContext(ctx, kind, sessionId)
+    const rebuilt =
+      (await recordedSessionHarnessContext(ctx, sessionId, kind)) ??
+      (await buildSessionHarnessContext(ctx, kind, sessionId))
     // Kept on an entry that already exists; a reattach that has not attached
     // yet stores it once the bridge is wired.
-    const entry = ctx.sessions.get(sessionId)
-    if (entry) entry.harnessContext = rebuilt
-    return rebuilt
+    return keepOnSession(ctx, sessionId, rebuilt)
   } catch (err) {
     log.warn('could not rebuild the harness context for a surviving session', {
       err,

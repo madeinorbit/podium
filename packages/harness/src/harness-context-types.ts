@@ -31,6 +31,12 @@ export interface HarnessInstallation {
    * installation only ever runs in a home Podium made (§4.2, M9).
    */
   readonly provenance: HarnessInstallationProvenance
+  /**
+   * The release folder's number, for a managed installation (managed installs
+   * §5.2); absent for the person's own. What a session's install row records,
+   * so housekeeping keeps the folder while the session runs on it (§6.2).
+   */
+  readonly release?: number
 }
 
 /** Who put an installation on the machine (managed installs §6.1). */

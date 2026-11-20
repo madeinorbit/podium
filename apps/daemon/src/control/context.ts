@@ -146,6 +146,14 @@ export interface DaemonContext {
   homes?: import('../homes/registry').HomeRegistry
   /** Codex's trust for Podium's launch-flag hooks in Podium homes (§10). */
   codexHookTrust?: import('../homes/codex-hook-trust').CodexHookTrust
+  /**
+   * Which installation each session's harness process runs, as rows in the
+   * install ledger (managed installs §6.2): written at every process start,
+   * removed when the session's processes stop, read on reattach after a
+   * restart. Absent in hand-built contexts: nothing is recorded, and a
+   * reattach rebuilds from the current inventory.
+   */
+  sessionInstalls?: import('../session-installs').SessionInstallRecords
   /** Canonical lifecycle API; handlers never reconstruct binding mutations. */
   sessionBinding: SessionBinding
   /** Hook-ingest endpoint for a session (instrumentation URLs). */

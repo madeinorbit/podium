@@ -28,6 +28,8 @@ export function testHarnessContext(input: {
   generation?: number
   /** Default `external`: the person's install. */
   provenance?: 'managed' | 'external'
+  /** The release folder's number, for a managed install. */
+  release?: number
   env?: Readonly<Record<string, string>>
   /** For a harness the registry does not hold (an unregistered fixture
    *  manifest): its folders, from its own `roots` rule. */
@@ -43,6 +45,7 @@ export function testHarnessContext(input: {
       version: input.version ?? '',
       generation: input.generation ?? 0,
       provenance: input.provenance ?? 'external',
+      ...(input.release !== undefined ? { release: input.release } : {}),
     }),
     home,
     env,

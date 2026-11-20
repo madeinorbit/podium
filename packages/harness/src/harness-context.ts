@@ -120,6 +120,7 @@ export function harnessInstallationFor(
     version: executable.version ?? '',
     generation: snapshot.commandEnvironment.generation,
     provenance: managed ? 'managed' : 'external',
+    ...(managed?.release !== undefined ? { release: managed.release } : {}),
   })
 }
 
@@ -144,6 +145,7 @@ export function installationAtPath(
     version: (match ?? external)?.version ?? '',
     generation: snapshot.commandEnvironment.generation,
     provenance: match ? 'managed' : 'external',
+    ...(match?.release !== undefined ? { release: match.release } : {}),
   })
 }
 
@@ -191,6 +193,28 @@ export function harnessDriverContext(
       // finds it: the person's.
       provenance: 'external' as const,
     }),
+    home: account.home,
+    env: account.env,
+    roots: account.roots,
+  })
+}
+
+/**
+ * The context for an installation that is already known, never looked up in
+ * the snapshot: a session's recorded install (managed installs §6.2), so a
+ * daemon that restarted names the binary that really runs, even when the
+ * inventory now holds a newer release of it or none. The account half is
+ * {@link harnessContext}'s over the snapshot's command environment, so the
+ * folders are the ones a fresh context names.
+ */
+export function harnessContextOn(
+  snapshot: Pick<HarnessExecutableSnapshot, 'commandEnvironment'>,
+  installation: HarnessInstallation,
+  home: string,
+): HarnessContext {
+  const account = harnessAccount(installation.kind, home, snapshot.commandEnvironment.env)
+  return Object.freeze({
+    installation: Object.freeze({ ...installation }),
     home: account.home,
     env: account.env,
     roots: account.roots,

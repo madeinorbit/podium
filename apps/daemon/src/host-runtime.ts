@@ -213,6 +213,7 @@ import {
   engineSessionHarnessContext,
   sessionHomeSide,
 } from './session-harness-context'
+import { dropInstallsOfLostSessions, ledgerSessionInstalls } from './session-installs'
 import { createSessionObservers } from './session-observers'
 import { launchFoldersFor, podiumGrantsFor } from './session-posture'
 import { storedSessionPosture } from './session-posture-store'
@@ -510,6 +511,7 @@ export async function createDaemonHostRuntime(args: {
    * cannot drift apart the way they did when each derived its own.
    */
   const credentialHome = accountHome?.path ?? homeDir ?? machineHome
+  const harnessesDir = opts.harnessesDir ?? defaultHarnessesDir()
   const harnessRuntime = opts.launch
     ? undefined
     : new DaemonHarnessRuntime({
@@ -517,8 +519,21 @@ export async function createDaemonHostRuntime(args: {
         credentialHome,
         // The install ledger, read on every inventory wave (managed installs
         // §7), so a release the CLI publishes appears without a restart.
-        managedInstalls: managedInstallsReader(opts.harnessesDir ?? defaultHarnessesDir()),
+        managedInstalls: managedInstallsReader(harnessesDir),
       })
+  /**
+   * WHICH INSTALL EACH SESSION RUNS (managed installs §6.2), in the same
+   * ledger. The rows a previous daemon left are read now, before this one
+   * starts any process: once recovery has found which of those sessions still
+   * run, the others' rows are dropped (`dropStaleSessionInstalls` below).
+   */
+  // A daemon on the `launch` test seam runs no real install and records none
+  // unless its test names a harnesses folder.
+  const sessionInstalls =
+    opts.launch && !opts.harnessesDir ? undefined : ledgerSessionInstalls(harnessesDir)
+  let inheritedSessionInstalls: SessionId[] | undefined = sessionInstalls
+    ?.list()
+    .map((row) => row.sessionId)
   const replayPendingBindingReceipts = async (): Promise<number> => {
     let replayed = 0
     for (const owner of await bindingStore.ownersWithPendingReceipts()) {
@@ -1164,6 +1179,7 @@ export async function createDaemonHostRuntime(args: {
     }),
     homes,
     codexHookTrust,
+    ...(sessionInstalls ? { sessionInstalls } : {}),
     ...(args.picturesAccepted ? { picturesAccepted: args.picturesAccepted } : {}),
     acknowledgeQueueDrainReport: args.acknowledgeQueueDrainReport,
     acknowledgeRuntimeEvent: args.acknowledgeRuntimeEvent,
@@ -1289,6 +1305,7 @@ export async function createDaemonHostRuntime(args: {
           sessionId,
           target.kind as BuiltinHarnessKind,
           target.driverId,
+          (label) => sessionEngines.engineAlive(label),
         ),
       // THE CLIENT'S LAUNCH TERMS (POD-6858). The client attached to a
       // session runs on the posture the session was spawned on, as the daemon
@@ -1310,6 +1327,8 @@ export async function createDaemonHostRuntime(args: {
       }),
       ...(homeDir ? { homeDir } : {}),
       instanceUuid: instance.instanceUuid,
+      // The client's installation, recorded for its session (§6.2).
+      ...(sessionInstalls ? { sessionInstalls } : {}),
       // The client terminal is a durable session like any other: it lives under
       // whichever host this daemon selected (SPEC-6) — the session-owned scope
       // above, handed to `createClientTerminalsFor` as one object, never rebuilt
@@ -1413,6 +1432,8 @@ export async function createDaemonHostRuntime(args: {
     // A session engine's applied terms, to the server with its driver
     // decision (POD-6858 Task 11).
     onLaunchTerms: (sessionId, applied) => reportLaunchTerms(ctx, sessionId, applied),
+    // Each start's installation, recorded for the session it serves (§6.2).
+    ...(sessionInstalls ? { sessionInstalls } : {}),
   })
   /**
    * ENGINES READ THE SESSION'S CONTEXT (POD-6546), never a snapshot taken
@@ -1424,7 +1445,9 @@ export async function createDaemonHostRuntime(args: {
    * command environment of the current generation (design §3.3).
    */
   const engineContextFor = (kind: AgentKind, driverId: string) => (sessionId: SessionId) =>
-    engineSessionHarnessContext(ctx, sessionId, kind as BuiltinHarnessKind, driverId)
+    engineSessionHarnessContext(ctx, sessionId, kind as BuiltinHarnessKind, driverId, (label) =>
+      sessionEngines.engineAlive(label),
+    )
   /**
    * WHAT AN ENGINE STATES ITS LAUNCH TERMS FROM (POD-6858). Podium's grants
    * for a launch with no spec in hand (adopt, wake), over the same context
@@ -1974,33 +1997,45 @@ export async function createDaemonHostRuntime(args: {
   let bindingRecovery: Promise<void> | undefined
   let currentBindingFacts: BindingConfirmations | undefined
   let reapingBindings = false
+  /** Whether a process of session `id` still runs: its terminal, its
+   *  driver's handle, its journalled server process, or its durable host. */
+  const sessionProcessAlive = async (id: SessionId): Promise<boolean> => {
+    // A headless session's running turn answers through its driver
+    // handle below, like every other contract session.
+    if (sessions.get(id)?.terminal?.kind === 'headed') return true
+    const handle = ctx.agentRuntime?.handleFor(id)
+    if (handle && (await handle.health()).alive) return true
+    const journal = ctx.agentRuntime?.journalledServerProcess(id)
+    if (journal) {
+      if (journal.identity.pid === undefined) return true
+      try {
+        process.kill(journal.identity.pid, 0)
+        return true
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ESRCH') return true
+      }
+    }
+    return (await durable?.has(sessions.get(id)?.label ?? ctx.durableLabelFor(id))) ?? false
+  }
   const reapBindings = async (): Promise<void> => {
     if (reapingBindings || disposed) return
     reapingBindings = true
     try {
-      await bindingStore.reapQuarantined(async (id) => {
-        // A headless session's running turn answers through its driver
-        // handle below, like every other contract session.
-        if (sessions.get(id)?.terminal?.kind === 'headed') return true
-        const handle = ctx.agentRuntime?.handleFor(id)
-        if (handle && (await handle.health()).alive) return true
-        const journal = ctx.agentRuntime?.journalledServerProcess(id)
-        if (journal) {
-          if (journal.identity.pid === undefined) return true
-          try {
-            process.kill(journal.identity.pid, 0)
-            return true
-          } catch (error) {
-            if ((error as NodeJS.ErrnoException).code !== 'ESRCH') return true
-          }
-        }
-        return (await durable?.has(sessions.get(id)?.label ?? ctx.durableLabelFor(id))) ?? false
-      }, instance.codexReceiptDir)
+      await bindingStore.reapQuarantined(sessionProcessAlive, instance.codexReceiptDir)
     } finally {
       reapingBindings = false
       readiness.quarantined(bindingStore.quarantinedCount)
     }
   }
+  /** Once, after the first recovery: the rows the previous daemon left for
+   *  sessions whose process did not survive are dropped (§6.2). */
+  const dropStaleSessionInstalls = async (): Promise<void> => {
+    const inherited = inheritedSessionInstalls
+    if (!inherited || !sessionInstalls || disposed) return
+    inheritedSessionInstalls = undefined
+    await dropInstallsOfLostSessions(sessionInstalls, inherited, sessionProcessAlive)
+  }
+
   const connected = (
     _owners?: Readonly<Record<string, string>>,
     facts?: BindingConfirmations,
@@ -2024,6 +2059,7 @@ export async function createDaemonHostRuntime(args: {
         )
         .then(async () => {
           await reapBindings()
+          await dropStaleSessionInstalls()
           pushHostMetrics()
           await replayPendingBindingReceipts()
           readiness.recovered(recoveryEpoch, bindingStore.quarantinedCount)

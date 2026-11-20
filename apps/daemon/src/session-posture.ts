@@ -10,10 +10,11 @@
  *   Podium CLI, the session's own uploads folder, Podium's MCP servers).
  * - {@link launchFoldersFor} and {@link postureRequestFor}: the rest of the
  *   request an adapter's posture section answers.
- * - {@link prepareLaunch}: the three generic steps every process-creating
+ * - {@link prepareLaunch}: the generic steps every process-creating
  *   function runs once, after `harnessCommand` applied the terms and before
- *   the process starts: write the launch's files, apply its home edits, and
- *   return what could not be met. None of them names a harness.
+ *   the process starts: write the launch's files, apply its home edits,
+ *   record which installation the session now runs (managed installs §6.2),
+ *   and return what could not be met. None of them names a harness.
  */
 import { readFileSync } from 'node:fs'
 import { mkdir, writeFile } from 'node:fs/promises'
@@ -22,6 +23,7 @@ import type {
   AppliedTerms,
   BoundCommand,
   HarnessContext,
+  HarnessInstallation,
   LaunchFile,
   LaunchFolders,
   LaunchMode,
@@ -39,6 +41,7 @@ import {
   type HomeEditRecorder,
   nodeHomeEditPorts,
 } from './harness-home-edits.js'
+import type { SessionInstallRecords } from './session-installs.js'
 import { sessionUploadsDir } from './session-uploads.js'
 import { gitWorktree } from './worktree-resolve.js'
 
@@ -169,12 +172,25 @@ export interface PrepareLaunchPorts {
   homeEdits: HomeEditPorts
   /** Persist a changed personal-home value; opened only when a write was applied. */
   recordHomeEdit?: HomeEditRecorder['record']
+  /** Record the installation a session's process starts on (managed installs §6.2). */
+  recordSessionInstall?: SessionInstallRecords['record']
   log(message: string, fields: Record<string, unknown>): void
 }
 
+/**
+ * Whom a launch's process serves (managed installs §6.2): a session, whose
+ * row in the install ledger then names the installation the process runs, or
+ * nothing, said in words. Every launch site states it, as it states its terms.
+ */
+export type LaunchServes = { readonly session: SessionId } | { readonly noSession: string }
+
 /** The real filesystem, logging through the daemon's logger with `context`
- *  (the session, the launch) on every line. */
-export function nodePrepareLaunchPorts(context: Record<string, unknown> = {}): PrepareLaunchPorts {
+ *  (the session, the launch) on every line. `sessionInstalls` is the daemon's
+ *  session rows (`ctx.sessionInstalls`); without it nothing is recorded. */
+export function nodePrepareLaunchPorts(
+  context: Record<string, unknown> = {},
+  sessionInstalls?: Pick<SessionInstallRecords, 'record'>,
+): PrepareLaunchPorts {
   const info = (message: string, fields: Record<string, unknown>) =>
     log.info(message, { ...context, ...fields })
   return {
@@ -191,23 +207,38 @@ export function nodePrepareLaunchPorts(context: Record<string, unknown> = {}): P
         ledger.close()
       }
     },
+    ...(sessionInstalls
+      ? {
+          recordSessionInstall: (sessionId: SessionId, installation: HarnessInstallation) =>
+            sessionInstalls.record(sessionId, installation),
+        }
+      : {}),
     log: info,
   }
 }
 
 /**
- * THE THREE GENERIC STEPS BEFORE A HARNESS PROCESS IS CREATED (§4.6).
+ * THE GENERIC STEPS BEFORE A HARNESS PROCESS IS CREATED (§4.6).
  *
- * Writes the command's files, applies its home edits, and returns its applied
- * terms with one `unmet` entry per edit that could not be made, naming the
- * requirement the edit served. A failed edit never stops the launch: the
- * session still starts, and the next launch tries again. A file that cannot
- * be written does stop it, as it always has: the adapter's own launch needs
- * that file.
+ * Writes the command's files, applies its home edits, records the
+ * installation the process runs for the session it serves (managed installs
+ * §6.2), and returns its applied terms with one `unmet` entry per edit that
+ * could not be made, naming the requirement the edit served. A failed edit
+ * never stops the launch: the session still starts, and the next launch tries
+ * again. A file that cannot be written does stop it, as it always has: the
+ * adapter's own launch needs that file.
+ *
+ * Every launch mode runs this once per process (the terminal spawn, the
+ * engine start a headless turn also goes through, and the attach client), so
+ * the session row is written here and nowhere else. It is written before the
+ * process exists, so housekeeping can never delete a release a starting
+ * process is about to run.
  */
 export async function prepareLaunch(
-  command: Pick<BoundCommand, 'files' | 'terms' | 'homeEditScope'>,
+  command: Pick<BoundCommand, 'files' | 'terms' | 'homeEditScope'> &
+    Partial<Pick<BoundCommand, 'installation'>>,
   ports: PrepareLaunchPorts,
+  serves: LaunchServes,
 ): Promise<AppliedTerms> {
   for (const file of command.files) await ports.writeLaunchFile(file)
   const scope = command.homeEditScope
@@ -223,6 +254,8 @@ export async function prepareLaunch(
     if (outcome.status !== 'failed') continue
     failed.push({ requirement: outcome.edit.serves, reason: outcome.reason })
   }
+  if ('session' in serves && command.installation)
+    ports.recordSessionInstall?.(serves.session, command.installation)
   const applied: AppliedTerms = {
     homeEdits: command.terms.homeEdits,
     requestedMode: command.terms.requestedMode,

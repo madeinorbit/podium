@@ -251,6 +251,7 @@ export async function executeBufferedHarnessTurn(
     await prepareLaunch(
       command,
       io?.prepareLaunchPorts ?? nodePrepareLaunchPorts({ launch: 'buffered-exec' }),
+      { noSession: 'a buffered exec serves no session' },
     )
     // ONE RECIPE (POD-6535). The frame carries no session env, so nothing on
     // it was chosen: every credential the command env carries is inherited

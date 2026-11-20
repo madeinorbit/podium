@@ -858,7 +858,8 @@ export async function launchTerminalProcess(
     if ('terms' in cmd) {
       const applied = await prepareLaunch(
         cmd,
-        nodePrepareLaunchPorts({ sessionId, launch: 'terminal' }),
+        nodePrepareLaunchPorts({ sessionId, launch: 'terminal' }, ctx.sessionInstalls),
+        { session: sessionId },
       )
       if (!loginHarness && agentKind !== 'shell') {
         reportLaunchTerms(ctx, sessionId, applied, terminalProfileFor(agentKind)?.driverId)
@@ -2808,11 +2809,13 @@ export async function recoverTerminalProcess(
     // Inside the gate on purpose — a restart reattaches every session at once, and
     // this forks git.
     void ctx.sessionCwdTracker.setLaunchCwd(msg.sessionId, msg.cwd)
-    // A RESTARTED DAEMON REBUILDS THE CONTEXT (POD-6533) from the current
-    // inventory: the old one went with the old process. Roots depend only on
-    // the home and the account env, so the observer reads the same folders the
-    // running harness writes; nothing here relaunches it. Before the host
-    // attach, so no wait sits between wiring the bridge and its observers.
+    // A RESTARTED DAEMON REBUILDS THE CONTEXT (POD-6533): the old one went
+    // with the old process. From the session's row in the install ledger, the
+    // binary that really runs (managed installs §6.2), else from the current
+    // inventory. Roots depend only on the home and the account env, so the
+    // observer reads the same folders the running harness writes; nothing
+    // here relaunches it. Before the host attach, so no wait sits between
+    // wiring the bridge and its observers.
     const harnessContext = await sessionHarnessContextFor(ctx, msg.sessionId, msg.agentKind)
     let found: DurableReattach | undefined
     const durable = durableProcessFor(ctx)
@@ -3131,10 +3134,14 @@ async function stopSessionProcessOnce(
       killed: false,
       reason: 'instance-owned descendants survived process retirement',
     })
-  const retired =
-    measured &&
+  const reaped =
     descendants.remaining === 0 &&
     results.every((result) => result.status === 'fulfilled' && result.value)
+  // The session's processes are gone, so no release is in use for it any
+  // more (managed installs §6.2). A process that may have survived keeps its
+  // row: a kept release costs disk, a deleted one breaks the process.
+  if (reaped) ctx.sessionInstalls?.remove(msg.sessionId)
+  const retired = measured && reaped
   if (!retired)
     log.warn('session process retirement was not confirmed', { sessionId: msg.sessionId })
   return retired

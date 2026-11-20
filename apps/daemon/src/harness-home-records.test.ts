@@ -120,12 +120,16 @@ describe('personal harness home records', () => {
             posture: (launch) => ({ ...unchangedPosture(launch), homeEdits: [e] }),
           },
         )
-        await prepareLaunch(command, {
-          writeLaunchFile: async () => {},
-          homeEdits: ports,
-          recordHomeEdit: record,
-          log: () => {},
-        })
+        await prepareLaunch(
+          command,
+          {
+            writeLaunchFile: async () => {},
+            homeEdits: ports,
+            recordHomeEdit: record,
+            log: () => {},
+          },
+          { noSession: 'a home-edit record test serves no session' },
+        )
         expect(ledger.homeEdits()).toHaveLength(personal ? 1 : 0)
       })
     }

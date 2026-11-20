@@ -17,7 +17,7 @@
  */
 
 import type { BuiltinHarnessKind } from '@podium/protocol'
-import type { HarnessContext } from './harness-context-types.js'
+import type { HarnessContext, HarnessInstallation } from './harness-context-types.js'
 import type { LaunchFile } from './manifest.js'
 import { applyTerms } from './posture.js'
 import type { AppliedTerms, LaunchTerms } from './posture-types.js'
@@ -49,6 +49,13 @@ export type BoundCommand<I extends HarnessArgv = HarnessArgv> = Omit<
   readonly env: Record<string, string>
   readonly files: LaunchFile[]
   readonly terms: AppliedTerms
+  /**
+   * The installation `cmd` belongs to: the context's, carried with the
+   * command so the one step every launch runs before its process starts can
+   * record which binary the session runs (managed installs §6.2). It stays
+   * the context's when a launcher wraps the command.
+   */
+  readonly installation: HarnessInstallation
   /** Ownership of the home the posture edits. Carried through engine launches. */
   readonly homeEditScope?: { harness: BuiltinHarnessKind; personal: boolean }
   readonly [boundCommandBrand]: true
@@ -93,6 +100,7 @@ export function harnessCommand<I extends HarnessArgv>(
   return {
     ...rest,
     cmd: context.installation.executable,
+    installation: context.installation,
     args: [...launch.args],
     env: { ...launch.env },
     files: launch.files.map((file) => ({ ...file })),
