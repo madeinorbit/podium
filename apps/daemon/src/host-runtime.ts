@@ -78,12 +78,12 @@ import {
   isHostAvailable,
   sweepStaleDurableBindTemps,
 } from '@podium/process/durable'
-import {
-  type BindingConfirmations,
-  type BuiltinHarnessKind,
-  type DaemonPtyInputMetadata,
-  type DaemonPtyOutputBatch,
-  type PeerBuild,
+import type {
+  BindingConfirmations,
+  BuiltinHarnessKind,
+  DaemonPtyInputMetadata,
+  DaemonPtyOutputBatch,
+  PeerBuild,
 } from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import {
@@ -207,9 +207,9 @@ import { createEngineJournal } from './session/journal.js'
 import { SessionRegistry } from './session/registry.js'
 import { SessionBinding } from './session-binding'
 import { driverHarnessContextFrom, engineSessionHarnessContext } from './session-harness-context'
+import { createSessionObservers } from './session-observers'
 import { launchFoldersFor, podiumGrantsFor } from './session-posture'
 import { storedSessionPosture } from './session-posture-store'
-import { createSessionObservers } from './session-observers'
 import { sessionModelSize, terminalScreenFor, trackSessionOutput } from './session-screens'
 import { sweepUploads, UPLOADS_GC_INTERVAL_MS } from './session-uploads'
 import { ShippingExecutionPlane } from './shipping/executor'
@@ -683,12 +683,12 @@ export async function createDaemonHostRuntime(args: {
     // The throwaway home: Codex's daemon there stopped, then deleted.
     cleanProbeHome: async (probeHome) => {
       await stopHome(
-        { homeId: 'probe', credentialId: 'probe', harness: 'codex', dir: probeHome },
+        { homeId: 'probe', credentialId: 'probe', harness: codexHarnessKind, dir: probeHome },
         {
           ...systemProcessPorts,
           sessionsIn: () => [],
           stopSession: async () => undefined,
-          codexExecutable: () => harnessRuntime?.settled()?.executables.get('codex')?.path,
+          codexExecutable: () => harnessRuntime?.settled()?.executables.get(codexHarnessKind)?.path,
           commandEnv: settledCommandEnv,
         },
       )
@@ -714,7 +714,7 @@ export async function createDaemonHostRuntime(args: {
           await stopSessionProcess(ctx, { sessionId: sessionId as SessionId })
           ctx.send({ type: 'agentExit', sessionId: sessionId as SessionId, code: 143 })
         },
-        codexExecutable: () => harnessRuntime?.settled()?.executables.get('codex')?.path,
+        codexExecutable: () => harnessRuntime?.settled()?.executables.get(codexHarnessKind)?.path,
         commandEnv: settledCommandEnv,
       }),
   })
@@ -1744,7 +1744,9 @@ export async function createDaemonHostRuntime(args: {
         // The account home's Claude folder by the adapter's roots rule over a
         // clean env: `<home>/.claude`, whatever the operator's selector says.
         ...(toolPolicyNone && ctx.accountHome
-          ? { CLAUDE_CONFIG_DIR: harnessRoots('claude-code', ctx.accountHome.path, {}).state }
+          ? {
+              CLAUDE_CONFIG_DIR: harnessRoots(claudeSdkHarnessKind, ctx.accountHome.path, {}).state,
+            }
           : {}),
       }),
       // WHAT ONE TURN STATES ITS LAUNCH TERMS FROM (POD-6858): the same account
