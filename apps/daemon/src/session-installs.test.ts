@@ -426,8 +426,10 @@ describe('a restarted daemon names the binary that really runs', () => {
     await launch(before, terminal)
     await launch(before, engine)
 
-    // The daemon restarts; release 2 has become current meanwhile.
+    // The daemon restarts; release 2 has become current meanwhile. Reattach
+    // makes the survivors' entries first, as recovery does.
     const after = daemonOn(2, shared)
+    after.sessions.ensure(terminal)
     const reattached = await sessionHarnessContextFor(after, terminal, 'codex')
     const adopted = await engineSessionHarnessContext(after, engine, 'codex', undefined)
 

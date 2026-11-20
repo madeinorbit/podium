@@ -71,6 +71,8 @@ describe('installation provenance', () => {
       version: MANAGED.version,
       generation: 3,
       provenance: 'managed',
+      // The release folder's number, which a session's install row records.
+      release: 2,
     })
   })
 
@@ -108,11 +110,11 @@ describe('installation provenance', () => {
     expect(installationAtPath(both, 'codex', MANAGED.path)).toMatchObject({
       provenance: 'managed',
       version: MANAGED.version,
+      release: 2,
     })
-    expect(installationAtPath(both, 'codex', '/elsewhere/codex')).toMatchObject({
-      provenance: 'external',
-      version: EXTERNAL.version,
-    })
+    const elsewhere = installationAtPath(both, 'codex', '/elsewhere/codex')
+    expect(elsewhere).toMatchObject({ provenance: 'external', version: EXTERNAL.version })
+    expect(elsewhere.release).toBeUndefined()
   })
 })
 
