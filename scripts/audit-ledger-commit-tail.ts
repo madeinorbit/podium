@@ -97,6 +97,190 @@ interface RosterEntry {
  */
 const COMMIT_SITE_ROSTER: ReadonlyMap<string, RosterEntry> = new Map([
   [
+    'packages/sync/src/conformance/model-records.ts',
+    {
+      sites: 1,
+      disposition:
+        'Conformance fixture only: save mutates the model-record transaction fixture, whose commit boundary supplies its rollback behavior; no product projection is installed.',
+    },
+  ],
+  [
+    'apps/server/src/store/change-log-commit.ts',
+    {
+      sites: 1,
+      disposition:
+        'The repository change-log mechanism joins an open commit or delegates the write to the ledger; no projection is owned by this facade.',
+    },
+  ],
+  [
+    'apps/server/src/relay.ts',
+    {
+      sites: 1,
+      disposition:
+        'The interaction insertion callback forwards a scoped write through the chosen writer and returns its result; no composition-root state is installed.',
+    },
+  ],
+  [
+    'apps/server/src/modules/workflows/records.ts',
+    {
+      sites: 1,
+      disposition:
+        'The workflow wrapper joins the existing operation scope or commits a new write; only durable records are returned.',
+    },
+  ],
+  [
+    'apps/server/src/modules/user-records/records.ts',
+    {
+      sites: 3,
+      disposition:
+        'Pin and tab-order writes persist personal records. issuePinChanged appends a durable issue event in the ambient transaction, not a process-owned install.',
+    },
+  ],
+  [
+    'apps/server/src/modules/superagent/thread-records.ts',
+    {
+      sites: 1,
+      disposition:
+        'The command persists a thread binding and captures that record; no live thread registry is installed.',
+    },
+  ],
+  [
+    'apps/server/src/modules/settings/service.ts',
+    {
+      sites: 2,
+      disposition:
+        'Preference patch and Telegram route writes return stored settings. emitSettingsChanged defers network/session reactions through afterCommit whenever a span remains open.',
+    },
+  ],
+  [
+    'apps/server/src/modules/settings/instance-record.ts',
+    {
+      sites: 1,
+      disposition:
+        'Instance preference writes join an existing change-log unit or open one. The wrapper installs nothing and returns no material.',
+    },
+  ],
+  [
+    'apps/server/src/modules/sessions/session-teardown.ts',
+    {
+      sites: 1,
+      disposition:
+        'The parked-session mail failure write changes durable delivery rows; queued-message cleanup is also a durable write. Runtime teardown follows its existing lifetime boundary.',
+    },
+  ],
+  [
+    'apps/server/src/modules/sessions/session-state/service.ts',
+    {
+      sites: 1,
+      disposition:
+        'Versioned draft persistence writes its stored document and captures its record; the live draft was already owned by the runtime and no projection is installed here.',
+    },
+  ],
+  [
+    'apps/server/src/modules/sessions/session-meta-ops.ts',
+    {
+      sites: 2,
+      disposition:
+        'Only parked-session offer set/clear use these commits and have no resident object to mutate. Resident sessions use the repository write and baseline-fold mechanism.',
+    },
+  ],
+  [
+    'apps/server/src/modules/sessions/activity-publication.ts',
+    {
+      sites: 1,
+      disposition:
+        'The publication pass commits indexed due activity rows and their change capture; it installs no process-owned state.',
+    },
+  ],
+  [
+    'apps/server/src/modules/read-position/service.ts',
+    {
+      sites: 1,
+      disposition:
+        'The cursor advance and captured read-position record commit together; no in-memory cursor copy exists.',
+    },
+  ],
+  [
+    'apps/server/src/modules/messages/writer.ts',
+    {
+      sites: 1,
+      disposition:
+        'The message writer is a typed ledger wrapper returning its write result; its caller owns any afterCommit delivery.',
+    },
+  ],
+  [
+    'apps/server/src/modules/machines/records.ts',
+    {
+      sites: 1,
+      disposition:
+        'Nested machine record comparisons share their commit. recordReach writes durable checkout reach in the enclosing store transaction, not a process-owned map.',
+    },
+  ],
+  [
+    'apps/server/src/modules/layout/service.ts',
+    {
+      sites: 2,
+      disposition:
+        'Set and clear write the personal layout rows and return the stored snapshot; no layout projection is installed.',
+    },
+  ],
+  [
+    'apps/server/src/modules/issues/service/mail.ts',
+    {
+      sites: 2,
+      disposition:
+        'Pull/read receipts and claim update both durable mail substrates in the write span; the tail reads the stored result and installs nothing.',
+    },
+  ],
+  [
+    'apps/server/src/modules/issues/service/attention.ts',
+    {
+      sites: 3,
+      disposition:
+        'Subscription create/remove/enable write and read subscription rows only; no live subscription map is installed.',
+    },
+  ],
+  [
+    'apps/server/src/modules/effects/sync-write.ts',
+    {
+      sites: 3,
+      disposition:
+        'Create, cancel and dismiss persist effect records and return their durable result. Execution belongs to the separately claimed runner, not the commit tail.',
+    },
+  ],
+  [
+    'apps/server/src/modules/effects/runner.ts',
+    {
+      sites: 2,
+      disposition:
+        'The runner and sweeper write through the same ledger facade; callbacks persist effect rows and return their result without a projection install.',
+    },
+  ],
+  [
+    'apps/server/src/modules/checkouts/service.ts',
+    {
+      sites: 1,
+      disposition:
+        'The scan writes its checkout diff and the derived capture in the same commit; there is no in-memory checkout copy to install.',
+    },
+  ],
+  [
+    'apps/server/src/modules/approvals/service.ts',
+    {
+      sites: 3,
+      disposition:
+        'Request, decision and settlement write effect rows and durable issue events. Denial delivery uses ctx.afterCommit; no live state is installed on return.',
+    },
+  ],
+  [
+    'apps/server/src/modules/agent-profiles/service.ts',
+    {
+      sites: 3,
+      disposition:
+        'Three record commands persist profile create/edit/remove and return stored results; no process-owned projection is installed.',
+    },
+  ],
+  [
     'apps/server/src/modules/automations/service.ts',
     {
       sites: 6,
@@ -134,10 +318,9 @@ const COMMIT_SITE_ROSTER: ReadonlyMap<string, RosterEntry> = new Map([
   [
     'apps/server/src/modules/issues/service/core.ts',
     {
-      sites: 2,
+      sites: 8,
       disposition:
-        'MOVED [POD-3366 Group C, audit sites 3 and 4]. `installDraft` goes through the staged ' +
-        '`installRow`; the event announcement goes through `afterCommit`.',
+        'Personal markers, participation, git observation, panel and repo writes, and single/batch issue persistence. Issues have no process-owned row map since POD-6158; worktree announcements defer through afterCommit, and repinning mutates only the caller-owned draft.',
     },
   ],
   [
@@ -163,10 +346,9 @@ const COMMIT_SITE_ROSTER: ReadonlyMap<string, RosterEntry> = new Map([
   [
     'apps/server/src/modules/sessions/repository.ts',
     {
-      sites: 1,
+      sites: 2,
       disposition:
-        'MOVED [POD-3361, audit sites 1, 2 and 13]. `capturedSessionStates` gains a staged layer ' +
-        'promoted by a commit application.',
+        'Session persistence tracks live installs against the baseline fold so a rolled-back parent repairs only its fields. The second site clears stale boot offers before applying the loaded session; boot hydration is outside command spans.',
     },
   ],
   [
@@ -181,11 +363,9 @@ const COMMIT_SITE_ROSTER: ReadonlyMap<string, RosterEntry> = new Map([
   [
     'apps/server/src/modules/shipping/service.ts',
     {
-      sites: 6,
+      sites: 12,
       disposition:
-        'TWO MOVED, FOUR UNAFFECTED [POD-3366 Group B, audit sites 11 and 12]. The two claims ' +
-        'install through `LeaseProjection`, which is staged. The other four only call `audit()`, ' +
-        'which appends an events ROW — a durable write that rolls back with the transaction.',
+        'Two claims install through the staged LeaseProjection with per-order version checks. Cancellation, step, envelope, effect-result and recovery-debt writes are durable; audit appends durable event rows. Daemon acknowledgements occur at the existing owned effect/recovery boundary.',
     },
   ],
   [
@@ -283,7 +463,7 @@ export function rowMapReadOnly(source: string, file: string): Finding[] {
       check: 'issue-rows-readonly',
       where: `${file}:${lineOf(source, index)}`,
       detail:
-        "`IssueStore.rows` must stay a `ReadonlyMap<string, IssueRow>`. That is what makes " +
+        '`IssueStore.rows` must stay a `ReadonlyMap<string, IssueRow>`. That is what makes ' +
         '"do not install into the map after a commit" a COMPILE error rather than a rule — it is ' +
         'how tsgo found the two lifecycle sites POD-3366 had not reached yet. Widening it back ' +
         'restores the wrong shape at every reader with no test failing. Install through ' +
@@ -348,13 +528,19 @@ function probe(): Finding[] {
   }
   const expectClean = (check: string, found: Finding[]): void => {
     if (found.length > 0) {
-      broken.push({ check, where: '<probe>', detail: `fired on a clean fixture: ${found[0]?.detail}` })
+      broken.push({
+        check,
+        where: '<probe>',
+        detail: `fired on a clean fixture: ${found[0]?.detail}`,
+      })
     }
   }
 
   expectFinds(
     'commit-site-roster',
-    rosterFindings(new Map([['apps/server/src/modules/planted/service.ts', 'x.commit({ write: 1 })']])),
+    rosterFindings(
+      new Map([['apps/server/src/modules/planted/service.ts', 'x.commit({ write: 1 })']]),
+    ),
     'commit site in an unrostered file',
   )
   expectFinds(
@@ -376,12 +562,18 @@ function probe(): Finding[] {
 
   expectFinds(
     'issue-rows-readonly',
-    rowMapReadOnly('  get rows(): Map<string, IssueRow> {\n    return this.hydrated\n  }', '<probe>'),
+    rowMapReadOnly(
+      '  get rows(): Map<string, IssueRow> {\n    return this.hydrated\n  }',
+      '<probe>',
+    ),
     'a writable rows getter',
   )
   expectClean(
     'issue-rows-readonly',
-    rowMapReadOnly('  get rows(): ReadonlyMap<string, IssueRow> {\n    return this.hydrated\n  }', '<probe>'),
+    rowMapReadOnly(
+      '  get rows(): ReadonlyMap<string, IssueRow> {\n    return this.hydrated\n  }',
+      '<probe>',
+    ),
   )
   expectClean('issue-rows-readonly', rowMapReadOnly('no getter here at all', '<probe>'))
 
