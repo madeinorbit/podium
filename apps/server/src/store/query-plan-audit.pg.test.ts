@@ -226,10 +226,6 @@ const ALLOWLIST: ReadonlyMap<string, string> = new Map([
     "Walks the automations (a small table: schedules people define by hand) and finds each one's newest spawned run through idx_automation_runs_automation, never the runs of the whole table (POD-6172).",
   ],
   [
-    'apps/server/src/store/messages.ts:pendingForSessionProof',
-    'Sorts only undelivered rows: the delivery_status IN list selects the pending queue, which empties as messages are delivered.',
-  ],
-  [
     'apps/server/src/store/messages.ts:ledger',
     'Each UNION arm reads its index newest first and SQLite merges them, stopping at the limit; the temporary B-tree orders only rows tied on (created_at, id), which is unique, so every sort group is one row.',
   ],
@@ -1826,8 +1822,24 @@ describe.runIf(ENGINE === 'pg')('every Postgres query is served by an index (POD
     expect(stale).toEqual([])
   })
 
+  it('seeks both pending-proof arms without a scan or sort (POD-7263)', () => {
+    const proofs = audited.filter(
+      (entry) => entry.key === 'apps/server/src/store/messages.ts:pendingForSessionsProof',
+    )
+    expect(proofs.map((entry) => entry.shape)).toEqual(
+      FAMILY_SHAPES.get('apps/server/src/store/messages.ts:pendingForSessionsProof'),
+    )
+    for (const entry of proofs) {
+      expect(entry.findings, entry.sql).toEqual([])
+      const indexes = indexesInPlan(entry.plan)
+      expect(indexes.some((index) => index.startsWith('idx_messages_recipient_'))).toBe(true)
+      expect(indexes).toContain('idx_messages_delivered_to_time')
+      expect(indexes.filter((index) => index.startsWith('idx_messages_delivery_'))).toEqual([])
+    }
+  })
+
   it('reads the message readers through the recipient index, not a status scan (POD-5941)', () => {
-    for (const name of ['deliveredUnacked', 'settleNotifiable', 'pendingForSessionProof']) {
+    for (const name of ['deliveredUnacked', 'settleNotifiable']) {
       const plans = audited.filter(
         (entry) => entry.key === `apps/server/src/store/messages.ts:${name}`,
       )

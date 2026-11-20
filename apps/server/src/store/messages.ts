@@ -426,49 +426,13 @@ const messagesAddressedTo = preparedFamily((db, t, shape: AddressShape) =>
     .prepare(),
 )
 
-const pendingForSessionProof = prepared((db, t) =>
-  db
-    .select()
-    .from(t.messages)
-    .where(
-      inWorkspace(
-        t.messages,
-        or(
-          and(
-            pending(t),
-            or(
-              and(
-                eq(t.messages.toKind, 'session'),
-                eq(t.messages.toId, param(t.messages.toId, 'sessionId')),
-              ),
-              eq(t.messages.deliveredTo, param(t.messages.deliveredTo, 'sessionId')),
-            ),
-          ),
-          and(
-            confirmedInto(db, t),
-            isNull(t.messages.ackedBy),
-            eq(t.messages.expectsResponse, true),
-            or(
-              isNull(t.messages.expiresAt),
-              gt(t.messages.expiresAt, param(t.messages.expiresAt, 'now')),
-            ),
-          ),
-        ),
-      ),
-    )
-    .orderBy(...DELIVERY_ORDER(t))
-    .prepare(),
-)
-
 /**
- * {@link pendingForSessionProof} for a known set of sessions (POD-7036): the
- * host sample checks the terminal proof of every idle candidate at once, and
- * asked per session it was the audit's burst `#3d3edfd1` (up to 909 statements
- * in one stall window). One SELECT per way a row names its session, each on its
- * own index (`idx_messages_recipient_time`, `idx_messages_delivered_to_time`),
- * joined by `UNION ALL`: a `UNION` would deduplicate in a temporary B-tree, and
- * the caller attributes and deduplicates by id anyway. The ids are the `ids`
- * list in both arms.
+ * Pending proof rows for a known set of sessions, one indexed SELECT per way
+ * a row names its session (POD-7036, POD-7263). The single-session proof uses
+ * this same read: its former OR walked the entire workspace's message history.
+ * Each arm seeks the recipient or delivered-to index, never a status range.
+ * UNION ALL also works with Postgres json columns; attribution, de-duplication
+ * and DELIVERY_ORDER are applied to each session's rows below.
  */
 const pendingForSessionsProof = preparedFamily((db, t, size: number) =>
   db
@@ -479,7 +443,9 @@ const pendingForSessionsProof = preparedFamily((db, t, size: number) =>
         t.messages,
         eq(t.messages.toKind, 'session'),
         inListOf(t.messages.toId, size, 'ids'),
-        pending(t),
+        // Keep the status out of SQLite's index choice: other sessions' pending
+        // rows must not turn this into a workspace-wide status scan.
+        sql`${statusOutOfIndexChoice(db, t)} in ${[...MESSAGE_PENDING]}`,
       ),
     )
     .unionAll(
@@ -1739,7 +1705,7 @@ export class MessagesRepository {
 
   /** Exact, unbounded safety projection of work still pending for one session. */
   async pendingForSessionProof(sessionId: SessionId, now: string): Promise<MessageRow[]> {
-    return (await pendingForSessionProof(this.db).all({ sessionId, now })).map(mapMessage)
+    return (await this.pendingForSessionsProof([sessionId], now)).get(sessionId) ?? []
   }
 
   /**
@@ -1782,7 +1748,11 @@ export class MessagesRepository {
       }
     }
     for (const list of out.values()) {
-      list.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))
+      // Match SQL DELIVERY_ORDER (binary text order), including ids tied on time.
+      list.sort((a, b) => {
+        if (a.createdAt !== b.createdAt) return a.createdAt < b.createdAt ? -1 : 1
+        return a.id < b.id ? -1 : a.id > b.id ? 1 : 0
+      })
     }
     return out
   }

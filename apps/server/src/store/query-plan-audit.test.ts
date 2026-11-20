@@ -236,10 +236,6 @@ const ALLOWLIST: ReadonlyMap<string, string> = new Map([
     'Each UNION arm reads its index newest first and SQLite merges them, stopping at the limit; the temporary B-tree orders only rows tied on (created_at, id), which is unique, so every sort group is one row.',
   ],
   [
-    'apps/server/src/store/messages.ts:pendingForSessionProof',
-    'Sorts only undelivered rows: the delivery_status IN list selects the pending queue, which empties as messages are delivered.',
-  ],
-  [
     'apps/server/src/store/messages.ts:pendingSummaryOf',
     'Sorts only undelivered rows: the delivery_status IN list selects the pending queue, which empties as messages are delivered.',
   ],
@@ -976,6 +972,21 @@ describe('POD-6148 — every repository query is served by an index', () => {
     )
     for (const entry of unexplained) console.log(`UNEXPLAINED ${describeEntry(entry)}`)
     expect(unexplained.map((entry) => `${entry.key} [${String(entry.shape ?? '')}]`)).toEqual([])
+  })
+
+  it('seeks both pending-proof arms without a scan or sort (POD-7263)', () => {
+    const { keyed } = keyedDefinitions(trackedSources(SOURCE), SOURCE)
+    const { audited } = auditDefinitions(keyed)
+    const proofs = audited.filter(
+      (entry) => entry.key === 'apps/server/src/store/messages.ts:pendingForSessionsProof',
+    )
+    expect(proofs.map((entry) => entry.shape)).toEqual(SIZES)
+    for (const entry of proofs) {
+      expect(entry.findings, describeEntry(entry)).toEqual([])
+      expect(entry.plan.join(' | ')).toContain('idx_messages_recipient_')
+      expect(entry.plan.join(' | ')).toContain('idx_messages_delivered_to_time')
+      expect(entry.plan.filter((detail) => detail.includes('idx_messages_delivery_'))).toEqual([])
+    }
   })
 
   it('reads the open chat through its partial index (POD-6173)', () => {
@@ -1942,6 +1953,23 @@ describe('POD-7034 — every statement under the operator statistics', () => {
       expect([...OPERATOR_PLANS.keys()].filter((key) => !flaggedNames.has(key))).toEqual([])
       for (const reason of OPERATOR_PLANS.values()) {
         expect(reason.trim().length).toBeGreaterThan(20)
+      }
+    },
+    PICTURES_TIMEOUT_MS,
+  )
+
+  it(
+    'seeks pending proofs at every batch size under operator statistics (POD-7263)',
+    () => {
+      const proofs = bothPictures().operator.filter(
+        (entry) => entry.key === 'apps/server/src/store/messages.ts:pendingForSessionsProof',
+      )
+      expect(proofs.map((entry) => entry.shape)).toEqual(paddedSizes(CHUNK_SIZE))
+      for (const entry of proofs) {
+        expect(entry.findings, describeEntry(entry)).toEqual([])
+        expect(entry.plan.join(' | ')).toContain('idx_messages_recipient_')
+        expect(entry.plan.join(' | ')).toContain('idx_messages_delivered_to_time')
+        expect(entry.plan.filter((detail) => detail.includes('idx_messages_delivery_'))).toEqual([])
       }
     },
     PICTURES_TIMEOUT_MS,
