@@ -116,7 +116,12 @@ import {
 } from '../session-screens'
 import { removeSessionUploads } from '../session-uploads'
 import { Terminal } from '../terminal/terminal.js'
-import { assertDeliveryPrerequisites, deliveryOverlay, isPodiumHomeId } from './access'
+import {
+  assertDeliveryPrerequisites,
+  deliveredCredentialEnv,
+  deliveryOverlay,
+  isPodiumHomeId,
+} from './access'
 import { type BindFacts, bindFrame, reportSize } from './applied-geometry'
 import type { ControlHandlers, DaemonContext } from './context'
 import { reportEffectiveAuth, sessionProcessEnvironment } from './effective-auth'
@@ -886,15 +891,17 @@ export async function launchTerminalProcess(
     // A login pane and a shell have none.
     const access =
       childContext && !loginHarness ? await ctx.access.awaitAccess(sessionId) : undefined
+    // A credential that goes in on a pipe (POD-7378) is in no variable: the
+    // host hands this process a pipe of its own. An empty one refuses here.
     const delivered =
       childContext && !loginHarness
         ? deliveryOverlay(agentKind, access, {
             podiumHome: isPodiumHomeId(childContext.harnessHome?.id),
           })
-        : { env: {}, args: [], keep: [] }
-    const child = childContext
+        : undefined
+    const childBase = childContext
       ? harnessChildEnv(childContext, {
-          sessionEnv: { ...spec.env, ...delivered.env },
+          sessionEnv: { ...spec.env, ...delivered?.env },
           wiringEnv: {
             // The adapter's own launch env.
             ...cmd.env,
@@ -915,6 +922,10 @@ export async function launchTerminalProcess(
           }),
           strip: [],
         }
+    // A piped line's own variable goes too: no inherited copy competes with the pipe.
+    const child = delivered?.strip.length
+      ? { ...childBase, strip: [...childBase.strip, ...delivered.strip] }
+      : childBase
     // A HIDE SWITCH THE HARNESS CANNOT RUN HERE REFUSES THE START (POD-7375):
     // Claude Code on Linux exits at once without bubblewrap when a passed-in
     // credential sets its scrub switch. Looked up on the PATH the process gets.
@@ -929,7 +940,7 @@ export async function launchTerminalProcess(
       label,
       command: withArgs(cmd, [
         // The harness's hide-from-commands switches lead its own arguments.
-        ...delivered.args,
+        ...(delivered?.args ?? []),
         ...instrumentedLaunchArgs(cmd.args, instrumentation.args),
       ]),
       cwd: cmd.cwd,
@@ -949,6 +960,7 @@ export async function launchTerminalProcess(
       // ANTHROPIC_API_KEY greets you with "Detected a custom API key in your
       // environment" instead.
       stripEnv: child.strip,
+      ...(delivered?.pipe ? { pipe: delivered.pipe } : {}),
     })
     driverTiming.headedCliStage(sessionId, agentKind, 'native_cli_process_started', {
       adopted: session.adopted,
@@ -963,6 +975,7 @@ export async function launchTerminalProcess(
         executable: childContext.installation.executable,
         env: sessionProcessEnvironment(process.env, child),
         access,
+        ...(delivered?.pipe ? { pipe: delivered.pipe } : {}),
       })
     }
     const terminal = wireBridge(ctx, sessionId, session, agentKind, label)
@@ -2158,8 +2171,9 @@ export async function launchServerDriverSession(
   const loginState = ctx.harnessLoginState(msg.agentKind)
   const selectionAuth = selectionAuthForLogin(msg.agentKind, loginState, {
     ...msg.env,
-    // The delivered credential decides the auth mode as the frame env once did.
-    ...deliveryOverlay(msg.agentKind, msg.access).env,
+    // The delivered credential decides the auth mode as the frame env once
+    // did: its line's variable, also when the secret goes on a pipe.
+    ...deliveredCredentialEnv(msg.access),
   })
   const terminalLoginReason =
     selectionAuth === 'logged-out'

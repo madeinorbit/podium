@@ -96,11 +96,15 @@ export const claudeCodeManifest: AgentManifest = {
     // A daemon started inside Claude carries another conversation's identity.
     // Passing it on makes the child subordinate itself to that session and
     // disables transcript saving — also Podium's state/history channel.
+    // `CLAUDE_CODE_REMOTE` likewise: with it set, Claude Code writes a key or
+    // token it read from a pipe to a file for its commands (measured in
+    // 2.1.330, POD-7378), which is exactly what the pipe keeps from happening.
     removeInherited: [
       'CLAUDE_CODE_CHILD_SESSION',
       'CLAUDE_CODE_SESSION_ID',
       'CLAUDE_CODE_ENTRYPOINT',
       'CLAUDE_CODE_EXECPATH',
+      'CLAUDE_CODE_REMOTE',
     ],
     // Not an `instanceHome`: SETTING `CLAUDE_CONFIG_DIR` moves `.claude.json`
     // (identity, onboarding) out of the home root, where Podium's credential

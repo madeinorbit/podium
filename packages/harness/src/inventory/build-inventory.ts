@@ -806,13 +806,15 @@ export type LoginProbeExec = (
   argv: readonly string[],
   timeoutMs: number,
   env: Readonly<Record<string, string>>,
+  /** Written to the command's stdin, which is then closed (a credential pipe, POD-7378). */
+  stdin?: string,
 ) => Promise<LoginCommandResult>
 
 /** Run a harness status command, keeping its output on a non-zero exit. */
-export const runHarnessStatusCommand: LoginProbeExec = (argv, timeoutMs, env) =>
-  defaultLoginExec(argv, timeoutMs, env)
+export const runHarnessStatusCommand: LoginProbeExec = (argv, timeoutMs, env, stdin) =>
+  defaultLoginExec(argv, timeoutMs, env, stdin)
 
-const defaultLoginExec: LoginProbeExec = (argv, timeoutMs, env) =>
+const defaultLoginExec: LoginProbeExec = (argv, timeoutMs, env, stdin) =>
   new Promise((resolve) => {
     const [cmd, ...args] = argv
     let timedOut = false
@@ -839,6 +841,12 @@ const defaultLoginExec: LoginProbeExec = (argv, timeoutMs, env) =>
         })
       },
     )
+    if (stdin !== undefined) {
+      // A command that exits before reading closes the pipe; its result is
+      // what counts.
+      child.stdin?.once('error', () => undefined)
+      child.stdin?.end(stdin)
+    }
     timer = setTimeout(() => {
       timedOut = true
       child.kill()

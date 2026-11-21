@@ -75,6 +75,10 @@ fn bind_socket(path: &Path) -> UnixListener {
 /// write into the child's pipe can never block.
 const PIPE_ENV_MAX: usize = 16 * 1024;
 
+/// The lowest descriptor the child's pipe takes: above the ones a shell
+/// script names (0-9).
+const PIPE_ENV_MIN_FD: rustix::fd::RawFd = 10;
+
 /// What `--pipe-env` hands the child (POD-7378): the variable, and the bytes
 /// read from stdin. Wiped when dropped.
 struct PipeEnv {
@@ -113,12 +117,16 @@ impl PipeEnv {
     /// A new pipe holding the contents, its writer already closed, for `cmd`
     /// to inherit: VARIABLE names its descriptor in the child's environment.
     /// Returns the read end, which the host closes once the child has it.
-    fn attach(self, cmd: &mut process::Command) -> io::Result<io::PipeReader> {
+    fn attach(self, cmd: &mut process::Command) -> io::Result<OwnedFd> {
         use std::os::fd::AsRawFd;
         use std::os::unix::process::CommandExt;
         let (r, mut w) = io::pipe()?; // CLOEXEC both ends
         w.write_all(&self.contents)?;
         drop(w); // the child reads to the end of the stream
+        // At 10 or above: a shell script the child runs names 0-9 itself
+        // (Podium's turn wrapper does `exec 4>&1`), and would overwrite a
+        // pipe it never knew was there.
+        let r = rustix::io::fcntl_dupfd_cloexec(OwnedFd::from(r), PIPE_ENV_MIN_FD)?;
         let fd = r.as_raw_fd();
         cmd.env(OsStr::from_bytes(&self.variable), fd.to_string());
         // SAFETY: runs between fork and exec; fcntl(F_SETFD) is

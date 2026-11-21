@@ -326,16 +326,20 @@ export const runtimeHandlers: Pick<
       })
     }
     void ctx.access.awaitAccess(msg.sessionId).then((access) => {
-      const overlay = deliveryOverlay(harness, access)
-      // A hide switch the harness cannot run here refuses the turn before a
-      // process starts (POD-7375): Claude on Linux exits without bubblewrap.
+      // A secret that goes in on a pipe (POD-7378) is in no variable here: the
+      // engine layer hands the turn's process a pipe of its own. An empty one,
+      // or a hide switch the harness cannot run here (POD-7375), refuses the
+      // turn before a process starts.
+      let env: Record<string, string>
       try {
+        const overlay = deliveryOverlay(harness, access)
         assertDeliveryPrerequisites(harness, access, { ...process.env, ...overlay.env })
+        env = overlay.env
       } catch (error) {
         refuse(error)
         return
       }
-      sendTurn(overlay.env)
+      sendTurn(env)
     }, refuse)
   },
 

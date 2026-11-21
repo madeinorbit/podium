@@ -218,16 +218,27 @@ export class SessionEngineScope implements EngineProcessOwner {
     // the start after a bounded wait: an engine never starts on the
     // machine's own login in its place. The delivered variable is taken off
     // the family's strip list, which names every inherited credential.
+    //
+    // A ONE-SHOT TURN (`turnFor`) gets its variable from the turn's own env
+    // (`TurnInput.env`); only a secret that goes in on a pipe is applied here
+    // (POD-7378), because only the process layer can hand one over, and every
+    // turn's process gets a pipe of its own.
+    const accessSession = sessionId ?? turnFor
     const agentKind =
-      sessionId !== undefined ? this.options.access?.agentKindOf(sessionId) : undefined
+      accessSession !== undefined ? this.options.access?.agentKindOf(accessSession) : undefined
     const access =
-      sessionId !== undefined ? await this.options.access?.awaitAccess(sessionId) : undefined
-    const delivered =
-      sessionId !== undefined && this.options.access
+      accessSession !== undefined
+        ? await this.options.access?.awaitAccess(accessSession)
+        : undefined
+    const overlay =
+      accessSession !== undefined && this.options.access
         ? deliveryOverlay(agentKind, access, {
             podiumHome: isPodiumHomeId(command.harnessHomeId),
           })
         : undefined
+    // A turn's command is the turn wrapper, which takes no leading arguments.
+    const delivered =
+      sessionId !== undefined ? overlay : overlay?.pipe ? { ...overlay, args: [] } : undefined
     // A hide switch the harness cannot run here refuses the start before the
     // process exists (POD-7375), looked up on the PATH the engine gets.
     if (delivered) {
@@ -236,7 +247,9 @@ export class SessionEngineScope implements EngineProcessOwner {
         ...spawn.env,
         ...delivered.env,
       }
-      for (const key of spawn.stripEnv) if (!delivered.keep.includes(key)) delete env[key]
+      for (const key of [...spawn.stripEnv, ...delivered.strip]) {
+        if (!delivered.keep.includes(key)) delete env[key]
+      }
       assertDeliveryPrerequisites(agentKind, access, env)
     }
     const address = listen ? this.mintAddress(req.label, sessionId) : undefined
@@ -258,7 +271,10 @@ export class SessionEngineScope implements EngineProcessOwner {
         ...(delivered
           ? {
               env: { ...spawn.env, ...delivered.env },
-              stripEnv: spawn.stripEnv.filter((key) => !delivered.keep.includes(key)),
+              stripEnv: [...spawn.stripEnv, ...delivered.strip].filter(
+                (key) => !delivered.keep.includes(key),
+              ),
+              ...(delivered.pipe ? { pipe: delivered.pipe } : {}),
             }
           : {}),
         cmd: bound.cmd,

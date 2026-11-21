@@ -72,6 +72,7 @@ fn the_child_reads_the_bytes_from_the_named_descriptor_and_nowhere_else() {
     // The pattern is joined at run time: the script's own text, which is the
     // shell's argv, never holds the whole secret.
     let script = "P=PODIUM-PIPE; \
+                  echo \"fd=$CRED_FD\"; \
                   echo \"link=$(readlink /proc/self/fd/$CRED_FD)\"; \
                   echo \"first=$(cat /proc/self/fd/$CRED_FD)\"; \
                   echo \"second=$(cat /proc/self/fd/$CRED_FD)\"; \
@@ -116,6 +117,15 @@ fn the_child_reads_the_bytes_from_the_named_descriptor_and_nowhere_else() {
         .unwrap_or_default()
         .to_owned();
     assert!(link.starts_with("pipe:"), "CRED_FD is not a pipe: {text:?}");
+    let fd: u32 = text
+        .lines()
+        .find_map(|l| l.strip_prefix("fd="))
+        .and_then(|n| n.parse().ok())
+        .expect("the child printed its descriptor");
+    assert!(
+        fd >= 10,
+        "the pipe is at {fd}, where a shell script could overwrite it"
+    );
     assert!(
         !host_pipes.contains(&link),
         "the host still holds the child's pipe {link}: {host_pipes:?}"
