@@ -400,13 +400,13 @@ fn a_resize_sends_a_reset_picture_to_every_opted_in_connection() {
 }
 
 /// WELCOME ends with a features byte (bit 0 = screen), and `version` says
-/// features=2. A host without a pty keeps no screen: it says so, and answers
+/// features=3 (the screen, then `--pipe-env`, POD-7378). A host without a pty keeps no screen: it says so, and answers
 /// PICTURE as any host answers an unknown frame.
 #[test]
 fn the_welcome_announces_the_screen() {
     let out = Command::new(BIN).arg("version").output().unwrap();
     let v = String::from_utf8_lossy(&out.stdout);
-    assert!(v.trim_end().ends_with(" features=2"), "{v}");
+    assert!(v.trim_end().ends_with(" features=3"), "{v}");
 
     let dir = Scratch::new("pic-welcome");
     let (pty, nopty) = (dir.path("a.sock"), dir.path("b.sock"));
