@@ -190,6 +190,7 @@ describe('fake native context through real generic composition', () => {
     const runtime = createTerminalRuntime(
       {
         now: () => Date.parse(contextFixtureAt),
+        trackedState: () => undefined,
         send: (frame: { type: string; event?: RuntimeEvent }) => {
           if (frame.type === 'runtimeEvent' && frame.event) frames.push(frame.event)
         },

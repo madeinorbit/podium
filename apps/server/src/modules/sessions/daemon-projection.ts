@@ -156,7 +156,11 @@ export class SessionDaemonProjection {
     }
   }
 
-  async metadataSnapshot(sessionId: SessionId, snapshot: SessionSnapshot): Promise<void> {
+  async metadataSnapshot(
+    sessionId: SessionId,
+    snapshot: SessionSnapshot,
+    options: { contextReplay?: boolean } = {},
+  ): Promise<void> {
     if (snapshot.binding.sessionId !== sessionId) return
     const session = this.ports.sessions.get(sessionId)
     if (snapshot.context) {
@@ -178,7 +182,7 @@ export class SessionDaemonProjection {
           change: { kind: 'context-observation', context: value },
         })
       }
-    } else if (session?.contextObservation) {
+    } else if (session && (session.contextObservation || options.contextReplay)) {
       await this.runtimeEvent(sessionId, {
         t: 'metadata',
         change: {

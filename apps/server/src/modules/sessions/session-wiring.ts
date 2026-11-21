@@ -18,7 +18,11 @@ import { type AgentStateEvent, initialAgentState, reduceAgentState } from '@podi
 import { createLogger } from '@podium/logger'
 import { asUserId, computePriorities, type SessionId, type UserId } from '@podium/model'
 import { asDelegationRef } from '@podium/protocol'
-import { RuntimeAttachmentRef, type RuntimeEvent } from '@podium/protocol/daemon'
+import {
+  CAP_CONTEXT_OBSERVATION_V1,
+  RuntimeAttachmentRef,
+  type RuntimeEvent,
+} from '@podium/protocol/daemon'
 import { MutationLedger, type SyncRepository } from '@podium/sync'
 import { AutoContinueController } from '../../auto-continue'
 import { systemPrincipal, userCommandPrincipal } from '../../command-principal'
@@ -1252,7 +1256,13 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
             snapshot.binding.bindingVersion !== lease.bindingVersion)
         )
           return
-        await bag.daemonProjection.metadataSnapshot(sessionId, reply.result.snapshot)
+        if (!lease) {
+          const checkpoint = await store.events.runtimeEventCheckpoint(sessionId)
+          if (checkpoint && snapshot.observerGeneration < checkpoint.observerGeneration) return
+        }
+        await bag.daemonProjection.metadataSnapshot(sessionId, snapshot, {
+          contextReplay: machines.daemonSupports(machineId, CAP_CONTEXT_OBSERVATION_V1),
+        })
         // Reconnect: the driver's snapshot binding carries its current
         // worktree root (session.cwd is kept current on every sessionCwd).
         // Restamp the row so grouping survives a daemon restart without

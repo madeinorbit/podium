@@ -1096,12 +1096,16 @@ export class SessionDaemonLifecycle {
               admitted =
                 identityLease.observationGeneration === msg.event.observerGeneration &&
                 (!identity || identity.bindingVersion === identityLease.bindingVersion)
-            } else if (!liveSession || harnessObservationProvider(liveSession.agentKind)) {
+            } else if (
+              !liveSession ||
+              !liveSession.hasBoundDriver ||
+              harnessObservationProvider(liveSession.agentKind)
+            ) {
               admitted = false
             } else {
-              // Non-causal harnesses deliberately have no provider lease. Their
-              // existing driver snapshot owns the context binding; until that
-              // bootstrap, use the ordinary runtime stream's admitted generation.
+              // Non-causal harnesses deliberately have no provider lease. The
+              // existing verified driver snapshot must establish the binding;
+              // a telemetry payload cannot establish its own admission scope.
               const current = liveSession.contextObservation
               const currentValue = current?.context
               const scope =
@@ -1110,16 +1114,13 @@ export class SessionDaemonLifecycle {
                   : currentValue?.status === 'pending' || currentValue?.status === 'unavailable'
                     ? currentValue.revision
                     : undefined
-              if (current) {
-                admitted =
+              admitted = Boolean(
+                current &&
+                  scope &&
+                  identity &&
                   current.observerGeneration === msg.event.observerGeneration &&
-                  (!scope || !identity || scope.bindingVersion === identity.bindingVersion)
-              } else {
-                const checkpoint = await this.store.events.runtimeEventCheckpoint(msg.sessionId)
-                admitted = checkpoint
-                  ? checkpoint.observerGeneration === msg.event.observerGeneration
-                  : msg.event.observerGeneration === 1
-              }
+                  scope.bindingVersion === identity.bindingVersion,
+              )
             }
             if (!admitted) {
               result = { kind: 'rejected', reason: 'stale-observer-generation' }
