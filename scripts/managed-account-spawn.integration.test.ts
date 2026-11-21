@@ -296,7 +296,9 @@ async function spawnAndDumpEnv(
   try {
     // The shell is up and talking.
     await waitFor(() => h.output().length > 0).catch((error) => {
-      const sent = h.sent.map((m) => m.type).join(',')
+      const sent = JSON.stringify(
+        h.sent.filter((m) => m.type !== 'sessionAuth' || true).map((m) => m),
+      ).slice(0, 1500)
       let state = 'gone'
       try {
         const { readFileSync, readlinkSync } = require('node:fs') as typeof import('node:fs')
