@@ -141,6 +141,7 @@ describe('the two strip rules', () => {
       'CLAUDE_CODE_SESSION_ID',
       'CLAUDE_CODE_ENTRYPOINT',
       'CLAUDE_CODE_EXECPATH',
+      'CLAUDE_CODE_REMOTE',
       // POD-6604/POD-6613: none is in the child's env, so the boundary deletes
       // the daemon's own copy too.
       'CLAUDE_CONFIG_DIR',

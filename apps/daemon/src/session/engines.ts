@@ -271,7 +271,7 @@ export class SessionEngineScope implements EngineProcessOwner {
         ...(delivered
           ? {
               env: { ...spawn.env, ...delivered.env },
-              stripEnv: [...spawn.stripEnv, ...delivered.strip].filter(
+              stripEnv: [...new Set([...spawn.stripEnv, ...delivered.strip])].filter(
                 (key) => !delivered.keep.includes(key),
               ),
               ...(delivered.pipe ? { pipe: delivered.pipe } : {}),

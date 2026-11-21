@@ -323,6 +323,7 @@ describe('agent manifest registry', () => {
       'CLAUDE_CODE_SESSION_ID',
       'CLAUDE_CODE_ENTRYPOINT',
       'CLAUDE_CODE_EXECPATH',
+      'CLAUDE_CODE_REMOTE',
     ])
     expect(AGENT_MANIFESTS.codex.environment.instanceHome).toEqual({
       variable: 'CODEX_HOME',

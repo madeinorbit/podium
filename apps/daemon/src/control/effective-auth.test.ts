@@ -30,6 +30,14 @@ writeFileSync(
   claude,
   [
     '#!/bin/sh',
+    // A key on a descriptor (POD-7378), read to its end. The probe's is its
+    // stdin, which Bun makes a socket: Claude Code reads a socket directly.
+    'if [ -n "$CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR" ]; then',
+    '  if [ "$(cat <&$CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR)" = "sk-ant-FAKE-chosen-key-0001" ]; then',
+    '    echo \'{"loggedIn":true,"authMethod":"api_key","apiKeySource":"ANTHROPIC_API_KEY"}\'; exit 0',
+    '  fi',
+    '  echo \'{"loggedIn":false}\'; exit 1',
+    'fi',
     'if [ -n "$ANTHROPIC_AUTH_TOKEN" ]; then',
     '  echo \'{"loggedIn":true,"authMethod":"api_key","apiKeySource":"ANTHROPIC_AUTH_TOKEN"}\'; exit 0',
     'fi',
@@ -75,11 +83,17 @@ const ACCESS: AccessField = {
 }
 
 /** The environment a session's process gets, built as the terminal spawn builds it. */
-const sessionEnv = (access: AccessField | undefined) =>
-  sessionProcessEnvironment(
-    DAEMON_ENV,
-    harnessChildEnv(context, { sessionEnv: deliveryOverlay('claude-code', access).env }),
-  )
+const sessionEnv = (access: AccessField | undefined, platform: NodeJS.Platform = 'darwin') => {
+  const overlay = deliveryOverlay('claude-code', access, { platform })
+  const child = harnessChildEnv(context, { sessionEnv: overlay.env })
+  return {
+    env: sessionProcessEnvironment(DAEMON_ENV, {
+      ...child,
+      strip: [...new Set([...child.strip, ...overlay.strip])],
+    }),
+    pipe: overlay.pipe,
+  }
+}
 
 describe('readEffectiveAuth', () => {
   it('can see a competing variable win when nothing strips it (canary)', async () => {
@@ -93,7 +107,8 @@ describe('readEffectiveAuth', () => {
   })
 
   it('a competing key in the daemon environment does not change what the harness uses', async () => {
-    const env = sessionEnv(ACCESS)
+    // A key delivered in its variable: macOS (Linux pipes it, below).
+    const { env } = sessionEnv(ACCESS)
     expect(env.ANTHROPIC_API_KEY).toBe(DELIVERED)
     expect(env).not.toHaveProperty('ANTHROPIC_AUTH_TOKEN')
     const report = await readEffectiveAuth({
@@ -113,7 +128,7 @@ describe('readEffectiveAuth', () => {
     const report = await readEffectiveAuth({
       agentKind: 'claude-code',
       executable: claude,
-      env: sessionEnv(undefined),
+      env: sessionEnv(undefined).env,
     })
     expect(report).toMatchObject({
       method: 'subscription',
@@ -121,6 +136,34 @@ describe('readEffectiveAuth', () => {
     })
     expect(report.identity?.fingerprint).toMatch(/^[0-9a-f]{64}$/)
   })
+
+  it.runIf(process.platform === 'linux')(
+    'a key on a pipe: the probe gets a pipe of its own and the read counts as delivered (POD-7378)',
+    async () => {
+      const { env, pipe } = sessionEnv(ACCESS, 'linux')
+      expect(pipe).toEqual({ variable: 'CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR', contents: DELIVERED })
+      // No variable holds a key: neither the delivered one nor the daemon's competing one.
+      expect(env).not.toHaveProperty('ANTHROPIC_API_KEY')
+      expect(env).not.toHaveProperty('ANTHROPIC_AUTH_TOKEN')
+      const report = await readEffectiveAuth({
+        agentKind: 'claude-code',
+        executable: claude,
+        env,
+        access: ACCESS,
+        pipe,
+      })
+      expect(report).toEqual({ method: 'api-key', source: 'ANTHROPIC_API_KEY', delivered: true })
+      // Without the pipe the same probe has no key at all.
+      expect(
+        await readEffectiveAuth({
+          agentKind: 'claude-code',
+          executable: claude,
+          env,
+          access: ACCESS,
+        }),
+      ).toMatchObject({ method: 'subscription' })
+    },
+  )
 
   it('a harness without a status command, or one that fails, is unknown', async () => {
     expect(

@@ -924,7 +924,7 @@ export async function launchTerminalProcess(
         }
     // A piped line's own variable goes too: no inherited copy competes with the pipe.
     const child = delivered?.strip.length
-      ? { ...childBase, strip: [...childBase.strip, ...delivered.strip] }
+      ? { ...childBase, strip: [...new Set([...childBase.strip, ...delivered.strip])] }
       : childBase
     // A HIDE SWITCH THE HARNESS CANNOT RUN HERE REFUSES THE START (POD-7375):
     // Claude Code on Linux exits at once without bubblewrap when a passed-in
