@@ -740,8 +740,14 @@ describe('buildInventory', () => {
     })
   })
 
-  it('discovers OpenCode in its known user install directory outside PATH', async () => {
-    const opencodePath = join(home, '.opencode', 'bin', 'opencode')
+  it.each([
+    { kind: 'opencode', version: '1.18.16' },
+    { kind: 'grok', version: 'grok 1.0.92 (fixture)' },
+  ])('discovers $kind in its known user install directory outside PATH', async ({
+    kind,
+    version,
+  }) => {
+    const vendorPath = join(home, `.${kind}`, 'bin', kind)
     const env = Object.freeze({ PATH: '/usr/bin:/bin', HOME: home })
     const inv = await buildInventoryWithEnv({
       machineHome: home,
@@ -753,15 +759,15 @@ describe('buildInventory', () => {
         generation: 3,
         machineHome: home,
         loginShell: '/bin/sh',
-        resolve: (candidate) => (candidate === opencodePath ? opencodePath : undefined),
+        resolve: (candidate) => (candidate === vendorPath ? vendorPath : undefined),
       },
-      exec: fakeExec({ opencode: '1.18.16' }),
+      exec: fakeExec({ [kind]: version }),
     })
 
-    expect(inv.agents.find((agent) => agent.kind === 'opencode')).toMatchObject({
+    expect(inv.agents.find((agent) => agent.kind === kind)).toMatchObject({
       installed: true,
-      version: '1.18.16',
-      path: opencodePath,
+      version,
+      path: vendorPath,
     })
   })
 
