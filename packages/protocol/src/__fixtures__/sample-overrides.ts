@@ -250,7 +250,7 @@ export const SAMPLE_FIXUPS = new Map<z.ZodTypeAny, SampleFixup>([
       })
       const used = rows
         .filter((row) => isRecord(row) && row.parentId === undefined && row.kind === 'used')
-        .reduce(
+        .reduce<number>(
           (sum, row) =>
             sum + (isRecord(row) && isRecord(row.tokens) ? Number(row.tokens.value) : 0),
           0,
