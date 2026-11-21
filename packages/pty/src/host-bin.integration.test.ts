@@ -28,7 +28,7 @@ import {
 
 /**
  * RUST HOST RESOLUTION (POD-4986). The Rust host is the only podium-host a new
- * spawn selects: an explicit PODIUM_HOST_BIN at feature level 2, the release
+ * spawn selects: an explicit PODIUM_HOST_BIN at feature level HOST_FEATURES, the release
  * payload's podium-host, or — in a source checkout — the vendored crate
  * built with cargo into a cache keyed by its source hash. Nothing else, and no
  * fallback: a C host (feature 1) is refused, and when nothing resolves the
@@ -130,38 +130,40 @@ describe('Rust host resolution (POD-4986)', () => {
   })
 
   it('uses the release payload host', () => {
-    const rust = fakeHost(payload(), 2)
-    publishSourceHost(2)
+    const rust = fakeHost(payload(), HOST_FEATURES)
+    publishSourceHost(HOST_FEATURES)
     expect(resolveHostBin({ fresh: true })).toBe(rust)
   })
 
   it('uses the source build when the payload has no host', () => {
-    const built = publishSourceHost(2)
+    const built = publishSourceHost(HOST_FEATURES)
     expect(resolveHostBin({ fresh: true })).toBe(built)
   })
 
   it('never selects a C host (feature 1) from the payload; the source build wins', () => {
     fakeHost(payload(), 1)
-    const built = publishSourceHost(2)
+    const built = publishSourceHost(HOST_FEATURES)
     expect(resolveHostBin({ fresh: true })).toBe(built)
   })
 
   it('refuses an explicit C host (feature 1) with no fallback', () => {
-    fakeHost(payload(), 2)
-    publishSourceHost(2)
+    fakeHost(payload(), HOST_FEATURES)
+    publishSourceHost(HOST_FEATURES)
     const error = captureLogs('error')
     process.env.PODIUM_HOST_BIN = fakeHost(join(root(), 'explicit-c'), 1)
     expect(resolveHostBin({ fresh: true })).toBeUndefined()
-    expect(error.text()).toMatch(/feature level 2\. Refusing to fall back/)
+    expect(error.text()).toMatch(
+      new RegExp(`feature level ${HOST_FEATURES}\\. Refusing to fall back`),
+    )
   })
 
   it('honors an explicit Rust host', () => {
-    process.env.PODIUM_HOST_BIN = fakeHost(join(root(), 'explicit-rust'), 2)
+    process.env.PODIUM_HOST_BIN = fakeHost(join(root(), 'explicit-rust'), HOST_FEATURES)
     expect(resolveHostBin({ fresh: true })).toBe(process.env.PODIUM_HOST_BIN)
   })
 
   it('does not hide an invalid explicit override behind the shipped host', () => {
-    fakeHost(payload(), 2)
+    fakeHost(payload(), HOST_FEATURES)
     process.env.PODIUM_HOST_BIN = join(root(), 'missing')
     expect(resolveHostBin({ fresh: true })).toBeUndefined()
     process.env.PODIUM_HOST_BIN = fakeForeign(join(root(), 'foreign'))
@@ -187,7 +189,7 @@ describe('Rust host resolution (POD-4986)', () => {
   })
 
   it('memoizes; { fresh: true } re-resolves', () => {
-    const first = fakeHost(payload(), 2)
+    const first = fakeHost(payload(), HOST_FEATURES)
     expect(resolveHostBin({ fresh: true })).toBe(first)
     process.env.PODIUM_HOST_BIN = join(root(), 'missing')
     expect(resolveHostBin()).toBe(first)
@@ -200,7 +202,7 @@ describe('the source build (fake crate, fake cargo)', () => {
 
   /**
    * A crate with a Cargo.toml and a src/, and a `cargo` that "builds" it by
-   * writing a feature-2 host into $CARGO_TARGET_DIR/release/podium-host. It
+   * writing a current-level host into $CARGO_TARGET_DIR/release/podium-host. It
    * logs every invocation, and sleeps so two builders really overlap.
    */
   function fakeToolchain(): { crate: string; log: string } {
@@ -241,7 +243,7 @@ describe('the source build (fake crate, fake cargo)', () => {
     expect(ensureSourceRustHost(crate)).toEqual({ bin: join(dir, RUST_HOST_BINARY), built: false })
     expect(builds(log)).toBe(1)
     const manifest = JSON.parse(readFileSync(join(dir, 'manifest.json'), 'utf8'))
-    expect(manifest).toMatchObject({ features: 2, sourceHash: hash })
+    expect(manifest).toMatchObject({ features: HOST_FEATURES, sourceHash: hash })
     // Nothing half-published is left beside the build.
     expect(readdirSync(join(root(), 'build')).filter((f) => f.startsWith('.'))).toEqual([])
   }, 30_000)
@@ -256,12 +258,12 @@ describe('the source build (fake crate, fake cargo)', () => {
     expect(builds(log)).toBe(2)
   }, 30_000)
 
-  it('a published binary that is not a feature-2 host is rebuilt', () => {
+  it('a published binary that is not a current-level host is rebuilt', () => {
     const { crate, log } = fakeToolchain()
     const first = ensureSourceRustHost(crate)?.bin as string
     fakeForeign(first)
     expect(ensureSourceRustHost(crate)?.built).toBe(true)
-    expect(hostBinFeatures(first)).toBe(2)
+    expect(hostBinFeatures(first)).toBe(HOST_FEATURES)
     expect(builds(log)).toBe(2)
   }, 30_000)
 

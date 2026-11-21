@@ -149,6 +149,8 @@ function makeHarness(
     composerEngine: {
       attach: () => false,
       onData: () => {},
+      // The real host reports its size; the double never does.
+      onResize: () => {},
       detach: () => {},
       has: () => false,
     },
@@ -354,7 +356,8 @@ describe('a session credential -> real spawned process env (#216, epic Task 5)',
     () => {
       let hostRoot = ''
       beforeEach(() => {
-        hostRoot = mkdtempSync(join(tmpdir(), 'podium-spawn-host-'))
+        // Short: the session socket path must fit Linux's 108-byte sun_path.
+        hostRoot = mkdtempSync(join(tmpdir(), 'psh-'))
         vi.stubEnv('PODIUM_STATE_DIR', join(hostRoot, 'state'))
         vi.stubEnv('PODIUM_HOST_SOCKET_DIR', join(hostRoot, 'sock'))
         // The scope has its own tests; this one reads the child's environment.
@@ -370,20 +373,22 @@ describe('a session credential -> real spawned process env (#216, epic Task 5)',
           CREDENTIAL,
           'ANTHROPIC_API_KEY',
           'CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR',
+          'key',
         ],
         [
           'anthropic.claude-token',
           'oat-test-1',
           'CLAUDE_CODE_OAUTH_TOKEN',
           'CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR',
+          'tok',
         ],
       ] as const
-      for (const [type, secret, variable, descriptor] of cases) {
+      for (const [type, secret, variable, descriptor, tag] of cases) {
         it(`POSITIVE: ${type} reaches the process on a pipe, in no variable`, async () => {
           const access = await resolvedAccess(type, secret)
           expect(access.delivery).toMatchObject({ variable })
           const h = makeHarness(settingsDir, createDurableProcess())
-          const dump = await spawnAndDumpEnv(h, asSessionId(`sess-pipe-${variable}`), access, {
+          const dump = await spawnAndDumpEnv(h, asSessionId(`sp-${tag}`), access, {
             // Read through the shell's own descriptor: the pipe it inherited.
             command: `echo "PIPE=$(cat /proc/$$/fd/$${descriptor})END"`,
             until: 'END\r\n',
@@ -393,7 +398,7 @@ describe('a session credential -> real spawned process env (#216, epic Task 5)',
           // The env dump, before the read: the descriptor is named, the secret
           // is in no variable, and no scrub switch is set.
           const env = dump.slice(0, dump.indexOf('echo "PIPE='))
-          expect(env).toContain(`PODIUM_SESSION_ID=sess-pipe-${variable}`)
+          expect(env).toContain(`PODIUM_SESSION_ID=sp-${tag}`)
           expect(env).toMatch(new RegExp(`${descriptor}=\\d+`))
           expect(env).not.toContain(`${variable}=`)
           expect(env).not.toContain(secret)
