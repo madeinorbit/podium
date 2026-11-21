@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs'
+import { lstatSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { UninstallEditOutcome } from '@podium/protocol'
@@ -94,6 +94,23 @@ describe('runUninstall', () => {
     expect(report?.kept).toEqual([])
     expect(p.lines).toContain('  1 restored, 0 changed since, 0 failed.')
     expect(p.lines.at(-1)).toBe('Podium is uninstalled from this machine.')
+  })
+
+  it('removes the installer command link after deleting its bundle', async () => {
+    const { target, installDir, commandPath } = fixture()
+    const launcher = join(installDir, 'podium')
+    writeFileSync(launcher, '')
+    rmSync(commandPath)
+    symlinkSync(launcher, commandPath)
+
+    const report = await runUninstall(
+      OPTIONS,
+      target,
+      ports([], { removePath: (path) => rmSync(path, { recursive: true, force: true }) }),
+    )
+
+    expect(report?.removed).toContain(commandPath)
+    expect(lstatSync(commandPath, { throwIfNoEntry: false })).toBeUndefined()
   })
 
   it('refuses on a machine the desktop app runs, even with --yes --force, and touches nothing', async () => {

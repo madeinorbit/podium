@@ -210,7 +210,8 @@ export async function runUninstall(
       ? 'it holds the workspace data; pass --delete-workspace-data to remove it'
       : undefined)
   const remove = (path: string | undefined, reason: string | undefined) => {
-    if (!path || !existsSync(path)) return
+    // The verified command may dangle once its bundle has been removed.
+    if (!path || (path !== target.commandPath && !existsSync(path))) return
     if (reason) {
       report.kept.push({ path, reason })
       return
