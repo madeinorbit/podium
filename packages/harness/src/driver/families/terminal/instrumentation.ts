@@ -329,7 +329,8 @@ export async function installTerminalInstrumentation(input: {
    * context: the folders and the verified version the install uses. A Pick, so
    * the family cannot reach session fields it was not handed either.
    */
-  spec: Pick<SessionSpec, 'instrumentation' | 'harnessContext'>
+  spec: Pick<SessionSpec, 'instrumentation' | 'harnessContext'> &
+    Partial<Pick<SessionSpec, 'workdir'>>
   /** The adapter sections this family owns — its only adapter knowledge. */
   sections: TerminalInstrumentationSections
   settingsDir: string
@@ -346,6 +347,7 @@ export async function installTerminalInstrumentation(input: {
     throw new Error(`no instrumentation installer for ${input.harness}`)
   }
   const destination: InstrumentationDestination = {
+    ...(input.spec.workdir ? { workdir: input.spec.workdir } : {}),
     sessionId: input.sessionId,
     endpointUrl: channel.endpointUrl,
     ...(channel.socketPath ? { socketPath: channel.socketPath } : {}),
