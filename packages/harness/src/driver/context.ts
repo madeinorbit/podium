@@ -1,10 +1,10 @@
 /** One host-free context vocabulary for drivers and consumers (POD-6575). */
 
-export type { ContextCapability } from '@podium/model'
 export {
   CONTEXT_MAX_DEPTH,
   CONTEXT_MAX_ROWS,
   ContextAvailability,
+  ContextCapability,
   ContextCapacity,
   ContextCausalIdentity,
   ContextCompactionPolicy,

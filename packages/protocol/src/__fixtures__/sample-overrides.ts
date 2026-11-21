@@ -25,8 +25,10 @@ import {
   ContextLastRequest,
   ContextModelIdentity,
   ContextOccupancy,
+  ContextSummary,
   CredentialId,
   canonicalShippingDestination,
+  contextUsagePercentOf,
   DriverFamilyWire,
   EFFECT_STATUSES,
   EffectStatusOnWire,
@@ -209,7 +211,10 @@ export const SAMPLE_FIXUPS = new Map<z.ZodTypeAny, SampleFixup>([
   [
     ContextOccupancy,
     (value) =>
-      isRecord(value) && value.usedTokens === undefined && value.percent === undefined
+      isRecord(value) &&
+      value.usedTokens === undefined &&
+      value.percent === undefined &&
+      value.remainingTokens === undefined
         ? {
             ...value,
             usedTokens: { value: 0, accuracy: 'reported', source: 'synthetic measurement' },
@@ -293,9 +298,8 @@ export const SAMPLE_FIXUPS = new Map<z.ZodTypeAny, SampleFixup>([
     (value) => {
       if (!isRecord(value) || !isRecord(value.context) || value.contextUsagePercent === undefined)
         return value
-      const occupancy = value.context.occupancy
-      if (isRecord(occupancy) && isRecord(occupancy.percent))
-        return { ...value, contextUsagePercent: occupancy.percent.value }
+      const percent = contextUsagePercentOf(ContextSummary.parse(value.context))
+      if (percent !== undefined) return { ...value, contextUsagePercent: percent }
       const { contextUsagePercent: _legacy, ...rest } = value
       return rest
     },

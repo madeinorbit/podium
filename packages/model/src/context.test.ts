@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { z } from 'zod'
 import {
   CONTEXT_MAX_ROWS,
   ContextCapacity,
@@ -49,7 +50,7 @@ describe('context measurement vocabulary', () => {
     expect(ContextSummary.parse(summary()).status).toBe('available')
     const value = { ...summary(120, 120), effectiveCapacity: { ...q(100), basis: 'configured' } }
     expect(ContextSummary.parse(value)).toEqual(value)
-    expect(contextUsagePercentOf(ContextSummary.parse(value))).toBe(120)
+    expect(contextUsagePercentOf(ContextSummary.parse(value))).toBeUndefined()
   })
   it.each([
     -1,
@@ -113,18 +114,51 @@ describe('context measurement vocabulary', () => {
       }).success,
     ).toBe(false)
   })
-  it('retains known model/capacity metadata while waiting for occupancy', () => {
+  it.each([
+    'pending',
+    'unavailable',
+  ] as const)('retains current-revision metadata while %s without occupancy', (status) => {
     const value = ContextSummary.parse({
       version: 1,
-      status: 'pending',
+      status,
       revision,
       reason: { code: 'waiting', message: 'No main response yet' },
       model: { modelId: 'synthetic-model' },
       effectiveCapacity: { ...q(32_000), basis: 'configured' },
+      modelCapacity: { ...q(64_000), basis: 'model-metadata' },
+      compaction: { source: 'native configuration', enabled: true, reserveTokens: q(8_000) },
     })
     expect(value).toHaveProperty('effectiveCapacity.value', 32_000)
     expect(value).not.toHaveProperty('occupancy')
+    expect(value).not.toHaveProperty('sample')
+    expect(value).toHaveProperty('modelCapacity.value', 64_000)
+    expect(value).toHaveProperty('compaction.reserveTokens.value', 8_000)
     expect(contextUsagePercentOf(value)).toBeUndefined()
+  })
+  it('retains adapter-computed remaining tokens and never derives a missing count', () => {
+    const value = ContextSummary.parse({
+      ...summary(20, 10),
+      occupancy: {
+        basis: 'current-context',
+        usedTokens: q(20),
+        remainingTokens: q(180),
+        percent: q(10),
+      },
+    })
+    expect(value).toHaveProperty('occupancy.remainingTokens.value', 180)
+    expect(ContextSummary.parse(summary())).not.toHaveProperty('occupancy.remainingTokens')
+    expect(
+      ContextSummary.safeParse({
+        ...summary(),
+        occupancy: { basis: 'current-context', remainingTokens: q(0) },
+      }).success,
+    ).toBe(true)
+    expect(
+      ContextSummary.safeParse({
+        ...summary(),
+        occupancy: { basis: 'current-context', remainingTokens: q(-1) },
+      }).success,
+    ).toBe(false)
   })
   it('pins every sample identity component and freezes parsed identities', () => {
     const parsed = ContextSampleIdentity.parse(sample)
@@ -178,7 +212,7 @@ describe('context measurement vocabulary', () => {
         context: summary(120, 120),
         contextUsagePercent: 120,
       }).success,
-    ).toBe(true)
+    ).toBe(false)
     expect(
       SessionConditionLive.safeParse({ ...live, context: summary(10, 5), contextUsagePercent: 35 })
         .success,
@@ -186,6 +220,28 @@ describe('context measurement vocabulary', () => {
     const clear = invalidateContextSummary(summary(), 'reset', { ...revision, contextRevision: 5 })
     expect(
       SessionConditionLive.safeParse({ ...live, context: clear, contextUsagePercent: 0 }).success,
+    ).toBe(false)
+  })
+  it('omits incompatible legacy projections while old validators accept the whole live reading', () => {
+    const oldSchema = z.object({
+      busy: z.boolean(),
+      requestsGated: z.number().int().nonnegative(),
+      contextUsagePercent: z.number().finite().min(0).max(100).optional(),
+    })
+    for (const percent of [0, 100, 100.01, 125]) {
+      const context = ContextSummary.parse(summary(125, percent))
+      const live = SessionConditionLive.parse({
+        busy: false,
+        requestsGated: 0,
+        context,
+        contextUsagePercent: contextUsagePercentOf(context),
+      })
+      expect(oldSchema.safeParse(JSON.parse(JSON.stringify(live))).success).toBe(true)
+      expect(live.context).toHaveProperty('occupancy.percent.value', percent)
+      expect(live.contextUsagePercent).toBe(percent <= 100 ? percent : undefined)
+    }
+    expect(
+      oldSchema.safeParse({ busy: false, requestsGated: 0, contextUsagePercent: 125 }).success,
     ).toBe(false)
   })
 })

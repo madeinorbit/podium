@@ -778,6 +778,11 @@
               "accuracy": "reported",
               "source": "context.occupancy.usedTokens.source"
             },
+            "remainingTokens": {
+              "value": 1,
+              "accuracy": "reported",
+              "source": "context.occupancy.remainingTokens.source"
+            },
             "percent": {
               "value": 1,
               "accuracy": "reported",
@@ -823,7 +828,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"busy\":true,\"requestsGated\":1,\"lastInputAt\":\"lastInputAt\",\"context\":{\"sample\":{\"observerGeneration\":1,\"turnEpoch\":1,\"bindingVersion\":1,\"contextRevision\":1,\"id\":\"context.sample.id\",\"at\":\"2026-01-02T03:04:05.000Z\",\"turnRevision\":\"context.sample.turnRevision\",\"nativeSessionId\":\"context.sample.nativeSessionId\",\"nativeSampleId\":\"context.sample.nativeSampleId\"},\"model\":{\"modelId\":\"context.model.modelId\",\"providerId\":\"context.model.providerId\"},\"occupancy\":{\"basis\":\"current-context\",\"usedTokens\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"context.occupancy.usedTokens.source\"},\"percent\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"context.occupancy.percent.source\"}},\"effectiveCapacity\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"context.effectiveCapacity.source\",\"basis\":\"native\"},\"modelCapacity\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"context.modelCapacity.source\",\"basis\":\"native\"},\"compaction\":{\"source\":\"context.compaction.source\",\"enabled\":true,\"thresholdTokens\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"context.compaction.thresholdTokens.source\"},\"thresholdPercent\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"context.compaction.thresholdPercent.source\"},\"reserveTokens\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"context.compaction.reserveTokens.source\"}},\"version\":1,\"status\":\"available\"},\"contextUsagePercent\":1}"
+      "encoded": "{\"busy\":true,\"requestsGated\":1,\"lastInputAt\":\"lastInputAt\",\"context\":{\"sample\":{\"observerGeneration\":1,\"turnEpoch\":1,\"bindingVersion\":1,\"contextRevision\":1,\"id\":\"context.sample.id\",\"at\":\"2026-01-02T03:04:05.000Z\",\"turnRevision\":\"context.sample.turnRevision\",\"nativeSessionId\":\"context.sample.nativeSessionId\",\"nativeSampleId\":\"context.sample.nativeSampleId\"},\"model\":{\"modelId\":\"context.model.modelId\",\"providerId\":\"context.model.providerId\"},\"occupancy\":{\"basis\":\"current-context\",\"usedTokens\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"context.occupancy.usedTokens.source\"},\"remainingTokens\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"context.occupancy.remainingTokens.source\"},\"percent\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"context.occupancy.percent.source\"}},\"effectiveCapacity\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"context.effectiveCapacity.source\",\"basis\":\"native\"},\"modelCapacity\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"context.modelCapacity.source\",\"basis\":\"native\"},\"compaction\":{\"source\":\"context.compaction.source\",\"enabled\":true,\"thresholdTokens\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"context.compaction.thresholdTokens.source\"},\"thresholdPercent\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"context.compaction.thresholdPercent.source\"},\"reserveTokens\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"context.compaction.reserveTokens.source\"}},\"version\":1,\"status\":\"available\"},\"contextUsagePercent\":1}"
     },
     {
       "schema": "SessionConditionPayload",
@@ -854,6 +859,11 @@
               "value": 2,
               "accuracy": "estimated",
               "source": "context.occupancy.usedTokens.source"
+            },
+            "remainingTokens": {
+              "value": 2,
+              "accuracy": "estimated",
+              "source": "context.occupancy.remainingTokens.source"
             },
             "percent": {
               "value": 2,
@@ -904,7 +914,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"busy\":false,\"requestsGated\":2,\"lastInputAt\":\"lastInputAt\",\"context\":{\"sample\":{\"observerGeneration\":2,\"turnEpoch\":2,\"bindingVersion\":2,\"contextRevision\":2,\"id\":\"context.sample.id\",\"at\":\"2026-01-02T03:04:05.000Z\",\"turnRevision\":\"context.sample.turnRevision\",\"nativeSessionId\":\"context.sample.nativeSessionId\",\"nativeSampleId\":\"context.sample.nativeSampleId\"},\"model\":{\"modelId\":\"context.model.modelId\",\"providerId\":\"context.model.providerId\"},\"occupancy\":{\"basis\":\"last-request\",\"usedTokens\":{\"value\":2,\"accuracy\":\"estimated\",\"source\":\"context.occupancy.usedTokens.source\"},\"percent\":{\"value\":2,\"accuracy\":\"estimated\",\"source\":\"context.occupancy.percent.source\"}},\"effectiveCapacity\":{\"value\":2,\"accuracy\":\"estimated\",\"source\":\"context.effectiveCapacity.source\",\"basis\":\"configured\"},\"modelCapacity\":{\"value\":2,\"accuracy\":\"estimated\",\"source\":\"context.modelCapacity.source\",\"basis\":\"configured\"},\"compaction\":{\"source\":\"context.compaction.source\",\"enabled\":false,\"thresholdTokens\":{\"value\":2,\"accuracy\":\"estimated\",\"source\":\"context.compaction.thresholdTokens.source\"},\"thresholdPercent\":{\"value\":2,\"accuracy\":\"estimated\",\"source\":\"context.compaction.thresholdPercent.source\"},\"reserveTokens\":{\"value\":2,\"accuracy\":\"estimated\",\"source\":\"context.compaction.reserveTokens.source\"}},\"version\":1,\"status\":\"stale\",\"reason\":{\"code\":\"context.reason.code\",\"message\":\"context.reason.message\"}},\"contextUsagePercent\":2}"
+      "encoded": "{\"busy\":false,\"requestsGated\":2,\"lastInputAt\":\"lastInputAt\",\"context\":{\"sample\":{\"observerGeneration\":2,\"turnEpoch\":2,\"bindingVersion\":2,\"contextRevision\":2,\"id\":\"context.sample.id\",\"at\":\"2026-01-02T03:04:05.000Z\",\"turnRevision\":\"context.sample.turnRevision\",\"nativeSessionId\":\"context.sample.nativeSessionId\",\"nativeSampleId\":\"context.sample.nativeSampleId\"},\"model\":{\"modelId\":\"context.model.modelId\",\"providerId\":\"context.model.providerId\"},\"occupancy\":{\"basis\":\"last-request\",\"usedTokens\":{\"value\":2,\"accuracy\":\"estimated\",\"source\":\"context.occupancy.usedTokens.source\"},\"remainingTokens\":{\"value\":2,\"accuracy\":\"estimated\",\"source\":\"context.occupancy.remainingTokens.source\"},\"percent\":{\"value\":2,\"accuracy\":\"estimated\",\"source\":\"context.occupancy.percent.source\"}},\"effectiveCapacity\":{\"value\":2,\"accuracy\":\"estimated\",\"source\":\"context.effectiveCapacity.source\",\"basis\":\"configured\"},\"modelCapacity\":{\"value\":2,\"accuracy\":\"estimated\",\"source\":\"context.modelCapacity.source\",\"basis\":\"configured\"},\"compaction\":{\"source\":\"context.compaction.source\",\"enabled\":false,\"thresholdTokens\":{\"value\":2,\"accuracy\":\"estimated\",\"source\":\"context.compaction.thresholdTokens.source\"},\"thresholdPercent\":{\"value\":2,\"accuracy\":\"estimated\",\"source\":\"context.compaction.thresholdPercent.source\"},\"reserveTokens\":{\"value\":2,\"accuracy\":\"estimated\",\"source\":\"context.compaction.reserveTokens.source\"}},\"version\":1,\"status\":\"stale\",\"reason\":{\"code\":\"context.reason.code\",\"message\":\"context.reason.message\"}},\"contextUsagePercent\":2}"
     },
     {
       "schema": "SessionConditionPayload",

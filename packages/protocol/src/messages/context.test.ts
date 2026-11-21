@@ -30,6 +30,11 @@ const summary: ContextSummary = {
   occupancy: {
     basis: 'last-request',
     usedTokens: { value: 13_000, accuracy: 'estimated', source: 'latest main request' },
+    remainingTokens: {
+      value: 19_000,
+      accuracy: 'estimated',
+      source: 'adapter-computed remaining space',
+    },
   },
   effectiveCapacity: {
     value: 32_000,

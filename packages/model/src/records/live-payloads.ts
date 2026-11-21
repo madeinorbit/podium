@@ -78,9 +78,9 @@ export const SessionConditionLive = z
     lastInputAt: z.string().optional(),
     /** Atomic, demand-bound context reading; never a persisted session fact. */
     context: ContextSummary.optional(),
-    /** Compatibility projection of context.occupancy.percent, never a counter.
-     * Keep over-capacity measurements; only a drawing may clamp them. */
-    contextUsagePercent: z.number().finite().nonnegative().optional(),
+    /** Compatibility projection into the original 0..100 wire range. Omit an
+     * out-of-range value; normalized context keeps the complete measurement. */
+    contextUsagePercent: z.number().finite().min(0).max(100).optional(),
   })
   .superRefine((value, ctx) => {
     if (

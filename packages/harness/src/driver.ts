@@ -32,11 +32,12 @@ export type {
   SessionSnapshot,
 } from './driver/binding.js'
 export type { SessionHealth, UsageSnapshot } from './driver/capabilities.js'
-export type { ContextCapability, ContextObservation } from './driver/context.js'
+export type { ContextObservation } from './driver/context.js'
 export {
   CONTEXT_MAX_DEPTH,
   CONTEXT_MAX_ROWS,
   ContextAvailability,
+  ContextCapability,
   ContextCapacity,
   ContextCompactionPolicy,
   ContextComposition,

@@ -17,6 +17,7 @@ import {
   contextStrategyFor,
   sectionStatusesOf,
 } from '../packages/harness/src/registry'
+import { ContextCapability } from '../packages/model/src/context'
 import { checkFile, extractImports } from './check-boundaries'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
@@ -40,27 +41,53 @@ describe('context contract import boundaries', () => {
     }
     expect(source).not.toMatch(/\b(?:process|Bun)\./)
   })
-  it('declares every harness/driver combination with a real default decline', () => {
+  it('declares every harness/driver combination with valid support or a reasoned decline', () => {
     for (const [harness, adapter] of Object.entries(AGENT_MANIFESTS)) {
       for (const driver of DRIVER_IDS) {
         const declaration = contextStrategyFor(harness, driver)
         expect(declaration, `${harness}/${driver}`).toEqual(
           adapter.runtime.context.forDriver(driver),
         )
-        expect(declaration.supported, `${harness}/${driver}`).toBe(false)
-        if (!declaration.supported) expect(declinedReasonIsValid(declaration.reason)).toBe(true)
-        expect(contextCapabilityFor(harness, driver)).toEqual(declaration)
-        expect(sectionStatusesOf(adapter)).toContainEqual({
-          section: `runtime.context.${driver}`,
-          supported: false,
-          reason: !declaration.supported ? declaration.reason : undefined,
-        })
+        if (declaration.supported) {
+          expect(ContextCapability.safeParse(declaration.value.capability).success).toBe(true)
+          expect(typeof declaration.value.probe).toBe('function')
+          expect(typeof declaration.value.bind).toBe('function')
+          if (declaration.value.initialize !== undefined)
+            expect(typeof declaration.value.initialize).toBe('function')
+          expect(contextCapabilityFor(harness, driver)).toEqual({
+            supported: true,
+            value: declaration.value.capability,
+          })
+          expect(sectionStatusesOf(adapter)).toContainEqual({
+            section: `runtime.context.${driver}`,
+            supported: true,
+          })
+        } else {
+          expect(declinedReasonIsValid(declaration.reason)).toBe(true)
+          expect(contextCapabilityFor(harness, driver)).toEqual(declaration)
+          expect(sectionStatusesOf(adapter)).toContainEqual({
+            section: `runtime.context.${driver}`,
+            supported: false,
+            reason: declaration.reason,
+          })
+        }
       }
     }
     expect(contextStrategyFor('invented-unregistered', 'generic-pty')).toMatchObject({
       supported: false,
     })
     expect(() => declinedContext(' ')).toThrow('reason')
+  })
+  it('default decline helper stays total without forbidding supported production strategies', () => {
+    const reason = 'No validated context observation channel is installed'
+    for (const driver of DRIVER_IDS)
+      expect(declinedContext(reason).forDriver(driver)).toEqual({ supported: false, reason })
+    expect(
+      ContextCapability.safeParse({ summary: 'passive-and-explicit', detail: 'on-demand' }).success,
+    ).toBe(true)
+    expect(
+      ContextCapability.safeParse({ summary: 'unknown-source', detail: 'on-demand' }).success,
+    ).toBe(false)
   })
   it('family capabilities report the adapter declaration rather than assuming native availability', () => {
     for (const [harness, driver, capability] of [

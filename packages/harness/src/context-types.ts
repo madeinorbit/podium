@@ -63,10 +63,24 @@ export interface ContextStrategyInput {
   nativeSessionId?: string
   revision: ContextRevision
   probe?: ContextProbePort
+  /** Bound session lifetime. Abort on disposal/rebind; each adapter also
+   * cancels/coalesces pending native reads on its own context boundaries. */
+  signal: AbortSignal
+  /** Adapter-owned asynchronous publication path for native reads triggered
+   * by observe(). Publish after validation/coalescing, without a hover, timer
+   * or family selecting native events. Capture native identity/revision before
+   * awaiting; discard obsolete reads after invalidation or abort. The sink
+   * applies the existing causal/binding/revision admission, then coarse emits
+   * and replaces the snapshot as it does for a synchronous observation. */
+  publish(observation: ContextObservation): void
 }
 export interface ContextSessionStrategy extends ContextReader {
-  /** Called with native payloads before lossy family translation. Undefined
-   * means unrelated; malformed measurements return a reasoned unavailable.
+  /** Called with every raw native payload before lossy family translation.
+   * Adapter selects meaningful native boundaries. A self-contained reading
+   * returns synchronously; a boundary requiring async IO schedules/coalesces
+   * a probe and publishes via the bound publish callback. Undefined means no
+   * synchronous reading, including unrelated input or a scheduled read.
+   * Malformed measurements return/publish a reasoned unavailable.
    */
   observe(payload: unknown, causal: CausalEnvelope): ContextObservation | undefined
   /** Bump contextRevision and cancel in-flight detail before returning a clear

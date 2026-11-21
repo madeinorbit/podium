@@ -87,12 +87,21 @@ export const ContextOccupancy = z
   .object({
     basis: z.enum(['current-context', 'last-request', 'native-estimate']),
     usedTokens: ContextQuantity.optional(),
+    /** Adapter-computed remaining space from this sample's effective capacity.
+     * Consumers never subtract counts or borrow another model's denominator. */
+    remainingTokens: ContextQuantity.optional(),
     /** Adapter-normalized ratio or native rounded percentage; never inverted. */
     percent: ContextQuantity.optional(),
   })
-  .refine((value) => value.usedTokens !== undefined || value.percent !== undefined, {
-    message: 'An occupancy observation needs a count or a percentage',
-  })
+  .refine(
+    (value) =>
+      value.usedTokens !== undefined ||
+      value.percent !== undefined ||
+      value.remainingTokens !== undefined,
+    {
+      message: 'An occupancy observation needs a count or a percentage',
+    },
+  )
 export type ContextOccupancy = z.infer<typeof ContextOccupancy>
 
 const Measurement = z.object({
@@ -333,13 +342,16 @@ export function sameContextSample(a: ContextSampleIdentity, b: ContextSampleIden
   )
 }
 
-/** Legacy percentage is solely a projection. Derivation/division stays in the
- * adapter. Drawing may clamp this value; storage must keep it unmodified.
+/** Legacy percentage is solely a projection into the old 0..100 wire range.
+ * Omit an incompatible value; never clamp/mutate the normalized measurement.
+ * Derivation/division stays in the adapter, and drawing reads the full sample.
  */
 export function contextUsagePercentOf(summary: ContextSummary | undefined): number | undefined {
-  return summary?.status === 'available' || summary?.status === 'stale'
-    ? summary.occupancy.percent?.value
-    : undefined
+  const percent =
+    summary?.status === 'available' || summary?.status === 'stale'
+      ? summary.occupancy.percent?.value
+      : undefined
+  return percent !== undefined && percent >= 0 && percent <= 100 ? percent : undefined
 }
 
 /** Machine/version support is not a session measurement or a zero occupancy. */
@@ -349,7 +361,8 @@ export const ContextAvailability = z.discriminatedUnion('status', [
   z.object({ status: z.literal('unsupported'), reason: ContextReason }),
 ])
 export type ContextAvailability = z.infer<typeof ContextAvailability>
-export interface ContextCapability {
-  summary: 'passive' | 'explicit' | 'passive-and-explicit'
-  detail: 'on-demand' | 'none'
-}
+export const ContextCapability = z.object({
+  summary: z.enum(['passive', 'explicit', 'passive-and-explicit']),
+  detail: z.enum(['on-demand', 'none']),
+})
+export type ContextCapability = z.infer<typeof ContextCapability>
