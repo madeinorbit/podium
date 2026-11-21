@@ -730,6 +730,69 @@ describe.skipIf(!hostAvailable)(
   },
 )
 
+/**
+ * A host whose program has exited keeps its socket while it lingers (30 s by
+ * default, 1 s after a kill), so the label still answers. That host is not a
+ * session: a spawn under the label must start a new program, never bind the
+ * dead one (POD-7060: a respawn right after a kill got exit 3 from create,
+ * adopted the lingering host and reported a start whose program was gone).
+ */
+describe.skipIf(!hostAvailable)('podium-host respawn over an exited host (POD-7060)', () => {
+  it('a spawn under a label whose program exited on its own starts a new program', async () => {
+    const l = label('relaunch')
+    const first = await spawnHostAgent({
+      label: l,
+      cmd: 'sh',
+      args: ['-c', 'exit 0'],
+      cols: 80,
+      rows: 24,
+      lingerSecs: 30,
+    })
+    sessions.push(first)
+    const firstHost = (await first.ready).hostPid
+    await waitFor(() => first.connection.exited !== undefined, 'the first program to exit')
+    // Lingering: the label answers, but no program runs under it.
+    expect(await hostHasSession(l)).toBe(false)
+    expect(statSync(hostSocketPath(l)).isSocket()).toBe(true)
+
+    const second = await spawnHostAgent({
+      label: l,
+      cmd: 'sleep',
+      args: ['30'],
+      cols: 80,
+      rows: 24,
+    })
+    sessions.push(second)
+    const w = await second.ready
+    expect(second.adopted).toBeFalsy()
+    expect(w.hostPid).not.toBe(firstHost)
+    expect(await hostHasSession(l)).toBe(true)
+  }, 30_000)
+
+  it('a spawn right after a kill starts a new program instead of binding the lingering host', async () => {
+    const l = label('respawn')
+    const first = await spawnHostAgent({ label: l, cmd: 'sleep', args: ['30'], cols: 80, rows: 24 })
+    const firstHost = (await first.ready).hostPid
+    first.dispose()
+    // The kill returns once the program is gone; the host lingers ~1 s more.
+    await killHostSession(l)
+    expect(await hostHasSession(l)).toBe(false)
+
+    const second = await spawnHostAgent({
+      label: l,
+      cmd: 'sleep',
+      args: ['30'],
+      cols: 80,
+      rows: 24,
+    })
+    sessions.push(second)
+    const w = await second.ready
+    expect(second.adopted).toBeFalsy()
+    expect(w.hostPid).not.toBe(firstHost)
+    expect(await hostHasSession(l)).toBe(true)
+  }, 30_000)
+})
+
 describe.skipIf(!hostAvailable)(
   'podium-host pty-less engines through DurableProcess (POD-4433)',
   () => {
