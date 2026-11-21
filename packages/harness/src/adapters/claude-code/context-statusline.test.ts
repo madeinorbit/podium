@@ -65,7 +65,7 @@ describe('Claude launch-only context instrumentation', () => {
       harnessContext: testHarnessContext({
         kind: 'claude-code',
         version: '2.1.319',
-        roots: { config },
+        roots: { state: config, config },
       }),
     })
     const overlay = JSON.parse(installed.file!.contents)
@@ -103,7 +103,7 @@ describe('Claude launch-only context instrumentation', () => {
       harnessContext: testHarnessContext({
         kind: 'claude-code',
         version: '2.1.319',
-        roots: { config },
+        roots: { state: config, config },
       }),
     })
     const status = JSON.parse(result.file!.contents).statusLine
@@ -126,7 +126,7 @@ describe('Claude launch-only context instrumentation', () => {
       harnessContext: testHarnessContext({
         kind: 'claude-code',
         version: '2.1.319',
-        roots: { config },
+        roots: { state: config, config },
       }),
     })
     expect(JSON.parse(result.file!.contents).statusLine).toBeUndefined()
@@ -150,7 +150,7 @@ describe('Claude launch-only context instrumentation', () => {
       harnessContext: testHarnessContext({
         kind: 'claude-code',
         version: '2.1.319',
-        roots: { config },
+        roots: { state: config, config },
       }),
     })
     expect(JSON.parse(result.file!.contents).statusLine).toBeUndefined()
@@ -166,7 +166,7 @@ describe('Claude launch-only context instrumentation', () => {
       harnessContext: testHarnessContext({
         kind: 'claude-code',
         version: '2.1.330',
-        roots: { config },
+        roots: { state: config, config },
       }),
     })
     expect(JSON.parse(result.file!.contents).statusLine.type).toBe('command')
@@ -187,7 +187,11 @@ describe('Claude launch-only context instrumentation', () => {
       endpointUrl: 'http://127.0.0.1:1/hooks/test',
       workdir,
       settingsDir: dir,
-      harnessContext: testHarnessContext({ kind: 'claude-code', version, roots: { config } }),
+      harnessContext: testHarnessContext({
+        kind: 'claude-code',
+        version,
+        roots: { state: config, config },
+      }),
     })
     expect(JSON.parse(result.file!.contents).statusLine).toBeUndefined()
     expect(result.degradedReason).toContain('existing status line preserved')
@@ -203,7 +207,7 @@ describe('Claude launch-only context instrumentation', () => {
       harnessContext: testHarnessContext({
         kind: 'claude-code',
         version: '2.1.319',
-        roots: { config },
+        roots: { state: config, config },
       }),
     })
     expect(JSON.parse(result.file!.contents).statusLine).toBeUndefined()
