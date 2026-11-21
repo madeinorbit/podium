@@ -72,6 +72,9 @@ const CODEX_MODEL_PROBE_COPIES = [
  *  settings file. Its keyring entry is keyed by the `CODEX_HOME` path. */
 const CODEX_KEYRING_STORE = /^\s*cli_auth_credentials_store\s*=\s*["'](?!file["'])/m
 
+/** The machine's managed Codex settings, which outrank the person's own. */
+const CODEX_SYSTEM_MANAGED_CONFIG = '/etc/codex/managed_config.toml'
+
 /**
  * `codex debug models` in the person's own folder (POD-7392). Measured on
  * 0.171.0, every Codex start creates an `arg0` helper folder (a lock and three
@@ -94,8 +97,8 @@ const CODEX_KEYRING_STORE = /^\s*cli_auth_credentials_store\s*=\s*["'](?!file["'
  * - `-c cli_auth_credentials_store="file"` keeps the login in that file. With
  *   a keyring store, a contained listing would save a refreshed login to a
  *   keyring entry for the temporary folder, and lose it. A person whose
- *   settings choose a keyring store, or who has no `auth.json`, is listed in
- *   place, so their keyring login is the one read.
+ *   settings (or the machine's managed settings) choose a keyring store, or
+ *   who has no `auth.json`, is listed in place, so their keyring login is the one read.
  *
  * `CODEX_SQLITE_HOME` is set too, so a database variable in the account
  * environment cannot send the listing's writes back into a person's store.
@@ -111,10 +114,11 @@ export function codexModelProbeContainment(
     env: { CODEX_HOME: home, CODEX_SQLITE_HOME: join(root, 'sqlite') },
     args: ['-c', 'cli_auth_credentials_store="file"'],
     requires: [login],
-    inPlaceWhen: ['config.toml', 'managed_config.toml'].map((name) => ({
-      path: join(personal, name),
-      pattern: CODEX_KEYRING_STORE,
-    })),
+    inPlaceWhen: [
+      join(personal, 'config.toml'),
+      join(personal, 'managed_config.toml'),
+      ...(process.platform === 'win32' ? [] : [CODEX_SYSTEM_MANAGED_CONFIG]),
+    ].map((path) => ({ path, pattern: CODEX_KEYRING_STORE })),
     links: [
       { from: login, to: join(home, 'auth.json') },
       { from: join(personal, 'auth.lock'), to: join(home, 'auth.lock'), evenWhenMissing: true },

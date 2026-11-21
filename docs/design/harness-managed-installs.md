@@ -849,7 +849,7 @@ output was byte-identical to the uncontained listing:
   cli_auth_credentials_store="file"` keeps the login in that file, because a
   keyring entry is keyed by the `CODEX_HOME` path. A person with no
   `auth.json`, or whose settings choose a keyring store, is listed in place.
-  `config.toml`, the admin layers and `models_cache.json` are copied.
+  `config.toml`, the admin layers and `models_cache.json` are copied. The machine's `/etc/codex/managed_config.toml` is checked too.
 - **Pi** (POD-7392). Pi 1.6.0's `pi --list-models` creates `auth.json`,
   `settings.json` and `models-store.json` in its agent folder when they are
   absent. It also takes short-lived `*.lock` folders there. The listing runs
