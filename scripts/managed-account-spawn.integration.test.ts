@@ -297,7 +297,15 @@ async function spawnAndDumpEnv(
     // The shell is up and talking.
     await waitFor(() => h.output().length > 0).catch((error) => {
       const sent = h.sent.map((m) => m.type).join(',')
-      throw new Error(`${error}: no output from pid ${pid}; the daemon sent ${sent}`)
+      let state = 'gone'
+      try {
+        const { readFileSync, readlinkSync } = require('node:fs') as typeof import('node:fs')
+        const stat = readFileSync(`/proc/${pid}/stat`, 'utf8')
+        const exe = readlinkSync(`/proc/${pid}/exe`)
+        const wchan = readFileSync(`/proc/${pid}/wchan`, 'utf8')
+        state = `${exe} ${stat.split(' ')[2]} wchan=${wchan}`
+      } catch {}
+      throw new Error(`${error}: no output from pid ${pid} (${state}); the daemon sent ${sent}`)
     })
     // By absolute path: the launch seam's harness context carries no command
     // environment, so the stand-in shell may have no PATH of its own.
