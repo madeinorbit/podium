@@ -23,6 +23,7 @@ import {
   type DurableSpawnOptions,
   execCreate,
   liveEnv,
+  type PipeSecret,
   type SystemctlRunner,
   scopeEnv,
   scopeReclaimArgvs,
@@ -1114,6 +1115,8 @@ export interface HostCreateCommand {
   lingerSecs?: number
   /** Ring capacity in bytes (`--ring-bytes`). */
   ringBytes?: number
+  /** The variable naming the inherited pipe the host fills from its stdin (`--pipe-env`). */
+  pipeEnv?: string
 }
 
 /**
@@ -1142,6 +1145,7 @@ export function hostCreateArgs(opts: HostCreateCommand): string[] {
     ...(opts.pidfile !== undefined ? ['--pidfile', opts.pidfile] : []),
     ...(opts.ringBytes !== undefined ? ['--ring-bytes', String(opts.ringBytes)] : []),
     ...(opts.lingerSecs !== undefined ? ['--linger-secs', String(opts.lingerSecs)] : []),
+    ...(opts.pipeEnv !== undefined ? ['--pipe-env', opts.pipeEnv] : []),
   ]
   const tail = [...retention, '--cwd', opts.cwd, '--', opts.cmd, ...(opts.args ?? [])]
   if (opts.noPty) {
@@ -1215,6 +1219,10 @@ export async function spawnHostAgent(
   }
   const live = await liveHostSocket(opts.label, childEnv)
   if (live && (await hostSocketAlive(live))) return adopt(live)
+  // The pipe's variable is the host's to set: one the caller also passed
+  // would name a descriptor the program does not have.
+  const pipe = opts.pipe ? checkedPipe(opts.pipe) : undefined
+  if (pipe) delete childEnv[pipe.variable]
 
   // A missing cwd makes posix_spawn fail with ENOENT naming the EXECUTABLE
   // (podium-host, systemd-run), which reads as a missing binary. Name the
@@ -1234,8 +1242,10 @@ export async function spawnHostAgent(
     ...(opts.noPty ? { noPty: true as const } : {}),
     ...(opts.lingerSecs !== undefined ? { lingerSecs: opts.lingerSecs } : {}),
     ...(opts.ringBytes !== undefined ? { ringBytes: opts.ringBytes } : {}),
+    ...(pipe ? { pipeEnv: pipe.variable } : {}),
   })
   const execOpts = { cwd, env: childEnv } as const
+  const stdin = pipe?.contents
   const attachCreated = async (): Promise<HostDurableAttachment> => {
     const path = await waitForHostSocket(opts.label, childEnv)
     // From seq 0: the child's first bytes are in the ring already; nothing is missed.
@@ -1263,6 +1273,7 @@ export async function spawnHostAgent(
           budget: resolveScopeBudget(opts.scopeRole ?? 'session'),
         }),
         execOpts,
+        stdin,
       )
       createdInScope = true
       void applySessionsSliceBudget()
@@ -1283,7 +1294,7 @@ export async function spawnHostAgent(
     )
   }
   try {
-    await execCreate(bin, createArgs, execOpts)
+    await execCreate(bin, createArgs, execOpts, stdin)
   } catch (err) {
     const raced = await adoptRaceWinner()
     if (!raced) throw err
@@ -1293,3 +1304,41 @@ export async function spawnHostAgent(
 }
 
 let scopeWarned = false
+
+/** A secret the host cannot hand over on a pipe, refused before anything starts (POD-7378). */
+export class PipeSecretRefusedError extends Error {
+  override readonly name = 'PipeSecretRefusedError'
+}
+
+const PIPE_VARIABLE = /^[A-Za-z_][A-Za-z0-9_]*$/
+/** The host's own cap (`PIPE_ENV_MAX` in unix.rs). */
+const PIPE_MAX_BYTES = 16 * 1024
+
+/**
+ * The pipe a spawn asked for, refused here with a readable reason when the
+ * host would refuse it anyway, or worse, start the program without it.
+ */
+export function checkedPipe(
+  pipe: PipeSecret,
+  platform: NodeJS.Platform = process.platform,
+): PipeSecret {
+  if (platform === 'win32') {
+    throw new PipeSecretRefusedError(
+      `A credential cannot be handed over on a pipe on Windows (${pipe.variable}).`,
+    )
+  }
+  if (!PIPE_VARIABLE.test(pipe.variable)) {
+    throw new PipeSecretRefusedError(`${pipe.variable} is not a variable name.`)
+  }
+  if (pipe.contents.trim() === '') {
+    throw new PipeSecretRefusedError(
+      `The credential for ${pipe.variable} is empty, so the program was not started: given an empty credential it could fall back to a login stored on this machine.`,
+    )
+  }
+  if (Buffer.byteLength(pipe.contents, 'utf8') > PIPE_MAX_BYTES) {
+    throw new PipeSecretRefusedError(
+      `The credential for ${pipe.variable} is longer than ${PIPE_MAX_BYTES} bytes.`,
+    )
+  }
+  return pipe
+}

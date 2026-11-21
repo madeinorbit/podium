@@ -121,8 +121,8 @@ describe('Rust host resolution (POD-4986)', () => {
   const { root } = useScratchEnv()
   const payload = (): string => join(root(), 'payload', RUST_HOST_BINARY)
 
-  it('requires feature level 2, the Rust screen host', () => {
-    expect(HOST_FEATURES).toBe(2)
+  it('requires feature level 3, the Rust screen host with --pipe-env', () => {
+    expect(HOST_FEATURES).toBe(3)
   })
 
   it('this checkout is a source checkout: the vendored crate hashes', () => {
@@ -219,7 +219,7 @@ describe('the source build (fake crate, fake cargo)', () => {
         `echo "$*" >> ${JSON.stringify(log)}`,
         'sleep 1',
         'mkdir -p "$CARGO_TARGET_DIR/release"',
-        'printf \'#!/bin/sh\\necho "podium-host fake features=2"\\n\' > "$CARGO_TARGET_DIR/release/podium-host"',
+        'printf \'#!/bin/sh\\necho "podium-host fake features=3"\\n\' > "$CARGO_TARGET_DIR/release/podium-host"',
         'chmod 755 "$CARGO_TARGET_DIR/release/podium-host"',
         '',
       ].join('\n'),
@@ -350,7 +350,7 @@ describe('podium-host on Windows', () => {
 })
 
 describe('the vendored crate (real cargo)', () => {
-  it('builds (or reuses) a host that reports feature level 2', () => {
+  it('builds (or reuses) a host that reports feature level 3', () => {
     const r = ensureSourceRustHost()
     expect(r).toBeDefined()
     expect(hostBinFeatures(r?.bin as string)).toBe(HOST_FEATURES)

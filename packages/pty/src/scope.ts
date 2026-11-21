@@ -295,6 +295,24 @@ export interface DurableSpawnOptions {
    * spawns leave it off and judge the lease themselves (POD-4433).
    */
   requireLease?: boolean
+  /**
+   * A secret the program reads from an inherited pipe instead of an
+   * environment variable (POD-7378): the host puts `contents` on a new pipe,
+   * closes the writer before the program starts, and sets `variable` to the
+   * pipe's descriptor number in the program's environment only. The contents
+   * never reach an environment, an argument or a file. Unix only; refused
+   * when empty, because a program handed an empty credential may fall back to
+   * a login of its own. Ignored when the label is adopted: the live program
+   * read its copy when it started.
+   */
+  pipe?: PipeSecret
+}
+
+/** What {@link DurableSpawnOptions.pipe} hands the program. */
+export interface PipeSecret {
+  /** The variable that names the descriptor, such as `CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR`. */
+  readonly variable: string
+  readonly contents: string
 }
 
 /**
@@ -315,14 +333,25 @@ export async function execCreate(
   file: string,
   args: string[],
   options: SpawnOptions,
+  /** Written to the create's stdin, which is then closed (`--pipe-env`). */
+  stdin?: string,
 ): Promise<void> {
   const dir = mkdtempSync(join(tmpdir(), 'podium-create-err-'))
   const errPath = join(dir, 'stderr')
   const fd = openSync(errPath, 'w')
   try {
     await new Promise<void>((resolve, reject) => {
-      const child = spawn(file, args, { ...options, stdio: ['ignore', 'ignore', fd] })
+      const child = spawn(file, args, {
+        ...options,
+        stdio: [stdin !== undefined ? 'pipe' : 'ignore', 'ignore', fd],
+      })
       child.once('error', reject)
+      if (stdin !== undefined) {
+        // A create that dies before reading closes the pipe: its exit, not
+        // this write, is the error to report.
+        child.stdin?.once('error', () => undefined)
+        child.stdin?.end(stdin)
+      }
       child.once('exit', (code, signal) => {
         if (code === 0) resolve()
         else reject(new Error(`${file} exited ${code ?? `from ${signal ?? 'an unknown signal'}`}`))

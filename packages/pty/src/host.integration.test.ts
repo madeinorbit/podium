@@ -151,7 +151,7 @@ describe.skipIf(!hostAvailable)('podium-host: SPEC-6 acceptance', () => {
   it('builds and answers version', () => {
     expect(bin).toBeDefined()
     expect(spawnSync(bin, ['version'], { encoding: 'utf8' }).stdout).toMatch(
-      /^podium-host \S+ features=2/,
+      /^podium-host \S+ features=3/,
     )
   })
 
@@ -845,3 +845,63 @@ describe.skipIf(!hostAvailable)(
     }, 30_000)
   },
 )
+
+describe.skipIf(!hostAvailable)('podium-host hands a credential over on a pipe (POD-7378)', () => {
+  /** Prints what the descriptor named by CRED_FD holds, and whether the bytes reach its env. */
+  const READ_PIPE = [
+    '-e',
+    `const fs = require('node:fs')
+     const fd = Number(process.env.CRED_FD)
+     const held = fs.readFileSync('/proc/self/fd/' + fd, 'utf8')
+     const inEnv = Object.values(process.env).some((v) => v && v.includes(held))
+     process.stdout.write('held=' + held + ' env=' + inEnv + ' fd=' + fd + '\\n')`,
+  ]
+
+  async function run(contents: string, tag: string): Promise<string> {
+    const durable = createDurableProcess()
+    const s = await durable.spawnHeadless({
+      label: label(tag),
+      cmd: process.execPath,
+      args: READ_PIPE,
+      cwd: root,
+      pipe: { variable: 'CRED_FD', contents },
+    })
+    sessions.push(s)
+    await s.ready
+    let out = ''
+    s.connection.onData((_seq, d) => {
+      out += d.toString()
+    })
+    await waitFor(() => out.includes('\n'), 'the child to report its pipe')
+    return out
+  }
+
+  it('the child reads the secret from the named descriptor and not from its environment', async () => {
+    const out = await run('sk-ant-api03-ITEST-PIPE-ONE', 'pipe')
+    expect(out).toMatch(/^held=sk-ant-api03-ITEST-PIPE-ONE env=false fd=\d+\n$/)
+  }, 30_000)
+
+  it('every start gets its own pipe: a respawn reads the new secret', async () => {
+    expect(await run('sk-ant-oat01-ITEST-FIRST', 'pipe-a')).toContain(
+      'held=sk-ant-oat01-ITEST-FIRST ',
+    )
+    expect(await run('sk-ant-oat01-ITEST-SECOND', 'pipe-b')).toContain(
+      'held=sk-ant-oat01-ITEST-SECOND ',
+    )
+  }, 30_000)
+
+  it('an empty secret starts nothing', async () => {
+    const durable = createDurableProcess()
+    const l = label('pipe-empty')
+    await expect(
+      durable.spawnHeadless({
+        label: l,
+        cmd: process.execPath,
+        args: ['-e', ''],
+        cwd: root,
+        pipe: { variable: 'CRED_FD', contents: ' \n' },
+      }),
+    ).rejects.toThrow(/empty, so the program was not started/)
+    expect(await durable.has(l)).toBe(false)
+  }, 30_000)
+})

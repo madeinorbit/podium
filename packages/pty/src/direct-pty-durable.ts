@@ -20,11 +20,15 @@ const NOT_DURABLE = 'direct-pty test double: there is no durable host behind thi
  */
 export function directPtyDurableForTests(): DurableProcess {
   const live = new Map<string, DurableAttachment>()
-  const refuse = (what: string) => (): Promise<never> => Promise.reject(new Error(`${NOT_DURABLE} (${what})`))
+  const refuse = (what: string) => (): Promise<never> =>
+    Promise.reject(new Error(`${NOT_DURABLE} (${what})`))
   const spawn: DurableAdapter['spawn'] = async (opts) => {
     if (opts.cols === undefined || opts.rows === undefined) {
       throw new Error(`${NOT_DURABLE}: a pty spawn needs geometry (label '${opts.label}')`)
     }
+    // Only podium-host hands a secret over on a pipe; starting without it
+    // could run the program on a login of its own.
+    if (opts.pipe) throw new Error(`${NOT_DURABLE}: no pipe credential (label '${opts.label}')`)
     const session = spawnAgent({
       cmd: opts.cmd,
       cols: opts.cols,
