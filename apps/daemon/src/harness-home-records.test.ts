@@ -1,7 +1,11 @@
+import { createHash } from 'node:crypto'
+import { existsSync } from 'node:fs'
 import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { type HomeEdit, harnessCommand, unchangedPosture } from '@podium/harness'
+import { ensurePodiumCodexHooks } from '@podium/harness/adapters/codex/instrumentation'
+import { ensurePodiumGrokHooks } from '@podium/harness/adapters/grok/instrumentation'
 import { testHarnessContext } from '@podium/harness/driver/testing'
 import { type HomeEditRecord, InstallLedger } from '@podium/harness/inventory'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -9,6 +13,7 @@ import { applyHomeEdits, nodeHomeEditPorts, undoHomeEdits } from './harness-home
 import { planTomlArrayEntryRemoval } from './harness-home-toml.js'
 import {
   listHomeEditRecords,
+  recordInstrumentationHookFile,
   removeHomeEditRecords,
   undoAllHomeEditRecords,
 } from './home-edit-service.js'
@@ -340,5 +345,150 @@ describe('TOML entry undo separators', () => {
         'podium',
       ),
     ).toEqual({ next: `[permission]\nallow = ${expected}\n` })
+  })
+})
+
+describe('Podium’s hook files in the person’s own folder (POD-7388)', () => {
+  let dir: string
+  let harnessesDir: string
+  const ports = nodeHomeEditPorts(() => {})
+  const sha = async (path: string) =>
+    createHash('sha256')
+      .update(await readFile(path))
+      .digest('hex')
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'podium-hook-files-'))
+    harnessesDir = join(dir, 'harnesses')
+  })
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true })
+  })
+
+  async function installCodex() {
+    const result = await ensurePodiumCodexHooks({
+      homeDir: dir,
+      verifiedVersion: 'codex-cli 0.169.0',
+      launchTrust: true,
+    })
+    await recordInstrumentationHookFile('codex', {}, result.hookFile, harnessesDir)
+    return result
+  }
+  async function installGrok() {
+    const result = await ensurePodiumGrokHooks({ homeDir: dir })
+    await recordInstrumentationHookFile('grok', {}, result.hookFile, harnessesDir)
+    return result
+  }
+  const codexHooks = () => join(dir, '.codex', 'hooks.json')
+  const grokHooks = () => join(dir, '.grok', 'hooks', 'podium.json')
+
+  it('Codex: a hooks.json Podium created is listed and removed again', async () => {
+    await mkdir(join(dir, '.codex'))
+    expect((await installCodex()).changed).toBe(true)
+    const listed = listHomeEditRecords('codex', harnessesDir)
+    expect(listed).toEqual([
+      expect.objectContaining({
+        harness: 'codex',
+        file: await realpath(codexHooks()),
+        edit: expect.objectContaining({ kind: 'hook-handlers', marker: 'PODIUM_CODEX_HOOK_URL' }),
+        prior: { absent: true },
+        serves: 'session-state',
+      }),
+    ])
+    // The next launch finds the handlers in place: one record, first prior kept.
+    expect((await installCodex()).changed).toBe(false)
+    expect(listHomeEditRecords('codex', harnessesDir)).toEqual(listed)
+
+    const undone = await removeHomeEditRecords('codex', harnessesDir)
+    expect(undone.map((outcome) => outcome.status)).toEqual(['restored'])
+    expect(existsSync(codexHooks())).toBe(false)
+    expect(listHomeEditRecords('codex', harnessesDir)).toEqual([])
+  })
+
+  it('Codex: the person’s own hooks.json gets its exact bytes back', async () => {
+    await mkdir(join(dir, '.codex'))
+    const mine =
+      '{\n    "hooks": {\n        "Stop": [{ "hooks": [{ "type": "command", "command": "notify-send done" }] }]\n    },\n    "note": 1\n}\n'
+    await writeFile(codexHooks(), mine)
+    const before = await sha(codexHooks())
+    await installCodex()
+    expect(await sha(codexHooks())).not.toBe(before)
+    expect(listHomeEditRecords('codex', harnessesDir)[0]?.prior).toEqual({ contents: mine })
+
+    await removeHomeEditRecords('codex', harnessesDir)
+    expect(await sha(codexHooks())).toBe(before)
+  })
+
+  it('Codex: hooks the person added since stay; only Podium’s handlers go', async () => {
+    await mkdir(join(dir, '.codex'))
+    await installCodex()
+    const doc = JSON.parse(await readFile(codexHooks(), 'utf8'))
+    doc.hooks.Stop[0].hooks.push({ type: 'command', command: 'notify-send stop' })
+    doc.hooks.PreToolUse.push({ matcher: 'Bash', hooks: [{ type: 'command', command: 'audit' }] })
+    await writeFile(codexHooks(), JSON.stringify(doc, null, 2))
+
+    expect((await removeHomeEditRecords('codex', harnessesDir))[0]?.status).toBe('restored')
+    expect(JSON.parse(await readFile(codexHooks(), 'utf8'))).toEqual({
+      hooks: {
+        PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'audit' }] }],
+        Stop: [{ hooks: [{ type: 'command', command: 'notify-send stop' }] }],
+      },
+    })
+  })
+
+  it('Codex: handlers an older Podium left without a record are recorded and removed', async () => {
+    await mkdir(join(dir, '.codex'))
+    // Installed before Podium recorded hook files: no ledger row.
+    await ensurePodiumCodexHooks({ homeDir: dir, verifiedVersion: 'codex-cli 0.169.0' })
+    expect(listHomeEditRecords('codex', harnessesDir)).toEqual([])
+    expect((await installCodex()).changed).toBe(false)
+    expect(listHomeEditRecords('codex', harnessesDir)[0]?.prior).toEqual({ absent: true })
+    await removeHomeEditRecords('codex', harnessesDir)
+    expect(existsSync(codexHooks())).toBe(false)
+  })
+
+  it('Grok: podium.json Podium created is listed and removed again', async () => {
+    await mkdir(join(dir, '.grok'))
+    expect((await installGrok()).changed).toBe(true)
+    expect(listHomeEditRecords('grok', harnessesDir)).toEqual([
+      expect.objectContaining({
+        file: await realpath(grokHooks()),
+        edit: expect.objectContaining({ kind: 'hook-handlers', marker: 'PODIUM_GROK_HOOK_URL' }),
+        prior: { absent: true },
+      }),
+    ])
+    expect((await removeHomeEditRecords('grok', harnessesDir))[0]?.status).toBe('restored')
+    expect(existsSync(grokHooks())).toBe(false)
+    expect(listHomeEditRecords('grok', harnessesDir)).toEqual([])
+  })
+
+  it('a hook file the person deleted drops its record and writes nothing', async () => {
+    await mkdir(join(dir, '.grok'))
+    await installGrok()
+    await rm(grokHooks())
+    expect((await removeHomeEditRecords('grok', harnessesDir))[0]?.status).toBe('restored')
+    expect(existsSync(grokHooks())).toBe(false)
+    expect(listHomeEditRecords('grok', harnessesDir)).toEqual([])
+  })
+
+  it('a hook file that is no longer JSON is kept and stays recorded', async () => {
+    await mkdir(join(dir, '.grok'))
+    await installGrok()
+    await writeFile(grokHooks(), 'not json')
+    expect((await removeHomeEditRecords('grok', harnessesDir))[0]?.status).toBe('changed')
+    expect(await readFile(grokHooks(), 'utf8')).toBe('not json')
+    expect(listHomeEditRecords('grok', harnessesDir)).toHaveLength(1)
+  })
+
+  it('a hook file in a Podium home is not recorded', async () => {
+    await mkdir(join(dir, '.grok'))
+    const result = await ensurePodiumGrokHooks({ homeDir: dir })
+    await recordInstrumentationHookFile(
+      'grok',
+      { harnessHome: { id: 'podium-test', dir: join(dir, '.grok'), variable: 'GROK_HOME' } },
+      result.hookFile,
+      harnessesDir,
+    )
+    expect(listHomeEditRecords('grok', harnessesDir)).toEqual([])
   })
 })

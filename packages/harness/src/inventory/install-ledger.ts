@@ -104,11 +104,16 @@ export interface HomeEditRecord {
     | { kind: 'json-key'; path: string[]; value: JsonValue }
     | { kind: 'toml-array-entry'; path: string[]; value: string }
     | { kind: 'owned-file'; sha256: string }
+    /** Podium's handlers in a shared hook file, each one's command holding `marker`. */
+    | { kind: 'hook-handlers'; marker: string; events: string[] }
   /** What was there before Podium's first write. */
   prior: { absent: true } | { value: JsonValue } | { contents: string }
-  serves: PostureRequirement
+  serves: HomeEditServes
   appliedAt: string
 }
+
+/** What a home edit is for: a posture requirement, or the hooks that report a session's state. */
+export type HomeEditServes = PostureRequirement | 'session-state'
 
 /** A stored home edit, with the row id that removes it. */
 export interface StoredHomeEdit extends HomeEditRecord {
@@ -1002,7 +1007,7 @@ interface HomeEditRow {
   file: string
   edit: string
   prior: string
-  serves: PostureRequirement
+  serves: HomeEditServes
   applied_at: string
 }
 
@@ -1027,6 +1032,8 @@ function homeEditKey(edit: HomeEditRecord['edit']): string {
       return JSON.stringify(['toml-array-entry', edit.path, edit.value])
     case 'owned-file':
       return JSON.stringify(['owned-file'])
+    case 'hook-handlers':
+      return JSON.stringify(['hook-handlers', edit.marker])
   }
 }
 

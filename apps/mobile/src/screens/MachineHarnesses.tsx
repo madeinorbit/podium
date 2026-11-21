@@ -192,7 +192,9 @@ const PhoneHarnessRow = observer(function PhoneHarnessRow({ row }: { row: Machin
           <Text style={{ color: color.textDim }}>
             {change.edit.kind === 'owned-file'
               ? 'File created by Podium'
-              : `${change.edit.path.join('.')} = ${JSON.stringify(change.edit.value)}`}
+              : change.edit.kind === 'hook-handlers'
+                ? `Podium’s hooks for ${change.edit.events.length} events`
+                : `${change.edit.path.join('.')} = ${JSON.stringify(change.edit.value)}`}
           </Text>
           {change.status && (
             <Text style={{ color: color.textDim }}>

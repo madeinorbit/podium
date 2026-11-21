@@ -48,6 +48,7 @@ export type {
   AcquireInstallLockOptions,
   AcquireInstallLockResult,
   HomeEditRecord,
+  HomeEditServes,
   InstallLedgerOptions,
   InstallLock,
   InstallLockHolder,

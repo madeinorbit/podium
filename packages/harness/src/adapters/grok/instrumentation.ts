@@ -20,6 +20,7 @@ import type {
   HarnessInstrumentation,
   InstalledInstrumentation,
   InstrumentationDestination,
+  InstrumentationHookFile,
 } from '../../manifest.js'
 import { withEventTime } from '../../observer.js'
 import { classifyGrokIdleTranscript, type GrokPlanState, withGrokOpenTodos } from './state.js'
@@ -161,15 +162,23 @@ export async function ensurePodiumGrokHooks(opts: {
   /** The account home (required, POD-6536: never `homedir()`). */
   homeDir: string
   grokHome?: string
-}): Promise<{ installed: boolean; changed: boolean; reason?: string }> {
+}): Promise<{
+  installed: boolean
+  changed: boolean
+  reason?: string
+  /** Where Podium's handlers now are, for the install ledger (POD-7388). */
+  hookFile?: InstrumentationHookFile
+}> {
   const grokHome = opts.grokHome ?? join(opts.homeDir, '.grok')
   if (!existsSync(grokHome)) return { installed: false, changed: false, reason: 'no GROK_HOME' }
 
   const hooksDir = join(grokHome, 'hooks')
   const hooksPath = join(hooksDir, 'podium.json')
   let doc: Record<string, unknown> = {}
+  let body: string | undefined
   try {
-    const parsed: unknown = JSON.parse(await readFile(hooksPath, 'utf8'))
+    body = await readFile(hooksPath, 'utf8')
+    const parsed: unknown = JSON.parse(body)
     if (!isRecord(parsed)) {
       return { installed: false, changed: false, reason: 'podium hook file is not an object' }
     }
@@ -185,7 +194,18 @@ export async function ensurePodiumGrokHooks(opts: {
     await mkdir(hooksDir, { recursive: true })
     await writeAtomic(hooksPath, `${JSON.stringify(upserted.doc, null, 2)}\n`)
   }
-  return { installed: true, changed: upserted.changed }
+  return {
+    installed: true,
+    changed: upserted.changed,
+    hookFile: {
+      file: hooksPath,
+      marker: PODIUM_GROK_HOOK_URL_ENV,
+      events: [...GROK_HOOK_EVENTS],
+      ...(upserted.changed
+        ? { prior: body === undefined ? { absent: true as const } : { contents: body } }
+        : {}),
+    },
+  }
 }
 const TAIL_BYTES = 128 * 1024
 
@@ -614,6 +634,7 @@ async function installGrokInstrumentation(
       : undefined
     return {
       ...wiring,
+      ...(result.hookFile ? { hookFile: result.hookFile } : {}),
       ...(degradedReason
         ? {
             degradedReason,

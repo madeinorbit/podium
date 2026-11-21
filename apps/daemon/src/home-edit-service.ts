@@ -1,7 +1,14 @@
 /** Local APIs for the install requests and machine removal. Never used by repo removal. */
+import type { HarnessContext, InstrumentationHookFile } from '@podium/harness'
 import { type HomeEditRecord, InstallLedger, type StoredHomeEdit } from '@podium/harness/inventory'
 import { createLogger } from '@podium/logger'
-import { type HomeEditUndoOutcome, nodeHomeEditPorts, undoHomeEdits } from './harness-home-edits.js'
+import { isBuiltinHarnessKind } from '@podium/model'
+import {
+  type HomeEditUndoOutcome,
+  nodeHomeEditPorts,
+  recordHookFile,
+  undoHomeEdits,
+} from './harness-home-edits.js'
 
 const log = createLogger('daemon:home-edits')
 
@@ -44,5 +51,39 @@ async function undoRecords(
     )
   } finally {
     ledger.close()
+  }
+}
+
+/**
+ * Record the hook file a terminal instrumentation install keeps Podium's
+ * handlers in, when it is in the person's own folder (POD-7388). A file in a
+ * Podium home goes with the home. Never throws: a launch does not wait on
+ * the ledger, and the next launch records again.
+ */
+export async function recordInstrumentationHookFile(
+  harness: string,
+  context: Pick<HarnessContext, 'harnessHome'>,
+  hookFile: InstrumentationHookFile | undefined,
+  harnessesDir?: string,
+): Promise<void> {
+  if (!hookFile || context.harnessHome || !isBuiltinHarnessKind(harness)) return
+  try {
+    const ledger = InstallLedger.open(harnessesDir ? { harnessesDir } : {})
+    try {
+      await recordHookFile(
+        harness,
+        hookFile,
+        nodeHomeEditPorts((message, fields) => log.info(message, fields)),
+        ledger,
+      )
+    } finally {
+      ledger.close()
+    }
+  } catch (err) {
+    log.warn('could not record Podium’s hook file', {
+      harness,
+      file: hookFile.file,
+      error: err instanceof Error ? err.message : String(err),
+    })
   }
 }

@@ -20,6 +20,10 @@
  *
  * Applied edits in a person's home keep their prior value in the install
  * ledger. Edits in Podium homes disappear with the home and need no record.
+ *
+ * The hook installs of the Codex and Grok instrumentation write their own
+ * shared hook files; {@link recordHookFile} puts those in the same ledger, and
+ * undo takes out exactly Podium's handlers again (POD-7388).
  */
 import { createHash, randomBytes } from 'node:crypto'
 import {
@@ -35,7 +39,7 @@ import {
   writeFile,
 } from 'node:fs/promises'
 import { basename, dirname, join, resolve } from 'node:path'
-import type { HomeEdit, JsonValue } from '@podium/harness'
+import type { HomeEdit, InstrumentationHookFile, JsonValue } from '@podium/harness'
 import type { HomeEditRecord, StoredHomeEdit } from '@podium/harness/inventory'
 import {
   planTomlArrayEntry,
@@ -71,6 +75,11 @@ export interface HomeEditRecorder {
 export interface HomeEditLedger {
   homeEdits(harness?: HomeEditRecord['harness']): StoredHomeEdit[]
   removeHomeEdit(id: number): void
+}
+
+export interface HomeEditRecordingLedger {
+  homeEdits(harness?: HomeEditRecord['harness']): StoredHomeEdit[]
+  recordHomeEdit(record: HomeEditRecord): StoredHomeEdit
 }
 
 export interface HomeEditUndoPorts extends HomeEditPorts {
@@ -312,7 +321,7 @@ function planJsonKey(
   return { next: serializeLike(body, root) }
 }
 
-function holdsValue(body: string, edit: JsonKeyEdit): boolean {
+function holdsValue(body: string, edit: Pick<JsonKeyEdit, 'path' | 'value'>): boolean {
   let node: unknown
   try {
     node = JSON.parse(body)
@@ -408,6 +417,11 @@ export async function undoHomeEdits(
             const body = await ports.readFile(record.file)
             const planned = planUndo(record, body)
             if ('reason' in planned) return { record, status: 'changed', reason: planned.reason }
+            if ('gone' in planned) {
+              // Nothing of Podium's is left in the file: only the record goes.
+              ledger.removeHomeEdit(record.id)
+              return { record, status: 'restored' }
+            }
             if ((await ports.readFile(record.file)) !== body) continue
             if (planned.next === undefined) await ports.removeFile(record.file)
             else await ports.writeFileAtomic(record.file, planned.next)
@@ -429,9 +443,11 @@ export async function undoHomeEdits(
 function planUndo(
   record: HomeEditRecord,
   body: string | undefined,
-): { next: string | undefined } | { reason: string } {
+): { next: string | undefined } | { reason: string } | { gone: true } {
   const changed = { reason: 'the file no longer holds Podium’s value; left it untouched' }
   const { edit, prior } = record
+  if (edit.kind === 'hook-handlers')
+    return planHookHandlersUndo(record.file, edit.marker, prior, body)
   if (body === undefined) return changed
   if (edit.kind === 'owned-file') {
     if (sha256(body) !== edit.sha256) return changed
@@ -443,11 +459,7 @@ function planUndo(
     if (!tomlArrayHolds(body, edit.path, edit.value)) return changed
     return planTomlArrayEntryRemoval(body, edit.path, edit.value)
   }
-  if (
-    edit.path.length === 0 ||
-    !holdsValue(body, { ...edit, file: record.file, serves: record.serves })
-  )
-    return changed
+  if (edit.path.length === 0 || !holdsValue(body, edit)) return changed
   const root: unknown = JSON.parse(body)
   let node = root as Record<string, unknown>
   for (const key of edit.path.slice(0, -1)) node = ownValue(node, key) as Record<string, unknown>
@@ -456,6 +468,157 @@ function planUndo(
   else if ('value' in prior) setOwn(node, leaf, prior.value)
   else throw new Error('a json-key record needs a prior value or absence')
   return { next: serializeLike(body, root) }
+}
+
+/**
+ * Undo Podium's hook handlers: take out every handler whose command holds the
+ * marker, and the groups, event lists and `hooks` object only those handlers
+ * filled. Everything else in the file stays, including hooks added since. The
+ * file goes back to its exact bytes from before Podium's first write when the
+ * rest of it is unchanged, and is removed when Podium created it and nothing
+ * else is in it now.
+ */
+function planHookHandlersUndo(
+  file: string,
+  marker: string,
+  prior: HomeEditRecord['prior'],
+  body: string | undefined,
+): { next: string | undefined } | { reason: string } | { gone: true } {
+  if (body === undefined) return { gone: true }
+  let root: unknown
+  try {
+    root = JSON.parse(body)
+  } catch {
+    return { reason: `${file} is not JSON any more; left it untouched` }
+  }
+  if (!isObject(root)) return { reason: `${file} does not hold a JSON object; left it untouched` }
+  const stripped = withoutHookHandlers(root, marker)
+  if (stripped.removed === 0) return { gone: true }
+  let priorRest: Record<string, unknown> | undefined
+  if ('contents' in prior) {
+    let priorRoot: unknown
+    try {
+      priorRoot = JSON.parse(prior.contents)
+    } catch {
+      priorRoot = undefined
+    }
+    if (isObject(priorRoot)) {
+      const priorStripped = withoutHookHandlers(priorRoot, marker)
+      if (priorStripped.removed === 0 && jsonEqual(priorRoot, stripped.root)) {
+        return { next: prior.contents }
+      }
+      priorRest = priorStripped.root
+    }
+  } else if (!('absent' in prior)) {
+    throw new Error('a hook-handlers record needs prior contents or absence')
+  }
+  const empty = Object.keys(stripped.root).length === 0
+  if (empty && (priorRest === undefined || Object.keys(priorRest).length === 0)) {
+    return { next: undefined }
+  }
+  return { next: serializeLike(body, stripped.root) }
+}
+
+/** The document without the handlers whose command holds `marker`, and how many there were. */
+function withoutHookHandlers(
+  root: Record<string, unknown>,
+  marker: string,
+): { root: Record<string, unknown>; removed: number } {
+  const hooks = ownValue(root, 'hooks')
+  if (!isObject(hooks)) return { root, removed: 0 }
+  let removed = 0
+  const nextHooks: Record<string, unknown> = {}
+  for (const [event, groups] of Object.entries(hooks)) {
+    if (!Array.isArray(groups)) {
+      setOwn(nextHooks, event, groups)
+      continue
+    }
+    let removedHere = 0
+    const kept: unknown[] = []
+    for (const group of groups) {
+      const handlers = isObject(group) ? ownValue(group, 'hooks') : undefined
+      if (!isObject(group) || !Array.isArray(handlers)) {
+        kept.push(group)
+        continue
+      }
+      const left = handlers.filter(
+        (handler) =>
+          !(
+            isObject(handler) &&
+            typeof handler.command === 'string' &&
+            handler.command.includes(marker)
+          ),
+      )
+      if (left.length === handlers.length) {
+        kept.push(group)
+        continue
+      }
+      removedHere += handlers.length - left.length
+      // A group Podium added holds only its handler; one with more keys is the person's.
+      if (left.length === 0 && Object.keys(group).every((key) => key === 'hooks')) continue
+      kept.push({ ...group, hooks: left })
+    }
+    removed += removedHere
+    if (removedHere > 0 && kept.length === 0) continue
+    setOwn(nextHooks, event, kept)
+  }
+  if (removed === 0) return { root, removed }
+  const next: Record<string, unknown> = { ...root }
+  if (Object.keys(nextHooks).length === 0) delete next.hooks
+  else setOwn(next, 'hooks', nextHooks)
+  return { root: next, removed }
+}
+
+/**
+ * Record Podium's handlers in a hook file in the person's own folder.
+ *
+ * The prior is the file before this install wrote it. When the install wrote
+ * nothing and no record exists yet (handlers an older Podium put there), it is
+ * the file as it is without Podium's handlers: absent when nothing else is in
+ * it. A second record of the same file keeps the first prior.
+ */
+export async function recordHookFile(
+  harness: HomeEditRecord['harness'],
+  hookFile: InstrumentationHookFile,
+  ports: Pick<HomeEditPorts, 'readFile'> & { realPath(path: string): Promise<string> },
+  ledger: HomeEditRecordingLedger,
+): Promise<StoredHomeEdit | undefined> {
+  const file = await ports.realPath(hookFile.file)
+  const recorded = ledger
+    .homeEdits(harness)
+    .find(
+      (record) =>
+        record.file === file &&
+        record.edit.kind === 'hook-handlers' &&
+        record.edit.marker === hookFile.marker,
+    )
+  if (recorded && !hookFile.prior) return recorded
+  let prior: HomeEditRecord['prior'] | undefined = hookFile.prior
+  if (!prior) {
+    const body = await ports.readFile(file)
+    if (body === undefined) return undefined
+    let root: unknown
+    try {
+      root = JSON.parse(body)
+    } catch {
+      return undefined
+    }
+    if (!isObject(root)) return undefined
+    const stripped = withoutHookHandlers(root, hookFile.marker)
+    if (stripped.removed === 0) return undefined
+    prior =
+      Object.keys(stripped.root).length === 0
+        ? { absent: true }
+        : { contents: serializeLike(body, stripped.root) }
+  }
+  return ledger.recordHomeEdit({
+    harness,
+    file,
+    edit: { kind: 'hook-handlers', marker: hookFile.marker, events: [...hookFile.events] },
+    prior,
+    serves: 'session-state',
+    appliedAt: new Date().toISOString(),
+  })
 }
 
 function errorMessage(err: unknown): string {

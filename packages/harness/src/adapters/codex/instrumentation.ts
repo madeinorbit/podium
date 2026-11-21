@@ -23,6 +23,7 @@ import type {
   HarnessInstrumentation,
   InstalledInstrumentation,
   InstrumentationDestination,
+  InstrumentationHookFile,
 } from '../../manifest.js'
 import { withEventTime } from '../../observer.js'
 import { codexLaunchHookTrustSupported, tomlString } from './posture.js'
@@ -495,6 +496,8 @@ export async function ensurePodiumCodexHooks(opts: {
   untrustedEvents?: string[]
   /** The `-c` value for this launch, when `launchTrust` was asked for. */
   launchTrustOverride?: string
+  /** Where Podium's handlers now are, for the install ledger (POD-7388). */
+  hookFile?: InstrumentationHookFile
 }> {
   const roots = codexRootsFor(opts.homeDir, opts.codexHome)
   const codexHome = roots.state
@@ -537,8 +540,10 @@ export async function ensurePodiumCodexHooks(opts: {
   }
 
   let doc: Record<string, unknown> = {}
+  let body: string | undefined
   try {
-    const parsed: unknown = JSON.parse(await readFile(hooksJsonPath, 'utf8'))
+    body = await readFile(hooksJsonPath, 'utf8')
+    const parsed: unknown = JSON.parse(body)
     if (isRecord(parsed)) doc = parsed
     else return { installed: false, changed: false, reason: 'hooks.json not an object' }
   } catch (err) {
@@ -551,6 +556,14 @@ export async function ensurePodiumCodexHooks(opts: {
   if (upserted.changed) {
     await mkdir(roots.hooks, { recursive: true })
     await writeAtomic(hooksJsonPath, `${JSON.stringify(upserted.doc, null, 2)}\n`)
+  }
+  const hookFile: InstrumentationHookFile = {
+    file: hooksJsonPath,
+    marker: PODIUM_CODEX_HOOK_URL_ENV,
+    events: [...CODEX_HOOK_EVENTS],
+    ...(upserted.changed
+      ? { prior: body === undefined ? { absent: true as const } : { contents: body } }
+      : {}),
   }
 
   // Trust is a separate question from installation: the file above can be
@@ -597,6 +610,7 @@ export async function ensurePodiumCodexHooks(opts: {
       trusted: false,
       untrustedEvents: trust.untrusted,
       ...(launchTrustOverride ? { launchTrustOverride } : {}),
+      hookFile,
     }
   }
 
@@ -606,6 +620,7 @@ export async function ensurePodiumCodexHooks(opts: {
     trusted: true,
     untrustedEvents: [],
     ...(launchTrustOverride ? { launchTrustOverride } : {}),
+    hookFile,
   }
 }
 
@@ -987,6 +1002,7 @@ async function installCodexInstrumentation(
         ...wiring.args,
         ...(result.launchTrustOverride ? ['-c', result.launchTrustOverride] : []),
       ],
+      ...(result.hookFile ? { hookFile: result.hookFile } : {}),
       ...(degradedReason
         ? {
             degradedReason,

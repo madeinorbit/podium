@@ -142,6 +142,49 @@
       "encoded": "{\"ok\":true,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":3,\"changes\":[{\"id\":3,\"harness\":\"grok\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"owned-file\",\"sha256\":\"changes[0].edit.sha256\"},\"prior\":{},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"failed\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":true}"
     },
     {
+      "schema": "HarnessActionResult",
+      "variant": "full/arm3",
+      "wire": {
+        "ok": false,
+        "error": "error",
+        "outcome": "outcome",
+        "version": "version",
+        "pendingSessions": 4,
+        "changes": [
+          {
+            "id": 4,
+            "harness": "opencode",
+            "file": "changes[0].file",
+            "edit": {
+              "kind": "hook-handlers",
+              "marker": "changes[0].edit.marker",
+              "events": ["changes[0].edit.events[0]"]
+            },
+            "prior": {
+              "contents": "changes[0].prior.contents"
+            },
+            "serves": "changes[0].serves",
+            "appliedAt": "changes[0].appliedAt",
+            "status": "failed",
+            "reason": "changes[0].reason"
+          }
+        ],
+        "conversations": [
+          {
+            "id": "conversations[0].id",
+            "title": "conversations[0].title"
+          }
+        ],
+        "homeExists": false
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {
+        "changes[0].prior.contents": "changes[0].prior.contents"
+      },
+      "encoded": "{\"ok\":false,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":4,\"changes\":[{\"id\":4,\"harness\":\"opencode\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"hook-handlers\",\"marker\":\"changes[0].edit.marker\",\"events\":[\"changes[0].edit.events[0]\"]},\"prior\":{},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"failed\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":false}"
+    },
+    {
       "schema": "HarnessBackRequestMessage",
       "variant": "minimal",
       "wire": {
@@ -313,6 +356,51 @@
         "changes[0].prior.contents": "changes[0].prior.contents"
       },
       "encoded": "{\"type\":\"harnessBackResult\",\"requestId\":\"requestId\",\"ok\":true,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":3,\"changes\":[{\"id\":3,\"harness\":\"grok\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"owned-file\",\"sha256\":\"changes[0].edit.sha256\"},\"prior\":{},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"failed\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":true}"
+    },
+    {
+      "schema": "HarnessBackResultMessage",
+      "variant": "full/arm3",
+      "wire": {
+        "type": "harnessBackResult",
+        "requestId": "requestId",
+        "ok": false,
+        "error": "error",
+        "outcome": "outcome",
+        "version": "version",
+        "pendingSessions": 4,
+        "changes": [
+          {
+            "id": 4,
+            "harness": "opencode",
+            "file": "changes[0].file",
+            "edit": {
+              "kind": "hook-handlers",
+              "marker": "changes[0].edit.marker",
+              "events": ["changes[0].edit.events[0]"]
+            },
+            "prior": {
+              "contents": "changes[0].prior.contents"
+            },
+            "serves": "changes[0].serves",
+            "appliedAt": "changes[0].appliedAt",
+            "status": "failed",
+            "reason": "changes[0].reason"
+          }
+        ],
+        "conversations": [
+          {
+            "id": "conversations[0].id",
+            "title": "conversations[0].title"
+          }
+        ],
+        "homeExists": false
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {
+        "changes[0].prior.contents": "changes[0].prior.contents"
+      },
+      "encoded": "{\"type\":\"harnessBackResult\",\"requestId\":\"requestId\",\"ok\":false,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":4,\"changes\":[{\"id\":4,\"harness\":\"opencode\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"hook-handlers\",\"marker\":\"changes[0].edit.marker\",\"events\":[\"changes[0].edit.events[0]\"]},\"prior\":{},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"failed\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":false}"
     },
     {
       "schema": "HarnessChangesRequestMessage",
@@ -488,6 +576,51 @@
       "encoded": "{\"type\":\"harnessChangesResult\",\"requestId\":\"requestId\",\"ok\":true,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":3,\"changes\":[{\"id\":3,\"harness\":\"grok\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"owned-file\",\"sha256\":\"changes[0].edit.sha256\"},\"prior\":{},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"failed\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":true}"
     },
     {
+      "schema": "HarnessChangesResultMessage",
+      "variant": "full/arm3",
+      "wire": {
+        "type": "harnessChangesResult",
+        "requestId": "requestId",
+        "ok": false,
+        "error": "error",
+        "outcome": "outcome",
+        "version": "version",
+        "pendingSessions": 4,
+        "changes": [
+          {
+            "id": 4,
+            "harness": "opencode",
+            "file": "changes[0].file",
+            "edit": {
+              "kind": "hook-handlers",
+              "marker": "changes[0].edit.marker",
+              "events": ["changes[0].edit.events[0]"]
+            },
+            "prior": {
+              "contents": "changes[0].prior.contents"
+            },
+            "serves": "changes[0].serves",
+            "appliedAt": "changes[0].appliedAt",
+            "status": "failed",
+            "reason": "changes[0].reason"
+          }
+        ],
+        "conversations": [
+          {
+            "id": "conversations[0].id",
+            "title": "conversations[0].title"
+          }
+        ],
+        "homeExists": false
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {
+        "changes[0].prior.contents": "changes[0].prior.contents"
+      },
+      "encoded": "{\"type\":\"harnessChangesResult\",\"requestId\":\"requestId\",\"ok\":false,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":4,\"changes\":[{\"id\":4,\"harness\":\"opencode\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"hook-handlers\",\"marker\":\"changes[0].edit.marker\",\"events\":[\"changes[0].edit.events[0]\"]},\"prior\":{},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"failed\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":false}"
+    },
+    {
       "schema": "HarnessCheckRequestMessage",
       "variant": "minimal",
       "wire": {
@@ -661,6 +794,51 @@
       "encoded": "{\"type\":\"harnessCheckResult\",\"requestId\":\"requestId\",\"ok\":true,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":3,\"changes\":[{\"id\":3,\"harness\":\"grok\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"owned-file\",\"sha256\":\"changes[0].edit.sha256\"},\"prior\":{},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"failed\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":true}"
     },
     {
+      "schema": "HarnessCheckResultMessage",
+      "variant": "full/arm3",
+      "wire": {
+        "type": "harnessCheckResult",
+        "requestId": "requestId",
+        "ok": false,
+        "error": "error",
+        "outcome": "outcome",
+        "version": "version",
+        "pendingSessions": 4,
+        "changes": [
+          {
+            "id": 4,
+            "harness": "opencode",
+            "file": "changes[0].file",
+            "edit": {
+              "kind": "hook-handlers",
+              "marker": "changes[0].edit.marker",
+              "events": ["changes[0].edit.events[0]"]
+            },
+            "prior": {
+              "contents": "changes[0].prior.contents"
+            },
+            "serves": "changes[0].serves",
+            "appliedAt": "changes[0].appliedAt",
+            "status": "failed",
+            "reason": "changes[0].reason"
+          }
+        ],
+        "conversations": [
+          {
+            "id": "conversations[0].id",
+            "title": "conversations[0].title"
+          }
+        ],
+        "homeExists": false
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {
+        "changes[0].prior.contents": "changes[0].prior.contents"
+      },
+      "encoded": "{\"type\":\"harnessCheckResult\",\"requestId\":\"requestId\",\"ok\":false,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":4,\"changes\":[{\"id\":4,\"harness\":\"opencode\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"hook-handlers\",\"marker\":\"changes[0].edit.marker\",\"events\":[\"changes[0].edit.events[0]\"]},\"prior\":{},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"failed\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":false}"
+    },
+    {
       "schema": "HarnessHomeChange",
       "variant": "minimal",
       "wire": {
@@ -764,6 +942,33 @@
         "prior.contents": "prior.contents"
       },
       "encoded": "{\"id\":3,\"harness\":\"grok\",\"file\":\"file\",\"edit\":{\"kind\":\"owned-file\",\"sha256\":\"edit.sha256\"},\"prior\":{},\"serves\":\"serves\",\"appliedAt\":\"appliedAt\",\"status\":\"failed\",\"reason\":\"reason\"}"
+    },
+    {
+      "schema": "HarnessHomeChange",
+      "variant": "full/arm3",
+      "wire": {
+        "id": 4,
+        "harness": "opencode",
+        "file": "file",
+        "edit": {
+          "kind": "hook-handlers",
+          "marker": "edit.marker",
+          "events": ["edit.events[0]"]
+        },
+        "prior": {
+          "contents": "prior.contents"
+        },
+        "serves": "serves",
+        "appliedAt": "appliedAt",
+        "status": "failed",
+        "reason": "reason"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {
+        "prior.contents": "prior.contents"
+      },
+      "encoded": "{\"id\":4,\"harness\":\"opencode\",\"file\":\"file\",\"edit\":{\"kind\":\"hook-handlers\",\"marker\":\"edit.marker\",\"events\":[\"edit.events[0]\"]},\"prior\":{},\"serves\":\"serves\",\"appliedAt\":\"appliedAt\",\"status\":\"failed\",\"reason\":\"reason\"}"
     },
     {
       "schema": "HarnessHomeInfoRequestMessage",
@@ -939,6 +1144,51 @@
       "encoded": "{\"type\":\"harnessHomeInfoResult\",\"requestId\":\"requestId\",\"ok\":true,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":3,\"changes\":[{\"id\":3,\"harness\":\"grok\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"owned-file\",\"sha256\":\"changes[0].edit.sha256\"},\"prior\":{},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"failed\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":true}"
     },
     {
+      "schema": "HarnessHomeInfoResultMessage",
+      "variant": "full/arm3",
+      "wire": {
+        "type": "harnessHomeInfoResult",
+        "requestId": "requestId",
+        "ok": false,
+        "error": "error",
+        "outcome": "outcome",
+        "version": "version",
+        "pendingSessions": 4,
+        "changes": [
+          {
+            "id": 4,
+            "harness": "opencode",
+            "file": "changes[0].file",
+            "edit": {
+              "kind": "hook-handlers",
+              "marker": "changes[0].edit.marker",
+              "events": ["changes[0].edit.events[0]"]
+            },
+            "prior": {
+              "contents": "changes[0].prior.contents"
+            },
+            "serves": "changes[0].serves",
+            "appliedAt": "changes[0].appliedAt",
+            "status": "failed",
+            "reason": "changes[0].reason"
+          }
+        ],
+        "conversations": [
+          {
+            "id": "conversations[0].id",
+            "title": "conversations[0].title"
+          }
+        ],
+        "homeExists": false
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {
+        "changes[0].prior.contents": "changes[0].prior.contents"
+      },
+      "encoded": "{\"type\":\"harnessHomeInfoResult\",\"requestId\":\"requestId\",\"ok\":false,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":4,\"changes\":[{\"id\":4,\"harness\":\"opencode\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"hook-handlers\",\"marker\":\"changes[0].edit.marker\",\"events\":[\"changes[0].edit.events[0]\"]},\"prior\":{},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"failed\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":false}"
+    },
+    {
       "schema": "HarnessHomeRemoveRequestMessage",
       "variant": "minimal",
       "wire": {
@@ -1112,6 +1362,51 @@
         "changes[0].prior.contents": "changes[0].prior.contents"
       },
       "encoded": "{\"type\":\"harnessHomeRemoveResult\",\"requestId\":\"requestId\",\"ok\":true,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":3,\"changes\":[{\"id\":3,\"harness\":\"grok\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"owned-file\",\"sha256\":\"changes[0].edit.sha256\"},\"prior\":{},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"failed\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":true}"
+    },
+    {
+      "schema": "HarnessHomeRemoveResultMessage",
+      "variant": "full/arm3",
+      "wire": {
+        "type": "harnessHomeRemoveResult",
+        "requestId": "requestId",
+        "ok": false,
+        "error": "error",
+        "outcome": "outcome",
+        "version": "version",
+        "pendingSessions": 4,
+        "changes": [
+          {
+            "id": 4,
+            "harness": "opencode",
+            "file": "changes[0].file",
+            "edit": {
+              "kind": "hook-handlers",
+              "marker": "changes[0].edit.marker",
+              "events": ["changes[0].edit.events[0]"]
+            },
+            "prior": {
+              "contents": "changes[0].prior.contents"
+            },
+            "serves": "changes[0].serves",
+            "appliedAt": "changes[0].appliedAt",
+            "status": "failed",
+            "reason": "changes[0].reason"
+          }
+        ],
+        "conversations": [
+          {
+            "id": "conversations[0].id",
+            "title": "conversations[0].title"
+          }
+        ],
+        "homeExists": false
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {
+        "changes[0].prior.contents": "changes[0].prior.contents"
+      },
+      "encoded": "{\"type\":\"harnessHomeRemoveResult\",\"requestId\":\"requestId\",\"ok\":false,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":4,\"changes\":[{\"id\":4,\"harness\":\"opencode\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"hook-handlers\",\"marker\":\"changes[0].edit.marker\",\"events\":[\"changes[0].edit.events[0]\"]},\"prior\":{},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"failed\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":false}"
     },
     {
       "schema": "HarnessInstallAction",
@@ -1305,6 +1600,51 @@
       "encoded": "{\"type\":\"harnessInstallResult\",\"requestId\":\"requestId\",\"ok\":true,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":3,\"changes\":[{\"id\":3,\"harness\":\"grok\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"owned-file\",\"sha256\":\"changes[0].edit.sha256\"},\"prior\":{},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"failed\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":true}"
     },
     {
+      "schema": "HarnessInstallResultMessage",
+      "variant": "full/arm3",
+      "wire": {
+        "type": "harnessInstallResult",
+        "requestId": "requestId",
+        "ok": false,
+        "error": "error",
+        "outcome": "outcome",
+        "version": "version",
+        "pendingSessions": 4,
+        "changes": [
+          {
+            "id": 4,
+            "harness": "opencode",
+            "file": "changes[0].file",
+            "edit": {
+              "kind": "hook-handlers",
+              "marker": "changes[0].edit.marker",
+              "events": ["changes[0].edit.events[0]"]
+            },
+            "prior": {
+              "contents": "changes[0].prior.contents"
+            },
+            "serves": "changes[0].serves",
+            "appliedAt": "changes[0].appliedAt",
+            "status": "failed",
+            "reason": "changes[0].reason"
+          }
+        ],
+        "conversations": [
+          {
+            "id": "conversations[0].id",
+            "title": "conversations[0].title"
+          }
+        ],
+        "homeExists": false
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {
+        "changes[0].prior.contents": "changes[0].prior.contents"
+      },
+      "encoded": "{\"type\":\"harnessInstallResult\",\"requestId\":\"requestId\",\"ok\":false,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":4,\"changes\":[{\"id\":4,\"harness\":\"opencode\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"hook-handlers\",\"marker\":\"changes[0].edit.marker\",\"events\":[\"changes[0].edit.events[0]\"]},\"prior\":{},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"failed\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":false}"
+    },
+    {
       "schema": "HarnessPauseRequestMessage",
       "variant": "minimal",
       "wire": {
@@ -1476,6 +1816,51 @@
         "changes[0].prior.contents": "changes[0].prior.contents"
       },
       "encoded": "{\"type\":\"harnessPauseResult\",\"requestId\":\"requestId\",\"ok\":true,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":3,\"changes\":[{\"id\":3,\"harness\":\"grok\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"owned-file\",\"sha256\":\"changes[0].edit.sha256\"},\"prior\":{},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"failed\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":true}"
+    },
+    {
+      "schema": "HarnessPauseResultMessage",
+      "variant": "full/arm3",
+      "wire": {
+        "type": "harnessPauseResult",
+        "requestId": "requestId",
+        "ok": false,
+        "error": "error",
+        "outcome": "outcome",
+        "version": "version",
+        "pendingSessions": 4,
+        "changes": [
+          {
+            "id": 4,
+            "harness": "opencode",
+            "file": "changes[0].file",
+            "edit": {
+              "kind": "hook-handlers",
+              "marker": "changes[0].edit.marker",
+              "events": ["changes[0].edit.events[0]"]
+            },
+            "prior": {
+              "contents": "changes[0].prior.contents"
+            },
+            "serves": "changes[0].serves",
+            "appliedAt": "changes[0].appliedAt",
+            "status": "failed",
+            "reason": "changes[0].reason"
+          }
+        ],
+        "conversations": [
+          {
+            "id": "conversations[0].id",
+            "title": "conversations[0].title"
+          }
+        ],
+        "homeExists": false
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {
+        "changes[0].prior.contents": "changes[0].prior.contents"
+      },
+      "encoded": "{\"type\":\"harnessPauseResult\",\"requestId\":\"requestId\",\"ok\":false,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":4,\"changes\":[{\"id\":4,\"harness\":\"opencode\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"hook-handlers\",\"marker\":\"changes[0].edit.marker\",\"events\":[\"changes[0].edit.events[0]\"]},\"prior\":{},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"failed\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":false}"
     },
     {
       "schema": "HarnessRemoveChangesRequestMessage",
@@ -1651,6 +2036,51 @@
       "encoded": "{\"type\":\"harnessRemoveChangesResult\",\"requestId\":\"requestId\",\"ok\":true,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":3,\"changes\":[{\"id\":3,\"harness\":\"grok\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"owned-file\",\"sha256\":\"changes[0].edit.sha256\"},\"prior\":{},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"failed\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":true}"
     },
     {
+      "schema": "HarnessRemoveChangesResultMessage",
+      "variant": "full/arm3",
+      "wire": {
+        "type": "harnessRemoveChangesResult",
+        "requestId": "requestId",
+        "ok": false,
+        "error": "error",
+        "outcome": "outcome",
+        "version": "version",
+        "pendingSessions": 4,
+        "changes": [
+          {
+            "id": 4,
+            "harness": "opencode",
+            "file": "changes[0].file",
+            "edit": {
+              "kind": "hook-handlers",
+              "marker": "changes[0].edit.marker",
+              "events": ["changes[0].edit.events[0]"]
+            },
+            "prior": {
+              "contents": "changes[0].prior.contents"
+            },
+            "serves": "changes[0].serves",
+            "appliedAt": "changes[0].appliedAt",
+            "status": "failed",
+            "reason": "changes[0].reason"
+          }
+        ],
+        "conversations": [
+          {
+            "id": "conversations[0].id",
+            "title": "conversations[0].title"
+          }
+        ],
+        "homeExists": false
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {
+        "changes[0].prior.contents": "changes[0].prior.contents"
+      },
+      "encoded": "{\"type\":\"harnessRemoveChangesResult\",\"requestId\":\"requestId\",\"ok\":false,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":4,\"changes\":[{\"id\":4,\"harness\":\"opencode\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"hook-handlers\",\"marker\":\"changes[0].edit.marker\",\"events\":[\"changes[0].edit.events[0]\"]},\"prior\":{},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"failed\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":false}"
+    },
+    {
       "schema": "HarnessRemoveRequestMessage",
       "variant": "minimal",
       "wire": {
@@ -1822,6 +2252,51 @@
         "changes[0].prior.contents": "changes[0].prior.contents"
       },
       "encoded": "{\"type\":\"harnessRemoveResult\",\"requestId\":\"requestId\",\"ok\":true,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":3,\"changes\":[{\"id\":3,\"harness\":\"grok\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"owned-file\",\"sha256\":\"changes[0].edit.sha256\"},\"prior\":{},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"failed\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":true}"
+    },
+    {
+      "schema": "HarnessRemoveResultMessage",
+      "variant": "full/arm3",
+      "wire": {
+        "type": "harnessRemoveResult",
+        "requestId": "requestId",
+        "ok": false,
+        "error": "error",
+        "outcome": "outcome",
+        "version": "version",
+        "pendingSessions": 4,
+        "changes": [
+          {
+            "id": 4,
+            "harness": "opencode",
+            "file": "changes[0].file",
+            "edit": {
+              "kind": "hook-handlers",
+              "marker": "changes[0].edit.marker",
+              "events": ["changes[0].edit.events[0]"]
+            },
+            "prior": {
+              "contents": "changes[0].prior.contents"
+            },
+            "serves": "changes[0].serves",
+            "appliedAt": "changes[0].appliedAt",
+            "status": "failed",
+            "reason": "changes[0].reason"
+          }
+        ],
+        "conversations": [
+          {
+            "id": "conversations[0].id",
+            "title": "conversations[0].title"
+          }
+        ],
+        "homeExists": false
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {
+        "changes[0].prior.contents": "changes[0].prior.contents"
+      },
+      "encoded": "{\"type\":\"harnessRemoveResult\",\"requestId\":\"requestId\",\"ok\":false,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":4,\"changes\":[{\"id\":4,\"harness\":\"opencode\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"hook-handlers\",\"marker\":\"changes[0].edit.marker\",\"events\":[\"changes[0].edit.events[0]\"]},\"prior\":{},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"failed\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":false}"
     },
     {
       "schema": "HarnessResumeRequestMessage",
@@ -1997,6 +2472,51 @@
       "encoded": "{\"type\":\"harnessResumeResult\",\"requestId\":\"requestId\",\"ok\":true,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":3,\"changes\":[{\"id\":3,\"harness\":\"grok\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"owned-file\",\"sha256\":\"changes[0].edit.sha256\"},\"prior\":{},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"failed\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":true}"
     },
     {
+      "schema": "HarnessResumeResultMessage",
+      "variant": "full/arm3",
+      "wire": {
+        "type": "harnessResumeResult",
+        "requestId": "requestId",
+        "ok": false,
+        "error": "error",
+        "outcome": "outcome",
+        "version": "version",
+        "pendingSessions": 4,
+        "changes": [
+          {
+            "id": 4,
+            "harness": "opencode",
+            "file": "changes[0].file",
+            "edit": {
+              "kind": "hook-handlers",
+              "marker": "changes[0].edit.marker",
+              "events": ["changes[0].edit.events[0]"]
+            },
+            "prior": {
+              "contents": "changes[0].prior.contents"
+            },
+            "serves": "changes[0].serves",
+            "appliedAt": "changes[0].appliedAt",
+            "status": "failed",
+            "reason": "changes[0].reason"
+          }
+        ],
+        "conversations": [
+          {
+            "id": "conversations[0].id",
+            "title": "conversations[0].title"
+          }
+        ],
+        "homeExists": false
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {
+        "changes[0].prior.contents": "changes[0].prior.contents"
+      },
+      "encoded": "{\"type\":\"harnessResumeResult\",\"requestId\":\"requestId\",\"ok\":false,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":4,\"changes\":[{\"id\":4,\"harness\":\"opencode\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"hook-handlers\",\"marker\":\"changes[0].edit.marker\",\"events\":[\"changes[0].edit.events[0]\"]},\"prior\":{},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"failed\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":false}"
+    },
+    {
       "schema": "HarnessTakeSettingsRequestMessage",
       "variant": "minimal",
       "wire": {
@@ -2168,6 +2688,51 @@
         "changes[0].prior.contents": "changes[0].prior.contents"
       },
       "encoded": "{\"type\":\"harnessTakeSettingsResult\",\"requestId\":\"requestId\",\"ok\":true,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":3,\"changes\":[{\"id\":3,\"harness\":\"grok\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"owned-file\",\"sha256\":\"changes[0].edit.sha256\"},\"prior\":{},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"failed\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":true}"
+    },
+    {
+      "schema": "HarnessTakeSettingsResultMessage",
+      "variant": "full/arm3",
+      "wire": {
+        "type": "harnessTakeSettingsResult",
+        "requestId": "requestId",
+        "ok": false,
+        "error": "error",
+        "outcome": "outcome",
+        "version": "version",
+        "pendingSessions": 4,
+        "changes": [
+          {
+            "id": 4,
+            "harness": "opencode",
+            "file": "changes[0].file",
+            "edit": {
+              "kind": "hook-handlers",
+              "marker": "changes[0].edit.marker",
+              "events": ["changes[0].edit.events[0]"]
+            },
+            "prior": {
+              "contents": "changes[0].prior.contents"
+            },
+            "serves": "changes[0].serves",
+            "appliedAt": "changes[0].appliedAt",
+            "status": "failed",
+            "reason": "changes[0].reason"
+          }
+        ],
+        "conversations": [
+          {
+            "id": "conversations[0].id",
+            "title": "conversations[0].title"
+          }
+        ],
+        "homeExists": false
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {
+        "changes[0].prior.contents": "changes[0].prior.contents"
+      },
+      "encoded": "{\"type\":\"harnessTakeSettingsResult\",\"requestId\":\"requestId\",\"ok\":false,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":4,\"changes\":[{\"id\":4,\"harness\":\"opencode\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"hook-handlers\",\"marker\":\"changes[0].edit.marker\",\"events\":[\"changes[0].edit.events[0]\"]},\"prior\":{},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"failed\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":false}"
     },
     {
       "schema": "InstallHarness",

@@ -353,7 +353,7 @@ export async function runMachineCli(
     return results
       .map((result) =>
         result.ok
-          ? `${result.harness}: ${result.outcome ?? 'Podium’s changes'}${result.version ? ` ${result.version}` : ''}${result.pendingSessions ? ` (waiting for ${result.pendingSessions} running sessions; homes kept)` : ''}${result.changes ? `\n${result.changes.map((change) => `  ${change.file}: ${change.edit.kind === 'owned-file' ? 'file created by Podium' : `${change.edit.path.join('.')} = ${JSON.stringify(change.edit.value)}`}${change.status ? ` · ${change.status}` : ''}${change.reason ? ` · ${change.reason}` : ''}`).join('\n') || '  No changes recorded.'}` : ''}`
+          ? `${result.harness}: ${result.outcome ?? 'Podium’s changes'}${result.version ? ` ${result.version}` : ''}${result.pendingSessions ? ` (waiting for ${result.pendingSessions} running sessions; homes kept)` : ''}${result.changes ? `\n${result.changes.map((change) => `  ${change.file}: ${change.edit.kind === 'owned-file' ? 'file created by Podium' : change.edit.kind === 'hook-handlers' ? `Podium’s hooks for ${change.edit.events.length} events` : `${change.edit.path.join('.')} = ${JSON.stringify(change.edit.value)}`}${change.status ? ` · ${change.status}` : ''}${change.reason ? ` · ${change.reason}` : ''}`).join('\n') || '  No changes recorded.'}` : ''}`
           : `${result.harness}: ${result.error ?? result.outcome ?? 'failed'}`,
       )
       .join('\n')

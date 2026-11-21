@@ -395,6 +395,7 @@ export async function installTerminalInstrumentation(input: {
       return {
         args: [],
         ...(wiring.env ? { env: wiring.env } : {}),
+        ...(wiring.hookFile ? { hookFile: wiring.hookFile } : {}),
         degradedReason: error instanceof Error ? error.message : String(error),
         degradedKind: 'error',
       }
@@ -403,6 +404,7 @@ export async function installTerminalInstrumentation(input: {
   return {
     args: wiring.args,
     ...(wiring.env ? { env: wiring.env } : {}),
+    ...(wiring.hookFile ? { hookFile: wiring.hookFile } : {}),
     ...(wiring.degradedReason
       ? {
           degradedReason: wiring.degradedReason,

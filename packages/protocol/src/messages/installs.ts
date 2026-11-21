@@ -28,6 +28,11 @@ export const HarnessHomeChange = z.object({
     z.object({ kind: z.literal('json-key'), path: z.array(z.string()), value: z.unknown() }),
     z.object({ kind: z.literal('toml-array-entry'), path: z.array(z.string()), value: z.string() }),
     z.object({ kind: z.literal('owned-file'), sha256: z.string() }),
+    z.object({
+      kind: z.literal('hook-handlers'),
+      marker: z.string(),
+      events: z.array(z.string()),
+    }),
   ]),
   prior: z.union([
     z.object({ absent: z.literal(true) }),

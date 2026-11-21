@@ -1195,8 +1195,27 @@ export interface InstalledInstrumentation {
   env?: Record<string, string>
   /** File the host must write before spawning (hook/settings config). */
   file?: { path: string; contents: string }
+  /**
+   * The shared hook file this install keeps Podium's handlers in, whenever
+   * they are there after it ran. The host records it in the install ledger
+   * when the file is in the person's own folder, so "Remove Podium's changes"
+   * can take the handlers out again (POD-7388).
+   */
+  hookFile?: InstrumentationHookFile
   degradedReason?: string
   degradedKind?: InstrumentationDegradedKind
+}
+
+/** Podium's handlers in a hook file the harness reads (`hooks.<Event>[].hooks[]`). */
+export interface InstrumentationHookFile {
+  /** The file, as the install wrote it. */
+  file: string
+  /** Text in every Podium handler's `command`, and in no other handler's. */
+  marker: string
+  /** The hook events Podium handles. */
+  events: readonly string[]
+  /** What the file held before THIS install wrote it. Absent when it wrote nothing. */
+  prior?: { absent: true } | { contents: string }
 }
 
 export type InstrumentationDegradedKind =
