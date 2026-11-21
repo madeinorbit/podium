@@ -5,7 +5,11 @@ import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
 import { createLogger } from '@podium/logger'
 import { claudeCodeDescriptor } from './adapters/claude-code/descriptor.js'
-import { codexModelProbeArgv, parseCodexModels } from './adapters/codex/model-probe.js'
+import {
+  codexModelProbeArgv,
+  codexModelProbeContainment,
+  parseCodexModels,
+} from './adapters/codex/model-probe.js'
 import { cursorModelProbeArgv, parseCursorModels } from './adapters/cursor/model-probe.js'
 import {
   grokModelProbeArgv,
@@ -17,7 +21,11 @@ import {
   opencodeModelProbeContainment,
   parseOpencodeModels,
 } from './adapters/opencode/model-probe.js'
-import { parsePiModels, piModelProbeArgv } from './adapters/pi/model-probe.js'
+import {
+  parsePiModels,
+  piModelProbeArgv,
+  piModelProbeContainment,
+} from './adapters/pi/model-probe.js'
 import type { HarnessContext } from './harness-context.js'
 import type { HarnessAccountScope, HarnessRoots } from './manifest.js'
 
@@ -44,11 +52,12 @@ const log = createLogger('harness:model-probe')
  * credentials stripped) — never the daemon's own HOME. The Claude call uses
  * fetch with the token from the account's credential folder.
  *
- * A listing in the PERSON'S OWN folders writes nothing there (POD-7390): a
- * harness measured to write its state while listing (Grok, OpenCode) runs with
- * its folders moved into a temporary folder, reading the person's login and
- * settings in place ({@link ModelProbeContainment}). A Podium home is listed
- * in place, since it is Podium's folder.
+ * A listing in the PERSON'S OWN folders writes nothing there (POD-7390,
+ * POD-7392): a harness measured to write its state while listing (Grok,
+ * OpenCode, Codex, Pi) runs with its folders moved into a temporary folder,
+ * reading the person's login and settings in place
+ * ({@link ModelProbeContainment}). A Podium home is listed in place, since it
+ * is Podium's folder.
  * The lists are network-backed (~2s warm,
  * ~7s cold), so the ModelCatalog caches them per machineId (stale-while-revalidate)
  * rather than probing on every open. CLI sources report [] on failure; Claude is
@@ -139,6 +148,13 @@ export interface ModelProbeScope {
  * (POD-7390), stated by its adapter beside its probe argv. The listing runs
  * with `env` over the account env, in an empty working folder, inside a
  * temporary folder (`root`) removed afterwards.
+ *
+ * A login is never copied in (POD-7392): a harness that refreshes a login
+ * rotates its refresh token, and a rotation saved into a copy is lost when the
+ * folder goes, which signs the person out. A login is read in place through a
+ * variable (`envWhenPresent`) or a link the harness is measured to write
+ * through; where that cannot be made, the harness is listed in place, as
+ * before containment.
  */
 export interface ModelProbeContainment {
   /** Set over the account env: the harness's folders, moved under `root`. */
@@ -146,23 +162,42 @@ export interface ModelProbeContainment {
   /** Set only when the named path exists: a person's file the listing reads
    *  in place (a login, a cache), so a missing one is not invented. */
   readonly envWhenPresent?: Readonly<Record<string, string>>
+  /** Arguments placed before the probe's own: a setting the contained listing
+   *  must run with. The in-place listing runs without them. */
+  readonly args?: readonly string[]
   /** The person's small read-only files copied in; a missing one is skipped. */
   readonly copies?: readonly { readonly from: string; readonly to: string }[]
-  /** The person's files linked in, so a write the harness makes to them
-   *  (a refreshed login) lands on the original. A missing one is skipped; where
-   *  links cannot be made (Windows without the privilege) the file is copied. */
-  readonly links?: readonly { readonly from: string; readonly to: string }[]
+  /** The person's files and folders linked in, so a write the harness makes to
+   *  them (a refreshed login) lands on the original. A missing one is skipped,
+   *  unless `evenWhenMissing`: a lock file the harness creates on first use,
+   *  linked so the listing and the person's own harness take the same lock.
+   *  Where a link cannot be made (Windows without the privilege), the harness
+   *  is listed in place. */
+  readonly links?: readonly {
+    readonly from: string
+    readonly to: string
+    readonly evenWhenMissing?: boolean
+  }[]
+  /** The person's files a contained listing needs; without one, the harness
+   *  is listed in place. */
+  readonly requires?: readonly string[]
+  /** The harness is listed in place when one of the person's files matches:
+   *  a setting under which a contained listing would not reach their login. */
+  readonly inPlaceWhen?: readonly { readonly path: string; readonly pattern: RegExp }[]
 }
 
 /**
  * The harnesses measured to write their state during a model listing, and how
- * each is contained. A harness absent here is listed as before.
+ * each is contained. A harness absent here is listed as before (Cursor: its
+ * listing writes only its install's own `.running` marker, design §9).
  */
 const MODEL_PROBE_CONTAINMENT: Partial<
   Record<ProbeableAgent, (scope: ModelProbeScope, root: string) => ModelProbeContainment>
 > = {
   grok: grokModelProbeContainment,
   opencode: opencodeModelProbeContainment,
+  codex: codexModelProbeContainment,
+  pi: piModelProbeContainment,
 }
 
 export interface ProbeOptions {
@@ -195,7 +230,8 @@ export async function probeAgentModels(
   // and is listed in place (credential management §10).
   const contain = context && !context.harnessHome ? MODEL_PROBE_CONTAINMENT[kind] : undefined
   if (context && contain) {
-    return await probeContained(kind, [command, ...args], context, contain, exec, timeoutMs)
+    const listed = await probeContained(kind, command, args, context, contain, exec, timeoutMs)
+    if (listed !== IN_PLACE) return listed
   }
   try {
     return parseModels(kind, await exec([command, ...args], timeoutMs, context?.env))
@@ -204,6 +240,9 @@ export async function probeAgentModels(
   }
 }
 
+/** {@link probeContained}'s answer when the harness is to be listed in place. */
+const IN_PLACE = Symbol('in place')
+
 /**
  * One model listing in a temporary folder (POD-7390): the person's own install
  * still answers with their account's models, and every file the listing writes
@@ -211,15 +250,18 @@ export async function probeAgentModels(
  *
  * A machine where the folder cannot be made reports no models rather than
  * listing in the person's folders: the catalog keeps its last good list.
+ * Where the person's login cannot be reached from the folder, the harness is
+ * listed in place ({@link ModelProbeContainment}).
  */
 async function probeContained(
   kind: ProbeableAgent,
-  argv: readonly string[],
+  command: string,
+  args: readonly string[],
   context: HarnessContext,
   contain: (scope: ModelProbeScope, root: string) => ModelProbeContainment,
   exec: ModelProbeExec,
   timeoutMs: number,
-): Promise<ModelChoice[]> {
+): Promise<ModelChoice[] | typeof IN_PLACE> {
   let root: string
   try {
     root = await mkdtemp(join(tmpdir(), `podium-models-${kind}-`))
@@ -229,6 +271,11 @@ async function probeContained(
   }
   try {
     const containment = contain(context, root)
+    const inPlace = await inPlaceReason(containment)
+    if (inPlace) {
+      log.debug('model listing runs in place', { kind, reason: inPlace })
+      return IN_PLACE
+    }
     const work = join(root, 'work')
     await mkdir(work)
     const env: Record<string, string> = { ...context.env, ...containment.env }
@@ -240,11 +287,19 @@ async function probeContained(
       await mkdir(dirname(to), { recursive: true })
       await copyFile(from, to)
     }
-    for (const { from, to } of containment.links ?? []) {
-      if (!(await present(from))) continue
+    for (const { from, to, evenWhenMissing } of containment.links ?? []) {
+      const source = await lstat(from).catch(() => undefined)
+      if (!source && !evenWhenMissing) continue
       await mkdir(dirname(to), { recursive: true })
-      await symlink(from, to).catch(() => copyFile(from, to))
+      try {
+        // A folder is linked as a junction on Windows, which needs no privilege.
+        await symlink(from, to, source?.isDirectory() ? 'junction' : 'file')
+      } catch (err) {
+        log.debug('model listing runs in place: no link to the person’s file', { kind, err })
+        return IN_PLACE
+      }
     }
+    const argv = [command, ...(containment.args ?? []), ...args]
     return parseModels(kind, await exec(argv, timeoutMs, Object.freeze(env), work))
   } catch {
     return []
@@ -253,6 +308,18 @@ async function probeContained(
       log.warn('the model listing folder could not be removed', { path: root, err })
     })
   }
+}
+
+/** Why a containment's harness is listed in place instead, if it is. */
+async function inPlaceReason(containment: ModelProbeContainment): Promise<string | undefined> {
+  for (const path of containment.requires ?? []) {
+    if (!(await present(path))) return `no ${path}`
+  }
+  for (const { path, pattern } of containment.inPlaceWhen ?? []) {
+    const text = await readFile(path, 'utf8').catch(() => undefined)
+    if (text !== undefined && pattern.test(text)) return `a setting in ${path}`
+  }
+  return undefined
 }
 
 async function present(path: string): Promise<boolean> {

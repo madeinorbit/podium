@@ -317,7 +317,7 @@ function treeListing(dir: string): string[] {
 }
 
 function externalContext(
-  kind: 'grok' | 'opencode',
+  kind: 'grok' | 'opencode' | 'codex' | 'pi',
   home: string,
   executable: string,
   env: Record<string, string> = {},
@@ -332,7 +332,7 @@ function externalContext(
 }
 
 describe.skipIf(platform() === 'win32')(
-  "the person's own install lists its models without writing their folders (POD-7390)",
+  "the person's own install lists its models without writing their folders (POD-7390, POD-7392)",
   () => {
     let home: string
     let bin: string
@@ -460,6 +460,156 @@ describe.skipIf(platform() === 'win32')(
 
       expect(models.map((m) => m.value)).toEqual(['opencode/big-pickle'])
       expect(readFileSync(store, 'utf8')).toBe('personal sessions\n')
+    })
+
+    /** A fake `codex` that writes what 0.171.0 was measured to write: an arg0
+     *  helper folder under CODEX_HOME, and a refreshed login written beside
+     *  the login's resolved file and renamed over it, under auth.lock. */
+    function fakeCodex(): string {
+      const exe = join(bin, 'codex')
+      writeFileSync(
+        exe,
+        [
+          '#!/bin/sh',
+          'state="$HOME/.codex"; [ -n "$CODEX_HOME" ] && state="$CODEX_HOME"',
+          `{ echo "home=$state"; echo "args=$*"; echo "cwd=$(pwd)"; } > "${observed}/codex"`,
+          'mkdir -p "$state/tmp/arg0-linux/codex-arg0Ab12"; : > "$state/tmp/arg0-linux/codex-arg0Ab12/.lock"',
+          'login="$state/auth.json"',
+          'if grep -q rt-old "$login" 2>/dev/null; then',
+          '  : >> "$state/auth.lock"',
+          '  target=$(readlink -f "$login")',
+          '  sed s/rt-old/rt-new/ "$target" > "$(dirname "$target")/.auth-Xy12"',
+          '  mv "$(dirname "$target")/.auth-Xy12" "$target"',
+          'fi',
+          'model=$(sed -n "s/^model = \\"\\(.*\\)\\"/\\1/p" "$state/config.toml")',
+          'printf \'{"models":[{"slug":"%s","visibility":"list","priority":1}\' "$model"',
+          'grep -q rt-new "$login" 2>/dev/null && printf \',{"slug":"gpt-account","visibility":"list","priority":2}\'',
+          'echo "]}"',
+          '',
+        ].join('\n'),
+        { mode: 0o755 },
+      )
+      return exe
+    }
+
+    it('Codex: CODEX_HOME moves aside, a refreshed login lands in the person’s auth.json', async () => {
+      const exe = fakeCodex()
+      const codexHome = join(home, '.codex')
+      mkdirSync(codexHome, { recursive: true })
+      writeFileSync(join(codexHome, 'auth.json'), '{"tokens":{"refresh_token":"rt-old"}}\n')
+      writeFileSync(join(codexHome, 'config.toml'), 'model = "gpt-custom"\n')
+      const before = treeListing(home)
+      const leftBefore = readdirSync(tmpdir()).filter((n) => n.startsWith('podium-models-codex-'))
+
+      const models = await probeAgentModels('codex', {
+        contexts: { codex: externalContext('codex', home, exe) },
+      })
+
+      expect(models.map((m) => m.value)).toEqual(['gpt-custom', 'gpt-account'])
+      // The rotated token is in the person's file, which is still a file.
+      expect(readFileSync(join(codexHome, 'auth.json'), 'utf8')).toContain('rt-new')
+      expect(lstatSync(join(codexHome, 'auth.json')).isFile()).toBe(true)
+      // The refresh took the person's own lock; nothing else was written.
+      expect(treeListing(home).sort()).toEqual([...before, '.codex/auth.lock:0'].sort())
+      const seen = readFileSync(join(observed, 'codex'), 'utf8')
+      expect(seen).not.toContain(`home=${codexHome}`)
+      expect(seen).toContain('args=-c cli_auth_credentials_store="file" debug models')
+      expect(seen).not.toContain(`cwd=${home}`)
+      expect(readdirSync(tmpdir()).filter((n) => n.startsWith('podium-models-codex-'))).toEqual(
+        leftBefore,
+      )
+    })
+
+    it('Codex: a login kept in the keyring, or no login file, is listed in place', async () => {
+      const exe = fakeCodex()
+      const codexHome = join(home, '.codex')
+      mkdirSync(codexHome, { recursive: true })
+      writeFileSync(join(codexHome, 'config.toml'), 'model = "gpt-custom"\n')
+      const context = externalContext('codex', home, exe)
+
+      expect((await probeAgentModels('codex', { contexts: { codex: context } }))[0]?.value).toBe(
+        'gpt-custom',
+      )
+      expect(readFileSync(join(observed, 'codex'), 'utf8')).toContain(`home=${codexHome}\n`)
+
+      writeFileSync(join(codexHome, 'auth.json'), '{"tokens":{"refresh_token":"rt-old"}}\n')
+      writeFileSync(
+        join(codexHome, 'config.toml'),
+        'model = "gpt-custom"\n[profiles.work]\ncli_auth_credentials_store = "auto"\n',
+      )
+      await probeAgentModels('codex', { contexts: { codex: context } })
+      const seen = readFileSync(join(observed, 'codex'), 'utf8')
+      expect(seen).toContain(`home=${codexHome}\n`)
+      expect(seen).toContain('args=debug models')
+    })
+
+    it('Pi: the agent folder moves aside, the login, extensions and settings are the ones read', async () => {
+      // Pi 1.6.0 creates settings.json and models-store.json when absent,
+      // refreshes the provider catalogs, and writes a refreshed login in place.
+      const exe = join(bin, 'pi')
+      writeFileSync(
+        exe,
+        [
+          '#!/bin/sh',
+          'dir="$HOME/.pi/agent"; [ -n "$PI_CODING_AGENT_DIR" ] && dir="$PI_CODING_AGENT_DIR"',
+          `{ echo "dir=$dir"; echo "cwd=$(pwd)"; } > "${observed}/pi"`,
+          '[ -e "$dir/auth.json" ] || echo "{}" > "$dir/auth.json"',
+          '[ -e "$dir/settings.json" ] || echo "{}" > "$dir/settings.json"',
+          'echo refreshed > "$dir/models-store.json"',
+          'login=$(sed s/access-old/access-new/ "$dir/auth.json"); printf "%s\\n" "$login" > "$dir/auth.json"',
+          'echo "provider  model  context  max-out  thinking  images"',
+          'grep -q anthropic "$dir/auth.json" && echo "anthropic  claude-x  200K  64K  yes  yes"',
+          '[ -d "$dir/extensions/provider-ext" ] && echo "ext  ext-model  1K  1K  no  no"',
+          'grep -q custom "$dir/models.json" && echo "custom  local  8K  1K  no  no"',
+          '',
+        ].join('\n'),
+        { mode: 0o755 },
+      )
+      const agent = join(home, '.pi', 'agent')
+      mkdirSync(join(agent, 'extensions', 'provider-ext'), { recursive: true })
+      writeFileSync(join(agent, 'auth.json'), '{"anthropic":{"access":"access-old"}}\n')
+      writeFileSync(join(agent, 'models.json'), '{"providers":{"custom":{}}}\n')
+      writeFileSync(join(agent, 'models-store.json'), '{"personal":true}\n')
+      const before = treeListing(home)
+      const leftBefore = readdirSync(tmpdir()).filter((n) => n.startsWith('podium-models-pi-'))
+
+      const models = await probeAgentModels('pi', {
+        contexts: { pi: externalContext('pi', home, exe) },
+      })
+
+      expect(models.map((m) => m.value)).toEqual([
+        'anthropic/claude-x',
+        'ext/ext-model',
+        'custom/local',
+      ])
+      expect(readFileSync(join(agent, 'auth.json'), 'utf8')).toBe(
+        '{"anthropic":{"access":"access-new"}}\n',
+      )
+      expect(lstatSync(join(agent, 'auth.json')).isFile()).toBe(true)
+      expect(readFileSync(join(agent, 'models-store.json'), 'utf8')).toBe('{"personal":true}\n')
+      expect(treeListing(home)).toEqual(before)
+      const seen = readFileSync(join(observed, 'pi'), 'utf8')
+      expect(seen).not.toContain(`dir=${agent}`)
+      expect(seen).not.toContain(`cwd=${home}`)
+      expect(readdirSync(tmpdir()).filter((n) => n.startsWith('podium-models-pi-'))).toEqual(
+        leftBefore,
+      )
+    })
+
+    it('Pi: with no login yet, the empty login Pi creates is not left in the person’s folder', async () => {
+      const exe = join(bin, 'pi')
+      writeFileSync(
+        exe,
+        '#!/bin/sh\n[ -e "$PI_CODING_AGENT_DIR/auth.json" ] || echo "{}" > "$PI_CODING_AGENT_DIR/auth.json"\necho "No models found"\n',
+        { mode: 0o755 },
+      )
+      mkdirSync(join(home, '.pi', 'agent'), { recursive: true })
+      const before = treeListing(home)
+
+      expect(
+        await probeAgentModels('pi', { contexts: { pi: externalContext('pi', home, exe) } }),
+      ).toEqual([])
+      expect(treeListing(home)).toEqual(before)
     })
 
     it('a Podium home is listed in place: it is already Podium’s own folder', async () => {
