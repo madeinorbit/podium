@@ -46,7 +46,7 @@ const observation = {
   cursor: { segmentId: 'segment-1', components: { seq: 6 } },
   context: summary,
 }
-const roundTrip = <T>(schema: z.ZodType<T>, value: unknown): T =>
+const roundTrip = <S extends z.ZodTypeAny>(schema: S, value: unknown): z.output<S> =>
   schema.parse(JSON.parse(JSON.stringify(value)))
 
 describe('context wire vocabulary', () => {
