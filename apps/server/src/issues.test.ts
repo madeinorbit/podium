@@ -2514,7 +2514,9 @@ describe('IssueService.start', () => {
         : { ok: true, output: '' },
     ) as typeof deps.repoOp
 
-    const result = await svc.gitWorkflow.ensureWorktree(created.id, asMachineId('mach-b'))
+    const result = await svc.gitWorkflow.ensureWorktree(created.id, asMachineId('mach-b'), {
+      forResume: true,
+    })
 
     expect(deps.recoverIssueBranch).toHaveBeenCalledWith({
       sourceRepoPath: '/source/repo',
@@ -2539,6 +2541,65 @@ describe('IssueService.start', () => {
       machineId: 'mach-b',
       repoPath: '/target/repo',
     })
+  })
+
+  it('uses an alternate branch when the original branch transfer times out', async () => {
+    const { svc, deps } = await harness()
+    deps.findRepoOnMachine = vi.fn(async () => '/target/repo')
+    let noteTransfer!: () => void
+    const transferring = new Promise<void>((resolve) => {
+      noteTransfer = resolve
+    })
+    let finishTransfer!: (tip: string) => void
+    const transfer = new Promise<string>((resolve) => {
+      finishTransfer = resolve
+    })
+    deps.recoverIssueBranch = vi.fn(() => {
+      noteTransfer()
+      return transfer
+    })
+    const writer = svc.reports.store.serverWriter
+    const created = await svc.crud.create(writer, {
+      repoPath: '/source/repo',
+      title: 'Cross-machine fallback',
+      parentBranch: 'dev',
+      startNow: false,
+      machineId: asMachineId('mach-a'),
+    })
+    const branch = 'issue/1-cross-machine-fallback'
+    await svc.crud.update(writer, created.id, { branch })
+    deps.repoOp = vi.fn(async (op: string) =>
+      op === 'worktreeAddExisting'
+        ? { ok: false, output: `fatal: invalid reference: ${branch}` }
+        : { ok: true, output: '' },
+    ) as typeof deps.repoOp
+
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      const result = svc.gitWorkflow.ensureWorktree(created.id, asMachineId('mach-b'), {
+        forResume: true,
+      })
+      await transferring
+      await vi.advanceTimersByTimeAsync(30_000)
+      const path = '/target/repo/.worktrees/resume-issue-1-cross-machine-fallback'
+      expect(await result).toMatchObject({
+        ok: true,
+        worktreePath: path,
+        issue: { branch: `resume/${branch}`, parentBranch: 'dev' },
+      })
+      finishTransfer('a'.repeat(40))
+      await transfer
+      expect(vi.mocked(deps.repoOp).mock.calls.filter(([op]) => op === 'worktreeAdd')).toEqual([
+        [
+          'worktreeAdd',
+          '/target/repo',
+          { path, branch: `resume/${branch}`, startPoint: 'refs/heads/dev' },
+          'mach-b',
+        ],
+      ])
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   /**

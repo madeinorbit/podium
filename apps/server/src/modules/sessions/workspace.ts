@@ -545,10 +545,8 @@ export class SessionWorkspace {
   async ensureSessionWorktree(
     session: Session,
     issues: SessionIssueWorkflowPort,
-  ):
-    Promise<| { ok: boolean; reason?: string; cwd?: string }
-    | Promise<{ ok: boolean; reason?: string; cwd?: string }>> {
-    const issueId = session.issueId ?? await this.ports.issueAccess.issueForCwd(session.cwd)
+  ): Promise<{ ok: boolean; reason?: string; cwd?: string }> {
+    const issueId = session.issueId ?? (await this.ports.issueAccess.issueForCwd(session.cwd))
     if (!issueId) return { ok: true, cwd: session.cwd }
     const issue = await this.ports.issueAccess.getMeta(issueId)
     if (!issue) return { ok: true, cwd: session.cwd }
@@ -558,10 +556,10 @@ export class SessionWorkspace {
     // against the executable (`posix_spawn '.../podium-host'`) when the missing object
     // is actually cwd.
     //
-    // Keep the normal recorded-worktree path synchronous (POD-197). Reconcile only
-    // when placement proves this is a cross-machine path: either the issue is homed
-    // elsewhere, or repo identity maps its stored source path to a different target
-    // checkout. The issue workflow then rebuilds and rehomes after git succeeds.
+    // Check managed worktrees even when their path is recorded locally. The
+    // path and branch may have been removed while the session was parked.
+    // For a cross-machine path, the workflow checks and rebuilds on the
+    // session's machine and rehomes the issue after Git succeeds.
     const assignedMachineId = session.machineId
     const issueMachineId = issue.machineId ?? undefined
     const machineMoved = Boolean(
@@ -573,19 +571,16 @@ export class SessionWorkspace {
         : null
     const repoPathMoved = Boolean(targetRepoPath && targetRepoPath !== issue.repoPath)
     const requestedMachineId = machineMoved || repoPathMoved ? assignedMachineId : undefined
-    if (issue.worktreePath && !requestedMachineId) return { ok: true, cwd: issue.worktreePath }
-    if (!issue.branch) return { ok: true, cwd: session.cwd }
-    const ensured = requestedMachineId
-      ? issues.ensureWorktree(issueId, requestedMachineId)
-      : issues.ensureWorktree(issueId)
-    return ensured.then((recreated) => {
-      if (!recreated.ok || !recreated.worktreePath) {
-        return {
-          ok: false,
-          reason: recreated.output || 'failed to recreate worktree from branch',
-        }
+    if (!issue.branch) {
+      return { ok: true, cwd: (!requestedMachineId && issue.worktreePath) || session.cwd }
+    }
+    const recreated = await issues.ensureWorktree(issueId, requestedMachineId, { forResume: true })
+    if (!recreated.ok || !recreated.worktreePath) {
+      return {
+        ok: false,
+        reason: recreated.output || 'failed to recreate worktree from branch',
       }
-      return { ok: true, cwd: recreated.worktreePath }
-    })
+    }
+    return { ok: true, cwd: recreated.worktreePath }
   }
 }

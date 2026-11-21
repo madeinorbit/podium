@@ -51,6 +51,28 @@ import { IssueWorktreeGcModule } from './worktree-gc'
 import { parseGitWorktreeList, sameWorktreePath } from './worktree-safety'
 
 const log = createLogger('server:issues')
+const RESUME_BRANCH_RECOVERY_MS = 30_000
+
+function missingGitReference(output: string, ref: string): boolean {
+  return output.split(/\r?\n/u).includes(`fatal: invalid reference: ${ref}`)
+}
+
+async function waitForResumeBranch(transfer: Promise<string>): Promise<string> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      transfer,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error('timed out recovering the original branch')),
+          RESUME_BRANCH_RECOVERY_MS,
+        )
+      }),
+    ])
+  } finally {
+    clearTimeout(timer)
+  }
+}
 
 /** What `start` takes beyond the issue and an explicit harness. */
 export interface IssueStartOptions {
@@ -1444,6 +1466,7 @@ export class IssueGitWorkflowModule {
   async ensureWorktree(
     id: string,
     requestedMachineId?: MachineId,
+    options: { forResume?: boolean } = {},
   ): Promise<{ ok: boolean; output: string; worktreePath: string | null; issue: IssueProjection }> {
     /**
      * NO DRAFT SPANS THE WORKTREE BUILD [POD-3375].
@@ -1463,7 +1486,7 @@ export class IssueGitWorkflowModule {
      * RAN against rather than re-reading it, so the sentence describes what was done.
      */
     const at = await this.store.rowOrThrow(id)
-    if (isIssueStage(at.stage) && isSystemOwnedIssueStage(at.stage)) {
+    if (!options.forResume && isIssueStage(at.stage) && isSystemOwnedIssueStage(at.stage)) {
       throw new IssueRefusal('shipping stage is system-owned and cannot create an issue worktree')
     }
     // Preserve an explicit request/pin as-is. An unpinned operation is resolved at
@@ -1504,7 +1527,10 @@ export class IssueGitWorkflowModule {
         // probe, and the null test re-read with it — another writer may have homed
         // this issue while the status ran, and its answer is the one that counts.
         const confirmed = await this.store.draftOrThrow(id)
-        if (confirmed.machineId === null) {
+        if (
+          confirmed.machineId === null &&
+          !(isIssueStage(confirmed.stage) && isSystemOwnedIssueStage(confirmed.stage))
+        ) {
           confirmed.machineId = statusMachineId
           await this.store.persistRow(this.store.serverWriter, confirmed)
         }
@@ -1528,13 +1554,17 @@ export class IssueGitWorkflowModule {
     }
     // Re-read after the probe above: a `start()` in the gap may have minted the
     // branch this recreate needs, and the copy taken before it would not show it.
-    const branch = (await this.store.rowOrThrow(id)).branch
-    if (!branch) {
+    const current = await this.store.rowOrThrow(id)
+    if (isIssueStage(current.stage) && isSystemOwnedIssueStage(current.stage)) {
+      throw new IssueRefusal('shipping stage is system-owned and cannot create an issue worktree')
+    }
+    const originalBranch = current.branch
+    if (!originalBranch) {
       return {
         ok: false,
         output: 'no branch recorded — cannot recreate worktree',
         worktreePath: null,
-        issue: await this.store.projection(await this.store.rowOrThrow(id)),
+        issue: await this.store.projection(current),
       }
     }
     // The repository is on the PINNED machine at that machine's path, which is not
@@ -1542,7 +1572,8 @@ export class IssueGitWorkflowModule {
     // guard — and run the recreate itself against the resolved path, since `git -C
     // <source path>` on the target names a directory that is not there.
     const worktreeMachineId = await this.store.resolveWorktreeMachine(pinnedMachineId, repoPath)
-    const path = recordedWorktreePath ?? this.worktreePathFor(repoPath, branch)
+    let branch = originalBranch
+    let path = recordedWorktreePath ?? this.worktreePathFor(repoPath, branch)
     // Keep the old implicit behavior: only explicit requests/pins use this pre-flight.
     // A repo-affine/default selection used to flow straight through repoOp.
     if (pinnedMachineId) await this.store.d.requireMachineForRepo?.(pinnedMachineId, repoPath)
@@ -1552,46 +1583,49 @@ export class IssueGitWorkflowModule {
       { path, branch },
       worktreeMachineId,
     )
-    // An older session can remain on its original machine after its issue moves.
-    // Import the exact branch from the issue's home only when Git cannot resolve
-    // it locally. Keep a local branch authoritative and never reset it.
-    if (
-      !res.ok &&
-      res.output.split(/\r?\n/u).includes(`fatal: invalid reference: ${branch}`) &&
-      at.machineId &&
-      worktreeMachineId &&
-      at.machineId !== worktreeMachineId &&
-      this.store.d.recoverIssueBranch
-    ) {
-      try {
-        const startPoint = await this.store.d.recoverIssueBranch({
-          sourceRepoPath: at.repoPath,
-          sourceMachineId: at.machineId,
-          targetRepoPath: repoPath,
-          targetMachineId: worktreeMachineId,
-          branch,
-        })
-        res = await this.store.d.repoOp(
-          'worktreeAdd',
-          repoPath,
-          { path, branch, startPoint },
-          worktreeMachineId,
-        )
-        if (!res.ok && res.output.includes(`a branch named '${branch}' already exists`)) {
-          // A concurrent repair won the ref creation. Attach to its branch.
-          res = await this.store.d.repoOp(
-            'worktreeAddExisting',
-            repoPath,
-            { path, branch },
-            worktreeMachineId,
-          )
+    let fallbackNotice: string | undefined
+    let originalRecoveryFailure: string | undefined
+    if (!res.ok && missingGitReference(res.output, branch)) {
+      // A session can still be on its previous machine after the issue moved.
+      // Give the exact branch the first chance, with time left for the local
+      // fallback. Only the returned commit gets a worktree, even if the
+      // transfer eventually finishes after its deadline.
+      let recovered: string | undefined
+      if (at.machineId && at.machineId !== worktreeMachineId && this.store.d.recoverIssueBranch) {
+        try {
+          const transfer = this.store.d.recoverIssueBranch({
+            sourceRepoPath: at.repoPath,
+            sourceMachineId: at.machineId,
+            targetRepoPath: repoPath,
+            targetMachineId: worktreeMachineId,
+            branch,
+          })
+          recovered = await (options.forResume ? waitForResumeBranch(transfer) : transfer)
+        } catch (error) {
+          const reason = error instanceof Error ? error.message : String(error)
+          res = {
+            ok: false,
+            output: `could not recover branch '${branch}' from the issue’s machine: ${reason}`,
+          }
         }
-      } catch (error) {
-        const reason = error instanceof Error ? error.message : String(error)
-        res = {
-          ok: false,
-          output: `could not recover branch '${branch}' from the issue’s machine: ${reason}`,
+      }
+      if (recovered) {
+        res = await this.createResumeWorktree(repoPath, worktreeMachineId, path, branch, recovered)
+      }
+      if (
+        !res.ok &&
+        options.forResume &&
+        (!recovered || missingGitReference(res.output, recovered))
+      ) {
+        originalRecoveryFailure = res.output
+        branch = originalBranch.startsWith('resume/') ? originalBranch : `resume/${originalBranch}`
+        path = this.worktreePathFor(repoPath, branch)
+        const base = current.parentBranch ? `refs/heads/${current.parentBranch}` : 'HEAD'
+        res = await this.createResumeWorktree(repoPath, worktreeMachineId, path, branch, base)
+        if (!res.ok && base !== 'HEAD' && missingGitReference(res.output, base)) {
+          res = await this.createResumeWorktree(repoPath, worktreeMachineId, path, branch, 'HEAD')
         }
+        fallbackNotice = `Branch '${originalBranch}' was unavailable. The session will resume on '${branch}'.`
       }
     }
     // `already exists` is not a failure when what exists IS this issue's worktree on
@@ -1602,25 +1636,84 @@ export class IssueGitWorkflowModule {
     if (!res.ok && !adopted) {
       return {
         ok: false,
-        output: `worktree recreate failed: ${res.output}`,
+        output: originalRecoveryFailure
+          ? `worktree recreate failed: ${originalRecoveryFailure}\nCould not use ${branch}: ${res.output}`
+          : `worktree recreate failed: ${res.output}`,
         worktreePath: null,
         issue: await this.store.projection(await this.store.rowOrThrow(id)),
       }
     }
     const row = await this.store.draftOrThrow(id)
+    if (
+      fallbackNotice &&
+      (row.branch !== originalBranch ||
+        row.repoPath !== current.repoPath ||
+        row.machineId !== current.machineId ||
+        row.worktreePath !== current.worktreePath ||
+        (isIssueStage(row.stage) && isSystemOwnedIssueStage(row.stage)))
+    ) {
+      const sameFallback =
+        row.branch === branch && row.worktreePath === path && row.machineId === worktreeMachineId
+      return {
+        ok: sameFallback,
+        output: sameFallback ? fallbackNotice : 'issue workspace changed while preparing resume',
+        worktreePath: sameFallback ? path : null,
+        issue: await this.store.projection(row),
+      }
+    }
     row.repoPath = repoPath
     row.machineId = asMachineId(worktreeMachineId)
     row.worktreePath = path
-    await this.store.persistRow(this.store.serverWriter, row)
+    if (fallbackNotice) row.branch = branch
+    let issue = await this.store.persistRow(this.store.serverWriter, row)
     this.store.d.onWorktreesChanged?.(row.repoPath, row.machineId ?? undefined)
+    if (fallbackNotice) {
+      try {
+        issue = await this.commentsMail().addComment(
+          this.store.serverWriter,
+          row.id,
+          'system:resume',
+          fallbackNotice,
+          systemPrincipal('resume'),
+        )
+      } catch (error) {
+        log.warn('could not record the resume branch change in an issue comment', {
+          issueId: row.id,
+          error,
+        })
+      }
+    }
     return {
       ok: true,
-      output: adopted
-        ? `worktree already present at ${path} on branch '${branch}'`
-        : `recreated worktree ${path} from branch '${branch}'`,
+      output:
+        fallbackNotice ??
+        (adopted
+          ? `worktree already present at ${path} on branch '${branch}'`
+          : `recreated worktree ${path} from branch '${branch}'`),
       worktreePath: path,
-      issue: await this.store.projection(row),
+      issue,
     }
+  }
+
+  private async createResumeWorktree(
+    repoPath: string,
+    machineId: MachineId,
+    path: string,
+    branch: string,
+    startPoint: string,
+  ): Promise<{ ok: boolean; output: string }> {
+    const res = await this.store.d.repoOp(
+      'worktreeAdd',
+      repoPath,
+      { path, branch, startPoint },
+      machineId,
+    )
+    // Resume after a partial or concurrent repair can attach the branch that
+    // was already created. Git refuses to overwrite it.
+    if (!res.ok && res.output.includes(`a branch named '${branch}' already exists`)) {
+      return await this.store.d.repoOp('worktreeAddExisting', repoPath, { path, branch }, machineId)
+    }
+    return res
   }
 
   /**

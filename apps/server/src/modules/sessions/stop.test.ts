@@ -1016,6 +1016,70 @@ describe('stopSession', () => {
     })
   })
 
+  it.each([
+    [true, 'refs/heads/dev'],
+    [false, 'HEAD'],
+  ])('resurrects the same conversation on a fallback branch (parent available: %s)', async (parentAvailable, startPoint) => {
+    const { reg, daemon, repoOps, setRepoOp } = await makeRegistry()
+    const writer = reg.modules.issues.reports.store.serverWriter
+    const issue = await reg.modules.issues.crud.create(writer, {
+      repoPath: '/r',
+      title: 'Missing branch',
+      parentBranch: 'dev',
+      startNow: false,
+    })
+    const originalBranch = 'issue/1-missing-branch'
+    const originalPath = '/r/.worktrees/issue-1-missing-branch'
+    const fallbackBranch = 'resume/issue/1-missing-branch'
+    const fallbackPath = '/r/.worktrees/resume-issue-1-missing-branch'
+    await reg.modules.issues.crud.update(writer, issue.id, {
+      worktreePath: originalPath,
+      branch: originalBranch,
+    })
+    const { sessionId } = await reg.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: originalPath,
+      issueId: issue.id,
+    })
+    await bindLive(reg, sessionId, originalPath)
+    expect(await reg.modules.sessions.hibernateSession({ sessionId })).toEqual({ ok: true })
+    setRepoOp(async (op, cwd, args) => {
+      if (op === 'status' && cwd === originalPath) {
+        return { ok: false, output: `fatal: cannot change to '${cwd}': No such file or directory` }
+      }
+      if (op === 'worktreeAddExisting') {
+        return { ok: false, output: `fatal: invalid reference: ${args?.branch}` }
+      }
+      if (op === 'worktreeAdd' && args?.startPoint === 'refs/heads/dev' && !parentAvailable) {
+        return { ok: false, output: 'fatal: invalid reference: refs/heads/dev' }
+      }
+      return { ok: true, output: '' }
+    })
+
+    daemon.length = 0
+    expect(await reg.modules.issueSessionLifecycle.resurrectSession({ sessionId })).toEqual({
+      ok: true,
+    })
+    expect(repoOps.filter((op) => op.op === 'worktreeAdd').at(-1)).toMatchObject({
+      cwd: '/r',
+      args: { path: fallbackPath, branch: fallbackBranch, startPoint },
+    })
+    expect(await reg.modules.issues.reports.get(issue.id)).toMatchObject({
+      branch: fallbackBranch,
+      worktreePath: fallbackPath,
+      parentBranch: 'dev',
+    })
+    expect(daemon.find((message) => message.type === 'spawn')).toMatchObject({
+      sessionId,
+      cwd: fallbackPath,
+      resume: { kind: 'claude-session', value: 'native-1' },
+    })
+    const note = (await reg.sessionStore.issues.listIssueComments(issue.id)).find(
+      (comment) => comment.author === 'system:resume',
+    )
+    expect(note?.body).toContain(fallbackBranch)
+  })
+
   it('resurrects an issue session that never owned a dedicated worktree', async () => {
     const { reg, daemon, repoOps } = await makeRegistry()
     const issue = await reg.modules.issues.crud.create(

@@ -17,6 +17,7 @@ export interface SessionIssueWorkflowPort {
   ensureWorktree(
     issueId: IssueId,
     machineId?: MachineId,
+    options?: { forResume?: boolean },
   ): Promise<{ ok: boolean; output: string; worktreePath: string | null; issue: IssueProjection }>
   freeWorktreeKeepBranch(
     issueId: IssueId,
