@@ -400,7 +400,7 @@ describe('a session credential -> real spawned process env (#216, epic Task 5)',
           const h = makeHarness(settingsDir, createDurableProcess())
           const dump = await spawnAndDumpEnv(h, asSessionId(`sp-${tag}`), access, {
             // Read through the shell's own descriptor: the pipe it inherited.
-            command: `echo "PIPE=$(cat /proc/$$/fd/$${descriptor})END"`,
+            command: `echo "PIPE=$(/bin/cat /proc/$$/fd/$${descriptor})END"`,
             until: 'END\r\n',
           })
           // Canary first: the secret did reach the process, on the pipe.
