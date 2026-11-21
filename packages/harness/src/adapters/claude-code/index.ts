@@ -5,6 +5,7 @@ import {
   claudePromptTextMatches,
   promptEchoCorrelation,
 } from '../../accept-correlation.js'
+import { declinedContext } from '../../context-types.js'
 import { composeAgentInstructions } from '../../instructions.js'
 import {
   type AgentManifest,
@@ -290,6 +291,9 @@ export const claudeCodeManifest: AgentManifest = {
   // explicitly requested. On unknown/logged-out auth, the interactive PTY
   // remains the total fallback.
   runtime: {
+    context: declinedContext(
+      'Claude context strategies are not wired; native summary and on-demand detail require adapter validation',
+    ),
     server: unsupported(
       'Claude Code ships no server mode — the Agent SDK is in-process and `claude -p` is one-shot',
     ),

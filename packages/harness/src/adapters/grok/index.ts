@@ -6,6 +6,7 @@ import {
   submitHookCorrelation,
 } from '../../accept-correlation.js'
 import { withStateChannel } from '../../agent-state/types.js'
+import { declinedContext } from '../../context-types.js'
 import { composeAgentInstructions } from '../../instructions.js'
 import {
   type AgentManifest,
@@ -218,6 +219,9 @@ export const grokManifest: AgentManifest = {
   }),
 
   runtime: {
+    context: declinedContext(
+      'Grok context strategies are not wired; native status admission and post-inference freshness must be validated',
+    ),
     server: supported({
       driverId: 'grok-acp',
       kind: 'jsonrpc',

@@ -1,5 +1,6 @@
 /** Record-owned live values: pushed while watched, never saved (POD-7090). */
 import { z } from 'zod'
+import { ContextSummary, contextUsagePercentOf } from '../context'
 import { DaemonReadiness, MachinePresenceSource } from '../entities/machine'
 import { Geometry } from '../fields/session'
 import { PresenceIdentity } from '../identity/presence'
@@ -67,14 +68,31 @@ export type SessionTerminalStateLive = z.infer<typeof SessionTerminalStateLive>
  * is a record field (ADR 12 D1). A session nothing runs reads `busy: false`,
  * no gated requests and its stored last input time.
  */
-export const SessionConditionLive = z.object({
-  /** The session is writing to its terminal now. */
-  busy: z.boolean(),
-  /** Viewport requests not forwarded because their sender did not hold control (POD-3239 B6). */
-  requestsGated: z.number().int().nonnegative(),
-  /** The last human (controller) input, ISO 8601; absent when there was none. */
-  lastInputAt: z.string().optional(),
-  /** The harness's latest exact context-window use, when it reports one. */
-  contextUsagePercent: z.number().finite().min(0).max(100).optional(),
-})
+export const SessionConditionLive = z
+  .object({
+    /** The session is writing to its terminal now. */
+    busy: z.boolean(),
+    /** Viewport requests not forwarded because their sender did not hold control (POD-3239 B6). */
+    requestsGated: z.number().int().nonnegative(),
+    /** The last human (controller) input, ISO 8601; absent when there was none. */
+    lastInputAt: z.string().optional(),
+    /** Atomic, demand-bound context reading; never a persisted session fact. */
+    context: ContextSummary.optional(),
+    /** Compatibility projection of context.occupancy.percent, never a counter.
+     * Keep over-capacity measurements; only a drawing may clamp them. */
+    contextUsagePercent: z.number().finite().nonnegative().optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (
+      value.context &&
+      value.contextUsagePercent !== undefined &&
+      value.contextUsagePercent !== contextUsagePercentOf(value.context)
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['contextUsagePercent'],
+        message: 'Legacy percentage must project the atomic context observation',
+      })
+    }
+  })
 export type SessionConditionLive = z.infer<typeof SessionConditionLive>

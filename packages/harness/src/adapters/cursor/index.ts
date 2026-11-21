@@ -1,6 +1,7 @@
 import { join } from 'node:path'
 import { transcriptEchoAcceptCorrelation } from '../../accept-correlation.js'
 import { withStateChannel } from '../../agent-state/types.js'
+import { declinedContext } from '../../context-types.js'
 import { cursorRoot, cursorSessionPaths } from '../../cursor/paths.js'
 import { composeAgentInstructions } from '../../instructions.js'
 import {
@@ -139,6 +140,9 @@ export const cursorManifest: AgentManifest = {
   // an open question in the reason below rather than asserted as an absence,
   // because POD-2025 has just shown how easily that assertion turns out wrong.
   runtime: {
+    context: declinedContext(
+      'The measured Cursor channels provide no validated current context measurement',
+    ),
     server: unsupported(
       'no verified server mode: the public ACP registry lists Cursor as an agent, but nobody has probed cursor-agent the way POD-2025 probed grok — verify before turning this into a spec',
     ),

@@ -21,6 +21,7 @@ import type {
   QuotaHistorySampleWire,
   SessionObservationCheckpointV1,
 } from '@podium/protocol'
+import type { HarnessContextSection } from './context-types.js'
 import type { HarnessContext } from './harness-context-types.js'
 import type { PostureSection } from './posture-types.js'
 import type {
@@ -1365,6 +1366,8 @@ export interface HarnessComposer {
  * and say WHY when absent.
  */
 export interface AgentRuntimeAxis {
+  /** Native context strategy by harness × driver; no inference from usage(). */
+  context: HarnessContextSection
   /**
    * The harness's own server, and how to launch and address it. Unsupported ⇒
    * this CLI has no server mode, so the server family is simply unavailable and

@@ -1,8 +1,10 @@
 import { supported, unsupported } from '../../../manifest.js'
+import { contextCapabilityFor } from '../../../registry.js'
 import type { DriverCapabilities } from '../../capabilities.js'
 
 export function grokAcpCapabilities(): DriverCapabilities {
   return {
+    context: contextCapabilityFor('grok', 'grok-acp'),
     send: {
       readiness: { kind: 'driver-managed' },
       // ACP has no steer method. A send made while a prompt is open is held in

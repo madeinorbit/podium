@@ -14,6 +14,7 @@
  */
 
 import { supported, unsupported } from '../../../manifest.js'
+import { contextCapabilityFor } from '../../../registry.js'
 import type { DriverCapabilities } from '../../capabilities.js'
 
 export function opencodeServerCapabilities(
@@ -21,6 +22,7 @@ export function opencodeServerCapabilities(
 ): DriverCapabilities {
   const v1 = driverId === 'opencode-server'
   return {
+    context: contextCapabilityFor('opencode', driverId),
     // ---- CORE ----
     send: {
       readiness: { kind: 'driver-managed' },

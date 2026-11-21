@@ -1,7 +1,13 @@
 // Part of the Agent Runtime contract (POD-1761 W1). See ./host.js for the
 // surface's five governing rules and the core-vs-extended tier boundary.
 
-import type { HarnessRef, ResumeRef, TranscriptItem, TranscriptItemRef } from '@podium/model'
+import type {
+  ContextSummary,
+  HarnessRef,
+  ResumeRef,
+  TranscriptItem,
+  TranscriptItemRef,
+} from '@podium/model'
 import type { ObservationProvenance, ProviderCursor } from '@podium/protocol'
 import type { DeliveryFailureCause } from '@podium/protocol/daemon'
 import type { AgentStateEvent } from '../agent-state/types.js'
@@ -68,6 +74,10 @@ export type SessionMetadataChange =
   | { kind: 'model'; source: 'transcript' | 'native'; model: string; effort?: string }
   | { kind: 'color'; source: 'transcript'; color: string }
   | { kind: 'context'; source: 'transcript'; percent: number }
+  /** Capability-gated normalized replacement, including pending/clear states.
+   * Coarse metadata is retained and bootstrap-replayable. The old percent arm
+   * is only an older-peer compatibility projection. */
+  | { kind: 'context-observation'; context: ContextSummary }
 
 export type SessionMetadataObservation = CausalEnvelope & {
   t: 'metadata'

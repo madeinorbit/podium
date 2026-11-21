@@ -4,6 +4,7 @@ import { createLogger } from '@podium/logger'
 import type { AcceptedCredential } from '@podium/model'
 import { promptEchoCorrelation, submitHookCorrelation } from '../../accept-correlation.js'
 import { withStateChannel } from '../../agent-state/types.js'
+import { declinedContext } from '../../context-types.js'
 import { hostTools } from '../../host-tools.js'
 import { composeAgentInstructions } from '../../instructions.js'
 import {
@@ -434,6 +435,9 @@ export const codexManifest: AgentManifest = {
   // ChatGPT subscription auth works headless (`~/.codex/auth.json` serves `exec`
   // and `app-server` alike), so there is no auth mode that forces the terminal.
   runtime: {
+    context: declinedContext(
+      'Codex context strategies are not wired; lifetime usage must not substitute for the latest context sample',
+    ),
     server: supported({
       driverId: 'codex-app-server',
       kind: 'jsonrpc',

@@ -20,6 +20,11 @@
 import {
   AgentProfileName,
   CidrRange,
+  ContextComposition,
+  ContextDetail,
+  ContextLastRequest,
+  ContextModelIdentity,
+  ContextOccupancy,
   CredentialId,
   canonicalShippingDestination,
   DriverFamilyWire,
@@ -39,6 +44,7 @@ import {
   READ_STREAM_IDS,
   ReadPositionSnapshot,
   ReadStreamIdField,
+  SessionConditionLive,
   ShipHoldAction,
   ShipHoldCode,
   ShipOrder,
@@ -52,6 +58,7 @@ import {
 } from '@podium/model'
 import type { z } from 'zod'
 import { HomeCredentialId } from '../messages/homes'
+import { ContextObservation } from '../messages/runtime'
 import {
   ShippingEvidenceRequestMessage,
   ShippingRepairApplyRequestMessage,
@@ -189,6 +196,110 @@ const DIGEST = 'a'.repeat(64)
  * of the invariant, and it drifts.
  */
 export const SAMPLE_FIXUPS = new Map<z.ZodTypeAny, SampleFixup>([
+  // Context's partial fields are independent optionals; a minimal valid
+  // observation still needs one measured value. Keep the remaining walk so
+  // future additive fields remain visible in the full golden.
+  [
+    ContextModelIdentity,
+    (value) =>
+      isRecord(value) && value.modelId === undefined && value.providerId === undefined
+        ? { ...value, modelId: 'synthetic-model' }
+        : value,
+  ],
+  [
+    ContextOccupancy,
+    (value) =>
+      isRecord(value) && value.usedTokens === undefined && value.percent === undefined
+        ? {
+            ...value,
+            usedTokens: { value: 0, accuracy: 'reported', source: 'synthetic measurement' },
+          }
+        : value,
+  ],
+  [
+    ContextLastRequest,
+    (value) => {
+      if (!isRecord(value)) return value
+      const request = { ...value }
+      const quantities = ['input', 'output', 'cacheRead', 'cacheWrite', 'reasoning']
+      if (quantities.every((key) => request[key] === undefined))
+        request.input = { value: 0, accuracy: 'reported', source: 'synthetic request' }
+      const input = request.input
+      const read = isRecord(request.cacheRead) ? Number(request.cacheRead.value) : 0
+      const write = isRecord(request.cacheWrite) ? Number(request.cacheWrite.value) : 0
+      if (isRecord(input))
+        request.input = { ...input, value: Math.max(Number(input.value), read + write) }
+      return request
+    },
+  ],
+  [
+    ContextComposition,
+    (value) => {
+      if (!isRecord(value) || !Array.isArray(value.rows)) return value
+      // The walk's full row has an arbitrary parentId. Make it a real child of
+      // one matching parent, preserving every sampled optional field.
+      const rows = value.rows.flatMap((row: unknown) => {
+        if (!isRecord(row) || row.parentId === undefined) return [row]
+        const parent = {
+          ...row,
+          id: `${row.id}-parent`,
+          parentId: undefined,
+          childrenCoverage: row.attribution === 'unattributed' ? 'partial' : 'complete',
+        }
+        return [parent, { ...row, parentId: parent.id }]
+      })
+      const used = rows
+        .filter((row) => isRecord(row) && row.parentId === undefined && row.kind === 'used')
+        .reduce(
+          (sum, row) =>
+            sum + (isRecord(row) && isRecord(row.tokens) ? Number(row.tokens.value) : 0),
+          0,
+        )
+      return {
+        ...value,
+        coverage: 'partial',
+        rows,
+        ...(isRecord(value.usedTokens) ? { usedTokens: { ...value.usedTokens, value: used } } : {}),
+      }
+    },
+  ],
+  [
+    ContextDetail,
+    (value) =>
+      isRecord(value) && value.lastRequest === undefined && value.composition === undefined
+        ? {
+            ...value,
+            lastRequest: { input: { value: 0, accuracy: 'reported', source: 'synthetic request' } },
+          }
+        : value,
+  ],
+  [
+    ContextObservation,
+    (value) => {
+      if (!isRecord(value) || !isRecord(value.context)) return value
+      const context = value.context
+      const revision = context.status === 'available' ? context.sample : context.revision
+      return isRecord(revision)
+        ? {
+            ...value,
+            observerGeneration: revision.observerGeneration,
+            turnEpoch: revision.turnEpoch,
+          }
+        : value
+    },
+  ],
+  [
+    SessionConditionLive,
+    (value) => {
+      if (!isRecord(value) || !isRecord(value.context) || value.contextUsagePercent === undefined)
+        return value
+      const occupancy = value.context.occupancy
+      if (isRecord(occupancy) && isRecord(occupancy.percent))
+        return { ...value, contextUsagePercent: occupancy.percent.value }
+      const { contextUsagePercent: _legacy, ...rest } = value
+      return rest
+    },
+  ],
   [
     ShipOrder,
     (value: unknown) => {

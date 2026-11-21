@@ -430,6 +430,9 @@ export function headlessCapabilities(harness?: string): DriverCapabilities {
   const permissionHarness = harness ?? claudeSdkHarnessKind
   const archivableHarness = harness ?? claudeSdkHarnessKind
   return {
+    context: unsupported(
+      'Headless context observations require an adapter strategy validated for this harness; billing usage is not occupancy',
+    ),
     instrumentation: 'none',
     send: {
       readiness: { kind: 'driver-managed' },

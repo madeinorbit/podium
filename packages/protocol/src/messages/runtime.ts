@@ -4,6 +4,12 @@ import { SessionPostureSchema } from './posture'
 export { NativeBindingReceipt } from './native-binding'
 
 import {
+  CONTEXT_MAX_ROWS,
+  ContextCausalIdentity,
+  ContextDetailResult,
+  ContextReason,
+  ContextSampleIdentity,
+  ContextSummary,
   DriverFamilyWire,
   HarnessRef,
   NOT_IN_CONVERSATION_CAUSES,
@@ -313,10 +319,54 @@ export const CausalEnvelope = z.object({
   at: z.string().datetime(),
   provenance: ObservationProvenance,
   cursor: ProviderCursor,
-  observerGeneration: z.number().int().positive(),
-  turnEpoch: z.number().int().nonnegative(),
+  observerGeneration: ContextCausalIdentity.shape.observerGeneration,
+  turnEpoch: ContextCausalIdentity.shape.turnEpoch,
 })
 export type CausalEnvelope = z.infer<typeof CausalEnvelope>
+
+/** Additive, versioned context vocabulary for delivery wiring. Only negotiate
+ * this capability when clear observations and snapshot replay are both wired.
+ * An older peer's absent field means unavailable, never a measured zero.
+ * New frames/event arms must be capability gated; don't send them to old peers.
+ */
+export const CAP_CONTEXT_OBSERVATION_V1 = 'context.observation.v1'
+function refineContextCausality(
+  value: CausalEnvelope,
+  context: ContextSummary,
+  ctx: z.RefinementCtx,
+): void {
+  const revision =
+    context.status === 'available'
+      ? context.sample
+      : context.status === 'pending' || context.status === 'unavailable'
+        ? context.revision
+        : undefined
+  if (
+    revision &&
+    (revision.observerGeneration !== value.observerGeneration ||
+      revision.turnEpoch !== value.turnEpoch)
+  ) {
+    ctx.addIssue({ code: 'custom', message: 'Context revision must match its causal envelope' })
+  }
+}
+export const ContextObservation = CausalEnvelope.extend({ context: ContextSummary }).superRefine(
+  (value, ctx) => refineContextCausality(value, value.context, ctx),
+)
+export type ContextObservation = z.infer<typeof ContextObservation>
+/** Signal is local-only and is never serialized. Transport deadlines may be
+ * shorter. Summary is explicit/coalesced and must not imply a full native read.
+ */
+export const ContextSummaryRequest = z.object({ timeoutMs: z.number().int().min(1).max(60_000) })
+export const ContextDetailRequest = ContextSummaryRequest.extend({
+  sample: ContextSampleIdentity,
+  maxRows: z.number().int().min(1).max(CONTEXT_MAX_ROWS),
+})
+export type ContextDetailRequest = z.infer<typeof ContextDetailRequest>
+export const ContextSummaryReadResult = z.union([
+  z.object({ status: z.literal('observation'), observation: ContextObservation }),
+  z.object({ status: z.enum(['cancelled', 'refused']), reason: ContextReason }),
+])
+export { ContextDetailResult }
 
 export const TranscriptItemDelta = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('complete'), item: TranscriptItem }),
@@ -374,15 +424,21 @@ export const SessionMetadataChange = z.discriminatedUnion('kind', [
   }),
   z.object({ kind: z.literal('color'), source: z.literal('transcript'), color: z.string() }),
   z.object({ kind: z.literal('context'), source: z.literal('transcript'), percent: z.number() }),
+  z.object({ kind: z.literal('context-observation'), context: ContextSummary }),
 ])
 export type SessionMetadataChange = z.infer<typeof SessionMetadataChange>
-export const SessionMetadataObservation = z.intersection(
-  CausalEnvelope,
-  z.object({
-    t: z.literal('metadata'),
-    change: SessionMetadataChange,
-  }),
-)
+export const SessionMetadataObservation = z
+  .intersection(
+    CausalEnvelope,
+    z.object({
+      t: z.literal('metadata'),
+      change: SessionMetadataChange,
+    }),
+  )
+  .superRefine((value, ctx) => {
+    if (value.change.kind === 'context-observation')
+      refineContextCausality(value, value.change.context, ctx)
+  })
 export type SessionMetadataObservation = z.infer<typeof SessionMetadataObservation>
 
 /**
@@ -512,7 +568,12 @@ export const RuntimeEventBody = z.discriminatedUnion('t', [
 ])
 export type RuntimeEventBody = z.infer<typeof RuntimeEventBody>
 
-export const RuntimeEvent = z.intersection(CausalEnvelope, RuntimeEventBody)
+export const RuntimeEvent = z
+  .intersection(CausalEnvelope, RuntimeEventBody)
+  .superRefine((value, ctx) => {
+    if (value.t === 'metadata' && value.change.kind === 'context-observation')
+      refineContextCausality(value, value.change.context, ctx)
+  })
 export type RuntimeEvent = z.infer<typeof RuntimeEvent>
 
 /**
@@ -895,6 +956,7 @@ export const SessionSnapshot = z.object({
   interactions: z.array(PendingInteraction).readonly(),
   title: z.string().optional(),
   metadata: z.array(SessionMetadataObservation).readonly().optional(),
+  context: ContextObservation.optional(),
   at: z.string().datetime(),
 })
 export type SessionSnapshot = z.infer<typeof SessionSnapshot>

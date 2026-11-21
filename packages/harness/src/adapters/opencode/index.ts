@@ -1,6 +1,7 @@
 import { join } from 'node:path'
 import { promptEchoCorrelation } from '../../accept-correlation.js'
 import { withStateChannel } from '../../agent-state/types.js'
+import { declinedContext } from '../../context-types.js'
 import { composeAgentInstructions } from '../../instructions.js'
 import {
   type AgentManifest,
@@ -213,6 +214,9 @@ export const opencodeManifest: AgentManifest = {
   // OpenAPI 3.1 + SSE — and the intended host for background executors on
   // non-Claude/non-Codex models.
   runtime: {
+    context: declinedContext(
+      'OpenCode context strategies are not wired; request accounting and generation-specific effective capacity need adapter validation',
+    ),
     server: supported({
       driverId: 'opencode-server',
       kind: 'http-sse',

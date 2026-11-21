@@ -1,3 +1,4 @@
+import type { ContextObservation } from './context.js'
 import type { SessionMetadataObservation } from './events.js'
 
 // Part of the Agent Runtime contract (POD-1761 W1). See ./host.js for the
@@ -76,6 +77,9 @@ export interface SessionSnapshot {
   title?: string
   /** Latest observation per metadata kind, retaining its original causal envelope. */
   metadata?: readonly SessionMetadataObservation[]
+  /** Latest atomic context observation, including clears. Bootstrap preserves
+   * sample identity/time; a new unproven binding invalidates rather than restamps. */
+  context?: ContextObservation
   at: string
 }
 

@@ -750,17 +750,334 @@
     },
     {
       "schema": "SessionConditionPayload",
-      "variant": "full",
+      "variant": "full/arm0",
       "wire": {
         "busy": true,
         "requestsGated": 1,
         "lastInputAt": "lastInputAt",
+        "context": {
+          "sample": {
+            "observerGeneration": 1,
+            "turnEpoch": 1,
+            "bindingVersion": 1,
+            "contextRevision": 1,
+            "id": "context.sample.id",
+            "at": "2026-01-02T03:04:05.000Z",
+            "turnRevision": "context.sample.turnRevision",
+            "nativeSessionId": "context.sample.nativeSessionId",
+            "nativeSampleId": "context.sample.nativeSampleId"
+          },
+          "model": {
+            "modelId": "context.model.modelId",
+            "providerId": "context.model.providerId"
+          },
+          "occupancy": {
+            "basis": "current-context",
+            "usedTokens": {
+              "value": 1,
+              "accuracy": "reported",
+              "source": "context.occupancy.usedTokens.source"
+            },
+            "percent": {
+              "value": 1,
+              "accuracy": "reported",
+              "source": "context.occupancy.percent.source"
+            }
+          },
+          "effectiveCapacity": {
+            "value": 1,
+            "accuracy": "reported",
+            "source": "context.effectiveCapacity.source",
+            "basis": "native"
+          },
+          "modelCapacity": {
+            "value": 1,
+            "accuracy": "reported",
+            "source": "context.modelCapacity.source",
+            "basis": "native"
+          },
+          "compaction": {
+            "source": "context.compaction.source",
+            "enabled": true,
+            "thresholdTokens": {
+              "value": 1,
+              "accuracy": "reported",
+              "source": "context.compaction.thresholdTokens.source"
+            },
+            "thresholdPercent": {
+              "value": 1,
+              "accuracy": "reported",
+              "source": "context.compaction.thresholdPercent.source"
+            },
+            "reserveTokens": {
+              "value": 1,
+              "accuracy": "reported",
+              "source": "context.compaction.reserveTokens.source"
+            }
+          },
+          "version": 1,
+          "status": "available"
+        },
         "contextUsagePercent": 1
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"busy\":true,\"requestsGated\":1,\"lastInputAt\":\"lastInputAt\",\"contextUsagePercent\":1}"
+      "encoded": "{\"busy\":true,\"requestsGated\":1,\"lastInputAt\":\"lastInputAt\",\"context\":{\"sample\":{\"observerGeneration\":1,\"turnEpoch\":1,\"bindingVersion\":1,\"contextRevision\":1,\"id\":\"context.sample.id\",\"at\":\"2026-01-02T03:04:05.000Z\",\"turnRevision\":\"context.sample.turnRevision\",\"nativeSessionId\":\"context.sample.nativeSessionId\",\"nativeSampleId\":\"context.sample.nativeSampleId\"},\"model\":{\"modelId\":\"context.model.modelId\",\"providerId\":\"context.model.providerId\"},\"occupancy\":{\"basis\":\"current-context\",\"usedTokens\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"context.occupancy.usedTokens.source\"},\"percent\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"context.occupancy.percent.source\"}},\"effectiveCapacity\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"context.effectiveCapacity.source\",\"basis\":\"native\"},\"modelCapacity\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"context.modelCapacity.source\",\"basis\":\"native\"},\"compaction\":{\"source\":\"context.compaction.source\",\"enabled\":true,\"thresholdTokens\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"context.compaction.thresholdTokens.source\"},\"thresholdPercent\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"context.compaction.thresholdPercent.source\"},\"reserveTokens\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"context.compaction.reserveTokens.source\"}},\"version\":1,\"status\":\"available\"},\"contextUsagePercent\":1}"
+    },
+    {
+      "schema": "SessionConditionPayload",
+      "variant": "full/arm1",
+      "wire": {
+        "busy": false,
+        "requestsGated": 2,
+        "lastInputAt": "lastInputAt",
+        "context": {
+          "sample": {
+            "observerGeneration": 2,
+            "turnEpoch": 2,
+            "bindingVersion": 2,
+            "contextRevision": 2,
+            "id": "context.sample.id",
+            "at": "2026-01-02T03:04:05.000Z",
+            "turnRevision": "context.sample.turnRevision",
+            "nativeSessionId": "context.sample.nativeSessionId",
+            "nativeSampleId": "context.sample.nativeSampleId"
+          },
+          "model": {
+            "modelId": "context.model.modelId",
+            "providerId": "context.model.providerId"
+          },
+          "occupancy": {
+            "basis": "last-request",
+            "usedTokens": {
+              "value": 2,
+              "accuracy": "estimated",
+              "source": "context.occupancy.usedTokens.source"
+            },
+            "percent": {
+              "value": 2,
+              "accuracy": "estimated",
+              "source": "context.occupancy.percent.source"
+            }
+          },
+          "effectiveCapacity": {
+            "value": 2,
+            "accuracy": "estimated",
+            "source": "context.effectiveCapacity.source",
+            "basis": "configured"
+          },
+          "modelCapacity": {
+            "value": 2,
+            "accuracy": "estimated",
+            "source": "context.modelCapacity.source",
+            "basis": "configured"
+          },
+          "compaction": {
+            "source": "context.compaction.source",
+            "enabled": false,
+            "thresholdTokens": {
+              "value": 2,
+              "accuracy": "estimated",
+              "source": "context.compaction.thresholdTokens.source"
+            },
+            "thresholdPercent": {
+              "value": 2,
+              "accuracy": "estimated",
+              "source": "context.compaction.thresholdPercent.source"
+            },
+            "reserveTokens": {
+              "value": 2,
+              "accuracy": "estimated",
+              "source": "context.compaction.reserveTokens.source"
+            }
+          },
+          "version": 1,
+          "status": "stale",
+          "reason": {
+            "code": "context.reason.code",
+            "message": "context.reason.message"
+          }
+        },
+        "contextUsagePercent": 2
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"busy\":false,\"requestsGated\":2,\"lastInputAt\":\"lastInputAt\",\"context\":{\"sample\":{\"observerGeneration\":2,\"turnEpoch\":2,\"bindingVersion\":2,\"contextRevision\":2,\"id\":\"context.sample.id\",\"at\":\"2026-01-02T03:04:05.000Z\",\"turnRevision\":\"context.sample.turnRevision\",\"nativeSessionId\":\"context.sample.nativeSessionId\",\"nativeSampleId\":\"context.sample.nativeSampleId\"},\"model\":{\"modelId\":\"context.model.modelId\",\"providerId\":\"context.model.providerId\"},\"occupancy\":{\"basis\":\"last-request\",\"usedTokens\":{\"value\":2,\"accuracy\":\"estimated\",\"source\":\"context.occupancy.usedTokens.source\"},\"percent\":{\"value\":2,\"accuracy\":\"estimated\",\"source\":\"context.occupancy.percent.source\"}},\"effectiveCapacity\":{\"value\":2,\"accuracy\":\"estimated\",\"source\":\"context.effectiveCapacity.source\",\"basis\":\"configured\"},\"modelCapacity\":{\"value\":2,\"accuracy\":\"estimated\",\"source\":\"context.modelCapacity.source\",\"basis\":\"configured\"},\"compaction\":{\"source\":\"context.compaction.source\",\"enabled\":false,\"thresholdTokens\":{\"value\":2,\"accuracy\":\"estimated\",\"source\":\"context.compaction.thresholdTokens.source\"},\"thresholdPercent\":{\"value\":2,\"accuracy\":\"estimated\",\"source\":\"context.compaction.thresholdPercent.source\"},\"reserveTokens\":{\"value\":2,\"accuracy\":\"estimated\",\"source\":\"context.compaction.reserveTokens.source\"}},\"version\":1,\"status\":\"stale\",\"reason\":{\"code\":\"context.reason.code\",\"message\":\"context.reason.message\"}},\"contextUsagePercent\":2}"
+    },
+    {
+      "schema": "SessionConditionPayload",
+      "variant": "full/arm2",
+      "wire": {
+        "busy": true,
+        "requestsGated": 3,
+        "lastInputAt": "lastInputAt",
+        "context": {
+          "model": {
+            "modelId": "context.model.modelId",
+            "providerId": "context.model.providerId"
+          },
+          "effectiveCapacity": {
+            "value": 3,
+            "accuracy": "estimated",
+            "source": "context.effectiveCapacity.source",
+            "basis": "model-metadata"
+          },
+          "modelCapacity": {
+            "value": 3,
+            "accuracy": "estimated",
+            "source": "context.modelCapacity.source",
+            "basis": "model-metadata"
+          },
+          "compaction": {
+            "source": "context.compaction.source",
+            "enabled": true,
+            "thresholdTokens": {
+              "value": 3,
+              "accuracy": "estimated",
+              "source": "context.compaction.thresholdTokens.source"
+            },
+            "thresholdPercent": {
+              "value": 3,
+              "accuracy": "estimated",
+              "source": "context.compaction.thresholdPercent.source"
+            },
+            "reserveTokens": {
+              "value": 3,
+              "accuracy": "estimated",
+              "source": "context.compaction.reserveTokens.source"
+            }
+          },
+          "version": 1,
+          "status": "pending",
+          "revision": {
+            "observerGeneration": 3,
+            "turnEpoch": 3,
+            "bindingVersion": 3,
+            "contextRevision": 3
+          },
+          "reason": {
+            "code": "context.reason.code",
+            "message": "context.reason.message"
+          },
+          "invalidation": {
+            "cause": "reset",
+            "previousSample": {
+              "observerGeneration": 3,
+              "turnEpoch": 3,
+              "bindingVersion": 3,
+              "contextRevision": 3,
+              "id": "context.invalidation.previousSample.id",
+              "at": "2026-01-02T03:04:05.000Z",
+              "turnRevision": "context.invalidation.previousSample.turnRevision",
+              "nativeSessionId": "context.invalidation.previousSample.nativeSessionId",
+              "nativeSampleId": "context.invalidation.previousSample.nativeSampleId"
+            }
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"busy\":true,\"requestsGated\":3,\"lastInputAt\":\"lastInputAt\",\"context\":{\"model\":{\"modelId\":\"context.model.modelId\",\"providerId\":\"context.model.providerId\"},\"effectiveCapacity\":{\"value\":3,\"accuracy\":\"estimated\",\"source\":\"context.effectiveCapacity.source\",\"basis\":\"model-metadata\"},\"modelCapacity\":{\"value\":3,\"accuracy\":\"estimated\",\"source\":\"context.modelCapacity.source\",\"basis\":\"model-metadata\"},\"compaction\":{\"source\":\"context.compaction.source\",\"enabled\":true,\"thresholdTokens\":{\"value\":3,\"accuracy\":\"estimated\",\"source\":\"context.compaction.thresholdTokens.source\"},\"thresholdPercent\":{\"value\":3,\"accuracy\":\"estimated\",\"source\":\"context.compaction.thresholdPercent.source\"},\"reserveTokens\":{\"value\":3,\"accuracy\":\"estimated\",\"source\":\"context.compaction.reserveTokens.source\"}},\"version\":1,\"status\":\"pending\",\"revision\":{\"observerGeneration\":3,\"turnEpoch\":3,\"bindingVersion\":3,\"contextRevision\":3},\"reason\":{\"code\":\"context.reason.code\",\"message\":\"context.reason.message\"},\"invalidation\":{\"cause\":\"reset\",\"previousSample\":{\"observerGeneration\":3,\"turnEpoch\":3,\"bindingVersion\":3,\"contextRevision\":3,\"id\":\"context.invalidation.previousSample.id\",\"at\":\"2026-01-02T03:04:05.000Z\",\"turnRevision\":\"context.invalidation.previousSample.turnRevision\",\"nativeSessionId\":\"context.invalidation.previousSample.nativeSessionId\",\"nativeSampleId\":\"context.invalidation.previousSample.nativeSampleId\"}}}}"
+    },
+    {
+      "schema": "SessionConditionPayload",
+      "variant": "full/arm3",
+      "wire": {
+        "busy": false,
+        "requestsGated": 4,
+        "lastInputAt": "lastInputAt",
+        "context": {
+          "model": {
+            "modelId": "context.model.modelId",
+            "providerId": "context.model.providerId"
+          },
+          "effectiveCapacity": {
+            "value": 4,
+            "accuracy": "estimated",
+            "source": "context.effectiveCapacity.source",
+            "basis": "fallback"
+          },
+          "modelCapacity": {
+            "value": 4,
+            "accuracy": "estimated",
+            "source": "context.modelCapacity.source",
+            "basis": "fallback"
+          },
+          "compaction": {
+            "source": "context.compaction.source",
+            "enabled": false,
+            "thresholdTokens": {
+              "value": 4,
+              "accuracy": "estimated",
+              "source": "context.compaction.thresholdTokens.source"
+            },
+            "thresholdPercent": {
+              "value": 4,
+              "accuracy": "estimated",
+              "source": "context.compaction.thresholdPercent.source"
+            },
+            "reserveTokens": {
+              "value": 4,
+              "accuracy": "estimated",
+              "source": "context.compaction.reserveTokens.source"
+            }
+          },
+          "version": 1,
+          "status": "unavailable",
+          "revision": {
+            "observerGeneration": 4,
+            "turnEpoch": 4,
+            "bindingVersion": 4,
+            "contextRevision": 4
+          },
+          "reason": {
+            "code": "context.reason.code",
+            "message": "context.reason.message"
+          },
+          "invalidation": {
+            "cause": "rewind",
+            "previousSample": {
+              "observerGeneration": 4,
+              "turnEpoch": 4,
+              "bindingVersion": 4,
+              "contextRevision": 4,
+              "id": "context.invalidation.previousSample.id",
+              "at": "2026-01-02T03:04:05.000Z",
+              "turnRevision": "context.invalidation.previousSample.turnRevision",
+              "nativeSessionId": "context.invalidation.previousSample.nativeSessionId",
+              "nativeSampleId": "context.invalidation.previousSample.nativeSampleId"
+            }
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"busy\":false,\"requestsGated\":4,\"lastInputAt\":\"lastInputAt\",\"context\":{\"model\":{\"modelId\":\"context.model.modelId\",\"providerId\":\"context.model.providerId\"},\"effectiveCapacity\":{\"value\":4,\"accuracy\":\"estimated\",\"source\":\"context.effectiveCapacity.source\",\"basis\":\"fallback\"},\"modelCapacity\":{\"value\":4,\"accuracy\":\"estimated\",\"source\":\"context.modelCapacity.source\",\"basis\":\"fallback\"},\"compaction\":{\"source\":\"context.compaction.source\",\"enabled\":false,\"thresholdTokens\":{\"value\":4,\"accuracy\":\"estimated\",\"source\":\"context.compaction.thresholdTokens.source\"},\"thresholdPercent\":{\"value\":4,\"accuracy\":\"estimated\",\"source\":\"context.compaction.thresholdPercent.source\"},\"reserveTokens\":{\"value\":4,\"accuracy\":\"estimated\",\"source\":\"context.compaction.reserveTokens.source\"}},\"version\":1,\"status\":\"unavailable\",\"revision\":{\"observerGeneration\":4,\"turnEpoch\":4,\"bindingVersion\":4,\"contextRevision\":4},\"reason\":{\"code\":\"context.reason.code\",\"message\":\"context.reason.message\"},\"invalidation\":{\"cause\":\"rewind\",\"previousSample\":{\"observerGeneration\":4,\"turnEpoch\":4,\"bindingVersion\":4,\"contextRevision\":4,\"id\":\"context.invalidation.previousSample.id\",\"at\":\"2026-01-02T03:04:05.000Z\",\"turnRevision\":\"context.invalidation.previousSample.turnRevision\",\"nativeSessionId\":\"context.invalidation.previousSample.nativeSessionId\",\"nativeSampleId\":\"context.invalidation.previousSample.nativeSampleId\"}}}}"
+    },
+    {
+      "schema": "SessionConditionPayload",
+      "variant": "full/arm4",
+      "wire": {
+        "busy": true,
+        "requestsGated": 5,
+        "lastInputAt": "lastInputAt",
+        "context": {
+          "version": 1,
+          "status": "unsupported",
+          "reason": {
+            "code": "context.reason.code",
+            "message": "context.reason.message"
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"busy\":true,\"requestsGated\":5,\"lastInputAt\":\"lastInputAt\",\"context\":{\"version\":1,\"status\":\"unsupported\",\"reason\":{\"code\":\"context.reason.code\",\"message\":\"context.reason.message\"}}}"
     },
     {
       "schema": "SessionTerminalStatePayload",

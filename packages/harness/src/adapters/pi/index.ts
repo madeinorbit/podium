@@ -1,6 +1,7 @@
 import { join } from 'node:path'
 import { transcriptEchoAcceptCorrelation } from '../../accept-correlation.js'
 import { withStateChannel } from '../../agent-state/types.js'
+import { declinedContext } from '../../context-types.js'
 import { composeAgentInstructions } from '../../instructions.js'
 import {
   type AgentManifest,
@@ -307,6 +308,9 @@ export const piManifest: AgentManifest = {
   }),
 
   runtime: {
+    context: declinedContext(
+      'Pi context observation requires an adapter-owned instrumentation extension that is not installed',
+    ),
     server: unsupported(
       'pi --mode rpc is a real JSONL-over-stdio server mode, but Podium has not driven it yet — verify before turning it into a spec',
     ),

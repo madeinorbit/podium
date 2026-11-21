@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { BuiltinHarnessKind } from '@podium/protocol'
 import { transcriptEchoAcceptCorrelation } from '../../accept-correlation.js'
+import { declinedContext } from '../../context-types.js'
 import { composeAgentInstructions } from '../../instructions.js'
 import {
   type AgentManifest,
@@ -158,6 +159,9 @@ export const fixtureManifest: AgentManifest = {
   }),
 
   runtime: {
+    context: declinedContext(
+      'The fixture CLI emits no context telemetry; synthetic context conformance uses the reference fake driver',
+    ),
     server: unsupported('The fixture CLI is a process double with no server mode to drive'),
     embedded: unsupported('The fixture ships no library to host in-process'),
     terminal: {
