@@ -11,6 +11,7 @@ import {
 import type { CausalEnvelope } from '@podium/protocol/daemon'
 import type {
   ContextObservation,
+  ContextProbePort,
   ContextReadOptions,
   ContextSessionStrategy,
   ContextStrategyInput,
@@ -19,6 +20,7 @@ import type {
 } from '../../context-types.js'
 import { canonicalDriverId, supported, unsupported } from '../../manifest.js'
 import {
+  CLAUDE_INITIALIZATION_READ,
   claudeComposition,
   claudeContextVersion,
   claudeRequestAccounting,
@@ -64,6 +66,30 @@ export async function readClaudeContext<T>(
     if (timer) clearTimeout(timer)
     for (const signal of signals) signal.removeEventListener('abort', cancel)
   }
+}
+
+class UnverifiedClaudeContextVersion extends Error {}
+
+/** A cached handshake read costs no native traffic. Never try a selector on
+ * older/unknown builds that might ignore it and default to full counting. */
+function readSupportedSummary(
+  probe: ContextProbePort,
+  options: ContextReadOptions,
+  lifetime?: AbortSignal,
+): Promise<unknown> {
+  return readClaudeContext(
+    async (signal) => {
+      const initialization = await probe.request(CLAUDE_INITIALIZATION_READ, {
+        timeoutMs: options.timeoutMs,
+        signal,
+      })
+      if (!claudeContextVersion(object(initialization)?.claude_code_version))
+        throw new UnverifiedClaudeContextVersion()
+      return probe.request(SUMMARY_OPERATION, { timeoutMs: options.timeoutMs, signal })
+    },
+    options,
+    lifetime,
+  )
 }
 
 type Mode = 'structured' | 'terminal' | 'headless'
@@ -197,11 +223,11 @@ function bindClaudeContext(input: ContextStrategyInput, mode: Mode): ContextSess
         'Claude context report is not a serializable native snapshot',
       )
     }
-    const key = `${nativeSampleId ?? ''}:${snapshot}`
+    const capacity = model && modelCapacities.get(model)
+    const key = `${nativeSampleId ?? ''}:${capacity ?? ''}:${snapshot}`
     if (key === fingerprint && current?.context.status === 'available') return current
     // A model boundary advances revision; build the admitted sample afterward.
     decoded.summary.sample = { ...decoded.summary.sample, ...revision }
-    const capacity = model && modelCapacities.get(model)
     if (capacity)
       decoded.summary.modelCapacity = {
         value: capacity,
@@ -234,11 +260,7 @@ function bindClaudeContext(input: ContextStrategyInput, mode: Mode): ContextSess
     const capturedSession = nativeSessionId
     const controller = new AbortController()
     reading = controller
-    inFlight = readClaudeContext(
-      (signal) => probe.request(SUMMARY_OPERATION, { timeoutMs, signal }),
-      { timeoutMs, signal: controller.signal },
-      input.signal,
-    )
+    inFlight = readSupportedSummary(probe, { timeoutMs, signal: controller.signal }, input.signal)
       .then(
         (raw) => {
           if (
@@ -253,8 +275,14 @@ function bindClaudeContext(input: ContextStrategyInput, mode: Mode): ContextSess
             return undefined
           return acceptControl(raw, envelope)
         },
-        () => {
+        (error: unknown) => {
           if (ticket !== admission || input.signal.aborted) return undefined
+          if (error instanceof UnverifiedClaudeContextVersion)
+            return unavailable(
+              'unverified-native-version',
+              'Claude summary detail selection is unverified for this running native version',
+              {},
+            )
           return unavailable(
             'native-context-unavailable',
             'Claude summary control was refused, malformed, or exceeded its bounded deadline',
@@ -466,6 +494,7 @@ function bindClaudeContext(input: ContextStrategyInput, mode: Mode): ContextSess
       if (mode === 'structured') {
         if (raw.type === 'result') {
           const ledger = object(raw.modelUsage)
+          modelCapacities.clear()
           for (const [model, entry] of Object.entries(ledger ?? {})) {
             const capacity = count(object(entry)?.contextWindow)
             if (capacity && capacity > 0) modelCapacities.set(model, capacity)
@@ -609,10 +638,7 @@ function strategy(mode: Mode): HarnessContextStrategy {
           ),
         }
       try {
-        const raw = await readClaudeContext(
-          (signal) => port.request(SUMMARY_OPERATION, { ...options, signal }),
-          options,
-        )
+        const raw = await readSupportedSummary(port, options)
         return count(object(raw)?.totalTokens) !== undefined
           ? { status: 'available' }
           : {
@@ -622,7 +648,15 @@ function strategy(mode: Mode): HarnessContextStrategy {
                 'Claude summary control omitted a valid total estimate',
               ),
             }
-      } catch {
+      } catch (error) {
+        if (error instanceof UnverifiedClaudeContextVersion)
+          return {
+            status: 'unavailable',
+            reason: reason(
+              'unverified-native-version',
+              'Claude summary detail selection is unverified for this running native version',
+            ),
+          }
         return {
           status: 'unavailable',
           reason: reason(

@@ -9,6 +9,7 @@ import type {
 import type { AcceptedDriverId } from '../../manifest.js'
 import fixtures from './__fixtures__/context-reports.json' with { type: 'json' }
 import { claudeContext } from './context.js'
+import { isClaudeInitializationRead } from './context-native.js'
 
 const envelope = (seq = 1): CausalEnvelope => ({
   at: `2026-11-21T12:00:${String(seq).padStart(2, '0')}.000Z`,
@@ -21,7 +22,19 @@ const raw = fixtures.control['engine-2.1.319/after-2-summary']
 const tick = async () => {
   for (let n = 0; n < 12; n++) await Promise.resolve()
 }
-function bind(driver: AcceptedDriverId = 'claude-sdk', probe?: ContextProbePort) {
+function versioned(probe: ContextProbePort, version = '2.1.319'): ContextProbePort {
+  return {
+    request: (operation, options) =>
+      isClaudeInitializationRead(operation)
+        ? Promise.resolve({ claude_code_version: version })
+        : probe.request(operation, options),
+  }
+}
+function bind(
+  driver: AcceptedDriverId = 'claude-sdk',
+  probe?: ContextProbePort,
+  version = '2.1.319',
+) {
   const declaration = claudeContext.forDriver(driver)
   if (!declaration.supported) throw new Error(declaration.reason)
   const lifetime = new AbortController()
@@ -37,7 +50,7 @@ function bind(driver: AcceptedDriverId = 'claude-sdk', probe?: ContextProbePort)
     revision: { bindingVersion: 2, observerGeneration: 1, turnEpoch: 0, contextRevision: 0 },
     signal: lifetime.signal,
     publish: (value) => published.push(value),
-    ...(probe ? { probe } : {}),
+    ...(probe ? { probe: versioned(probe, version) } : {}),
   })
   return { session, lifetime, published, nativeSessionId, strategy: declaration.value }
 }
@@ -61,7 +74,9 @@ describe('Claude context mode and lifecycle strategies', () => {
   it('uses an actual bounded summary capability probe with explicit detail selection', async () => {
     const port = { request: vi.fn(async (_operation: unknown, _options: unknown) => raw) }
     const { strategy } = bind('claude-sdk')
-    expect(await strategy.probe({ timeoutMs: 500 }, port)).toEqual({ status: 'available' })
+    expect(await strategy.probe({ timeoutMs: 500 }, versioned(port))).toEqual({
+      status: 'available',
+    })
     expect(port.request.mock.calls[0]?.[0]).toEqual({
       subtype: 'get_context_usage',
       detail: 'summary',
@@ -73,6 +88,24 @@ describe('Claude context mode and lifecycle strategies', () => {
     expect((await bind('generic-pty').strategy.probe({ timeoutMs: 500 }, port)).status).toBe(
       'unavailable',
     )
+  })
+  it('does not send a summary selector on older or unknown native versions', async () => {
+    const port = { request: vi.fn(async (_operation: unknown, _options: unknown) => raw) }
+    const { strategy } = bind('claude-sdk')
+    for (const version of ['', '2.1.318', '3.0.0']) {
+      expect(await strategy.probe({ timeoutMs: 500 }, versioned(port, version))).toMatchObject({
+        status: 'unavailable',
+        reason: { code: 'unverified-native-version' },
+      })
+      const bound = bind('claude-sdk', port, version)
+      bound.session.observe({ type: 'system', subtype: 'init' }, envelope())
+      await tick()
+      expect(bound.published.at(-1)?.context).toMatchObject({
+        status: 'unavailable',
+        reason: { code: 'unverified-native-version' },
+      })
+    }
+    expect(port.request).not.toHaveBeenCalled()
   })
   it('publishes summary after native lifecycle without hover and coalesces events', async () => {
     const port = { request: vi.fn(async (_operation: unknown, _options: unknown) => raw) }
@@ -212,6 +245,18 @@ describe('Claude context mode and lifecycle strategies', () => {
     )
     await tick()
     expect(bound.published).toHaveLength(1)
+    bound.session.observe(
+      {
+        ...fixtures.result,
+        modelUsage: { [raw.model]: { contextWindow: 0, inputTokens: 99999999 } },
+      },
+      envelope(3),
+    )
+    await tick()
+    const withoutCapacity = bound.published.at(-1)?.context
+    if (withoutCapacity?.status !== 'available') throw new Error('expected partial capacity')
+    expect(withoutCapacity.modelCapacity).toBeUndefined()
+    expect(withoutCapacity.occupancy.usedTokens?.value).toBe(24000)
   })
   it('rejects child/foreign observations and old causal generations', async () => {
     const bound = bind('headless')

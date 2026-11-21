@@ -35,6 +35,13 @@ export function claudeContextVersion(version: unknown): boolean {
   return !!match && Number(match[1]) === 2 && Number(match[2]) === 1 && Number(match[3]) >= 319
 }
 
+/** Adapter-owned local transport operation, never a native CLI request. The
+ * stream client returns its already-received initialize response unchanged. */
+export const CLAUDE_INITIALIZATION_READ = { podium: 'claude-initialization-snapshot' } as const
+export function isClaudeInitializationRead(operation: unknown): boolean {
+  return object(operation)?.podium === CLAUDE_INITIALIZATION_READ.podium
+}
+
 export function claudeRequestAccounting(raw: unknown): ContextLastRequest | undefined {
   const usage = object(raw)
   if (!usage) return undefined

@@ -38,6 +38,7 @@
 
 import { randomUUID } from 'node:crypto'
 import type { HeadlessTurnEvent, SessionPosture } from '@podium/protocol'
+import { isClaudeInitializationRead } from '../../../adapters/claude-code/context-native.js'
 import { type BoundCommand, harnessCommand } from '../../../bound-command.js'
 import type { ContextReadOptions } from '../../../context-types.js'
 import type { HarnessContext } from '../../../harness-context-types.js'
@@ -539,6 +540,7 @@ export function createClaudeStreamClient(
   let handshaken = false
   let closed = false
   let transportExited = false
+  let initializationResponse: unknown
   let resolveReady!: (id: string) => void
   let rejectReady!: (error: Error) => void
   const ready = new Promise<string>((res, rej) => {
@@ -1110,6 +1112,7 @@ export function createClaudeStreamClient(
    */
   const handshake = initializing.then(
     (response) => {
+      initializationResponse = response
       handshaken = true
       const pending = response.pending_permission_requests as
         | Array<{ request_id?: string; request?: { subtype?: string } }>
@@ -1284,6 +1287,10 @@ export function createClaudeStreamClient(
             if (!active) return
             if (closed || transportExited || options.signal?.aborted) {
               reject(new Error('Control read cancelled or transport closed'))
+              return
+            }
+            if (isClaudeInitializationRead(operation)) {
+              resolve(initializationResponse)
               return
             }
             try {

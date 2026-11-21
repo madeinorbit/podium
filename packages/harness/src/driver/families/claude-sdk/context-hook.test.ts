@@ -41,6 +41,35 @@ const tick = async () => {
 }
 
 describe('Claude adapter through the actual stream-client hook', () => {
+  it.each([
+    '',
+    '2.1.318',
+    '3.0.0',
+  ])('does not send native context traffic for unverified running version %s', async (version) => {
+    const fake = transport()
+    const client = createClaudeStreamClient(fake.port, { sessionId: 'native' })
+    const declared = claudeContext.forDriver('claude-sdk')
+    if (!declared.supported) throw new Error(declared.reason)
+    const result = declared.value.probe(
+      { timeoutMs: 500 },
+      { request: (operation, options) => client.request(operation, options) },
+    )
+    const init = fake.writes[0]!
+    fake.emit({
+      type: 'control_response',
+      response: {
+        subtype: 'success',
+        request_id: init.request_id,
+        response: { claude_code_version: version },
+      },
+    })
+    expect(await result).toMatchObject({
+      status: 'unavailable',
+      reason: { code: 'unverified-native-version' },
+    })
+    expect(fake.writes).toHaveLength(1)
+    client.close()
+  })
   it('publishes using raw lifecycle and the existing opaque control channel, with no turn or full read', async () => {
     const fake = transport()
     const declaration = claudeContext.forDriver('claude-sdk')
