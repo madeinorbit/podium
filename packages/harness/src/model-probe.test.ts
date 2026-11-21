@@ -1,5 +1,17 @@
+import {
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
+import { platform, tmpdir } from 'node:os'
+import { join, relative } from 'node:path'
 import { addSink, createRingBufferSink } from '@podium/logger'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { type HarnessContext, harnessAccount, withHarnessHome } from './harness-context'
 import {
   type FetchLike,
   parseCodexModels,
@@ -288,3 +300,186 @@ describe('probe (injected exec — no shelling out)', () => {
     expect(byAgent['claude-code']).toBeUndefined()
   })
 })
+
+/** Every path under `dir` with its size, so a write anywhere below shows. */
+function treeListing(dir: string): string[] {
+  const out: string[] = []
+  const walk = (at: string) => {
+    for (const name of readdirSync(at).sort()) {
+      const path = join(at, name)
+      const stat = lstatSync(path)
+      out.push(`${relative(dir, path)}:${stat.isDirectory() ? 'dir' : stat.size}`)
+      if (stat.isDirectory()) walk(path)
+    }
+  }
+  walk(dir)
+  return out
+}
+
+function externalContext(
+  kind: 'grok' | 'opencode',
+  home: string,
+  executable: string,
+  env: Record<string, string> = {},
+): HarnessContext {
+  const account = harnessAccount(kind, home, { HOME: home, PATH: '/usr/bin:/bin', ...env })
+  return {
+    installation: { kind, executable, version: '1.0.0', generation: 1, provenance: 'external' },
+    home: account.home,
+    env: account.env,
+    roots: account.roots,
+  }
+}
+
+describe.skipIf(platform() === 'win32')(
+  "the person's own install lists its models without writing their folders (POD-7390)",
+  () => {
+    let home: string
+    let bin: string
+    let observed: string
+    beforeEach(() => {
+      home = mkdtempSync(join(tmpdir(), 'podium-model-probe-home-'))
+      bin = mkdtempSync(join(tmpdir(), 'podium-model-probe-bin-'))
+      observed = mkdtempSync(join(tmpdir(), 'podium-model-probe-seen-'))
+    })
+    afterEach(() => {
+      for (const dir of [home, bin, observed]) rmSync(dir, { recursive: true, force: true })
+    })
+
+    it('Grok: GROK_HOME moves aside, the login and settings are still the ones read', async () => {
+      // Grok 1.0.92 appends to its log and opens its session index under
+      // GROK_HOME for `grok models`, and writes config.toml on first start.
+      const exe = join(bin, 'grok')
+      writeFileSync(
+        exe,
+        [
+          '#!/bin/sh',
+          'state="$HOME/.grok"; [ -n "$GROK_HOME" ] && state="$GROK_HOME"',
+          'auth="$state/auth.json"; [ -n "$GROK_AUTH_PATH" ] && auth="$GROK_AUTH_PATH"',
+          `{ echo "home=$state"; echo "auth=$auth"; echo "cwd=$(pwd)"; } > "${observed}/grok"`,
+          'mkdir -p "$state/logs" "$state/sessions"',
+          'echo started >> "$state/logs/unified.jsonl"; echo index > "$state/sessions/session_search.sqlite"',
+          'echo "# written on first start" >> "$state/config.toml"',
+          'grep -q signed-in "$auth" && echo "You are logged in with grok.com."',
+          'echo; echo "Available models:"',
+          'sed -n "s/^default_model = \\"\\(.*\\)\\"/  * \\1 (default)/p" "$state/config.toml"',
+          'echo "  - grok-4.6"',
+          '',
+        ].join('\n'),
+        { mode: 0o755 },
+      )
+      const grokHome = join(home, '.grok')
+      mkdirSync(join(grokHome, 'logs'), { recursive: true })
+      writeFileSync(join(grokHome, 'auth.json'), '{"signed-in": true}\n')
+      writeFileSync(join(grokHome, 'config.toml'), 'default_model = "grok-custom"\n')
+      writeFileSync(join(grokHome, 'logs', 'unified.jsonl'), 'personal log\n')
+      const before = treeListing(home)
+      const leftBefore = readdirSync(tmpdir()).filter((n) => n.startsWith('podium-models-grok-'))
+
+      const models = await probeAgentModels('grok', {
+        contexts: { grok: externalContext('grok', home, exe) },
+      })
+
+      expect(models.map((m) => m.value)).toEqual(['grok-custom', 'grok-4.6'])
+      expect(treeListing(home)).toEqual(before)
+      expect(readFileSync(join(grokHome, 'config.toml'), 'utf8')).toBe(
+        'default_model = "grok-custom"\n',
+      )
+      const seen = readFileSync(join(observed, 'grok'), 'utf8')
+      expect(seen).toContain(`auth=${join(grokHome, 'auth.json')}`)
+      expect(seen).not.toContain(`home=${grokHome}`)
+      expect(seen).not.toContain(`cwd=${home}`)
+      // The temporary folder is gone.
+      expect(readdirSync(tmpdir()).filter((n) => n.startsWith('podium-models-grok-'))).toEqual(
+        leftBefore,
+      )
+    })
+
+    it('OpenCode: data, state and cache move aside, the login, config and model cache are read', async () => {
+      // OpenCode 1.19.6 boots an instance for `opencode models`: log and
+      // database under the data folder, project locks under the state folder,
+      // a models.dev refresh in the cache folder.
+      const exe = join(bin, 'opencode')
+      writeFileSync(
+        exe,
+        [
+          '#!/bin/sh',
+          'data="$HOME/.local/share/opencode"; [ -n "$XDG_DATA_HOME" ] && data="$XDG_DATA_HOME/opencode"',
+          'state="$HOME/.local/state/opencode"; [ -n "$XDG_STATE_HOME" ] && state="$XDG_STATE_HOME/opencode"',
+          'cache="$HOME/.cache/opencode"; [ -n "$XDG_CACHE_HOME" ] && cache="$XDG_CACHE_HOME/opencode"',
+          'config="$HOME/.config/opencode"; [ -n "$XDG_CONFIG_HOME" ] && config="$XDG_CONFIG_HOME/opencode"',
+          'db="$data/opencode.db"; [ -n "$OPENCODE_DB" ] && db="$OPENCODE_DB"',
+          'catalog="$cache/models.json"; [ -n "$OPENCODE_MODELS_PATH" ] && catalog="$OPENCODE_MODELS_PATH"',
+          `{ echo "data=$data"; echo "cwd=$(pwd)"; } > "${observed}/opencode"`,
+          'mkdir -p "$data/log" "$state/locks/abc.lock" "$cache" "$(dirname "$db")"',
+          'echo boot >> "$data/log/opencode.log"; echo rows >> "$db"; echo meta > "$state/locks/abc.lock/meta.json"',
+          'echo refreshed > "$cache/models.json"',
+          'cat "$catalog"',
+          'grep -q key "$data/auth.json" && echo "openai/gpt-6"',
+          'cat "$config/providers.txt"',
+          '',
+        ].join('\n'),
+        { mode: 0o755 },
+      )
+      const data = join(home, '.local', 'share', 'opencode')
+      mkdirSync(join(data, 'log'), { recursive: true })
+      writeFileSync(join(data, 'auth.json'), '{"openai": {"key": "sk-test"}}\n')
+      writeFileSync(join(data, 'opencode.db'), 'personal sessions\n')
+      mkdirSync(join(home, '.cache', 'opencode'), { recursive: true })
+      writeFileSync(join(home, '.cache', 'opencode', 'models.json'), 'opencode/big-pickle\n')
+      mkdirSync(join(home, '.config', 'opencode'), { recursive: true })
+      writeFileSync(join(home, '.config', 'opencode', 'providers.txt'), 'custom/local-model\n')
+      const before = treeListing(home)
+
+      const models = await probeAgentModels('opencode', {
+        contexts: { opencode: externalContext('opencode', home, exe) },
+      })
+
+      expect(models.map((m) => m.value)).toEqual([
+        'opencode/big-pickle',
+        'openai/gpt-6',
+        'custom/local-model',
+      ])
+      expect(treeListing(home)).toEqual(before)
+      const seen = readFileSync(join(observed, 'opencode'), 'utf8')
+      expect(seen).not.toContain(`data=${data}`)
+      expect(seen).not.toContain(`cwd=${home}`)
+    })
+
+    it('an OPENCODE_DB in the account environment does not take the listing back into a store', async () => {
+      const exe = join(bin, 'opencode')
+      writeFileSync(exe, '#!/bin/sh\necho rows >> "$OPENCODE_DB"\necho "opencode/big-pickle"\n', {
+        mode: 0o755,
+      })
+      const store = join(home, 'store.db')
+      writeFileSync(store, 'personal sessions\n')
+
+      const models = await probeAgentModels('opencode', {
+        contexts: { opencode: externalContext('opencode', home, exe, { OPENCODE_DB: store }) },
+      })
+
+      expect(models.map((m) => m.value)).toEqual(['opencode/big-pickle'])
+      expect(readFileSync(store, 'utf8')).toBe('personal sessions\n')
+    })
+
+    it('a Podium home is listed in place: it is already Podium’s own folder', async () => {
+      const exe = join(bin, 'grok')
+      writeFileSync(
+        exe,
+        `#!/bin/sh\necho "$GROK_HOME" > "${observed}/grok"\necho "Available models:"; echo "  - grok-4.6"\n`,
+        { mode: 0o755 },
+      )
+      const podiumHome = join(home, '.podium', 'homes', 'cred_1', 'grok')
+      mkdirSync(podiumHome, { recursive: true })
+      const context = withHarnessHome(externalContext('grok', home, exe), {
+        id: 'cred_1',
+        dir: podiumHome,
+      })
+
+      const models = await probeAgentModels('grok', { contexts: { grok: context } })
+
+      expect(models.map((m) => m.value)).toEqual(['grok-4.6'])
+      expect(readFileSync(join(observed, 'grok'), 'utf8').trim()).toBe(podiumHome)
+    })
+  },
+)

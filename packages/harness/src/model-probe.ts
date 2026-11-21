@@ -1,16 +1,25 @@
 import { execFile } from 'node:child_process'
-import { readFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { copyFile, lstat, mkdir, mkdtemp, readFile, rm, symlink } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
 import { createLogger } from '@podium/logger'
 import { claudeCodeDescriptor } from './adapters/claude-code/descriptor.js'
 import { codexModelProbeArgv, parseCodexModels } from './adapters/codex/model-probe.js'
 import { cursorModelProbeArgv, parseCursorModels } from './adapters/cursor/model-probe.js'
-import { grokModelProbeArgv, parseGrokModels } from './adapters/grok/model-probe.js'
-import { opencodeModelProbeArgv, parseOpencodeModels } from './adapters/opencode/model-probe.js'
+import {
+  grokModelProbeArgv,
+  grokModelProbeContainment,
+  parseGrokModels,
+} from './adapters/grok/model-probe.js'
+import {
+  opencodeModelProbeArgv,
+  opencodeModelProbeContainment,
+  parseOpencodeModels,
+} from './adapters/opencode/model-probe.js'
 import { parsePiModels, piModelProbeArgv } from './adapters/pi/model-probe.js'
 import type { HarnessContext } from './harness-context.js'
-import type { HarnessAccountScope } from './manifest.js'
+import type { HarnessAccountScope, HarnessRoots } from './manifest.js'
 
 const execFileAsync = promisify(execFile)
 const log = createLogger('harness:model-probe')
@@ -34,6 +43,12 @@ const log = createLogger('harness:model-probe')
  * gets for that account (account HOME, instance selectors, foreign
  * credentials stripped) — never the daemon's own HOME. The Claude call uses
  * fetch with the token from the account's credential folder.
+ *
+ * A listing in the PERSON'S OWN folders writes nothing there (POD-7390): a
+ * harness measured to write its state while listing (Grok, OpenCode) runs with
+ * its folders moved into a temporary folder, reading the person's login and
+ * settings in place ({@link ModelProbeContainment}). A Podium home is listed
+ * in place, since it is Podium's folder.
  * The lists are network-backed (~2s warm,
  * ~7s cold), so the ModelCatalog caches them per machineId (stale-while-revalidate)
  * rather than probing on every open. CLI sources report [] on failure; Claude is
@@ -90,14 +105,16 @@ export function parseModels(kind: ProbeableAgent, out: string): ModelChoice[] {
 }
 
 /** Runs a probe argv → stdout under `env` (the account env, when the probe
- *  has a context). Injectable so tests never shell out. */
+ *  has a context), in `cwd` when one is given (a contained probe's own empty
+ *  folder). Injectable so tests never shell out. */
 export type ModelProbeExec = (
   argv: readonly string[],
   timeoutMs: number,
   env?: Readonly<Record<string, string>>,
+  cwd?: string,
 ) => Promise<string>
 
-const defaultExec: ModelProbeExec = async (argv, timeoutMs, env) => {
+const defaultExec: ModelProbeExec = async (argv, timeoutMs, env, cwd) => {
   const [cmd, ...args] = argv
   const { stdout } = await execFileAsync(cmd as string, args, {
     timeout: timeoutMs,
@@ -105,8 +122,47 @@ const defaultExec: ModelProbeExec = async (argv, timeoutMs, env) => {
     // Never the daemon's inherited env: the default exec only runs with a
     // context (see probeAgentModels), so this is always the account's.
     env: env ?? {},
+    ...(cwd ? { cwd } : {}),
   })
   return stdout
+}
+
+/** The account a contained listing reads: its HOME, env and resolved folders. */
+export interface ModelProbeScope {
+  readonly home: string
+  readonly env: Readonly<Record<string, string>>
+  readonly roots: Readonly<HarnessRoots>
+}
+
+/**
+ * HOW ONE HARNESS LISTS ITS MODELS WITHOUT WRITING THE PERSON'S FOLDERS
+ * (POD-7390), stated by its adapter beside its probe argv. The listing runs
+ * with `env` over the account env, in an empty working folder, inside a
+ * temporary folder (`root`) removed afterwards.
+ */
+export interface ModelProbeContainment {
+  /** Set over the account env: the harness's folders, moved under `root`. */
+  readonly env: Readonly<Record<string, string>>
+  /** Set only when the named path exists: a person's file the listing reads
+   *  in place (a login, a cache), so a missing one is not invented. */
+  readonly envWhenPresent?: Readonly<Record<string, string>>
+  /** The person's small read-only files copied in; a missing one is skipped. */
+  readonly copies?: readonly { readonly from: string; readonly to: string }[]
+  /** The person's files linked in, so a write the harness makes to them
+   *  (a refreshed login) lands on the original. A missing one is skipped; where
+   *  links cannot be made (Windows without the privilege) the file is copied. */
+  readonly links?: readonly { readonly from: string; readonly to: string }[]
+}
+
+/**
+ * The harnesses measured to write their state during a model listing, and how
+ * each is contained. A harness absent here is listed as before.
+ */
+const MODEL_PROBE_CONTAINMENT: Partial<
+  Record<ProbeableAgent, (scope: ModelProbeScope, root: string) => ModelProbeContainment>
+> = {
+  grok: grokModelProbeContainment,
+  opencode: opencodeModelProbeContainment,
 }
 
 export interface ProbeOptions {
@@ -135,11 +191,75 @@ export async function probeAgentModels(
   const command =
     context?.installation.executable ?? (opts.exec ? MODEL_PROBES[kind][0] : undefined)
   if (!command) return []
+  // The person's own folders are contained; a Podium home is Podium's folder
+  // and is listed in place (credential management §10).
+  const contain = context && !context.harnessHome ? MODEL_PROBE_CONTAINMENT[kind] : undefined
+  if (context && contain) {
+    return await probeContained(kind, [command, ...args], context, contain, exec, timeoutMs)
+  }
   try {
     return parseModels(kind, await exec([command, ...args], timeoutMs, context?.env))
   } catch {
     return []
   }
+}
+
+/**
+ * One model listing in a temporary folder (POD-7390): the person's own install
+ * still answers with their account's models, and every file the listing writes
+ * lands in the folder, which is removed afterwards.
+ *
+ * A machine where the folder cannot be made reports no models rather than
+ * listing in the person's folders: the catalog keeps its last good list.
+ */
+async function probeContained(
+  kind: ProbeableAgent,
+  argv: readonly string[],
+  context: HarnessContext,
+  contain: (scope: ModelProbeScope, root: string) => ModelProbeContainment,
+  exec: ModelProbeExec,
+  timeoutMs: number,
+): Promise<ModelChoice[]> {
+  let root: string
+  try {
+    root = await mkdtemp(join(tmpdir(), `podium-models-${kind}-`))
+  } catch (err) {
+    log.warn('no temporary folder for the model listing; not listed', { kind, err })
+    return []
+  }
+  try {
+    const containment = contain(context, root)
+    const work = join(root, 'work')
+    await mkdir(work)
+    const env: Record<string, string> = { ...context.env, ...containment.env }
+    for (const [variable, path] of Object.entries(containment.envWhenPresent ?? {})) {
+      if (await present(path)) env[variable] = path
+    }
+    for (const { from, to } of containment.copies ?? []) {
+      if (!(await present(from))) continue
+      await mkdir(dirname(to), { recursive: true })
+      await copyFile(from, to)
+    }
+    for (const { from, to } of containment.links ?? []) {
+      if (!(await present(from))) continue
+      await mkdir(dirname(to), { recursive: true })
+      await symlink(from, to).catch(() => copyFile(from, to))
+    }
+    return parseModels(kind, await exec(argv, timeoutMs, Object.freeze(env), work))
+  } catch {
+    return []
+  } finally {
+    await rm(root, { recursive: true, force: true }).catch((err: unknown) => {
+      log.warn('the model listing folder could not be removed', { path: root, err })
+    })
+  }
+}
+
+async function present(path: string): Promise<boolean> {
+  return await lstat(path).then(
+    () => true,
+    () => false,
+  )
 }
 
 // ---- claude: no `models` CLI command, but the Anthropic Models API lists them ----

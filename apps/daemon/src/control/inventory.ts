@@ -343,6 +343,10 @@ export function startInventoryRefresh(
  * It used to run under the machine command env, so a probe named the
  * operator's HOME (and an ambient CODEX_HOME) while sessions ran as the
  * account. The Claude OAuth token comes from the account's credential folder.
+ *
+ * The first catalog read after a start (a client opening the app) lands here,
+ * so these contexts name the person's own folders: the harness package lists
+ * them contained (POD-7390), and a listing leaves those folders unchanged.
  */
 async function runModelProbe(
   ctx: HarnessManagementContext,
