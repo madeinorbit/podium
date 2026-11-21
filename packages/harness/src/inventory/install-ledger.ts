@@ -106,8 +106,12 @@ export interface HomeEditRecord {
     | { kind: 'owned-file'; sha256: string }
     /** Podium's handlers in a shared hook file, each one's command holding `marker`. */
     | { kind: 'hook-handlers'; marker: string; events: string[] }
-  /** What was there before Podium's first write. */
-  prior: { absent: true } | { value: JsonValue } | { contents: string }
+  /**
+   * What was there before Podium's first write. A file that was absent may
+   * name the outermost folder Podium created for it, which undo removes
+   * again while it is empty (POD-7389).
+   */
+  prior: { absent: true; createdFolder?: string } | { value: JsonValue } | { contents: string }
   serves: HomeEditServes
   appliedAt: string
 }

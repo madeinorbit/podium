@@ -35,7 +35,7 @@ export const HarnessHomeChange = z.object({
     }),
   ]),
   prior: z.union([
-    z.object({ absent: z.literal(true) }),
+    z.object({ absent: z.literal(true), createdFolder: z.string().optional() }),
     z.object({ value: z.unknown() }),
     z.object({ contents: z.string() }),
   ]),

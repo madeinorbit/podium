@@ -20,6 +20,25 @@ holds Podium's value and rereads it before writing. JSON undo restores only the
 key; owned-file undo restores its exact previous text or removes a newly created
 file; TOML undo removes one string and separator, retaining the other text.
 
+The Codex and Grok hook installs (`~/.codex/hooks.json`,
+`~/.grok/hooks/podium.json`) write their files themselves, outside
+`prepareLaunch`. Each install reports the file in `InstalledInstrumentation.hookFile`.
+The daemon's runtime host passes it to `recordInstrumentationHookFile`, which
+records a `hook-handlers` change for a file in the person's own folder.
+Handlers an older Podium left there with no record are recorded on the next
+launch, with the file minus those handlers as the prior. Undo takes out only the
+handlers whose command contains the record's marker, plus groups and event
+lists that held nothing else. It writes the exact prior bytes when nothing else
+in the file changed, and removes a file Podium created once nothing else is in
+it. Hooks the person added since stay. A file the person deleted drops its
+record.
+
+When Podium creates a missing file, an absent prior also names the outermost
+folder Podium created for it (`createdFolder`). After undo removes that file,
+it removes the folders from the file's own folder up to that one, each only
+while it is empty. A folder the person put something in stays, and so does
+every folder above it. A folder that existed before is never recorded.
+
 Two callers use the hook, and both are uninstalling Podium from the machine:
 
 - `podium uninstall` (`apps/cli/src/uninstall-cli.ts`, the undo injected by

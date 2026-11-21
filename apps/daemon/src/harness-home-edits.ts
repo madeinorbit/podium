@@ -35,10 +35,11 @@ import {
   realpath,
   rename,
   rm,
+  rmdir,
   stat,
   writeFile,
 } from 'node:fs/promises'
-import { basename, dirname, join, resolve } from 'node:path'
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import type { HomeEdit, InstrumentationHookFile, JsonValue } from '@podium/harness'
 import type { HomeEditRecord, StoredHomeEdit } from '@podium/harness/inventory'
 import {
@@ -64,6 +65,11 @@ export interface HomeEditPorts {
    * Creates its folder when missing.
    */
   createFileExclusive(path: string, contents: string): Promise<boolean>
+  /**
+   * Create a folder and its missing parents: the outermost one it created, or
+   * `undefined` when the folder was there. Without it no folder is recorded.
+   */
+  makeFolder?(folder: string): Promise<string | undefined>
   log(message: string, fields: Record<string, unknown>): void
 }
 
@@ -84,6 +90,8 @@ export interface HomeEditRecordingLedger {
 
 export interface HomeEditUndoPorts extends HomeEditPorts {
   removeFile(path: string): Promise<void>
+  /** Remove a folder only if it is empty: `false` when anything is in it. A missing folder is `true`. */
+  removeEmptyFolder?(folder: string): Promise<boolean>
 }
 
 export type HomeEditUndoOutcome =
@@ -142,14 +150,24 @@ async function applyOne(
 ): Promise<HomeEditOutcome> {
   try {
     let prior: HomeEditRecord['prior'] | undefined
-    const beforeWrite = (body: string | undefined) => {
-      prior ??= priorValue(edit, body)
+    let createdFolder: string | undefined
+    const writes: Writes = {
+      // Before writing a missing file: make its folder, remembering the
+      // outermost folder Podium created so undo can take it away (POD-7389).
+      async makeFolder() {
+        const made = await ports.makeFolder?.(dirname(edit.file))
+        createdFolder ??= made
+      },
+      beforeWrite(body) {
+        prior ??= priorValue(edit, body)
+      },
     }
     const result =
       edit.kind === 'owned-file'
-        ? await applyOwnedFile(edit, ports, beforeWrite)
-        : await applyKeyed(edit, ports, beforeWrite)
+        ? await applyOwnedFile(edit, ports, writes)
+        : await applyKeyed(edit, ports, writes)
     if (result.status === 'applied') {
+      if (prior && 'absent' in prior && createdFolder) prior = { absent: true, createdFolder }
       if (recorder && prior) {
         await recorder.record({
           harness: recorder.harness,
@@ -182,17 +200,26 @@ type JsonKeyEdit = Extract<HomeEdit, { kind: 'json-key' }>
 type TomlArrayEntryEdit = Extract<HomeEdit, { kind: 'toml-array-entry' }>
 type OwnedFileEdit = Extract<HomeEdit, { kind: 'owned-file' }>
 
+/** What an edit does just before it writes. */
+interface Writes {
+  /** Make the folder of a file that does not exist yet. */
+  makeFolder(): Promise<void>
+  /** Keep the body about to be replaced as the prior, the first time only. */
+  beforeWrite(body: string | undefined): void
+}
+
 async function applyOwnedFile(
   edit: OwnedFileEdit,
   ports: HomeEditPorts,
-  beforeWrite: (body: string | undefined) => void,
+  writes: Writes,
 ): Promise<HomeEditOutcome> {
   for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
     const body = await ports.readFile(edit.file)
     if (body === edit.contents) {
       return { edit, status: attempt === 0 ? 'already' : 'applied' }
     }
-    beforeWrite(body)
+    if (body === undefined) await writes.makeFolder()
+    writes.beforeWrite(body)
     await ports.writeFileAtomic(edit.file, edit.contents)
     if ((await ports.readFile(edit.file)) === edit.contents) return { edit, status: 'applied' }
   }
@@ -231,7 +258,7 @@ function keyedFormat(edit: JsonKeyEdit | TomlArrayEntryEdit): KeyedFormat {
 async function applyKeyed(
   edit: JsonKeyEdit | TomlArrayEntryEdit,
   ports: HomeEditPorts,
-  beforeWrite: (body: string | undefined) => void,
+  writes: Writes,
 ): Promise<HomeEditOutcome> {
   if (edit.path.length === 0) {
     return {
@@ -259,8 +286,9 @@ async function applyKeyed(
       if ('reason' in created || created.next === undefined) {
         return { edit, status: 'failed', reason: `could not plan a new ${edit.file}` }
       }
+      await writes.makeFolder()
       if (await ports.createFileExclusive(edit.file, created.next)) {
-        beforeWrite(undefined)
+        writes.beforeWrite(undefined)
         wrote = true
         const after = await ports.readFile(edit.file)
         if (after !== undefined && format.holds(after)) return { edit, status: 'applied' }
@@ -273,7 +301,7 @@ async function applyKeyed(
     // Write only over the very file the edit was planned from: a body that
     // changed since is newer than our copy, and the next attempt starts from it.
     if ((await ports.readFile(edit.file)) !== body) continue
-    beforeWrite(body)
+    writes.beforeWrite(body)
     await ports.writeFileAtomic(edit.file, planned.next)
     wrote = true
     const after = await ports.readFile(edit.file)
@@ -419,6 +447,7 @@ export async function undoHomeEdits(
             if ('reason' in planned) return { record, status: 'changed', reason: planned.reason }
             if ('gone' in planned) {
               // Nothing of Podium's is left in the file: only the record goes.
+              if (body === undefined) await removeCreatedFolders(record, ports)
               ledger.removeHomeEdit(record.id)
               return { record, status: 'restored' }
             }
@@ -426,6 +455,7 @@ export async function undoHomeEdits(
             if (planned.next === undefined) await ports.removeFile(record.file)
             else await ports.writeFileAtomic(record.file, planned.next)
             if ((await ports.readFile(record.file)) === planned.next) {
+              if (planned.next === undefined) await removeCreatedFolders(record, ports)
               ledger.removeHomeEdit(record.id)
               return { record, status: 'restored' }
             }
@@ -438,6 +468,35 @@ export async function undoHomeEdits(
     )
   }
   return outcomes
+}
+
+/**
+ * After the file is gone, remove the folders Podium created for it, from the
+ * file's own folder up to the outermost one it made, each only while empty.
+ * A folder the person put anything in stays, and so does every folder above
+ * it. Never fails the undo: the file is already restored.
+ */
+async function removeCreatedFolders(record: HomeEditRecord, ports: HomeEditUndoPorts) {
+  const { prior } = record
+  if (!('absent' in prior) || !prior.createdFolder || !ports.removeEmptyFolder) return
+  const top = resolve(prior.createdFolder)
+  let folder = dirname(resolve(record.file))
+  const inside = relative(top, folder)
+  if (inside.startsWith('..') || isAbsolute(inside)) return
+  try {
+    for (;;) {
+      if (!(await ports.removeEmptyFolder(folder))) return
+      if (folder === top) return
+      const parent = dirname(folder)
+      if (parent === folder) return
+      folder = parent
+    }
+  } catch (err) {
+    ports.log('could not remove a folder Podium created', {
+      folder,
+      error: errorMessage(err),
+    })
+  }
 }
 
 function planUndo(
@@ -594,6 +653,9 @@ export async function recordHookFile(
     )
   if (recorded && !hookFile.prior) return recorded
   let prior: HomeEditRecord['prior'] | undefined = hookFile.prior
+  if (prior && 'absent' in prior && prior.createdFolder) {
+    prior = { absent: true, createdFolder: await ports.realPath(prior.createdFolder) }
+  }
   if (!prior) {
     const body = await ports.readFile(file)
     if (body === undefined) return undefined
@@ -637,6 +699,20 @@ export function nodeHomeEditPorts(log: HomeEditPorts['log']): HomeEditUndoPorts 
     realPath: realHomeEditPath,
     async removeFile(path) {
       await rm(path)
+    },
+    async makeFolder(folder) {
+      return await mkdir(folder, { recursive: true })
+    },
+    async removeEmptyFolder(folder) {
+      try {
+        await rmdir(folder)
+        return true
+      } catch (err) {
+        const code = (err as NodeJS.ErrnoException).code
+        if (code === 'ENOENT') return true
+        if (code === 'ENOTEMPTY' || code === 'EEXIST') return false
+        throw err
+      }
     },
     async readFile(path) {
       try {

@@ -1214,8 +1214,11 @@ export interface InstrumentationHookFile {
   marker: string
   /** The hook events Podium handles. */
   events: readonly string[]
-  /** What the file held before THIS install wrote it. Absent when it wrote nothing. */
-  prior?: { absent: true } | { contents: string }
+  /**
+   * What the file held before THIS install wrote it, with the outermost
+   * folder it created for a new file. Absent when it wrote nothing.
+   */
+  prior?: { absent: true; createdFolder?: string } | { contents: string }
 }
 
 export type InstrumentationDegradedKind =

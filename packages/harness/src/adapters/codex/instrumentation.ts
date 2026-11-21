@@ -553,8 +553,9 @@ export async function ensurePodiumCodexHooks(opts: {
     }
   }
   const upserted = upsertHooksJson(doc)
+  let createdFolder: string | undefined
   if (upserted.changed) {
-    await mkdir(roots.hooks, { recursive: true })
+    createdFolder = await mkdir(roots.hooks, { recursive: true })
     await writeAtomic(hooksJsonPath, `${JSON.stringify(upserted.doc, null, 2)}\n`)
   }
   const hookFile: InstrumentationHookFile = {
@@ -562,7 +563,12 @@ export async function ensurePodiumCodexHooks(opts: {
     marker: PODIUM_CODEX_HOOK_URL_ENV,
     events: [...CODEX_HOOK_EVENTS],
     ...(upserted.changed
-      ? { prior: body === undefined ? { absent: true as const } : { contents: body } }
+      ? {
+          prior:
+            body === undefined
+              ? { absent: true as const, ...(createdFolder ? { createdFolder } : {}) }
+              : { contents: body },
+        }
       : {}),
   }
 

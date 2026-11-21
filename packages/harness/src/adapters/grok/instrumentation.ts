@@ -190,8 +190,9 @@ export async function ensurePodiumGrokHooks(opts: {
   }
 
   const upserted = upsertHooks(doc)
+  let createdFolder: string | undefined
   if (upserted.changed) {
-    await mkdir(hooksDir, { recursive: true })
+    createdFolder = await mkdir(hooksDir, { recursive: true })
     await writeAtomic(hooksPath, `${JSON.stringify(upserted.doc, null, 2)}\n`)
   }
   return {
@@ -202,7 +203,12 @@ export async function ensurePodiumGrokHooks(opts: {
       marker: PODIUM_GROK_HOOK_URL_ENV,
       events: [...GROK_HOOK_EVENTS],
       ...(upserted.changed
-        ? { prior: body === undefined ? { absent: true as const } : { contents: body } }
+        ? {
+            prior:
+              body === undefined
+                ? { absent: true as const, ...(createdFolder ? { createdFolder } : {}) }
+                : { contents: body },
+          }
         : {}),
     },
   }

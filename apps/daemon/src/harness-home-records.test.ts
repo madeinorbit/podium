@@ -454,12 +454,24 @@ describe('Podium’s hook files in the person’s own folder (POD-7388)', () => 
       expect.objectContaining({
         file: await realpath(grokHooks()),
         edit: expect.objectContaining({ kind: 'hook-handlers', marker: 'PODIUM_GROK_HOOK_URL' }),
-        prior: { absent: true },
+        prior: { absent: true, createdFolder: await realpath(join(dir, '.grok', 'hooks')) },
       }),
     ])
     expect((await removeHomeEditRecords('grok', harnessesDir))[0]?.status).toBe('restored')
     expect(existsSync(grokHooks())).toBe(false)
+    // POD-7389: the hooks folder Podium made goes too; the Grok home stays.
+    expect(existsSync(join(dir, '.grok', 'hooks'))).toBe(false)
+    expect(existsSync(join(dir, '.grok'))).toBe(true)
     expect(listHomeEditRecords('grok', harnessesDir)).toEqual([])
+  })
+
+  it('Grok: a hooks folder the person already had stays', async () => {
+    await mkdir(join(dir, '.grok', 'hooks'), { recursive: true })
+    await installGrok()
+    expect(listHomeEditRecords('grok', harnessesDir)[0]?.prior).toEqual({ absent: true })
+    await removeHomeEditRecords('grok', harnessesDir)
+    expect(existsSync(grokHooks())).toBe(false)
+    expect(existsSync(join(dir, '.grok', 'hooks'))).toBe(true)
   })
 
   it('a hook file the person deleted drops its record and writes nothing', async () => {
@@ -490,5 +502,92 @@ describe('Podium’s hook files in the person’s own folder (POD-7388)', () => 
       harnessesDir,
     )
     expect(listHomeEditRecords('grok', harnessesDir)).toEqual([])
+  })
+})
+
+describe('folders Podium created for a home edit (POD-7389)', () => {
+  let dir: string
+  let ledger: InstallLedger
+  const ports = nodeHomeEditPorts(() => {})
+  const record = (value: HomeEditRecord) => {
+    ledger.recordHomeEdit(value)
+  }
+  const rule = (file: string): HomeEdit => ({
+    kind: 'owned-file',
+    file,
+    contents: 'prefix_rule(pattern=["podium"], decision="allow")\n',
+    serves: 'podium-cli',
+  })
+
+  beforeEach(async () => {
+    dir = await realpath(await mkdtemp(join(tmpdir(), 'podium-home-folders-')))
+    ledger = InstallLedger.open({ harnessesDir: join(dir, 'harnesses') })
+    await mkdir(join(dir, '.codex'))
+  })
+  afterEach(async () => {
+    ledger.close()
+    await rm(dir, { recursive: true, force: true })
+  })
+
+  it('removes the rules folder Podium created and keeps the Codex home', async () => {
+    const file = join(dir, '.codex', 'rules', 'podium.rules')
+    await applyHomeEdits([rule(file)], ports, { harness: 'codex', record })
+    expect(ledger.homeEdits()[0]?.prior).toEqual({
+      absent: true,
+      createdFolder: join(dir, '.codex', 'rules'),
+    })
+    expect((await undoHomeEdits(ledger, ports))[0]?.status).toBe('restored')
+    expect(existsSync(file)).toBe(false)
+    expect(existsSync(join(dir, '.codex', 'rules'))).toBe(false)
+    expect(existsSync(join(dir, '.codex'))).toBe(true)
+  })
+
+  it('keeps a created folder the person put a file in', async () => {
+    const file = join(dir, '.codex', 'rules', 'podium.rules')
+    await applyHomeEdits([rule(file)], ports, { harness: 'codex', record })
+    await writeFile(join(dir, '.codex', 'rules', 'mine.rules'), 'mine\n')
+    expect((await undoHomeEdits(ledger, ports))[0]?.status).toBe('restored')
+    expect(existsSync(file)).toBe(false)
+    expect(await readFile(join(dir, '.codex', 'rules', 'mine.rules'), 'utf8')).toBe('mine\n')
+  })
+
+  it('keeps a folder that was there before', async () => {
+    await mkdir(join(dir, '.codex', 'rules'))
+    const file = join(dir, '.codex', 'rules', 'podium.rules')
+    await applyHomeEdits([rule(file)], ports, { harness: 'codex', record })
+    expect(ledger.homeEdits()[0]?.prior).toEqual({ absent: true })
+    await undoHomeEdits(ledger, ports)
+    expect(existsSync(file)).toBe(false)
+    expect(existsSync(join(dir, '.codex', 'rules'))).toBe(true)
+  })
+
+  it('removes nested created folders up to the first one the person filled', async () => {
+    const file = join(dir, '.codex', 'a', 'b', 'podium.rules')
+    await applyHomeEdits([rule(file)], ports, { harness: 'codex', record })
+    expect(ledger.homeEdits()[0]?.prior).toEqual({
+      absent: true,
+      createdFolder: join(dir, '.codex', 'a'),
+    })
+    await writeFile(join(dir, '.codex', 'a', 'keep'), 'x')
+    await undoHomeEdits(ledger, ports)
+    expect(existsSync(join(dir, '.codex', 'a', 'b'))).toBe(false)
+    expect(existsSync(join(dir, '.codex', 'a', 'keep'))).toBe(true)
+  })
+
+  it('a JSON key in a file Podium created removes the file’s new folder too', async () => {
+    const file = join(dir, '.codex', 'new', 'settings.json')
+    const key: HomeEdit = {
+      kind: 'json-key',
+      file,
+      path: ['trusted'],
+      value: true,
+      serves: 'workspace-trust',
+      createIfMissing: true,
+    }
+    await applyHomeEdits([key], ports, { harness: 'codex', record })
+    expect(ledger.homeEdits()[0]?.prior).toEqual({
+      absent: true,
+      createdFolder: join(dir, '.codex', 'new'),
+    })
   })
 })

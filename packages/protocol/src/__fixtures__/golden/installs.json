@@ -35,7 +35,8 @@
               }
             },
             "prior": {
-              "absent": true
+              "absent": true,
+              "createdFolder": "changes[0].prior.createdFolder"
             },
             "serves": "changes[0].serves",
             "appliedAt": "changes[0].appliedAt",
@@ -54,7 +55,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"ok\":true,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":1,\"changes\":[{\"id\":1,\"harness\":\"claude-code\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"json-key\",\"path\":[\"changes[0].edit.path[0]\"],\"value\":{\"unknownFixture\":\"changes[0].edit.value\"}},\"prior\":{\"absent\":true},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"restored\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":true}"
+      "encoded": "{\"ok\":true,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":1,\"changes\":[{\"id\":1,\"harness\":\"claude-code\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"json-key\",\"path\":[\"changes[0].edit.path[0]\"],\"value\":{\"unknownFixture\":\"changes[0].edit.value\"}},\"prior\":{\"absent\":true,\"createdFolder\":\"changes[0].prior.createdFolder\"},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"restored\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":true}"
     },
     {
       "schema": "HarnessActionResult",
@@ -247,7 +248,8 @@
               }
             },
             "prior": {
-              "absent": true
+              "absent": true,
+              "createdFolder": "changes[0].prior.createdFolder"
             },
             "serves": "changes[0].serves",
             "appliedAt": "changes[0].appliedAt",
@@ -266,7 +268,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"harnessBackResult\",\"requestId\":\"requestId\",\"ok\":true,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":1,\"changes\":[{\"id\":1,\"harness\":\"claude-code\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"json-key\",\"path\":[\"changes[0].edit.path[0]\"],\"value\":{\"unknownFixture\":\"changes[0].edit.value\"}},\"prior\":{\"absent\":true},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"restored\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":true}"
+      "encoded": "{\"type\":\"harnessBackResult\",\"requestId\":\"requestId\",\"ok\":true,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":1,\"changes\":[{\"id\":1,\"harness\":\"claude-code\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"json-key\",\"path\":[\"changes[0].edit.path[0]\"],\"value\":{\"unknownFixture\":\"changes[0].edit.value\"}},\"prior\":{\"absent\":true,\"createdFolder\":\"changes[0].prior.createdFolder\"},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"restored\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":true}"
     },
     {
       "schema": "HarnessBackResultMessage",
@@ -465,7 +467,8 @@
               }
             },
             "prior": {
-              "absent": true
+              "absent": true,
+              "createdFolder": "changes[0].prior.createdFolder"
             },
             "serves": "changes[0].serves",
             "appliedAt": "changes[0].appliedAt",
@@ -484,7 +487,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"harnessChangesResult\",\"requestId\":\"requestId\",\"ok\":true,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":1,\"changes\":[{\"id\":1,\"harness\":\"claude-code\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"json-key\",\"path\":[\"changes[0].edit.path[0]\"],\"value\":{\"unknownFixture\":\"changes[0].edit.value\"}},\"prior\":{\"absent\":true},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"restored\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":true}"
+      "encoded": "{\"type\":\"harnessChangesResult\",\"requestId\":\"requestId\",\"ok\":true,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":1,\"changes\":[{\"id\":1,\"harness\":\"claude-code\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"json-key\",\"path\":[\"changes[0].edit.path[0]\"],\"value\":{\"unknownFixture\":\"changes[0].edit.value\"}},\"prior\":{\"absent\":true,\"createdFolder\":\"changes[0].prior.createdFolder\"},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"restored\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":true}"
     },
     {
       "schema": "HarnessChangesResultMessage",
@@ -683,7 +686,8 @@
               }
             },
             "prior": {
-              "absent": true
+              "absent": true,
+              "createdFolder": "changes[0].prior.createdFolder"
             },
             "serves": "changes[0].serves",
             "appliedAt": "changes[0].appliedAt",
@@ -702,7 +706,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"harnessCheckResult\",\"requestId\":\"requestId\",\"ok\":true,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":1,\"changes\":[{\"id\":1,\"harness\":\"claude-code\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"json-key\",\"path\":[\"changes[0].edit.path[0]\"],\"value\":{\"unknownFixture\":\"changes[0].edit.value\"}},\"prior\":{\"absent\":true},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"restored\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":true}"
+      "encoded": "{\"type\":\"harnessCheckResult\",\"requestId\":\"requestId\",\"ok\":true,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":1,\"changes\":[{\"id\":1,\"harness\":\"claude-code\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"json-key\",\"path\":[\"changes[0].edit.path[0]\"],\"value\":{\"unknownFixture\":\"changes[0].edit.value\"}},\"prior\":{\"absent\":true,\"createdFolder\":\"changes[0].prior.createdFolder\"},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"restored\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":true}"
     },
     {
       "schema": "HarnessCheckResultMessage",
@@ -878,7 +882,8 @@
           }
         },
         "prior": {
-          "absent": true
+          "absent": true,
+          "createdFolder": "prior.createdFolder"
         },
         "serves": "serves",
         "appliedAt": "appliedAt",
@@ -888,7 +893,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"id\":1,\"harness\":\"claude-code\",\"file\":\"file\",\"edit\":{\"kind\":\"json-key\",\"path\":[\"edit.path[0]\"],\"value\":{\"unknownFixture\":\"edit.value\"}},\"prior\":{\"absent\":true},\"serves\":\"serves\",\"appliedAt\":\"appliedAt\",\"status\":\"restored\",\"reason\":\"reason\"}"
+      "encoded": "{\"id\":1,\"harness\":\"claude-code\",\"file\":\"file\",\"edit\":{\"kind\":\"json-key\",\"path\":[\"edit.path[0]\"],\"value\":{\"unknownFixture\":\"edit.value\"}},\"prior\":{\"absent\":true,\"createdFolder\":\"prior.createdFolder\"},\"serves\":\"serves\",\"appliedAt\":\"appliedAt\",\"status\":\"restored\",\"reason\":\"reason\"}"
     },
     {
       "schema": "HarnessHomeChange",
@@ -1033,7 +1038,8 @@
               }
             },
             "prior": {
-              "absent": true
+              "absent": true,
+              "createdFolder": "changes[0].prior.createdFolder"
             },
             "serves": "changes[0].serves",
             "appliedAt": "changes[0].appliedAt",
@@ -1052,7 +1058,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"harnessHomeInfoResult\",\"requestId\":\"requestId\",\"ok\":true,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":1,\"changes\":[{\"id\":1,\"harness\":\"claude-code\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"json-key\",\"path\":[\"changes[0].edit.path[0]\"],\"value\":{\"unknownFixture\":\"changes[0].edit.value\"}},\"prior\":{\"absent\":true},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"restored\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":true}"
+      "encoded": "{\"type\":\"harnessHomeInfoResult\",\"requestId\":\"requestId\",\"ok\":true,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":1,\"changes\":[{\"id\":1,\"harness\":\"claude-code\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"json-key\",\"path\":[\"changes[0].edit.path[0]\"],\"value\":{\"unknownFixture\":\"changes[0].edit.value\"}},\"prior\":{\"absent\":true,\"createdFolder\":\"changes[0].prior.createdFolder\"},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"restored\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":true}"
     },
     {
       "schema": "HarnessHomeInfoResultMessage",
@@ -1253,7 +1259,8 @@
               }
             },
             "prior": {
-              "absent": true
+              "absent": true,
+              "createdFolder": "changes[0].prior.createdFolder"
             },
             "serves": "changes[0].serves",
             "appliedAt": "changes[0].appliedAt",
@@ -1272,7 +1279,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"harnessHomeRemoveResult\",\"requestId\":\"requestId\",\"ok\":true,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":1,\"changes\":[{\"id\":1,\"harness\":\"claude-code\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"json-key\",\"path\":[\"changes[0].edit.path[0]\"],\"value\":{\"unknownFixture\":\"changes[0].edit.value\"}},\"prior\":{\"absent\":true},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"restored\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":true}"
+      "encoded": "{\"type\":\"harnessHomeRemoveResult\",\"requestId\":\"requestId\",\"ok\":true,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":1,\"changes\":[{\"id\":1,\"harness\":\"claude-code\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"json-key\",\"path\":[\"changes[0].edit.path[0]\"],\"value\":{\"unknownFixture\":\"changes[0].edit.value\"}},\"prior\":{\"absent\":true,\"createdFolder\":\"changes[0].prior.createdFolder\"},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"restored\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":true}"
     },
     {
       "schema": "HarnessHomeRemoveResultMessage",
@@ -1489,7 +1496,8 @@
               }
             },
             "prior": {
-              "absent": true
+              "absent": true,
+              "createdFolder": "changes[0].prior.createdFolder"
             },
             "serves": "changes[0].serves",
             "appliedAt": "changes[0].appliedAt",
@@ -1508,7 +1516,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"harnessInstallResult\",\"requestId\":\"requestId\",\"ok\":true,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":1,\"changes\":[{\"id\":1,\"harness\":\"claude-code\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"json-key\",\"path\":[\"changes[0].edit.path[0]\"],\"value\":{\"unknownFixture\":\"changes[0].edit.value\"}},\"prior\":{\"absent\":true},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"restored\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":true}"
+      "encoded": "{\"type\":\"harnessInstallResult\",\"requestId\":\"requestId\",\"ok\":true,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":1,\"changes\":[{\"id\":1,\"harness\":\"claude-code\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"json-key\",\"path\":[\"changes[0].edit.path[0]\"],\"value\":{\"unknownFixture\":\"changes[0].edit.value\"}},\"prior\":{\"absent\":true,\"createdFolder\":\"changes[0].prior.createdFolder\"},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"restored\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":true}"
     },
     {
       "schema": "HarnessInstallResultMessage",
@@ -1707,7 +1715,8 @@
               }
             },
             "prior": {
-              "absent": true
+              "absent": true,
+              "createdFolder": "changes[0].prior.createdFolder"
             },
             "serves": "changes[0].serves",
             "appliedAt": "changes[0].appliedAt",
@@ -1726,7 +1735,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"harnessPauseResult\",\"requestId\":\"requestId\",\"ok\":true,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":1,\"changes\":[{\"id\":1,\"harness\":\"claude-code\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"json-key\",\"path\":[\"changes[0].edit.path[0]\"],\"value\":{\"unknownFixture\":\"changes[0].edit.value\"}},\"prior\":{\"absent\":true},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"restored\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":true}"
+      "encoded": "{\"type\":\"harnessPauseResult\",\"requestId\":\"requestId\",\"ok\":true,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":1,\"changes\":[{\"id\":1,\"harness\":\"claude-code\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"json-key\",\"path\":[\"changes[0].edit.path[0]\"],\"value\":{\"unknownFixture\":\"changes[0].edit.value\"}},\"prior\":{\"absent\":true,\"createdFolder\":\"changes[0].prior.createdFolder\"},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"restored\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":true}"
     },
     {
       "schema": "HarnessPauseResultMessage",
@@ -1925,7 +1934,8 @@
               }
             },
             "prior": {
-              "absent": true
+              "absent": true,
+              "createdFolder": "changes[0].prior.createdFolder"
             },
             "serves": "changes[0].serves",
             "appliedAt": "changes[0].appliedAt",
@@ -1944,7 +1954,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"harnessRemoveChangesResult\",\"requestId\":\"requestId\",\"ok\":true,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":1,\"changes\":[{\"id\":1,\"harness\":\"claude-code\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"json-key\",\"path\":[\"changes[0].edit.path[0]\"],\"value\":{\"unknownFixture\":\"changes[0].edit.value\"}},\"prior\":{\"absent\":true},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"restored\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":true}"
+      "encoded": "{\"type\":\"harnessRemoveChangesResult\",\"requestId\":\"requestId\",\"ok\":true,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":1,\"changes\":[{\"id\":1,\"harness\":\"claude-code\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"json-key\",\"path\":[\"changes[0].edit.path[0]\"],\"value\":{\"unknownFixture\":\"changes[0].edit.value\"}},\"prior\":{\"absent\":true,\"createdFolder\":\"changes[0].prior.createdFolder\"},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"restored\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":true}"
     },
     {
       "schema": "HarnessRemoveChangesResultMessage",
@@ -2143,7 +2153,8 @@
               }
             },
             "prior": {
-              "absent": true
+              "absent": true,
+              "createdFolder": "changes[0].prior.createdFolder"
             },
             "serves": "changes[0].serves",
             "appliedAt": "changes[0].appliedAt",
@@ -2162,7 +2173,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"harnessRemoveResult\",\"requestId\":\"requestId\",\"ok\":true,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":1,\"changes\":[{\"id\":1,\"harness\":\"claude-code\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"json-key\",\"path\":[\"changes[0].edit.path[0]\"],\"value\":{\"unknownFixture\":\"changes[0].edit.value\"}},\"prior\":{\"absent\":true},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"restored\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":true}"
+      "encoded": "{\"type\":\"harnessRemoveResult\",\"requestId\":\"requestId\",\"ok\":true,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":1,\"changes\":[{\"id\":1,\"harness\":\"claude-code\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"json-key\",\"path\":[\"changes[0].edit.path[0]\"],\"value\":{\"unknownFixture\":\"changes[0].edit.value\"}},\"prior\":{\"absent\":true,\"createdFolder\":\"changes[0].prior.createdFolder\"},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"restored\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":true}"
     },
     {
       "schema": "HarnessRemoveResultMessage",
@@ -2361,7 +2372,8 @@
               }
             },
             "prior": {
-              "absent": true
+              "absent": true,
+              "createdFolder": "changes[0].prior.createdFolder"
             },
             "serves": "changes[0].serves",
             "appliedAt": "changes[0].appliedAt",
@@ -2380,7 +2392,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"harnessResumeResult\",\"requestId\":\"requestId\",\"ok\":true,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":1,\"changes\":[{\"id\":1,\"harness\":\"claude-code\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"json-key\",\"path\":[\"changes[0].edit.path[0]\"],\"value\":{\"unknownFixture\":\"changes[0].edit.value\"}},\"prior\":{\"absent\":true},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"restored\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":true}"
+      "encoded": "{\"type\":\"harnessResumeResult\",\"requestId\":\"requestId\",\"ok\":true,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":1,\"changes\":[{\"id\":1,\"harness\":\"claude-code\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"json-key\",\"path\":[\"changes[0].edit.path[0]\"],\"value\":{\"unknownFixture\":\"changes[0].edit.value\"}},\"prior\":{\"absent\":true,\"createdFolder\":\"changes[0].prior.createdFolder\"},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"restored\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":true}"
     },
     {
       "schema": "HarnessResumeResultMessage",
@@ -2579,7 +2591,8 @@
               }
             },
             "prior": {
-              "absent": true
+              "absent": true,
+              "createdFolder": "changes[0].prior.createdFolder"
             },
             "serves": "changes[0].serves",
             "appliedAt": "changes[0].appliedAt",
@@ -2598,7 +2611,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"harnessTakeSettingsResult\",\"requestId\":\"requestId\",\"ok\":true,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":1,\"changes\":[{\"id\":1,\"harness\":\"claude-code\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"json-key\",\"path\":[\"changes[0].edit.path[0]\"],\"value\":{\"unknownFixture\":\"changes[0].edit.value\"}},\"prior\":{\"absent\":true},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"restored\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":true}"
+      "encoded": "{\"type\":\"harnessTakeSettingsResult\",\"requestId\":\"requestId\",\"ok\":true,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":1,\"changes\":[{\"id\":1,\"harness\":\"claude-code\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"json-key\",\"path\":[\"changes[0].edit.path[0]\"],\"value\":{\"unknownFixture\":\"changes[0].edit.value\"}},\"prior\":{\"absent\":true,\"createdFolder\":\"changes[0].prior.createdFolder\"},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"restored\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":true}"
     },
     {
       "schema": "HarnessTakeSettingsResultMessage",
