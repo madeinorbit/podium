@@ -161,15 +161,15 @@ describe('FirstTaskActivation', () => {
     const onRouteChange = vi.fn()
     render(<FirstTaskActivation route="agent" onRouteChange={onRouteChange} onComplete={vi.fn()} />)
 
-    expect(screen.getAllByRole('button', { name: 'Install', exact: true })).toHaveLength(6)
+    expect(screen.getAllByRole('button', { name: 'Install' })).toHaveLength(6)
     expect(screen.getByRole('button', { name: 'Continue' }).hasAttribute('disabled')).toBe(true)
     const codex = screen.getByRole('group', { name: 'Codex actions' })
-    fireEvent.click(within(codex).getByRole('button', { name: 'Install', exact: true }))
+    fireEvent.click(within(codex).getByRole('button', { name: 'Install' }))
     expect(harnessAction).toHaveBeenCalledWith({ machineId, harness: 'codex', action: 'install' })
     expect(await screen.findByText('Waiting for the machine…')).toBeTruthy()
-    expect(
-      within(codex).getByRole('button', { name: 'Install', exact: true }).hasAttribute('disabled'),
-    ).toBe(true)
+    expect(within(codex).getByRole('button', { name: 'Install' }).hasAttribute('disabled')).toBe(
+      true,
+    )
     await act(async () => {
       finishInstall({ ok: true, outcome: 'confirmed' })
     })
@@ -204,9 +204,9 @@ describe('FirstTaskActivation', () => {
       .mockResolvedValueOnce({ ok: true, outcome: 'confirmed' })
     render(<FirstTaskActivation route="agent" onRouteChange={vi.fn()} onComplete={vi.fn()} />)
     const codex = screen.getByRole('group', { name: 'Codex actions' })
-    fireEvent.click(within(codex).getByRole('button', { name: 'Install', exact: true }))
+    fireEvent.click(within(codex).getByRole('button', { name: 'Install' }))
     expect(await screen.findByRole('alert')).toHaveProperty('textContent', 'Download failed')
-    fireEvent.click(within(codex).getByRole('button', { name: 'Install', exact: true }))
+    fireEvent.click(within(codex).getByRole('button', { name: 'Install' }))
     await waitFor(() => expect(harnessAction).toHaveBeenCalledTimes(2))
     expect(screen.getByRole('button', { name: 'Continue' }).hasAttribute('disabled')).toBe(true)
   })
@@ -216,9 +216,9 @@ describe('FirstTaskActivation', () => {
     codexInstallable = false
     render(<FirstTaskActivation route="agent" onRouteChange={vi.fn()} onComplete={vi.fn()} />)
     const codex = screen.getByRole('group', { name: 'Codex actions' })
-    expect(
-      within(codex).getByRole('button', { name: 'Install', exact: true }).hasAttribute('disabled'),
-    ).toBe(true)
+    expect(within(codex).getByRole('button', { name: 'Install' }).hasAttribute('disabled')).toBe(
+      true,
+    )
     expect(screen.getByText('Not supported on this platform')).toBeTruthy()
   })
 
@@ -227,7 +227,7 @@ describe('FirstTaskActivation', () => {
     render(<FirstTaskActivation route="agent" onRouteChange={onRouteChange} onComplete={vi.fn()} />)
 
     await screen.findByText('Ready')
-    expect(screen.getAllByRole('button', { name: 'Install', exact: true })).toHaveLength(5)
+    expect(screen.getAllByRole('button', { name: 'Install' })).toHaveLength(5)
     expect(screen.getByRole('group', { name: 'OpenCode actions' })).toBeTruthy()
     expect(screen.getByRole('heading', { name: 'Set up your agents.' })).toBeTruthy()
     expect(screen.queryByRole('button', { name: /Choose a project/ })).toBeNull()
