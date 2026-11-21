@@ -756,15 +756,58 @@ export async function hostHasSession(
 }
 
 async function hostSocketAlive(path: string): Promise<boolean> {
+  return (await hostProgramState(path)) === 'running'
+}
+
+/**
+ * What the host at `path` says about its program: `exited` only when its
+ * STATUS says so (it is lingering), `unknown` when it could not be asked.
+ * Callers that end a host on this answer act on `exited` alone: a host that
+ * failed to answer may still be running a session.
+ */
+async function hostProgramState(path: string): Promise<'running' | 'exited' | 'unknown'> {
   const c = connectHost(path, { mode: 'reader' })
   try {
     await c.welcome
-    const st = await c.status()
-    return st.alive
+    return (await c.status()).alive ? 'running' : 'exited'
   } catch {
-    return false
+    return 'unknown'
   } finally {
     c.destroy()
+  }
+}
+
+/**
+ * How long a spawn waits for a lingering host it told to end to give up the
+ * label: the host's kill linger (1 s) plus its grace for a client that is not
+ * reading (2 s), with margin.
+ */
+const EXITED_HOST_RELEASE_MS = 5000
+
+/**
+ * End a host whose program has exited and wait until its socket stops
+ * answering, so a new create can bind the label. The lingering host held only
+ * the finished program's output; a spawn under the label is the owner starting
+ * something new.
+ */
+async function releaseExitedHost(
+  label: string,
+  path: string,
+  env: NodeJS.ProcessEnv,
+): Promise<void> {
+  log.info('the label is held by a host whose program has exited — ending it to start anew', {
+    label,
+    path,
+  })
+  await killHostSession(label, execFileAsync, env)
+  const deadline = Date.now() + EXITED_HOST_RELEASE_MS
+  while ((await probeHostSocket(path)) === 'live') {
+    if (Date.now() >= deadline) {
+      throw new Error(
+        `podium-host session ${label}: its program has exited, but the host still holds the label ${EXITED_HOST_RELEASE_MS}ms after it was told to end`,
+      )
+    }
+    await new Promise<void>((r) => setTimeout(r, HOST_SOCKET_POLL_MS))
   }
 }
 
@@ -1173,7 +1216,9 @@ export function hostCreateArgs(opts: HostCreateCommand): string[] {
  * Create a host running the agent, then attach as the writer. A live host under
  * the label is ADOPTED; a create that finds one already running (exit 3) adopts
  * it too; on Linux the host is launched in its own transient systemd scope
- * ({@link systemdScopeArgv}), so it outlives a redeploy.
+ * ({@link systemdScopeArgv}), so it outlives a redeploy. A host whose program
+ * has exited (lingering) is never adopted: it is ended, and the label gets a
+ * new program (POD-7060).
  *
  * With `noPty` the child gets pipes instead of a pty and stdout+stderr merge
  * into the same sequence-numbered ring; resize/size answer ERR NO_PTY. The
@@ -1218,7 +1263,11 @@ export async function spawnHostAgent(
     return Object.assign(s, { adopted: true })
   }
   const live = await liveHostSocket(opts.label, childEnv)
-  if (live && (await hostSocketAlive(live))) return adopt(live)
+  const liveState = live ? await hostProgramState(live) : undefined
+  if (live && liveState === 'running') return adopt(live)
+  // A host whose program has exited still holds the label while it lingers,
+  // and a create would exit 3 against it (POD-7060).
+  if (live && liveState === 'exited') await releaseExitedHost(opts.label, live, childEnv)
   // The pipe's variable is the host's to set: one the caller also passed
   // would name a descriptor the program does not have.
   const pipe = opts.pipe ? checkedPipe(opts.pipe) : undefined
@@ -1258,9 +1307,14 @@ export async function spawnHostAgent(
     await s.ready
     return s
   }
+  // A create that failed because another spawn bound the label first adopts
+  // that winner. A host whose program has already exited is not one: binding
+  // it would report a start whose program is gone, so the create's own error
+  // stands.
   const adoptRaceWinner = async (): Promise<HostDurableAttachment | undefined> => {
     const raced = await liveHostSocket(opts.label, childEnv)
-    return raced ? adopt(raced) : undefined
+    if (!raced || (await hostProgramState(raced)) === 'exited') return undefined
+    return adopt(raced)
   }
 
   if (await canScopeMaster()) {
