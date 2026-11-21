@@ -302,6 +302,45 @@ describe('the claude stream engine host', () => {
     host.releaseEngines()
   })
 
+
+  it('never launches an engine for an opaque native read and observes across turns', async () => {
+    const attachment = fakeAttachment()
+    const ports = fakePorts({ spawn: attachment })
+    const host = createClaudeEngineHost(hostDeps(ports, journalStore()))
+    await expect(
+      host.requestNative!(SESSION_ID, { synthetic: 'read' }, { timeoutMs: 100 }),
+    ).rejects.toThrow('No running Claude engine')
+    expect(ports.spawned).toHaveLength(0)
+    const raw: unknown[] = []
+    const off = host.observeNative!(SESSION_ID, (payload) => raw.push(payload))
+    const turn = host.startTurn(turnInput())
+    await vi.waitFor(() => expect(ports.spawned).toHaveLength(1))
+    answerHandshake(attachment)
+    await vi.waitFor(() =>
+      expect(attachment.writes.some((line) => JSON.parse(line).type === 'user')).toBe(true),
+    )
+    endTurn(attachment)
+    await turn.done
+    const read = host.requestNative!(SESSION_ID, { synthetic: 'read' }, { timeoutMs: 500 })
+    await vi.waitFor(() =>
+      expect(
+        attachment.writes
+          .map((line) => JSON.parse(line))
+          .some((value) => value.request?.synthetic === 'read'),
+      ).toBe(true),
+    )
+    const request = attachment.writes.map((line) => JSON.parse(line)).at(-1)
+    attachment.emitStdout(
+      `${frame({ type: 'control_response', response: { subtype: 'success', request_id: request.request_id, response: { opaque: 'answer' } } })}\n`,
+    )
+    await expect(read).resolves.toEqual({ opaque: 'answer' })
+    expect(raw).toHaveLength(4)
+    off()
+    attachment.emitStdout(`${frame({ type: 'synthetic', opaque: true })}\n`)
+    expect(raw).toHaveLength(4)
+    expect(ports.spawned).toHaveLength(1)
+    host.releaseEngines()
+  })
   it('spawns the engine under the host and journals the harness session id', async () => {
     const attachment = fakeAttachment({ childPid: 4242 })
     const { supervision, engines, spawned } = fakePorts({ spawn: attachment })

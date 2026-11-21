@@ -39,6 +39,7 @@
 import { randomUUID } from 'node:crypto'
 import type { HeadlessTurnEvent, SessionPosture } from '@podium/protocol'
 import { type BoundCommand, harnessCommand } from '../../../bound-command.js'
+import type { ContextReadOptions } from '../../../context-types.js'
 import type { HarnessContext } from '../../../harness-context-types.js'
 import { type AgentTermsInput, agentLaunchTerms } from '../../../launch-terms.js'
 import type { LaunchMode } from '../../../posture-types.js'
@@ -473,6 +474,8 @@ export interface ClaudeStreamClient {
    *  CLI-reported one, else the one the invocation named — or, with neither,
    *  once the CLI reports one. Never a gate on the first user line. */
   readonly ready: Promise<string>
+  /** Opaque adapter operation over this already-owned child. */
+  request(operation: unknown, options: ContextReadOptions): Promise<unknown>
   /** Run one turn over the long-lived child. Strictly serial: one open turn.
    *  `userMessageUuid` names the user line and so its history entry (POD-4774);
    *  absent, the client mints one — a line always has a uuid to be acked by. */
@@ -526,12 +529,16 @@ export function createClaudeStreamClient(
     /** The session's hidden startup/compaction context. Present = the
      *  boundary hooks are registered and answered in band. */
     boundaryContext?: BoundaryContextOperation
+    /** Every raw payload, before family translation. Native selection stays
+     * in the adapter; observing cannot block the transport pump. */
+    onNativePayload?(raw: unknown): void
   },
 ): ClaudeStreamClient {
   const namedSessionId = spec.sessionId ?? ''
   let sessionId = ''
   let handshaken = false
   let closed = false
+  let transportExited = false
   let resolveReady!: (id: string) => void
   let rejectReady!: (error: Error) => void
   const ready = new Promise<string>((res, rej) => {
@@ -738,6 +745,12 @@ export function createClaudeStreamClient(
       // Stray non-protocol output is ignored rather than fatal: a dependency
       // that logs must not be able to fail a live turn.
       return
+    }
+    if (!msg || typeof msg !== 'object' || Array.isArray(msg)) return
+    try {
+      spec.onNativePayload?.(msg)
+    } catch {
+      /* Observation never controls the turn. */
     }
     const type = msg.type
     if (type === 'control_response') {
@@ -1045,7 +1058,11 @@ export function createClaudeStreamClient(
   })
   const offLine = transport.onLine(onLine)
   const offExit = transport.onExit((code, signal) => {
+    transportExited = true
     markExited()
+    for (const pending of pendingControls.values())
+      pending.reject(new Error('Claude control transport exited'))
+    pendingControls.clear()
     offLine()
     settleAllAcks({
       outcome: 'unconfirmed',
@@ -1237,10 +1254,66 @@ export function createClaudeStreamClient(
         exited,
       }
     },
+    async request(operation, options) {
+      if (
+        !Number.isInteger(options.timeoutMs) ||
+        options.timeoutMs < 1 ||
+        options.timeoutMs > 60_000
+      )
+        throw new Error('Control read requires a bounded positive timeout')
+      if (closed || transportExited || options.signal?.aborted)
+        throw new Error('Control read cancelled or transport closed')
+      const requestId = randomUUID()
+      let timer: ReturnType<typeof setTimeout> | undefined
+      let cancel: (() => void) | undefined
+      let active = true
+      try {
+        return await new Promise<unknown>((resolve, reject) => {
+          cancel = () => {
+            active = false
+            pendingControls.delete(requestId)
+            reject(new Error('Control read cancelled'))
+          }
+          options.signal?.addEventListener('abort', cancel, { once: true })
+          timer = setTimeout(() => {
+            active = false
+            pendingControls.delete(requestId)
+            reject(new Error('Control read timed out'))
+          }, options.timeoutMs)
+          void handshake.then(() => {
+            if (!active) return
+            if (closed || transportExited || options.signal?.aborted) {
+              reject(new Error('Control read cancelled or transport closed'))
+              return
+            }
+            try {
+              const line = JSON.stringify({
+                type: 'control_request',
+                request_id: requestId,
+                request: operation,
+              })
+              pendingControls.set(requestId, { resolve, reject })
+              writeLine(line)
+            } catch (error) {
+              pendingControls.delete(requestId)
+              reject(error)
+            }
+          }, reject)
+        })
+      } finally {
+        active = false
+        if (timer) clearTimeout(timer)
+        if (cancel) options.signal?.removeEventListener('abort', cancel)
+        pendingControls.delete(requestId)
+      }
+    },
     answerPermission,
     close() {
       if (closed) return
       closed = true
+      for (const pending of pendingControls.values())
+        pending.reject(new Error('Claude control transport closed'))
+      pendingControls.clear()
       offLine()
       offExit()
       denyPendingPermissions()
