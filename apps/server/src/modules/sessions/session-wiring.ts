@@ -1244,6 +1244,14 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       )
         return
       if ('snapshot' in reply.result) {
+        const snapshot = reply.result.snapshot
+        const lease = await store.observationCheckpoints.get(sessionId)
+        if (
+          lease &&
+          (snapshot.observerGeneration !== lease.observationGeneration ||
+            snapshot.binding.bindingVersion !== lease.bindingVersion)
+        )
+          return
         await bag.daemonProjection.metadataSnapshot(sessionId, reply.result.snapshot)
         // Reconnect: the driver's snapshot binding carries its current
         // worktree root (session.cwd is kept current on every sessionCwd).

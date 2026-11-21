@@ -1,3 +1,4 @@
+import { compareProviderCursor } from '@podium/harness/metadata'
 import { createLogger } from '@podium/logger'
 import type {
   AccountId,
@@ -21,8 +22,9 @@ import type {
   UserId,
   WorkState,
 } from '@podium/model'
+import { contextUsagePercentOf, sameContextSample } from '@podium/model'
 import type { DaemonPtyInputBatch, SessionObservationCheckpointV1 } from '@podium/protocol'
-import type { ControlMessage } from '@podium/protocol/daemon'
+import type { ContextObservation, ControlMessage } from '@podium/protocol/daemon'
 import { driverFamilyForId } from '../../harness-manifest'
 import type {
   ConversationBinding,
@@ -451,7 +453,83 @@ export class Session {
    * goes out on the `session.condition` topic and is re-learned from the
    * transcript tail after a restart.
    */
-  contextUsagePercent: number | undefined = undefined
+  contextObservation: ContextObservation | undefined = undefined
+  private legacyContextUsagePercent: number | undefined = undefined
+
+  get contextUsagePercent(): number | undefined {
+    return this.contextObservation
+      ? contextUsagePercentOf(this.contextObservation.context)
+      : this.legacyContextUsagePercent
+  }
+
+  /** Atomic live truth. No row, replica record or durable event owns telemetry. */
+  setContextObservation(next: ContextObservation): boolean {
+    const identity = (value: ContextObservation['context']) =>
+      value.status === 'available' || value.status === 'stale'
+        ? value.sample
+        : value.status === 'pending' || value.status === 'unavailable'
+          ? value.revision
+          : undefined
+    const previous = this.contextObservation
+    if (previous) {
+      const before = identity(previous.context)
+      const after = identity(next.context)
+      if (before && after && after.bindingVersion !== before.bindingVersion) {
+        if (after.bindingVersion < before.bindingVersion) return false
+        // The caller admitted this active binding. Its counters have their own scope.
+      } else {
+        if (next.observerGeneration < previous.observerGeneration) return false
+        if (next.observerGeneration === previous.observerGeneration) {
+          if (before && after && after.contextRevision < before.contextRevision) return false
+          if (!before || !after || after.contextRevision === before.contextRevision) {
+            const sameMeasurementStateChange =
+              (previous.context.status === 'available' || previous.context.status === 'stale') &&
+              (next.context.status === 'available' || next.context.status === 'stale') &&
+              previous.context.status !== next.context.status &&
+              sameContextSample(previous.context.sample, next.context.sample)
+            if (!sameMeasurementStateChange) {
+              const measuredAfterBoundary =
+                (previous.context.status === 'pending' ||
+                  previous.context.status === 'unavailable') &&
+                next.context.status === 'available'
+              if (
+                !measuredAfterBoundary &&
+                compareProviderCursor(previous.cursor, next.cursor) !== 'after'
+              )
+                return false
+              if (
+                before &&
+                after &&
+                'at' in before &&
+                'at' in after &&
+                Date.parse(after.at) < Date.parse(before.at)
+              )
+                return false
+              if (before && after && 'id' in before && 'id' in after && before.id === after.id)
+                return false
+            }
+          }
+        }
+      }
+    }
+    this.contextObservation = next
+    this.legacyContextUsagePercent = undefined
+    return true
+  }
+
+  markContextOffline(): boolean {
+    const observation = this.contextObservation
+    if (!observation || observation.context.status !== 'available') return false
+    this.contextObservation = {
+      ...observation,
+      context: {
+        ...observation.context,
+        status: 'stale',
+        reason: { code: 'offline', message: 'The native observer is disconnected' },
+      },
+    }
+    return true
+  }
   /** Transient UI overlay while the canonical row moves machines. */
   handoffTargetMachineId: MachineId | undefined
   /** Stable Podium conversation identity (conversation registry). Stamped by the
@@ -928,10 +1006,11 @@ export class Session {
 
   /** A live reading, set on the session itself: there is no row to write. */
   setContextUsagePercent(percent: number): boolean {
-    if (!Number.isFinite(percent)) return false
-    const next = Math.min(100, Math.max(0, percent))
-    if (next === this.contextUsagePercent) return false
-    this.contextUsagePercent = next
+    if (this.contextObservation || !Number.isFinite(percent) || percent < 0 || percent > 100)
+      return false
+    const next = percent
+    if (next === this.legacyContextUsagePercent) return false
+    this.legacyContextUsagePercent = next
     return true
   }
 

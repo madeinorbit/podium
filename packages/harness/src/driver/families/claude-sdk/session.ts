@@ -181,6 +181,17 @@ export function createClaudeSdkSessionRuntime(deps: ClaudeSdkSessionDeps): Daemo
         }
       : {}),
     startTurn: (input) => deps.engine.startTurn(input),
+    requestNative: (sessionId, operation, options) => {
+      const engine = deps.engine as ClaudeEngineHost & Pick<ClaudeSdkRuntimeHost, 'requestNative'>
+      return (
+        engine.requestNative?.(sessionId, operation, options) ??
+        Promise.reject(new Error('No existing native context transport'))
+      )
+    },
+    observeNative: (sessionId, listener) => {
+      const engine = deps.engine as ClaudeEngineHost & Pick<ClaudeSdkRuntimeHost, 'observeNative'>
+      return engine.observeNative?.(sessionId, listener) ?? (() => {})
+    },
     readTranscript: ({ sessionId, workdir, resumeValue, range }) =>
       deps.transcript.readHistory(
         {
@@ -236,7 +247,7 @@ export function createClaudeSdkSessionRuntime(deps: ClaudeSdkSessionDeps): Daemo
     // THE SESSION FILE IS THE CONVERSATION (POD-6280): the Store's tail of it,
     // through the mapper reads use, so live items and read items are one item.
     // The tail itself waits out a file that does not exist yet.
-    watchTranscript({ workdir, resumeValue, from }, onItems) {
+    watchTranscript({ workdir, resumeValue, from }, onItems, onContextPayload, onContextReset) {
       let stopped = false
       let tail: { stop(): void } | undefined
       void (async () => {
@@ -251,6 +262,8 @@ export function createClaudeSdkSessionRuntime(deps: ClaudeSdkSessionDeps): Daemo
             tail = tailTranscript(located.path, (items) => onItems(items), {
               resumeValue,
               recordToItems: claudeRecordToItems,
+              onRecord: onContextPayload,
+              onReset: onContextReset,
               initialWindowBytes: from === 'end' ? 0 : Number.MAX_SAFE_INTEGER,
             })
             return

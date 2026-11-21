@@ -815,6 +815,26 @@ export async function createDaemonHostRuntime(args: {
     onTranscriptDirty: (path) => discoveryLoop.markConversationDirty(path),
     cwdTracker: sessionCwdTracker,
     onState: (observation) => terminalRuntime?.observeState(observation),
+    contextIdentity: (sessionId) =>
+      terminalRuntime?.has(sessionId)
+        ? terminalRuntime.contextIdentity(sessionId)
+        : headlessRuntime?.contextIdentity(sessionId),
+    onContextPayload: (sessionId, payload, causal) => {
+      if (terminalRuntime?.has(sessionId))
+        terminalRuntime.observeContextPayload(sessionId, payload, causal)
+      else if (headlessRuntime?.handleFor(sessionId)?.binding.driver === 'headless')
+        headlessRuntime.observeContextPayload(sessionId, payload, causal)
+    },
+    onContextLost: (sessionId) => {
+      if (terminalRuntime?.has(sessionId)) terminalRuntime.loseContext(sessionId)
+      else if (headlessRuntime?.handleFor(sessionId)?.binding.driver === 'headless')
+        headlessRuntime.loseContext(sessionId)
+    },
+    onContextReset: (sessionId) => {
+      if (terminalRuntime?.has(sessionId)) terminalRuntime.invalidateContext(sessionId)
+      else if (headlessRuntime?.handleFor(sessionId)?.binding.driver === 'headless')
+        headlessRuntime.invalidateContext(sessionId)
+    },
     onAuthSignal: (sessionId) => requestAuthRefresh(sessionId),
     sharedScreenFor: (sessionId) =>
       daemonCtx ? terminalScreenFor(daemonCtx, sessionId).model : undefined,

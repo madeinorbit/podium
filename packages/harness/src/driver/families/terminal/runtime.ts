@@ -1,4 +1,7 @@
-import { machinePathBasename } from '@podium/model'
+import { contextUsagePercentOf, machinePathBasename } from '@podium/model'
+import { contextCapabilityFor } from '../../../registry.js'
+import { RuntimeContextRelay } from '../../context-relay.js'
+import type { CausalEnvelope } from '../../events.js'
 import {
   type BoundaryContextOperation,
   type BoundaryContextRequest,
@@ -349,7 +352,6 @@ interface DriverSession {
   screenAskId?: string
   lease: SessionLease | null
   metadata: Map<SessionMetadataChange['kind'], SessionMetadataObservation>
-  contextUsedPercent: number | undefined
   observedStatePhase: AgentRuntimeState['phase'] | undefined
   transcriptVersions: Map<string, string>
   /** Identities observed in this process, retained across transcript rewrites. */
@@ -505,6 +507,9 @@ export interface TerminalStateObservation {
 type TerminalObservation = DaemonMessage | ({ type: 'terminalState' } & TerminalStateObservation)
 
 export interface TerminalRuntime {
+  contextIdentity(
+    sessionId: SessionId,
+  ): Pick<CausalEnvelope, 'observerGeneration' | 'turnEpoch'> | undefined
   /** Undefined means this session has no driver-owned context channel. */
   boundaryContextFor(sessionId: SessionId): BoundaryContextOperation | undefined
 
@@ -526,6 +531,9 @@ export interface TerminalRuntime {
    *  header. Returns immediately for a session that is not registered. */
   observe(msg: TerminalObservation): void
   observeState(observation: TerminalStateObservation): void
+  observeContextPayload(sessionId: SessionId, payload: unknown, causal: CausalEnvelope): void
+  invalidateContext(sessionId: SessionId): void
+  loseContext(sessionId: SessionId): void
   /** The causal accept signal: a raw hook payload, before the observers fold it. */
   onHookPayload(sessionId: SessionId, payload: unknown): void
   respondToHook(
@@ -722,12 +730,43 @@ export function createTerminalRuntime(
     return { ...base, ...predecessor, components: { ...base.components, seq } }
   }
 
+  const contextRelays = new WeakMap<DriverSession, RuntimeContextRelay>()
+  function contextFor(session: DriverSession): RuntimeContextRelay {
+    let relay = contextRelays.get(session)
+    if (!relay) {
+      relay = new RuntimeContextRelay({
+        binding: () => ({
+          sessionId: session.sessionId,
+          driver: session.driverId,
+          family: 'terminal',
+          harness: session.agentKind,
+          workdir: session.cwd,
+          resume: session.resume,
+          process: { key: session.sessionId },
+          bindingVersion: session.bindingVersion,
+        }),
+        causal: () => ({
+          at: new Date(host.now()).toISOString(),
+          provenance: 'live',
+          cursor: cursorFor(session, session.seq + 1),
+          observerGeneration: session.observerGeneration,
+          turnEpoch: session.turnEpoch,
+        }),
+
+        emit: (event) => emit(session, event, event.at, event.provenance, event.cursor, event),
+      })
+      contextRelays.set(session, relay)
+    }
+    return relay
+  }
+
   function emit(
     session: DriverSession,
     body: RuntimeEventBody,
     at: string,
     provenance: ObservationProvenance,
     cursor?: ProviderCursor,
+    causal?: CausalEnvelope,
   ): void {
     if (session.disposed) return
     session.seq += 1
@@ -743,15 +782,20 @@ export function createTerminalRuntime(
       turnEpoch: session.turnEpoch,
       fencedTurnEpoch: session.fencedTurnEpoch,
     })
-    const event = stampRuntimeEvent(body, at, provenance, {
-      cursor: cursorFor(session, session.seq, cursor),
-      observerGeneration: session.observerGeneration,
-      turnEpoch: session.turnEpoch,
-    })
+    const event = {
+      ...stampRuntimeEvent(body, at, provenance, {
+        cursor: cursorFor(session, session.seq, cursor),
+        observerGeneration: session.observerGeneration,
+        turnEpoch: session.turnEpoch,
+      }),
+      ...causal,
+    }
     session.lastEmittedCursor = event.cursor
     session.publishedCursor = event.cursor
-    if (event.t === 'metadata') session.metadata.set(event.change.kind, event)
+    if (event.t === 'metadata' && event.change.kind !== 'context-observation')
+      session.metadata.set(event.change.kind, event)
     session.log.push({ seq: session.seq, event })
+    contextFor(session).event(event)
     const timingBinding = slots.get(session.sessionId)?.binding
     if (timingBinding) host.traceRuntimeEvent?.(timingBinding, event)
     // BOUNDED, and the bound is a promise about what `events(after)` can serve
@@ -1370,7 +1414,6 @@ export function createTerminalRuntime(
         return
       }
       case 'agentContext': {
-        session.contextUsedPercent = msg.percent
         observeMetadata(
           session,
           { kind: 'context', source: 'transcript', percent: msg.percent },
@@ -1689,7 +1732,8 @@ export function createTerminalRuntime(
    */
   function onHookPayload(sessionId: SessionId, payload: unknown): void {
     const session = sessions.get(sessionId)
-    if (!session) return
+    if (!session || session.disposed) return
+    contextFor(session).observe(payload)
     const correlation = profiles.get(sessionId)?.acceptCorrelation?.hook
     if (!correlation?.accepts(payload)) return
     // Never a receipt (POD-4905): the hook may carry the program's own id for
@@ -2432,7 +2476,6 @@ export function createTerminalRuntime(
       interactionOwners: new Map(),
       answered: new Set(),
       lease: null,
-      contextUsedPercent: undefined,
       metadata: new Map(),
       observedStatePhase: undefined,
       transcriptVersions: new Map(),
@@ -2525,6 +2568,9 @@ export function createTerminalRuntime(
       )
     }
     const handle: AgentSessionHandle = {
+      get context() {
+        return contextFor(session).reader
+      },
       get binding() {
         return binding()
       },
@@ -2575,6 +2621,7 @@ export function createTerminalRuntime(
 
       // ---- identity ----
       async snapshot(): Promise<SessionSnapshot> {
+        const context = await contextFor(session).replay()
         return {
           binding: binding(),
           state: session.state ??
@@ -2586,6 +2633,7 @@ export function createTerminalRuntime(
           cursor: cursorFor(session, session.seq),
           observerGeneration: session.observerGeneration,
           turnEpoch: session.turnEpoch,
+          context,
           interactions: [...session.interactions.values()],
           metadata: [...session.metadata.values()],
           at: new Date(host.now()).toISOString(),
@@ -3078,10 +3126,10 @@ export function createTerminalRuntime(
       },
 
       async usage() {
-        if (session.contextUsedPercent === undefined) {
+        const percent = contextUsagePercentOf(contextFor(session).snapshot()?.context)
+        if (percent === undefined)
           return refuse('unsupported', 'this harness has reported no context usage')
-        }
-        return { contextUsedPercent: session.contextUsedPercent }
+        return { contextUsedPercent: percent }
       },
     }
 
@@ -3136,6 +3184,7 @@ export function createTerminalRuntime(
     const session = sessions.get(sessionId)
     if (session) {
       session.answerScript?.cancel('the driver was disposed')
+      contextFor(session).dispose()
       session.disposed = true
       session.injection.dispose()
       for (const waiter of [...session.echoWaiters, ...session.hookWaiters]) waiter.cancel()
@@ -3167,6 +3216,7 @@ export function createTerminalRuntime(
       // which is what `adopt()` then has to find.
       for (const session of [...sessions.values()]) {
         session.answerScript?.cancel('the driver was disposed')
+        contextFor(session).dispose()
         session.disposed = true
         session.injection.dispose()
         for (const waiter of [...session.echoWaiters, ...session.hookWaiters]) waiter.cancel()
@@ -3334,6 +3384,26 @@ export function createTerminalRuntime(
     },
     observe,
     observeState: (observation) => observe({ type: 'terminalState', ...observation }),
+    contextIdentity(sessionId) {
+      const session = sessions.get(sessionId)
+      return session && !session.disposed
+        ? { observerGeneration: session.observerGeneration, turnEpoch: session.turnEpoch }
+        : undefined
+    },
+    observeContextPayload(sessionId, payload, causal) {
+      const session = sessions.get(sessionId)
+      if (!session || session.disposed || causal.observerGeneration !== session.observerGeneration)
+        return
+      contextFor(session).observe(payload, causal)
+    },
+    loseContext(sessionId) {
+      const session = sessions.get(sessionId)
+      if (session) contextFor(session).lost()
+    },
+    invalidateContext(sessionId) {
+      const session = sessions.get(sessionId)
+      if (session) contextFor(session).invalidate('reset')
+    },
     onHookPayload,
     async respondToHook(sessionId, payload, signal) {
       const session = sessions.get(sessionId)
@@ -3361,7 +3431,10 @@ export function createTerminalRuntime(
         id: profile.driverId,
         harness,
         family: 'terminal',
-        capabilities: () => capabilitiesFor(profile),
+        capabilities: () => ({
+          ...capabilitiesFor(profile),
+          context: contextCapabilityFor(harness, profile.driverId),
+        }),
 
         async create(spec: SessionSpec): Promise<AgentSessionHandle> {
           return createWithId(asSessionId(randomUUID()), spec, profile)

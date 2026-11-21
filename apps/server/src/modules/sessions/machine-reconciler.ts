@@ -22,8 +22,8 @@
  *   4. PARK ARCHIVED SURVIVORS **BEFORE** the probe fan-out, so an archived
  *      row awaiting its rebind is parked rather than reattached (POD-108)
  *   5. probe survivors for reattach, view-priority first then most-recent
-  *   6. re-establish headless sessions: bound tails rebind, never-bound
-  *      sessions re-send their establish frame
+ *   6. re-establish headless sessions: bound tails rebind, never-bound
+ *      sessions re-send their establish frame
  *
  * Step 4 before step 5 is the one a reader is most likely to "tidy" and the one
  * that silently resurrects archived sessions if reversed.
@@ -65,7 +65,9 @@ export interface MachineReconcilerPorts {
   /** This machine's candidate sessions. Read-only: nothing here adds or removes. */
   sessions(): Iterable<Session>
   /** Durable queue sizes for a set of sessions, one grouped read; an empty queue is absent. */
-  queuedMessageCounts(sessionIds: readonly Session['sessionId'][]): Promise<ReadonlyMap<Session['sessionId'], number>>
+  queuedMessageCounts(
+    sessionIds: readonly Session['sessionId'][],
+  ): Promise<ReadonlyMap<Session['sessionId'], number>>
   /** Re-arm a parked queued-send drain. */
   drainInbox(sessionId: Session['sessionId']): Promise<void>
   /** Transcript-lake catch-up sweep for this machine. */
@@ -102,7 +104,11 @@ export interface MachineReconcilerPorts {
   /** Let go of one session {@link acquireMany} held. */
   release?(sessionId: Session['sessionId']): void
   /** Run one step with this session resident, restored from its row when parked. */
-  withSession?<T>(sessionId: Session['sessionId'], reason: string, fn: (session: Session | undefined) => Promise<T>): Promise<T>
+  withSession?<T>(
+    sessionId: Session['sessionId'],
+    reason: string,
+    fn: (session: Session | undefined) => Promise<T>,
+  ): Promise<T>
   toMachine(machineId: MachineId, message: ControlMessage): void
   /** Rank survivors: lower tier reattaches sooner. */
   viewTiers(sessionIds: Session['sessionId'][]): Map<Session['sessionId'], number>
@@ -138,7 +144,10 @@ export class SessionMachineReconciler {
     // attempts parked while the daemon was away (single-flight + liveness wait make
     // this safe to fire eagerly; reattached sessions also re-trigger via 'bind').
     const here = [...this.ports.sessions()].filter((s) => s.machineId === machineId)
-    const queued = here.length > 0 ? await this.ports.queuedMessageCounts(here.map((s) => s.sessionId)) : new Map()
+    const queued =
+      here.length > 0
+        ? await this.ports.queuedMessageCounts(here.map((s) => s.sessionId))
+        : new Map()
     for (const s of here) {
       if ((queued.get(s.sessionId) ?? 0) > 0) {
         // NOT awaited: the drain waits for later daemon observations.
@@ -260,7 +269,11 @@ export class SessionMachineReconciler {
     const parkedButAlive = await this.candidates(
       machineId,
       (s) =>
-        s.machineId === machineId && !s.headless && !s.archived && s.status === 'hibernated' && live.has(s.durableLabel),
+        s.machineId === machineId &&
+        !s.headless &&
+        !s.archived &&
+        s.status === 'hibernated' &&
+        live.has(s.durableLabel),
     )
     for (const candidate of parkedButAlive) {
       // The census MEASURED a live durable host under this row's label —
@@ -268,7 +281,10 @@ export class SessionMachineReconciler {
       // bypass the server-family hold below: the reattach it triggers is the
       // passive PTY bind, never a spawning adopt.
       await this.withSession(candidate.sessionId, 'durableCensus', async (s) => {
-        if (s) await this.reviveParkedButAlive(s, machineId, 'the durable host is still running', { measuredPtyHost: true })
+        if (s)
+          await this.reviveParkedButAlive(s, machineId, 'the durable host is still running', {
+            measuredPtyHost: true,
+          })
       })
     }
     // ARCHIVED SURVIVORS ARE RE-KILLED, NOT REVIVED [POD-6349]. An archive park
@@ -280,8 +296,11 @@ export class SessionMachineReconciler {
     const archivedButAlive = await this.candidates(
       machineId,
       (s) =>
-        s.machineId === machineId && !s.headless && s.archived &&
-        (s.status === 'hibernated' || s.status === 'exited') && live.has(s.durableLabel),
+        s.machineId === machineId &&
+        !s.headless &&
+        s.archived &&
+        (s.status === 'hibernated' || s.status === 'exited') &&
+        live.has(s.durableLabel),
     )
     for (const candidate of archivedButAlive) {
       await this.withSession(candidate.sessionId, 'archivedSurvivor', async (s) => {
@@ -297,8 +316,8 @@ export class SessionMachineReconciler {
         if (!s) return
         const message = await this.ports.reattachMessage(s, machineId)
         const refresh = await this.ports.accessRefresh?.(s, machineId)
-        if (s.machineId !== machineId || s.archived ||
-            (!awaitsRebind(s) && s.status !== 'exited')) return
+        if (s.machineId !== machineId || s.archived || (!awaitsRebind(s) && s.status !== 'exited'))
+          return
         if (refresh) this.ports.toMachine(machineId, refresh)
         this.ports.toMachine(machineId, message)
       })
@@ -313,7 +332,9 @@ export class SessionMachineReconciler {
     const resident = [...this.ports.sessions()].filter(keep)
     if (!this.ports.parkedOn) return resident
     const ids = new Set(resident.map((s) => s.sessionId))
-    const parked = (await this.ports.parkedOn(machineId)).filter((s) => !ids.has(s.sessionId) && keep(s))
+    const parked = (await this.ports.parkedOn(machineId)).filter(
+      (s) => !ids.has(s.sessionId) && keep(s),
+    )
     return [...resident, ...parked]
   }
 
@@ -479,6 +500,7 @@ export class SessionMachineReconciler {
       // Its pictures went with the daemon (POD-4912): the returning daemon
       // rebinds and sends a fresh one. An exited session keeps its last screen.
       s.terminal.linkDetached()
+      if (s.markContextOffline()) this.ports.broadcastSessions()
       // Headless sessions stay 'live' across daemon restarts — no PTY bridge to
       // lose; bound tails re-establish via rebindHeadless and never-bound
       // sessions re-send their establish frame (reestablishHeadless) on the

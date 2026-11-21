@@ -114,6 +114,7 @@ export interface HeadlessTurnHandle {
  *  the stream-json claude turn honours them; every other turn is a
  *  non-interactive CLI surface with no permission channel. */
 export interface HeadlessTurnHooks {
+  onNativePayload?(payload: unknown): void
   onPermission?: (request: {
     id: string
     toolName: string

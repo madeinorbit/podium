@@ -1,5 +1,6 @@
 import { open, stat } from 'node:fs/promises'
 import type { TranscriptItem } from '@podium/model'
+import type { ObservationProvenance, ProviderCursor } from '@podium/protocol'
 import type { HarnessRuntimeObservation, TranscriptRecordMapper } from '../transcript-types.js'
 import { recordUuid, stampCursors } from './cursor-codec'
 import { fileIdFor } from './file-chain'
@@ -41,6 +42,13 @@ export interface TranscriptTailer {
 }
 
 export interface TranscriptTailOptions {
+  /** Opaque records on this existing reader, before downstream projection. */
+  onRecord?(
+    payload: unknown,
+    source: { at?: string; cursor: ProviderCursor; provenance: ObservationProvenance },
+  ): void
+  /** Physical truncation/replacement, before replaying the replacement. */
+  onReset?(): void
   /** Native harness session identity, shared with on-disk and mirrored reads. */
   resumeValue: string
   pollMs?: number
@@ -162,7 +170,9 @@ export function tailTranscript(
   let offset = 0
   // Raw bytes read past `offset` but not yet terminated by a newline.
   let leftover = Buffer.alloc(0)
+  let fileKey: string | undefined
   let first = true
+  let resetReading = false
   // Set when the first read seeks past byte 0: the bytes before the first
   // newline are a fragment of a prior line and must be dropped once.
   let dropLeadingPartial = false
@@ -201,10 +211,20 @@ export function tailTranscript(
     }
     const items = recordToItems(record, previousRecord)
     previousRecord = record
-    const timestamp = items.find((item) => item.ts)?.ts ??
-      (typeof record === 'object' && record !== null && 'timestamp' in record ? record.timestamp : undefined)
-    const at = typeof timestamp === 'string' && Number.isFinite(Date.parse(timestamp))
-      ? new Date(timestamp).toISOString() : undefined
+    const timestamp =
+      items.find((item) => item.ts)?.ts ??
+      (typeof record === 'object' && record !== null && 'timestamp' in record
+        ? record.timestamp
+        : undefined)
+    const at =
+      typeof timestamp === 'string' && Number.isFinite(Date.parse(timestamp))
+        ? new Date(timestamp).toISOString()
+        : undefined
+    opts.onRecord?.(record, {
+      at,
+      cursor: { segmentId: fileId, components: { offset: lineOffset } },
+      provenance: resetReading ? 'bootstrap' : 'live',
+    })
     // Identity colour rides the same tail — emit on change (last wins).
     const color = recordColor(record)
     if (color !== undefined && color !== lastColor) {
@@ -270,7 +290,8 @@ export function tailTranscript(
       // one descriptor snapshot below so truncation and bounded reads stay
       // coherent if an append races this check.
       const observed = await stat(path)
-      if (!first && observed.size === offset + leftover.length) {
+      const observedKey = `${observed.dev}:${observed.ino}`
+      if (!first && fileKey === observedKey && observed.size === offset + leftover.length) {
         lastErrorKey = undefined
         return
       }
@@ -278,7 +299,12 @@ export function tailTranscript(
       const handle = await (opts.openFile ? opts.openFile(path) : open(path, 'r'))
       let cycleSucceeded = false
       try {
-        const { size } = await handle.stat()
+        const descriptor = await handle.stat()
+        const { size } = descriptor
+        const descriptorKey =
+          descriptor.ino === undefined ? observedKey : `${descriptor.dev}:${descriptor.ino}`
+        const rotated = fileKey !== undefined && fileKey !== descriptorKey
+        fileKey = descriptorKey
         let reset = false
         if (first) {
           const start = Math.max(0, size - windowBytes)
@@ -292,7 +318,8 @@ export function tailTranscript(
         }
         // `offset + leftover.length` is the byte position we have already consumed
         // off disk. A shrink below that means the file was truncated/replaced.
-        if (size < offset + leftover.length) {
+        if (rotated || size < offset + leftover.length) {
+          opts.onReset?.()
           // Truncated/replaced — re-read and tell consumers to clear. Seek to the
           // same bounded tail window the first read uses: the replacement can be
           // arbitrarily large (a multi-hundred-MB file swap), and an uncapped
@@ -306,6 +333,7 @@ export function tailTranscript(
           turnEnd = turnEndStamper(recordToItems)
           previousRecord = undefined
         }
+        resetReading = reset
         if (size === offset + leftover.length && !reset) {
           cycleSucceeded = true
           return

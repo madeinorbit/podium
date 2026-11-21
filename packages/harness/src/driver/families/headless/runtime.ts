@@ -1,9 +1,12 @@
 import { machinePathBasename } from '@podium/model'
+import { contextCapabilityFor } from '../../../registry.js'
+import { RuntimeContextRelay } from '../../context-relay.js'
 import {
   createRuntimeEventStream,
   DriverRefusalError,
   headlessAskAndAwait,
 } from '../../contract.js'
+import type { CausalEnvelope } from '../../events.js'
 /**
  * THE HEADLESS RUNTIME DRIVER (POD-4392).
  *
@@ -299,6 +302,7 @@ export interface HeadlessPermissionRequest {
  *  Only the stream-json claude turn honours them; every other turn is a
  *  non-interactive CLI surface with no permission channel. */
 export interface HeadlessRunnerHooks {
+  onNativePayload?(payload: unknown): void
   onPermission?: (request: HeadlessPermissionRequest) => void
 }
 
@@ -430,9 +434,7 @@ export function headlessCapabilities(harness?: string): DriverCapabilities {
   const permissionHarness = harness ?? claudeSdkHarnessKind
   const archivableHarness = harness ?? claudeSdkHarnessKind
   return {
-    context: unsupported(
-      'Headless context observations require an adapter strategy validated for this harness; billing usage is not occupancy',
-    ),
+    context: contextCapabilityFor(permissionHarness, 'headless'),
     instrumentation: 'none',
     send: {
       readiness: { kind: 'driver-managed' },
@@ -499,6 +501,12 @@ export function headlessCapabilities(harness?: string): DriverCapabilities {
 // ---------------------------------------------------------------------------
 
 export interface HeadlessRuntime {
+  contextIdentity(
+    sessionId: SessionId,
+  ): Pick<CausalEnvelope, 'observerGeneration' | 'turnEpoch'> | undefined
+  observeContextPayload(sessionId: SessionId, payload: unknown, causal: CausalEnvelope): void
+  invalidateContext(sessionId: SessionId): void
+  loseContext(sessionId: SessionId): void
   driverFor(harness: string): RuntimeDriver
   handleFor(sessionId: SessionId): AgentSessionHandle | undefined
   bindings(): readonly SessionBinding[]
@@ -553,21 +561,47 @@ export function createHeadlessRuntime(
     }
   }
 
+  const contextRelays = new WeakMap<HeadlessDriverSession, RuntimeContextRelay>()
+  function contextFor(session: HeadlessDriverSession): RuntimeContextRelay {
+    let relay = contextRelays.get(session)
+    if (!relay) {
+      relay = new RuntimeContextRelay({
+        binding: () => bindingFor(session),
+        causal: () => ({
+          at: new Date(host.now()).toISOString(),
+          provenance: 'live',
+          cursor: driverLocalCursor(session.label, session.seq + 1),
+          observerGeneration: session.observerGeneration,
+          turnEpoch: session.turnEpoch,
+        }),
+
+        emit: (event) => emit(session, event, event.provenance, event.at, event.turnEpoch, event),
+      })
+      contextRelays.set(session, relay)
+    }
+    return relay
+  }
+
   function emit(
     session: HeadlessDriverSession,
     body: RuntimeEventBody,
     provenance: ObservationProvenance,
     at?: string,
     turnEpoch = session.turnEpoch,
+    causal?: CausalEnvelope,
   ): void {
     if (session.disposed) return
     session.seq += 1
-    const event = stampRuntimeEvent(body, at ?? new Date(host.now()).toISOString(), provenance, {
-      cursor: driverLocalCursor(session.label, session.seq),
-      observerGeneration: session.observerGeneration,
-      turnEpoch,
-    })
+    const event = {
+      ...stampRuntimeEvent(body, at ?? new Date(host.now()).toISOString(), provenance, {
+        cursor: driverLocalCursor(session.label, session.seq),
+        observerGeneration: session.observerGeneration,
+        turnEpoch,
+      }),
+      ...causal,
+    }
     session.log.push({ seq: session.seq, event })
+    contextFor(session).event(event)
     if (session.log.length > HEADLESS_EVENT_LOG_LIMIT) {
       session.log.splice(0, session.log.length - HEADLESS_EVENT_LOG_LIMIT)
     }
@@ -1123,14 +1157,20 @@ export function createHeadlessRuntime(
       // conversation cannot be rejoined after a restart: no cross-restart
       // replay for it. The capability declares the permission channel, and the
       // receipt still proves `protocol-ack`.
-      const hooks: HeadlessRunnerHooks | undefined = structured
-        ? {
-            onPermission: (request) => {
-              const current = session.liveTurn
-              if (current && current.turnEpoch === turnEpoch) openPermission(session, request)
-            },
-          }
-        : undefined
+      const hooks: HeadlessRunnerHooks = {
+        onNativePayload: (payload) => {
+          const current = session.liveTurn
+          if (current && current.turnEpoch === turnEpoch) contextFor(session).observe(payload)
+        },
+        ...(structured
+          ? {
+              onPermission: (request) => {
+                const current = session.liveTurn
+                if (current && current.turnEpoch === turnEpoch) openPermission(session, request)
+              },
+            }
+          : {}),
+      }
       const specEnv = spec.env
       const credentialEnv = input.env
       handle = runners.runTurn(
@@ -1257,12 +1297,16 @@ export function createHeadlessRuntime(
     )
     // The stream ends here: no further turn can open, and a reader holding
     // `events()` must terminate instead of hanging on a dead session.
+    contextFor(session).dispose()
     session.disposed = true
     for (const wake of [...session.wakers]) wake()
   }
 
   function makeHandle(session: HeadlessDriverSession): AgentSessionHandle {
     return {
+      get context() {
+        return contextFor(session).reader
+      },
       // A getter, not a snapshot: resume/adopt bump the binding behind this
       // handle, and a stale copy would answer the old generation forever.
       get binding(): SessionBinding {
@@ -1288,12 +1332,14 @@ export function createHeadlessRuntime(
         return { alive: !session.ended && !session.disposed, oomEvents: 0 }
       },
       async snapshot(): Promise<SessionSnapshot> {
+        const context = await contextFor(session).replay()
         return {
           binding: bindingFor(session),
           state: session.state,
           cursor: driverLocalCursor(session.label, session.seq),
           observerGeneration: session.observerGeneration,
           turnEpoch: session.turnEpoch,
+          context,
           interactions: [...session.interactions.values()],
           at: new Date(host.now()).toISOString(),
         }
@@ -1806,6 +1852,25 @@ export function createHeadlessRuntime(
 
   return {
     driverFor,
+    contextIdentity(sessionId) {
+      const session = sessions.get(sessionId)
+      return session && !session.disposed
+        ? { observerGeneration: session.observerGeneration, turnEpoch: session.turnEpoch }
+        : undefined
+    },
+    observeContextPayload(sessionId, payload, causal) {
+      const session = sessions.get(sessionId)
+      if (session && !session.disposed && causal.observerGeneration === session.observerGeneration)
+        contextFor(session).observe(payload, causal)
+    },
+    loseContext(sessionId) {
+      const session = sessions.get(sessionId)
+      if (session) contextFor(session).lost()
+    },
+    invalidateContext(sessionId) {
+      const session = sessions.get(sessionId)
+      if (session) contextFor(session).invalidate('reset')
+    },
     handleFor: (sessionId) => slots.get(sessionId),
     bindings: () => [...sessions.values()].map(bindingFor),
     createWithId,
@@ -1820,6 +1885,7 @@ export function createHeadlessRuntime(
     clear: (sessionId) => {
       const session = sessions.get(sessionId)
       if (session) {
+        contextFor(session).dispose()
         session.disposed = true
         for (const wake of [...session.wakers]) wake()
       }
@@ -1829,6 +1895,7 @@ export function createHeadlessRuntime(
     },
     dispose: () => {
       for (const session of sessions.values()) {
+        contextFor(session).dispose()
         session.disposed = true
         for (const wake of [...session.wakers]) wake()
         forgetDriver(session.sessionId)

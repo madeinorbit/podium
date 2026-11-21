@@ -1070,7 +1070,8 @@ export class SessionDaemonLifecycle {
         }
         let result: import('./runtime-event-gate').RuntimeEventGateResult | undefined
         const identityLease =
-          msg.event.t === 'binding'
+          msg.event.t === 'binding' ||
+          (msg.event.t === 'metadata' && msg.event.change.kind === 'context-observation')
             ? await this.store.observationCheckpoints.get(msg.sessionId)
             : null
         if (
@@ -1081,7 +1082,54 @@ export class SessionDaemonLifecycle {
         ) {
           result = { kind: 'rejected', reason: 'stale-observer-generation' }
         } else if (owner?.machineId === machineId) {
-          if (runtimeEvents) {
+          if (msg.event.t === 'metadata' && msg.event.change.kind === 'context-observation') {
+            const value = msg.event.change.context
+            const identity =
+              value.status === 'available' || value.status === 'stale'
+                ? value.sample
+                : value.status === 'pending' || value.status === 'unavailable'
+                  ? value.revision
+                  : undefined
+            let admitted: boolean
+            const liveSession = this.sessions.get(msg.sessionId)
+            if (identityLease) {
+              admitted =
+                identityLease.observationGeneration === msg.event.observerGeneration &&
+                (!identity || identity.bindingVersion === identityLease.bindingVersion)
+            } else if (!liveSession || harnessObservationProvider(liveSession.agentKind)) {
+              admitted = false
+            } else {
+              // Non-causal harnesses deliberately have no provider lease. Their
+              // existing driver snapshot owns the context binding; until that
+              // bootstrap, use the ordinary runtime stream's admitted generation.
+              const current = liveSession.contextObservation
+              const currentValue = current?.context
+              const scope =
+                currentValue?.status === 'available' || currentValue?.status === 'stale'
+                  ? currentValue.sample
+                  : currentValue?.status === 'pending' || currentValue?.status === 'unavailable'
+                    ? currentValue.revision
+                    : undefined
+              if (current) {
+                admitted =
+                  current.observerGeneration === msg.event.observerGeneration &&
+                  (!scope || !identity || scope.bindingVersion === identity.bindingVersion)
+              } else {
+                const checkpoint = await this.store.events.runtimeEventCheckpoint(msg.sessionId)
+                admitted = checkpoint
+                  ? checkpoint.observerGeneration === msg.event.observerGeneration
+                  : msg.event.observerGeneration === 1
+              }
+            }
+            if (!admitted) {
+              result = { kind: 'rejected', reason: 'stale-observer-generation' }
+            } else if (owner.status === 'live' || owner.status === 'starting') {
+              // Context is live telemetry. Admit through the existing lease, then
+              // fold directly; never append it to event rows or checkpoints.
+              await this.daemonProjection.runtimeEvent(msg.sessionId, msg.event)
+              result = { kind: 'duplicate' }
+            } else result = { kind: 'rejected', reason: 'session-not-running' }
+          } else if (runtimeEvents) {
             const completion: Promise<import('./runtime-event-gate').RuntimeEventGateResult> =
               runtimeEvents.record(machineId, msg)
             result = await completion

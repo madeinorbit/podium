@@ -1,9 +1,14 @@
-import type { CredentialId, SessionId, IssueId, MachineId, TranscriptItem } from '@podium/model'
 import { compareProviderCursor } from '@podium/harness/metadata'
-import type { RuntimeEvent, SessionMetadataChange, SessionMetadataObservation, SessionSnapshot } from '@podium/protocol/daemon'
-import type { DaemonMessage } from '@podium/protocol/daemon'
-import { harnessCapabilitiesFor, harnessUsesPromptTitleFallback } from '../../harness-manifest'
+import type { CredentialId, IssueId, MachineId, SessionId, TranscriptItem } from '@podium/model'
+import type {
+  DaemonMessage,
+  RuntimeEvent,
+  SessionMetadataChange,
+  SessionMetadataObservation,
+  SessionSnapshot,
+} from '@podium/protocol/daemon'
 import type { SessionsDaemonFrame } from '../../gateway/daemon-frame-routing'
+import { harnessCapabilitiesFor, harnessUsesPromptTitleFallback } from '../../harness-manifest'
 import {
   isCommandWrapperText,
   isGenericClaudeTitle,
@@ -12,8 +17,8 @@ import {
   titleFromPrompt,
 } from '../../title-filter'
 import { type ChosenCredential, judgeEffectiveAuth } from './effective-auth'
-import type { SessionBindingReceipts } from './session-binding'
 import type { Session, SessionDurableState } from './session'
+import type { SessionBindingReceipts } from './session-binding'
 
 export type SessionProjectionDaemonFrame = Extract<
   SessionsDaemonFrame,
@@ -76,70 +81,166 @@ export class SessionDaemonProjection {
     if (!session) return
     switch (change.kind) {
       case 'title':
-        if (change.source === 'osc' && harnessCapabilitiesFor(session.agentKind)?.oscTitle === false) return
-        return this.handle(session.machineId, { type: 'title', sessionId, title: change.title, source: change.source })
+        if (
+          change.source === 'osc' &&
+          harnessCapabilitiesFor(session.agentKind)?.oscTitle === false
+        )
+          return
+        return this.handle(session.machineId, {
+          type: 'title',
+          sessionId,
+          title: change.title,
+          source: change.source,
+        })
       case 'model':
-        return this.handle(session.machineId, { type: 'agentModel', sessionId, model: change.model, effort: change.effort })
+        return this.handle(session.machineId, {
+          type: 'agentModel',
+          sessionId,
+          model: change.model,
+          effort: change.effort,
+        })
       case 'color':
-        return this.handle(session.machineId, { type: 'agentColor', sessionId, color: change.color })
+        return this.handle(session.machineId, {
+          type: 'agentColor',
+          sessionId,
+          color: change.color,
+        })
       case 'context':
-        return this.handle(session.machineId, { type: 'agentContext', sessionId, percent: change.percent })
+        return this.handle(session.machineId, {
+          type: 'agentContext',
+          sessionId,
+          percent: change.percent,
+        })
     }
   }
 
   async runtimeEvent(sessionId: SessionId, event: RuntimeEvent): Promise<void> {
     if (event.t !== 'metadata') return
+    if (event.change.kind === 'context-observation') {
+      const session = this.ports.sessions.get(sessionId)
+      if (!session) return
+      const { t: _type, change, ...causal } = event
+      if (session.setContextObservation({ ...causal, context: change.context }))
+        this.ports.broadcastSessions()
+      return
+    }
     const previous = this.metadataQueue.get(sessionId) ?? Promise.resolve()
-    const completion = previous.catch(() => {}).then(async () => {
-      const seen = this.metadataSeen.get(sessionId) ?? new Map<string, SessionMetadataObservation>()
-      const prior = seen.get(event.change.kind)
-      if (prior) {
-        if (event.observerGeneration < prior.observerGeneration) return
-        if (event.observerGeneration === prior.observerGeneration) {
-          const before = prior.cursor.components.seq
-          const next = event.cursor.components.seq
-          // Metadata of one kind is sparse: native segment rotations may have
-          // been admitted between its sightings. The runtime stream sequence
-          // orders those values even when neither cursor is a direct successor.
-          if (before !== undefined && next !== undefined) {
-            if (next <= before) return
-          } else if (compareProviderCursor(prior.cursor, event.cursor) !== 'after') return
+    const completion = previous
+      .catch(() => {})
+      .then(async () => {
+        const seen =
+          this.metadataSeen.get(sessionId) ?? new Map<string, SessionMetadataObservation>()
+        const prior = seen.get(event.change.kind)
+        if (prior) {
+          if (event.observerGeneration < prior.observerGeneration) return
+          if (event.observerGeneration === prior.observerGeneration) {
+            const before = prior.cursor.components.seq
+            const next = event.cursor.components.seq
+            // Metadata of one kind is sparse: native segment rotations may have
+            // been admitted between its sightings. The runtime stream sequence
+            // orders those values even when neither cursor is a direct successor.
+            if (before !== undefined && next !== undefined) {
+              if (next <= before) return
+            } else if (compareProviderCursor(prior.cursor, event.cursor) !== 'after') return
+          }
         }
-      }
-      await this.metadata(sessionId, event.change)
-      seen.set(event.change.kind, event)
-      this.metadataSeen.set(sessionId, seen)
-    })
+        await this.metadata(sessionId, event.change)
+        seen.set(event.change.kind, event)
+        this.metadataSeen.set(sessionId, seen)
+      })
     this.metadataQueue.set(sessionId, completion)
-    try { await completion } finally {
+    try {
+      await completion
+    } finally {
       if (this.metadataQueue.get(sessionId) === completion) this.metadataQueue.delete(sessionId)
     }
   }
 
   async metadataSnapshot(sessionId: SessionId, snapshot: SessionSnapshot): Promise<void> {
     if (snapshot.binding.sessionId !== sessionId) return
+    const session = this.ports.sessions.get(sessionId)
+    if (snapshot.context) {
+      const context = snapshot.context
+      const value = context.context
+      const identity =
+        value.status === 'available' || value.status === 'stale'
+          ? value.sample
+          : value.status === 'pending' || value.status === 'unavailable'
+            ? value.revision
+            : undefined
+      if (
+        context.observerGeneration === snapshot.observerGeneration &&
+        (!identity || identity.bindingVersion === snapshot.binding.bindingVersion)
+      ) {
+        await this.runtimeEvent(sessionId, {
+          ...context,
+          t: 'metadata',
+          change: { kind: 'context-observation', context: value },
+        })
+      }
+    } else if (session?.contextObservation) {
+      await this.runtimeEvent(sessionId, {
+        t: 'metadata',
+        change: {
+          kind: 'context-observation',
+          context: {
+            version: 1,
+            status: 'unavailable',
+            revision: {
+              bindingVersion: snapshot.binding.bindingVersion,
+              observerGeneration: snapshot.observerGeneration,
+              turnEpoch: snapshot.turnEpoch,
+              contextRevision: 0,
+            },
+            reason: {
+              code: 'no-replay',
+              message: 'This binding has no attributable context observation',
+            },
+          },
+        },
+        at: snapshot.at,
+        cursor: snapshot.cursor,
+        observerGeneration: snapshot.observerGeneration,
+        turnEpoch: snapshot.turnEpoch,
+        provenance: 'bootstrap',
+      })
+    }
     // Each value keeps its own original envelope, not the snapshot request time.
     // The same per-kind fence handles snapshots racing newer live observations.
-    for (const observation of snapshot.metadata ?? []) await this.runtimeEvent(sessionId, observation)
-    if (snapshot.title !== undefined && !snapshot.metadata?.some((event) => event.change.kind === 'title')) {
+    for (const observation of snapshot.metadata ?? [])
+      await this.runtimeEvent(sessionId, observation)
+    if (
+      snapshot.title !== undefined &&
+      !snapshot.metadata?.some((event) => event.change.kind === 'title')
+    ) {
       await this.runtimeEvent(sessionId, {
-        t: 'metadata', change: { kind: 'title', source: 'native', title: snapshot.title },
-        at: snapshot.at, cursor: snapshot.cursor, observerGeneration: snapshot.observerGeneration,
-        turnEpoch: snapshot.turnEpoch, provenance: 'bootstrap',
+        t: 'metadata',
+        change: { kind: 'title', source: 'native', title: snapshot.title },
+        at: snapshot.at,
+        cursor: snapshot.cursor,
+        observerGeneration: snapshot.observerGeneration,
+        turnEpoch: snapshot.turnEpoch,
+        provenance: 'bootstrap',
       })
     }
   }
 
   async promptTitle(sessionId: SessionId): Promise<void> {
     const session = this.ports.sessions.get(sessionId)
-    if (!session || !harnessUsesPromptTitleFallback(session.agentKind) || session.titleLocked) return
+    if (!session || !harnessUsesPromptTitleFallback(session.agentKind) || session.titleLocked)
+      return
     await this.ports.ensureTranscript?.(session)
-    const firstUser = session.terminal.transcriptItems().find(
-      (item) => item.role === 'user' && item.text.trim().length > 0 && !isCommandWrapperText(item.text),
-    )
+    const firstUser = session.terminal
+      .transcriptItems()
+      .find(
+        (item) =>
+          item.role === 'user' && item.text.trim().length > 0 && !isCommandWrapperText(item.text),
+      )
     const title = firstUser ? titleFromPrompt(firstUser.text) : undefined
     if (!title) return
-    await this.ports.write(session, (draft) => { session.setTitle(title, draft) })
+    await this.ports.write(session, (draft) => {
+      session.setTitle(title, draft)
+    })
     session.titleLocked = true
   }
 
@@ -217,7 +318,11 @@ export class SessionDaemonProjection {
       case 'title': {
         const session = this.ports.sessions.get(message.sessionId)
         if (!session || isCommandWrapperText(message.title)) break
-        if (message.source === 'osc' && harnessCapabilitiesFor(session.agentKind)?.oscTitle === false) break
+        if (
+          message.source === 'osc' &&
+          harnessCapabilitiesFor(session.agentKind)?.oscTitle === false
+        )
+          break
         // Store the stable title rather than whichever spinner frame the PTY
         // happened to report last.
         const title = stripSpinnerFrame(message.title)

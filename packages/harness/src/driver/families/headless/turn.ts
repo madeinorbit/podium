@@ -411,11 +411,25 @@ export function runHostedHeadlessTurn(
   }
 
   /** Fold a non-interactive run to its outcome once the host says it exited. */
+  const nativePayload = (line: string): void => {
+    let payload: unknown = line
+    try {
+      payload = JSON.parse(line)
+    } catch {
+      /* Text protocols remain opaque too. */
+    }
+    input.hooks?.onNativePayload?.(payload)
+  }
+
   const collect = async (run: ObservedRun): Promise<void> => {
     const reader = createHeadlessProgressReader(headless.outputFormat, emit)
     // Lines already folded into `stdout` before this subscription replay first.
-    for (const line of run.stdout().split('\n')) if (line) reader.line(line)
-    run.onStdoutLine((line) => reader.line(line))
+    const consume = (line: string) => {
+      nativePayload(line)
+      reader.line(line)
+    }
+    for (const line of run.stdout().split('\n')) if (line) consume(line)
+    run.onStdoutLine(consume)
     const exit = await run.exited
     if (settled || disposed) return
     try {
@@ -446,6 +460,7 @@ export function runHostedHeadlessTurn(
     const exitCbs = new Set<(code: number | null, signal: string | null) => void>()
     run.onStdoutLine((line) => {
       if (!line.trim()) return
+      nativePayload(line)
       for (const cb of [...lineCbs]) cb(line)
     })
     void run.exited.then((exit) => {

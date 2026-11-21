@@ -1,12 +1,9 @@
-import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { appendFileSync, mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { open as openFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { TranscriptItem } from '@podium/model'
 import { afterAll, describe, expect, it } from 'vitest'
-import { decodeCursor } from './cursor-codec'
-import { fileByteSource } from './byte-source'
-import { fileIdFor } from './file-chain'
 import {
   claudeRecordColor,
   claudeRecordEffort,
@@ -14,6 +11,9 @@ import {
   claudeRecordToItems,
 } from '../adapters/claude-code/transcript.js'
 import { grokRecordToItems } from '../adapters/grok/transcript.js'
+import { fileByteSource } from './byte-source'
+import { decodeCursor } from './cursor-codec'
+import { fileIdFor } from './file-chain'
 import { type TranscriptTailOptions, tailTranscript } from './tailer'
 
 const dir = mkdtempSync(join(tmpdir(), 'podium-tailer-'))
@@ -497,7 +497,10 @@ describe('tailTranscript — the answer a turn ends on (POD-4936)', () => {
   const turnEnd = (stop_reason: string): string =>
     JSON.stringify({
       method: '_x.ai/session/update',
-      params: { update: { sessionUpdate: 'turn_completed', prompt_id: 'p', stop_reason }, _meta: {} },
+      params: {
+        update: { sessionUpdate: 'turn_completed', prompt_id: 'p', stop_reason },
+        _meta: {},
+      },
     })
   const toolCall = (id: string): string =>
     JSON.stringify({
@@ -705,8 +708,15 @@ describe('tailTranscript — observed model + effort (POD-121)', () => {
     record.timestamp = at
     writeFileSync(path, `${JSON.stringify(record)}\n`)
     const seen: Array<string | undefined> = []
-    const { tailer, tick } = makeTailHarness(path, 10, { onModel: (_model, _effort, timestamp) => seen.push(timestamp) })
-    try { await tick(); expect(seen).toEqual([at]) } finally { tailer.stop() }
+    const { tailer, tick } = makeTailHarness(path, 10, {
+      onModel: (_model, _effort, timestamp) => seen.push(timestamp),
+    })
+    try {
+      await tick()
+      expect(seen).toEqual([at])
+    } finally {
+      tailer.stop()
+    }
   })
 
   it('emits onModel on first sighting and on change, not on repeats', async () => {
@@ -781,4 +791,41 @@ it('tailer and repeated disk parses produce identical byte-offset cursors and sy
   } finally {
     harness.tailer.stop()
   }
+})
+
+describe('raw context replay on the existing transcript reader', () => {
+  it('preserves record event time and physical cursor, and invalidates a same-size file replacement before replay', async () => {
+    const path = join(dir, 'context-raw.jsonl')
+    const replacement = join(dir, 'context-replacement.jsonl')
+    const sequence: string[] = []
+    const records: {
+      payload: unknown
+      source: { at?: string; cursor: import('@podium/protocol').ProviderCursor; provenance: string }
+    }[] = []
+    writeFileSync(path, `${userRecord('raw-a', 'first')}\n`)
+    const h = makeTailHarness(path, 10, {
+      onRecord: (payload, source) => {
+        records.push({ payload, source })
+        sequence.push('record')
+      },
+      onReset: () => sequence.push('reset'),
+    })
+    try {
+      await waitFor(() => records.length === 1)
+      expect(records[0]?.source).toEqual({
+        at: '2026-06-15T10:00:00.000Z',
+        cursor: { segmentId: fileIdFor('native-session'), components: { offset: 0 } },
+        provenance: 'bootstrap',
+      })
+      // Equal byte length exercises inode rotation rather than size/truncation.
+      writeFileSync(replacement, `${userRecord('raw-b', 'other')}\n`)
+      renameSync(replacement, path)
+      await waitFor(() => records.length === 2)
+      expect(sequence).toEqual(['record', 'reset', 'record'])
+      expect(records[1]?.payload).toMatchObject({ uuid: 'raw-b' })
+      expect(records[1]?.source.at).toBe('2026-06-15T10:00:00.000Z')
+    } finally {
+      h.tailer.stop()
+    }
+  })
 })
