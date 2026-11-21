@@ -50,6 +50,8 @@ describe('harnessHomeVariable', () => {
     // Grok's login is never copied to another machine, but GROK_HOME still
     // moves it with the rest of the folder (POD-7267, POD-7370).
     expect(harnessHomeVariable('grok')).toBe('GROK_HOME')
+    // Pi's agent folder, login and all (POD-7267, POD-7372).
+    expect(harnessHomeVariable('pi')).toBe('PI_CODING_AGENT_DIR')
     expect(harnessHomeVariable('opencode')).toBeUndefined()
   })
 })

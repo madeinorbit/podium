@@ -3,6 +3,7 @@ import type { TranscriptItem } from '@podium/model'
 import {
   type Declared,
   fileTranscript,
+  type HarnessConversationFile,
   type HarnessHandoffTranscript,
   type HarnessTranscript,
   supported,
@@ -74,6 +75,9 @@ export const fixtureHandoffTranscript: HarnessHandoffTranscript = {
     if (!(await transcriptFileExists(path))) throw new Error('Fixture transcript not found')
     return { path }
   },
+}
+
+export const fixtureConversationFile: HarnessConversationFile = {
   // A fixture home is `<dir>/.fixture` as its state root (credential switch,
   // epic Task 11): the conversation is `sessions/<resume>.jsonl` under it.
   async locateInHome({ stateDir, resumeValue }) {

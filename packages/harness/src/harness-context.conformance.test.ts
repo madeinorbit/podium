@@ -657,6 +657,16 @@ const CASES: Record<string, Case> = {
       .catch(() => undefined)
   },
 
+  conversationFile: async (h) => {
+    const file = declaredValue(h.manifest.conversationFile)!
+    const found = await file.locateInHome({
+      stateDir: h.context.roots.state,
+      cwd: CWD,
+      resumeValue: RESUME,
+    })
+    if (found) expect(found.startsWith(h.context.roots.state), found).toBe(true)
+  },
+
   // --- inventory --------------------------------------------------------------
   'inventory.loginCommand': (h) => {
     const login = declaredValue(h.manifest.inventory.loginCommand)!

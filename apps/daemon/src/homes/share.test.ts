@@ -46,6 +46,22 @@ describe('linkShared', () => {
       codex: ['config.toml', 'AGENTS.md', 'skills'],
       // Grok 1.0.89 writes through a linked config.toml (POD-7370).
       grok: ['config.toml', 'AGENTS.md', 'skills', 'agents', 'plugins'],
+      // Pi 1.5 writes settings.json, trust.json and auth.json in place (POD-7372).
+      pi: [
+        'settings.json',
+        'models.json',
+        'mcp.json',
+        'keybindings.json',
+        'AGENTS.md',
+        'SYSTEM.md',
+        'APPEND_SYSTEM.md',
+        'skills',
+        'prompts',
+        'extensions',
+        'themes',
+        'npm',
+        'git',
+      ],
     })
   })
 

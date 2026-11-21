@@ -166,7 +166,7 @@ export const COST_FULL_ATTRIBUTION_HARNESS: BuiltinHarnessKind = 'claude-code'
  * home protocol derives its closed wire vocabulary from this slice; a harness
  * added after the first two is asked for a home only by a daemon that offers
  * its own capability (`homeCapabilities`, protocol homes.ts). */
-export const HOME_HARNESS_KINDS = ['claude-code', 'codex', 'grok'] as const
+export const HOME_HARNESS_KINDS = ['claude-code', 'codex', 'grok', 'pi'] as const
 
 /** Harnesses whose sessions can be exported and resumed elsewhere. Read by
  *  the handoff manifest (entities/handoff.ts) and the handoff-availability
@@ -194,7 +194,7 @@ export const OBSERVATION_PROVIDER_KINDS = ['claude-code', 'codex', 'grok'] as co
  * its own `'claude-code-state'` bundle suffix — a bundle name, not a harness,
  * so it stays local to the protocol file.
  */
-export const PORTABLE_CREDENTIAL_HARNESS_KINDS = ['claude-code', 'codex', 'grok'] as const
+export const PORTABLE_CREDENTIAL_HARNESS_KINDS = ['claude-code', 'codex', 'grok', 'pi'] as const
 
 /**
  * Harnesses offered by the "which harness starts a generic new agent"

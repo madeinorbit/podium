@@ -16,7 +16,12 @@ import { fixtureDescriptor } from './descriptor.js'
 import { createFixtureConversationProvider } from './discovery.js'
 import { fixturePosture } from './posture.js'
 import { fixtureStateProvider } from './state.js'
-import { fixtureChainPaths, fixtureHandoffTranscript, fixtureTranscript } from './transcript.js'
+import {
+  fixtureChainPaths,
+  fixtureConversationFile,
+  fixtureHandoffTranscript,
+  fixtureTranscript,
+} from './transcript.js'
 
 /**
  * Fixture harness (POD-4474, spec §7) — a seventh manifest with meaningful
@@ -220,6 +225,7 @@ export const fixtureManifest: AgentManifest = {
   composer: unsupported('the fixture CLI double has no composer to scrape'),
 
   handoffTranscript: supported(fixtureHandoffTranscript),
+  conversationFile: supported(fixtureConversationFile),
 
   classifyBrowserOpen: unsupported(
     'The fixture opens no browser URLs — there are no login/link domains to catalogue',

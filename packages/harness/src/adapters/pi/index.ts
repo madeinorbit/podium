@@ -1,11 +1,10 @@
-import { createHash } from 'node:crypto'
-import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { transcriptEchoAcceptCorrelation } from '../../accept-correlation.js'
 import { withStateChannel } from '../../agent-state/types.js'
 import { composeAgentInstructions } from '../../instructions.js'
 import {
   type AgentManifest,
+  credentialFileReader,
   type HarnessEnvironment,
   isSet,
   promptArgv,
@@ -14,9 +13,15 @@ import {
   supported,
   unsupported,
 } from '../../manifest.js'
-import { locatePiSessionFile, piAgentDir } from '../../pi/paths.js'
 import { piCatalog } from './catalog.js'
-import { piCredentials } from './credentials.js'
+import { piConversationFile } from './conversation-file.js'
+import {
+  credentialedPiProviders,
+  PI_AGENT_DIR,
+  parsePiAuth,
+  piCredentials,
+  piIdentityOf,
+} from './credentials.js'
 import { piDescriptor } from './descriptor.js'
 import { createPiConversationProvider } from './discovery.js'
 import { piInstall, piManagedInstall } from './install.js'
@@ -70,51 +75,19 @@ const NO_TOOLS_ARGS = [
   '--no-approve',
 ]
 
-interface PiAuthRecord {
-  type?: unknown
-  key?: unknown
-  access?: unknown
-  refresh?: unknown
+/** Pi's `auth.json`, read through the credentials section's own declaration
+ *  (so `PI_CODING_AGENT_DIR` moves it exactly as it moves the home). */
+function piAuthReader(homeDir: string, env?: HarnessEnvironment) {
+  return credentialFileReader(piCredentials, homeDir, env)
 }
 
-function readPiAuth(
-  homeDir: string,
-  env?: HarnessEnvironment,
-): Record<string, PiAuthRecord> | undefined {
-  try {
-    const parsed = JSON.parse(readFileSync(join(piAgentDir(homeDir, env), 'auth.json'), 'utf8'))
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-      ? (parsed as Record<string, PiAuthRecord>)
-      : undefined
-  } catch {
-    return undefined
-  }
+function readPiAuth(homeDir: string, env?: HarnessEnvironment) {
+  const raw = piAuthReader(homeDir, env)(PI_AGENT_DIR, 'auth.json')
+  return raw ? parsePiAuth(raw) : undefined
 }
 
-function credentialedProviders(auth: Record<string, PiAuthRecord>): string[] {
-  return Object.entries(auth)
-    .filter(([, record]) => record && (record.key || record.access || record.refresh))
-    .map(([provider]) => provider)
-    .sort()
-}
-
-/** A stable identity for the stored credential set: which providers, and a hash
- *  of each credential — never the credential itself. Changes when the user
- *  re-authenticates, which is exactly when a tool-less headless account must be
- *  re-verified before launch. */
 function piIdentity(homeDir: string, env?: HarnessEnvironment) {
-  const auth = readPiAuth(homeDir, env)
-  if (!auth) return undefined
-  const providers = credentialedProviders(auth)
-  if (providers.length === 0) return undefined
-  const digest = createHash('sha256')
-  for (const provider of providers) {
-    digest.update(provider)
-    digest.update(':')
-    digest.update(createHash('sha256').update(JSON.stringify(auth[provider])).digest('hex'))
-    digest.update('\n')
-  }
-  return { fingerprint: digest.digest('hex'), providerAccountId: providers.join(',') }
+  return piIdentityOf(piAuthReader(homeDir, env))
 }
 
 export const piManifest: AgentManifest = {
@@ -188,7 +161,9 @@ export const piManifest: AgentManifest = {
     loginCommand: unsupported('Pi signs in through its interactive /login command'),
     loginCommandProbe: unsupported('Pi login detection reads its local auth.json'),
     loginIdentity: supported((homeDir, env) => piIdentity(homeDir, env)),
-    portableCredential: unsupported('Pi credential portability is not supported yet'),
+    // The login file is declared (credentials.ts) for the home variable, but a
+    // Pi login is never copied to another machine.
+    portableCredential: unsupported('Pi logins are never copied between machines'),
     // Provider API keys pi reads from the environment (providers.md). auth.json
     // beats them, but with no stored entry they select the account.
     foreignCredentialEnv: [
@@ -203,6 +178,12 @@ export const piManifest: AgentManifest = {
       'DEEPSEEK_API_KEY',
     ],
     // Provider keys it reads from the environment today (see the list above).
+    // Where Podium manages Pi, a session on one of them runs in Pi's Podium
+    // home (`PI_CODING_AGENT_DIR`, managed installs §4.3). No home line, so no
+    // Pi sign-in folder: no command opens Pi's sign-in (`/login` exists only
+    // inside the TUI; `pi /login` is sent as a prompt), and Pi's login
+    // identity hashes its OAuth tokens, so it changes at every refresh and
+    // would name a new account each time (POD-7372).
     accepts: [
       { type: 'anthropic.api-key', deliver: { kind: 'env', variable: 'ANTHROPIC_API_KEY' } },
       { type: 'openai.api-key', deliver: { kind: 'env', variable: 'OPENAI_API_KEY' } },
@@ -213,7 +194,7 @@ export const piManifest: AgentManifest = {
       // No file, or nothing in it: Pi may still authenticate from provider env
       // vars, which a file probe cannot see — so this is unknown, not out.
       if (!auth) return { state: 'unknown' }
-      const providers = credentialedProviders(auth)
+      const providers = credentialedPiProviders(auth)
       if (providers.length === 0) return { state: 'unknown' }
       const identity = piIdentity(homeDir, env)
       return {
@@ -224,7 +205,7 @@ export const piManifest: AgentManifest = {
     },
   },
 
-  credentials: piCredentials,
+  credentials: supported(piCredentials),
   usage: piUsage,
   install: piInstall,
   managedInstall: supported(piManagedInstall),
@@ -350,6 +331,10 @@ export const piManifest: AgentManifest = {
   composer: unsupported('pi has no composer scrape rules yet'),
 
   handoffTranscript: unsupported('cross-machine handoff is not supported for pi sessions'),
+  // A Pi conversation is one file, so it moves between the homes of one
+  // machine (the person's folder and the Podium home) though not to another
+  // machine.
+  conversationFile: supported(piConversationFile),
 
   classifyBrowserOpen: unsupported(
     'no catalogued pi login/link domains yet — the daemon generic redirect_uri heuristic decides',

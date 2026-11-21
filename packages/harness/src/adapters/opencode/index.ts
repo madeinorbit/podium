@@ -422,6 +422,7 @@ export const opencodeManifest: AgentManifest = {
   ),
 
   handoffTranscript: unsupported('cross-machine handoff is not supported for opencode sessions'),
+  conversationFile: unsupported('opencode declares no conversation file to move between its homes'),
 
   classifyBrowserOpen: unsupported(
     'no catalogued opencode login/link domains yet — the daemon generic redirect_uri heuristic decides (POD-738)',

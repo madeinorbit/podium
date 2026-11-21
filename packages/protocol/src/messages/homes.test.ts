@@ -4,6 +4,7 @@ import { DaemonMessage } from './daemon'
 import {
   CAP_HARNESS_HOMES,
   CAP_HARNESS_HOMES_GROK,
+  CAP_HARNESS_HOMES_PI,
   CredentialRemoveRequestMessage,
   CredentialRemoveResultMessage,
   DEFAULT_HOME_ID,
@@ -15,6 +16,8 @@ import {
   homeCapabilities,
   homeIdFor,
   parseHomeId,
+  parsePodiumHomeId,
+  podiumHomeId,
 } from './homes'
 
 const CRED = 'cred_0b6f6f5e-2d43-4f7a-9d55-6a1f7c3e0e11'
@@ -46,7 +49,13 @@ describe('home ids', () => {
   })
 
   it('holds homes for the harnesses that name their directory by a variable', () => {
-    expect([...HOME_HARNESSES]).toEqual(['claude-code', 'codex', 'grok'])
+    expect([...HOME_HARNESSES]).toEqual(['claude-code', 'codex', 'grok', 'pi'])
+  })
+
+  it('asks for a Pi home only from a daemon that offers Pi homes', () => {
+    expect(homeCapabilities('pi')).toEqual([CAP_HARNESS_HOMES, CAP_HARNESS_HOMES_PI])
+    expect(podiumHomeId('pi')).toBe('podium:pi')
+    expect(parsePodiumHomeId('podium:pi')).toBe('pi')
   })
 
   it('asks for a Grok home only from a daemon that offers Grok homes', () => {

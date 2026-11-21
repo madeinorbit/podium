@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { InstallLedger } from '../../inventory/install-ledger.js'
 import { readInstallReceipt } from '../../inventory/install-receipt.js'
 import { installRelease } from '../../inventory/managed-install.js'
+import { managedInstallRefusal } from '../../inventory/requested-install.js'
 import { declaredValue, type HarnessInstallPorts } from '../../manifest.js'
 import { harnessHomeVariable } from '../../registry.js'
 import zipFixtures from './fixtures/archives.json'
@@ -270,7 +271,9 @@ describe('Pi managed install', () => {
     }
   })
 
-  it('leaves the no-home-variable admission rule to the shared request layer', () => {
-    expect(harnessHomeVariable('pi')).toBeUndefined()
+  it('installs beside the person’s own Pi: PI_CODING_AGENT_DIR keeps the copies apart (POD-7372)', () => {
+    expect(harnessHomeVariable('pi')).toBe('PI_CODING_AGENT_DIR')
+    expect(managedInstallRefusal('pi', true)).toBeUndefined()
+    expect(managedInstallRefusal('pi', null)).toBeUndefined()
   })
 })

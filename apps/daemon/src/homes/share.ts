@@ -22,7 +22,8 @@
  * every launch. Codex's hooks are not linked either: Podium's own reach a
  * home at launch as `-c` flags (`codex-hook-trust.ts`). Nor are Grok's
  * `hooks/` and `trusted_folders.toml`: Podium installs its own hook file in
- * each home, and folder trust is the home's own.
+ * each home, and folder trust is the home's own. Nor are Pi's `trust.json`
+ * and `mcp-auth.json` (Pi has only its Podium home so far, POD-7372).
  *
  * The Podium home itself links nothing: it is filled from the person's folder
  * by copy (`fill.ts`), once at managed install and again on request.
@@ -34,6 +35,7 @@ import {
   claudeHomeSharing,
   codexHomeSharing,
   grokHomeSharing,
+  piHomeSharing,
   prepareClaudeHomeLaunch,
 } from '@podium/harness'
 import type { HomeHarness } from '@podium/protocol'
@@ -44,6 +46,7 @@ export const SHARED_ENTRIES = {
   [claudeHomeSharing[0]]: claudeHomeSharing[1],
   [codexHomeSharing[0]]: codexHomeSharing[1],
   [grokHomeSharing[0]]: grokHomeSharing[1],
+  [piHomeSharing[0]]: piHomeSharing[1],
 } satisfies Readonly<Record<HomeHarness, readonly string[]>>
 
 /** What one pass over a home's shared entries did. */

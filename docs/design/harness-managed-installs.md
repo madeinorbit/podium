@@ -265,8 +265,8 @@ homes, stays as built.
 
 ### 4.7 Harnesses with no folder variable
 
-Podium homes exist for Claude Code, Codex and Grok. The spike also found
-`PI_CODING_AGENT_DIR`. OpenCode's XDG directory variables work together, and
+Podium homes exist for Claude Code, Codex, Grok and Pi. OpenCode's XDG
+directory variables work together, and
 Cursor's dedicated variables leave some writes in the person's home. Section 9
 records the measured paths.
 
@@ -289,6 +289,34 @@ an older daemon is never asked for one. Three limits remain:
   Grok declares no conversation file, so the switch continues in a new
   session with a handoff.
 - A real login refresh inside a Podium-made Grok home was not measured.
+
+Pi's home is `PI_CODING_AGENT_DIR`, which moves `auth.json`, `settings.json`,
+the model store and the sessions together (POD-7267). Pi has only its Podium
+home and no sign-in folders. Its login is several providers' keys and tokens
+in one `auth.json`, signed in only through `/login` inside the TUI, and its
+login identity is a hash of those tokens, so it would change at every refresh.
+The provider keys Pi accepts (Anthropic, OpenAI, OpenRouter) are passed in
+and run in the Podium home. The person's own login keeps running their own
+binary in `~/.pi/agent`. The fill copies `AGENTS.md`, `SYSTEM.md`,
+`APPEND_SYSTEM.md`, `skills`, `prompts`, `extensions`, `themes`, and of
+`mcp.json` only `mcpServers`. It never copies `auth.json`, `trust.json`
+(folder trust), `mcp-auth.json` (MCP sign-ins), `models-store.json`,
+`sessions`, `settings.json` (it holds the folder-trust default, update and
+telemetry settings and a device id) or `models.json` (a custom provider there
+can hold an API key). Posture supplies trust at launch (`--approve`). A
+daemon offers Pi homes with `harness.homes.pi.v1`. A Pi conversation is one
+file, so a session that ran in the person's folder on a passed-in key is
+copied into the Podium home before its next process (4.6 item 4); Pi's
+`--session-id` would otherwise start an empty conversation there. The
+adapter declares this as its conversation file, apart from cross-machine
+handoff, which Pi still does not support. Two limits remain:
+
+- Pi also reads `~/.agents/skills` from `HOME`, and no switch is documented.
+  A Pi in a Podium home still reads it. It does not write there.
+- A Pi login made in the Podium home's TUI (`/login`) stays in that home's
+  `auth.json` and is not a credential Podium knows about. Pi prefers a stored
+  entry to a provider key from the environment, so later sessions there on a
+  passed-in key for the same provider run on that login.
 
 Until an adapter uses the measured overrides for its harness, Podium can
 manage it only on a machine where the person has no install of their own.
@@ -783,7 +811,7 @@ POD-7267 report has the exact fetch commands, hashes and launch results.
 | **Codex** | `releases.openai.com/codex/channels/latest` → 0.171.0, with [GitHub Releases](https://github.com/openai/codex/releases/latest) as installer fallback | `codex-package-<target>.tar.gz` or `.tar.zst`, with `bin/codex` plus helpers and resources. SHA-256 in `codex-package_SHA256SUMS`. | Keep the complete release package. `CODEX_HOME` contains session state and any daemon copy. See 6.3 for the version pin. |
 | **Grok** | `x.ai/cli/stable` → 1.0.89 | `grok-<version>-<platform>`, direct binary. The installer checks the binary runs. No published checksum was found in the installer or at the asset's `.sha256` URL. | `GROK_HOME` directs `auth.json`, config, logs and session storage into the same folder. A live login refresh was outside the lab's available credentials. Grok's Podium home and sign-in folders use it (4.7). |
 | **OpenCode** | [GitHub releases/latest](https://api.github.com/repos/anomalyco/opencode/releases/latest) → v1.19.6 | `opencode-linux-x64.tar.gz` opens to a top-level `opencode`. The GitHub API asset `digest` matches the archive SHA-256. | One override for all state was not found. `OPENCODE_CONFIG_DIR` is config only. Together the XDG config, data, state and cache variables redirected the session database and file-backed key. The personal `~/.opencode/.gitignore` write remained. The `--version` probe alone creates empty default XDG config, data, state and cache folders (POD-7277). |
-| **Pi** | `pi.dev/api/installer/releases/latest` → 1.6.0, also present in [GitHub Releases](https://github.com/earendil-works/pi/releases/tag/v1.6.0) | `pi-linux-x64.tar.gz` contains `pi/pi` and its assets. GitHub publishes `SHA256SUMS` and per-asset digests. The installer API separately publishes npm package integrity. | Direct download of the complete standalone bundle. `PI_CODING_AGENT_DIR` moves `auth.json`, settings, model state and sessions. The managed install's version and identity probes create empty `auth.json` and `models-store.json` under the default `~/.pi/agent` when absent (POD-7278). |
+| **Pi** | `pi.dev/api/installer/releases/latest` → 1.6.0, also present in [GitHub Releases](https://github.com/earendil-works/pi/releases/tag/v1.6.0) | `pi-linux-x64.tar.gz` contains `pi/pi` and its assets. GitHub publishes `SHA256SUMS` and per-asset digests. The installer API separately publishes npm package integrity. | Direct download of the complete standalone bundle. `PI_CODING_AGENT_DIR` moves `auth.json`, settings, model state and sessions. The managed install's version and identity probes create empty `auth.json` and `models-store.json` under the default `~/.pi/agent` when absent (POD-7278); they run in a throwaway home. Pi's Podium home uses the variable (4.7). |
 | **Cursor** | `DashboardService/GetCliDownloadUrl` at `api2.cursor.sh`, with `channel=prod`, returned 2026.11.19-f005e9d and its download prefix. | `linux/x64/agent-cli-package.tar.gz` strips one `dist-package/` directory. Keep the launcher, Node and its assets together. The adjacent `agent-cli-package.tar.gz.sha256` matched the archive. | No single variable found. `CURSOR_CONFIG_DIR` moved config, `CURSOR_DATA_DIR` directed project storage, and Linux file auth uses XDG config. Agent CLI state still used `~/.cursor` with both dedicated variables. See 4.7. |
 
 The POD-7274 terminal check of Claude Code 2.1.311 found writes the bounded

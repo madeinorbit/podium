@@ -11,11 +11,14 @@ describe('PortableCredentialKind derivation (4.2)', () => {
       'claude-code-state',
       'codex',
       'grok',
+      // Pi declares its login file for its home variable; propagation still
+      // takes only propagatable files, so it is never sent (POD-7372).
+      'pi',
     ])
-    for (const kind of ['claude-code', 'claude-code-state', 'codex', 'grok'] as const) {
+    for (const kind of ['claude-code', 'claude-code-state', 'codex', 'grok', 'pi'] as const) {
       expect(PortableCredentialKind.safeParse(kind).success).toBe(true)
     }
-    for (const kind of ['opencode', 'cursor', 'pi', 'shell', '']) {
+    for (const kind of ['opencode', 'cursor', 'shell', '']) {
       expect(PortableCredentialKind.safeParse(kind).success).toBe(false)
     }
   })

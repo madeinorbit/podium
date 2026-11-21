@@ -35,8 +35,8 @@ import { copyFile, cp, mkdir, readFile, rename, stat, writeFile } from 'node:fs/
 import { dirname, join, relative } from 'node:path'
 import {
   declaredValue,
+  type HarnessConversationFile,
   type HarnessEnvironment,
-  type HarnessHandoffTranscript,
   harnessAccount,
   manifestFor,
   withHomeScope,
@@ -131,10 +131,10 @@ export async function prepareConversation(
   request: ConversationPrepareRequest,
 ): Promise<ConversationPrepared> {
   const manifest = manifestFor(request.agentKind)
-  const transcript: HarnessHandoffTranscript | undefined = manifest
-    ? declaredValue(manifest.handoffTranscript)
+  const transcript: HarnessConversationFile | undefined = manifest
+    ? declaredValue(manifest.conversationFile)
     : undefined
-  if (!transcript?.locateInHome) {
+  if (!transcript) {
     return { ok: false, error: `${request.agentKind} does not say where its conversations are` }
   }
   const toHomeId = placementHomeId(deps, request)
@@ -217,7 +217,7 @@ export async function prepareConversation(
 /** The file's lines through `carry`: whether any changed, and how many went. */
 async function carryRecords(
   path: string,
-  carry: NonNullable<HarnessHandoffTranscript['carryRecord']>,
+  carry: NonNullable<HarnessConversationFile['carryRecord']>,
   change: { accountChanged: boolean; modelProvider?: string; inPodiumHome?: boolean },
 ): Promise<{ text: string; altered: boolean; dropped: number }> {
   const lines = (await readFile(path, 'utf8')).split('\n')

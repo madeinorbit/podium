@@ -18,6 +18,7 @@ export const PortableCredentialKind = z.enum([
   'claude-code-state',
   PORTABLE_CREDENTIAL_HARNESS_KINDS[1],
   PORTABLE_CREDENTIAL_HARNESS_KINDS[2],
+  PORTABLE_CREDENTIAL_HARNESS_KINDS[3],
 ] as const)
 export type PortableCredentialKind = z.infer<typeof PortableCredentialKind>
 

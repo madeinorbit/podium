@@ -33,6 +33,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 import {
   type HarnessContext,
+  harnessChildEnv,
   harnessCommand,
   launchTerms,
   manifestFor,
@@ -1068,5 +1069,305 @@ describe('Grok in a Podium-made home (§4.7)', () => {
     expect(command.terms.homeEdits.map((edit) => edit.file)).toEqual([join(home, 'config.toml')])
     expect(command.homeEditScope?.personal).toBe(false)
     expect(command.harnessHomeId).toBe(`${SIGNED_IN}:grok`)
+  })
+})
+
+/**
+ * PI (POD-7372, managed installs §4.7): `PI_CODING_AGENT_DIR` moves Pi's login,
+ * settings, model state and sessions together (POD-7267), so a Pi key Podium
+ * passes in runs Podium's Pi in Pi's Podium home. Pi has no sign-in folders:
+ * no login credential type reaches a home of its own.
+ */
+describe('Pi in a Podium-made home (§4.7)', () => {
+  const PI_PERSON_BIN = '/usr/local/bin/pi'
+  const PI_MANAGED_BIN = '/state/harnesses/pi/1-1.6.0/pi/pi'
+  const piSnapshot = (managed: boolean, personal = true): ResolvedHarnessInventory =>
+    testHarnessSnapshot(
+      personal ? { pi: PI_PERSON_BIN } : {},
+      1,
+      managed ? { pi: PI_MANAGED_BIN } : {},
+    )
+
+  function personPi(): string {
+    const dir = join(person, '.pi', 'agent')
+    write(
+      join(dir, 'mcp.json'),
+      JSON.stringify({
+        mcpServers: { docs: { command: 'docs-mcp', args: ['--stdio'] } },
+        imports: ['person-only'],
+      }),
+    )
+    write(join(dir, 'AGENTS.md'), 'person rules')
+    write(join(dir, 'SYSTEM.md'), 'person system prompt')
+    write(join(dir, 'APPEND_SYSTEM.md'), 'person appended prompt')
+    write(join(dir, 'skills', 'review', 'SKILL.md'), 'a skill')
+    write(join(dir, 'prompts', 'fix.md'), 'a prompt template')
+    write(join(dir, 'extensions', 'tool.ts'), 'export default () => {}')
+    write(join(dir, 'themes', 'dusk.json'), '{"name":"dusk"}')
+    // Never copied: the login, trust, MCP sign-ins, settings, custom models,
+    // model state, sessions and installed packages.
+    write(join(dir, 'auth.json'), '{"anthropic":{"type":"api_key","key":"person-secret"}}')
+    write(join(dir, 'trust.json'), '{"/work":"trusted"}')
+    write(join(dir, 'mcp-auth.json'), '{"docs":{"token":"t"}}')
+    write(join(dir, 'settings.json'), '{"defaultProjectTrust":"always","deviceId":"d"}')
+    write(join(dir, 'models.json'), '{"providers":{"local":{"apiKey":"k"}}}')
+    write(join(dir, 'models-store.json'), '{}')
+    write(join(dir, 'keybindings.json'), '{}')
+    write(join(dir, 'sessions', '--work--', '2026_abc.jsonl'), '{}\n')
+    write(join(dir, 'npm', 'node_modules', 'pkg', 'index.js'), '')
+    return dir
+  }
+
+  async function piKeySession(access: SessionAccessStore): Promise<SessionId> {
+    const sessionId = asSessionId('s-pi-api-key')
+    access.remember(
+      sessionId,
+      {
+        credentialId: KEY_CRED,
+        delivery: { kind: 'env', variable: 'ANTHROPIC_API_KEY', secret: ANTHROPIC_KEY },
+      },
+      'pi',
+    )
+    return sessionId
+  }
+
+  it('a passed-in key runs Podium’s Pi with PI_CODING_AGENT_DIR on the Podium home', async () => {
+    const own = personPi()
+    const before = listing(own, true)
+    const access = new SessionAccessStore({ markers: memoryMarkers() })
+    const sessionId = await piKeySession(access)
+    const context = await buildSessionHarnessContext(
+      contextSource(access, piSnapshot(true)),
+      'pi',
+      sessionId,
+    )
+    const podium = join(root, 'state', 'homes', 'podium', 'pi')
+    expect(context.harnessHome).toEqual({
+      id: podiumHomeId('pi'),
+      dir: podium,
+      variable: 'PI_CODING_AGENT_DIR',
+    })
+    expect(context.installation.executable).toBe(PI_MANAGED_BIN)
+    expect(context.roots.state).toBe(podium)
+    expect(context.roots.transcripts).toBe(join(podium, 'sessions'))
+    const child = harnessChildEnv(context, { sessionEnv: { ANTHROPIC_API_KEY: ANTHROPIC_KEY } })
+    expect(child.env.PI_CODING_AGENT_DIR).toBe(podium)
+    expect(child.env.ANTHROPIC_API_KEY).toBe(ANTHROPIC_KEY)
+    // The Podium home links nothing, and the person's folder is untouched.
+    for (const target of Object.values(listing(podium))) expect(target).not.toContain(person)
+    expect(listing(own, true)).toEqual(before)
+  })
+
+  it('with only Podium’s Pi on the machine, a passed-in key still runs in the Podium home', async () => {
+    const access = new SessionAccessStore({ markers: memoryMarkers() })
+    const sessionId = await piKeySession(access)
+    const context = await buildSessionHarnessContext(
+      contextSource(access, piSnapshot(true, false)),
+      'pi',
+      sessionId,
+    )
+    expect(context.harnessHome?.id).toBe(podiumHomeId('pi'))
+    expect(context.installation.executable).toBe(PI_MANAGED_BIN)
+  })
+
+  it.each([
+    false,
+    true,
+  ])('the person’s own login stays in ~/.pi/agent on the person’s binary (managed: %s)', async (managed) => {
+    const access = new SessionAccessStore({ markers: memoryMarkers() })
+    const sessionId = asSessionId('s-pi-own-login')
+    access.remember(
+      sessionId,
+      { credentialId: OWN_LOGIN, delivery: { kind: 'home', homeId: 'default' } },
+      'pi',
+    )
+    const context = await buildSessionHarnessContext(
+      contextSource(access, piSnapshot(managed)),
+      'pi',
+      sessionId,
+    )
+    expect(context.harnessHome).toBeUndefined()
+    expect(context.installation.executable).toBe(PI_PERSON_BIN)
+    expect(context.roots.state).toBe(join(person, '.pi', 'agent'))
+  })
+
+  it('without a managed install a passed-in key runs in the person’s folder, as built', async () => {
+    const access = new SessionAccessStore({ markers: memoryMarkers() })
+    const sessionId = await piKeySession(access)
+    const context = await buildSessionHarnessContext(
+      contextSource(access, piSnapshot(false)),
+      'pi',
+      sessionId,
+    )
+    expect(context.harnessHome).toBeUndefined()
+    expect(context.installation.executable).toBe(PI_PERSON_BIN)
+    expect(homes.podiumHome('pi')).toBeUndefined()
+  })
+
+  it('Podium’s Pi is never started in the person’s own folder', async () => {
+    const access = new SessionAccessStore({ markers: memoryMarkers() })
+    const sessionId = await piKeySession(access)
+    const context = await buildSessionHarnessContext(
+      contextSource(access, piSnapshot(true)),
+      'pi',
+      sessionId,
+    )
+    const { harnessHome: _home, ...outside } = context
+    expect(() => harnessChildEnv(outside as HarnessContext, {})).toThrow(
+      /never in your own pi folder/,
+    )
+  })
+
+  it('the fill copies rules, skills, prompts, extensions, themes and the MCP servers, nothing else', () => {
+    const dir = personPi()
+    const before = listing(dir, true)
+    const home = homes.ensurePodiumHome('pi').home
+    // A server and a key of the home's own stay.
+    write(join(home.dir, 'mcp.json'), JSON.stringify({ mcpServers: { mine: { command: 'm' } } }))
+    const report = fillPodiumHome('pi', { dir }, home.dir)
+    expect(report.left).toEqual([])
+    expect(report.copied).toEqual(
+      expect.arrayContaining([
+        'AGENTS.md',
+        'skills',
+        'prompts',
+        'extensions',
+        'themes',
+        'mcp.json mcpServers',
+      ]),
+    )
+    expect(Object.keys(listing(home.dir)).sort()).toEqual(
+      [
+        FILLED_RECORD,
+        'AGENTS.md',
+        'APPEND_SYSTEM.md',
+        'SYSTEM.md',
+        'extensions',
+        'extensions/tool.ts',
+        'mcp.json',
+        'prompts',
+        'prompts/fix.md',
+        'skills',
+        'skills/review',
+        'skills/review/SKILL.md',
+        'themes',
+        'themes/dusk.json',
+      ].sort(),
+    )
+    expect(readJson(join(home.dir, 'mcp.json'))).toEqual({
+      mcpServers: { mine: { command: 'm' }, docs: { command: 'docs-mcp', args: ['--stdio'] } },
+    })
+    // A second fill writes nothing; the person's folder is untouched.
+    const filled = listing(home.dir, true)
+    expect(fillPodiumHome('pi', { dir }, home.dir).copied).toEqual([])
+    expect(listing(home.dir, true)).toEqual({ ...filled, [FILLED_RECORD]: expect.any(String) })
+    expect(listing(dir, true)).toEqual(before)
+  })
+
+  it('a managed Pi appearing makes and fills the Podium home once, from PI_CODING_AGENT_DIR', async () => {
+    const own = personPi()
+    const moved = join(root, 'elsewhere', 'pi-agent')
+    mkdirSync(dirname(moved), { recursive: true })
+    // The person keeps their Pi folder elsewhere: the fill reads it there.
+    symlinkSync(own, moved)
+    const service = new PodiumHomes({
+      homes,
+      personFolder: async (harness) =>
+        personFolderOf(harness, { home: person, env: { PI_CODING_AGENT_DIR: moved } }),
+    })
+    const [ready] = await service.reconcile((harness) => harness === 'pi')
+    const podium = homes.podiumHome('pi')?.dir as string
+    expect(ready?.fill?.copied).toEqual(expect.arrayContaining(['AGENTS.md', 'skills']))
+    expect(readFileSync(join(podium, 'AGENTS.md'), 'utf8')).toBe('person rules')
+    expect(existsSync(join(podium, 'auth.json'))).toBe(false)
+    expect(await service.reconcile((harness) => harness === 'pi')).toEqual([])
+  })
+
+  it('a managed Pi launch in the Podium home trusts the folder and skips the version request', async () => {
+    const access = new SessionAccessStore({ markers: memoryMarkers() })
+    const sessionId = await piKeySession(access)
+    const context = await buildSessionHarnessContext(
+      contextSource(access, piSnapshot(true)),
+      'pi',
+      sessionId,
+    )
+    const manifest = manifestFor('pi')
+    if (!manifest) throw new Error('no manifest for pi')
+    const command = harnessCommand(
+      context,
+      { args: [] },
+      launchTerms(manifest, {
+        mode: 'terminal',
+        posture: { mode: 'autonomous' },
+        workdir: '/work',
+        runtimeDir: join(root, 'runtime'),
+        context,
+        grants: {
+          podiumCli: { name: 'podium', path: '/bin/podium' },
+          uploadsDir: join(root, 'uploads'),
+          mcpServers: [],
+        },
+      }),
+    )
+    expect(command.args).toContain('--approve')
+    expect(command.env.PI_SKIP_VERSION_CHECK).toBe('1')
+    // Trust is a launch flag: nothing is written into any Pi folder.
+    expect(command.terms.homeEdits).toEqual([])
+    expect(command.harnessHomeId).toBe(podiumHomeId('pi'))
+  })
+
+  describe('the conversation follows the session into the Podium home (§4.6 item 4)', () => {
+    const PI_SESSION = '0b7c4a52-7f1e-4c3a-9d2e-5a6b7c8d9e0f'
+    const sessionRel = join('sessions', '--work--', `2026-11-20T10-00-00-000Z_${PI_SESSION}.jsonl`)
+    const SESSION = `${[
+      JSON.stringify({ type: 'session', id: PI_SESSION, cwd: '/work' }),
+      JSON.stringify({
+        type: 'message',
+        message: { role: 'user', content: 'My code word is FIG-7.' },
+      }),
+    ].join('\n')}\n`
+    const deps = (managed: boolean) => ({
+      account: { home: person, env: {} },
+      homes,
+      managedInstall: (harness: string) => managed && harness === 'pi',
+      now: () => 1_700_000_000_000,
+    })
+    const request = (account: string, fromAccount?: string) => ({
+      agentKind: 'pi' as const,
+      cwd: '/work',
+      resume: { kind: 'pi-session' as const, value: PI_SESSION },
+      toHomeId: 'default',
+      toDelivery: 'env' as const,
+      account,
+      ...(fromAccount ? { fromAccount } : {}),
+    })
+
+    it('a key session that ran in ~/.pi/agent continues from a copy in the Podium home', async () => {
+      const original = write(join(person, '.pi', 'agent', sessionRel), SESSION)
+      const placed = await prepareConversation(deps(true), request(KEY_CRED))
+      const podium = homes.podiumHome('pi')?.dir as string
+      expect(placed).toMatchObject({ ok: true, placed: 'copied', path: join(podium, sessionRel) })
+      expect(readFileSync(join(podium, sessionRel), 'utf8')).toBe(SESSION)
+      expect(readFileSync(original, 'utf8')).toBe(SESSION)
+    })
+
+    it('without a managed install it stays in the person’s folder', async () => {
+      write(join(person, '.pi', 'agent', sessionRel), SESSION)
+      expect(await prepareConversation(deps(false), request(KEY_CRED))).toMatchObject({
+        ok: true,
+        placed: 'in-place',
+      })
+      expect(homes.podiumHome('pi')).toBeUndefined()
+    })
+
+    it('switching between two passed-in keys resumes in place and copies nothing', async () => {
+      const podium = homes.ensurePodiumHome('pi').home.dir
+      write(join(podium, sessionRel), SESSION)
+      const personBefore = listing(person)
+      expect(
+        await prepareConversation(deps(true), request(OTHER_KEY_CRED, KEY_CRED)),
+      ).toMatchObject({ ok: true, placed: 'in-place', path: join(podium, sessionRel) })
+      expect(listing(person)).toEqual(personBefore)
+    })
   })
 })

@@ -229,6 +229,7 @@ export const cursorManifest: AgentManifest = {
   composer: unsupported('Cursor has no composer scrape rules yet'),
 
   handoffTranscript: unsupported('cross-machine handoff is not supported for cursor sessions'),
+  conversationFile: unsupported('cursor declares no conversation file to move between its homes'),
 
   classifyBrowserOpen: unsupported(
     'no catalogued cursor login/link domains yet — the daemon generic redirect_uri heuristic decides (POD-738)',

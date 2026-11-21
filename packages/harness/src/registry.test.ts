@@ -89,6 +89,7 @@ const DECLARED_FIELD_SET: Record<DeclaredKeys<AgentManifest>, true> = {
   transcript: true,
   composer: true,
   handoffTranscript: true,
+  conversationFile: true,
   classifyBrowserOpen: true,
 }
 const DECLARED_FIELDS = Object.keys(DECLARED_FIELD_SET) as DeclaredKeys<AgentManifest>[]
@@ -481,10 +482,12 @@ describe('agent manifest registry', () => {
         }
       }
     }
-    // The harnesses with portable credentials and live quota probes today.
+    // The harnesses that declare a login file, and those with live quota
+    // probes, today. Pi's login file is declared for its home variable and
+    // is never copied between machines (POD-7372).
     expect(
       BUILTIN_HARNESS_KINDS.filter((kind) => declaredValue(AGENT_MANIFESTS[kind].credentials)),
-    ).toEqual(['claude-code', 'codex', 'grok'])
+    ).toEqual(['claude-code', 'codex', 'grok', 'pi'])
     expect(
       BUILTIN_HARNESS_KINDS.filter((kind) => declaredValue(AGENT_MANIFESTS[kind].usage)),
     ).toEqual(['claude-code', 'codex', 'grok'])
@@ -878,6 +881,7 @@ describe('open HarnessId vs closed BuiltinHarnessKind (POD-303)', () => {
       composer: unsupported('no composer rules yet'),
       classifyBrowserOpen: unsupported('no known domains'),
       handoffTranscript: unsupported('no cross-machine handoff yet'),
+      conversationFile: unsupported('no conversation file yet'),
     }
 
     // Every degraded axis reads as explicitly-unsupported WITH a reason — never as

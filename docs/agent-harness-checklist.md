@@ -61,7 +61,7 @@ do it, for a reader deciding whether the gap is permanent.
 - [ ] `Declared` sections — implement or decline with a real reason:
   `credentials`, `usage`, `install`, `exec`, `headless`, `state`,
   `instrumentation`, `observer`, `transcript`, `composer`,
-  `handoffTranscript`, `classifyBrowserOpen`, plus the nested declarations the
+  `handoffTranscript`, `conversationFile`, `classifyBrowserOpen`, plus the nested declarations the
   `sectionStatusesOf` walk covers (`inventory.loginCommand`,
   `loginCommandProbe`, `loginIdentity`, `portableCredential`;
   `runtime.server`, `runtime.embedded`; `usage.quota/history/transcripts`;

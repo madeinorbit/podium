@@ -10,9 +10,10 @@ The `descriptor` and `catalog` Adapter sections (spec §4.1/§4.5) are NOT rows 
 
 | section | claude-code | codex | grok | opencode | cursor | pi |
 | --- | --- | --- | --- | --- | --- | --- |
-| `credentials` | supported | supported | supported | declined | declined | declined |
+| `credentials` | supported | supported | supported | declined | declined | supported |
 | `usage` | supported | supported | supported | declined | declined | declined |
 | `install` | supported | supported | supported | declined | declined | declined |
+| `managedInstall` | supported | supported | supported | supported | supported | supported |
 | `exec` | supported | supported | supported | supported | supported | supported |
 | `headless` | supported | supported | supported | supported | supported | supported |
 | `state` | supported | supported | supported | supported | supported | supported |
@@ -21,6 +22,7 @@ The `descriptor` and `catalog` Adapter sections (spec §4.1/§4.5) are NOT rows 
 | `transcript` | supported | supported | supported | supported | supported | supported |
 | `composer` | supported | supported | declined | declined | declined | declined |
 | `handoffTranscript` | supported | supported | declined | declined | declined | declined |
+| `conversationFile` | supported | supported | declined | declined | declined | supported |
 | `classifyBrowserOpen` | supported | supported | declined | declined | declined | declined |
 | `inventory.loginCommand` | supported | supported | supported | supported | declined | declined |
 | `inventory.loginCommandProbe` | supported | declined | declined | declined | declined | declined |
@@ -41,14 +43,14 @@ The `descriptor` and `catalog` Adapter sections (spec §4.1/§4.5) are NOT rows 
 | `runtime.server.versionRange` | declined | supported | supported | supported | declined | declined |
 | `runtime.server.clientTerminal` | declined | supported | supported | supported | declined | declined |
 
-## claude-code — supported 24/28
+## claude-code — supported 26/30
 
 - `runtime.server`: Claude Code ships no server mode — the Agent SDK is in-process and `claude -p` is one-shot
 - `usage.history`: Claude Code writes no recoverable quota history — its usage endpoint is read live and cached nowhere, by Podium or by Claude Code
 - `headless.buildExec`: the Claude Agent SDK builds its own invocation in-process
 - `transcript.sqliteLocator`: this harness stores transcripts in files — there is no database to locate
 
-## codex — supported 24/30
+## codex — supported 26/32
 
 - `inventory.loginCommandProbe`: Codex login detection still uses its guarded local auth file
 - `runtime.embedded`: Codex ships a server, not a library to host in-process
@@ -57,10 +59,11 @@ The `descriptor` and `catalog` Adapter sections (spec §4.1/§4.5) are NOT rows 
 - `transcript.sqliteLocator`: this harness stores transcripts in files — there is no database to locate
 - `credentials.transfer`: Codex credentials live in a plain file; no platform transfer applies
 
-## grok — supported 22/30
+## grok — supported 23/32
 
 - `composer`: grok has no composer scrape rules yet
 - `handoffTranscript`: cross-machine handoff is not supported for grok sessions
+- `conversationFile`: grok declares no conversation file to move between its homes
 - `classifyBrowserOpen`: no catalogued grok login/link domains yet — the daemon generic redirect_uri heuristic decides (POD-738)
 - `inventory.loginCommandProbe`: Grok login detection still uses its local credential file
 - `runtime.embedded`: grok ships no library to host in-process
@@ -68,7 +71,7 @@ The `descriptor` and `catalog` Adapter sections (spec §4.1/§4.5) are NOT rows 
 - `transcript.sqliteLocator`: this harness stores transcripts in files — there is no database to locate
 - `credentials.transfer`: Grok credentials live in a plain file; no platform transfer applies
 
-## opencode — supported 11/26
+## opencode — supported 12/28
 
 - `credentials`: OpenCode credential portability is not supported yet
 - `usage`: OpenCode exposes no vendor quota endpoint and stores transcripts in SQLite — no harvest layout to declare yet
@@ -76,6 +79,7 @@ The `descriptor` and `catalog` Adapter sections (spec §4.1/§4.5) are NOT rows 
 - `instrumentation`: opencode posts no hook payloads; observation is poll-only over its event stream and store
 - `composer`: opencode has no composer scrape rules; sessions drive through its server protocol
 - `handoffTranscript`: cross-machine handoff is not supported for opencode sessions
+- `conversationFile`: opencode declares no conversation file to move between its homes
 - `classifyBrowserOpen`: no catalogued opencode login/link domains yet — the daemon generic redirect_uri heuristic decides (POD-738)
 - `inventory.loginCommandProbe`: OpenCode login detection still uses its local authentication database
 - `inventory.loginIdentity`: OpenCode does not expose a stable local account identity yet
@@ -86,7 +90,7 @@ The `descriptor` and `catalog` Adapter sections (spec §4.1/§4.5) are NOT rows 
 - `transcript.recordColor`: opencode has no identity-colour record
 - `transcript.chainPaths`: opencode stores transcripts in SQLite — there are no files to chain
 
-## cursor — supported 8/24
+## cursor — supported 9/26
 
 - `credentials`: Cursor credential portability is not supported yet
 - `usage`: Cursor exposes no declared quota endpoint or transcript harvest layout yet
@@ -94,6 +98,7 @@ The `descriptor` and `catalog` Adapter sections (spec §4.1/§4.5) are NOT rows 
 - `instrumentation`: Cursor posts no hook payloads; observation is poll-only over its transcript
 - `composer`: Cursor has no composer scrape rules yet
 - `handoffTranscript`: cross-machine handoff is not supported for cursor sessions
+- `conversationFile`: cursor declares no conversation file to move between its homes
 - `classifyBrowserOpen`: no catalogued cursor login/link domains yet — the daemon generic redirect_uri heuristic decides (POD-738)
 - `inventory.loginCommand`: Cursor does not expose a supported native login command yet
 - `inventory.loginCommandProbe`: Cursor has no supported native login-status command
@@ -105,9 +110,8 @@ The `descriptor` and `catalog` Adapter sections (spec §4.1/§4.5) are NOT rows 
 - `transcript.recordColor`: this harness does not report an identity colour in its records
 - `transcript.sqliteLocator`: this harness stores transcripts in files — there is no database to locate
 
-## pi — supported 10/24
+## pi — supported 13/27
 
-- `credentials`: Pi credential portability is not supported yet
 - `usage`: Pi exposes no declared quota endpoint or transcript harvest layout yet
 - `install`: Pi is distributed through npm, its standalone installer, and GitHub releases — no single vendor install script to run
 - `instrumentation`: pi posts no hook payloads; observation is poll-only over its stream
@@ -116,11 +120,12 @@ The `descriptor` and `catalog` Adapter sections (spec §4.1/§4.5) are NOT rows 
 - `classifyBrowserOpen`: no catalogued pi login/link domains yet — the daemon generic redirect_uri heuristic decides
 - `inventory.loginCommand`: Pi signs in through its interactive /login command
 - `inventory.loginCommandProbe`: Pi login detection reads its local auth.json
-- `inventory.portableCredential`: Pi credential portability is not supported yet
+- `inventory.portableCredential`: Pi logins are never copied between machines
 - `runtime.server`: pi --mode rpc is a real JSONL-over-stdio server mode, but Podium has not driven it yet — verify before turning it into a spec
 - `runtime.embedded`: pi ships an SDK, but it is not hosted in-process yet
 - `transcript.recordColor`: this harness does not report an identity colour in its records
 - `transcript.sqliteLocator`: this harness stores transcripts in files — there is no database to locate
+- `credentials.transfer`: Pi credentials live in a plain file; no platform transfer applies
 
 ## Default posture by launch mode
 
@@ -132,14 +137,14 @@ What `{"mode":"autonomous"}` comes to for a current install, from each adapter's
 | claude-code | engine | `auto` | home edit | met | met | met | met |
 | claude-code | turn | `auto` | home edit | met | met | met | met |
 | claude-code | client | `auto` | home edit | met | met | met | met |
-| codex | terminal | `auto-review` | met | home edit | met | met | met |
+| codex | terminal | `auto-review` | met | home edit | met | unmet | met |
 | codex | engine | `auto-review` | met | home edit | met | met | met |
 | codex | turn | `auto-review` | met | home edit | met | met | met |
-| codex | client | none | met | home edit | met | met | met |
-| grok | terminal | `auto` | met | met | met | met | met |
+| codex | client | none | met | home edit | met | unmet | met |
+| grok | terminal | `auto` | unmet | met | met | met | met |
 | grok | engine | `auto` | met | home edit | met | met | met |
-| grok | turn | `auto` | met | met | met | met | met |
-| grok | client | `auto` | met | met | met | met | met |
+| grok | turn | `auto` | unmet | met | met | met | met |
+| grok | client | `auto` | unmet | met | met | met | met |
 | opencode | terminal | `auto` | met | met | met | met | met |
 | opencode | engine | none | met | met | met | met | met |
 | opencode | turn | `auto` | met | met | met | met | met |
@@ -155,6 +160,11 @@ What `{"mode":"autonomous"}` comes to for a current install, from each adapter's
 
 Unmet, and why:
 
+- codex, terminal, `quiet-start`: Codex of unknown version is not measured to take trust for Podium's hooks per launch (from 0.147.0), so it may ask to review them at startup
+- codex, client, `quiet-start`: Codex of unknown version is not measured to take trust for Podium's hooks per launch (from 0.147.0), so it may ask to review them at startup
+- grok, terminal, `workspace-trust`: Grok of unknown version is not known to take --trust (from 1.0.5), so it may ask whether to trust the folder
+- grok, turn, `workspace-trust`: Grok of unknown version is not known to take --trust (from 1.0.5), so it may ask whether to trust the folder
+- grok, client, `workspace-trust`: Grok of unknown version is not known to take --trust (from 1.0.5), so it may ask whether to trust the folder
 - cursor, terminal, `workspace-trust`: Cursor keeps interactive folder trust in private state that Podium does not write
 - cursor, terminal, `podium-cli`: Cursor takes allow rules only from a settings file shared with every Cursor session, which Podium does not edit
 - cursor, terminal, `autonomy`: unmeasured: Cursor's mode flags were not run in its terminal UI (no signed-in Cursor account was available to the spike), so it starts in the mode its own settings choose

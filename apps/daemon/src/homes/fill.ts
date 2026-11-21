@@ -4,8 +4,9 @@
  * request.
  *
  * Copied: instructions, skills, agents, commands, plugins and MCP servers
- * (Claude Code's `mcpServers` into the home's `.claude.json`, the
- * `[mcp_servers.*]` tables of Codex and Grok into the home's `config.toml`). Never copied:
+ * (Claude Code's `mcpServers` into the home's `.claude.json`, Pi's into the
+ * home's `mcp.json`, the `[mcp_servers.*]` tables of Codex and Grok into the
+ * home's `config.toml`). Never copied:
  * permissions, folder trust, hooks, update settings, logins, conversations.
  * Posture supplies what a launch needs.
  *
@@ -33,14 +34,19 @@ import {
   symlinkSync,
   writeFileSync,
 } from 'node:fs'
-import { dirname, join, relative, resolve, sep } from 'node:path'
-import { claudePodiumHomeFill, codexPodiumHomeFill, grokPodiumHomeFill } from '@podium/harness'
+import { basename, dirname, join, relative, resolve, sep } from 'node:path'
+import {
+  claudePodiumHomeFill,
+  codexPodiumHomeFill,
+  grokPodiumHomeFill,
+  piPodiumHomeFill,
+} from '@podium/harness'
 import type { HomeHarness } from '@podium/protocol'
 import { planTomlTablesReplace, tomlTablesUnder } from '../harness-home-toml'
 
 /** The person's side of one harness, read only. */
 export interface PersonFolder {
-  /** The harness's own directory: `~/.claude` (or `CLAUDE_CONFIG_DIR`), `~/.codex`, `~/.grok`. */
+  /** The harness's own directory: `~/.claude` (or `CLAUDE_CONFIG_DIR`), `~/.codex`, `~/.grok`, `~/.pi/agent`. */
   dir: string
   /** Claude Code's state file (`~/.claude.json`), where its MCP servers are. */
   claudeState?: string
@@ -87,8 +93,15 @@ export function fillPodiumHome(
     fillOne(report, 'settings.json', () => fillClaudeSettings(person.dir, homeDir))
     if (person.claudeState) {
       const personState = person.claudeState
-      fillOne(report, '.claude.json mcpServers', () => fillClaudeServers(personState, homeDir))
+      fillOne(report, '.claude.json mcpServers', () =>
+        fillJsonServers(personState, join(homeDir, '.claude.json')),
+      )
     }
+  } else if (harness === 'pi') {
+    const file = piPodiumHomeFill[1].serversFile
+    fillOne(report, `${file} mcpServers`, () =>
+      fillJsonServers(join(person.dir, file), join(homeDir, file)),
+    )
   } else {
     const tables = CONFIG_TABLES[harness]
     fillOne(report, 'config.toml mcp_servers', () => fillTomlServers(person.dir, homeDir, tables))
@@ -132,17 +145,21 @@ function fillClaudeSettings(personDir: string, homeDir: string): Outcome {
   })
 }
 
-/** The person's user-scope MCP servers into the home's `.claude.json`. */
-function fillClaudeServers(personState: string, homeDir: string): Outcome {
-  const person = readJsonObject(personState)
+/**
+ * The person's MCP servers (`mcpServers`) merged into the same key of a JSON
+ * file of the home's: Claude Code's user-scope servers in `.claude.json`,
+ * Pi's in `mcp.json`. Every other key of the home's file stays.
+ */
+function fillJsonServers(personPath: string, path: string): Outcome {
+  const name = basename(path)
+  const person = readJsonObject(personPath)
   if (person === 'absent') return undefined
-  if (person === 'unreadable') return { reason: 'the person’s .claude.json is not a JSON object' }
+  if (person === 'unreadable') return { reason: `the person’s ${name} is not a JSON object` }
   const servers = asObject(person.mcpServers)
   if (!servers || Object.keys(servers).length === 0) return undefined
-  const path = join(homeDir, '.claude.json')
   const home = readJsonObject(path)
-  // Claude mid-write, or a hand edit: rewriting it could drop the home's state.
-  if (home === 'unreadable') return { reason: 'the home’s .claude.json is not a JSON object' }
+  // The harness mid-write, or a hand edit: rewriting it could drop the home's state.
+  if (home === 'unreadable') return { reason: `the home’s ${name} is not a JSON object` }
   const current = home === 'absent' ? {} : home
   return writeJsonIfChanged(path, home === 'absent' ? undefined : home, {
     ...current,
@@ -171,13 +188,14 @@ const FILL_ENTRIES = {
   [claudePodiumHomeFill[0]]: claudePodiumHomeFill[1].entries,
   [codexPodiumHomeFill[0]]: codexPodiumHomeFill[1].entries,
   [grokPodiumHomeFill[0]]: grokPodiumHomeFill[1].entries,
+  [piPodiumHomeFill[0]]: piPodiumHomeFill[1].entries,
 } satisfies Readonly<Record<HomeHarness, readonly string[]>>
 
 /** The `config.toml` table each TOML harness's MCP servers sit under. */
 const CONFIG_TABLES = {
   [codexPodiumHomeFill[0]]: codexPodiumHomeFill[1].configTables,
   [grokPodiumHomeFill[0]]: grokPodiumHomeFill[1].configTables,
-} satisfies Readonly<Record<Exclude<HomeHarness, 'claude-code'>, readonly string[]>>
+} satisfies Readonly<Record<Exclude<HomeHarness, 'claude-code' | 'pi'>, readonly string[]>>
 
 /**
  * Copies one entry (a file or a folder) into the home, writing only what

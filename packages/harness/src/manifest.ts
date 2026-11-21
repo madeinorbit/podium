@@ -1826,15 +1826,25 @@ export interface HarnessHandoffTranscript {
     homeDir: string
     resumeValue: string
   }): Promise<{ path: string; relativeDir?: string }>
+}
+
+/**
+ * A HARNESS'S CONVERSATION AS A FILE IN ONE OF ITS HOMES (credential
+ * management §9 "Switching", §10 "Homes"; managed installs §4.6 item 4). The
+ * daemon reads it to put a conversation where a resume in another home of the
+ * same machine finds it. Separate from cross-machine handoff
+ * ({@link HarnessHandoffTranscript}): a harness can move a conversation
+ * between its homes without being packaged for another machine.
+ */
+export interface HarnessConversationFile {
   /**
    * WHERE THE CONVERSATION IS IN ONE CONFIGURATION DIRECTORY (credential
    * management §9 "Switching", §10 "Homes"; epic Task 11). `stateDir` is the
    * harness's state root for a home (`roots(home, { VAR: dir }).state`). The
    * answer is a file inside `stateDir`, or undefined: never a path elsewhere
-   * that an index there points at. Absent: a switch cannot move this harness's
-   * conversation between homes.
+   * that an index there points at.
    */
-  locateInHome?(input: {
+  locateInHome(input: {
     stateDir: string
     cwd: string
     resumeValue: string
@@ -2010,6 +2020,10 @@ export interface AgentManifest {
   /** Transcript relocation for cross-machine handoff. Unsupported means this
    * harness cannot be packaged even if it otherwise has readable history. */
   handoffTranscript: Declared<HarnessHandoffTranscript>
+  /** Where a conversation is in one of this harness's homes, for a switch or
+   *  a wake in another home on the same machine. Unsupported ⇒ a switch that
+   *  changes the home hands off instead (`homes/conversation.ts`). */
+  conversationFile: Declared<HarnessConversationFile>
 
   /** Transcript reads. Unsupported ⇒ this harness's conversations cannot be read
    *  back (no chat switcher, no BTW); the session still runs. POD-398 folds the

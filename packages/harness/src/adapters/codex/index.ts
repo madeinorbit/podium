@@ -843,8 +843,8 @@ export const codexManifest: AgentManifest = {
       if (rel.startsWith('..')) throw new Error('Codex transcript is outside the sessions root')
       return { path: found.path, ...(rel ? { relativeDir: rel } : {}) }
     },
-    ...codexConversationFile,
   }),
+  conversationFile: supported(codexConversationFile),
 
   transcript: codexTranscript,
 

@@ -410,8 +410,8 @@ export const claudeCodeManifest: AgentManifest = {
       if (!path) throw new Error('Claude transcript not found')
       return { path }
     },
-    ...claudeConversationFile,
   }),
+  conversationFile: supported(claudeConversationFile),
 
   // Claude Code's own domains: only the OAuth authorize path is a login; every
   // other claude.ai/console.anthropic.com URL the CLI opens (artifacts, docs,

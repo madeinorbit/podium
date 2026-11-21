@@ -569,6 +569,7 @@ export const grokManifest: AgentManifest = {
   composer: unsupported('grok has no composer scrape rules yet'),
 
   handoffTranscript: unsupported('cross-machine handoff is not supported for grok sessions'),
+  conversationFile: unsupported('grok declares no conversation file to move between its homes'),
 
   classifyBrowserOpen: unsupported(
     'no catalogued grok login/link domains yet — the daemon generic redirect_uri heuristic decides (POD-738)',
