@@ -294,7 +294,11 @@ async function spawnAndDumpEnv(
   const pid = terminal.pid
 
   try {
-    await waitFor(() => h.output().length > 0) // shell is up and talking
+    // The shell is up and talking.
+    await waitFor(() => h.output().length > 0).catch((error) => {
+      const sent = h.sent.map((m) => m.type).join(',')
+      throw new Error(`${error}: no output from pid ${pid}; the daemon sent ${sent}`)
+    })
     // By absolute path: the launch seam's harness context carries no command
     // environment, so the stand-in shell may have no PATH of its own.
     terminal.writeBase64(Buffer.from('/usr/bin/env\n', 'utf8').toString('base64'))
