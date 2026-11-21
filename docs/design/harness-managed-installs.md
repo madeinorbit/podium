@@ -814,6 +814,31 @@ POD-7267 report has the exact fetch commands, hashes and launch results.
 | **Pi** | `pi.dev/api/installer/releases/latest` → 1.6.0, also present in [GitHub Releases](https://github.com/earendil-works/pi/releases/tag/v1.6.0) | `pi-linux-x64.tar.gz` contains `pi/pi` and its assets. GitHub publishes `SHA256SUMS` and per-asset digests. The installer API separately publishes npm package integrity. | Direct download of the complete standalone bundle. `PI_CODING_AGENT_DIR` moves `auth.json`, settings, model state and sessions. The managed install's version and identity probes create empty `auth.json` and `models-store.json` under the default `~/.pi/agent` when absent (POD-7278); they run in a throwaway home. Pi's Podium home uses the variable (4.7). |
 | **Cursor** | `DashboardService/GetCliDownloadUrl` at `api2.cursor.sh`, with `channel=prod`, returned 2026.11.19-f005e9d and its download prefix. | `linux/x64/agent-cli-package.tar.gz` strips one `dist-package/` directory. Keep the launcher, Node and its assets together. The adjacent `agent-cli-package.tar.gz.sha256` matched the archive. | No single variable found. `CURSOR_CONFIG_DIR` moved config, `CURSOR_DATA_DIR` directed project storage, and Linux file auth uses XDG config. Agent CLI state still used `~/.cursor` with both dedicated variables. See 4.7. |
 
+**Model lists (POD-7390).** The first model catalog read after Podium starts
+comes from a client opening the app. It makes the daemon run each harness's
+model listing in the person's own folders, on the parent → daemon process
+chain. A start with no client changes nothing. On the lab box, Grok 1.0.92's
+`grok models` appended to `logs/unified.jsonl` and opened
+`sessions/session_search.sqlite` under `~/.grok`. OpenCode 1.19.6's
+`opencode models` booted an instance that wrote its log, `opencode.db` and two
+project lock files. Both listings now run contained, and on the box their
+output was byte-identical to the uncontained listing:
+
+- **Grok** lists with `GROK_HOME` in a temporary folder, `GROK_AUTH_PATH` on
+  the person's `auth.json`, and copies of `config.toml`, the fleet and admin
+  files, `agent_id` and the experiment records. A token Grok refreshes is
+  saved to the person's login. `GROK_CONFIG_PATH` takes allowlisted keys only,
+  so it does not replace the copy.
+- **OpenCode** lists with its data, state and cache folders and its working
+  folder in a temporary folder. The person's `auth.json` is linked in, their
+  models.dev cache is read through `OPENCODE_MODELS_PATH` and `OPENCODE_DB` is
+  set. The config folder stays the person's. `OPENCODE_PRINT_LOGS` does not
+  stop the log file.
+- **Codex, Pi and Cursor** still list in place. Codex rewrote its `arg0` helper
+  folder there (POD-7391).
+
+A Podium home is listed in place.
+
 The POD-7274 terminal check of Claude Code 2.1.311 found writes the bounded
 turn in 6.3 did not: the two empty directories in the Claude Code row, and
 an OS URL-handler registration unless the
