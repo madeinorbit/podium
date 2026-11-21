@@ -112,6 +112,8 @@ interface Harness {
   settled(quietMs?: number): Promise<void>
   /** Ends a podium-host session by its label (the real-host harness only). */
   hostKill?(label: string): Promise<void>
+  /** Whether a podium-host session holds the label (the real-host harness only). */
+  hostHas?(label: string): Promise<boolean>
 }
 
 function makeHarness(
@@ -194,7 +196,12 @@ function makeHarness(
   return {
     ctx,
     sent,
-    ...(host ? { hostKill: (label: string) => host.kill(label) } : {}),
+    ...(host
+      ? {
+          hostKill: (label: string) => host.kill(label),
+          hostHas: (label: string) => host.has(label),
+        }
+      : {}),
     output: () => buffer,
     async settled(quietMs = 250) {
       while (Date.now() - lastFrameAt < quietMs) await new Promise((r) => setTimeout(r, 25))
@@ -334,10 +341,10 @@ async function spawnAndDumpEnv(
       const label = `podium-blue-${sessionId}`
       await h.hostKill(label)
       const until = Date.now() + 5_000
-      while ((await h.ctx.durable.has(label)) && Date.now() < until) {
+      while ((await h.hostHas?.(label)) && Date.now() < until) {
         await new Promise((r) => setTimeout(r, 50))
       }
-      expect(await h.ctx.durable.has(label), `leaked podium-host session ${label}`).toBe(false)
+      expect(await h.hostHas?.(label), `leaked podium-host session ${label}`).toBe(false)
     } else {
       await waitFor(() => !alive(pid), 5_000)
       expect(alive(pid), `leaked PTY child pid ${pid}`).toBe(false)
