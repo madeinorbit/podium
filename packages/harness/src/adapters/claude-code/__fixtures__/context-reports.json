@@ -1,0 +1,1521 @@
+{
+  "provenance": {
+    "issue": "POD-6572",
+    "captured": "2026-11-21",
+    "note": "Captured fake-provider reports. Presentation-only gridRows omitted; scratch paths replaced by generic <HOME>/<PROJECT>. No token values synthesized. Full can silently fall back to estimates.",
+    "wireSha256": {
+      "engine-2.1.319": "e7772bd9e891f1a6826cdf418ab6e8e63c5d3e4eaa5fe8e5040706f21b7dd1f2",
+      "engine-2.1.330": "4a050556cc4dcfb6ea8a918cd4b83691dce34b927f0960485131d832b82c3f95",
+      "engine-deferred-configured-2.1.319": "f4466077bd5130b76b8fce6d2be68c7beefe05236a8cdea3a5b82dd3cb9b8f24",
+      "engine-no-count-confirmed-2.1.319": "62eb038e67e23a52e0f2e73b6b0ba6bbf98e282a64055093ec23c9a59b020fff"
+    },
+    "storeSha256": "b512a5f6f5992678c1d7441a3ae79e8c0f263f42bf97f419d879ed8b09d2c5d5"
+  },
+  "control": {
+    "engine-2.1.319/fresh-summary": {
+      "categories": [
+        {
+          "id": "system_prompt",
+          "name": "System prompt",
+          "tokens": 17,
+          "color": "promptBorder",
+          "kind": "used"
+        },
+        {
+          "id": "autocompact_buffer",
+          "name": "Autocompact buffer",
+          "tokens": 33000,
+          "color": "inactive",
+          "kind": "buffer"
+        },
+        {
+          "id": "free_space",
+          "name": "Free space",
+          "tokens": 966983,
+          "color": "promptBorder",
+          "kind": "free"
+        }
+      ],
+      "totalTokens": 17,
+      "maxTokens": 1000000,
+      "rawMaxTokens": 1000000,
+      "autocompactSource": "model-default",
+      "percentage": 0,
+      "model": "claude-sonnet-5-5",
+      "memoryFiles": [],
+      "mcpTools": [],
+      "mcpInstructions": [],
+      "agents": [],
+      "autoCompactThreshold": 967000,
+      "isAutoCompactEnabled": true,
+      "messageBreakdown": {
+        "toolCallTokens": 0,
+        "toolResultTokens": 0,
+        "attachmentTokens": 0,
+        "assistantMessageTokens": 0,
+        "userMessageTokens": 0,
+        "redirectedContextTokens": 0,
+        "unattributedTokens": 0,
+        "toolCallsByType": [],
+        "attachmentsByType": []
+      },
+      "apiUsage": null
+    },
+    "engine-2.1.319/after-1-summary": {
+      "categories": [
+        {
+          "id": "system_prompt",
+          "name": "System prompt",
+          "tokens": 17,
+          "color": "promptBorder",
+          "kind": "used"
+        },
+        {
+          "id": "messages",
+          "name": "Messages",
+          "tokens": 20983,
+          "color": "purple_FOR_SUBAGENTS_ONLY",
+          "kind": "used"
+        },
+        {
+          "id": "autocompact_buffer",
+          "name": "Autocompact buffer",
+          "tokens": 33000,
+          "color": "inactive",
+          "kind": "buffer"
+        },
+        {
+          "id": "free_space",
+          "name": "Free space",
+          "tokens": 946000,
+          "color": "promptBorder",
+          "kind": "free"
+        }
+      ],
+      "totalTokens": 21000,
+      "maxTokens": 1000000,
+      "rawMaxTokens": 1000000,
+      "autocompactSource": "model-default",
+      "percentage": 2,
+      "model": "claude-sonnet-5-5",
+      "memoryFiles": [],
+      "mcpTools": [],
+      "mcpInstructions": [],
+      "agents": [],
+      "autoCompactThreshold": 967000,
+      "isAutoCompactEnabled": true,
+      "messageBreakdown": {
+        "toolCallTokens": 0,
+        "toolResultTokens": 0,
+        "attachmentTokens": 280,
+        "assistantMessageTokens": 11,
+        "userMessageTokens": 5,
+        "redirectedContextTokens": 0,
+        "unattributedTokens": 20687,
+        "toolCallsByType": [],
+        "attachmentsByType": [
+          {
+            "name": "prompt_snapshot",
+            "tokens": 131
+          },
+          {
+            "name": "environment",
+            "tokens": 66
+          },
+          {
+            "name": "model",
+            "tokens": 64
+          },
+          {
+            "name": "session_context",
+            "tokens": 10
+          },
+          {
+            "name": "date",
+            "tokens": 9
+          }
+        ]
+      },
+      "apiUsage": {
+        "input_tokens": 11000,
+        "output_tokens": 5000,
+        "cache_creation_input_tokens": 3000,
+        "cache_read_input_tokens": 7000
+      }
+    },
+    "engine-2.1.319/after-1-full": {
+      "categories": [
+        {
+          "id": "system_prompt",
+          "name": "System prompt",
+          "tokens": 35,
+          "color": "promptBorder",
+          "kind": "used"
+        },
+        {
+          "id": "messages",
+          "name": "Messages",
+          "tokens": 20965,
+          "color": "purple_FOR_SUBAGENTS_ONLY",
+          "kind": "used"
+        },
+        {
+          "id": "autocompact_buffer",
+          "name": "Autocompact buffer",
+          "tokens": 33000,
+          "color": "inactive",
+          "kind": "buffer"
+        },
+        {
+          "id": "free_space",
+          "name": "Free space",
+          "tokens": 946000,
+          "color": "promptBorder",
+          "kind": "free"
+        }
+      ],
+      "totalTokens": 21000,
+      "maxTokens": 1000000,
+      "rawMaxTokens": 1000000,
+      "autocompactSource": "model-default",
+      "percentage": 2,
+      "model": "claude-sonnet-5-5",
+      "memoryFiles": [],
+      "mcpTools": [],
+      "mcpInstructions": [],
+      "agents": [],
+      "autoCompactThreshold": 967000,
+      "isAutoCompactEnabled": true,
+      "messageBreakdown": {
+        "toolCallTokens": 0,
+        "toolResultTokens": 0,
+        "attachmentTokens": 280,
+        "assistantMessageTokens": 11,
+        "userMessageTokens": 5,
+        "redirectedContextTokens": 0,
+        "unattributedTokens": 20669,
+        "toolCallsByType": [],
+        "attachmentsByType": [
+          {
+            "name": "prompt_snapshot",
+            "tokens": 131
+          },
+          {
+            "name": "environment",
+            "tokens": 66
+          },
+          {
+            "name": "model",
+            "tokens": 64
+          },
+          {
+            "name": "session_context",
+            "tokens": 10
+          },
+          {
+            "name": "date",
+            "tokens": 9
+          }
+        ]
+      },
+      "apiUsage": {
+        "input_tokens": 11000,
+        "output_tokens": 5000,
+        "cache_creation_input_tokens": 3000,
+        "cache_read_input_tokens": 7000
+      }
+    },
+    "engine-2.1.319/after-2-summary": {
+      "categories": [
+        {
+          "id": "system_prompt",
+          "name": "System prompt",
+          "tokens": 17,
+          "color": "promptBorder",
+          "kind": "used"
+        },
+        {
+          "id": "messages",
+          "name": "Messages",
+          "tokens": 23983,
+          "color": "purple_FOR_SUBAGENTS_ONLY",
+          "kind": "used"
+        },
+        {
+          "id": "autocompact_buffer",
+          "name": "Autocompact buffer",
+          "tokens": 33000,
+          "color": "inactive",
+          "kind": "buffer"
+        },
+        {
+          "id": "free_space",
+          "name": "Free space",
+          "tokens": 943000,
+          "color": "promptBorder",
+          "kind": "free"
+        }
+      ],
+      "totalTokens": 24000,
+      "maxTokens": 1000000,
+      "rawMaxTokens": 1000000,
+      "autocompactSource": "model-default",
+      "percentage": 2,
+      "model": "claude-sonnet-5-5",
+      "memoryFiles": [],
+      "mcpTools": [],
+      "mcpInstructions": [],
+      "agents": [],
+      "autoCompactThreshold": 967000,
+      "isAutoCompactEnabled": true,
+      "messageBreakdown": {
+        "toolCallTokens": 0,
+        "toolResultTokens": 0,
+        "attachmentTokens": 280,
+        "assistantMessageTokens": 22,
+        "userMessageTokens": 10,
+        "redirectedContextTokens": 0,
+        "unattributedTokens": 23671,
+        "toolCallsByType": [],
+        "attachmentsByType": [
+          {
+            "name": "prompt_snapshot",
+            "tokens": 131
+          },
+          {
+            "name": "environment",
+            "tokens": 66
+          },
+          {
+            "name": "model",
+            "tokens": 64
+          },
+          {
+            "name": "session_context",
+            "tokens": 10
+          },
+          {
+            "name": "date",
+            "tokens": 9
+          }
+        ]
+      },
+      "apiUsage": {
+        "input_tokens": 12000,
+        "output_tokens": 6000,
+        "cache_creation_input_tokens": 4000,
+        "cache_read_input_tokens": 8000
+      }
+    },
+    "engine-2.1.319/after-model-summary": {
+      "categories": [
+        {
+          "id": "system_prompt",
+          "name": "System prompt",
+          "tokens": 13,
+          "color": "promptBorder",
+          "kind": "used"
+        },
+        {
+          "id": "messages",
+          "name": "Messages",
+          "tokens": 24098,
+          "color": "purple_FOR_SUBAGENTS_ONLY",
+          "kind": "used"
+        },
+        {
+          "id": "autocompact_buffer",
+          "name": "Autocompact buffer",
+          "tokens": 33000,
+          "color": "inactive",
+          "kind": "buffer"
+        },
+        {
+          "id": "free_space",
+          "name": "Free space",
+          "tokens": 142889,
+          "color": "promptBorder",
+          "kind": "free"
+        }
+      ],
+      "totalTokens": 24111,
+      "maxTokens": 200000,
+      "rawMaxTokens": 200000,
+      "autocompactSource": "model-default",
+      "percentage": 12,
+      "model": "claude-opus-4-6",
+      "memoryFiles": [],
+      "mcpTools": [],
+      "mcpInstructions": [],
+      "agents": [],
+      "autoCompactThreshold": 167000,
+      "isAutoCompactEnabled": true,
+      "messageBreakdown": {
+        "toolCallTokens": 0,
+        "toolResultTokens": 0,
+        "attachmentTokens": 280,
+        "assistantMessageTokens": 22,
+        "userMessageTokens": 119,
+        "redirectedContextTokens": 0,
+        "unattributedTokens": 23677,
+        "toolCallsByType": [],
+        "attachmentsByType": [
+          {
+            "name": "prompt_snapshot",
+            "tokens": 131
+          },
+          {
+            "name": "environment",
+            "tokens": 66
+          },
+          {
+            "name": "model",
+            "tokens": 64
+          },
+          {
+            "name": "session_context",
+            "tokens": 10
+          },
+          {
+            "name": "date",
+            "tokens": 9
+          }
+        ]
+      },
+      "apiUsage": {
+        "input_tokens": 12000,
+        "output_tokens": 6000,
+        "cache_creation_input_tokens": 4000,
+        "cache_read_input_tokens": 8000
+      }
+    },
+    "engine-2.1.319/after-compact-summary": {
+      "categories": [
+        {
+          "id": "system_prompt",
+          "name": "System prompt",
+          "tokens": 13,
+          "color": "promptBorder",
+          "kind": "used"
+        },
+        {
+          "id": "messages",
+          "name": "Messages",
+          "tokens": 634,
+          "color": "purple_FOR_SUBAGENTS_ONLY",
+          "kind": "used"
+        },
+        {
+          "id": "autocompact_buffer",
+          "name": "Autocompact buffer",
+          "tokens": 33000,
+          "color": "inactive",
+          "kind": "buffer"
+        },
+        {
+          "id": "free_space",
+          "name": "Free space",
+          "tokens": 166353,
+          "color": "promptBorder",
+          "kind": "free"
+        }
+      ],
+      "totalTokens": 647,
+      "maxTokens": 200000,
+      "rawMaxTokens": 200000,
+      "autocompactSource": "model-default",
+      "percentage": 0,
+      "model": "claude-opus-4-6",
+      "memoryFiles": [],
+      "mcpTools": [],
+      "mcpInstructions": [],
+      "agents": [],
+      "autoCompactThreshold": 167000,
+      "isAutoCompactEnabled": true,
+      "messageBreakdown": {
+        "toolCallTokens": 0,
+        "toolResultTokens": 0,
+        "attachmentTokens": 128,
+        "assistantMessageTokens": 11,
+        "userMessageTokens": 394,
+        "redirectedContextTokens": 0,
+        "unattributedTokens": 101,
+        "toolCallsByType": [],
+        "attachmentsByType": [
+          {
+            "name": "environment",
+            "tokens": 66
+          },
+          {
+            "name": "model",
+            "tokens": 62
+          }
+        ]
+      },
+      "apiUsage": null
+    },
+    "engine-2.1.330/after-2-summary": {
+      "categories": [
+        {
+          "id": "system_prompt",
+          "name": "System prompt",
+          "tokens": 17,
+          "color": "promptBorder",
+          "kind": "used"
+        },
+        {
+          "id": "messages",
+          "name": "Messages",
+          "tokens": 23983,
+          "color": "purple_FOR_SUBAGENTS_ONLY",
+          "kind": "used"
+        },
+        {
+          "id": "autocompact_buffer",
+          "name": "Autocompact buffer",
+          "tokens": 33000,
+          "color": "inactive",
+          "kind": "buffer"
+        },
+        {
+          "id": "free_space",
+          "name": "Free space",
+          "tokens": 943000,
+          "color": "promptBorder",
+          "kind": "free"
+        }
+      ],
+      "totalTokens": 24000,
+      "maxTokens": 1000000,
+      "rawMaxTokens": 1000000,
+      "autocompactSource": "model-default",
+      "percentage": 2,
+      "model": "claude-sonnet-5-5",
+      "memoryFiles": [],
+      "mcpTools": [],
+      "mcpInstructions": [],
+      "agents": [],
+      "autoCompactThreshold": 967000,
+      "isAutoCompactEnabled": true,
+      "messageBreakdown": {
+        "toolCallTokens": 0,
+        "toolResultTokens": 0,
+        "attachmentTokens": 280,
+        "assistantMessageTokens": 22,
+        "userMessageTokens": 10,
+        "redirectedContextTokens": 0,
+        "unattributedTokens": 23671,
+        "toolCallsByType": [],
+        "attachmentsByType": [
+          {
+            "name": "prompt_snapshot",
+            "tokens": 131
+          },
+          {
+            "name": "environment",
+            "tokens": 66
+          },
+          {
+            "name": "model",
+            "tokens": 64
+          },
+          {
+            "name": "session_context",
+            "tokens": 10
+          },
+          {
+            "name": "date",
+            "tokens": 9
+          }
+        ]
+      },
+      "apiUsage": {
+        "input_tokens": 12000,
+        "output_tokens": 6000,
+        "cache_creation_input_tokens": 4000,
+        "cache_read_input_tokens": 8000
+      }
+    },
+    "engine-deferred-configured-2.1.319/after-1-summary": {
+      "categories": [
+        {
+          "id": "system_prompt",
+          "name": "System prompt",
+          "tokens": 1869,
+          "color": "promptBorder",
+          "kind": "used"
+        },
+        {
+          "id": "system_tools",
+          "name": "System tools",
+          "tokens": 1030,
+          "color": "inactive",
+          "kind": "used"
+        },
+        {
+          "id": "mcp_instructions",
+          "name": "MCP server instructions",
+          "tokens": 20,
+          "color": "green_FOR_SUBAGENTS_ONLY",
+          "kind": "used"
+        },
+        {
+          "id": "mcp_tools_deferred",
+          "name": "MCP tools (deferred)",
+          "tokens": 163,
+          "color": "inactive",
+          "isDeferred": true,
+          "kind": "deferred"
+        },
+        {
+          "id": "custom_agents",
+          "name": "Custom agents",
+          "tokens": 23,
+          "color": "permission",
+          "kind": "used"
+        },
+        {
+          "id": "memory_files",
+          "name": "Memory files",
+          "tokens": 36,
+          "color": "claude",
+          "kind": "used"
+        },
+        {
+          "id": "skills",
+          "name": "Skills",
+          "tokens": 2053,
+          "color": "warning",
+          "kind": "used"
+        },
+        {
+          "id": "messages",
+          "name": "Messages",
+          "tokens": 15969,
+          "color": "purple_FOR_SUBAGENTS_ONLY",
+          "kind": "used"
+        },
+        {
+          "id": "autocompact_buffer",
+          "name": "Autocompact buffer",
+          "tokens": 33000,
+          "color": "inactive",
+          "kind": "buffer"
+        },
+        {
+          "id": "free_space",
+          "name": "Free space",
+          "tokens": 46000,
+          "color": "promptBorder",
+          "kind": "free"
+        }
+      ],
+      "totalTokens": 21000,
+      "maxTokens": 100000,
+      "rawMaxTokens": 100000,
+      "autocompactSource": "settings",
+      "percentage": 21,
+      "model": "claude-sonnet-5-5",
+      "memoryFiles": [
+        {
+          "path": "<HOME>/.claude/CLAUDE.md",
+          "type": "User",
+          "tokens": 17
+        },
+        {
+          "path": "<PROJECT>/CLAUDE.md",
+          "type": "Project",
+          "tokens": 19
+        }
+      ],
+      "mcpTools": [
+        {
+          "name": "mcp__fixture__fixture_describe",
+          "serverName": "fixture",
+          "tokens": 78,
+          "isLoaded": false
+        },
+        {
+          "name": "mcp__fixture__fixture_lookup",
+          "serverName": "fixture",
+          "tokens": 85,
+          "isLoaded": false
+        }
+      ],
+      "mcpInstructions": [
+        {
+          "serverName": "fixture",
+          "tokens": 20
+        }
+      ],
+      "agents": [
+        {
+          "agentType": "fixture-definition",
+          "source": "flagSettings",
+          "tokens": 23
+        }
+      ],
+      "slashCommands": {
+        "totalCommands": 14,
+        "includedCommands": 14,
+        "tokens": 1403
+      },
+      "skills": {
+        "totalSkills": 14,
+        "includedSkills": 14,
+        "tokens": 2053,
+        "skillFrontmatter": [
+          {
+            "name": "context-fixture",
+            "source": "projectSettings",
+            "path": "<PROJECT>/.claude/skills/context-fixture/SKILL.md",
+            "tokens": 21
+          },
+          {
+            "name": "dataviz",
+            "source": "built-in",
+            "tokens": 482
+          },
+          {
+            "name": "update-config",
+            "source": "built-in",
+            "tokens": 236
+          },
+          {
+            "name": "keybindings-help",
+            "source": "built-in",
+            "tokens": 83
+          },
+          {
+            "name": "code-review",
+            "source": "built-in",
+            "tokens": 280
+          },
+          {
+            "name": "simplify",
+            "source": "built-in",
+            "tokens": 63
+          },
+          {
+            "name": "fewer-permission-prompts",
+            "source": "built-in",
+            "tokens": 64
+          },
+          {
+            "name": "loop",
+            "source": "built-in",
+            "tokens": 115
+          },
+          {
+            "name": "claude-api",
+            "source": "built-in",
+            "tokens": 361
+          },
+          {
+            "name": "workflow-authoring",
+            "source": "built-in",
+            "tokens": 84
+          },
+          {
+            "name": "run",
+            "source": "built-in",
+            "tokens": 123
+          },
+          {
+            "name": "plugin-authoring",
+            "source": "built-in",
+            "tokens": 89
+          },
+          {
+            "name": "init",
+            "source": "built-in",
+            "tokens": 22
+          },
+          {
+            "name": "security-review",
+            "source": "built-in",
+            "tokens": 30
+          }
+        ]
+      },
+      "autoCompactThreshold": 67000,
+      "isAutoCompactEnabled": true,
+      "messageBreakdown": {
+        "toolCallTokens": 0,
+        "toolResultTokens": 0,
+        "attachmentTokens": 7144,
+        "assistantMessageTokens": 11,
+        "userMessageTokens": 5,
+        "redirectedContextTokens": 0,
+        "unattributedTokens": 8809,
+        "toolCallsByType": [],
+        "attachmentsByType": [
+          {
+            "name": "prompt_snapshot",
+            "tokens": 5065
+          },
+          {
+            "name": "skill_listing",
+            "tokens": 1705
+          },
+          {
+            "name": "instructions",
+            "tokens": 102
+          },
+          {
+            "name": "deferred_tools_delta",
+            "tokens": 79
+          },
+          {
+            "name": "environment",
+            "tokens": 71
+          },
+          {
+            "name": "model",
+            "tokens": 64
+          },
+          {
+            "name": "mcp_instructions_delta",
+            "tokens": 39
+          },
+          {
+            "name": "session_context",
+            "tokens": 10
+          },
+          {
+            "name": "date",
+            "tokens": 9
+          }
+        ]
+      },
+      "apiUsage": {
+        "input_tokens": 11000,
+        "output_tokens": 5000,
+        "cache_creation_input_tokens": 3000,
+        "cache_read_input_tokens": 7000
+      }
+    },
+    "engine-deferred-configured-2.1.319/after-1-full": {
+      "categories": [
+        {
+          "id": "system_prompt",
+          "name": "System prompt",
+          "tokens": 1601,
+          "color": "promptBorder",
+          "kind": "used"
+        },
+        {
+          "id": "mcp_instructions",
+          "name": "MCP server instructions",
+          "tokens": 38,
+          "color": "green_FOR_SUBAGENTS_ONLY",
+          "kind": "used"
+        },
+        {
+          "id": "custom_agents",
+          "name": "Custom agents",
+          "tokens": 40,
+          "color": "permission",
+          "kind": "used"
+        },
+        {
+          "id": "memory_files",
+          "name": "Memory files",
+          "tokens": 72,
+          "color": "claude",
+          "kind": "used"
+        },
+        {
+          "id": "skills",
+          "name": "Skills",
+          "tokens": 2053,
+          "color": "warning",
+          "kind": "used"
+        },
+        {
+          "id": "messages",
+          "name": "Messages",
+          "tokens": 17196,
+          "color": "purple_FOR_SUBAGENTS_ONLY",
+          "kind": "used"
+        },
+        {
+          "id": "autocompact_buffer",
+          "name": "Autocompact buffer",
+          "tokens": 33000,
+          "color": "inactive",
+          "kind": "buffer"
+        },
+        {
+          "id": "free_space",
+          "name": "Free space",
+          "tokens": 46000,
+          "color": "promptBorder",
+          "kind": "free"
+        }
+      ],
+      "totalTokens": 21000,
+      "maxTokens": 100000,
+      "rawMaxTokens": 100000,
+      "autocompactSource": "settings",
+      "percentage": 21,
+      "model": "claude-sonnet-5-5",
+      "memoryFiles": [
+        {
+          "path": "<HOME>/.claude/CLAUDE.md",
+          "type": "User",
+          "tokens": 35
+        },
+        {
+          "path": "<PROJECT>/CLAUDE.md",
+          "type": "Project",
+          "tokens": 37
+        }
+      ],
+      "mcpTools": [
+        {
+          "name": "mcp__fixture__fixture_describe",
+          "serverName": "fixture",
+          "tokens": 0,
+          "isLoaded": false
+        },
+        {
+          "name": "mcp__fixture__fixture_lookup",
+          "serverName": "fixture",
+          "tokens": 0,
+          "isLoaded": false
+        }
+      ],
+      "mcpInstructions": [
+        {
+          "serverName": "fixture",
+          "tokens": 38
+        }
+      ],
+      "agents": [
+        {
+          "agentType": "fixture-definition",
+          "source": "flagSettings",
+          "tokens": 40
+        }
+      ],
+      "slashCommands": {
+        "totalCommands": 14,
+        "includedCommands": 14,
+        "tokens": 484
+      },
+      "skills": {
+        "totalSkills": 14,
+        "includedSkills": 14,
+        "tokens": 2053,
+        "skillFrontmatter": [
+          {
+            "name": "context-fixture",
+            "source": "projectSettings",
+            "path": "<PROJECT>/.claude/skills/context-fixture/SKILL.md",
+            "tokens": 21
+          },
+          {
+            "name": "dataviz",
+            "source": "built-in",
+            "tokens": 482
+          },
+          {
+            "name": "update-config",
+            "source": "built-in",
+            "tokens": 236
+          },
+          {
+            "name": "keybindings-help",
+            "source": "built-in",
+            "tokens": 83
+          },
+          {
+            "name": "code-review",
+            "source": "built-in",
+            "tokens": 280
+          },
+          {
+            "name": "simplify",
+            "source": "built-in",
+            "tokens": 63
+          },
+          {
+            "name": "fewer-permission-prompts",
+            "source": "built-in",
+            "tokens": 64
+          },
+          {
+            "name": "loop",
+            "source": "built-in",
+            "tokens": 115
+          },
+          {
+            "name": "claude-api",
+            "source": "built-in",
+            "tokens": 361
+          },
+          {
+            "name": "workflow-authoring",
+            "source": "built-in",
+            "tokens": 84
+          },
+          {
+            "name": "run",
+            "source": "built-in",
+            "tokens": 123
+          },
+          {
+            "name": "plugin-authoring",
+            "source": "built-in",
+            "tokens": 89
+          },
+          {
+            "name": "init",
+            "source": "built-in",
+            "tokens": 22
+          },
+          {
+            "name": "security-review",
+            "source": "built-in",
+            "tokens": 30
+          }
+        ]
+      },
+      "autoCompactThreshold": 67000,
+      "isAutoCompactEnabled": true,
+      "messageBreakdown": {
+        "toolCallTokens": 0,
+        "toolResultTokens": 0,
+        "attachmentTokens": 7144,
+        "assistantMessageTokens": 11,
+        "userMessageTokens": 5,
+        "redirectedContextTokens": 0,
+        "unattributedTokens": 10036,
+        "toolCallsByType": [],
+        "attachmentsByType": [
+          {
+            "name": "prompt_snapshot",
+            "tokens": 5065
+          },
+          {
+            "name": "skill_listing",
+            "tokens": 1705
+          },
+          {
+            "name": "instructions",
+            "tokens": 102
+          },
+          {
+            "name": "deferred_tools_delta",
+            "tokens": 79
+          },
+          {
+            "name": "environment",
+            "tokens": 71
+          },
+          {
+            "name": "model",
+            "tokens": 64
+          },
+          {
+            "name": "mcp_instructions_delta",
+            "tokens": 39
+          },
+          {
+            "name": "session_context",
+            "tokens": 10
+          },
+          {
+            "name": "date",
+            "tokens": 9
+          }
+        ]
+      },
+      "apiUsage": {
+        "input_tokens": 11000,
+        "output_tokens": 5000,
+        "cache_creation_input_tokens": 3000,
+        "cache_read_input_tokens": 7000
+      }
+    },
+    "engine-no-count-confirmed-2.1.319/after-1-full": {
+      "categories": [
+        {
+          "id": "system_prompt",
+          "name": "System prompt",
+          "tokens": 17,
+          "color": "promptBorder",
+          "kind": "used"
+        },
+        {
+          "id": "messages",
+          "name": "Messages",
+          "tokens": 20983,
+          "color": "purple_FOR_SUBAGENTS_ONLY",
+          "kind": "used"
+        },
+        {
+          "id": "autocompact_buffer",
+          "name": "Autocompact buffer",
+          "tokens": 33000,
+          "color": "inactive",
+          "kind": "buffer"
+        },
+        {
+          "id": "free_space",
+          "name": "Free space",
+          "tokens": 946000,
+          "color": "promptBorder",
+          "kind": "free"
+        }
+      ],
+      "totalTokens": 21000,
+      "maxTokens": 1000000,
+      "rawMaxTokens": 1000000,
+      "autocompactSource": "model-default",
+      "percentage": 2,
+      "model": "claude-sonnet-5-5",
+      "memoryFiles": [],
+      "mcpTools": [],
+      "mcpInstructions": [],
+      "agents": [],
+      "autoCompactThreshold": 967000,
+      "isAutoCompactEnabled": true,
+      "messageBreakdown": {
+        "toolCallTokens": 0,
+        "toolResultTokens": 0,
+        "attachmentTokens": 284,
+        "assistantMessageTokens": 11,
+        "userMessageTokens": 5,
+        "redirectedContextTokens": 0,
+        "unattributedTokens": 20683,
+        "toolCallsByType": [],
+        "attachmentsByType": [
+          {
+            "name": "prompt_snapshot",
+            "tokens": 131
+          },
+          {
+            "name": "environment",
+            "tokens": 70
+          },
+          {
+            "name": "model",
+            "tokens": 64
+          },
+          {
+            "name": "session_context",
+            "tokens": 10
+          },
+          {
+            "name": "date",
+            "tokens": 9
+          }
+        ]
+      },
+      "apiUsage": {
+        "input_tokens": 11000,
+        "output_tokens": 5000,
+        "cache_creation_input_tokens": 3000,
+        "cache_read_input_tokens": 7000
+      }
+    }
+  },
+  "terminal": {
+    "fresh": {
+      "session_id": "4504c9a5-16c2-45fc-84da-91158e3e9443",
+      "transcript_path": "<HOME>/.claude/projects/-tmp-pod6572-final-reproduction-terminal-2-1-319-scratch-project/4504c9a5-16c2-45fc-84da-91158e3e9443.jsonl",
+      "cwd": "<PROJECT>",
+      "effort": {
+        "level": "high"
+      },
+      "model": {
+        "id": "claude-opus-4-6",
+        "display_name": "Opus 4.6"
+      },
+      "workspace": {
+        "current_dir": "<PROJECT>",
+        "project_dir": "<PROJECT>",
+        "added_dirs": []
+      },
+      "version": "2.1.319",
+      "output_style": {
+        "name": "default"
+      },
+      "cost": {
+        "total_cost_usd": 0,
+        "total_duration_ms": 831,
+        "total_api_duration_ms": 0,
+        "total_lines_added": 0,
+        "total_lines_removed": 0
+      },
+      "context_window": {
+        "total_input_tokens": 0,
+        "total_output_tokens": 0,
+        "context_window_size": 200000,
+        "current_usage": null,
+        "used_percentage": null,
+        "remaining_percentage": null
+      },
+      "exceeds_200k_tokens": false,
+      "fast_mode": false,
+      "thinking": {
+        "enabled": true
+      }
+    },
+    "after-1": {
+      "session_id": "4504c9a5-16c2-45fc-84da-91158e3e9443",
+      "transcript_path": "<HOME>/.claude/projects/-tmp-pod6572-final-reproduction-terminal-2-1-319-scratch-project/4504c9a5-16c2-45fc-84da-91158e3e9443.jsonl",
+      "cwd": "<PROJECT>",
+      "prompt_id": "1677dec5-fc44-4522-ac87-1550d87d1c8b",
+      "effort": {
+        "level": "high"
+      },
+      "model": {
+        "id": "claude-opus-4-6",
+        "display_name": "Opus 4.6"
+      },
+      "workspace": {
+        "current_dir": "<PROJECT>",
+        "project_dir": "<PROJECT>",
+        "added_dirs": []
+      },
+      "version": "2.1.319",
+      "output_style": {
+        "name": "default"
+      },
+      "cost": {
+        "total_cost_usd": 0.20224999999999999,
+        "total_duration_ms": 1867,
+        "total_api_duration_ms": 35,
+        "total_lines_added": 0,
+        "total_lines_removed": 0
+      },
+      "context_window": {
+        "total_input_tokens": 21000,
+        "total_output_tokens": 5000,
+        "context_window_size": 200000,
+        "current_usage": {
+          "input_tokens": 11000,
+          "output_tokens": 5000,
+          "cache_creation_input_tokens": 3000,
+          "cache_read_input_tokens": 7000
+        },
+        "used_percentage": 11,
+        "remaining_percentage": 89
+      },
+      "exceeds_200k_tokens": false,
+      "prompt_cache": {
+        "warm": true,
+        "caching_observed": true,
+        "ttl": "5m",
+        "expires_at": 1795297087,
+        "requests": 1,
+        "misses": 0,
+        "expected_rebuilds": 0,
+        "hit_ratio": 0.3333333333333333,
+        "cache_write_tokens": 3000,
+        "miss_recache_tokens": 0,
+        "last_miss_at": null,
+        "last_miss_cause": null,
+        "miss_causes": {},
+        "recache_tokens_if_cold": 21000
+      },
+      "fast_mode": false,
+      "thinking": {
+        "enabled": true
+      }
+    },
+    "after-2": {
+      "session_id": "4504c9a5-16c2-45fc-84da-91158e3e9443",
+      "transcript_path": "<HOME>/.claude/projects/-tmp-pod6572-final-reproduction-terminal-2-1-319-scratch-project/4504c9a5-16c2-45fc-84da-91158e3e9443.jsonl",
+      "cwd": "<PROJECT>",
+      "prompt_id": "a45d585c-9b6f-44f0-a7fb-65b15a5e7ff0",
+      "effort": {
+        "level": "high"
+      },
+      "model": {
+        "id": "claude-opus-4-6",
+        "display_name": "Opus 4.6"
+      },
+      "workspace": {
+        "current_dir": "<PROJECT>",
+        "project_dir": "<PROJECT>",
+        "added_dirs": []
+      },
+      "version": "2.1.319",
+      "output_style": {
+        "name": "default"
+      },
+      "cost": {
+        "total_cost_usd": 0.44125,
+        "total_duration_ms": 2651,
+        "total_api_duration_ms": 85,
+        "total_lines_added": 0,
+        "total_lines_removed": 0
+      },
+      "context_window": {
+        "total_input_tokens": 24000,
+        "total_output_tokens": 6000,
+        "context_window_size": 200000,
+        "current_usage": {
+          "input_tokens": 12000,
+          "output_tokens": 6000,
+          "cache_creation_input_tokens": 4000,
+          "cache_read_input_tokens": 8000
+        },
+        "used_percentage": 12,
+        "remaining_percentage": 88
+      },
+      "exceeds_200k_tokens": false,
+      "prompt_cache": {
+        "warm": true,
+        "caching_observed": true,
+        "ttl": "5m",
+        "expires_at": 1795297088,
+        "requests": 2,
+        "misses": 1,
+        "expected_rebuilds": 0,
+        "hit_ratio": 0.3333333333333333,
+        "cache_write_tokens": 7000,
+        "miss_recache_tokens": 4000,
+        "last_miss_at": 1795296787,
+        "last_miss_cause": null,
+        "miss_causes": {},
+        "recache_tokens_if_cold": 24000
+      },
+      "fast_mode": false,
+      "thinking": {
+        "enabled": true
+      }
+    },
+    "after-compact": {
+      "session_id": "4504c9a5-16c2-45fc-84da-91158e3e9443",
+      "transcript_path": "<HOME>/.claude/projects/-tmp-pod6572-final-reproduction-terminal-2-1-319-scratch-project/4504c9a5-16c2-45fc-84da-91158e3e9443.jsonl",
+      "cwd": "<PROJECT>",
+      "prompt_id": "44e5c753-11d5-4166-8a1b-06eee70a7b72",
+      "effort": {
+        "level": "high"
+      },
+      "model": {
+        "id": "claude-opus-4-6",
+        "display_name": "Opus 4.6"
+      },
+      "workspace": {
+        "current_dir": "<PROJECT>",
+        "project_dir": "<PROJECT>",
+        "added_dirs": []
+      },
+      "version": "2.1.319",
+      "output_style": {
+        "name": "default"
+      },
+      "cost": {
+        "total_cost_usd": 1.0295,
+        "total_duration_ms": 3740,
+        "total_api_duration_ms": 152,
+        "total_lines_added": 0,
+        "total_lines_removed": 0
+      },
+      "context_window": {
+        "total_input_tokens": 0,
+        "total_output_tokens": 0,
+        "context_window_size": 200000,
+        "current_usage": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0
+        },
+        "used_percentage": 0,
+        "remaining_percentage": 100
+      },
+      "exceeds_200k_tokens": false,
+      "prompt_cache": {
+        "warm": true,
+        "caching_observed": true,
+        "ttl": "5m",
+        "expires_at": 1795297089,
+        "requests": 2,
+        "misses": 1,
+        "expected_rebuilds": 0,
+        "hit_ratio": 0.3333333333333333,
+        "cache_write_tokens": 7000,
+        "miss_recache_tokens": 4000,
+        "last_miss_at": 1795296787,
+        "last_miss_cause": null,
+        "miss_causes": {},
+        "recache_tokens_if_cold": null
+      },
+      "fast_mode": false,
+      "thinking": {
+        "enabled": true
+      }
+    }
+  },
+  "result": {
+    "duration_api_ms": 51,
+    "stop_reason": "end_turn",
+    "session_id": "e008eb26-03cd-46bb-ab14-6cdb66cfe7f4",
+    "total_cost_usd": 0.175,
+    "usage": {
+      "input_tokens": 12000,
+      "cache_creation_input_tokens": 4000,
+      "cache_read_input_tokens": 8000,
+      "output_tokens": 6000,
+      "output_tokens_details": {
+        "thinking_tokens": 0
+      },
+      "server_tool_use": {
+        "web_search_requests": 0,
+        "web_fetch_requests": 0
+      },
+      "service_tier": "standard",
+      "cache_creation": {
+        "ephemeral_1h_input_tokens": 0,
+        "ephemeral_5m_input_tokens": 4000
+      },
+      "inference_geo": "",
+      "iterations": [],
+      "speed": "standard",
+      "fallback_credit": null
+    },
+    "modelUsage": {
+      "claude-sonnet-5-5": {
+        "inputTokens": 23000,
+        "outputTokens": 11000,
+        "cacheReadInputTokens": 15000,
+        "cacheCreationInputTokens": 7000,
+        "webSearchRequests": 0,
+        "costUSD": 0.175,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 128000,
+        "thinkingTokens": 0,
+        "cacheCreationEphemeral5mInputTokens": 7000,
+        "cacheCreationEphemeral1hInputTokens": 0,
+        "canonicalModel": "claude-sonnet-5-5",
+        "provider": "firstParty",
+        "costBasis": "list"
+      }
+    },
+    "permission_denials": [],
+    "terminal_reason": "completed",
+    "fast_mode_state": "off",
+    "fast_mode_disabled_reason": "sdk_opt_in_required",
+    "subagent_stats": {
+      "spawned": 0,
+      "requested": {
+        "background": 0,
+        "foreground": 0,
+        "unset": 0
+      },
+      "started_in_background": 0,
+      "max_depth": 0,
+      "spawned_by_subagents": 0,
+      "completed": 0,
+      "failed": 0,
+      "killed": {
+        "parent": 0,
+        "user": 0,
+        "system": 0
+      },
+      "refused": {
+        "depth_limit": 0,
+        "concurrency_limit": 0,
+        "budget": 0
+      },
+      "by_type": {}
+    },
+    "safety_stops": 0,
+    "is_error": false,
+    "num_turns": 1,
+    "subtype": "success",
+    "api_error_status": null,
+    "ttft_ms": 40,
+    "type": "result",
+    "duration_ms": 47,
+    "uuid": "65d580e7-e17e-422d-a482-6a3834cabf49",
+    "ttft_stream_ms": 39,
+    "time_to_request_ms": 29,
+    "first_content_frame_ms": 39,
+    "user_message_uuid": "8484e326-1b5e-4c2c-a31b-971b3a548aff",
+    "user_message_uuids": ["8484e326-1b5e-4c2c-a31b-971b3a548aff"],
+    "request_sent_wall_ms": 1795296777030,
+    "first_request_input_tokens": 24000,
+    "queued_turn_count": 0,
+    "result_index": 1,
+    "model_usage_since_last_result": {
+      "claude-sonnet-5-5": {
+        "inputTokens": 12000,
+        "outputTokens": 6000,
+        "cacheReadInputTokens": 8000,
+        "cacheCreationInputTokens": 4000,
+        "webSearchRequests": 0,
+        "costUSD": 0.09479999999999998,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 128000,
+        "thinkingTokens": 0,
+        "cacheCreationEphemeral5mInputTokens": 4000,
+        "cacheCreationEphemeral1hInputTokens": 0,
+        "canonicalModel": "claude-sonnet-5-5",
+        "provider": "firstParty",
+        "costBasis": "list"
+      }
+    }
+  },
+  "assistant": {
+    "type": "assistant",
+    "parent_tool_use_id": null,
+    "session_id": "e008eb26-03cd-46bb-ab14-6cdb66cfe7f4",
+    "uuid": "ed6631a4-9f0d-48d3-96ee-0eb285ff5d92",
+    "message": {
+      "id": "msg_context_2",
+      "model": "claude-sonnet-5-5",
+      "usage": {
+        "input_tokens": 12000,
+        "cache_creation_input_tokens": 4000,
+        "cache_read_input_tokens": 8000,
+        "output_tokens": 0,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 4000,
+          "ephemeral_1h_input_tokens": 0
+        }
+      }
+    }
+  },
+  "storeAssistant": {
+    "isSidechain": false,
+    "type": "assistant",
+    "uuid": "ed6631a4-9f0d-48d3-96ee-0eb285ff5d92",
+    "timestamp": "2026-11-21T21:32:57.041Z",
+    "sessionId": "e008eb26-03cd-46bb-ab14-6cdb66cfe7f4",
+    "message": {
+      "id": "msg_context_2",
+      "model": "claude-sonnet-5-5",
+      "stop_reason": "end_turn",
+      "usage": {
+        "input_tokens": 12000,
+        "cache_creation_input_tokens": 4000,
+        "cache_read_input_tokens": 8000,
+        "output_tokens": 6000,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard",
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 4000
+        },
+        "inference_geo": "",
+        "iterations": [],
+        "speed": "standard",
+        "fallback_credit": null
+      }
+    }
+  }
+}

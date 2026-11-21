@@ -21,6 +21,7 @@ import type {
   QuotaHistorySampleWire,
   SessionObservationCheckpointV1,
 } from '@podium/protocol'
+import type { CausalEnvelope } from '@podium/protocol/daemon'
 import type { HarnessContextSection } from './context-types.js'
 import type { HarnessContext } from './harness-context-types.js'
 import type { PostureSection } from './posture-types.js'
@@ -1009,6 +1010,9 @@ export interface HarnessObserveInput {
  * back. Every callback is per-session — the host closes over the session id.
  */
 export interface HarnessObserverHost {
+  /** Opaque native context input with its original admitted causal identity.
+   * Adapters select main-session records; the host never restamps replay. */
+  onContextPayload?(payload: unknown, causal: CausalEnvelope): void
   /** (Re)point the session's live transcript tail at this file. The host maps
    *  records with THIS adapter's record→items mapper; re-pointing at the same
    *  path is a no-op. */
@@ -1184,6 +1188,8 @@ export function fileTranscript(
 /** Where an instrumentation install lands: the per-session loopback callback
  *  plus the filesystem homes the harness reads. */
 export interface InstrumentationDestination {
+  /** Bound session cwd for adapter-owned inherited project configuration. */
+  workdir?: string
   /** Stable Podium row identity — names the per-session settings file. */
   sessionId: SessionId
   /** Per-session loopback callback the harness posts hook payloads to. */
