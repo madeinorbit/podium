@@ -151,16 +151,31 @@ export const claudeCodeManifest: AgentManifest = {
     // in your environment" modal, whose one-time approval is then remembered per
     // key in `.claude.json` — after which the switch is permanently silent.
     foreignCredentialEnv: ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'],
+    // A passed-in key or token goes in on an inherited pipe on Linux
+    // (POD-7378, measured on 2.1.323 and 2.1.330): Claude Code reads the
+    // descriptor the variable names to its end, once, at start, and removes
+    // the variable from the commands it runs. It reads it through
+    // `/proc/self/fd`, so only on Linux; elsewhere the secret goes in the
+    // variable, with the scrub switch below. An EMPTY token on the pipe makes
+    // Claude Code fall back to a login stored in its home, so the start
+    // refuses an empty secret.
     accepts: [
-      { type: 'anthropic.api-key', deliver: { kind: 'env', variable: 'ANTHROPIC_API_KEY' } },
+      {
+        type: 'anthropic.api-key',
+        deliver: { kind: 'env', variable: 'ANTHROPIC_API_KEY' },
+        pipe: { variable: 'CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR', platforms: ['linux'] },
+      },
       {
         type: 'anthropic.claude-token',
         deliver: { kind: 'env', variable: 'CLAUDE_CODE_OAUTH_TOKEN' },
+        pipe: { variable: 'CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR', platforms: ['linux'] },
       },
       { type: 'anthropic.claude-login', deliver: { kind: 'home' } },
     ],
     // Claude Code's documented switch: scrub Anthropic and cloud-provider
-    // credentials from the environment of the commands it runs.
+    // credentials from the environment of the commands it runs. Set only for
+    // a secret delivered in a variable, so not on Linux, where both lines
+    // use the pipe (POD-7378).
     //
     // On Linux the switch also runs every command in a bubblewrap sandbox, and
     // Claude exits at start when it finds no `bwrap` ("bubblewrap is required

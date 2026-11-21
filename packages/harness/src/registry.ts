@@ -209,16 +209,48 @@ export function harnessHideFromCommands(kind: AgentKind | string): HideFromComma
 }
 
 /**
+ * The pipe an accepted line hands its secret over on, on `platform`
+ * (POD-7378): undefined when the line has none or not there, and for a
+ * `home` line.
+ */
+export function acceptedLinePipe(
+  line: AcceptedCredential,
+  platform: NodeJS.Platform,
+): AcceptedCredential['pipe'] {
+  return line.deliver.kind === 'env' && line.pipe?.platforms.includes(platform)
+    ? line.pipe
+    : undefined
+}
+
+/**
+ * Whether a start of this harness on `platform` can ever set its
+ * hide-from-commands switch: it has one, and some line still delivers its
+ * secret in a variable there rather than on a pipe (POD-7378).
+ */
+export function hideFromCommandsApplies(
+  kind: AgentKind | string,
+  platform: NodeJS.Platform,
+): boolean {
+  const manifest = manifestFor(kind)
+  if (!manifest?.inventory.hideFromCommands) return false
+  return manifest.inventory.accepts.some(
+    (line) => line.deliver.kind === 'env' && !acceptedLinePipe(line, platform),
+  )
+}
+
+/**
  * The programs the harness's hide-from-commands switch needs and `resolve`
  * does not find, on `platform` (POD-7375). Empty when the harness has no
- * switch, needs nothing there, or everything is found. `resolve` looks a
- * command up the way the start would: the inventory's command environment, or
- * the PATH of the exact environment a process gets.
+ * switch, never sets it there (every passed-in line uses a pipe, POD-7378),
+ * needs nothing there, or everything is found. `resolve` looks a command up
+ * the way the start would: the inventory's command environment, or the PATH
+ * of the exact environment a process gets.
  */
 export function unmetHideFromCommandsPrerequisites(
   kind: AgentKind | string,
   host: { platform: NodeJS.Platform; resolve: (command: string) => string | undefined },
 ): readonly HostPrerequisite[] {
+  if (!hideFromCommandsApplies(kind, host.platform)) return []
   return (manifestFor(kind)?.inventory.hideFromCommands?.requires ?? []).filter(
     (need) => need.platforms.includes(host.platform) && host.resolve(need.executable) === undefined,
   )

@@ -38,6 +38,25 @@ export interface AcceptedCredential {
    * read the delivered variable. Never the secret.
    */
   homeStartArgs?: readonly string[]
+  /**
+   * The harness can read an `env` line's secret from an inherited pipe
+   * instead (POD-7378). On `platforms`, a process start puts the secret on a
+   * pipe whose writer is closed before the process starts and sets `variable`
+   * to that pipe's descriptor number. Then neither `deliver.variable` nor the
+   * harness's hide-from-commands switch is set: the commands the agent runs
+   * never see a variable holding the secret. Elsewhere the line delivers in
+   * `deliver.variable` as usual. Read by the daemon off its own manifest;
+   * never on the wire.
+   */
+  pipe?: CredentialPipe
+}
+
+/** How a harness reads a passed-in secret from an inherited pipe (POD-7378). */
+export interface CredentialPipe {
+  /** The variable that names the descriptor, such as `CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR`. */
+  readonly variable: string
+  /** The platforms where the harness reads it (`process.platform` values). */
+  readonly platforms: readonly string[]
 }
 
 /** How a direct model call is served for a credential of one type. */

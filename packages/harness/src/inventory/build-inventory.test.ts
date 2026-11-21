@@ -102,14 +102,7 @@ function commandEnvironment(
     generation: 7,
     machineHome: home,
     loginShell: '/bin/sh',
-    // bwrap is found so Claude's passed-in-credential prerequisite (POD-7375)
-    // is met on a Linux test host; the bubblewrap test below takes it away.
-    resolve: (command) =>
-      command === 'bwrap'
-        ? '/usr/bin/bwrap'
-        : installed && command === 'claude'
-          ? resolvedClaude
-          : undefined,
+    resolve: (command) => (installed && command === 'claude' ? resolvedClaude : undefined),
   }
 }
 
@@ -338,7 +331,7 @@ describe('buildInventory', () => {
     })
   })
 
-  it('reports bubblewrap missing on the Claude row on Linux, and nothing when bwrap is found (POD-7375)', async () => {
+  it('reports no bubblewrap prerequisite on the Claude row: Linux hands its credential over on a pipe (POD-7378)', async () => {
     const env = Object.freeze({ PATH: '/verified/bin', HOME: home })
     const loginExec: LoginProbeExec = async () => ({
       stdout: JSON.stringify({ loggedIn: false }),
@@ -346,44 +339,23 @@ describe('buildInventory', () => {
       exitCode: 1,
       timedOut: false,
     })
+    // POD-7375 named bubblewrap missing here; no Linux start sets Claude
+    // Code's scrub switch now, so nothing is missing, with or without bwrap.
     const withoutBwrap: CommandEnvironment = {
       ...commandEnvironment(env),
       resolve: (command) => (command === 'claude' ? resolvedClaude : undefined),
     }
-    const missing = await buildInventory({
-      credentialHome: home,
-      commandEnvironment: withoutBwrap,
-      exec: async () => '2.1.50',
-      loginExec,
-      platform: 'linux',
-    })
-    const claude = missing.agents.find((agent) => agent.kind === 'claude-code')
-    expect(claude?.missingPrerequisites).toEqual([
-      {
-        executable: 'bwrap',
-        package: 'bubblewrap',
-        neededFor: 'passed-in-credential',
-        message: expect.stringContaining('bubblewrap'),
-      },
-    ])
-    // Only an installed harness gets the row; one that is not here needs nothing yet.
-    for (const agent of missing.agents.filter((a) => a.kind !== 'claude-code')) {
-      expect(agent.missingPrerequisites).toBeUndefined()
-    }
-    for (const [platform, environment] of [
-      ['linux', commandEnvironment(env)],
-      ['darwin', withoutBwrap],
-    ] as const) {
+    for (const platform of ['linux', 'darwin'] as const) {
       const inv = await buildInventory({
         credentialHome: home,
-        commandEnvironment: environment,
+        commandEnvironment: withoutBwrap,
         exec: async () => '2.1.50',
         loginExec,
         platform,
       })
-      expect(
-        inv.agents.find((agent) => agent.kind === 'claude-code')?.missingPrerequisites,
-      ).toBeUndefined()
+      const claude = inv.agents.find((agent) => agent.kind === 'claude-code')
+      expect(claude?.installed, platform).toBe(true)
+      expect(claude?.missingPrerequisites, platform).toBeUndefined()
     }
   })
 
