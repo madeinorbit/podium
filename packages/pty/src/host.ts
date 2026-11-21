@@ -21,6 +21,7 @@ import {
   applySessionsSliceBudget,
   canScopeMaster,
   type DurableSpawnOptions,
+  daemonTool,
   execCreate,
   liveEnv,
   type PipeSecret,
@@ -903,7 +904,9 @@ async function reclaimStaleHostScope(
   if (await liveHostSocket(label, env)) return
   for (const args of scopeReclaimArgvs(scopeUnitName(label))) {
     try {
-      await run('systemctl', args, { timeout: 8000, env: scopeEnv(env) })
+      // The daemon's own env: `env` may be the agent's, whose PATH need not
+      // hold systemctl (see daemonTool).
+      await run('systemctl', args, { timeout: 8000, env: scopeEnv(liveEnv()) })
     } catch {
       // best-effort
     }
@@ -1322,7 +1325,7 @@ export async function spawnHostAgent(
     let createdInScope = false
     try {
       await execCreate(
-        'systemd-run',
+        daemonTool('systemd-run'),
         systemdScopeArgv(scopeUnitName(opts.label), [bin, ...createArgs], {
           budget: resolveScopeBudget(opts.scopeRole ?? 'session'),
         }),
