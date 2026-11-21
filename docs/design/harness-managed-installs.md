@@ -834,8 +834,44 @@ output was byte-identical to the uncontained listing:
   models.dev cache is read through `OPENCODE_MODELS_PATH` and `OPENCODE_DB` is
   set. The config folder stays the person's. `OPENCODE_PRINT_LOGS` does not
   stop the log file.
-- **Codex, Pi and Cursor** still list in place. Codex rewrote its `arg0` helper
-  folder there (POD-7391).
+- **Codex** (POD-7392). Codex 0.171.0's `codex debug models` creates an `arg0`
+  helper folder (a lock and three links) under `CODEX_HOME/tmp/arg0-linux` on
+  every start and removes stale ones. It also refreshes an expiring ChatGPT
+  login ("proactive_expiry"), so a copied login would lose the rotated token.
+  Codex has no login-path variable. The listing runs with `CODEX_HOME` and
+  `CODEX_SQLITE_HOME` in a temporary folder, and there Codex refuses to make
+  the helpers ("Refusing to create helper binaries under temporary dir"). The
+  person's `auth.json` is linked in. In a real refresh against a local token
+  server, Codex wrote the new login beside the link's target and renamed it
+  over the target: the person's file held the rotated token and the link
+  stayed. `auth.lock` is linked even when missing. With the person's lock
+  held, the listing waited for its release. `-c
+  cli_auth_credentials_store="file"` keeps the login in that file, because a
+  keyring entry is keyed by the `CODEX_HOME` path. A person with no
+  `auth.json`, or whose settings choose a keyring store, is listed in place.
+  `config.toml`, the admin layers and `models_cache.json` are copied.
+- **Pi** (POD-7392). Pi 1.6.0's `pi --list-models` creates `auth.json`,
+  `settings.json` and `models-store.json` in its agent folder when they are
+  absent. It also takes short-lived `*.lock` folders there. The listing runs
+  with `PI_CODING_AGENT_DIR` in a temporary folder. The person's `auth.json`
+  is linked in: Pi writes through the link and locks its target, the
+  person's file (Pi supports linked logins). `extensions`, `npm` and `git`
+  are linked, because extensions can add providers. `settings.json`,
+  `models.json` and `models-store.json` are copied. What remains in the
+  person's folders is Pi's own `auth.json.lock` folder, held for
+  milliseconds, and its install's `install/update.lock`.
+- **Cursor** still lists in place. Cursor 2026.11.19's `cursor-agent models`
+  writes a `.running/<pid>` marker in its install's version folder and
+  removes it on exit. The updater uses that marker to see a version in use,
+  so it stays. The Node compile cache under `~/.cache/cursor-compile-cache` is
+  written only when missing. The lab's synthetic Cursor login was refused
+  before any login or settings file was read, so a listing with a live login
+  was not measured.
+
+On each box the contained lists were identical to the in-place lists. A login
+is never copied into the temporary folder. Where a link cannot be made, such as
+on Windows without the privilege, the harness is listed in place. This applies
+to OpenCode too, which used to fall back to a copy.
 
 A Podium home is listed in place.
 
