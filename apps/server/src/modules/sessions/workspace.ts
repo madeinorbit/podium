@@ -141,6 +141,7 @@ export class SessionWorkspace {
      *  derived by repoId: an unidentified checkout (no origin) has no repoId, and
      *  deriving would silently make this a no-op for it. */
     sourceRepoPath: string
+    sourceMachineId?: MachineId
     targetMachineId: MachineId
     targetRepoPath: string
     /** The start point a worktree will be created from — a branch name or sha. */
@@ -151,7 +152,11 @@ export class SessionWorkspace {
     const { rpc } = this.ports
     const source = (await this.ports.store.repos
       .listRepos())
-      .find((repo) => machinePathsEqual(repo.path, input.sourceRepoPath))
+      .find(
+        (repo) =>
+          machinePathsEqual(repo.path, input.sourceRepoPath) &&
+          (input.sourceMachineId === undefined || repo.machineId === input.sourceMachineId),
+      )
     if (!source) throw new Error(`no registered repository at ${input.sourceRepoPath}`)
     const sourceRepoPath = source.path
     const sourceMachineId = source.machineId

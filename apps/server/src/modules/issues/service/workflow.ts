@@ -1546,12 +1546,54 @@ export class IssueGitWorkflowModule {
     // Keep the old implicit behavior: only explicit requests/pins use this pre-flight.
     // A repo-affine/default selection used to flow straight through repoOp.
     if (pinnedMachineId) await this.store.d.requireMachineForRepo?.(pinnedMachineId, repoPath)
-    const res = await this.store.d.repoOp(
+    let res = await this.store.d.repoOp(
       'worktreeAddExisting',
       repoPath,
       { path, branch },
       worktreeMachineId,
     )
+    // An older session can remain on its original machine after its issue moves.
+    // Import the exact branch from the issue's home only when Git cannot resolve
+    // it locally. Keep a local branch authoritative and never reset it.
+    if (
+      !res.ok &&
+      res.output.split(/\r?\n/u).includes(`fatal: invalid reference: ${branch}`) &&
+      at.machineId &&
+      worktreeMachineId &&
+      at.machineId !== worktreeMachineId &&
+      this.store.d.recoverIssueBranch
+    ) {
+      try {
+        const startPoint = await this.store.d.recoverIssueBranch({
+          sourceRepoPath: at.repoPath,
+          sourceMachineId: at.machineId,
+          targetRepoPath: repoPath,
+          targetMachineId: worktreeMachineId,
+          branch,
+        })
+        res = await this.store.d.repoOp(
+          'worktreeAdd',
+          repoPath,
+          { path, branch, startPoint },
+          worktreeMachineId,
+        )
+        if (!res.ok && res.output.includes(`a branch named '${branch}' already exists`)) {
+          // A concurrent repair won the ref creation. Attach to its branch.
+          res = await this.store.d.repoOp(
+            'worktreeAddExisting',
+            repoPath,
+            { path, branch },
+            worktreeMachineId,
+          )
+        }
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error)
+        res = {
+          ok: false,
+          output: `could not recover branch '${branch}' from the issue’s machine: ${reason}`,
+        }
+      }
+    }
     // `already exists` is not a failure when what exists IS this issue's worktree on
     // this issue's branch (POD-1898): adopt it rather than refusing a resume over a
     // working copy that is right there. Anything else at that path still fails.

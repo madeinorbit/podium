@@ -162,6 +162,20 @@ describe('SessionLifecycleController', () => {
     expect(g.acks).toEqual([])
   })
 
+  it('reports a thrown resume error on its revision so the user can retry', async () => {
+    const f = fixture({ [S]: row('hibernated', 'running', 2, 1) })
+    f.answerWith(async () => {
+      throw new Error('the issue checkout is unavailable')
+    })
+
+    expect(await f.controller.reconcile(S)).toEqual({
+      kind: 'acknowledged',
+      revision: 2,
+      outcome: { ok: false, reason: 'the issue checkout is unavailable' },
+    })
+    expect(f.acks).toEqual([{ id: S, revision: 2, failure: 'the issue checkout is unavailable' }])
+  })
+
   it('an edit committed during a pass is acted on after it, each revision once', async () => {
     const rows = { [S]: row('live', 'stopped', 2, 1) }
     const f = fixture(rows)

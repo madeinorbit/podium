@@ -2842,6 +2842,13 @@ export class SessionRegistry {
       // repository the target ALREADY has, and must keep the refusal when it has none.
       findRepoOnMachine: async (repoPath, machineId) =>
         await sessionsSvc.workspace.findRepoOnMachine(repoPath, machineId),
+      recoverIssueBranch: async ({ branch, ...placement }) => {
+        const ensured = await sessionsSvc.workspace.ensureRefOnMachine({
+          ...placement,
+          ref: `refs/heads/${branch}`,
+        })
+        return ensured.startPoint
+      },
       readSessionIssueId: async (sessionId) => await sessionsSvc.readSessionIssueId(sessionId),
       // The issue write that asked passes its own writer (ADR 12 D9, POD-6601).
       setSessionIssueId: (writer, sessionId, issueId) =>

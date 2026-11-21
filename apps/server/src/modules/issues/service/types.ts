@@ -320,6 +320,14 @@ export interface IssueDeps {
    * as the refusal. Optional so existing test deps literals stay valid.
    */
   findRepoOnMachine?(repoPath: string, machineId: MachineId): Promise<string | null>
+  /** Recover the exact issue branch from its recorded home. Returns the verified target commit. */
+  recoverIssueBranch?(input: {
+    sourceRepoPath: string
+    sourceMachineId: MachineId
+    targetRepoPath: string
+    targetMachineId: MachineId
+    branch: string
+  }): Promise<string>
   /**
    * Agent profiles (POD-6107): `find` turns `--profile <name>` into an id, and
    * `launch` is the one resolver (profile, issue fields on top, first usable

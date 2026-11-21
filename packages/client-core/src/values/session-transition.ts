@@ -18,6 +18,7 @@ import type { SessionMeta } from '@podium/model'
 
 export type SessionTransition =
   | { readonly kind: 'starting' | 'stopping' | 'hibernating' }
+  | { readonly kind: 'resume-timeout'; readonly retryable: boolean }
   | {
       readonly kind: 'refused'
       readonly desired: NonNullable<SessionMeta['desired']>
@@ -27,7 +28,8 @@ export type SessionTransition =
 type TransitionFields = Pick<
   SessionMeta,
   'desired' | 'revision' | 'observedRevision' | 'lifecycleFailure'
->
+> &
+  Partial<Pick<SessionMeta, 'status'>>
 
 const ON_ITS_WAY = {
   running: 'starting',
@@ -36,8 +38,11 @@ const ON_ITS_WAY = {
 } as const
 
 /** Undefined when nothing is in flight and nothing was refused. */
-export function sessionTransition(session: TransitionFields): SessionTransition | undefined {
-  if (session.desired === undefined) return undefined
+export function sessionTransition(
+  session: TransitionFields | undefined,
+): SessionTransition | undefined {
+  if (session?.desired === undefined) return undefined
+  if (session.desired === 'running' && session.status === 'live') return undefined
   const revision = session.revision ?? 1
   const observed = session.observedRevision ?? 1
   if (revision > observed) return { kind: ON_ITS_WAY[session.desired] }
@@ -57,6 +62,8 @@ export function sessionTransitionLabel(t: SessionTransition): string {
       return 'Stopping…'
     case 'hibernating':
       return 'Hibernating…'
+    case 'resume-timeout':
+      return 'Resume timed out waiting for the agent. The request may still complete.'
     case 'refused':
       return t.desired === 'running'
         ? `Couldn't resume — ${t.reason}`

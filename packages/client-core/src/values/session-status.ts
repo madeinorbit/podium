@@ -255,8 +255,17 @@ export interface ChatActivity {
  * `justSent` only covers the optimistic gap before the send's own meta update
  * lands, and only while the session is still parked.
  */
-export function sessionWaking(meta: Pick<SessionView, 'status' | 'queuedMessageCount'> | undefined, justSent = false): boolean {
+type SessionWakeFields = Pick<
+  SessionView,
+  'status' | 'queuedMessageCount' | 'desired' | 'revision' | 'lifecycleFailure' | 'spawnFailure'
+>
+
+export function sessionWaking(meta: SessionWakeFields | undefined, justSent = false): boolean {
   if (!meta) return false
+  if (meta.desired === 'running' && meta.lifecycleFailure?.revision === (meta.revision ?? 1)) {
+    return false
+  }
+  if (meta.status === 'exited' && meta.spawnFailure && !justSent) return false
   const queued = (meta.queuedMessageCount ?? 0) > 0
   if (meta.status === 'hibernated' || meta.status === 'exited') return queued || justSent
   // Resurrection has begun: the process is coming up and the queue drains once
@@ -310,7 +319,7 @@ export function sessionWaking(meta: Pick<SessionView, 'status' | 'queuedMessageC
  * and dropped the offer line entirely, with no send anywhere in sight.
  */
 export function chatActivity(
-  meta: Pick<SessionView, 'status' | 'queuedMessageCount' | 'agentState' | 'offer' | 'busy'> | undefined,
+  meta: (SessionWakeFields & Pick<SessionView, 'agentState' | 'offer' | 'busy'>) | undefined,
   justSent: boolean,
   offer = meta?.offer,
 ): ChatActivity | null {

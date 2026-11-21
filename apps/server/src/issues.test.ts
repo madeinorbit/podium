@@ -2495,6 +2495,52 @@ describe('IssueService.start', () => {
     })
   })
 
+  it('reconstructs a missing target branch from the exact branch on the issue home', async () => {
+    const { svc, deps } = await harness()
+    deps.findRepoOnMachine = vi.fn(async () => '/target/repo')
+    const tip = 'a'.repeat(40)
+    deps.recoverIssueBranch = vi.fn(async () => tip)
+    const created = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/source/repo',
+      title: 'Moved session',
+      startNow: false,
+      machineId: asMachineId('mach-a'),
+    })
+    const branch = 'issue/1-moved-session'
+    await svc.crud.update(svc.reports.store.serverWriter, created.id, { branch })
+    deps.repoOp = vi.fn(async (op: string) =>
+      op === 'worktreeAddExisting'
+        ? { ok: false, output: `fatal: invalid reference: ${branch}\n` }
+        : { ok: true, output: '' },
+    ) as typeof deps.repoOp
+
+    const result = await svc.gitWorkflow.ensureWorktree(created.id, asMachineId('mach-b'))
+
+    expect(deps.recoverIssueBranch).toHaveBeenCalledWith({
+      sourceRepoPath: '/source/repo',
+      sourceMachineId: 'mach-a',
+      targetRepoPath: '/target/repo',
+      targetMachineId: 'mach-b',
+      branch,
+    })
+    const path = '/target/repo/.worktrees/issue-1-moved-session'
+    expect(deps.repoOp).toHaveBeenCalledWith(
+      'worktreeAdd',
+      '/target/repo',
+      { path, branch, startPoint: tip },
+      'mach-b',
+    )
+    expect(result).toMatchObject({
+      ok: true,
+      worktreePath: path,
+    })
+    expect(await svc.reports.get(created.id)).toMatchObject({
+      worktreePath: path,
+      machineId: 'mach-b',
+      repoPath: '/target/repo',
+    })
+  })
+
   /**
    * POD-1898. Resuming onto the machine the issue is ALREADY homed on, where that
    * machine keeps the repo at its own path: the recorded worktree was compared by

@@ -36,9 +36,11 @@ export function turnTail(props: TranscriptFeedProps, model?: PresentedTurn) {
   const overlayStatus = props.chat ? view?.overlayStatus : props.overlay?.status
   const session = view?.session ?? props.session
   const preview = previewMembers(props)
-  const tailActivity = overlayStatus
-    ? { tone: 'working' as const, label: overlayStatus }
-    : (activity ?? (preview.length ? { tone: 'working' as const, label: 'Working' } : null))
+  const tailActivity = props.resumeTimedOut
+    ? null
+    : overlayStatus
+      ? { tone: 'working' as const, label: overlayStatus }
+      : (activity ?? (preview.length ? { tone: 'working' as const, label: 'Working' } : null))
   const tool =
     preview.findLast((member) => member.block.item.role === 'tool')?.block ?? model?.currentTool
   const lastRow = tool

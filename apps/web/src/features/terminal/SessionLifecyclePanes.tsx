@@ -1,6 +1,6 @@
-import type { Trpc } from '@/app/trpc'
 import { useCommands } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
+import type { Trpc } from '@/app/trpc'
 /**
  * THE READ-ONLY SURFACES (POD-408) — what a `parked` or `ended` panel shows,
  * and the bar a live CLI shows when its machine is offline (POD-4629).
@@ -19,6 +19,7 @@ import type { SessionView } from '@podium/client-core/session-values'
 import {
   exitedRecovery,
   type SessionIssueOutcome,
+  type SessionTransition,
   sessionTransition,
   sessionTransitionLabel,
 } from '@podium/client-core/values'
@@ -390,21 +391,22 @@ export function MachineOfflineBanner({
  */
 export function LifecycleTransitionBar({
   session,
+  transition = sessionTransition(session),
 }: {
   session: Pick<
     SessionView,
     'sessionId' | 'desired' | 'revision' | 'observedRevision' | 'lifecycleFailure'
   >
+  transition?: SessionTransition
 }): JSX.Element | null {
   const { endSession, resurrectSession, hibernateSession } = {
     endSession: useCommands<Trpc>().sessions.stop,
     resurrectSession: useCommands<Trpc>().sessions.resume,
     hibernateSession: useCommands<Trpc>().sessions.hibernate,
   }
-  const transition = sessionTransition(session)
   if (transition === undefined) return null
   const label = sessionTransitionLabel(transition)
-  if (transition.kind !== 'refused') {
+  if (transition.kind !== 'refused' && transition.kind !== 'resume-timeout') {
     return (
       <div
         className="pane-state-bar pane-state-bar-waking"
@@ -423,32 +425,38 @@ export function LifecycleTransitionBar({
     )
   }
   const retry =
-    transition.desired === 'stopped'
-      ? { label: 'End anyway', run: () => endSession(session.sessionId, { force: true }) }
-      : transition.desired === 'running'
+    transition.kind === 'resume-timeout'
+      ? transition.retryable
         ? { label: 'Try again', run: () => resurrectSession(session.sessionId) }
-        : { label: 'Try again', run: () => hibernateSession(session.sessionId) }
+        : undefined
+      : transition.desired === 'stopped'
+        ? { label: 'End anyway', run: () => endSession(session.sessionId, { force: true }) }
+        : transition.desired === 'running'
+          ? { label: 'Try again', run: () => resurrectSession(session.sessionId) }
+          : { label: 'Try again', run: () => hibernateSession(session.sessionId) }
   return (
-    <div className="pane-state-bar" data-tone="fault" role="status" data-testid="lifecycle-refused">
+    <div className="pane-state-bar" data-tone="fault" role="alert" data-testid="lifecycle-refused">
       <span className="pane-state-bar-mark" aria-hidden="true">
         <AlertTriangle size={13} strokeWidth={1.7} />
       </span>
       <span className="pane-state-bar-copy">
         <span className="pane-state-bar-word">{label}</span>
-        {transition.desired === 'stopped'
+        {transition.kind === 'refused' && transition.desired === 'stopped'
           ? ' Ending anyway frees the worktree; the branch and its commits are kept.'
           : ''}
       </span>
-      <Button
-        type="button"
-        size="xs"
-        variant="outline"
-        className="shrink-0"
-        data-testid="lifecycle-retry"
-        onClick={() => void retry.run()}
-      >
-        {retry.label}
-      </Button>
+      {retry && (
+        <Button
+          type="button"
+          size="xs"
+          variant="outline"
+          className="shrink-0"
+          data-testid="lifecycle-retry"
+          onClick={() => void retry.run()}
+        >
+          {retry.label}
+        </Button>
+      )}
     </div>
   )
 }

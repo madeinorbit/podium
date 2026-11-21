@@ -27,8 +27,9 @@
  * OUTCOMES. An action that refuses (`{ ok: false, reason }`: a dirty worktree
  * stopped without force, nothing to resume from) is definitive: the controller
  * acknowledges the revision with `lifecycleFailure`, and the next edit clears
- * it. An action that THROWS, or a machine with no daemon, is transient: the
- * session stays pending for the next trigger. Nothing is retried on a timer.
+ * it. A resume that throws also reports a failure, so the user can retry.
+ * Other thrown actions and a machine with no daemon stay pending for the
+ * next trigger. Nothing is retried on a timer.
  *
  * STARTING IS RE-AUTHORIZED AT ACT TIME. The entry point checked the edit's
  * target, machine `use` included, when it applied; an attach can come much
@@ -234,13 +235,18 @@ export class SessionLifecycleController {
     try {
       outcome = await this.act(row, desired, hint)
     } catch (error) {
-      log.warn('session lifecycle action failed; left pending', {
+      log.warn('session lifecycle action failed', {
         sessionId,
         desired,
         revision,
         error,
       })
-      return { kind: 'waiting', revision, why: 'transient' }
+      if (desired !== 'running') return { kind: 'waiting', revision, why: 'transient' }
+      outcome = {
+        ok: false,
+        reason:
+          error instanceof Error && error.message ? error.message : 'resume failed unexpectedly',
+      }
     }
     this.outcomes.set(sessionId, { revision, outcome })
     await this.ports.acknowledge(

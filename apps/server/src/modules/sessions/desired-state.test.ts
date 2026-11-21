@@ -12,7 +12,7 @@ import { memberFacts } from '../../store/fixtures/test-support'
 import { asMutationId, asUserId, firstAdminMemberId, type SessionId } from '@podium/model'
 import type { SyncSubmitReply } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { userCommandPrincipal } from '../../command-principal'
 import { checkMachineUse, ownershipSnapshotFromMachines } from '../../machine-access'
 import { confirmingRetirement } from '../../test-support/host-daemon'
@@ -252,6 +252,43 @@ describe('records.session.edit', () => {
       observedRevision: 3,
       failure: null,
     })
+  })
+
+  it('times out a workspace repair and does not spawn if Git answers later', async () => {
+    const o = await makeOracle()
+    const id = await liveSession(o)
+    appliedReply(await editAndSettle(o, id, { desired: 'hibernated' }, 1, 'park'))
+    const before = spawns(o, id).length
+    let notifyEntered!: () => void
+    const entered = new Promise<void>((resolve) => {
+      notifyEntered = resolve
+    })
+    let finishRepair!: (value: { ok: true; cwd: string }) => void
+    const repair = new Promise<{ ok: true; cwd: string }>((resolve) => {
+      finishRepair = resolve
+    })
+    const ensure = vi.spyOn(o.reg.modules.sessions.workspace, 'ensureSessionWorktree')
+    ensure.mockImplementation(() => {
+      notifyEntered()
+      return repair
+    })
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      const wake = o.reg.modules.issueSessionLifecycle.resurrectSession({ sessionId: id })
+      await entered
+      await vi.advanceTimersByTimeAsync(90_000)
+      expect(await wake).toEqual({
+        ok: false,
+        reason: 'timed out preparing the workspace for resume',
+      })
+      finishRepair({ ok: true, cwd: '/p' })
+      await repair
+      expect(spawns(o, id)).toHaveLength(before)
+      expect((await lifecycle(o, id)).status).toBe('hibernated')
+    } finally {
+      vi.useRealTimers()
+      ensure.mockRestore()
+    }
   })
 
   it('force qualifies only the stop it is sent with', async () => {
