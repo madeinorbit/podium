@@ -24,6 +24,7 @@ import {
   type AgentManifest,
   declaredValue,
   type HarnessLogin,
+  type HarnessLoginCommandProbe,
   type LoginCommandResult,
 } from '../manifest.js'
 import {
@@ -176,8 +177,9 @@ type ExecutableProbe =
  * THE VERSION AND IDENTITY PROBE OF ONE CANDIDATE, the same for the person's
  * install and a managed release (managed installs §6.1): `<path> <versionArgs>`
  * must answer, and a declared identity probe must accept its output. Runs with
- * the machine command environment, never an account's; a managed release runs
- * it in a temporary home (see {@link probeManaged}).
+ * the machine command environment, never an account's: the person's install
+ * with its harness folder moved aside (see {@link containedProbeEnv}), a
+ * managed release in a temporary home (see {@link probeManaged}).
  */
 async function probeExecutable(
   manifest: AgentManifest,
@@ -394,9 +396,87 @@ async function probeExternal(
   }
   const fallbackLogin = identity ? { ...detected, identity } : detected
   const commandProbe = declaredValue(manifest.inventory.loginCommandProbe)
+  const contained = await containedProbeEnv(manifest, environment.env)
+  try {
+    return await probeExternalCandidates(
+      manifest,
+      environment,
+      contained.env,
+      credentialEnv,
+      fallbackLogin,
+      commandProbe,
+      exec,
+      loginExec,
+      legacyInjectedExec,
+      hostPlatform,
+    )
+  } finally {
+    await contained.dispose()
+  }
+}
+
+/**
+ * THE ENVIRONMENT THE PERSON'S OWN INSTALL IS VERSIONED IN (POD-7384): the
+ * machine command environment with the harness's own state folder moved to a
+ * temporary folder, removed afterwards.
+ *
+ * Even `--version` writes harness state: Codex replaces its arg0 helper links
+ * under `CODEX_HOME/tmp`, and Pi creates `auth.json` and `models-store.json`
+ * in its agent folder. A background inventory wave must leave the person's
+ * folders as it found them, so the folder variable the manifest declares as
+ * the harness's home (`environment.instanceHome`) points elsewhere.
+ *
+ * Everything else stays the machine's, HOME and the XDG folders included:
+ * finding the executable depends on them. The official Pi launcher puts
+ * `$HOME/.local/share/pi-node/current/bin` on PATH for its node, and a
+ * version-manager shim reads its configuration under HOME, so a temporary
+ * HOME would report an installed harness as missing. A harness that declares
+ * no home variable runs as before. Login detection is not affected: it reads
+ * the credential home through its own environment.
+ */
+async function containedProbeEnv(
+  manifest: AgentManifest,
+  machineEnv: Readonly<Record<string, string>>,
+): Promise<{ env: Readonly<Record<string, string>>; dispose: () => Promise<void> }> {
+  const variable = manifest.environment.instanceHome?.variable
+  const unchanged = { env: machineEnv, dispose: async () => {} }
+  if (!variable) return unchanged
+  let probeRoot: string
+  try {
+    probeRoot = await mkdtemp(join(tmpdir(), `podium-probe-${manifest.kind}-`))
+  } catch (err) {
+    // A machine without a usable temporary folder is broken in other ways too;
+    // reporting the person's install as missing would offer to replace it.
+    log.warn('no temporary folder for the external version probe; probing as before', {
+      kind: manifest.kind,
+      err,
+    })
+    return unchanged
+  }
+  return {
+    env: Object.freeze({ ...machineEnv, [variable]: probeRoot }),
+    dispose: () =>
+      rm(probeRoot, { recursive: true, force: true }).catch((err: unknown) => {
+        log.warn('the external probe folder could not be removed', { path: probeRoot, err })
+      }),
+  }
+}
+
+async function probeExternalCandidates(
+  manifest: AgentManifest,
+  environment: CommandEnvironment,
+  probeEnv: Readonly<Record<string, string>>,
+  credentialEnv: Readonly<Record<string, string>>,
+  fallbackLogin: HarnessLogin,
+  commandProbe: HarnessLoginCommandProbe | undefined,
+  exec: ProbeExec,
+  loginExec: LoginProbeExec,
+  legacyInjectedExec: boolean,
+  hostPlatform: NodeJS.Platform,
+): Promise<{ inventory: AgentInventory; executable?: ResolvedHarnessExecutable }> {
   let timedOut = false
   for (const candidate of candidatePaths(manifest, environment, legacyInjectedExec)) {
-    const probed = await probeExecutable(manifest, candidate, environment.env, exec)
+    const probed = await probeExecutable(manifest, candidate, probeEnv, exec)
     if (probed.kind === 'timed-out') timedOut = true
     if (probed.kind !== 'verified') continue
     const version = probed.version
