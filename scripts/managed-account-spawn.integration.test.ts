@@ -294,21 +294,17 @@ async function spawnAndDumpEnv(
   const pid = terminal.pid
 
   try {
-    // The shell is up and talking.
-    await waitFor(() => h.output().length > 0).catch((error) => {
-      const sent = JSON.stringify(
-        h.sent.filter((m) => m.type !== 'sessionAuth' || true).map((m) => m),
-      ).slice(0, 1500)
-      let state = 'gone'
-      try {
-        const { readFileSync, readlinkSync } = require('node:fs') as typeof import('node:fs')
-        const stat = readFileSync(`/proc/${pid}/stat`, 'utf8')
-        const exe = readlinkSync(`/proc/${pid}/exe`)
-        const wchan = readFileSync(`/proc/${pid}/wchan`, 'utf8')
-        state = `${exe} ${stat.split(' ')[2]} wchan=${wchan}`
-      } catch {}
-      throw new Error(`${error}: no output from pid ${pid} (${state}); the daemon sent ${sent}`)
-    })
+    // The shell is up and talking. Through the real host, a cold first spawn
+    // can print its prompt before the bridge is wired, into the frame tap that
+    // this harness's stubbed observers never flush: a newline asks again.
+    if (h.hostKill) {
+      const nudge = setTimeout(() => {
+        if (h.output().length === 0) terminal.writeBase64(Buffer.from('\n').toString('base64'))
+      }, 2_000)
+      await waitFor(() => h.output().length > 0).finally(() => clearTimeout(nudge))
+    } else {
+      await waitFor(() => h.output().length > 0)
+    }
     // By absolute path: the launch seam's harness context carries no command
     // environment, so the stand-in shell may have no PATH of its own.
     terminal.writeBase64(Buffer.from('/usr/bin/env\n', 'utf8').toString('base64'))
