@@ -1,7 +1,6 @@
 import { join } from 'node:path'
 import { promptEchoCorrelation } from '../../accept-correlation.js'
 import { withStateChannel } from '../../agent-state/types.js'
-import { declinedContext } from '../../context-types.js'
 import { composeAgentInstructions } from '../../instructions.js'
 import {
   type AgentManifest,
@@ -15,6 +14,7 @@ import {
 import { harnessVersionFloor, OPENCODE_VERSION_POLICY } from '../../version-policy.js'
 import { detectOpencodeLogin } from './auth.js'
 import { opencodeCatalog } from './catalog.js'
+import { opencodeContext } from './context.js'
 import { opencodeCredentials } from './credentials.js'
 import { opencodeDescriptor } from './descriptor.js'
 import { createOpencodeConversationProvider } from './discovery.js'
@@ -214,9 +214,7 @@ export const opencodeManifest: AgentManifest = {
   // OpenAPI 3.1 + SSE — and the intended host for background executors on
   // non-Claude/non-Codex models.
   runtime: {
-    context: declinedContext(
-      'OpenCode context strategies are not wired; request accounting and generation-specific effective capacity need adapter validation',
-    ),
+    context: opencodeContext,
     server: supported({
       driverId: 'opencode-server',
       kind: 'http-sse',
@@ -410,6 +408,12 @@ export const opencodeManifest: AgentManifest = {
       ...(input.startedAtMs !== undefined ? { startedAtMs: input.startedAtMs } : {}),
       onSession: (opencodeSessionId) => host.onResumeValue(opencodeSessionId),
       onModel: (model, effort) => host.onModel?.(model, effort),
+      ...(host.contextIdentity && host.onContextPayload
+        ? {
+            contextIdentity: host.contextIdentity.bind(host),
+            onContextPayload: host.onContextPayload.bind(host),
+          }
+        : {}),
       onEvents: (events) => host.onStateEvents(withStateChannel(events, 'poll')),
       onTranscriptItems: (items, reset) => host.onTranscriptItems(items, reset),
     })

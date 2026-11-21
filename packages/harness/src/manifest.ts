@@ -1010,6 +1010,8 @@ export interface HarnessObserveInput {
  * back. Every callback is per-session — the host closes over the session id.
  */
 export interface HarnessObserverHost {
+  /** Current driver causal identity, absent until this observer owns a binding. */
+  contextIdentity?(): Pick<CausalEnvelope, 'observerGeneration' | 'turnEpoch'> | undefined
   /** Opaque native context input with its original admitted causal identity.
    * Adapters select main-session records; the host never restamps replay. */
   onContextPayload?(payload: unknown, causal: CausalEnvelope): void

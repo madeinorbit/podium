@@ -1,9 +1,11 @@
-import { mkdir, mkdtemp } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
+import type { CausalEnvelope } from '@podium/protocol/daemon'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AgentStateEvent } from '../../agent-state/types.js'
+import type { ContextObservation } from '../../context-types.js'
 import { testAccount } from '../../driver/testing/harness-context.js'
 import { initialAgentState, reduceAgentState } from '../../observer.js'
 import {
@@ -13,6 +15,7 @@ import {
 } from '../../opencode/db.js'
 import { agentStateProviderFor } from '../../registry.js'
 import { encodeCursor } from '../../store/cursor-codec.js'
+import { opencodeContext } from './context.js'
 import { observeOpencodeState, opencodeStateProvider } from './state.js'
 import { opencodeFileId } from './transcript.js'
 
@@ -166,6 +169,104 @@ describe('opencode state provider', () => {
 
   it('registers in the agent state provider map', () => {
     expect(agentStateProviderFor('opencode')).toBe(opencodeStateProvider)
+  })
+
+  it('forwards existing Store reads with native time/cursor and the actual host causal identity', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'podium-opencode-context-'))
+    const root = join(home, '.local', 'share', 'opencode')
+    let obs: ReturnType<typeof observeOpencodeState> | undefined
+    const lifetime = new AbortController()
+    try {
+      await mkdir(root, { recursive: true })
+      await seedSessionDb(root, 'ses_context', '/repo/context', 'ready')
+      const db = openDatabase(join(root, 'opencode.db'))
+      try {
+        const tokens = {
+          input: 8_000,
+          output: 700,
+          reasoning: 300,
+          cache: { read: 4_000, write: 0 },
+        }
+        const model = { id: 'context-b', providerID: 'audit', variant: 'default' }
+        db.prepare('UPDATE session SET model = ?, time_updated = ? WHERE id = ?').run(
+          JSON.stringify(model),
+          1_795_296_291_306,
+          'ses_context',
+        )
+        db.prepare(
+          'UPDATE message SET data = ?, time_created = ?, time_updated = ? WHERE id = ?',
+        ).run(
+          JSON.stringify({
+            role: 'assistant',
+            modelID: model.id,
+            providerID: model.providerID,
+            time: { created: 1_795_296_291_091, completed: 1_795_296_291_297 },
+            tokens,
+          }),
+          1_795_296_291_091,
+          1_795_296_291_300,
+          'msg-a',
+        )
+        db.prepare('UPDATE part SET data = ?, time_updated = ? WHERE id = ?').run(
+          JSON.stringify({ type: 'step-finish', tokens }),
+          1_795_296_291_300,
+          'prt-a',
+        )
+      } finally {
+        db.close()
+      }
+      const declaration = opencodeContext.forDriver('generic-pty')
+      if (!declaration.supported) throw new Error(declaration.reason)
+      const bound = declaration.value.bind({
+        harness: 'opencode',
+        driver: 'generic-pty',
+        nativeSessionId: 'ses_context',
+        revision: { bindingVersion: 5, contextRevision: 2, observerGeneration: 7, turnEpoch: 3 },
+        signal: lifetime.signal,
+        publish: () => {},
+      })
+      const envelopes: CausalEnvelope[] = []
+      const contexts: ContextObservation[] = []
+      let identity: Pick<CausalEnvelope, 'observerGeneration' | 'turnEpoch'> | undefined
+      obs = observeOpencodeState({
+        cwd: '/repo/context',
+        homeDir: home,
+        resumeValue: 'ses_context',
+        pollMs: 10,
+        loadSource,
+        onEvents: () => {},
+        contextIdentity: () => identity,
+        onContextPayload(payload, causal) {
+          envelopes.push(causal)
+          const context = bound.observe(payload, causal)
+          if (context) contexts.push(context)
+        },
+      })
+      // No helper identity means no invented generation or epoch.
+      await waitFor(() => obs?.sessionId === 'ses_context')
+      await new Promise((resolve) => setTimeout(resolve, 30))
+      expect(envelopes).toEqual([])
+      const queries = dbHooks.getCount
+      identity = { observerGeneration: 7, turnEpoch: 3 }
+      await waitFor(() => contexts.length > 0)
+      expect(dbHooks.getCount).toBe(queries)
+      expect(envelopes[0]).toMatchObject({
+        at: '2026-11-21T21:24:51.306Z',
+        observerGeneration: 7,
+        turnEpoch: 3,
+        cursor: { components: { session: 1_795_296_291_306, part: 1_795_296_291_300 } },
+      })
+      expect(contexts.at(-1)?.context).toMatchObject({
+        status: 'available',
+        occupancy: { usedTokens: { value: 13_000 } },
+        model: { providerId: 'audit', modelId: 'context-b' },
+      })
+      expect(contexts.at(-1)?.context).not.toHaveProperty('effectiveCapacity')
+    } finally {
+      obs?.stop()
+      lifetime.abort()
+      await rm(home, { recursive: true, force: true })
+    }
   })
 
   it('bootEvents classifies a resumed session from sqlite transcript tail', async () => {
