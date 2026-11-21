@@ -145,8 +145,9 @@ export const AgentInventory = z.object({
   install: AgentInstallWire.optional(),
   /**
    * Programs this harness needs here for one use and does not find on PATH
-   * (POD-7375): Claude Code on Linux needs bubblewrap to run on a credential
-   * Podium passes in. Absent when nothing is missing.
+   * (POD-7375). Claude Code on Linux needed bubblewrap to run on a credential
+   * Podium passes in, until the credential went in on a pipe (POD-7378); no
+   * harness declares one now. Absent when nothing is missing.
    */
   missingPrerequisites: z
     .array(

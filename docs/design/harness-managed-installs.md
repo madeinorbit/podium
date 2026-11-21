@@ -807,7 +807,7 @@ POD-7267 report has the exact fetch commands, hashes and launch results.
 
 | Harness | Stable pointer | File and integrity | Home and managed install implications |
 |---|---|---|---|
-| **Claude Code** | `downloads.claude.ai/claude-code-releases/stable` → 2.1.311 | `<version>/<platform>/claude` and `manifest.json` SHA-256. Windows entries are `win32-x64/claude.exe` and `win32-arm64/claude.exe`. | Direct download. `CLAUDE_CONFIG_DIR` contains state and sessions. Managed posture sets `disableDeepLinkRegistration: "disable"` in the Podium home's settings so the copy does not register an OS URL handler. A terminal start still creates `~/.claude/ssh` and `~/.config/anthropic`; see below. On a passed-in credential, Podium's `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1` makes Linux need `bwrap`: without it Claude exits with status 1 before the composer, so the adapter declares the prerequisite, the inventory row reports it as `missingPrerequisites` and Podium refuses the start with a message naming the `bubblewrap` package. With `bwrap`, every start creates empty bubblewrap mount points that are missing: dotfiles in HOME, package, lock and `.env*` files in the working directory, and a stubs block appended to `.git/info/exclude` each time. No vendor setting keeps scrubbing and skips them (2.1.311 and 2.1.329); see below. |
+| **Claude Code** | `downloads.claude.ai/claude-code-releases/stable` → 2.1.311 | `<version>/<platform>/claude` and `manifest.json` SHA-256. Windows entries are `win32-x64/claude.exe` and `win32-arm64/claude.exe`. | Direct download. `CLAUDE_CONFIG_DIR` contains state and sessions. Managed posture sets `disableDeepLinkRegistration: "disable"` in the Podium home's settings so the copy does not register an OS URL handler. A terminal start still creates `~/.claude/ssh` and `~/.config/anthropic`; see below. On Linux a passed-in key or token goes in on an inherited pipe (POD-7378): Claude reads `CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR` or `CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR`, the secret is in no environment, argument or file, and `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` is not set, so Linux needs no `bwrap` and no empty mount points are created. Claude reads the descriptor through `/proc/self/fd`, so macOS and Windows keep the variable and the scrub switch, which needs no `bwrap` there. See below. |
 | **Codex** | `releases.openai.com/codex/channels/latest` → 0.171.0, with [GitHub Releases](https://github.com/openai/codex/releases/latest) as installer fallback | `codex-package-<target>.tar.gz` or `.tar.zst`, with `bin/codex` plus helpers and resources. SHA-256 in `codex-package_SHA256SUMS`. | Keep the complete release package. `CODEX_HOME` contains session state and any daemon copy. See 6.3 for the version pin. |
 | **Grok** | `x.ai/cli/stable` → 1.0.89 | `grok-<version>-<platform>`, direct binary. The installer checks the binary runs. No published checksum was found in the installer or at the asset's `.sha256` URL. | `GROK_HOME` directs `auth.json`, config, logs and session storage into the same folder. A live login refresh was outside the lab's available credentials. Grok's Podium home and sign-in folders use it (4.7). |
 | **OpenCode** | [GitHub releases/latest](https://api.github.com/repos/anomalyco/opencode/releases/latest) → v1.19.6 | `opencode-linux-x64.tar.gz` opens to a top-level `opencode`. The GitHub API asset `digest` matches the archive SHA-256. | One override for all state was not found. `OPENCODE_CONFIG_DIR` is config only. Together the XDG config, data, state and cache variables redirected the session database and file-backed key. The personal `~/.opencode/.gitignore` write remained. The `--version` probe alone creates empty default XDG config, data, state and cache folders (POD-7277). |
@@ -823,19 +823,17 @@ the terminal turn left existing files, profiles and both binaries unchanged;
 the whole home was not byte-identical. The POD-7274 evidence contains the
 complete before/after hash lists, including new entries.
 
-On a passed-in credential, Podium's existing
-`CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1` does more on Linux than scrub the
-environment (POD-7375, measured on 2.1.311 and 2.1.329):
+On a passed-in credential, Podium's earlier
+`CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1` did more on Linux than scrub the
+environment (POD-7375, measured on 2.1.311 and 2.1.329). This is why Linux now
+uses the pipe described after the list:
 
 - **It needs bubblewrap.** Claude looks for `sandbox.bwrapPath` in managed
   settings, then `bwrap` on PATH, and exits with status 1 before the composer
   when neither is found. That check runs before any file is written. Podium
   does not install OS packages: the Claude adapter declares `bwrap` as a Linux
-  prerequisite of its hide-from-commands switch, the machine inventory reports
-  it on the Claude Code row, and a passed-in-credential start without it is
-  refused before the process runs, with a message that names the package. A
-  `sandbox.bwrapPath` set by an administrator with no `bwrap` on PATH is
-  refused although Claude would run.
+  prerequisite of its hide-from-commands switch. Since the pipe, no Linux start
+  sets the switch, so the prerequisite is never checked or reported there.
 - **It creates mount points on every start.** Each missing bind target is
   created empty (opened for append, or `mkdir -p`); existing files keep their
   bytes. In HOME: `.gitconfig`, `.bash_profile`, `.bashrc`, `.bash_aliases`,
@@ -853,13 +851,37 @@ environment (POD-7375, measured on 2.1.311 and 2.1.329):
 - **No setting avoids the files while scrubbing stays on.** The only skip is
   an internal launch option a CLI start cannot reach. Turning the switch off
   avoids all of it, but then every command Claude runs inherits the key.
-- **Decision (operator, 2026-11-20):** keep `SCRUB=1` for now and pass the key
-  over a pipe instead (POD-7378). Claude reads
-  `CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR` and
-  `CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR`, reads the secret from that
-  descriptor and drops the variable, so the secret is in no environment and
-  scrubbing is no longer needed for it. This is undocumented and is proven
-  before it replaces the switch.
+- **Decision (operator, 2026-11-20), done (POD-7378):** pass the key over a
+  pipe instead of setting the switch.
+
+**The pipe (POD-7378, proven on 2.1.323 and 2.1.330).** Claude reads
+`CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR` or
+`CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR`, reads that descriptor to the end of
+the stream once at start, and keeps the variable and the descriptor out of the
+commands it runs. Both variables are undocumented.
+
+- **How it is delivered.** The daemon writes the secret to podium-host's stdin
+  and closes it. The host (`create --pipe-env <VARIABLE>`, feature level 3)
+  reads stdin to its end before it forks, puts the bytes on a new pipe whose
+  writer is closed before Claude starts, and sets the variable to the pipe's
+  descriptor in Claude's environment only. The descriptor is 10 or above, out
+  of the range a shell script names, because the turn wrapper uses 4 and 5.
+- **Every launch path.** The terminal PTY, the stream engine, each one-shot
+  headless turn and each `--resume` respawn get a pipe of their own. A process
+  the daemon adopts after a restart needs none: Claude read its copy at start.
+  The `auth status` probe gets its own descriptor too, on its stdin.
+- **Fail closed.** An empty or blank secret is refused before any process
+  starts, by the daemon and again by the host. With an empty token Claude would
+  fall back to a login stored in its home.
+- **What else changes.** The line's own variable (`ANTHROPIC_API_KEY` or
+  `CLAUDE_CODE_OAUTH_TOKEN`) is stripped from the child, so no inherited copy
+  competes with the pipe. `CLAUDE_CODE_REMOTE` is stripped from every Claude
+  child: with it set, Claude writes a key it read from a descriptor to a file
+  for its commands.
+- **Linux only.** Claude reads a pipe through `/proc/self/fd`. On macOS and
+  Windows the secret stays in the variable with the scrub switch, which needs
+  no `bwrap` there. A socket would work on macOS (Claude reads a socket
+  directly), which is left for later.
 
 With an empty Podium home, Claude Code accepted the API-key header and the
 `CLAUDE_CODE_OAUTH_TOKEN` bearer header on completed loopback turns. Its
@@ -961,12 +983,13 @@ removal.
     machine menu** (section 7, decided 2026-11-20). It undoes Podium's home
     edits, stops and removes Podium's services, and removes Podium's state.
 15. **A passed-in Claude credential reaches Claude over a pipe, not the
-    environment** (decided 2026-11-20, once proven). Claude reads
+    environment** (decided 2026-11-20; done, POD-7378). Claude reads
     `CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR` or
     `CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR`, so the secret is in no
     environment and subprocess scrubbing (`CLAUDE_CODE_SUBPROCESS_ENV_SCRUB`,
     which needs bubblewrap and leaves empty files in the home and repository)
-    can be turned off. A spike proves it first; if it fails, scrubbing stays.
+    is off on Linux. Every launch path gets its own pipe, and an empty secret
+    is refused. macOS and Windows keep the variable and scrubbing (section 9).
 
 ### Calls I made, for review
 

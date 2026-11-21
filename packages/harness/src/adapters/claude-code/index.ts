@@ -187,7 +187,9 @@ export const claudeCodeManifest: AgentManifest = {
     // 2.1.329, POD-7375). With bwrap found it creates empty mount points on
     // every start: dotfiles in HOME, package and `.env` files in the working
     // directory, and a block appended to `.git/info/exclude`. No vendor setting
-    // keeps the scrub and skips them.
+    // keeps the scrub and skips them. Both lines use the pipe on Linux, so the
+    // bubblewrap requirement below is never checked there today; it stays
+    // declared for a Linux start that delivers in a variable again.
     hideFromCommands: {
       env: { CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: '1' },
       requires: [
