@@ -319,9 +319,19 @@ async function spawnAndDumpEnv(
     // Reap by explicit pid. Never pattern-kill: a `pkill -f bash` here would take the
     // developer's live agent sessions with it. A host-held child is ended by its label.
     terminal.park()
-    await h.hostKill?.(`podium-blue-${sessionId}`)
-    await waitFor(() => !alive(pid), 5_000)
-    expect(alive(pid), `leaked PTY child pid ${pid}`).toBe(false)
+    if (h.hostKill) {
+      // The host owns and reaps its child: the session is gone when its label is.
+      const label = `podium-blue-${sessionId}`
+      await h.hostKill(label)
+      const until = Date.now() + 5_000
+      while ((await h.ctx.durable.has(label)) && Date.now() < until) {
+        await new Promise((r) => setTimeout(r, 50))
+      }
+      expect(await h.ctx.durable.has(label), `leaked podium-host session ${label}`).toBe(false)
+    } else {
+      await waitFor(() => !alive(pid), 5_000)
+      expect(alive(pid), `leaked PTY child pid ${pid}`).toBe(false)
+    }
   }
 }
 
