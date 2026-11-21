@@ -48,7 +48,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { delimiter, join } from 'node:path'
+import { delimiter, isAbsolute, join, relative, sep } from 'node:path'
 import { asAccountId, asSessionId, type BuiltinHarnessKind } from '@podium/model'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { fixtureManifest } from './adapters/fixture/index.js'
@@ -62,12 +62,25 @@ import type { HeadlessTurnSpec } from './driver/families/headless/types.js'
 import { testLaunchPosture } from './driver/testing/harness-context.js'
 import { harnessChildEnv, harnessContext, harnessDriverContext } from './harness-context.js'
 import type { HarnessContext } from './harness-context-types.js'
+import {
+  managedCheckPorts,
+  managedInstallEnv,
+  managedInstallPorts,
+} from './inventory/managed-install.js'
+import {
+  fakeHarnessInstall,
+  fakeVendorFixture,
+  MANAGED_INSTALL_VENDOR_FIXTURES,
+  type VendorFixture,
+} from './inventory/managed-install.test-support.js'
 import { agentLaunchCommand } from './launch.js'
 import { agentLaunchTerms } from './launch-terms.js'
 import {
   type AgentManifest,
   credentialFileReader,
   declaredValue,
+  type HarnessCheckPorts,
+  type HarnessInstall,
   type HarnessObserverHost,
   resolveCredentialFilePath,
 } from './manifest.js'
@@ -79,16 +92,19 @@ import { transcriptSourceFromGrammar } from './store/store.js'
 // THE DAEMON'S OWN HOME IS A DECOY TOO. `os.homedir()` does not follow a
 // changed `process.env.HOME` under every runtime (Bun reads it once), so the
 // poisoned machine answers it explicitly: whatever HOME the process holds,
-// which below is the decoy home.
+// which below is the decoy home. `os.tmpdir()` follows `TMPDIR` the same way,
+// so a case can move the daemon's temp folder onto the machine it watches.
 vi.mock('node:os', async (importOriginal) => {
   const real = await importOriginal<typeof import('node:os')>()
   const homedir = (): string => process.env.HOME ?? real.homedir()
-  return { ...real, homedir, default: { ...real, homedir } }
+  const tmpdir = (): string => process.env.TMPDIR ?? real.tmpdir()
+  return { ...real, homedir, tmpdir, default: { ...real, homedir, tmpdir } }
 })
 vi.mock('os', async (importOriginal) => {
   const real = await importOriginal<typeof import('node:os')>()
   const homedir = (): string => process.env.HOME ?? real.homedir()
-  return { ...real, homedir, default: { ...real, homedir } }
+  const tmpdir = (): string => process.env.TMPDIR ?? real.tmpdir()
+  return { ...real, homedir, tmpdir, default: { ...real, homedir, tmpdir } }
 })
 
 // ---------------------------------------------------------------------------
@@ -414,6 +430,145 @@ function recordingHost(): HarnessObserverHost & { tailed: string[] } {
 const settle = (ms = 150) => new Promise((resolve) => setTimeout(resolve, ms))
 
 // ---------------------------------------------------------------------------
+// Managed install on the machine
+// ---------------------------------------------------------------------------
+
+/** Every name under the machine's root, outside `skip`. An armed sentinel is
+ *  named, never listed: listing it would move its access time. */
+function machineNames(world: World, skip: string): string[] {
+  const names: string[] = []
+  const visit = (path: string) => {
+    names.push(path)
+    if (path === skip || world.sentinels.has(path) || !statSync(path).isDirectory()) return
+    for (const entry of readdirSync(path).sort()) visit(join(path, entry))
+  }
+  visit(world.root)
+  return names.filter((path) => path !== skip)
+}
+
+const inside = (dir: string, path: string): boolean => {
+  const rel = relative(dir, path)
+  return rel !== '' && !rel.startsWith(`..${sep}`) && rel !== '..' && !isAbsolute(rel)
+}
+
+/**
+ * Run a managed-install section's `latest` and `install` on the poisoned
+ * machine, with the ports the mechanism builds from the machine command
+ * environment, and its vendor served from loopback. Then:
+ *
+ *  - every request went through the ports (the global `fetch` is a trap, and
+ *    the ports' client reaches only the fake vendor);
+ *  - every download, the executable, and every new file landed in the release
+ *    folder: nothing else on the machine (temp folder included) gained a name;
+ *  - `latest` ran nothing; every program `install` ran is inside the release
+ *    folder, and ran with `installerEnv` (from `installerEnvFor`), extended
+ *    only with folders inside the release.
+ *
+ * Decoy reads and writes are the caller's sentinel check.
+ */
+async function managedInstallOnMachine(
+  h: Harness,
+  section: HarnessInstall,
+  vendor: VendorFixture,
+): Promise<void> {
+  const machineEnv = (snapshotOf(h) as { commandEnvironment: { env: Record<string, string> } })
+    .commandEnvironment.env
+  const dir = join(h.world.root, `release-${h.kind}`)
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir)
+  const home = join(dir, 'home')
+  mkdirSync(home)
+  const temp = join(h.world.root, `tmp-${h.kind}`)
+  rmSync(temp, { recursive: true, force: true })
+  mkdirSync(temp)
+
+  const escaped: string[] = []
+  const fetched: { url: string; out?: string }[] = []
+  const ran: { phase: 'latest' | 'install'; cmd: string; env: Readonly<Record<string, string>> }[] =
+    []
+  let phase: 'latest' | 'install' = 'latest'
+  const urlOf = (input: Parameters<typeof fetch>[0]) =>
+    typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+  const realFetch = globalThis.fetch
+  const loopbackOnly = (async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+    const url = urlOf(input)
+    if (!/^http:\/\/127\.0\.0\.1:\d+\//.test(url)) {
+      escaped.push(url)
+      throw new Error(`poisoned machine: ${url} is not the fake vendor`)
+    }
+    return realFetch(input, init)
+  }) as typeof fetch
+
+  const host = await vendor.start()
+  const before = machineNames(h.world, dir)
+  const savedTmp = process.env.TMPDIR
+  globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
+    escaped.push(`global fetch ${urlOf(input)}`)
+    throw new Error('poisoned machine: fetch around the ports')
+  }) as typeof fetch
+  process.env.TMPDIR = temp
+  let executable: string
+  try {
+    const base = managedCheckPorts(managedInstallEnv(machineEnv), {
+      vendorOrigins: host.origins,
+      fetchImpl: loopbackOnly,
+    })
+    const check: HarnessCheckPorts = {
+      ...base,
+      fetch: (url, out) => {
+        fetched.push({ url, out })
+        return base.fetch(url, out)
+      },
+      fetchText: (url) => {
+        fetched.push({ url })
+        return base.fetchText(url)
+      },
+      run: (cmd, args, env) => {
+        ran.push({ phase, cmd, env })
+        return base.run(cmd, args, env)
+      },
+      runTool: (tool, args, env) => {
+        ran.push({ phase, cmd: tool, env })
+        return base.runTool(tool, args, env)
+      },
+    }
+    const release = await section.latest(check)
+    phase = 'install'
+    const ports = managedInstallPorts(check, home)
+    const installed = await section.install(release, dir, ports)
+    executable = join(dir, installed.executable)
+
+    expect(escaped, `${h.kind}: requests around the ports`).toEqual([])
+    expect(fetched.length, `${h.kind}: fetched through the ports`).toBeGreaterThan(0)
+    for (const { url, out } of fetched) {
+      if (out) expect(inside(dir, out), `${h.kind} downloaded ${url} to ${out}`).toBe(true)
+    }
+    expect(inside(dir, executable) && existsSync(executable), executable).toBe(true)
+    for (const run of ran) {
+      const what = `${h.kind} ${run.phase} ran ${run.cmd}`
+      expect(run.phase, `${what}: latest has no release folder to run in`).toBe('install')
+      if (isAbsolute(run.cmd))
+        expect(inside(dir, run.cmd), `${what} outside the release`).toBe(true)
+      for (const [key, value] of Object.entries(run.env)) {
+        const fromInstallerEnv = ports.installerEnv[key] === value
+        const releaseFolder = !(key in ports.installerEnv) && inside(dir, value)
+        expect(
+          fromInstallerEnv || releaseFolder,
+          `${what} with ${key}=${value}: not from installerEnvFor`,
+        ).toBe(true)
+      }
+      expect(run.env.HOME, `${what}: HOME is the release home (installerEnvFor)`).toBe(home)
+    }
+  } finally {
+    globalThis.fetch = realFetch
+    if (savedTmp === undefined) delete process.env.TMPDIR
+    else process.env.TMPDIR = savedTmp
+    await host.stop()
+  }
+  expect(machineNames(h.world, dir), `${h.kind}: wrote outside the release folder`).toEqual(before)
+}
+
+// ---------------------------------------------------------------------------
 // The cases: one per section path. A supported section without one fails.
 // ---------------------------------------------------------------------------
 
@@ -516,6 +671,12 @@ const CASES: Record<string, Case> = {
   install: () => {
     // Legacy adapter data has no runner. Managed releases are exercised by
     // inventory/managed-install.conformance.test.ts, in their isolated folder.
+  },
+  managedInstall: async (h) => {
+    const section = declaredValue(h.manifest.managedInstall)!
+    const vendor = MANAGED_INSTALL_VENDOR_FIXTURES[h.kind as BuiltinHarnessKind]
+    if (!vendor) throw new Error(`${h.kind} has no fake vendor in MANAGED_INSTALL_VENDOR_FIXTURES`)
+    await managedInstallOnMachine(h, section, vendor)
   },
   exec: (h) => {
     const exec = declaredValue(h.manifest.exec)!
@@ -778,6 +939,25 @@ describe('the poisoned machine (POD-6536)', () => {
     const before = statSync(probe).atimeMs
     readFileSync(probe)
     expect(statSync(probe).atimeMs).not.toBe(before)
+  })
+
+  it('the managedInstall case catches an installer run outside installerEnv', async () => {
+    const h = harnessOn(world, 'codex')
+    const honest = fakeHarnessInstall()
+    const leaky: HarnessInstall = {
+      latest: honest.latest,
+      install: (release, dir, ports) =>
+        honest.install(release, dir, { ...ports, installerEnv: ports.env }),
+    }
+    try {
+      await expect(managedInstallOnMachine(h, leaky, fakeVendorFixture)).rejects.toThrow(
+        /not from installerEnvFor/,
+      )
+    } finally {
+      // The leaky installer wrote into the decoy home; take it back out.
+      for (const name of ['.bashrc', '.profile', join('.local', 'bin'), '.fake-harness'])
+        rmSync(join(world.decoyHome, name), { recursive: true, force: true })
+    }
   })
 
   for (const kind of KINDS) {
