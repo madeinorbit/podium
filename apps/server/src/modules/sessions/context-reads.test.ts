@@ -12,6 +12,7 @@ import {
   encodeDaemonMessage,
   parseControlMessage,
   parseDaemonMessage,
+  type RuntimeContextReadRequestMessage,
   type SessionContextReadInput,
 } from '@podium/protocol/daemon'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -94,6 +95,7 @@ async function fixture(caps = [CAP_CONTEXT_OBSERVATION_V1, CAP_CONTEXT_READ_V1])
     contextObservation: (await handle.snapshot()).context,
   }
   const frames: string[] = []
+  const requests: RuntimeContextReadRequestMessage[] = []
   let connected = true
   let owned = true
   let currentHandle: typeof handle | undefined = handle
@@ -120,7 +122,9 @@ async function fixture(caps = [CAP_CONTEXT_OBSERVATION_V1, CAP_CONTEXT_READ_V1])
   rpc = new DaemonRpcService({
     toMachine: (_id: unknown, msg: { type: string }) => {
       frames.push(msg.type)
-      dispatchControlMessage(daemon, parseControlMessage(JSON.stringify(msg)))
+      const parsed = parseControlMessage(JSON.stringify(msg))
+      if (parsed.type === 'runtimeContextReadRequest') requests.push(parsed)
+      dispatchControlMessage(daemon, parsed)
     },
     hasDaemon: () => connected,
     defaultMachine: () => machineId,
@@ -176,6 +180,8 @@ async function fixture(caps = [CAP_CONTEXT_OBSERVATION_V1, CAP_CONTEXT_READ_V1])
     summary,
     detail,
     frames,
+    requests,
+    mux,
     input,
     invoke,
     legacy: () => router.createCaller(context).sessions.legacy(),
@@ -214,6 +220,22 @@ const deferred = <T>() => {
 }
 
 describe('generic context request round trip with the reference driver', () => {
+  it('does not let another RPC family settle the context read', async () => {
+    const f = await fixture()
+    const pending = deferred<ContextDetailResult>()
+    f.native.mockReturnValueOnce(pending.promise)
+    const request = f.invoke()
+    await vi.waitFor(() => expect(f.native).toHaveBeenCalledOnce())
+    const sent = f.requests[0]
+    if (!sent) throw new Error('Expected the generic context request')
+    await f.mux.routeDaemonFrame(machineId, {
+      type: 'credentialRemoveResult',
+      requestId: sent.requestId,
+      outcome: 'absent',
+    })
+    pending.resolve(f.detail)
+    expect(await request).toEqual({ intent: 'breakdown', result: f.detail })
+  })
   it('never refreshes snapshots or summary probes when reading detail, including a lagging server sample', async () => {
     const f = await fixture()
     const snapshot = vi.spyOn(f.handle, 'snapshot').mockImplementation(() => {

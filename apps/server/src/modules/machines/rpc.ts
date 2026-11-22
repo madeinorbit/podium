@@ -359,7 +359,7 @@ const log = createLogger('server:daemon-rpc')
  *  release so the fan-in remains total over the frames the gateway routes. */
 const RUNTIME_HISTORY = daemonRequestKind<Payload<RuntimeHistoryResultMessage>>('rh')
 const RUNTIME_SNAPSHOT = daemonRequestKind<Payload<RuntimeSnapshotResultMessage>>('rn')
-const CONTEXT_READ = daemonRequestKind<Payload<RuntimeContextReadResultMessage>>('cx')
+const CONTEXT_READ = daemonRequestKind<Payload<RuntimeContextReadResultMessage>>('ctxr')
 const RUNTIME_CONFIGURE = daemonRequestKind<Payload<RuntimeConfigureResultMessage>>('rc')
 
 /** How ONE reply frame settles: pick the family, project the payload, hand both
