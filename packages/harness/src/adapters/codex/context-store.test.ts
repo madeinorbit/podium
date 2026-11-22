@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { tailTranscript } from '../../store/tailer.js'
 import { codexContext } from './context.js'
+import { CODEX_INVOCATION, CODEX_INVOCATION_SEGMENT } from './context-invocation.js'
 import { nativeTime, object } from './context-native.js'
 import native from './fixtures/context-0.169.0.json'
 
@@ -33,6 +34,24 @@ describe('Codex bounded existing Store recovery', () => {
       publish: vi.fn(),
       probe: { request: probe },
     })
+    // The archived CLI executable is independently pinned in POD-7396.
+    // Supply a synthetic retained invocation envelope; do not infer its build
+    // from session_meta or the binary currently installed on this test host.
+    strategy.observe(
+      {
+        type: CODEX_INVOCATION,
+        nativeSessionId: id,
+        version: native.nativeVersion,
+        startedAt: '2026-11-21T00:00:00.000Z',
+      },
+      {
+        at: '2026-11-21T00:00:00.000Z',
+        provenance: 'live',
+        observerGeneration: 2,
+        turnEpoch: 7,
+        cursor: { segmentId: CODEX_INVOCATION_SEGMENT, components: { spawn: 1 } },
+      },
+    )
     let tail: ReturnType<typeof tailTranscript> | undefined
     let timer: ReturnType<typeof setTimeout> | undefined
     let rows = 0

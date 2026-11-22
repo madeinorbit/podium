@@ -62,7 +62,6 @@ class CodexContext implements ContextSessionStrategy {
   private capacity?: ContextCapacity
   private turn?: Turn
   private version?: string
-  private rolloutVersion?: string
   private invocation?: { version: string; after: number }
   private fingerprint?: string
   private fenceAt = -1
@@ -126,7 +125,6 @@ class CodexContext implements ContextSessionStrategy {
     }
     if (cause === 'binding-changed' || cause === 'resume') {
       this.version = undefined
-      this.rolloutVersion = undefined
       this.invocation = undefined
       this.model = undefined
       this.capacity = undefined
@@ -208,18 +206,15 @@ class CodexContext implements ContextSessionStrategy {
     source: CodexContextSource,
     causal: CausalEnvelope,
   ) {
-    // A creation header is historical provenance, not proof of the next
-    // process's build. New live records need a fresh invocation witness.
+    // A creation header cannot certify a later writer. Bootstrap retains its
+    // original event time too: only rows inside a witnessed invocation can
+    // use that invocation's build, never old rows re-read after a new spawn.
     const version =
       source === 'app-server'
         ? this.version
-        : causal.provenance === 'bootstrap'
-          ? !this.invocation || this.invocation.version === this.rolloutVersion
-            ? this.rolloutVersion
-            : undefined
-          : this.invocation && Date.parse(causal.at) >= this.invocation.after
-            ? this.invocation.version
-            : undefined
+        : this.invocation && Date.parse(causal.at) >= this.invocation.after
+          ? this.invocation.version
+          : undefined
     if (!codexContextVersion(version)) {
       this.pending(
         causal,
@@ -440,9 +435,7 @@ class CodexContext implements ContextSessionStrategy {
         payload.session_id !== this.input.nativeSessionId
       )
         return
-      this.rolloutVersion = text(payload.cli_version)
-      const providerId = text(payload.model_provider)
-      if (providerId) this.model = { providerId }
+      // The creation provider does not identify a later resumed request.
       return
     }
     if (raw.type === 'event_msg' && payload.type === 'task_started') {
@@ -460,9 +453,7 @@ class CodexContext implements ContextSessionStrategy {
       if (!this.turn) this.start(id, causal, false)
       if (id !== this.turn?.id) return
       const modelId = text(payload.model)
-      const model = modelId
-        ? { modelId, ...(this.model?.providerId ? { providerId: this.model.providerId } : {}) }
-        : undefined
+      const model = modelId ? { modelId } : undefined
       const turn = this.turn
       this.select(model, causal, 'model' in payload && !modelId)
       // A new turn_context may itself prove an observed model switch.

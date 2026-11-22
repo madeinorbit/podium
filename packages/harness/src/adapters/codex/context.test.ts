@@ -21,6 +21,9 @@ import { codexRuntime } from './transcript.js'
 const primary = '01a2002b-2d4d-7161-847f-3e6ef24bf11f'
 const revision = { bindingVersion: 1, observerGeneration: 1, contextRevision: 1, turnEpoch: 0 }
 const at = '2026-11-22T12:00:00.000Z'
+// Synthetic admission envelope for this archive's independently pinned binary.
+// This lower bound is test scaffolding, not a claimed native spawn timestamp.
+const captureFloor = '2026-11-21T00:00:00.000Z'
 const clone = <T>(v: T): T => structuredClone(v)
 const token = (n: number, total = n, window: unknown = 9_500) => ({
   method: 'thread/tokenUsage/updated',
@@ -103,6 +106,20 @@ function world(driver: AcceptedDriverId = 'codex-app-server', nativeSessionId = 
       params: { threadId: nativeSessionId, turn: { id: 'main', rootTurnId: 'main' } },
     })
   }
+  const witness = (generation = 1) =>
+    observe(
+      {
+        type: CODEX_INVOCATION,
+        nativeSessionId,
+        version: native.nativeVersion,
+        startedAt: captureFloor,
+      },
+      {
+        at: captureFloor,
+        observerGeneration: generation,
+        cursor: { segmentId: CODEX_INVOCATION_SEGMENT, components: { spawn: 1 } },
+      },
+    )
   return {
     bound,
     life,
@@ -113,12 +130,14 @@ function world(driver: AcceptedDriverId = 'codex-app-server', nativeSessionId = 
     available,
     detail,
     seed,
+    witness,
     publish,
     request,
   }
 }
 async function replay(rows: readonly unknown[], driver: AcceptedDriverId, id = primary) {
   const w = world(driver, id)
+  if (driver !== 'codex-app-server') w.witness()
   for (const row of rows)
     w.observe(row, { provenance: driver === 'codex-app-server' ? 'live' : 'bootstrap' })
   return w
@@ -154,7 +173,7 @@ describe('Codex pinned native context measurements', () => {
     for (const w of [app, terminal, headless]) {
       const c = await w.available()
       expect(c).toMatchObject({
-        model: { modelId: 'gpt-6.1-sol', providerId: 'fixture' },
+        model: { modelId: 'gpt-6.1-sol' },
         occupancy: {
           basis: 'last-request',
           usedTokens: { value: 4511, accuracy: 'estimated' },
@@ -178,6 +197,8 @@ describe('Codex pinned native context measurements', () => {
       expect(w.request).not.toHaveBeenCalled()
     }
     expect((await app.current()).provenance).toBe('live')
+    expect((await app.available()).model?.providerId).toBe('fixture')
+    expect((await terminal.available()).model?.providerId).toBeUndefined()
     expect((await terminal.current()).provenance).toBe('bootstrap')
     expect((await app.available()).occupancy.usedTokens?.source).toContain('app-server')
     expect((await headless.available()).occupancy.usedTokens?.source).toContain('rollout')
@@ -244,6 +265,7 @@ describe('Codex pinned native context measurements', () => {
   ] as const)('classifies old/helper/estimate compaction emissions in %s', async (driver) => {
     const rows: unknown[] = driver === 'codex-app-server' ? native.appServer : native.rollout
     const w = world(driver)
+    if (driver === 'generic-pty') w.witness()
     for (const r of rows) {
       w.observe(r, { provenance: driver === 'generic-pty' ? 'bootstrap' : 'live' })
       const usage =
@@ -505,7 +527,7 @@ describe('Codex context lifecycle and field admission', () => {
     ).toMatchObject({ status: 'refused' })
   })
 
-  it('recovers original Store sample time after resume and fences the prior generation', async () => {
+  it('requires retained invocation provenance on resume and preserves the recovered native time', async () => {
     const w = await replay(native.rollout, 'generic-pty')
     const previous = await w.available()
     w.bound.invalidate('resume', w.causal({ observerGeneration: 2 }))
@@ -513,10 +535,15 @@ describe('Codex context lifecycle and field admission', () => {
       expect(w.observe(row, { provenance: 'bootstrap', observerGeneration: 1 })).toBeUndefined()
       w.observe(row, { provenance: 'bootstrap', observerGeneration: 2 })
     }
+    expect((await w.current()).context.status).not.toBe('available')
+    w.bound.invalidate('resume', w.causal({ observerGeneration: 3 }))
+    w.witness(3)
+    for (const row of native.rollout)
+      w.observe(row, { provenance: 'bootstrap', observerGeneration: 3 })
     const recovered = await w.available()
     expect(recovered.sample.at).toBe(previous.sample.at)
     expect(recovered.occupancy).toEqual(previous.occupancy)
-    expect(recovered.sample.observerGeneration).toBe(2)
+    expect(recovered.sample.observerGeneration).toBe(3)
     expect(recovered.sample.contextRevision).toBeGreaterThan(previous.sample.contextRevision)
     expect(w.request).not.toHaveBeenCalled()
   })
@@ -598,12 +625,25 @@ describe('Codex context lifecycle and field admission', () => {
     expect((await w.available()).occupancy.usedTokens?.value).toBe(4511)
     expect((await w.available()).model?.providerId).toBeUndefined()
     const replay = world('headless')
-    replay.observe(witness, {
-      cursor: { segmentId: CODEX_INVOCATION_SEGMENT, components: { spawn: 1 } },
-    })
+    replay.observe(
+      { ...witness, startedAt: at },
+      {
+        cursor: { segmentId: CODEX_INVOCATION_SEGMENT, components: { spawn: 1 } },
+      },
+    )
     for (const row of throughUsage(native.rollout, 4511).slice(5))
       replay.observe(row, { provenance: 'bootstrap' })
     expect((await replay.current()).context.status).toBe('unavailable')
+  })
+
+  it('does not let an original creation header certify a later historical writer', async () => {
+    const w = world('generic-pty')
+    for (const row of throughUsage(native.rollout, 4511))
+      w.observe(row, { provenance: 'bootstrap' })
+    expect((await w.current()).context).toMatchObject({
+      status: 'unavailable',
+      reason: { code: 'unverified-native-version' },
+    })
   })
 
   it('does not trust an old creation header for a newer live writer or an untrusted witness cursor', async () => {
