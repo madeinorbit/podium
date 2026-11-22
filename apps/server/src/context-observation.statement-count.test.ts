@@ -530,6 +530,34 @@ describe('context telemetry stays live and uses a constant lease read', () => {
       await base.teardown?.(f)
     }
   })
+  it('keeps link loss stale despite a held old snapshot, then restores the exact idle sample on reconnect', async () => {
+    const base = contextPin('opencode')
+    const f = await base.setup(1)
+    try {
+      await base.run(f, 1)
+      const session = f.reg.modules.sessions.sessions.get(f.frame.sessionId)
+      const original = session?.contextObservation
+      if (!session || !original) throw new Error('No invented context')
+      const snapshot = { ...f.snapshot, context: original }
+      f.holdSnapshots()
+      await f.requestSnapshot()
+      session.markContextOffline()
+      await f.replyPendingSnapshot(snapshot)
+      await base.run(f, 1)
+      expect(session.contextObservation?.context).toMatchObject({
+        status: 'stale',
+        sample: { id: 'invented-context-sample' },
+      })
+      expect(session.contextObservation?.at).toBe(original.at)
+      expect(session.contextObservation?.cursor).toEqual(original.cursor)
+      await f.replay(snapshot)
+      expect(session.contextObservation).toEqual(original)
+      expect(await f.store.events.runtimeEventCheckpoint(f.frame.sessionId)).toBeNull()
+      expect(await f.store.events.listRuntimeEvents(f.frame.sessionId)).toEqual([])
+    } finally {
+      await base.teardown?.(f)
+    }
+  })
   it('admits a newer verified binding with reset counters despite an older ordinary head', async () => {
     const base = contextPin('opencode')
     const f = await base.setup(1)

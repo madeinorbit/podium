@@ -600,6 +600,11 @@ export class Session {
   }
 
   markContextOffline(): boolean {
+    this.contextAuthority = {
+      ...this.contextAuthority,
+      epoch: this.contextAuthority.epoch + 1,
+      verified: false,
+    }
     const observation = this.contextObservation
     if (!observation || observation.context.status !== 'available') return false
     this.contextObservation = {
