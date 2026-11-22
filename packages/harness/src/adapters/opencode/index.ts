@@ -404,6 +404,11 @@ export const opencodeManifest: AgentManifest = {
       ...(input.statTick ? { statTick: input.statTick } : {}),
       ...(input.loadOpencodeSource ? { loadSource: input.loadOpencodeSource } : {}),
       ...(input.resumeValue ? { resumeValue: input.resumeValue } : {}),
+      // This spawn-only input is paired with launch()'s --session argument.
+      // Adoption/headless hints have no such proof and keep context withheld.
+      ...(input.startedAtMs !== undefined && input.resumeValue
+        ? { contextOwnedSessionId: input.resumeValue }
+        : {}),
       homeDir: input.account.home,
       ...(input.startedAtMs !== undefined ? { startedAtMs: input.startedAtMs } : {}),
       onSession: (opencodeSessionId) => host.onResumeValue(opencodeSessionId),

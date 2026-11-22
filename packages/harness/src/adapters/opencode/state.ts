@@ -82,6 +82,10 @@ export function observeOpencodeState(opts: {
   /** Stable Podium row identity; used to select a session-owned store. */
   podiumSessionId?: string
   resumeValue?: string
+  /** Separately attested identity from the current invocation's owned native
+   * launch/stream binding. A persisted resume hint or host generation cannot
+   * supply this proof. Missing proof keeps Store context publication closed. */
+  contextOwnedSessionId?: string
   homeDir: string
   /** Explicit store path for tests/embedders that already selected one. */
   databasePath?: string
@@ -120,6 +124,7 @@ export function observeOpencodeState(opts: {
     opts.startedAtMs !== undefined ? opts.startedAtMs - FRESH_SESSION_MARGIN_MS : undefined
   let stopped = false
   let attached: OpencodeSessionRow | undefined
+  let contextSessionId: string | undefined
   let lastPartTime = 0
   let lastPartId: string | undefined
   let lastCompacting: number | null | undefined
@@ -139,8 +144,9 @@ export function observeOpencodeState(opts: {
       }
     | undefined
   const emitContext = (): void => {
+    if (!pendingContext || pendingContext.payload.session.id !== contextSessionId) return
     const identity = opts.contextIdentity?.()
-    if (!identity || !opts.onContextPayload || !pendingContext) return
+    if (!identity || !opts.onContextPayload) return
     opts.onContextPayload(pendingContext.payload, { ...pendingContext.causal, ...identity })
     pendingContext = undefined
     contextPublished = true
@@ -198,9 +204,15 @@ export function observeOpencodeState(opts: {
   // skip on uncertainty, so a fresh read always runs.
   let lastPollMtimeMs: number | undefined
 
-  const attach = (session: OpencodeSessionRow): void => {
+  const attach = (session: OpencodeSessionRow, exactRequestedSession: boolean): void => {
     if (attached?.id === session.id) return
     attached = session
+    // A store path, cwd/time match or later host generation does not prove
+    // the candidate is this invocation's primary native session. Only the
+    // requested native ID's exact lookup, paired with independent invocation
+    // ownership, can admit this Store context source.
+    contextSessionId =
+      exactRequestedSession && session.id === opts.contextOwnedSessionId ? session.id : undefined
     lastPartTime = 0
     lastPartId = undefined
     lastCompacting = session.timeCompacting
@@ -251,7 +263,7 @@ export function observeOpencodeState(opts: {
         return
       }
       const session = candidates[0]
-      if (session && !stopped) attach(session)
+      if (session && !stopped) attach(session, false)
     } catch {
       dropDb()
     }
@@ -361,7 +373,7 @@ export function observeOpencodeState(opts: {
         firstTranscript = false
       }
       if (events.length > 0) opts.onEvents(events)
-      if (opts.contextIdentity && opts.onContextPayload) {
+      if (contextSessionId === session.id && opts.contextIdentity && opts.onContextPayload) {
         const at = rows.reduce(
           (latest, row) => Math.max(latest, row.timeUpdated),
           session.timeUpdated,
@@ -441,8 +453,8 @@ export function observeOpencodeState(opts: {
       if (!handle) return
       try {
         const session = rt.getOpencodeSession(handle, opts.resumeValue ?? '')
-        if (session && !stopped) {
-          attach(session)
+        if (session && session.id === opts.resumeValue && !stopped) {
+          attach(session, true)
           return
         }
       } catch {

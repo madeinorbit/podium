@@ -1,12 +1,13 @@
 import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
+import { asSessionId } from '@podium/model'
 import type { CausalEnvelope } from '@podium/protocol/daemon'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AgentStateEvent } from '../../agent-state/types.js'
 import type { ContextObservation } from '../../context-types.js'
-import { testAccount } from '../../driver/testing/harness-context.js'
+import { testAccount, testHarnessContext } from '../../driver/testing/harness-context.js'
 import { initialAgentState, reduceAgentState } from '../../observer.js'
 import {
   loadOpencodeMessageParts,
@@ -16,6 +17,7 @@ import {
 import { agentStateProviderFor } from '../../registry.js'
 import { encodeCursor } from '../../store/cursor-codec.js'
 import { opencodeContext } from './context.js'
+import { opencodeManifest } from './index.js'
 import { observeOpencodeState, opencodeStateProvider } from './state.js'
 import { opencodeFileId } from './transcript.js'
 
@@ -232,6 +234,7 @@ describe('opencode state provider', () => {
         cwd: '/repo/context',
         homeDir: home,
         resumeValue: 'ses_context',
+        contextOwnedSessionId: 'ses_context',
         pollMs: 10,
         loadSource,
         onEvents: () => {},
@@ -349,6 +352,186 @@ describe('opencode state provider', () => {
 
 describe('OpenCode session identity (POD-2871)', () => {
   const discoveryStartMs = 1_700_000_000_000
+
+  it.each([
+    'fresh',
+    'missing-resume',
+    'persisted-resume',
+    'exact-resume',
+  ] as const)('%s keeps same-cwd discovery separate from exact Store context ownership', async (mode) => {
+    const home = await mkdtemp(join(tmpdir(), 'podium-opencode-context-ownership-'))
+    const databasePath = opencodeSessionDbPath(home, 'pod-context-owner')
+    let obs: { stop(): void } | undefined
+    const lifetime = new AbortController()
+    const watchers = new Set<() => void>()
+    const cadence = setInterval(() => {
+      for (const watcher of watchers) watcher()
+    }, 10)
+    let selectedSessionId: string | undefined
+    try {
+      await mkdir(dirname(databasePath), { recursive: true })
+      await seedSessionDb(
+        dirname(databasePath),
+        'ses-owner',
+        '/repo/shared',
+        'owner transcript',
+        databasePath,
+      )
+      const db = openDatabase(databasePath)
+      try {
+        const owner = {
+          role: 'assistant',
+          modelID: 'context-a',
+          providerID: 'audit',
+          time: { created: discoveryStartMs + 10, completed: discoveryStartMs + 20 },
+          tokens: { input: 6_000, output: 500, reasoning: 100, cache: { read: 2_000, write: 0 } },
+        }
+        const peer = {
+          role: 'assistant',
+          modelID: 'context-b',
+          providerID: 'audit',
+          time: { created: discoveryStartMs + 30, completed: discoveryStartMs + 40 },
+          tokens: { input: 8_000, output: 700, reasoning: 300, cache: { read: 4_000, write: 0 } },
+        }
+        db.prepare('UPDATE session SET model = ? WHERE id = ?').run(
+          JSON.stringify({ id: 'context-a', providerID: 'audit' }),
+          'ses-owner',
+        )
+        db.prepare('UPDATE message SET data = ? WHERE id = ?').run(JSON.stringify(owner), 'msg-a')
+        // A competing native session lives in the SAME isolated store and
+        // cwd, with newer native times. Directory/store selection alone
+        // cannot identify the invocation's primary conversation.
+        db.prepare(
+          'INSERT INTO session (id, directory, title, model, time_created, time_updated) VALUES (?, ?, ?, ?, ?, ?)',
+        ).run(
+          'ses-peer',
+          '/repo/shared',
+          'peer',
+          JSON.stringify({ id: 'context-b', providerID: 'audit' }),
+          discoveryStartMs + 30,
+          discoveryStartMs + 200_000,
+        )
+        db.prepare(
+          'INSERT INTO message (id, session_id, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?)',
+        ).run(
+          'msg-peer',
+          'ses-peer',
+          discoveryStartMs + 30,
+          discoveryStartMs + 40,
+          JSON.stringify(peer),
+        )
+        db.prepare(
+          'INSERT INTO part (id, message_id, session_id, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?, ?)',
+        ).run(
+          'prt-peer',
+          'msg-peer',
+          'ses-peer',
+          discoveryStartMs + 30,
+          discoveryStartMs + 40,
+          JSON.stringify({ type: 'text', text: 'peer transcript' }),
+        )
+      } finally {
+        db.close()
+      }
+      const declaration = opencodeContext.forDriver('generic-pty')
+      if (!declaration.supported) throw new Error(declaration.reason)
+      const contexts: ContextObservation[] = []
+      const nativePayloads: unknown[] = []
+      const models: string[] = []
+      const transcript: string[] = []
+      let bound: ReturnType<typeof declaration.value.bind> | undefined
+      const observer = opencodeManifest.observer
+      if (!observer.supported) throw new Error(observer.reason)
+      if (mode === 'exact-resume') {
+        const launch = opencodeManifest.launch({
+          cwd: '/repo/shared',
+          podiumSessionId: asSessionId('pod-context-owner'),
+          harnessContext: testHarnessContext({ kind: 'opencode', home }),
+          resume: { kind: 'opencode-session', value: 'ses-owner' },
+        })
+        expect(launch.args).toEqual(['--session', 'ses-owner'])
+      }
+      obs = observer.value(
+        {
+          cwd: '/repo/shared',
+          account: testAccount('opencode', home),
+          podiumSessionId: asSessionId('pod-context-owner'),
+          ...(mode === 'fresh'
+            ? {}
+            : { resumeValue: mode === 'missing-resume' ? 'ses-missing' : 'ses-owner' }),
+          ...(mode === 'persisted-resume' ? {} : { startedAtMs: discoveryStartMs }),
+          statTick: {
+            subscribe(watcher) {
+              watchers.add(watcher)
+              return () => {
+                watchers.delete(watcher)
+              }
+            },
+          },
+          loadOpencodeSource: loadSource,
+        },
+        {
+          tailFile: () => {},
+          onTitle: () => {},
+          onStateEvents: () => {},
+          onObservation: () => {},
+          onExactProviderRebind: () => {},
+          contextIdentity: () => ({ observerGeneration: 7, turnEpoch: 3 }),
+          onResumeValue(nativeSessionId) {
+            selectedSessionId = nativeSessionId
+            // Model the host accepting even a heuristic ref/generation. That
+            // snapshot must NOT promote discovery into exact context truth.
+            bound = declaration.value.bind({
+              harness: 'opencode',
+              driver: 'generic-pty',
+              nativeSessionId,
+              revision: {
+                bindingVersion: 5,
+                contextRevision: 2,
+                observerGeneration: 7,
+                turnEpoch: 3,
+              },
+              signal: lifetime.signal,
+              publish: () => {},
+            })
+          },
+          onModel: (model) => models.push(model),
+          onTranscriptItems: (items) => transcript.push(...items.map((item) => item.text ?? '')),
+          onContextPayload(payload, causal) {
+            nativePayloads.push(payload)
+            const context = bound?.observe(payload, causal)
+            if (context) contexts.push(context)
+          },
+        },
+      )
+      const exact = mode === 'exact-resume'
+      const requestedOwner = exact || mode === 'persisted-resume'
+      await waitFor(
+        () =>
+          selectedSessionId === (requestedOwner ? 'ses-owner' : 'ses-peer') &&
+          transcript.length > 0,
+      )
+      await new Promise((resolve) => setTimeout(resolve, 50))
+      expect(models).toEqual([requestedOwner ? 'audit/context-a' : 'audit/context-b'])
+      expect(transcript).toContain(requestedOwner ? 'owner transcript' : 'peer transcript')
+      if (exact) {
+        expect(contexts.at(-1)?.context).toMatchObject({
+          status: 'available',
+          sample: { nativeSessionId: 'ses-owner' },
+          occupancy: { usedTokens: { value: 8_600 } },
+        })
+        expect(JSON.stringify(nativePayloads)).not.toContain('ses-peer')
+      } else {
+        expect(nativePayloads).toEqual([])
+        expect(contexts).toEqual([])
+      }
+    } finally {
+      obs?.stop()
+      clearInterval(cadence)
+      lifetime.abort()
+      await rm(home, { recursive: true, force: true })
+    }
+  })
 
   it('isolates same-directory sessions and measures the fault row, not just visible text', async () => {
     const home = await mkdtemp(join(tmpdir(), 'podium-opencode-same-dir-'))
