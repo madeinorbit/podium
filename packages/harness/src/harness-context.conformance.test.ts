@@ -49,10 +49,16 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { delimiter, isAbsolute, join, relative, sep } from 'node:path'
-import { asAccountId, asSessionId, type BuiltinHarnessKind } from '@podium/model'
+import {
+  asAccountId,
+  asSessionId,
+  type BuiltinHarnessKind,
+  ContextAvailability,
+} from '@podium/model'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { fixtureManifest } from './adapters/fixture/index.js'
 import { type BoundCommand, harnessCommand } from './bound-command.js'
+import { ContextObservationSchema } from './driver/context.js'
 import {
   allocationInvocation,
   composeHeadlessInvocation,
@@ -78,6 +84,7 @@ import { agentLaunchTerms } from './launch-terms.js'
 import {
   type AgentManifest,
   credentialFileReader,
+  DRIVER_IDS,
   declaredValue,
   type HarnessCheckPorts,
   type HarnessInstall,
@@ -590,7 +597,57 @@ const NEEDS_MODEL = new Map<string, string>([
   ],
 ])
 
+const CONTEXT_CASES: Record<string, Case> = Object.fromEntries(
+  DRIVER_IDS.map((driver) => [
+    `runtime.context.${driver}`,
+    async (h: Harness) => {
+      const declaration = h.manifest.runtime.context.forDriver(driver)
+      if (!declaration.supported) {
+        expect(declaration.reason.trim().length).toBeGreaterThan(0)
+        return
+      }
+      const lifetime = new AbortController()
+      const port = {
+        request: async (_operation: unknown, _options: unknown): Promise<unknown> => undefined,
+      }
+      try {
+        ContextAvailability.parse(
+          await declaration.value.probe({ timeoutMs: 50, signal: lifetime.signal }, port),
+        )
+        const session = declaration.value.bind({
+          harness: h.kind,
+          driver,
+          nativeSessionId: RESUME,
+          revision: { bindingVersion: 1, observerGeneration: 1, turnEpoch: 0, contextRevision: 1 },
+          probe: port,
+          signal: lifetime.signal,
+          publish: (observation) => {
+            ContextObservationSchema.parse(observation)
+          },
+        })
+        const observation = session.observe(undefined, {
+          at: '2026-11-21T12:00:00.000Z',
+          provenance: 'bootstrap',
+          cursor: { segmentId: 'invented-context-source', components: { seq: 1 } },
+          observerGeneration: 1,
+          turnEpoch: 0,
+        })
+        if (observation) ContextObservationSchema.parse(observation)
+        lifetime.abort()
+        await session
+          .summary({ timeoutMs: 50, signal: lifetime.signal })
+          .catch((error: unknown) => {
+            if (!(error instanceof Error) || error.name !== 'AbortError') throw error
+          })
+      } finally {
+        lifetime.abort()
+      }
+    },
+  ]),
+)
+
 const CASES: Record<string, Case> = {
+  ...CONTEXT_CASES,
   // --- not Declared, but every harness has them ----------------------------
   launch: (h) => {
     const runtimeDir = join(h.world.root, `runtime-${h.kind}`)
@@ -898,7 +955,13 @@ const CASES: Record<string, Case> = {
 }
 
 /** Required of every harness, Declared or not. */
-const ALWAYS = ['launch', 'roots', 'discovery', 'inventory.detectLogin'] as const
+const ALWAYS = [
+  'launch',
+  'roots',
+  'discovery',
+  'inventory.detectLogin',
+  ...Object.keys(CONTEXT_CASES),
+] as const
 
 // ---------------------------------------------------------------------------
 // The run
@@ -964,10 +1027,12 @@ describe('the poisoned machine (POD-6536)', () => {
     describe(kind, () => {
       const manifest = manifestOf(kind)
       const supported = [
-        ...ALWAYS,
-        ...sectionStatusesOf(manifest)
-          .filter((row) => row.supported)
-          .map((row) => row.section),
+        ...new Set([
+          ...ALWAYS,
+          ...sectionStatusesOf(manifest)
+            .filter((row) => row.supported)
+            .map((row) => row.section),
+        ]),
       ]
 
       it('has a conformance case for every supported section', () => {
