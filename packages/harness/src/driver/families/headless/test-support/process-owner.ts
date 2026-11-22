@@ -1,8 +1,8 @@
 /** Test-only process owner with real children, durable ring replay and writer leases. */
 import { type ChildProcess, spawn } from 'node:child_process'
 import { constants } from 'node:os'
-import { flattenEngineSpawn, type TestEngineSpawn } from '../../testing/binding-records.js'
-import type { EngineAttachment, EngineProcessOwner } from '../engine-supervision.js'
+import { flattenEngineSpawn, type TestEngineSpawn } from '../../../testing/binding-records.js'
+import type { EngineAttachment, EngineProcessOwner } from '../../engine-supervision.js'
 
 interface Conn {
   data: Set<(seq: bigint, data: Buffer) => void>

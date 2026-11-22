@@ -18,8 +18,8 @@ import {
   testTurnPosturePort,
 } from '../../testing/harness-context.js'
 import { startHookIngest } from '../terminal/instrumentation.js'
-import { createFakeHosts } from './process-test-support.js'
 import { createHeadlessRuntime, type HeadlessDriverHost } from './runtime.js'
+import { createFakeHosts } from './test-support/process-owner.js'
 import { testHarnessSnapshot } from './test-support.js'
 
 const cleanup: (() => Promise<unknown> | void)[] = []

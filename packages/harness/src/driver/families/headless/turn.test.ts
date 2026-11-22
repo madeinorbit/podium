@@ -24,7 +24,7 @@ import { afterAll, afterEach, describe, expect, it } from 'vitest'
 import type { TestEngineSpawn } from '../../testing/binding-records.js'
 import { testTurnPosture } from '../../testing/harness-context.js'
 import type { EngineProcessOwner } from '../engine-supervision.js'
-import { createFakeHosts } from './process-test-support.js'
+import { createFakeHosts } from './test-support/process-owner.js'
 import { testHarnessSnapshot } from './test-support.js'
 import {
   acknowledgeHostedTurn,
