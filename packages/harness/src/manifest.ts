@@ -1202,6 +1202,9 @@ export interface InstrumentationDestination {
   seedTheme?: boolean
   /** Directory holding the per-session settings file the install writes. */
   settingsDir: string
+  /** Effective extension policy for this invocation. Headless callers must
+   * supply the decision; absence preserves existing terminal behavior. */
+  extensionsAllowed?: boolean
   /**
    * The session-pinned harness context (POD-6533). The ONLY source of the
    * install's facts: the harness's state folders are `roots` (a global-home
@@ -1305,6 +1308,9 @@ export type InstrumentationInstallScope =
   | { kind: 'home'; homeOf(destination: InstrumentationDestination): string }
 
 export interface HarnessInstrumentation {
+  /** Explicit opt-in for additional driver families. Absent means the
+   * existing terminal-only installation lifecycle. */
+  driverIds?: readonly string[]
   /** Install the hook wiring for one session: global layout (where the
    *  harness has one) plus the per-session callback wiring. */
   install(destination: InstrumentationDestination): Promise<InstalledInstrumentation>

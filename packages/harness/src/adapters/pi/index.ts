@@ -1,7 +1,6 @@
 import { join } from 'node:path'
 import { transcriptEchoAcceptCorrelation } from '../../accept-correlation.js'
 import { withStateChannel } from '../../agent-state/types.js'
-import { declinedContext } from '../../context-types.js'
 import { composeAgentInstructions } from '../../instructions.js'
 import {
   type AgentManifest,
@@ -15,6 +14,7 @@ import {
   unsupported,
 } from '../../manifest.js'
 import { piCatalog } from './catalog.js'
+import { piContext } from './context.js'
 import { piConversationFile } from './conversation-file.js'
 import {
   credentialedPiProviders,
@@ -26,6 +26,7 @@ import {
 import { piDescriptor } from './descriptor.js'
 import { createPiConversationProvider } from './discovery.js'
 import { piInstall, piManagedInstall } from './install.js'
+import { piInstrumentation } from './instrumentation.js'
 import { piPosture } from './posture.js'
 import { resolvePiSelection } from './selection.js'
 import { observePiState, piStateProvider } from './state.js'
@@ -41,11 +42,12 @@ export {
 } from './stream.js'
 
 /**
- * Pi (`pi`, @earendil-works/pi-coding-agent). Everything below was verified
- * against pi 0.84.4 driven by a fake OpenAI-compatible provider — see
+ * Pi (`pi`, @earendil-works/pi-coding-agent). Base launch/stream grammar was
+ * verified against pi 0.84.4 driven by a fake OpenAI-compatible provider — see
  * docs/superpowers/specs/2026-09-02-pi-headless-driver-design.md and
  * docs/agent-harness-reference/pi.md.
  *
+ * The context extension separately admits measured Pi 1.5.0 (context.ts).
  * Pi's thinking levels double as Podium's effort: `--thinking` accepts these.
  */
 const THINKING_LEVELS = new Set(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'])
@@ -111,7 +113,7 @@ export const piManifest: AgentManifest = {
     promptModeHints: false,
     handoff: false,
     mcp: 'none',
-    hookInstall: 'none',
+    hookInstall: 'settings-args',
     observationProvider: 'none',
     observationProtocol: 'generic',
     // UNMEASURED: the interactive TUI was not driven on the host this was written
@@ -276,9 +278,7 @@ export const piManifest: AgentManifest = {
   }),
 
   state: supported(piStateProvider),
-  instrumentation: unsupported(
-    'pi posts no hook payloads; observation is poll-only over its stream',
-  ),
+  instrumentation: supported(piInstrumentation),
   stateChannels: [
     {
       source: 'poll',
@@ -288,7 +288,7 @@ export const piManifest: AgentManifest = {
     },
   ],
 
-  // No hook channel — locate the session file (cwd bucket + `*_<id>.jsonl`)
+  // No lifecycle hook channel — locate the session file (cwd bucket + `*_<id>.jsonl`)
   // and tail it for both state and transcript.
   observer: supported((input, host) => {
     const obs = observePiState({
@@ -308,9 +308,7 @@ export const piManifest: AgentManifest = {
   }),
 
   runtime: {
-    context: declinedContext(
-      'Pi context observation requires an adapter-owned instrumentation extension that is not installed',
-    ),
+    context: piContext,
     server: unsupported(
       'pi --mode rpc is a real JSONL-over-stdio server mode, but Podium has not driven it yet — verify before turning it into a spec',
     ),

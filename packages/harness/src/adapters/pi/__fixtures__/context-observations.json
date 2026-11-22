@@ -1,0 +1,1424 @@
+{
+  "provenance": "POD-7397 Pi 1.5.0 attempt-03. Selected native fields; wrapper and event time are synthetic, no prompt text.",
+  "admitted": ["1.5.0"],
+  "unverified": ["0.84.4", "1.1.0", "1.5.1", "2.0.0"],
+  "terminal": [
+    {
+      "schema": "podium.pi-context.v1",
+      "piVersion": "1.5.0",
+      "runId": "captured-terminal",
+      "sequence": 1,
+      "at": "2026-11-21T22:15:21.955Z",
+      "event": "session_start",
+      "sessionId": "9015daeb-68f6-4ea3-93e8-2faf4f66101d",
+      "leafId": "76485cb1",
+      "model": {
+        "id": "cedar-a",
+        "provider": "probe7397"
+      },
+      "contextUsage": {
+        "tokens": 0,
+        "contextWindow": 16000,
+        "percent": 0
+      },
+      "reason": "startup"
+    },
+    {
+      "schema": "podium.pi-context.v1",
+      "piVersion": "1.5.0",
+      "runId": "captured-terminal",
+      "sequence": 4,
+      "at": "2026-11-21T22:15:21.991Z",
+      "event": "message_start",
+      "sessionId": "9015daeb-68f6-4ea3-93e8-2faf4f66101d",
+      "leafId": "76485cb1",
+      "model": {
+        "id": "cedar-a",
+        "provider": "probe7397"
+      },
+      "contextUsage": {
+        "tokens": 0,
+        "contextWindow": 16000,
+        "percent": 0
+      },
+      "message": {
+        "role": "system",
+        "timestamp": 1795299321991
+      }
+    },
+    {
+      "schema": "podium.pi-context.v1",
+      "piVersion": "1.5.0",
+      "runId": "captured-terminal",
+      "sequence": 5,
+      "at": "2026-11-21T22:15:21.992Z",
+      "event": "message_end",
+      "sessionId": "9015daeb-68f6-4ea3-93e8-2faf4f66101d",
+      "leafId": "76485cb1",
+      "model": {
+        "id": "cedar-a",
+        "provider": "probe7397"
+      },
+      "contextUsage": {
+        "tokens": 0,
+        "contextWindow": 16000,
+        "percent": 0
+      },
+      "message": {
+        "role": "system",
+        "timestamp": 1795299321991
+      }
+    },
+    {
+      "schema": "podium.pi-context.v1",
+      "piVersion": "1.5.0",
+      "runId": "captured-terminal",
+      "sequence": 6,
+      "at": "2026-11-21T22:15:21.993Z",
+      "event": "message_start",
+      "sessionId": "9015daeb-68f6-4ea3-93e8-2faf4f66101d",
+      "leafId": "301599aa",
+      "model": {
+        "id": "cedar-a",
+        "provider": "probe7397"
+      },
+      "contextUsage": {
+        "tokens": 413,
+        "contextWindow": 16000,
+        "percent": 2.58125
+      },
+      "message": {
+        "role": "user",
+        "timestamp": 1795299321990
+      }
+    },
+    {
+      "schema": "podium.pi-context.v1",
+      "piVersion": "1.5.0",
+      "runId": "captured-terminal",
+      "sequence": 7,
+      "at": "2026-11-21T22:15:21.994Z",
+      "event": "message_end",
+      "sessionId": "9015daeb-68f6-4ea3-93e8-2faf4f66101d",
+      "leafId": "301599aa",
+      "model": {
+        "id": "cedar-a",
+        "provider": "probe7397"
+      },
+      "contextUsage": {
+        "tokens": 413,
+        "contextWindow": 16000,
+        "percent": 2.58125
+      },
+      "message": {
+        "role": "user",
+        "timestamp": 1795299321990
+      }
+    },
+    {
+      "schema": "podium.pi-context.v1",
+      "piVersion": "1.5.0",
+      "runId": "captured-terminal",
+      "sequence": 8,
+      "at": "2026-11-21T22:15:22.054Z",
+      "event": "message_start",
+      "sessionId": "9015daeb-68f6-4ea3-93e8-2faf4f66101d",
+      "leafId": "37259f36",
+      "model": {
+        "id": "cedar-a",
+        "provider": "probe7397"
+      },
+      "contextUsage": {
+        "tokens": 415,
+        "contextWindow": 16000,
+        "percent": 2.59375
+      },
+      "message": {
+        "role": "assistant",
+        "timestamp": 1795299322054,
+        "provider": "probe7397",
+        "model": "cedar-a",
+        "stopReason": "pending",
+        "usage": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        }
+      }
+    },
+    {
+      "schema": "podium.pi-context.v1",
+      "piVersion": "1.5.0",
+      "runId": "captured-terminal",
+      "sequence": 9,
+      "at": "2026-11-21T22:15:22.055Z",
+      "event": "message_end",
+      "sessionId": "9015daeb-68f6-4ea3-93e8-2faf4f66101d",
+      "leafId": "37259f36",
+      "model": {
+        "id": "cedar-a",
+        "provider": "probe7397"
+      },
+      "contextUsage": {
+        "tokens": 415,
+        "contextWindow": 16000,
+        "percent": 2.59375
+      },
+      "message": {
+        "role": "assistant",
+        "timestamp": 1795299322054,
+        "provider": "probe7397",
+        "model": "cedar-a",
+        "stopReason": "stop",
+        "responseId": "fake7397-3",
+        "usage": {
+          "input": 900,
+          "output": 120,
+          "cacheRead": 300,
+          "cacheWrite": 0,
+          "reasoning": 40
+        }
+      }
+    },
+    {
+      "schema": "podium.pi-context.v1",
+      "piVersion": "1.5.0",
+      "runId": "captured-terminal",
+      "sequence": 10,
+      "at": "2026-11-21T22:15:22.056Z",
+      "event": "turn_end",
+      "sessionId": "9015daeb-68f6-4ea3-93e8-2faf4f66101d",
+      "leafId": "a6d3b4ef",
+      "model": {
+        "id": "cedar-a",
+        "provider": "probe7397"
+      },
+      "contextUsage": {
+        "tokens": 1320,
+        "contextWindow": 16000,
+        "percent": 8.25
+      },
+      "message": {
+        "role": "assistant",
+        "timestamp": 1795299322054,
+        "provider": "probe7397",
+        "model": "cedar-a",
+        "stopReason": "stop",
+        "responseId": "fake7397-3",
+        "usage": {
+          "input": 900,
+          "output": 120,
+          "cacheRead": 300,
+          "cacheWrite": 0,
+          "reasoning": 40
+        }
+      },
+      "anchor": {
+        "id": "a6d3b4ef",
+        "role": "assistant",
+        "timestamp": 1795299322054,
+        "provider": "probe7397",
+        "model": "cedar-a",
+        "stopReason": "stop",
+        "responseId": "fake7397-3",
+        "usage": {
+          "input": 900,
+          "output": 120,
+          "cacheRead": 300,
+          "cacheWrite": 0,
+          "reasoning": 40
+        }
+      }
+    },
+    {
+      "schema": "podium.pi-context.v1",
+      "piVersion": "1.5.0",
+      "runId": "captured-terminal",
+      "sequence": 11,
+      "at": "2026-11-21T22:15:22.057Z",
+      "event": "agent_end",
+      "sessionId": "9015daeb-68f6-4ea3-93e8-2faf4f66101d",
+      "leafId": "a6d3b4ef",
+      "model": {
+        "id": "cedar-a",
+        "provider": "probe7397"
+      },
+      "contextUsage": {
+        "tokens": 1320,
+        "contextWindow": 16000,
+        "percent": 8.25
+      },
+      "anchor": {
+        "id": "a6d3b4ef",
+        "role": "assistant",
+        "timestamp": 1795299322054,
+        "provider": "probe7397",
+        "model": "cedar-a",
+        "stopReason": "stop",
+        "responseId": "fake7397-3",
+        "usage": {
+          "input": 900,
+          "output": 120,
+          "cacheRead": 300,
+          "cacheWrite": 0,
+          "reasoning": 40
+        }
+      }
+    },
+    {
+      "schema": "podium.pi-context.v1",
+      "piVersion": "1.5.0",
+      "runId": "captured-terminal",
+      "sequence": 12,
+      "at": "2026-11-21T22:15:22.058Z",
+      "event": "agent_settled",
+      "sessionId": "9015daeb-68f6-4ea3-93e8-2faf4f66101d",
+      "leafId": "a6d3b4ef",
+      "model": {
+        "id": "cedar-a",
+        "provider": "probe7397"
+      },
+      "contextUsage": {
+        "tokens": 1320,
+        "contextWindow": 16000,
+        "percent": 8.25
+      },
+      "anchor": {
+        "id": "a6d3b4ef",
+        "role": "assistant",
+        "timestamp": 1795299322054,
+        "provider": "probe7397",
+        "model": "cedar-a",
+        "stopReason": "stop",
+        "responseId": "fake7397-3",
+        "usage": {
+          "input": 900,
+          "output": 120,
+          "cacheRead": 300,
+          "cacheWrite": 0,
+          "reasoning": 40
+        }
+      }
+    },
+    {
+      "schema": "podium.pi-context.v1",
+      "piVersion": "1.5.0",
+      "runId": "captured-terminal",
+      "sequence": 15,
+      "at": "2026-11-21T22:15:22.377Z",
+      "event": "message_start",
+      "sessionId": "9015daeb-68f6-4ea3-93e8-2faf4f66101d",
+      "leafId": "a6d3b4ef",
+      "model": {
+        "id": "cedar-a",
+        "provider": "probe7397"
+      },
+      "contextUsage": {
+        "tokens": 1320,
+        "contextWindow": 16000,
+        "percent": 8.25
+      },
+      "message": {
+        "role": "user",
+        "timestamp": 1795299322377
+      },
+      "anchor": {
+        "id": "a6d3b4ef",
+        "role": "assistant",
+        "timestamp": 1795299322054,
+        "provider": "probe7397",
+        "model": "cedar-a",
+        "stopReason": "stop",
+        "responseId": "fake7397-3",
+        "usage": {
+          "input": 900,
+          "output": 120,
+          "cacheRead": 300,
+          "cacheWrite": 0,
+          "reasoning": 40
+        }
+      }
+    },
+    {
+      "schema": "podium.pi-context.v1",
+      "piVersion": "1.5.0",
+      "runId": "captured-terminal",
+      "sequence": 16,
+      "at": "2026-11-21T22:15:22.378Z",
+      "event": "message_end",
+      "sessionId": "9015daeb-68f6-4ea3-93e8-2faf4f66101d",
+      "leafId": "a6d3b4ef",
+      "model": {
+        "id": "cedar-a",
+        "provider": "probe7397"
+      },
+      "contextUsage": {
+        "tokens": 1320,
+        "contextWindow": 16000,
+        "percent": 8.25
+      },
+      "message": {
+        "role": "user",
+        "timestamp": 1795299322377
+      },
+      "anchor": {
+        "id": "a6d3b4ef",
+        "role": "assistant",
+        "timestamp": 1795299322054,
+        "provider": "probe7397",
+        "model": "cedar-a",
+        "stopReason": "stop",
+        "responseId": "fake7397-3",
+        "usage": {
+          "input": 900,
+          "output": 120,
+          "cacheRead": 300,
+          "cacheWrite": 0,
+          "reasoning": 40
+        }
+      }
+    },
+    {
+      "schema": "podium.pi-context.v1",
+      "piVersion": "1.5.0",
+      "runId": "captured-terminal",
+      "sequence": 17,
+      "at": "2026-11-21T22:15:22.380Z",
+      "event": "message_start",
+      "sessionId": "9015daeb-68f6-4ea3-93e8-2faf4f66101d",
+      "leafId": "2b75fd0f",
+      "model": {
+        "id": "cedar-a",
+        "provider": "probe7397"
+      },
+      "contextUsage": {
+        "tokens": 1363,
+        "contextWindow": 16000,
+        "percent": 8.51875
+      },
+      "message": {
+        "role": "assistant",
+        "timestamp": 1795299322380,
+        "provider": "probe7397",
+        "model": "cedar-a",
+        "stopReason": "pending",
+        "usage": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        }
+      },
+      "anchor": {
+        "id": "a6d3b4ef",
+        "role": "assistant",
+        "timestamp": 1795299322054,
+        "provider": "probe7397",
+        "model": "cedar-a",
+        "stopReason": "stop",
+        "responseId": "fake7397-3",
+        "usage": {
+          "input": 900,
+          "output": 120,
+          "cacheRead": 300,
+          "cacheWrite": 0,
+          "reasoning": 40
+        }
+      }
+    },
+    {
+      "schema": "podium.pi-context.v1",
+      "piVersion": "1.5.0",
+      "runId": "captured-terminal",
+      "sequence": 18,
+      "at": "2026-11-21T22:15:22.381Z",
+      "event": "message_end",
+      "sessionId": "9015daeb-68f6-4ea3-93e8-2faf4f66101d",
+      "leafId": "2b75fd0f",
+      "model": {
+        "id": "cedar-a",
+        "provider": "probe7397"
+      },
+      "contextUsage": {
+        "tokens": 1363,
+        "contextWindow": 16000,
+        "percent": 8.51875
+      },
+      "message": {
+        "role": "assistant",
+        "timestamp": 1795299322380,
+        "provider": "probe7397",
+        "model": "cedar-a",
+        "stopReason": "stop",
+        "responseId": "fake7397-4",
+        "usage": {
+          "input": 500,
+          "output": 90,
+          "cacheRead": 200,
+          "cacheWrite": 0,
+          "reasoning": 30
+        }
+      },
+      "anchor": {
+        "id": "a6d3b4ef",
+        "role": "assistant",
+        "timestamp": 1795299322054,
+        "provider": "probe7397",
+        "model": "cedar-a",
+        "stopReason": "stop",
+        "responseId": "fake7397-3",
+        "usage": {
+          "input": 900,
+          "output": 120,
+          "cacheRead": 300,
+          "cacheWrite": 0,
+          "reasoning": 40
+        }
+      }
+    },
+    {
+      "schema": "podium.pi-context.v1",
+      "piVersion": "1.5.0",
+      "runId": "captured-terminal",
+      "sequence": 19,
+      "at": "2026-11-21T22:15:22.382Z",
+      "event": "turn_end",
+      "sessionId": "9015daeb-68f6-4ea3-93e8-2faf4f66101d",
+      "leafId": "85ea34cd",
+      "model": {
+        "id": "cedar-a",
+        "provider": "probe7397"
+      },
+      "contextUsage": {
+        "tokens": 790,
+        "contextWindow": 16000,
+        "percent": 4.9375
+      },
+      "message": {
+        "role": "assistant",
+        "timestamp": 1795299322380,
+        "provider": "probe7397",
+        "model": "cedar-a",
+        "stopReason": "stop",
+        "responseId": "fake7397-4",
+        "usage": {
+          "input": 500,
+          "output": 90,
+          "cacheRead": 200,
+          "cacheWrite": 0,
+          "reasoning": 30
+        }
+      },
+      "anchor": {
+        "id": "85ea34cd",
+        "role": "assistant",
+        "timestamp": 1795299322380,
+        "provider": "probe7397",
+        "model": "cedar-a",
+        "stopReason": "stop",
+        "responseId": "fake7397-4",
+        "usage": {
+          "input": 500,
+          "output": 90,
+          "cacheRead": 200,
+          "cacheWrite": 0,
+          "reasoning": 30
+        }
+      }
+    },
+    {
+      "schema": "podium.pi-context.v1",
+      "piVersion": "1.5.0",
+      "runId": "captured-terminal",
+      "sequence": 20,
+      "at": "2026-11-21T22:15:22.383Z",
+      "event": "agent_end",
+      "sessionId": "9015daeb-68f6-4ea3-93e8-2faf4f66101d",
+      "leafId": "85ea34cd",
+      "model": {
+        "id": "cedar-a",
+        "provider": "probe7397"
+      },
+      "contextUsage": {
+        "tokens": 790,
+        "contextWindow": 16000,
+        "percent": 4.9375
+      },
+      "anchor": {
+        "id": "85ea34cd",
+        "role": "assistant",
+        "timestamp": 1795299322380,
+        "provider": "probe7397",
+        "model": "cedar-a",
+        "stopReason": "stop",
+        "responseId": "fake7397-4",
+        "usage": {
+          "input": 500,
+          "output": 90,
+          "cacheRead": 200,
+          "cacheWrite": 0,
+          "reasoning": 30
+        }
+      }
+    },
+    {
+      "schema": "podium.pi-context.v1",
+      "piVersion": "1.5.0",
+      "runId": "captured-terminal",
+      "sequence": 21,
+      "at": "2026-11-21T22:15:22.384Z",
+      "event": "agent_settled",
+      "sessionId": "9015daeb-68f6-4ea3-93e8-2faf4f66101d",
+      "leafId": "85ea34cd",
+      "model": {
+        "id": "cedar-a",
+        "provider": "probe7397"
+      },
+      "contextUsage": {
+        "tokens": 790,
+        "contextWindow": 16000,
+        "percent": 4.9375
+      },
+      "anchor": {
+        "id": "85ea34cd",
+        "role": "assistant",
+        "timestamp": 1795299322380,
+        "provider": "probe7397",
+        "model": "cedar-a",
+        "stopReason": "stop",
+        "responseId": "fake7397-4",
+        "usage": {
+          "input": 500,
+          "output": 90,
+          "cacheRead": 200,
+          "cacheWrite": 0,
+          "reasoning": 30
+        }
+      }
+    },
+    {
+      "schema": "podium.pi-context.v1",
+      "piVersion": "1.5.0",
+      "runId": "captured-terminal",
+      "sequence": 24,
+      "at": "2026-11-21T22:15:22.385Z",
+      "event": "model_select",
+      "sessionId": "9015daeb-68f6-4ea3-93e8-2faf4f66101d",
+      "leafId": "2f7b3b34",
+      "model": {
+        "id": "cedar-b",
+        "provider": "probe7397"
+      },
+      "contextUsage": {
+        "tokens": 790,
+        "contextWindow": 32000,
+        "percent": 2.46875
+      },
+      "anchor": {
+        "id": "85ea34cd",
+        "role": "assistant",
+        "timestamp": 1795299322380,
+        "provider": "probe7397",
+        "model": "cedar-a",
+        "stopReason": "stop",
+        "responseId": "fake7397-4",
+        "usage": {
+          "input": 500,
+          "output": 90,
+          "cacheRead": 200,
+          "cacheWrite": 0,
+          "reasoning": 30
+        }
+      }
+    },
+    {
+      "schema": "podium.pi-context.v1",
+      "piVersion": "1.5.0",
+      "runId": "captured-terminal",
+      "sequence": 27,
+      "at": "2026-11-21T22:15:22.386Z",
+      "event": "session_before_compact",
+      "sessionId": "9015daeb-68f6-4ea3-93e8-2faf4f66101d",
+      "leafId": "2f7b3b34",
+      "model": {
+        "id": "cedar-b",
+        "provider": "probe7397"
+      },
+      "contextUsage": {
+        "tokens": 790,
+        "contextWindow": 32000,
+        "percent": 2.46875
+      },
+      "reason": "manual",
+      "anchor": {
+        "id": "85ea34cd",
+        "role": "assistant",
+        "timestamp": 1795299322380,
+        "provider": "probe7397",
+        "model": "cedar-a",
+        "stopReason": "stop",
+        "responseId": "fake7397-4",
+        "usage": {
+          "input": 500,
+          "output": 90,
+          "cacheRead": 200,
+          "cacheWrite": 0,
+          "reasoning": 30
+        }
+      }
+    },
+    {
+      "schema": "podium.pi-context.v1",
+      "piVersion": "1.5.0",
+      "runId": "captured-terminal",
+      "sequence": 28,
+      "at": "2026-11-21T22:15:22.387Z",
+      "event": "session_compact",
+      "sessionId": "9015daeb-68f6-4ea3-93e8-2faf4f66101d",
+      "leafId": "47c1d7c3",
+      "model": {
+        "id": "cedar-b",
+        "provider": "probe7397"
+      },
+      "contextUsage": {
+        "tokens": null,
+        "contextWindow": 32000,
+        "percent": null
+      },
+      "reason": "manual",
+      "compactionId": "47c1d7c3"
+    },
+    {
+      "schema": "podium.pi-context.v1",
+      "piVersion": "1.5.0",
+      "runId": "captured-terminal",
+      "sequence": 31,
+      "at": "2026-11-21T22:15:23.139Z",
+      "event": "message_start",
+      "sessionId": "9015daeb-68f6-4ea3-93e8-2faf4f66101d",
+      "leafId": "47c1d7c3",
+      "model": {
+        "id": "cedar-b",
+        "provider": "probe7397"
+      },
+      "contextUsage": {
+        "tokens": null,
+        "contextWindow": 32000,
+        "percent": null
+      },
+      "message": {
+        "role": "user",
+        "timestamp": 1795299323139
+      },
+      "compactionId": "47c1d7c3"
+    },
+    {
+      "schema": "podium.pi-context.v1",
+      "piVersion": "1.5.0",
+      "runId": "captured-terminal",
+      "sequence": 32,
+      "at": "2026-11-21T22:15:23.140Z",
+      "event": "message_end",
+      "sessionId": "9015daeb-68f6-4ea3-93e8-2faf4f66101d",
+      "leafId": "47c1d7c3",
+      "model": {
+        "id": "cedar-b",
+        "provider": "probe7397"
+      },
+      "contextUsage": {
+        "tokens": null,
+        "contextWindow": 32000,
+        "percent": null
+      },
+      "message": {
+        "role": "user",
+        "timestamp": 1795299323139
+      },
+      "compactionId": "47c1d7c3"
+    },
+    {
+      "schema": "podium.pi-context.v1",
+      "piVersion": "1.5.0",
+      "runId": "captured-terminal",
+      "sequence": 33,
+      "at": "2026-11-21T22:15:23.142Z",
+      "event": "message_start",
+      "sessionId": "9015daeb-68f6-4ea3-93e8-2faf4f66101d",
+      "leafId": "0a02f486",
+      "model": {
+        "id": "cedar-b",
+        "provider": "probe7397"
+      },
+      "contextUsage": {
+        "tokens": null,
+        "contextWindow": 32000,
+        "percent": null
+      },
+      "message": {
+        "role": "assistant",
+        "timestamp": 1795299323142,
+        "provider": "probe7397",
+        "model": "cedar-b",
+        "stopReason": "pending",
+        "usage": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        }
+      },
+      "compactionId": "47c1d7c3"
+    },
+    {
+      "schema": "podium.pi-context.v1",
+      "piVersion": "1.5.0",
+      "runId": "captured-terminal",
+      "sequence": 34,
+      "at": "2026-11-21T22:15:23.143Z",
+      "event": "message_end",
+      "sessionId": "9015daeb-68f6-4ea3-93e8-2faf4f66101d",
+      "leafId": "0a02f486",
+      "model": {
+        "id": "cedar-b",
+        "provider": "probe7397"
+      },
+      "contextUsage": {
+        "tokens": null,
+        "contextWindow": 32000,
+        "percent": null
+      },
+      "message": {
+        "role": "assistant",
+        "timestamp": 1795299323142,
+        "provider": "probe7397",
+        "model": "cedar-b",
+        "stopReason": "stop",
+        "responseId": "fake7397-6",
+        "usage": {
+          "input": 320,
+          "output": 60,
+          "cacheRead": 80,
+          "cacheWrite": 0,
+          "reasoning": 20
+        }
+      },
+      "compactionId": "47c1d7c3"
+    },
+    {
+      "schema": "podium.pi-context.v1",
+      "piVersion": "1.5.0",
+      "runId": "captured-terminal",
+      "sequence": 35,
+      "at": "2026-11-21T22:15:23.144Z",
+      "event": "turn_end",
+      "sessionId": "9015daeb-68f6-4ea3-93e8-2faf4f66101d",
+      "leafId": "47c0db39",
+      "model": {
+        "id": "cedar-b",
+        "provider": "probe7397"
+      },
+      "contextUsage": {
+        "tokens": 460,
+        "contextWindow": 32000,
+        "percent": 1.4375
+      },
+      "message": {
+        "role": "assistant",
+        "timestamp": 1795299323142,
+        "provider": "probe7397",
+        "model": "cedar-b",
+        "stopReason": "stop",
+        "responseId": "fake7397-6",
+        "usage": {
+          "input": 320,
+          "output": 60,
+          "cacheRead": 80,
+          "cacheWrite": 0,
+          "reasoning": 20
+        }
+      },
+      "compactionId": "47c1d7c3",
+      "anchor": {
+        "id": "47c0db39",
+        "role": "assistant",
+        "timestamp": 1795299323142,
+        "provider": "probe7397",
+        "model": "cedar-b",
+        "stopReason": "stop",
+        "responseId": "fake7397-6",
+        "usage": {
+          "input": 320,
+          "output": 60,
+          "cacheRead": 80,
+          "cacheWrite": 0,
+          "reasoning": 20
+        }
+      }
+    },
+    {
+      "schema": "podium.pi-context.v1",
+      "piVersion": "1.5.0",
+      "runId": "captured-terminal",
+      "sequence": 36,
+      "at": "2026-11-21T22:15:23.145Z",
+      "event": "agent_end",
+      "sessionId": "9015daeb-68f6-4ea3-93e8-2faf4f66101d",
+      "leafId": "47c0db39",
+      "model": {
+        "id": "cedar-b",
+        "provider": "probe7397"
+      },
+      "contextUsage": {
+        "tokens": 460,
+        "contextWindow": 32000,
+        "percent": 1.4375
+      },
+      "compactionId": "47c1d7c3",
+      "anchor": {
+        "id": "47c0db39",
+        "role": "assistant",
+        "timestamp": 1795299323142,
+        "provider": "probe7397",
+        "model": "cedar-b",
+        "stopReason": "stop",
+        "responseId": "fake7397-6",
+        "usage": {
+          "input": 320,
+          "output": 60,
+          "cacheRead": 80,
+          "cacheWrite": 0,
+          "reasoning": 20
+        }
+      }
+    },
+    {
+      "schema": "podium.pi-context.v1",
+      "piVersion": "1.5.0",
+      "runId": "captured-terminal",
+      "sequence": 37,
+      "at": "2026-11-21T22:15:23.146Z",
+      "event": "agent_settled",
+      "sessionId": "9015daeb-68f6-4ea3-93e8-2faf4f66101d",
+      "leafId": "47c0db39",
+      "model": {
+        "id": "cedar-b",
+        "provider": "probe7397"
+      },
+      "contextUsage": {
+        "tokens": 460,
+        "contextWindow": 32000,
+        "percent": 1.4375
+      },
+      "compactionId": "47c1d7c3",
+      "anchor": {
+        "id": "47c0db39",
+        "role": "assistant",
+        "timestamp": 1795299323142,
+        "provider": "probe7397",
+        "model": "cedar-b",
+        "stopReason": "stop",
+        "responseId": "fake7397-6",
+        "usage": {
+          "input": 320,
+          "output": 60,
+          "cacheRead": 80,
+          "cacheWrite": 0,
+          "reasoning": 20
+        }
+      }
+    },
+    {
+      "schema": "podium.pi-context.v1",
+      "piVersion": "1.5.0",
+      "runId": "captured-terminal",
+      "sequence": 39,
+      "at": "2026-11-21T22:15:23.147Z",
+      "event": "session_shutdown",
+      "sessionId": "9015daeb-68f6-4ea3-93e8-2faf4f66101d",
+      "leafId": "47c0db39",
+      "model": {
+        "id": "cedar-b",
+        "provider": "probe7397"
+      },
+      "contextUsage": {
+        "tokens": 460,
+        "contextWindow": 32000,
+        "percent": 1.4375
+      },
+      "reason": "quit",
+      "compactionId": "47c1d7c3",
+      "anchor": {
+        "id": "47c0db39",
+        "role": "assistant",
+        "timestamp": 1795299323142,
+        "provider": "probe7397",
+        "model": "cedar-b",
+        "stopReason": "stop",
+        "responseId": "fake7397-6",
+        "usage": {
+          "input": 320,
+          "output": 60,
+          "cacheRead": 80,
+          "cacheWrite": 0,
+          "reasoning": 20
+        }
+      }
+    }
+  ],
+  "resume": [
+    {
+      "schema": "podium.pi-context.v1",
+      "piVersion": "1.5.0",
+      "runId": "captured-resume",
+      "sequence": 1,
+      "at": "2026-11-21T22:15:23.842Z",
+      "event": "session_start",
+      "sessionId": "9015daeb-68f6-4ea3-93e8-2faf4f66101d",
+      "leafId": "47c0db39",
+      "model": {
+        "id": "cedar-a",
+        "provider": "probe7397"
+      },
+      "contextUsage": {
+        "tokens": 460,
+        "contextWindow": 16000,
+        "percent": 2.875
+      },
+      "reason": "startup",
+      "compactionId": "47c1d7c3",
+      "anchor": {
+        "id": "47c0db39",
+        "role": "assistant",
+        "timestamp": 1795299323142,
+        "provider": "probe7397",
+        "model": "cedar-b",
+        "stopReason": "stop",
+        "responseId": "fake7397-6",
+        "usage": {
+          "input": 320,
+          "output": 60,
+          "cacheRead": 80,
+          "cacheWrite": 0,
+          "reasoning": 20
+        }
+      }
+    },
+    {
+      "schema": "podium.pi-context.v1",
+      "piVersion": "1.5.0",
+      "runId": "captured-resume",
+      "sequence": 3,
+      "at": "2026-11-21T22:15:23.916Z",
+      "event": "message_start",
+      "sessionId": "9015daeb-68f6-4ea3-93e8-2faf4f66101d",
+      "leafId": "47c0db39",
+      "model": {
+        "id": "cedar-a",
+        "provider": "probe7397"
+      },
+      "contextUsage": {
+        "tokens": 460,
+        "contextWindow": 16000,
+        "percent": 2.875
+      },
+      "message": {
+        "role": "user",
+        "timestamp": 1795299323916
+      },
+      "compactionId": "47c1d7c3",
+      "anchor": {
+        "id": "47c0db39",
+        "role": "assistant",
+        "timestamp": 1795299323142,
+        "provider": "probe7397",
+        "model": "cedar-b",
+        "stopReason": "stop",
+        "responseId": "fake7397-6",
+        "usage": {
+          "input": 320,
+          "output": 60,
+          "cacheRead": 80,
+          "cacheWrite": 0,
+          "reasoning": 20
+        }
+      }
+    },
+    {
+      "schema": "podium.pi-context.v1",
+      "piVersion": "1.5.0",
+      "runId": "captured-resume",
+      "sequence": 4,
+      "at": "2026-11-21T22:15:23.917Z",
+      "event": "message_end",
+      "sessionId": "9015daeb-68f6-4ea3-93e8-2faf4f66101d",
+      "leafId": "47c0db39",
+      "model": {
+        "id": "cedar-a",
+        "provider": "probe7397"
+      },
+      "contextUsage": {
+        "tokens": 460,
+        "contextWindow": 16000,
+        "percent": 2.875
+      },
+      "message": {
+        "role": "user",
+        "timestamp": 1795299323916
+      },
+      "compactionId": "47c1d7c3",
+      "anchor": {
+        "id": "47c0db39",
+        "role": "assistant",
+        "timestamp": 1795299323142,
+        "provider": "probe7397",
+        "model": "cedar-b",
+        "stopReason": "stop",
+        "responseId": "fake7397-6",
+        "usage": {
+          "input": 320,
+          "output": 60,
+          "cacheRead": 80,
+          "cacheWrite": 0,
+          "reasoning": 20
+        }
+      }
+    },
+    {
+      "schema": "podium.pi-context.v1",
+      "piVersion": "1.5.0",
+      "runId": "captured-resume",
+      "sequence": 5,
+      "at": "2026-11-21T22:15:23.941Z",
+      "event": "message_start",
+      "sessionId": "9015daeb-68f6-4ea3-93e8-2faf4f66101d",
+      "leafId": "b805226e",
+      "model": {
+        "id": "cedar-a",
+        "provider": "probe7397"
+      },
+      "contextUsage": {
+        "tokens": 463,
+        "contextWindow": 16000,
+        "percent": 2.8937500000000003
+      },
+      "message": {
+        "role": "assistant",
+        "timestamp": 1795299323941,
+        "provider": "probe7397",
+        "model": "cedar-a",
+        "stopReason": "pending",
+        "usage": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        }
+      },
+      "compactionId": "47c1d7c3",
+      "anchor": {
+        "id": "47c0db39",
+        "role": "assistant",
+        "timestamp": 1795299323142,
+        "provider": "probe7397",
+        "model": "cedar-b",
+        "stopReason": "stop",
+        "responseId": "fake7397-6",
+        "usage": {
+          "input": 320,
+          "output": 60,
+          "cacheRead": 80,
+          "cacheWrite": 0,
+          "reasoning": 20
+        }
+      }
+    },
+    {
+      "schema": "podium.pi-context.v1",
+      "piVersion": "1.5.0",
+      "runId": "captured-resume",
+      "sequence": 6,
+      "at": "2026-11-21T22:15:23.942Z",
+      "event": "message_end",
+      "sessionId": "9015daeb-68f6-4ea3-93e8-2faf4f66101d",
+      "leafId": "b805226e",
+      "model": {
+        "id": "cedar-a",
+        "provider": "probe7397"
+      },
+      "contextUsage": {
+        "tokens": 463,
+        "contextWindow": 16000,
+        "percent": 2.8937500000000003
+      },
+      "message": {
+        "role": "assistant",
+        "timestamp": 1795299323941,
+        "provider": "probe7397",
+        "model": "cedar-a",
+        "stopReason": "stop",
+        "responseId": "fake7397-7",
+        "usage": {
+          "input": 320,
+          "output": 60,
+          "cacheRead": 80,
+          "cacheWrite": 0,
+          "reasoning": 20
+        }
+      },
+      "compactionId": "47c1d7c3",
+      "anchor": {
+        "id": "47c0db39",
+        "role": "assistant",
+        "timestamp": 1795299323142,
+        "provider": "probe7397",
+        "model": "cedar-b",
+        "stopReason": "stop",
+        "responseId": "fake7397-6",
+        "usage": {
+          "input": 320,
+          "output": 60,
+          "cacheRead": 80,
+          "cacheWrite": 0,
+          "reasoning": 20
+        }
+      }
+    },
+    {
+      "schema": "podium.pi-context.v1",
+      "piVersion": "1.5.0",
+      "runId": "captured-resume",
+      "sequence": 7,
+      "at": "2026-11-21T22:15:23.943Z",
+      "event": "turn_end",
+      "sessionId": "9015daeb-68f6-4ea3-93e8-2faf4f66101d",
+      "leafId": "235c5fb0",
+      "model": {
+        "id": "cedar-a",
+        "provider": "probe7397"
+      },
+      "contextUsage": {
+        "tokens": 460,
+        "contextWindow": 16000,
+        "percent": 2.875
+      },
+      "message": {
+        "role": "assistant",
+        "timestamp": 1795299323941,
+        "provider": "probe7397",
+        "model": "cedar-a",
+        "stopReason": "stop",
+        "responseId": "fake7397-7",
+        "usage": {
+          "input": 320,
+          "output": 60,
+          "cacheRead": 80,
+          "cacheWrite": 0,
+          "reasoning": 20
+        }
+      },
+      "compactionId": "47c1d7c3",
+      "anchor": {
+        "id": "235c5fb0",
+        "role": "assistant",
+        "timestamp": 1795299323941,
+        "provider": "probe7397",
+        "model": "cedar-a",
+        "stopReason": "stop",
+        "responseId": "fake7397-7",
+        "usage": {
+          "input": 320,
+          "output": 60,
+          "cacheRead": 80,
+          "cacheWrite": 0,
+          "reasoning": 20
+        }
+      }
+    },
+    {
+      "schema": "podium.pi-context.v1",
+      "piVersion": "1.5.0",
+      "runId": "captured-resume",
+      "sequence": 8,
+      "at": "2026-11-21T22:15:23.944Z",
+      "event": "agent_end",
+      "sessionId": "9015daeb-68f6-4ea3-93e8-2faf4f66101d",
+      "leafId": "235c5fb0",
+      "model": {
+        "id": "cedar-a",
+        "provider": "probe7397"
+      },
+      "contextUsage": {
+        "tokens": 460,
+        "contextWindow": 16000,
+        "percent": 2.875
+      },
+      "compactionId": "47c1d7c3",
+      "anchor": {
+        "id": "235c5fb0",
+        "role": "assistant",
+        "timestamp": 1795299323941,
+        "provider": "probe7397",
+        "model": "cedar-a",
+        "stopReason": "stop",
+        "responseId": "fake7397-7",
+        "usage": {
+          "input": 320,
+          "output": 60,
+          "cacheRead": 80,
+          "cacheWrite": 0,
+          "reasoning": 20
+        }
+      }
+    },
+    {
+      "schema": "podium.pi-context.v1",
+      "piVersion": "1.5.0",
+      "runId": "captured-resume",
+      "sequence": 9,
+      "at": "2026-11-21T22:15:23.945Z",
+      "event": "agent_settled",
+      "sessionId": "9015daeb-68f6-4ea3-93e8-2faf4f66101d",
+      "leafId": "235c5fb0",
+      "model": {
+        "id": "cedar-a",
+        "provider": "probe7397"
+      },
+      "contextUsage": {
+        "tokens": 460,
+        "contextWindow": 16000,
+        "percent": 2.875
+      },
+      "compactionId": "47c1d7c3",
+      "anchor": {
+        "id": "235c5fb0",
+        "role": "assistant",
+        "timestamp": 1795299323941,
+        "provider": "probe7397",
+        "model": "cedar-a",
+        "stopReason": "stop",
+        "responseId": "fake7397-7",
+        "usage": {
+          "input": 320,
+          "output": 60,
+          "cacheRead": 80,
+          "cacheWrite": 0,
+          "reasoning": 20
+        }
+      }
+    },
+    {
+      "schema": "podium.pi-context.v1",
+      "piVersion": "1.5.0",
+      "runId": "captured-resume",
+      "sequence": 10,
+      "at": "2026-11-21T22:15:23.946Z",
+      "event": "session_shutdown",
+      "sessionId": "9015daeb-68f6-4ea3-93e8-2faf4f66101d",
+      "leafId": "235c5fb0",
+      "model": {
+        "id": "cedar-a",
+        "provider": "probe7397"
+      },
+      "contextUsage": {
+        "tokens": 460,
+        "contextWindow": 16000,
+        "percent": 2.875
+      },
+      "reason": "quit",
+      "compactionId": "47c1d7c3",
+      "anchor": {
+        "id": "235c5fb0",
+        "role": "assistant",
+        "timestamp": 1795299323941,
+        "provider": "probe7397",
+        "model": "cedar-a",
+        "stopReason": "stop",
+        "responseId": "fake7397-7",
+        "usage": {
+          "input": 320,
+          "output": 60,
+          "cacheRead": 80,
+          "cacheWrite": 0,
+          "reasoning": 20
+        }
+      }
+    }
+  ],
+  "restrictedStream": [
+    {
+      "type": "session",
+      "id": "deaf24a5-b4dd-415d-b155-6ce546320de8",
+      "version": 3,
+      "timestamp": "2026-11-21T22:15:24.562Z"
+    },
+    {
+      "type": "message_start",
+      "message": {
+        "role": "assistant",
+        "timestamp": 1795299324674,
+        "provider": "probe7397",
+        "model": "cedar-a",
+        "stopReason": "pending",
+        "usage": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        }
+      }
+    },
+    {
+      "type": "message_end",
+      "message": {
+        "role": "assistant",
+        "timestamp": 1795299324674,
+        "provider": "probe7397",
+        "model": "cedar-a",
+        "stopReason": "toolUse",
+        "responseId": "fake7397-8",
+        "usage": {
+          "input": 320,
+          "output": 60,
+          "cacheRead": 80,
+          "cacheWrite": 0,
+          "reasoning": 20
+        }
+      }
+    },
+    {
+      "type": "message_start",
+      "message": {
+        "role": "assistant",
+        "timestamp": 1795299324744,
+        "provider": "probe7397",
+        "model": "cedar-a",
+        "stopReason": "pending",
+        "usage": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        }
+      }
+    },
+    {
+      "type": "message_end",
+      "message": {
+        "role": "assistant",
+        "timestamp": 1795299324744,
+        "provider": "probe7397",
+        "model": "cedar-a",
+        "stopReason": "stop",
+        "responseId": "fake7397-9",
+        "usage": {
+          "input": 320,
+          "output": 60,
+          "cacheRead": 80,
+          "cacheWrite": 0,
+          "reasoning": 20
+        }
+      }
+    }
+  ]
+}
