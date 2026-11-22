@@ -28,6 +28,9 @@ interface Fixture {
   stored: unknown
   snapshot: SessionSnapshot
   replay(snapshot?: SessionSnapshot): Promise<void>
+  holdSnapshots(snapshot?: SessionSnapshot): void
+  requestSnapshot(): Promise<void>
+  replyPendingSnapshot(snapshot: SessionSnapshot, newest?: boolean): Promise<void>
   release(): void
 }
 const contextPin = (agentKind: 'codex' | 'opencode', bootstrap = true): StatementPin<Fixture> => ({
@@ -44,14 +47,7 @@ const contextPin = (agentKind: 'codex' | 'opencode', bootstrap = true): Statemen
     const requests = new Map<string, RuntimeSnapshotRequestMessage>()
     let replyEnabled = bootstrap
     let completedSnapshots = 0
-    const projection = reg.modules.sessions.daemonProjection
-    const metadataSnapshot = projection.metadataSnapshot.bind(projection)
-    const snapshotSpy = vi
-      .spyOn(projection, 'metadataSnapshot')
-      .mockImplementation(async (...args) => {
-        await metadataSnapshot(...args)
-        completedSnapshots++
-      })
+    const snapshotReleases: (() => void)[] = []
     const snapshotOf = (sessionId: SessionId): SessionSnapshot =>
       snapshots.get(sessionId) ?? {
         binding: {
@@ -71,13 +67,16 @@ const contextPin = (agentKind: 'codex' | 'opencode', bootstrap = true): Statemen
         interactions: [],
         at,
       }
-    const reply = async (request: RuntimeSnapshotRequestMessage) => {
+    const reply = async (
+      request: RuntimeSnapshotRequestMessage,
+      snapshot = snapshotOf(request.sessionId),
+    ) => {
       requests.delete(request.requestId)
       await reg.gateway.routeDaemonFrame(store.hostMachineId, {
         type: 'runtimeSnapshotResult',
         requestId: request.requestId,
         sessionId: request.sessionId,
-        result: { snapshot: snapshotOf(request.sessionId) },
+        result: { snapshot },
       })
     }
     await settledCommand(() =>
@@ -110,6 +109,15 @@ const contextPin = (agentKind: 'codex' | 'opencode', bootstrap = true): Statemen
       const { sessionId } = await settledCommand(() =>
         reg.modules.sessions.createSession({ agentKind, cwd: '/tmp/invented-context' }),
       )
+      const session = reg.modules.sessions.sessions.get(sessionId)
+      if (!session) throw new Error('No live invented session')
+      const confirm = session.confirmContextBootstrap.bind(session)
+      const spy = vi.spyOn(session, 'confirmContextBootstrap').mockImplementation((...args) => {
+        const accepted = confirm(...args)
+        completedSnapshots++
+        return accepted
+      })
+      snapshotReleases.push(() => spy.mockRestore())
       await bind(sessionId)
       ids.push(sessionId)
     }
@@ -160,7 +168,22 @@ const contextPin = (agentKind: 'codex' | 'opencode', bootstrap = true): Statemen
       frame,
       snapshot: snapshotOf(sessionId),
       stored: await store.sessions.getSession(sessionId),
-      release: () => snapshotSpy.mockRestore(),
+      release: () => {
+        for (const release of snapshotReleases) release()
+      },
+      holdSnapshots: (snapshot) => {
+        replyEnabled = false
+        if (snapshot) snapshots.set(sessionId, snapshot)
+      },
+      requestSnapshot: () => bind(sessionId),
+      replyPendingSnapshot: async (snapshot, newest = false) => {
+        const pending = [...requests.values()].filter((request) => request.sessionId === sessionId)
+        const request = newest ? pending.at(-1) : pending[0]
+        if (!request) throw new Error('No held invented snapshot request')
+        const before = completedSnapshots
+        await reply(request, snapshot)
+        await vi.waitFor(() => expect(completedSnapshots).toBeGreaterThan(before))
+      },
       replay: async (snapshot) => {
         if (snapshot) snapshots.set(sessionId, snapshot)
         const before = completedSnapshots
@@ -169,7 +192,9 @@ const contextPin = (agentKind: 'codex' | 'opencode', bootstrap = true): Statemen
         if (pending.length) {
           for (const request of pending) await reply(request)
         } else await bind(sessionId)
-        await vi.waitFor(() => expect(completedSnapshots).toBeGreaterThan(before))
+        await vi.waitFor(() =>
+          expect(completedSnapshots).toBeGreaterThanOrEqual(before + (pending.length || 1)),
+        )
       },
     }
   },
@@ -200,6 +225,60 @@ const contextPin = (agentKind: 'codex' | 'opencode', bootstrap = true): Statemen
 })
 const pin = contextPin('codex')
 
+function measurement(
+  f: Fixture,
+  generation: number,
+  bindingVersion: number,
+  id: string,
+): RuntimeEventMessage {
+  const event = f.frame.event
+  if (
+    event.t !== 'metadata' ||
+    event.change.kind !== 'context-observation' ||
+    event.change.context.status !== 'available'
+  )
+    throw new Error('No invented measurement')
+  return {
+    ...f.frame,
+    deliveryId: `invented-${id}`,
+    event: {
+      ...event,
+      observerGeneration: generation,
+      change: {
+        kind: 'context-observation',
+        context: {
+          ...event.change.context,
+          sample: {
+            ...event.change.context.sample,
+            id,
+            bindingVersion,
+            observerGeneration: generation,
+          },
+        },
+      },
+    },
+  }
+}
+
+async function admitGeneration(f: Fixture, generation: number): Promise<void> {
+  await settledOperation(() =>
+    f.reg.gateway.routeDaemonFrame(f.store.hostMachineId, {
+      type: 'runtimeEvent',
+      sessionId: f.frame.sessionId,
+      deliveryId: `invented-lifecycle-${generation}`,
+      event: {
+        t: 'state',
+        change: { kind: 'state_snapshot', state: f.snapshot.state },
+        at: f.snapshot.at,
+        provenance: 'bootstrap',
+        observerGeneration: generation,
+        turnEpoch: 0,
+        cursor: { segmentId: 'invented-current-runtime', components: { seq: 1 } },
+      },
+    }),
+  )
+}
+
 describe('context telemetry stays live and uses a constant lease read', () => {
   it('reads exactly one lease at small and larger working sets without saving telemetry', async () => {
     await expectConstantStatements(pin, 1)
@@ -227,7 +306,7 @@ describe('context telemetry stays live and uses a constant lease read', () => {
       1,
     )
   })
-  it('bootstraps non-causal scope through RPC with four fixed reads including live publication', async () => {
+  it('bootstraps non-causal scope through RPC with three fixed reads including live publication', async () => {
     const base = contextPin('opencode', false)
     await expectConstantStatements(
       {
@@ -245,7 +324,7 @@ describe('context telemetry stays live and uses a constant lease read', () => {
           expect(await f.store.events.runtimeEventCheckpoint(f.frame.sessionId)).toBeNull()
         },
       },
-      4,
+      3,
     )
   })
   it('uses the one live context scope after non-causal bootstrap, with one keyed lease lookup', async () => {
@@ -306,7 +385,10 @@ describe('context telemetry stays live and uses a constant lease read', () => {
         ...f.snapshot,
         binding: { ...f.snapshot.binding, bindingVersion: 2 },
       }
-      await f.replay(replacement)
+      f.holdSnapshots()
+      await f.requestSnapshot()
+      await f.requestSnapshot()
+      await f.replyPendingSnapshot(replacement, true)
       expect(session?.contextObservation?.context).toMatchObject({
         status: 'unavailable',
         revision: { bindingVersion: 2, observerGeneration: 1 },
@@ -332,11 +414,154 @@ describe('context telemetry stays live and uses a constant lease read', () => {
         status: 'available',
         sample: { bindingVersion: 2, id: 'new-binding' },
       })
-      await f.replay(f.snapshot)
+      await f.replyPendingSnapshot(f.snapshot)
       expect(session?.contextObservation?.context).toMatchObject({
         status: 'available',
         sample: { bindingVersion: 2, id: 'new-binding' },
       })
+    } finally {
+      await base.teardown?.(f)
+    }
+  })
+  it.each([
+    false,
+    true,
+  ])('retires non-causal scope on admitted generation change and recovers through verified replay (prior head=%s)', async (priorHead) => {
+    const base = contextPin('opencode')
+    const f = await base.setup(1)
+    try {
+      await base.run(f, 1)
+      const event = f.frame.event
+      if (
+        event.t !== 'metadata' ||
+        event.change.kind !== 'context-observation' ||
+        event.change.context.status !== 'available'
+      )
+        throw new Error('No invented context event')
+      const originalContext = event.change.context
+      const session = f.reg.modules.sessions.sessions.get(f.frame.sessionId)
+      const original = session?.contextObservation
+      if (priorHead) await admitGeneration(f, 1)
+      f.holdSnapshots({ ...f.snapshot, observerGeneration: 2 })
+      await admitGeneration(f, 2)
+      const checkpoint = await f.store.events.runtimeEventCheckpoint(f.frame.sessionId)
+      expect(checkpoint?.observerGeneration).toBe(2)
+      const rows = await f.store.events.listRuntimeEvents(f.frame.sessionId)
+      const stored = await f.store.sessions.getSession(f.frame.sessionId)
+      f.frame = {
+        ...f.frame,
+        deliveryId: 'invented-obsolete-context',
+        event: {
+          ...event,
+          change: {
+            kind: 'context-observation',
+            context: {
+              ...originalContext,
+              sample: { ...originalContext.sample, id: 'obsolete-observer', contextRevision: 2 },
+            },
+          },
+        },
+      }
+      await base.run(f, 1)
+      expect(session?.contextObservation).toMatchObject({
+        at: original?.at,
+        cursor: original?.cursor,
+        context: { status: 'stale', sample: { id: 'invented-context-sample' } },
+      })
+      expect(await f.store.sessions.getSession(f.frame.sessionId)).toEqual(stored)
+      for (const generation of [2, 3]) {
+        await f.replay({ ...f.snapshot, observerGeneration: generation })
+        f.frame = {
+          ...f.frame,
+          deliveryId: `invented-context-generation-${generation}`,
+          event: {
+            ...event,
+            observerGeneration: generation,
+            change: {
+              kind: 'context-observation',
+              context: {
+                ...originalContext,
+                sample: {
+                  ...originalContext.sample,
+                  id: `current-${generation}`,
+                  observerGeneration: generation,
+                },
+              },
+            },
+          },
+        }
+        await base.run(f, 1)
+        expect(session?.contextObservation?.context).toMatchObject({
+          status: 'available',
+          sample: { id: `current-${generation}`, observerGeneration: generation },
+        })
+      }
+      expect(await f.store.events.runtimeEventCheckpoint(f.frame.sessionId)).toEqual(checkpoint)
+      expect(await f.store.events.listRuntimeEvents(f.frame.sessionId)).toEqual(rows)
+    } finally {
+      await base.teardown?.(f)
+    }
+  })
+  it('ignores a snapshot reply started before an admitted lifecycle transition', async () => {
+    const base = contextPin('opencode', false)
+    const f = await base.setup(1)
+    try {
+      const session = f.reg.modules.sessions.sessions.get(f.frame.sessionId)
+      f.holdSnapshots({ ...f.snapshot, observerGeneration: 2 })
+      await admitGeneration(f, 2)
+      const event = f.frame.event
+      if (event.t !== 'metadata' || event.change.kind !== 'context-observation')
+        throw new Error('No fixture')
+      const { t: _type, change, ...causal } = event
+      await f.replyPendingSnapshot({
+        ...f.snapshot,
+        context: { ...causal, context: change.context },
+      })
+      await base.run(f, 1)
+      expect(session?.contextObservation).toBeUndefined()
+      await f.replyPendingSnapshot({ ...f.snapshot, observerGeneration: 2 })
+      f.frame = measurement(f, 2, 1, 'after-lifecycle')
+      await base.run(f, 1)
+      expect(session?.contextObservation?.context).toMatchObject({
+        status: 'available',
+        sample: { id: 'after-lifecycle', observerGeneration: 2 },
+      })
+    } finally {
+      await base.teardown?.(f)
+    }
+  })
+  it('admits a newer verified binding with reset counters despite an older ordinary head', async () => {
+    const base = contextPin('opencode')
+    const f = await base.setup(1)
+    try {
+      await f.replay({ ...f.snapshot, observerGeneration: 9 })
+      f.frame = measurement(f, 9, 1, 'old-binding-native')
+      await base.run(f, 1)
+      await admitGeneration(f, 9)
+      const head = await f.store.events.runtimeEventCheckpoint(f.frame.sessionId)
+      expect(head?.observerGeneration).toBe(9)
+      f.holdSnapshots()
+      await f.requestSnapshot()
+      await f.requestSnapshot()
+      await f.replyPendingSnapshot(
+        { ...f.snapshot, binding: { ...f.snapshot.binding, bindingVersion: 2 } },
+        true,
+      )
+      f.frame = measurement(f, 1, 2, 'new-binding-native')
+      await base.run(f, 1)
+      const session = f.reg.modules.sessions.sessions.get(f.frame.sessionId)
+      expect(session?.contextObservation?.context).toMatchObject({
+        status: 'available',
+        sample: { id: 'new-binding-native', bindingVersion: 2, observerGeneration: 1 },
+      })
+      await f.replyPendingSnapshot({ ...f.snapshot, observerGeneration: 9 })
+      f.frame = measurement(f, 9, 1, 'late-old-binding')
+      await base.run(f, 1)
+      expect(session?.contextObservation?.context).toMatchObject({
+        status: 'available',
+        sample: { id: 'new-binding-native' },
+      })
+      expect(await f.store.events.runtimeEventCheckpoint(f.frame.sessionId)).toEqual(head)
     } finally {
       await base.teardown?.(f)
     }

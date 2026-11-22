@@ -16,7 +16,13 @@
 
 import { type AgentStateEvent, initialAgentState, reduceAgentState } from '@podium/harness/metadata'
 import { createLogger } from '@podium/logger'
-import { asUserId, computePriorities, type SessionId, type UserId } from '@podium/model'
+import {
+  asUserId,
+  computePriorities,
+  type MachineId,
+  type SessionId,
+  type UserId,
+} from '@podium/model'
 import { asDelegationRef } from '@podium/protocol'
 import {
   CAP_CONTEXT_OBSERVATION_V1,
@@ -957,6 +963,63 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       }
     },
   }
+  const initializeRuntimeMetadata = async (
+    sessionId: SessionId,
+    machineId: MachineId,
+  ): Promise<void> => {
+    const session = bag.sessions.get(sessionId)
+    if (!session || session.machineId !== machineId || !session.hasBoundDriver) return
+    const ticket = session.beginContextBootstrap()
+    if (ticket.changed) bag.broadcastSessions()
+    const reply = await bag.rpc.runtimeSnapshot(sessionId, machineId)
+    if (
+      !session ||
+      bag.sessions.get(sessionId) !== session ||
+      session.machineId !== machineId ||
+      !session.hasBoundDriver
+    )
+      return
+    if ('snapshot' in reply.result) {
+      const snapshot = reply.result.snapshot
+      const lease = await store.observationCheckpoints.get(sessionId)
+      if (
+        lease &&
+        (snapshot.observerGeneration !== lease.observationGeneration ||
+          snapshot.binding.bindingVersion !== lease.bindingVersion)
+      )
+        return
+      if (
+        snapshot.binding.sessionId !== sessionId ||
+        !session.confirmContextBootstrap(
+          ticket.epoch,
+          snapshot.binding.bindingVersion,
+          snapshot.observerGeneration,
+        )
+      )
+        return
+      await bag.daemonProjection.metadataSnapshot(sessionId, snapshot, {
+        contextReplay: machines.daemonSupports(machineId, CAP_CONTEXT_OBSERVATION_V1),
+      })
+      // Reconnect: the driver's snapshot binding carries its current
+      // worktree root (session.cwd is kept current on every sessionCwd).
+      // Restamp the row so grouping survives a daemon restart without
+      // waiting for the next move. Adoption itself already happened via the
+      // workspace oplog before the restart (the row and issue worktreePath
+      // persist), and the snapshot carries no kind/branch to re-adopt
+      // safely, so this is grouping only.
+      const workdir = reply.result.snapshot.binding.workdir
+      if (typeof workdir === 'string' && workdir !== '' && session.cwd !== workdir) {
+        await bag.repository.write(
+          bag.deps.writers.daemon,
+          session,
+          (draft: SessionDurableState) => {
+            draft.cwd = workdir
+          },
+        )
+        bag.broadcastSessions()
+      }
+    }
+  }
   /**
    * THE ONE COARSE-EVENT SIDE-EFFECT GATE (POD-2411).
    *
@@ -965,6 +1028,18 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
    * stay on compatibility frames until their own vertical slices migrate.
    */
   runtimeEventGate = new RuntimeEventGate({
+    contextAdmissionTransition: (sessionId, event) => {
+      const session: Session | undefined = bag.sessions.get(sessionId)
+      if (!session?.contextAuthorityNeedsRefresh(event)) return
+      if (
+        !session.contextObservation &&
+        !machines.daemonSupports(session.machineId, CAP_CONTEXT_OBSERVATION_V1)
+      )
+        return
+      void initializeRuntimeMetadata(sessionId, session.machineId).catch((error: unknown) =>
+        log.warn('context binding bootstrap failed', { sessionId, err: error }),
+      )
+    },
     metadata: (sessionId, event) => bag.daemonProjection.runtimeEvent(sessionId, event),
     binding: async (sessionId, event) => {
       const session = bag.sessions.get(sessionId)
@@ -1237,52 +1312,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     withSession: (sessionId, fn) => bag.residency.withSession(sessionId, 'runtime.exit', fn),
     writer: bag.deps.writers.daemon,
     records: bag.records,
-    initializeRuntimeMetadata: async (sessionId, machineId) => {
-      const session = bag.sessions.get(sessionId)
-      const reply = await bag.rpc.runtimeSnapshot(sessionId, machineId)
-      if (
-        !session ||
-        bag.sessions.get(sessionId) !== session ||
-        session.machineId !== machineId ||
-        !session.hasBoundDriver
-      )
-        return
-      if ('snapshot' in reply.result) {
-        const snapshot = reply.result.snapshot
-        const lease = await store.observationCheckpoints.get(sessionId)
-        if (
-          lease &&
-          (snapshot.observerGeneration !== lease.observationGeneration ||
-            snapshot.binding.bindingVersion !== lease.bindingVersion)
-        )
-          return
-        if (!lease) {
-          const checkpoint = await store.events.runtimeEventCheckpoint(sessionId)
-          if (checkpoint && snapshot.observerGeneration < checkpoint.observerGeneration) return
-        }
-        await bag.daemonProjection.metadataSnapshot(sessionId, snapshot, {
-          contextReplay: machines.daemonSupports(machineId, CAP_CONTEXT_OBSERVATION_V1),
-        })
-        // Reconnect: the driver's snapshot binding carries its current
-        // worktree root (session.cwd is kept current on every sessionCwd).
-        // Restamp the row so grouping survives a daemon restart without
-        // waiting for the next move. Adoption itself already happened via the
-        // workspace oplog before the restart (the row and issue worktreePath
-        // persist), and the snapshot carries no kind/branch to re-adopt
-        // safely, so this is grouping only.
-        const workdir = reply.result.snapshot.binding.workdir
-        if (typeof workdir === 'string' && workdir !== '' && session.cwd !== workdir) {
-          await bag.repository.write(
-            bag.deps.writers.daemon,
-            session,
-            (draft: SessionDurableState) => {
-              draft.cwd = workdir
-            },
-          )
-          bag.broadcastSessions()
-        }
-      }
-    },
+    initializeRuntimeMetadata,
     sessions: bag.sessions,
     bus: bag.bus,
     browserOpen: bag.browserOpen,

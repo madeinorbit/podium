@@ -1103,23 +1103,14 @@ export class SessionDaemonLifecycle {
             ) {
               admitted = false
             } else {
-              // Non-causal harnesses deliberately have no provider lease. The
-              // existing verified driver snapshot must establish the binding;
-              // a telemetry payload cannot establish its own admission scope.
-              const current = liveSession.contextObservation
-              const currentValue = current?.context
-              const scope =
-                currentValue?.status === 'available' || currentValue?.status === 'stale'
-                  ? currentValue.sample
-                  : currentValue?.status === 'pending' || currentValue?.status === 'unavailable'
-                    ? currentValue.revision
-                    : undefined
+              // This scope is established by verified cached driver snapshots,
+              // and retired by admitted lifecycle changes, never by telemetry.
               admitted = Boolean(
-                current &&
-                  scope &&
-                  identity &&
-                  current.observerGeneration === msg.event.observerGeneration &&
-                  scope.bindingVersion === identity.bindingVersion,
+                identity &&
+                  liveSession.contextAdmissionMatches(
+                    identity.bindingVersion,
+                    msg.event.observerGeneration,
+                  ),
               )
             }
             if (!admitted) {

@@ -24,7 +24,7 @@ import type {
 } from '@podium/model'
 import { contextUsagePercentOf, sameContextSample } from '@podium/model'
 import type { DaemonPtyInputBatch, SessionObservationCheckpointV1 } from '@podium/protocol'
-import type { ContextObservation, ControlMessage } from '@podium/protocol/daemon'
+import type { ContextObservation, ControlMessage, RuntimeEvent } from '@podium/protocol/daemon'
 import { driverFamilyForId } from '../../harness-manifest'
 import type {
   ConversationBinding,
@@ -455,6 +455,72 @@ export class Session {
    */
   contextObservation: ContextObservation | undefined = undefined
   private legacyContextUsagePercent: number | undefined = undefined
+  /** Live synchronization only; the observation above remains the sole sample. */
+  private contextAuthority: {
+    epoch: number
+    verified: boolean
+    scope?: { bindingVersion: number; observerGeneration: number }
+  } = { epoch: 0, verified: false }
+
+  contextAuthorityNeedsRefresh(event: RuntimeEvent): boolean {
+    const scope = this.contextAuthority.scope
+    if (!scope) return true
+    if (event.t === 'binding') {
+      if (event.bindingVersion < scope.bindingVersion) return false
+      if (event.bindingVersion !== scope.bindingVersion) return true
+    }
+    return event.observerGeneration !== scope.observerGeneration
+  }
+
+  beginContextBootstrap(): { epoch: number; changed: boolean } {
+    this.contextAuthority = {
+      ...this.contextAuthority,
+      epoch: this.contextAuthority.epoch + 1,
+      verified: false,
+    }
+    const current = this.contextObservation
+    const changed =
+      current?.context.status === 'available' &&
+      this.setContextObservation({
+        ...current,
+        context: {
+          ...current.context,
+          status: 'stale',
+          reason: {
+            code: 'binding-pending',
+            message: 'Waiting for the current driver binding snapshot',
+          },
+        },
+      })
+    return { epoch: this.contextAuthority.epoch, changed: Boolean(changed) }
+  }
+
+  confirmContextBootstrap(
+    epoch: number,
+    bindingVersion: number,
+    observerGeneration: number,
+  ): boolean {
+    if (epoch !== this.contextAuthority.epoch) return false
+    const scope = this.contextAuthority.scope
+    if (
+      scope &&
+      (bindingVersion < scope.bindingVersion ||
+        (bindingVersion === scope.bindingVersion && observerGeneration < scope.observerGeneration))
+    )
+      return false
+    this.contextAuthority = { epoch, verified: true, scope: { bindingVersion, observerGeneration } }
+    return true
+  }
+
+  contextAdmissionMatches(bindingVersion: number, observerGeneration: number): boolean {
+    const scope = this.contextAuthority.scope
+    return (
+      this.contextAuthority.verified &&
+      scope !== undefined &&
+      scope.bindingVersion === bindingVersion &&
+      scope.observerGeneration === observerGeneration
+    )
+  }
 
   get contextUsagePercent(): number | undefined {
     return this.contextObservation
