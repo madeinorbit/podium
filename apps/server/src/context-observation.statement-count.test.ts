@@ -2,6 +2,7 @@ import { asSessionId, type SessionId } from '@podium/model'
 import { CAP_SESSION_ACCESS } from '@podium/protocol'
 import {
   CAP_CONTEXT_OBSERVATION_V1,
+  type ContextObservation,
   type RuntimeEventMessage,
   type RuntimeSnapshotRequestMessage,
   type SessionSnapshot,
@@ -27,6 +28,7 @@ interface Fixture {
   frame: RuntimeEventMessage
   stored: unknown
   snapshot: SessionSnapshot
+  acknowledgements: Map<string, string>
   replay(snapshot?: SessionSnapshot): Promise<void>
   holdSnapshots(snapshot?: SessionSnapshot): void
   requestSnapshot(): Promise<void>
@@ -47,6 +49,7 @@ const contextPin = (agentKind: 'codex' | 'opencode', bootstrap = true): Statemen
     const requests = new Map<string, RuntimeSnapshotRequestMessage>()
     let replyEnabled = bootstrap
     let completedSnapshots = 0
+    const acknowledgements = new Map<string, string>()
     const snapshotReleases: (() => void)[] = []
     const snapshotOf = (sessionId: SessionId): SessionSnapshot =>
       snapshots.get(sessionId) ?? {
@@ -83,6 +86,8 @@ const contextPin = (agentKind: 'codex' | 'opencode', bootstrap = true): Statemen
       attachHostDaemon(
         reg,
         (message) => {
+          if (message.type === 'runtimeEventAck')
+            acknowledgements.set(message.deliveryId, message.outcome)
           if (message.type !== 'runtimeSnapshotRequest') return
           requests.set(message.requestId, message)
           if (replyEnabled) void reply(message)
@@ -166,6 +171,7 @@ const contextPin = (agentKind: 'codex' | 'opencode', bootstrap = true): Statemen
       store,
       ids,
       frame,
+      acknowledgements,
       snapshot: snapshotOf(sessionId),
       stored: await store.sessions.getSession(sessionId),
       release: () => {
@@ -297,9 +303,11 @@ describe('context telemetry stays live and uses a constant lease read', () => {
             f.frame.sessionId,
           )
           expect(condition?.context).toBeUndefined()
+          expect(f.acknowledgements.has(f.frame.deliveryId ?? '')).toBe(false)
           expect(await f.store.events.runtimeEventCheckpoint(f.frame.sessionId)).toBeNull()
           await f.replay()
           await base.run(f, 0)
+          expect(f.acknowledgements.get(f.frame.deliveryId ?? '')).toBe('committed')
           await base.check?.(undefined, f, 0)
         },
       },
@@ -590,6 +598,47 @@ describe('context telemetry stays live and uses a constant lease read', () => {
         sample: { id: 'new-binding-native' },
       })
       expect(await f.store.events.runtimeEventCheckpoint(f.frame.sessionId)).toEqual(head)
+    } finally {
+      await base.teardown?.(f)
+    }
+  })
+  it('replaces old occupancy with a verified lower-generation unsupported binding without inventing a sample', async () => {
+    const base = contextPin('opencode')
+    const f = await base.setup(1)
+    try {
+      await f.replay({ ...f.snapshot, observerGeneration: 9 })
+      f.frame = measurement(f, 9, 1, 'old-occupancy')
+      await base.run(f, 1)
+      const unsupported: ContextObservation = {
+        at: f.snapshot.at,
+        provenance: 'bootstrap',
+        cursor: { segmentId: 'invented-declaration', components: { seq: 1 } },
+        observerGeneration: 1,
+        turnEpoch: 0,
+        context: {
+          version: 1,
+          status: 'unsupported',
+          reason: { code: 'no-channel', message: 'Invented harness has no context channel' },
+        },
+      }
+      await f.replay({
+        ...f.snapshot,
+        binding: { ...f.snapshot.binding, bindingVersion: 2 },
+        context: unsupported,
+      })
+      const session = f.reg.modules.sessions.sessions.get(f.frame.sessionId)
+      expect(session?.contextObservation).toEqual(unsupported)
+      expect(session?.contextObservation?.context).not.toHaveProperty('sample')
+      expect(session?.contextObservation?.context).not.toHaveProperty('revision')
+      expect(session?.contextUsagePercent).toBeUndefined()
+      await base.run(f, 1)
+      expect(session?.contextObservation).toEqual(unsupported)
+      f.frame = measurement(f, 1, 2, 'supported-native-current')
+      await base.run(f, 1)
+      expect(session?.contextObservation?.context).toMatchObject({
+        status: 'available',
+        sample: { id: 'supported-native-current', bindingVersion: 2, observerGeneration: 1 },
+      })
     } finally {
       await base.teardown?.(f)
     }

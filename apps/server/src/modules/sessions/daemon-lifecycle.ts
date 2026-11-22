@@ -1103,6 +1103,9 @@ export class SessionDaemonLifecycle {
             ) {
               admitted = false
             } else {
+              // Keep the original frame in the daemon's existing retry outbox
+              // until the bounded snapshot request establishes its scope.
+              if (identity && liveSession.contextBootstrapPending()) break
               // This scope is established by verified cached driver snapshots,
               // and retired by admitted lifecycle changes, never by telemetry.
               admitted = Boolean(

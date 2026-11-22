@@ -459,8 +459,11 @@ export class Session {
   private contextAuthority: {
     epoch: number
     verified: boolean
+    pending: boolean
     scope?: { bindingVersion: number; observerGeneration: number }
-  } = { epoch: 0, verified: false }
+    /** Unsupported descriptors carry no revision; retain only their binding affiliation. */
+    projectionBinding?: number
+  } = { epoch: 0, verified: false, pending: false }
 
   contextAuthorityNeedsRefresh(event: RuntimeEvent): boolean {
     const scope = this.contextAuthority.scope
@@ -477,6 +480,7 @@ export class Session {
       ...this.contextAuthority,
       epoch: this.contextAuthority.epoch + 1,
       verified: false,
+      pending: true,
     }
     const current = this.contextObservation
     const changed =
@@ -508,8 +512,22 @@ export class Session {
         (bindingVersion === scope.bindingVersion && observerGeneration < scope.observerGeneration))
     )
       return false
-    this.contextAuthority = { epoch, verified: true, scope: { bindingVersion, observerGeneration } }
+    this.contextAuthority = {
+      ...this.contextAuthority,
+      epoch,
+      verified: true,
+      pending: false,
+      scope: { bindingVersion, observerGeneration },
+    }
     return true
+  }
+
+  finishContextBootstrap(epoch: number): void {
+    if (epoch === this.contextAuthority.epoch) this.contextAuthority.pending = false
+  }
+
+  contextBootstrapPending(): boolean {
+    return this.contextAuthority.pending
   }
 
   contextAdmissionMatches(bindingVersion: number, observerGeneration: number): boolean {
@@ -537,11 +555,18 @@ export class Session {
           ? value.revision
           : undefined
     const previous = this.contextObservation
+    const after = identity(next.context)
+    const authority = this.contextAuthority
+    const afterBinding =
+      after?.bindingVersion ??
+      (authority.verified && authority.scope?.observerGeneration === next.observerGeneration
+        ? authority.scope.bindingVersion
+        : undefined)
     if (previous) {
       const before = identity(previous.context)
-      const after = identity(next.context)
-      if (before && after && after.bindingVersion !== before.bindingVersion) {
-        if (after.bindingVersion < before.bindingVersion) return false
+      const beforeBinding = before?.bindingVersion ?? authority.projectionBinding
+      if (afterBinding !== undefined && afterBinding !== beforeBinding) {
+        if (beforeBinding !== undefined && afterBinding < beforeBinding) return false
         // The caller admitted this active binding. Its counters have their own scope.
       } else {
         if (next.observerGeneration < previous.observerGeneration) return false
@@ -570,9 +595,15 @@ export class Session {
               previous.context.status !== next.context.status &&
               sameContextSample(previous.context.sample, next.context.sample)
             if (!sameMeasurementStateChange) {
+              if (
+                previous.context.status === 'unsupported' &&
+                providerCursorRegressed(previous.cursor, next.cursor)
+              )
+                return false
               const measuredAfterBoundary =
                 (previous.context.status === 'pending' ||
-                  previous.context.status === 'unavailable') &&
+                  previous.context.status === 'unavailable' ||
+                  previous.context.status === 'unsupported') &&
                 next.context.status === 'available'
               if (
                 !measuredAfterBoundary &&
@@ -595,6 +626,7 @@ export class Session {
       }
     }
     this.contextObservation = next
+    this.contextAuthority.projectionBinding = afterBinding
     this.legacyContextUsagePercent = undefined
     return true
   }
@@ -604,6 +636,7 @@ export class Session {
       ...this.contextAuthority,
       epoch: this.contextAuthority.epoch + 1,
       verified: false,
+      pending: false,
     }
     const observation = this.contextObservation
     if (!observation || observation.context.status !== 'available') return false

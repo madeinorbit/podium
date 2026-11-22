@@ -970,54 +970,58 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     const session = bag.sessions.get(sessionId)
     if (!session || session.machineId !== machineId || !session.hasBoundDriver) return
     const ticket = session.beginContextBootstrap()
-    if (ticket.changed) bag.broadcastSessions()
-    const reply = await bag.rpc.runtimeSnapshot(sessionId, machineId)
-    if (
-      !session ||
-      bag.sessions.get(sessionId) !== session ||
-      session.machineId !== machineId ||
-      !session.hasBoundDriver
-    )
-      return
-    if ('snapshot' in reply.result) {
-      const snapshot = reply.result.snapshot
-      const lease = await store.observationCheckpoints.get(sessionId)
+    try {
+      if (ticket.changed) bag.broadcastSessions()
+      const reply = await bag.rpc.runtimeSnapshot(sessionId, machineId)
       if (
-        lease &&
-        (snapshot.observerGeneration !== lease.observationGeneration ||
-          snapshot.binding.bindingVersion !== lease.bindingVersion)
+        !session ||
+        bag.sessions.get(sessionId) !== session ||
+        session.machineId !== machineId ||
+        !session.hasBoundDriver
       )
         return
-      if (
-        snapshot.binding.sessionId !== sessionId ||
-        !session.confirmContextBootstrap(
-          ticket.epoch,
-          snapshot.binding.bindingVersion,
-          snapshot.observerGeneration,
+      if ('snapshot' in reply.result) {
+        const snapshot = reply.result.snapshot
+        const lease = await store.observationCheckpoints.get(sessionId)
+        if (
+          lease &&
+          (snapshot.observerGeneration !== lease.observationGeneration ||
+            snapshot.binding.bindingVersion !== lease.bindingVersion)
         )
-      )
-        return
-      await bag.daemonProjection.metadataSnapshot(sessionId, snapshot, {
-        contextReplay: machines.daemonSupports(machineId, CAP_CONTEXT_OBSERVATION_V1),
-      })
-      // Reconnect: the driver's snapshot binding carries its current
-      // worktree root (session.cwd is kept current on every sessionCwd).
-      // Restamp the row so grouping survives a daemon restart without
-      // waiting for the next move. Adoption itself already happened via the
-      // workspace oplog before the restart (the row and issue worktreePath
-      // persist), and the snapshot carries no kind/branch to re-adopt
-      // safely, so this is grouping only.
-      const workdir = reply.result.snapshot.binding.workdir
-      if (typeof workdir === 'string' && workdir !== '' && session.cwd !== workdir) {
-        await bag.repository.write(
-          bag.deps.writers.daemon,
-          session,
-          (draft: SessionDurableState) => {
-            draft.cwd = workdir
-          },
+          return
+        if (
+          snapshot.binding.sessionId !== sessionId ||
+          !session.confirmContextBootstrap(
+            ticket.epoch,
+            snapshot.binding.bindingVersion,
+            snapshot.observerGeneration,
+          )
         )
-        bag.broadcastSessions()
+          return
+        await bag.daemonProjection.metadataSnapshot(sessionId, snapshot, {
+          contextReplay: machines.daemonSupports(machineId, CAP_CONTEXT_OBSERVATION_V1),
+        })
+        // Reconnect: the driver's snapshot binding carries its current
+        // worktree root (session.cwd is kept current on every sessionCwd).
+        // Restamp the row so grouping survives a daemon restart without
+        // waiting for the next move. Adoption itself already happened via the
+        // workspace oplog before the restart (the row and issue worktreePath
+        // persist), and the snapshot carries no kind/branch to re-adopt
+        // safely, so this is grouping only.
+        const workdir = reply.result.snapshot.binding.workdir
+        if (typeof workdir === 'string' && workdir !== '' && session.cwd !== workdir) {
+          await bag.repository.write(
+            bag.deps.writers.daemon,
+            session,
+            (draft: SessionDurableState) => {
+              draft.cwd = workdir
+            },
+          )
+          bag.broadcastSessions()
+        }
       }
+    } finally {
+      session.finishContextBootstrap(ticket.epoch)
     }
   }
   /**
