@@ -1,4 +1,4 @@
-import { compareProviderCursor } from '@podium/harness/metadata'
+import { compareProviderCursor, providerCursorRegressed } from '@podium/harness/metadata'
 import { createLogger } from '@podium/logger'
 import type {
   AccountId,
@@ -482,6 +482,22 @@ export class Session {
         if (next.observerGeneration === previous.observerGeneration) {
           if (before && after && after.contextRevision < before.contextRevision) return false
           if (!before || !after || after.contextRevision === before.contextRevision) {
+            const afterClear =
+              (previous.context.status === 'pending' ||
+                previous.context.status === 'unavailable') &&
+              previous.context.invalidation !== undefined &&
+              previous.context.invalidation.cause !== 'binding-changed' &&
+              previous.context.invalidation.cause !== 'resume'
+            if (
+              before &&
+              after &&
+              (((previous.context.status === 'available' ||
+                previous.context.status === 'stale' ||
+                afterClear) &&
+                after.turnEpoch < before.turnEpoch) ||
+                (afterClear && providerCursorRegressed(previous.cursor, next.cursor)))
+            )
+              return false
             const sameMeasurementStateChange =
               (previous.context.status === 'available' || previous.context.status === 'stale') &&
               (next.context.status === 'available' || next.context.status === 'stale') &&

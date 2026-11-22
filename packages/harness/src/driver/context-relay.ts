@@ -14,7 +14,7 @@ import type {
   ContextReadOptions,
   ContextSessionStrategy,
 } from '../context-types.js'
-import { compareProviderCursor } from '../observer.js'
+import { compareProviderCursor, providerCursorRegressed } from '../observer.js'
 import { contextStrategyFor } from '../registry.js'
 import type { SessionBinding } from './binding.js'
 import type { CausalEnvelope, RuntimeEvent, SessionMetadataObservation } from './events.js'
@@ -230,6 +230,26 @@ export class RuntimeContextRelay {
       previousContext?.status === 'available' || previousContext?.status === 'stale'
         ? previousContext.sample
         : undefined
+    const previousIdentity =
+      previousSample ??
+      (previousContext?.status === 'pending' || previousContext?.status === 'unavailable'
+        ? previousContext.revision
+        : undefined)
+    const afterClear =
+      (previousContext?.status === 'pending' || previousContext?.status === 'unavailable') &&
+      previousContext.invalidation !== undefined &&
+      previousContext.invalidation.cause !== 'binding-changed' &&
+      previousContext.invalidation.cause !== 'resume'
+    if (
+      previous &&
+      identity &&
+      previousIdentity &&
+      identity.contextRevision === previousIdentity.contextRevision &&
+      (((previousSample !== undefined || afterClear) &&
+        identity.turnEpoch < previousIdentity.turnEpoch) ||
+        (afterClear && providerCursorRegressed(previous.cursor, observation.cursor)))
+    )
+      return
     if (
       (context.status === 'available' || context.status === 'stale') &&
       previousSample &&
@@ -245,8 +265,7 @@ export class RuntimeContextRelay {
       if (
         (context.status === 'available' || context.status === 'stale') &&
         identity?.contextRevision === priorIdentity.contextRevision &&
-        (context.sample.turnEpoch < priorIdentity.turnEpoch ||
-          Date.parse(context.sample.at) < Date.parse(priorIdentity.at))
+        Date.parse(context.sample.at) < Date.parse(priorIdentity.at)
       )
         return
       if (priorIdentity && identity && identity.contextRevision < priorIdentity.contextRevision)

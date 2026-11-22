@@ -239,14 +239,81 @@ describe('generic context relay', () => {
       sample: { id: 'post-compaction-estimate', contextRevision: 2 },
     })
   })
-  it('retains original occupancy explicitly stale on observation loss', () => {
+  it('retains and restores the same immutable sample on same-cursor observation loss', async () => {
     const f = fixture()
-    f.relay.observe(raw(), contextFixtureCausal(10))
-    f.relay.lost(contextFixtureCausal(11))
+    const causal = contextFixtureCausal(10)
+    f.relay.observe(raw(), causal)
+    const original = f.relay.snapshot()
+    f.relay.lost(causal)
     expect(f.relay.snapshot()?.context).toMatchObject({
       status: 'stale',
       sample: { id: 'invented-sample', at: contextFixtureAt },
     })
+    f.relay.lost(causal)
+    expect(f.emitted).toHaveLength(2)
+    await f.relay.reader.summary({ timeoutMs: 100 })
+    expect(f.relay.snapshot()).toEqual(original)
+    expect(f.emitted).toHaveLength(3)
+  })
+  it.each([
+    'older-turn',
+    'older-cursor',
+  ] as const)('rejects a same-revision %s while cleared, and permits native release at the clear cursor', (late) => {
+    const f = fixture()
+    f.relay.observe(raw('before-clear'), contextFixtureCausal(10))
+    const original = f.relay.snapshot() as ContextObservation
+    if (original.context.status !== 'available') throw new Error('No invented native sample')
+    const originalSummary = original.context
+    const clear = { ...contextFixtureCausal(20), turnEpoch: 2 }
+    f.relay.invalidate('reset', clear)
+    const pending = f.relay.snapshot() as ContextObservation
+    const sample = (seq: number, turnEpoch: number, id: string): ContextObservation => ({
+      ...contextFixtureCausal(seq),
+      turnEpoch,
+      context: {
+        ...originalSummary,
+        status: 'available',
+        sample: {
+          ...originalSummary.sample,
+          contextRevision: 2,
+          turnEpoch,
+          id,
+        },
+      },
+    })
+    f.bindings[0]?.publish(
+      sample(late === 'older-cursor' ? 19 : 30, late === 'older-turn' ? 1 : 2, late),
+    )
+    expect(f.relay.snapshot()).toEqual(pending)
+    const released = sample(20, 2, 'native-release')
+    f.bindings[0]?.publish(released)
+    expect(f.relay.snapshot()).toEqual(released)
+    if (pending.context.status !== 'pending') throw new Error('No invented boundary')
+    f.bindings[0]?.publish({
+      ...contextFixtureCausal(40),
+      turnEpoch: 1,
+      context: { ...pending.context, revision: { ...pending.context.revision, turnEpoch: 1 } },
+    })
+    expect(f.relay.snapshot()).toEqual(released)
+  })
+  it.each([
+    'resume',
+    'binding-changed',
+  ] as const)('allows the adapter to recover a prior attributable sample after %s without restamping', (cause) => {
+    const f = fixture()
+    f.relay.observe(raw('prior-native-sample'), contextFixtureCausal(10))
+    const original = f.relay.snapshot() as ContextObservation
+    if (original.context.status !== 'available') throw new Error('No invented native sample')
+    f.relay.invalidate(cause, { ...contextFixtureCausal(20), turnEpoch: 2 })
+    const recovered: ContextObservation = {
+      ...original,
+      context: {
+        ...original.context,
+        sample: { ...original.context.sample, contextRevision: 2 },
+      },
+    }
+    f.bindings[0]?.publish(recovered)
+    expect(f.relay.snapshot()).toEqual(recovered)
   })
   it('does not let a telemetry decoder failure interrupt native protocol delivery', () => {
     const f = fixture()

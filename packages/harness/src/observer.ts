@@ -67,6 +67,14 @@ export function compareProviderCursor(
   return advanced ? 'after' : 'same_or_before'
 }
 
+/** A known vector regression. Equal positions and unrelated channels do not
+ * prove that an adapter-authorized asynchronous result is obsolete. */
+export function providerCursorRegressed(current: ProviderCursor, next: ProviderCursor): boolean {
+  if (compareProviderCursor(current, next) !== 'same_or_before') return false
+  const keys = new Set([...Object.keys(current.components), ...Object.keys(next.components)])
+  return [...keys].some((key) => (next.components[key] ?? 0) < (current.components[key] ?? 0))
+}
+
 export type ObservationAcceptance =
   | {
       kind: 'snapshot_applied' | 'live_transition_accepted' | 'live_refresh_accepted'

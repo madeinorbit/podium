@@ -108,6 +108,7 @@ export {
   acceptAgentObservation,
   compareProviderCursor,
   initialAgentState,
+  providerCursorRegressed,
   reduceAgentState,
 } from './observer.js'
 export type { HarnessComposerReadiness, HarnessInterrupt } from './registry.js'

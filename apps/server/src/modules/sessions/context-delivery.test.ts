@@ -3,7 +3,13 @@ import {
   type TerminalHarnessProfile,
   type TerminalHostPorts,
 } from '@podium/harness/driver/host'
-import { type AgentKind, asMachineId, asSessionId, firstAdminMemberId } from '@podium/model'
+import {
+  type AgentKind,
+  asMachineId,
+  asSessionId,
+  firstAdminMemberId,
+  invalidateContextSummary,
+} from '@podium/model'
 import type { ContextObservation, RuntimeEvent, SessionSnapshot } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
@@ -68,6 +74,103 @@ function event(observation: ContextObservation): RuntimeEvent {
 }
 
 describe('fake native context through real generic composition', () => {
+  it.each([
+    'resume',
+    'binding-changed',
+  ] as const)('allows verified prior-native recovery after %s without relabelling its source', async (cause) => {
+    const f = projection()
+    const recovered: ContextObservation = {
+      ...contextFixtureCausal(10),
+      context: {
+        version: 1,
+        status: 'available',
+        sample: {
+          bindingVersion: 1,
+          observerGeneration: 1,
+          contextRevision: 2,
+          turnEpoch: 0,
+          id: 'prior-native-sample',
+          at: contextFixtureAt,
+        },
+        occupancy: {
+          basis: 'current-context',
+          percent: { value: 42, accuracy: 'reported', source: 'invented source' },
+        },
+      },
+    }
+    await f.projection.runtimeEvent(
+      sessionId,
+      event({
+        ...contextFixtureCausal(20),
+        turnEpoch: 2,
+        context: invalidateContextSummary(undefined, cause, {
+          bindingVersion: 1,
+          observerGeneration: 1,
+          contextRevision: 2,
+          turnEpoch: 2,
+        }),
+      }),
+    )
+    await f.projection.runtimeEvent(sessionId, event(recovered))
+    expect(f.session.contextObservation).toEqual(recovered)
+    expect(f.writes).not.toHaveBeenCalled()
+  })
+  it.each([
+    'older-turn',
+    'older-cursor',
+  ] as const)('rejects a same-revision %s after an explicit clear while retaining same-event native release', async (late) => {
+    const f = projection()
+    const sample = (seq: number, turnEpoch: number, id: string): ContextObservation => ({
+      ...contextFixtureCausal(seq),
+      turnEpoch,
+      context: {
+        version: 1,
+        status: 'available',
+        sample: {
+          bindingVersion: 1,
+          observerGeneration: 1,
+          contextRevision: 2,
+          turnEpoch,
+          id,
+          at: contextFixtureAt,
+        },
+        occupancy: {
+          basis: 'current-context',
+          percent: { value: 42, accuracy: 'reported', source: 'invented source' },
+        },
+      },
+    })
+    const pending: ContextObservation = {
+      ...contextFixtureCausal(20),
+      turnEpoch: 2,
+      context: invalidateContextSummary(undefined, 'reset', {
+        bindingVersion: 1,
+        observerGeneration: 1,
+        contextRevision: 2,
+        turnEpoch: 2,
+      }),
+    }
+    await f.projection.runtimeEvent(sessionId, event(pending))
+    await f.projection.runtimeEvent(
+      sessionId,
+      event(sample(late === 'older-cursor' ? 19 : 30, late === 'older-turn' ? 1 : 2, late)),
+    )
+    expect(f.session.contextObservation).toEqual(pending)
+    const released = sample(20, 2, 'native-release')
+    await f.projection.runtimeEvent(sessionId, event(released))
+    expect(f.session.contextObservation).toEqual(released)
+    if (pending.context.status !== 'pending') throw new Error('No invented boundary')
+    await f.projection.runtimeEvent(
+      sessionId,
+      event({
+        ...contextFixtureCausal(40),
+        turnEpoch: 1,
+        context: { ...pending.context, revision: { ...pending.context.revision, turnEpoch: 1 } },
+      }),
+    )
+    expect(f.session.contextObservation).toEqual(released)
+    expect(f.writes).not.toHaveBeenCalled()
+  })
   it('accepts same-cursor enrichment by revision, rejects reverse replay and restores an unchanged offline sample', async () => {
     const f = projection()
     const original: ContextObservation = {
