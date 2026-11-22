@@ -203,6 +203,13 @@ a terminal session measures the absence of a feature that was never there.
 
 ## 8. Harness state readout
 
+Current-context observation and on-demand detail use a separate normalized
+surface from per-turn usage. See [Context observation](context-observation.md)
+for adapter declarations, sample identity/clears, machine capability projection,
+observation/read negotiation and view-owned cancellation. Native support varies
+by harness, driver and admitted source; the adapter declarations and fixtures are
+authoritative for those outcomes.
+
 | behaviour | codex | grok-acp | opencode | terminal | notes |
 |---|---|---|---|---|---|
 | working vs idle | wired | wired | wired | wired | `phase: 'working'`, `'compacting'` are the only phases in the model. THE TERMINAL COLUMN IS DRIVEN AND STILL NOT PROVEN (POD-2801, `docs/evidence/pod-2801/`): codex, grok and opencode report `working` while producing output, and **claude does not** — 79,242 bytes across 49 of 59 one-second intervals with `phase=idle` at all 60 polls, its causal checkpoint stuck at `{transcript: 0, hook: 0}` with `lastAcceptedLiveCursor: null`. opencode read the same until POD-2801 fixed it: two readers shared one SQLite cursor, the transcript read consumed every row before the state read saw it, `onEvents` never fired, and the phase never left the boot-seeded `idle` while the agent wrote 121KB. This cell is what the `wired` column warns about — the code existed, the tests passed, and driven it did not work |
@@ -216,7 +223,7 @@ a terminal session measures the absence of a feature that was never there.
 | `lastActivityAt` is **event-time**, never observe-time | wired | wired | wired | wired | a reattach replay must not restamp recency to "now"; same discipline the legacy reducer already has |
 | **observation gap declared** (`transcript_disabled`), never a silent unknown | wired | wired | wired | wired | otherwise `phase:'unknown'` renders as no badge — indistinguishable from idle |
 | **open todos** as an idle verdict | wired | wired | wired | wired | `open_todos` exists in `TurnCompleted.verdict` and `IdleVerdict`; there is no todo-list surface anywhere — the only render is a badge |
-| context percent where the harness reports it | wired | — | — | wired | `reportsContextPercent`-gated today; `contextUsagePercent` has zero web consumers — CLI/status only |
+| normalized context summary and sample-bound detail | wired | wired | wired | varies by harness | `runtime.context.forDriver` declares support or a reasoned decline; `SessionModel` supplies the composer through the live reading. See [Context observation](context-observation.md). |
 | boot-state **seeded when the harness fires nothing at boot** | wired | wired | wired | wired | claude fires no SessionStart at interactive boot — without seeding, the home board reads `unknown` as `working` forever |
 
 ## 9. Attachment / client terminal (the native view)

@@ -46,6 +46,11 @@ The `descriptor` and `catalog` Adapter sections (spec §4.1/§4.5) are NOT rows 
 ## claude-code — supported 26/30
 
 - `runtime.server`: Claude Code ships no server mode — the Agent SDK is in-process and `claude -p` is one-shot
+- `runtime.context.codex-app-server`: This Claude driver has no verified native context observation mechanism
+- `runtime.context.opencode-server`: This Claude driver has no verified native context observation mechanism
+- `runtime.context.opencode2-server`: This Claude driver has no verified native context observation mechanism
+- `runtime.context.grok-acp`: This Claude driver has no verified native context observation mechanism
+- `runtime.context.fake`: This Claude driver has no verified native context observation mechanism
 - `usage.history`: Claude Code writes no recoverable quota history — its usage endpoint is read live and cached nowhere, by Podium or by Claude Code
 - `headless.buildExec`: the Claude Agent SDK builds its own invocation in-process
 - `transcript.sqliteLocator`: this harness stores transcripts in files — there is no database to locate
@@ -54,6 +59,11 @@ The `descriptor` and `catalog` Adapter sections (spec §4.1/§4.5) are NOT rows 
 
 - `inventory.loginCommandProbe`: Codex login detection still uses its guarded local auth file
 - `runtime.embedded`: Codex ships a server, not a library to host in-process
+- `runtime.context.opencode-server`: This Codex driver has no verified context telemetry source
+- `runtime.context.opencode2-server`: This Codex driver has no verified context telemetry source
+- `runtime.context.grok-acp`: This Codex driver has no verified context telemetry source
+- `runtime.context.claude-sdk`: This Codex driver has no verified context telemetry source
+- `runtime.context.fake`: This Codex driver has no verified context telemetry source
 - `usage.history`: Recovered Codex windows disagree with live sampling (used_percent resets inside a window while resets_at moves backwards); Codex history is left to live sampling
 - `transcript.recordColor`: this harness does not report an identity colour in its records
 - `transcript.sqliteLocator`: this harness stores transcripts in files — there is no database to locate
@@ -67,6 +77,13 @@ The `descriptor` and `catalog` Adapter sections (spec §4.1/§4.5) are NOT rows 
 - `classifyBrowserOpen`: no catalogued grok login/link domains yet — the daemon generic redirect_uri heuristic decides (POD-738)
 - `inventory.loginCommandProbe`: Grok login detection still uses its local credential file
 - `runtime.embedded`: grok ships no library to host in-process
+- `runtime.context.codex-app-server`: This Grok driver has no verified context observation mechanism
+- `runtime.context.opencode-server`: This Grok driver has no verified context observation mechanism
+- `runtime.context.opencode2-server`: This Grok driver has no verified context observation mechanism
+- `runtime.context.claude-sdk`: This Grok driver has no verified context observation mechanism
+- `runtime.context.generic-pty`: Grok terminal status requires shared config.toml; measured launch overlays ignore ui.status_line, so no isolated status bridge is available. Persisted signals lag inference
+- `runtime.context.fake`: This Grok driver has no verified context observation mechanism
+- `runtime.context.headless`: Grok --single has no verified fresh context channel; persisted signals lag inference and usage ledgers are turn accounting
 - `transcript.recordColor`: this harness does not report an identity colour in its records
 - `transcript.sqliteLocator`: this harness stores transcripts in files — there is no database to locate
 - `credentials.transfer`: Grok credentials live in a plain file; no platform transfer applies
@@ -85,6 +102,11 @@ The `descriptor` and `catalog` Adapter sections (spec §4.1/§4.5) are NOT rows 
 - `inventory.loginIdentity`: OpenCode does not expose a stable local account identity yet
 - `inventory.portableCredential`: OpenCode credential portability is not supported yet
 - `runtime.embedded`: opencode ships a server, not a library to host in-process
+- `runtime.context.codex-app-server`: OpenCode context observation is unavailable for this driver
+- `runtime.context.grok-acp`: OpenCode context observation is unavailable for this driver
+- `runtime.context.claude-sdk`: OpenCode context observation is unavailable for this driver
+- `runtime.context.fake`: OpenCode context observation is unavailable for this driver
+- `runtime.context.headless`: OpenCode headless context has no verified invocation-owned native source
 - `transcript.recordToItems`: opencode maps typed SQLite rows rather than native JSONL records
 - `transcript.recordRuntime`: opencode reports no model, effort or context use in its records
 - `transcript.recordColor`: opencode has no identity-colour record
@@ -106,6 +128,14 @@ The `descriptor` and `catalog` Adapter sections (spec §4.1/§4.5) are NOT rows 
 - `inventory.portableCredential`: Cursor credential portability is not supported yet
 - `runtime.server`: no verified server mode: the public ACP registry lists Cursor as an agent, but nobody has probed cursor-agent the way POD-2025 probed grok — verify before turning this into a spec
 - `runtime.embedded`: cursor-agent ships no library to host in-process
+- `runtime.context.codex-app-server`: No Cursor context implementation is declared for this driver
+- `runtime.context.opencode-server`: No Cursor context implementation is declared for this driver
+- `runtime.context.opencode2-server`: No Cursor context implementation is declared for this driver
+- `runtime.context.grok-acp`: No Cursor context implementation is declared for this driver
+- `runtime.context.claude-sdk`: No Cursor context implementation is declared for this driver
+- `runtime.context.generic-pty`: Cursor terminal transcripts expose no validated current-context usage or effective capacity; Auto/provider capacity is unknown
+- `runtime.context.fake`: No Cursor context implementation is declared for this driver
+- `runtime.context.headless`: Cursor headless text and documented JSON/stream-JSON results expose no validated current-context usage or effective capacity; a model display name does not establish Auto/provider capacity
 - `transcript.recordRuntime`: this harness does not report model, effort or context use in its records
 - `transcript.recordColor`: this harness does not report an identity colour in its records
 - `transcript.sqliteLocator`: this harness stores transcripts in files — there is no database to locate
@@ -114,7 +144,6 @@ The `descriptor` and `catalog` Adapter sections (spec §4.1/§4.5) are NOT rows 
 
 - `usage`: Pi exposes no declared quota endpoint or transcript harvest layout yet
 - `install`: Pi is distributed through npm, its standalone installer, and GitHub releases — no single vendor install script to run
-- `instrumentation`: pi posts no hook payloads; observation is poll-only over its stream
 - `composer`: pi has no composer scrape rules yet
 - `handoffTranscript`: cross-machine handoff is not supported for pi sessions
 - `classifyBrowserOpen`: no catalogued pi login/link domains yet — the daemon generic redirect_uri heuristic decides
@@ -123,6 +152,12 @@ The `descriptor` and `catalog` Adapter sections (spec §4.1/§4.5) are NOT rows 
 - `inventory.portableCredential`: Pi logins are never copied between machines
 - `runtime.server`: pi --mode rpc is a real JSONL-over-stdio server mode, but Podium has not driven it yet — verify before turning it into a spec
 - `runtime.embedded`: pi ships an SDK, but it is not hosted in-process yet
+- `runtime.context.codex-app-server`: Pi has no admitted context mechanism on this driver; RPC/server remains unimplemented
+- `runtime.context.opencode-server`: Pi has no admitted context mechanism on this driver; RPC/server remains unimplemented
+- `runtime.context.opencode2-server`: Pi has no admitted context mechanism on this driver; RPC/server remains unimplemented
+- `runtime.context.grok-acp`: Pi has no admitted context mechanism on this driver; RPC/server remains unimplemented
+- `runtime.context.claude-sdk`: Pi has no admitted context mechanism on this driver; RPC/server remains unimplemented
+- `runtime.context.fake`: Pi has no admitted context mechanism on this driver; RPC/server remains unimplemented
 - `transcript.recordColor`: this harness does not report an identity colour in its records
 - `transcript.sqliteLocator`: this harness stores transcripts in files — there is no database to locate
 - `credentials.transfer`: Pi credentials live in a plain file; no platform transfer applies

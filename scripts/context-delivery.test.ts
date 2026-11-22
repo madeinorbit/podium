@@ -7,20 +7,23 @@ import {
   type AgentKind,
   asMachineId,
   asSessionId,
-  firstAdminMemberId,
+  asUserId,
   invalidateContextSummary,
 } from '@podium/model'
 import type { ContextObservation, RuntimeEvent, SessionSnapshot } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+  SessionDaemonProjection,
+  type SessionDaemonProjectionPorts,
+} from '../apps/server/src/modules/sessions/daemon-projection'
+import { conditionOf } from '../apps/server/src/modules/sessions/live-topics'
+import { Session } from '../apps/server/src/modules/sessions/session'
+import {
   contextFixtureAt,
   contextFixtureCausal,
   installContextFixture,
-} from '../../../../../packages/harness/src/driver/testing/context-fixture'
-import { createMemoryDriverSlots } from '../../../../../packages/harness/src/driver/testing/driver-slots'
-import { SessionDaemonProjection, type SessionDaemonProjectionPorts } from './daemon-projection'
-import { conditionOf } from './live-topics'
-import { Session } from './session'
+} from '../packages/harness/src/driver/testing/context-fixture'
+import { createMemoryDriverSlots } from '../packages/harness/src/driver/testing/driver-slots'
 
 const sessionId = asSessionId('context-projection-session')
 const machineId = asMachineId('context-projection-machine')
@@ -32,7 +35,7 @@ function projection() {
   const session = new Session({
     sessionId,
     machineId,
-    ownerUserId: firstAdminMemberId(),
+    ownerUserId: asUserId('invented-context-owner'),
     agentKind: 'codex',
     durableLabel: 'invented-context-projection',
     cwd: '/tmp/invented',

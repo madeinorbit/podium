@@ -16,26 +16,26 @@ import {
   type SessionContextReadInput,
 } from '@podium/protocol/daemon'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { DaemonContext } from '../apps/daemon/src/control/context'
+import { dispatchControlMessage } from '../apps/daemon/src/control/registry'
+import { userCommandPrincipal } from '../apps/server/src/command-principal'
+import { DAEMON_FRAME_PORTS } from '../apps/server/src/gateway/daemon-frame-routing'
+import { DaemonMux } from '../apps/server/src/gateway/daemon-mux'
+import type { DaemonFeaturePorts } from '../apps/server/src/gateway/daemon-ports'
+import { queryProcedures } from '../apps/server/src/modules/derived-family'
+import { DaemonRpcService } from '../apps/server/src/modules/machines/rpc'
+import { SessionContextReads } from '../apps/server/src/modules/sessions/context-reads'
+import { SESSION_QUERIES } from '../apps/server/src/modules/sessions/queries'
+import { type Context, t } from '../apps/server/src/trpc'
 import {
   createFakeServerDriver,
   resetFakeRuntime,
-} from '../../../../../packages/harness/src/driver/testing/fake-driver'
+} from '../packages/harness/src/driver/testing/fake-driver'
 import {
   testHarnessContext,
   testSessionTerms,
-} from '../../../../../packages/harness/src/driver/testing/harness-context'
-import { unsupported } from '../../../../../packages/harness/src/manifest'
-import type { DaemonContext } from '../../../../daemon/src/control/context'
-import { dispatchControlMessage } from '../../../../daemon/src/control/registry'
-import { userCommandPrincipal } from '../../command-principal'
-import { DAEMON_FRAME_PORTS } from '../../gateway/daemon-frame-routing'
-import { DaemonMux } from '../../gateway/daemon-mux'
-import type { DaemonFeaturePorts } from '../../gateway/daemon-ports'
-import { type Context, t } from '../../trpc'
-import { queryProcedures } from '../derived-family'
-import { DaemonRpcService } from '../machines/rpc'
-import { SessionContextReads } from './context-reads'
-import { SESSION_QUERIES } from './queries'
+} from '../packages/harness/src/driver/testing/harness-context'
+import { unsupported } from '../packages/harness/src/manifest'
 
 const at = '2026-11-21T12:00:00.000Z'
 const quantity = (value: number) => ({
