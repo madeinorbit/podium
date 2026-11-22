@@ -19,6 +19,7 @@ import type {
   HarnessContextStrategy,
 } from '../../context-types.js'
 import { compareProviderCursor } from '../../observer.js'
+import { CODEX_INVOCATION, CODEX_INVOCATION_SEGMENT } from './context-invocation.js'
 import {
   type CodexContextSource,
   type CodexUsage,
@@ -61,6 +62,8 @@ class CodexContext implements ContextSessionStrategy {
   private capacity?: ContextCapacity
   private turn?: Turn
   private version?: string
+  private rolloutVersion?: string
+  private invocation?: { version: string; after: number }
   private fingerprint?: string
   private fenceAt = -1
   private lastNativeAt = -1
@@ -122,6 +125,9 @@ class CodexContext implements ContextSessionStrategy {
       this.lastNativeAt = -1
     }
     if (cause === 'binding-changed' || cause === 'resume') {
+      this.version = undefined
+      this.rolloutVersion = undefined
+      this.invocation = undefined
       this.model = undefined
       this.capacity = undefined
       this.retiredTurns.clear()
@@ -202,7 +208,19 @@ class CodexContext implements ContextSessionStrategy {
     source: CodexContextSource,
     causal: CausalEnvelope,
   ) {
-    if (!codexContextVersion(this.version)) {
+    // A creation header is historical provenance, not proof of the next
+    // process's build. New live records need a fresh invocation witness.
+    const version =
+      source === 'app-server'
+        ? this.version
+        : causal.provenance === 'bootstrap'
+          ? !this.invocation || this.invocation.version === this.rolloutVersion
+            ? this.rolloutVersion
+            : undefined
+          : this.invocation && Date.parse(causal.at) >= this.invocation.after
+            ? this.invocation.version
+            : undefined
+    if (!codexContextVersion(version)) {
       this.pending(
         causal,
         'unverified-native-version',
@@ -422,7 +440,7 @@ class CodexContext implements ContextSessionStrategy {
         payload.session_id !== this.input.nativeSessionId
       )
         return
-      this.version = text(payload.cli_version)
+      this.rolloutVersion = text(payload.cli_version)
       const providerId = text(payload.model_provider)
       if (providerId) this.model = { providerId }
       return
@@ -484,6 +502,20 @@ class CodexContext implements ContextSessionStrategy {
       return undefined
     const raw = object(payload)
     if (!raw) return undefined
+    if (raw.type === CODEX_INVOCATION) {
+      const startedAt = nativeTime(raw.startedAt)
+      const version = text(raw.version)
+      if (
+        this.input.driver !== 'codex-app-server' &&
+        causal.provenance === 'live' &&
+        causal.cursor.segmentId === CODEX_INVOCATION_SEGMENT &&
+        raw.nativeSessionId === this.input.nativeSessionId &&
+        version &&
+        startedAt
+      )
+        this.invocation = { version, after: Date.parse(startedAt) }
+      return undefined
+    }
     const rollout =
       raw.type === 'session_meta' ||
       raw.type === 'turn_context' ||

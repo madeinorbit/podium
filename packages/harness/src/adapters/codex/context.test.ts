@@ -8,6 +8,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { ContextObservation } from '../../context-types.js'
 import type { AcceptedDriverId } from '../../manifest.js'
 import { codexContext } from './context.js'
+import { CODEX_INVOCATION, CODEX_INVOCATION_SEGMENT } from './context-invocation.js'
 import {
   codexContextVersion,
   codexRequestAccounting,
@@ -580,5 +581,47 @@ describe('Codex context lifecycle and field admission', () => {
     expect(readFileSync(new URL('./transcript.ts', import.meta.url), 'utf8')).not.toContain(
       'contextUsagePercent:',
     )
+  })
+
+  it('admits only new live headerless usage from a fresh invocation witness', async () => {
+    const w = world('generic-pty')
+    const witness = {
+      type: CODEX_INVOCATION,
+      nativeSessionId: primary,
+      version: '0.169.0',
+      startedAt: '2026-11-21T22:12:39.800Z',
+    }
+    w.observe(witness, {
+      cursor: { segmentId: CODEX_INVOCATION_SEGMENT, components: { spawn: 1 } },
+    })
+    for (const row of throughUsage(native.rollout, 4511).slice(5)) w.observe(row)
+    expect((await w.available()).occupancy.usedTokens?.value).toBe(4511)
+    expect((await w.available()).model?.providerId).toBeUndefined()
+    const replay = world('headless')
+    replay.observe(witness, {
+      cursor: { segmentId: CODEX_INVOCATION_SEGMENT, components: { spawn: 1 } },
+    })
+    for (const row of throughUsage(native.rollout, 4511).slice(5))
+      replay.observe(row, { provenance: 'bootstrap' })
+    expect((await replay.current()).context.status).toBe('unavailable')
+  })
+
+  it('does not trust an old creation header for a newer live writer or an untrusted witness cursor', async () => {
+    const w = world('headless')
+    const witness = {
+      type: CODEX_INVOCATION,
+      nativeSessionId: primary,
+      version: '0.170.0',
+      startedAt: '2026-11-21T22:12:39.800Z',
+    }
+    w.observe(witness, {
+      cursor: { segmentId: CODEX_INVOCATION_SEGMENT, components: { spawn: 1 } },
+    })
+    for (const row of throughUsage(native.rollout, 4511)) w.observe(row)
+    expect((await w.current()).context.status).toBe('unavailable')
+    const untrusted = world('generic-pty')
+    untrusted.observe({ ...witness, version: '0.169.0' })
+    for (const row of throughUsage(native.rollout, 4511).slice(5)) untrusted.observe(row)
+    expect((await untrusted.current()).context.status).toBe('unavailable')
   })
 })
