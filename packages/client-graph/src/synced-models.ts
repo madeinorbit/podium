@@ -5,6 +5,7 @@ import {
   BUILTIN_HARNESS_KINDS,
   effectiveServiceReport,
   type HostMetricsWire,
+  type Inventory,
   type MachineAccessWire,
   type MachineProjection,
   type MachineServiceReport,
@@ -55,6 +56,12 @@ export class MachineModel extends EntityModel {
 
   /** One live reader per nested inventory entry; facts stay on this machine record. */
   readonly harnessInstalls = BUILTIN_HARNESS_KINDS.map((kind) => new MachineHarness(this, kind))
+
+  /** One context source, including explicit-only mechanisms that are not
+   * launch choices. Sessions borrow its values without copying declarations. */
+  @lazy get contextCapabilities(): Inventory['contextCapabilities'] {
+    return this.inventory?.contextCapabilities
+  }
 
   // Live condition
   /**

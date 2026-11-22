@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { ContextAvailability, ContextCapability } from '../context'
 import { MachineIdField, RepoIdField, SessionIdField } from '../ids'
 import { AgentKind, DriverFamilyWire, HarnessAgent, USAGE_HARNESS_KINDS } from './agent'
 import { LoopMinuteWire } from './loop'
@@ -214,6 +215,19 @@ export const Inventory = z.object({
         harness: HarnessAgent,
         id: z.string().min(1),
         family: DriverFamilyWire,
+      }),
+    )
+    .optional(),
+  /** Context mechanisms include explicit-only drivers that are not launch
+   * choices. One machine source, keyed by harness and bound driver; absent
+   * from older inventories. A declaration is distinct from native admission. */
+  contextCapabilities: z
+    .array(
+      z.object({
+        harness: HarnessAgent,
+        driverId: z.string().min(1),
+        capability: ContextCapability.optional(),
+        availability: ContextAvailability,
       }),
     )
     .optional(),

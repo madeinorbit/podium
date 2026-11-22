@@ -5930,6 +5930,29 @@ type Output_machines_applyUpdate = {
             }[];
             arch: "arm64" | "x64";
             homePath?: string | undefined;
+            contextCapabilities?: undefined | {
+                availability: {
+                    reason: {
+                        code: string;
+                        message: string;
+                    };
+                    status: "unavailable";
+                } | {
+                    reason: {
+                        code: string;
+                        message: string;
+                    };
+                    status: "unsupported";
+                } | {
+                    status: "available";
+                };
+                capability?: undefined | {
+                    detail: "none" | "on-demand";
+                    summary: "explicit" | "passive" | "passive-and-explicit";
+                };
+                driverId: string;
+                harness: "claude-code" | "codex" | "cursor" | "grok" | "opencode" | "pi";
+            }[];
             os: "darwin" | "linux" | "win32";
             podiumVersion?: string | undefined;
             runtimeDrivers?: undefined | {

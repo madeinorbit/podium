@@ -1,6 +1,9 @@
 import { homedir } from 'node:os'
 import {
+  type AcceptedDriverId,
   buildServedDescriptors,
+  canonicalDriverId,
+  contextCapabilityFor,
   declaredValue,
   gateHarnessVersion,
   HARNESS_KINDS,
@@ -124,6 +127,66 @@ export function runtimeDriverInventory(
   ]
 }
 
+/** Context has one machine source independent of launch-selection membership.
+ * Explicit-only headless mechanisms come from the same manifests, without
+ * making them additional launcher options for current or older clients. */
+export function contextCapabilityInventory(
+  drivers: NonNullable<Inventory['runtimeDrivers']>,
+): NonNullable<Inventory['contextCapabilities']> {
+  const mechanisms = [
+    ...drivers.map((driver) => ({
+      harness: driver.harness,
+      driverId: canonicalDriverId(driver.id),
+    })),
+    ...HARNESS_KINDS.flatMap((harness) =>
+      manifestFor(harness)?.headless.supported &&
+      !drivers.some(
+        (driver) => driver.harness === harness && canonicalDriverId(driver.id) === 'headless',
+      )
+        ? [{ harness, driverId: 'headless' }]
+        : [],
+    ),
+  ]
+  return mechanisms
+    .filter(
+      (mechanism, index) =>
+        mechanisms.findIndex(
+          (candidate) =>
+            candidate.harness === mechanism.harness && candidate.driverId === mechanism.driverId,
+        ) === index,
+    )
+    .map((mechanism) => {
+      // Every key came from a manifest or the admitted inventory, not a client.
+      const context = contextCapabilityFor(
+        mechanism.harness,
+        mechanism.driverId as AcceptedDriverId,
+      )
+      return {
+        ...mechanism,
+        ...(context.supported
+          ? {
+              capability: context.value,
+              // Inventory has no native session transport. Do not start a
+              // harness to probe it, or confuse implementation with a sample.
+              availability: {
+                status: 'unavailable' as const,
+                reason: {
+                  code: 'not-probed',
+                  message:
+                    'Native context availability requires an attributable session observation',
+                },
+              },
+            }
+          : {
+              availability: {
+                status: 'unsupported' as const,
+                reason: { code: 'unsupported-implementation', message: context.reason },
+              },
+            }),
+      }
+    })
+}
+
 const inventoryProbeTimes = new WeakMap<Inventory, string>()
 
 function reportHarnessInventory(send: DaemonContext['send'], inventory: Inventory): void {
@@ -194,6 +257,7 @@ export async function reportInventory(
       }
       if (!ctx.harnessRuntime.isCurrent(snapshot)) return
       const inventory = ctx.harnessInstalls?.inventory(snapshot.inventory) ?? snapshot.inventory
+      const runtimeDrivers = runtimeDriverInventory(snapshot.inventory, drivableAlternatives)
       ctx.send({
         type: 'inventoryReport',
         machineId: asMachineId(ctx.machineId),
@@ -207,7 +271,8 @@ export async function reportInventory(
               })
             : inventory),
           homePath: snapshot.commandEnvironment.machineHome,
-          runtimeDrivers: runtimeDriverInventory(snapshot.inventory, drivableAlternatives),
+          runtimeDrivers,
+          contextCapabilities: contextCapabilityInventory(runtimeDrivers),
         },
         // Served descriptors (POD-4475): adapter DATA plus this machine's
         // availability, so clients render harnesses they never shipped.
@@ -280,6 +345,7 @@ export async function reportInventory(
     // The brand is asserted, not validated: this id is the daemon's OWN, read
     // from its state file at boot and carried through `DaemonContext.machineId`
     // and the inventory build, neither of which is a wire boundary.
+    const runtimeDrivers = runtimeDriverInventory(inventory)
     ctx.send({
       type: 'inventoryReport',
       machineId: asMachineId(machineId),
@@ -291,7 +357,8 @@ export async function reportInventory(
             })
           : inventory),
         homePath: ctx.homeDir ?? homedir(),
-        runtimeDrivers: runtimeDriverInventory(inventory),
+        runtimeDrivers,
+        contextCapabilities: contextCapabilityInventory(runtimeDrivers),
       },
       // Served descriptors (POD-4475): see the harnessRuntime path above.
       descriptors: buildServedDescriptors(inventory),

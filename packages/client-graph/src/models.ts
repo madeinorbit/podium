@@ -3,6 +3,18 @@ import type { IssueBriefWire, IssueDescriptionWire, IssuePanelTodoWire, IssuePan
 import type { LayoutWire } from '@podium/model'
 import { type IssueNavigationModel, issuePendingDecision, missionTaskBucket, type MissionTaskBucket } from '@podium/client-core/values'
 import { type LiveStore, lastValue } from '@podium/client-core/live'
+import type { Reading, SessionCondition } from '@podium/client-core/live'
+import {
+  contextUsagePercentOf,
+  type ContextAvailability,
+  type ContextCapability,
+  type ContextCapacity,
+  type ContextModelIdentity,
+  type ContextOccupancy,
+  type ContextReason,
+  type ContextSummary,
+  type Inventory,
+} from '@podium/model/browser'
 import type { ConcertmasterEntryWire, EffectError, EffectRecordWire, EffectStatus, InstancePreferences, IssueGitState, IssuePanel, IssuePanelArtifact, IssueProjection, NoticeWire, PersonalPreferences, PinKind, PinWire, ReadPositionWire, SuperagentThreadWire, TabOrderWire } from '@podium/model'
 import { type PodiumSettings, resolveRole } from '@podium/runtime'
 import { here, isGone, type Lookup, omitGone } from './lookup'
@@ -1090,9 +1102,148 @@ export class SessionModel extends EntityModel {
   @lazy get lastInputAt(): string | undefined {
     return lastValue(this.liveReadings?.sessionConditionOf(this.id))?.lastInputAt
   }
-  /** The harness's latest exact context-window use. */
+  /** Compatibility only: normalized context wins, including explicit clears
+   * and over-capacity percentages that the old wire cannot represent. */
   @lazy get contextUsagePercent(): number | undefined {
-    return lastValue(this.liveReadings?.sessionConditionOf(this.id))?.contextUsagePercent
+    return this.context === undefined
+      ? lastValue(this.contextReading)?.contextUsagePercent
+      : contextUsagePercentOf(this.context)
+  }
+
+  // Context: one atomic live value, and small presentation questions. Native
+  // interpretation, capacity lookup and occupancy arithmetic stay in adapters.
+  @lazy private get contextRecordState(): 'here' | 'loading' | 'gone' {
+    const row = this.row
+    return row === LOADING ? 'loading' : isGone(row) ? 'gone' : 'here'
+  }
+  @lazy private get contextReading(): Reading<SessionCondition> | undefined {
+    return this.contextRecordState === 'here'
+      ? this.liveReadings?.sessionConditionOf(this.id)
+      : undefined
+  }
+  /** Original observation, including identity, model, accuracy and event time.
+   * Requested model changes never relabel it. Offline is derived below. */
+  @lazy get context(): ContextSummary | undefined {
+    return lastValue(this.contextReading)?.context
+  }
+  /** The shared machine's context mechanism for this harness × bound driver. Preserve the
+   * pool's loading/gone answers, including an absent session or machine. */
+  @lazy get contextImplementation(): Lookup<
+    NonNullable<Inventory['contextCapabilities']>[number] | undefined
+  > {
+    const row = this.row
+    if (row === LOADING || isGone(row)) return row
+    if (!this.machineId) return undefined
+    const machine = this.host.model('machine', this.machineId)
+    if (machine === LOADING || isGone(machine)) return machine
+    return machine.contextCapabilities?.find(
+      (driver) => driver.harness === this.agentKind && driver.driverId === this.driverId,
+    )
+  }
+  @lazy get contextCapability(): ContextCapability | undefined {
+    return here(this.contextImplementation)?.capability
+  }
+  @lazy get contextAvailability(): ContextAvailability | undefined {
+    return here(this.contextImplementation)?.availability
+  }
+  /** Implementation support is distinct from native availability and the
+   * current session reading. An old inventory is unknown, never unsupported. */
+  @lazy get contextSupport(): 'unknown' | 'supported' | 'unsupported' {
+    const context = here(this.contextImplementation)
+    if (context === undefined) return 'unknown'
+    return context.capability === undefined || context.availability.status === 'unsupported'
+      ? 'unsupported'
+      : 'supported'
+  }
+  @lazy get contextProvenance(): 'normalized' | 'legacy-percent' | undefined {
+    if (this.context !== undefined) return 'normalized'
+    return lastValue(this.contextReading)?.contextUsagePercent !== undefined
+      ? 'legacy-percent'
+      : undefined
+  }
+  @lazy get contextOccupancy(): ContextOccupancy | undefined {
+    const context = this.context
+    return context?.status === 'available' || context?.status === 'stale'
+      ? context.occupancy
+      : undefined
+  }
+  /** Untruncated adapter percentage. Legacy peers supply only a percentage,
+   * with no sample identity, token counts, capacity or rich detail. */
+  @lazy get contextPercent(): number | undefined {
+    return this.context === undefined
+      ? lastValue(this.contextReading)?.contextUsagePercent
+      : this.contextOccupancy?.percent?.value
+  }
+  /** Unit fraction only for drawing the circle; never a reconstructed count. */
+  @lazy get contextRatio(): number | undefined {
+    return this.contextPercent === undefined ? undefined : Math.min(1, this.contextPercent / 100)
+  }
+  @lazy get contextRemainingTokens(): number | undefined {
+    return this.contextOccupancy?.remainingTokens?.value
+  }
+  @lazy get contextCapacity(): ContextCapacity | undefined {
+    const context = this.context
+    return context?.status === 'unsupported' ? undefined : context?.effectiveCapacity
+  }
+  @lazy get contextCapacityBasis(): ContextCapacity['basis'] | undefined {
+    return this.contextCapacity?.basis
+  }
+  @lazy get contextObservedModel(): ContextModelIdentity | undefined {
+    const context = this.context
+    return context?.status === 'unsupported' ? undefined : context?.model
+  }
+  @lazy private get contextCurrent(): boolean {
+    return this.contextReading?.known === true && !this.contextSessionUnavailable
+  }
+  @lazy private get contextSessionUnavailable(): boolean {
+    return (
+      (this.status !== 'live' && this.status !== 'starting') ||
+      (!!this.machineId && this.host.live?.onlineOf(this.machineId) === false)
+    )
+  }
+  /** Transport loss makes a retained measurement stale. Age alone never
+   * invalidates an idle online sample, so this getter needs no clock. */
+  @lazy get contextState(): ContextSummary['status'] | 'unknown' {
+    if (this.contextRecordState === 'loading') return 'unknown'
+    if (this.contextRecordState === 'gone' || isGone(this.contextImplementation))
+      return 'unavailable'
+    const context = this.context
+    if (this.contextOccupancy !== undefined || this.contextProvenance === 'legacy-percent')
+      return context?.status === 'stale' || !this.contextCurrent ? 'stale' : 'available'
+    if (context?.status === 'unsupported') return 'unsupported'
+    if (!this.contextCurrent && context !== undefined) return 'unavailable'
+    if (context !== undefined) return context.status
+    if (this.contextSupport === 'unsupported') return 'unsupported'
+    if (this.contextSessionUnavailable) return 'unavailable'
+    const availability = this.contextAvailability
+    return availability?.status === 'unavailable' ? 'unavailable' : 'unknown'
+  }
+  @lazy({ equals: compareStructural }) get contextReason(): ContextReason | undefined {
+    if (this.contextRecordState === 'gone')
+      return { code: 'session-gone', message: 'This session is no longer available' }
+    if (isGone(this.contextImplementation))
+      return { code: 'machine-gone', message: 'This session’s machine is no longer available' }
+    const context = this.context
+    if (context && context.status !== 'available') return context.reason
+    if (this.contextState === 'stale')
+      return {
+        code: 'offline',
+        message: 'Last context measurement; the live session is unavailable',
+      }
+    if (this.contextProvenance !== undefined) return undefined
+    if (this.contextRecordState === 'here' && this.contextSessionUnavailable)
+      return { code: 'offline', message: 'A live context measurement is unavailable' }
+    const availability = this.contextAvailability
+    return availability?.status === 'available' ? undefined : availability?.reason
+  }
+  /** Rich reads require an attributable current sample and declared support.
+   * They are never offered for the legacy percentage compatibility reading. */
+  @lazy get contextDetailLevel(): ContextCapability['detail'] {
+    return this.contextProvenance === 'normalized' &&
+      this.contextState === 'available' &&
+      this.contextSupport === 'supported'
+      ? (this.contextCapability?.detail ?? 'none')
+      : 'none'
   }
   /** The terminal's size: the server's stored size while nothing runs it, so a
    *  cached terminal view opens at the right size with the daemon offline. */

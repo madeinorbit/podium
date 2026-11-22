@@ -32,9 +32,11 @@ vi.mock('../runtime/version-probe', async (importOriginal) => ({
 }))
 
 import {
+  AGENT_MANIFESTS,
   CODEX_VERSION_POLICY,
   GROK_ACP_VERSION_POLICY,
   gateHarnessVersion,
+  HARNESS_KINDS,
   OPENCODE_VERSION_POLICY,
 } from '@podium/harness'
 import {
@@ -46,8 +48,10 @@ import {
 
 import type { DaemonContext } from './context'
 import {
+  contextCapabilityInventory,
   inventoryHandlers,
   reportInventory,
+  runtimeDriverInventory,
   startInventoryRefresh,
   terminalRuntimeDriverInventory,
 } from './inventory'
@@ -61,10 +65,8 @@ const INV: Inventory = {
 const withBaselineDrivers = (inventory: Inventory, homePath = '/home/u'): Inventory => ({
   ...inventory,
   homePath,
-  runtimeDrivers: [
-    ...terminalRuntimeDriverInventory(),
-    { harness: 'claude-code', id: 'claude-sdk', family: 'server' },
-  ],
+  runtimeDrivers: runtimeDriverInventory(inventory),
+  contextCapabilities: contextCapabilityInventory(runtimeDriverInventory(inventory)),
 })
 const HEADLESS_INV: Inventory = {
   ...INV,
@@ -112,6 +114,91 @@ describe('terminalRuntimeDriverInventory', () => {
       { harness: 'pi', id: 'generic-pty', family: 'terminal' },
       { harness: 'antigravity', id: 'generic-pty', family: 'terminal' },
     ])
+  })
+})
+
+describe('machine context inventory', () => {
+  afterEach(() => vi.restoreAllMocks())
+  it('projects support per harness and bound driver without starting a native probe', () => {
+    const capability = { summary: 'passive' as const, detail: 'on-demand' as const }
+    const probe = vi.fn(async () => ({ status: 'available' as const }))
+    vi.spyOn(AGENT_MANIFESTS.codex.runtime.context, 'forDriver').mockImplementation((driver) =>
+      driver === 'generic-pty'
+        ? { supported: true, value: { capability, probe, bind: vi.fn() } }
+        : { supported: false, reason: 'Synthetic driver has no context implementation' },
+    )
+    vi.spyOn(AGENT_MANIFESTS.cursor.runtime.context, 'forDriver').mockReturnValue({
+      supported: false,
+      reason: 'Synthetic harness has no context implementation',
+    })
+    const rows = contextCapabilityInventory(runtimeDriverInventory(HEADLESS_INV))
+    const terminal = rows.find((row) => row.harness === 'codex' && row.driverId === 'generic-pty')
+    expect(terminal).toEqual({
+      harness: 'codex',
+      driverId: 'generic-pty',
+      capability,
+      availability: {
+        status: 'unavailable',
+        reason: {
+          code: 'not-probed',
+          message: 'Native context availability requires an attributable session observation',
+        },
+      },
+    })
+    expect(rows.find((row) => row.harness === 'cursor' && row.driverId === 'generic-pty')).toEqual({
+      harness: 'cursor',
+      driverId: 'generic-pty',
+      availability: {
+        status: 'unsupported',
+        reason: {
+          code: 'unsupported-implementation',
+          message: 'Synthetic harness has no context implementation',
+        },
+      },
+    })
+    expect(
+      rows.find((row) => row.harness === 'codex' && row.driverId === 'codex-app-server'),
+    ).toMatchObject({
+      availability: { status: 'unsupported' },
+    })
+    expect(probe).not.toHaveBeenCalled()
+  })
+
+  it('covers every declared headless mechanism without changing launch inventory bytes', () => {
+    const capability = { summary: 'passive' as const, detail: 'on-demand' as const }
+    const declared = HARNESS_KINDS.filter((harness) => AGENT_MANIFESTS[harness].headless.supported)
+    for (const harness of declared)
+      vi.spyOn(AGENT_MANIFESTS[harness].runtime.context, 'forDriver').mockReturnValue({
+        supported: true,
+        value: { capability, probe: vi.fn(), bind: vi.fn() },
+      })
+    const drivers = runtimeDriverInventory(HEADLESS_INV)
+    const launchBytes = JSON.stringify(drivers)
+    const contexts = contextCapabilityInventory(drivers)
+    expect(contexts.filter((row) => row.driverId === 'headless').map((row) => row.harness)).toEqual(
+      declared,
+    )
+    for (const harness of declared)
+      expect(
+        contexts.find((row) => row.harness === harness && row.driverId === 'headless')?.capability,
+      ).toBe(capability)
+    expect(JSON.stringify(drivers)).toBe(launchBytes)
+    expect(drivers.some((row) => row.id === 'headless')).toBe(false)
+    expect(drivers.every((row) => !Object.hasOwn(row, 'context'))).toBe(true)
+  })
+
+  it('canonicalizes inventory driver aliases at the authority boundary', () => {
+    const contexts = contextCapabilityInventory([
+      { harness: 'claude-code', id: 'claude-pty', family: 'terminal' },
+      { harness: 'claude-code', id: 'generic-pty', family: 'terminal' },
+    ])
+    expect(
+      contexts.find((row) => row.harness === 'claude-code' && row.driverId === 'generic-pty'),
+    ).toBeDefined()
+    expect(contexts.some((row) => row.driverId === 'claude-pty')).toBe(false)
+    expect(
+      contexts.filter((row) => row.harness === 'claude-code' && row.driverId === 'generic-pty'),
+    ).toHaveLength(1)
   })
 })
 
@@ -226,7 +313,11 @@ describe('daemon inventory reporting (#222)', () => {
     expect(sent[0]).toMatchObject({
       inventory: {
         runtimeDrivers: expect.arrayContaining([
-          { harness: 'opencode', id: 'opencode2-server', family: 'server' },
+          expect.objectContaining({
+            harness: 'opencode',
+            id: 'opencode2-server',
+            family: 'server',
+          }),
         ]),
       },
     })
@@ -258,6 +349,7 @@ describe('daemon inventory reporting (#222)', () => {
             { harness: 'grok', id: 'grok-acp', family: 'server' },
             { harness: 'opencode', id: 'opencode-server', family: 'server' },
           ],
+          contextCapabilities: contextCapabilityInventory(runtimeDriverInventory(HEADLESS_INV)),
         },
         descriptors: expect.any(Array),
       },
