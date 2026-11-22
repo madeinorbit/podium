@@ -6,6 +6,7 @@ import { isGone, requireHere } from './lookup'
 import {
   contextInventory,
   contextSample,
+  futureContextInventory,
   contextQuantity as q,
   sessionContextFixture,
 } from './session-context.test.fixture'
@@ -220,6 +221,32 @@ describe('shared context measurements', () => {
 })
 
 describe('shared machine context lookup', () => {
+  it('reads a future harness through the same generic capability and measurement getters', () => {
+    const f = sessionContextFixture()
+    try {
+      f.updateInventory(futureContextInventory)
+      // Fixture-only injection at the existing closed SessionMeta boundary:
+      // this task does not widen that legacy record or launch vocabulary.
+      f.updateSession({ agentKind: 'future-context-harness', driverId: 'future-context-driver' })
+      f.publish(contextSample)
+      expect(f.model.contextImplementation).toBe(futureContextInventory.contextCapabilities?.[0])
+      expect(f.model.contextCapability).toBe(
+        futureContextInventory.contextCapabilities?.[0]?.capability,
+      )
+      expect(f.model.contextSupport).toBe('supported')
+      expect(f.model.contextState).toBe('available')
+      expect(f.model.contextDetailLevel).toBe('on-demand')
+      expect(f.model.contextPercent).toBe(10)
+      expect(f.model.contextRemainingTokens).toBe(180)
+      expect(f.model.context).toBe(contextSample)
+      f.updateSession({ agentKind: 'future-context-harness', driverId: 'other-future-driver' })
+      expect(f.model.contextSupport).toBe('unknown')
+      expect(f.model.contextDetailLevel).toBe('none')
+    } finally {
+      f.pool.dispose()
+    }
+  })
+
   it('distinguishes two generic-pty harnesses on one machine and follows bound-driver changes', () => {
     const f = sessionContextFixture()
     const stop = autorun(() => void f.model.contextSupport)

@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { ContextAvailability, ContextCapability } from '../context'
 import { MachineIdField, RepoIdField, SessionIdField } from '../ids'
-import { AgentKind, DriverFamilyWire, HarnessAgent, USAGE_HARNESS_KINDS } from './agent'
+import { AgentKind, DriverFamilyWire, HarnessAgent, HarnessId, USAGE_HARNESS_KINDS } from './agent'
 import { LoopMinuteWire } from './loop'
 
 // ---------------------------------------------------------------------------
@@ -224,7 +224,7 @@ export const Inventory = z.object({
   contextCapabilities: z
     .array(
       z.object({
-        harness: HarnessAgent,
+        harness: HarnessId,
         driverId: z.string().min(1),
         capability: ContextCapability.optional(),
         availability: ContextAvailability,

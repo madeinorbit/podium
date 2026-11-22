@@ -18,7 +18,7 @@ import {
   probeAllModels,
 } from '@podium/harness'
 import { createLogger } from '@podium/logger'
-import { asMachineId, type Inventory } from '@podium/model'
+import { asMachineId, HarnessId, type Inventory } from '@podium/model'
 import type { BuiltinHarnessKind } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import {
@@ -163,6 +163,7 @@ export function contextCapabilityInventory(
       )
       return {
         ...mechanism,
+        harness: HarnessId.parse(mechanism.harness),
         ...(context.supported
           ? {
               capability: context.value,

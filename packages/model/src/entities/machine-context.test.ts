@@ -33,4 +33,23 @@ describe('runtime driver context compatibility', () => {
       }).success,
     ).toBe(false)
   })
+
+  it('accepts a future nonempty harness only in the new open context identity field', () => {
+    const context = {
+      harness: 'future-context-harness',
+      driverId: 'future-context-driver',
+      capability: { summary: 'passive', detail: 'on-demand' },
+      availability: { status: 'available' },
+    }
+    const inventory = Inventory.parse({
+      ...base,
+      runtimeDrivers: [driver],
+      contextCapabilities: [context],
+    })
+    expect(inventory.contextCapabilities?.[0]).toEqual(context)
+    expect(inventory.runtimeDrivers).toEqual([driver])
+    expect(
+      Inventory.safeParse({ ...base, contextCapabilities: [{ ...context, harness: '' }] }).success,
+    ).toBe(false)
+  })
 })

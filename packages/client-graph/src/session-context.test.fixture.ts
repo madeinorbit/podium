@@ -1,6 +1,6 @@
 /** Invented normalized readings for shared-model consumers; no native fields. */
 import '@podium/client-graph/synced-models'
-import type { ContextSummary, Inventory } from '@podium/model'
+import { type ContextSummary, HarnessId, Inventory } from '@podium/model'
 import { liveFixture } from './live-fixture'
 import { MobxPool, type PoolLazyOptions } from './pool'
 
@@ -45,7 +45,7 @@ export const contextInventory: Inventory = {
   ],
   contextCapabilities: [
     {
-      harness: 'codex',
+      harness: HarnessId.parse('codex'),
       driverId: 'generic-pty',
       capability: { summary: 'passive', detail: 'on-demand' },
       availability: {
@@ -54,7 +54,7 @@ export const contextInventory: Inventory = {
       },
     },
     {
-      harness: 'cursor',
+      harness: HarnessId.parse('cursor'),
       driverId: 'generic-pty',
       availability: {
         status: 'unsupported',
@@ -62,13 +62,31 @@ export const contextInventory: Inventory = {
       },
     },
     {
-      harness: 'codex',
+      harness: HarnessId.parse('codex'),
       driverId: 'headless',
       capability: { summary: 'passive', detail: 'none' },
       availability: { status: 'available' },
     },
   ],
 }
+
+/** Newer peers may advertise a harness and driver this client cannot name.
+ * Legacy session/launch vocabularies stay untouched; the new context field
+ * carries the existing open wire identity and common capability value. */
+export const futureContextInventory = Inventory.parse({
+  os: 'linux',
+  arch: 'x64',
+  agents: [],
+  runtimeDrivers: [],
+  contextCapabilities: [
+    {
+      harness: 'future-context-harness',
+      driverId: 'future-context-driver',
+      capability: { summary: 'passive', detail: 'on-demand' },
+      availability: { status: 'available' },
+    },
+  ],
+})
 
 export function sessionContextFixture(lazy?: PoolLazyOptions) {
   let now = Date.parse(contextStamp)

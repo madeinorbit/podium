@@ -5951,7 +5951,7 @@ type Output_machines_applyUpdate = {
                     summary: "explicit" | "passive" | "passive-and-explicit";
                 };
                 driverId: string;
-                harness: "claude-code" | "codex" | "cursor" | "grok" | "opencode" | "pi";
+                harness: string & z.BRAND<"HarnessId">;
             }[];
             os: "darwin" | "linux" | "win32";
             podiumVersion?: string | undefined;
