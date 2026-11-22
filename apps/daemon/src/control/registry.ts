@@ -4,6 +4,7 @@ import type { ControlMessage } from '@podium/protocol/daemon'
 import { resolveManagementCredentialHome } from '../harness-management.js'
 import { conversationHandlers } from '../homes/conversation'
 import { installHandlers } from '../installs/control'
+import { contextReadHandlers } from '../runtime/context-reads'
 import { runtimeHandlers } from '../runtime/handlers'
 import { serverTransferHandlers } from '../server-transfer'
 import { approvalHandlers } from './approvals'
@@ -136,6 +137,7 @@ const credentialHandlers: Pick<
 export const CONTROL_HANDLERS: ControlHandlers = {
   ...sessionHandlers,
   ...runtimeHandlers,
+  ...contextReadHandlers,
   ...codexHandlers,
   ...discoveryHandlers,
   ...transcriptHandlers,

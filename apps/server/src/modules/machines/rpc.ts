@@ -77,13 +77,16 @@ import {
   SERVER_TRANSFER_MAX_CHUNK_BYTES,
 } from '@podium/protocol'
 import type {
+  ContextReadResult,
   ControlMessage,
   DaemonMessage,
   RuntimeConfigureResultMessage,
+  RuntimeContextReadResultMessage,
   RuntimeHistoryResultMessage,
   RuntimeLifecycleResultMessage,
   RuntimeSnapshotResultMessage,
   RuntimeStageAttachmentResultMessage,
+  SessionContextReadInput,
   ShippingEvidenceResultMessage,
   ShippingJobRequestMessage,
   ShippingJobResult,
@@ -92,6 +95,7 @@ import type {
   TurnDelivery,
   TurnReceipt,
 } from '@podium/protocol/daemon'
+import { contextReadFailure } from '@podium/protocol/daemon'
 import { TRPCError } from '@trpc/server'
 import { knownPathsFor } from '../../file-relay-policy'
 import type { RpcDaemonFrame, RpcDaemonFrameType } from '../../gateway/daemon-frame-routing'
@@ -355,6 +359,7 @@ const log = createLogger('server:daemon-rpc')
  *  release so the fan-in remains total over the frames the gateway routes. */
 const RUNTIME_HISTORY = daemonRequestKind<Payload<RuntimeHistoryResultMessage>>('rh')
 const RUNTIME_SNAPSHOT = daemonRequestKind<Payload<RuntimeSnapshotResultMessage>>('rn')
+const CONTEXT_READ = daemonRequestKind<Payload<RuntimeContextReadResultMessage>>('cx')
 const RUNTIME_CONFIGURE = daemonRequestKind<Payload<RuntimeConfigureResultMessage>>('rc')
 
 /** How ONE reply frame settles: pick the family, project the payload, hand both
@@ -386,6 +391,8 @@ type SettledFrameType = Exclude<RpcDaemonFrameType, 'oauthLoopbackCallback'>
 const RPC_REPLY_SETTLERS: { [K in SettledFrameType]: ReplySettler<K> } = {
   transcriptPathsResult: (broker, machineId, msg) =>
     void broker.settle(TRANSCRIPT_PATHS, msg.requestId, machineId, payloadOf(msg)),
+  runtimeContextReadResult: (broker, machineId, msg) =>
+    void broker.settle(CONTEXT_READ, msg.requestId, machineId, payloadOf(msg)),
   scanResult: (broker, machineId, msg) =>
     void broker.settle(SCAN, msg.requestId, machineId, {
       conversations: msg.conversations,
@@ -620,6 +627,58 @@ export class DaemonRpcService {
       // The daemon can disconnect between the online check and the send.
       return []
     }
+  }
+
+  /** The caller already authorized this exact session and negotiated read.v1. */
+  async contextRead(
+    input: SessionContextReadInput,
+    machineId: MachineId,
+    signal: AbortSignal,
+  ): Promise<ContextReadResult> {
+    const reply = await this.broker.request({
+      kind: CONTEXT_READ,
+      machineId,
+      timeoutMs: input.read.timeoutMs,
+      build: (requestId) => ({ type: 'runtimeContextReadRequest', requestId, ...input }),
+      onTimeout: () => ({
+        sessionId: input.sessionId,
+        result: contextReadFailure(
+          input.read,
+          'unavailable',
+          'timed-out',
+          'Context read timed out',
+        ),
+      }),
+      cancellation: {
+        signal,
+        onAbort: () => ({
+          sessionId: input.sessionId,
+          result: contextReadFailure(
+            input.read,
+            'cancelled',
+            'cancelled',
+            'Context read cancelled',
+          ),
+        }),
+        cancel: (requestId) => {
+          // Never queue a cancellation for a disconnected daemon.
+          if (this.deps.hasDaemon(machineId))
+            this.deps.toMachine(machineId, {
+              type: 'runtimeContextReadCancel',
+              requestId,
+              sessionId: input.sessionId,
+            })
+        },
+      },
+    })
+    return reply.sessionId === input.sessionId
+      ? reply.result
+      : contextReadFailure(
+          input.read,
+          'refused',
+          'wrong-session',
+          'Context answer names another session',
+        )
   }
 
   async scan(): Promise<ScanResult> {

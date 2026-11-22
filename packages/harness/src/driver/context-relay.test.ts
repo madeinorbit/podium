@@ -1,7 +1,8 @@
-import { asSessionId } from '@podium/model'
+import { asSessionId, type ContextDetailResult } from '@podium/model'
 import type { ContextObservation } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { declinedContext } from '../context-types.js'
+import { supported } from '../manifest.js'
 import { manifestFor, registerTestManifest } from '../registry.js'
 import type { SessionBinding } from './binding.js'
 import { createContextPayloadBuffer, RuntimeContextRelay } from './context-relay.js'
@@ -70,6 +71,78 @@ function declineFixture() {
 }
 
 describe('generic context relay', () => {
+  it('admits bounds and the current sample before invoking adapter detail', async () => {
+    const f = fixture()
+    const manifest = manifestFor('fixture')!
+    const declared = manifest.runtime.context.forDriver('generic-pty')
+    if (!declared.supported) throw new Error('Expected the synthetic context strategy')
+    const detail =
+      vi.fn<
+        (
+          ...args: Parameters<import('../context-types.js').ContextReader['detail']>
+        ) => Promise<ContextDetailResult>
+      >()
+    const restore = registerTestManifest({
+      ...manifest,
+      runtime: {
+        ...manifest.runtime,
+        context: {
+          forDriver: () =>
+            supported({
+              ...declared.value,
+              bind(input) {
+                return { ...declared.value.bind(input), detail }
+              },
+            }),
+        },
+      },
+    })
+    try {
+      f.relay.observe(raw(), contextFixtureCausal(10))
+      const current = f.relay.snapshot()!.context
+      if (current.status !== 'available') throw new Error('Expected current synthetic context')
+      const request = { sample: current.sample, timeoutMs: 1000, maxRows: 16 }
+      expect(await f.relay.reader.detail({ ...request, maxRows: 129 })).toMatchObject({
+        status: 'refused',
+      })
+      expect(
+        await f.relay.reader.detail({ ...request, sample: { ...request.sample, id: 'old' } }),
+      ).toMatchObject({ status: 'superseded' })
+      const abort = new AbortController()
+      abort.abort()
+      expect(await f.relay.reader.detail({ ...request, signal: abort.signal })).toMatchObject({
+        status: 'cancelled',
+      })
+      expect(detail).not.toHaveBeenCalled()
+      const yielded = f.relay.reader.detail(request)
+      f.relay.observe(raw('new-at-yield'), contextFixtureCausal(11))
+      expect(await yielded).toMatchObject({ status: 'superseded' })
+      expect(detail).not.toHaveBeenCalled()
+      const next = f.relay.snapshot()!.context
+      if (next.status !== 'available') throw new Error('Expected a newer synthetic context')
+      const nextRequest = { ...request, sample: next.sample }
+      let complete!: (value: ContextDetailResult) => void
+      detail.mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            complete = resolve
+          }),
+      )
+      const pending = f.relay.reader.detail(nextRequest)
+      await vi.waitFor(() => expect(detail).toHaveBeenCalledOnce())
+      f.rebind()
+      complete({
+        version: 1,
+        sample: next.sample,
+        status: 'unsupported',
+        reason: { code: 'invented', message: 'Invented answer' },
+      })
+      expect(await pending).toMatchObject({ status: 'superseded', sample: next.sample })
+    } finally {
+      restore()
+      f.relay.dispose()
+    }
+  })
   it('emits and replays the current permanent decline across binding changes without a fake revision', async () => {
     const f = fixture()
     declineFixture()

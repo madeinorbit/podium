@@ -26,6 +26,7 @@ import {
 import { asDelegationRef } from '@podium/protocol'
 import {
   CAP_CONTEXT_OBSERVATION_V1,
+  CAP_CONTEXT_READ_V1,
   RuntimeAttachmentRef,
   type RuntimeEvent,
 } from '@podium/protocol/daemon'
@@ -43,6 +44,7 @@ import { SessionActivityHistory } from './activity-history'
 import { SessionActivityPublication } from './activity-publication'
 import { SessionClientControl } from './client-control'
 import { AgentConcurrencyHistory } from './concurrency-history'
+import { SessionContextReads } from './context-reads'
 import { SessionDaemonLifecycle } from './daemon-lifecycle'
 import { SessionDaemonProjection } from './daemon-projection'
 import {
@@ -138,6 +140,12 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
   bag.bus = deps.bus
   bag.machines = machines
   bag.rpc = deps.rpc
+  bag.contextReads = new SessionContextReads({
+    session: (id) => bag.sessions.get(id),
+    connected: (id) => machines.hasDaemon(id),
+    supported: (id) => machines.daemonSupports(id, CAP_CONTEXT_READ_V1),
+    read: (input, machineId, signal) => deps.rpc.contextRead(input, machineId, signal),
+  })
   bag.activityFlushTimer?.unref?.()
   bag.funnel = deps.funnel
   bag.concurrencyHistory = new AgentConcurrencyHistory({

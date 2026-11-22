@@ -16,6 +16,7 @@ import {
   type NotInConversationCause,
   ResumeRef,
   SessionIdField,
+  sameContextSample,
   TranscriptItem,
   TranscriptItemRef,
 } from '@podium/model'
@@ -330,6 +331,9 @@ export type CausalEnvelope = z.infer<typeof CausalEnvelope>
  * New frames/event arms must be capability gated; don't send them to old peers.
  */
 export const CAP_CONTEXT_OBSERVATION_V1 = 'context.observation.v1'
+/** Explicit cheap summary / potentially token-counting breakdown reads, with
+ * cancellation. Observation support alone does not promise these frames. */
+export const CAP_CONTEXT_READ_V1 = 'context.read.v1'
 function refineContextCausality(
   value: CausalEnvelope,
   context: ContextSummary,
@@ -367,6 +371,100 @@ export const ContextSummaryReadResult = z.union([
   z.object({ status: z.enum(['cancelled', 'refused']), reason: ContextReason }),
 ])
 export { ContextDetailResult }
+
+/** One generic read; no native operation or payload crosses this boundary. */
+export const ContextReadRequest = z.discriminatedUnion('intent', [
+  ContextSummaryRequest.extend({ intent: z.literal('summary') }),
+  ContextDetailRequest.extend({ intent: z.literal('breakdown') }),
+])
+export type ContextReadRequest = z.infer<typeof ContextReadRequest>
+export const ContextReadResult = z.discriminatedUnion('intent', [
+  z.object({ intent: z.literal('summary'), result: ContextSummaryReadResult }),
+  z.object({ intent: z.literal('breakdown'), result: ContextDetailResult }),
+])
+export type ContextReadResult = z.infer<typeof ContextReadResult>
+export const CONTEXT_READ_MAX_BYTES = 256 * 1024
+
+/** Failure answers describe this request, never a replacement session fact. */
+export function contextReadFailure(
+  read: ContextReadRequest,
+  status: 'cancelled' | 'refused' | 'superseded' | 'unavailable' | 'unsupported',
+  code: string,
+  message: string,
+): ContextReadResult {
+  const reason = { code, message }
+  return read.intent === 'breakdown'
+    ? { intent: 'breakdown', result: { version: 1, sample: read.sample, status, reason } }
+    : { intent: 'summary', result: { status: status === 'cancelled' ? status : 'refused', reason } }
+}
+
+/** Admit normalized answers only. Native payload validation stays in adapters.
+ * Check size before walking the schema; never truncate accounting into a lie. */
+export function admitContextReadResult(
+  read: ContextReadRequest,
+  input: unknown,
+): ContextReadResult {
+  const refuse = () =>
+    contextReadFailure(
+      read,
+      'refused',
+      'invalid-response',
+      'Context answer exceeds its bounds or does not match the request',
+    )
+  try {
+    const json = JSON.stringify(input)
+    if (json === undefined || json.length > CONTEXT_READ_MAX_BYTES) return refuse()
+    let bytes = 0
+    for (const char of json) {
+      const cp = char.codePointAt(0) ?? 0
+      bytes += cp < 0x80 ? 1 : cp < 0x800 ? 2 : cp < 0x10000 ? 3 : 4
+      if (bytes > CONTEXT_READ_MAX_BYTES) return refuse()
+    }
+    const parsed = ContextReadResult.safeParse(input)
+    if (!parsed.success || parsed.data.intent !== read.intent) return refuse()
+    const answer = parsed.data
+    if (read.intent === 'breakdown' && answer.intent === 'breakdown') {
+      if (!sameContextSample(read.sample, answer.result.sample))
+        return contextReadFailure(
+          read,
+          'superseded',
+          'superseded',
+          'The requested context sample changed',
+        )
+      if (
+        answer.result.status === 'available' &&
+        (answer.result.composition?.rows.length ?? 0) > read.maxRows
+      )
+        return refuse()
+    }
+    return answer
+  } catch {
+    return refuse()
+  }
+}
+export const SessionContextReadInput = z.object({
+  sessionId: z.string().min(1).max(256).pipe(SessionIdField),
+  read: ContextReadRequest,
+})
+export type SessionContextReadInput = z.infer<typeof SessionContextReadInput>
+
+export const RuntimeContextReadRequestMessage = SessionContextReadInput.extend({
+  type: z.literal('runtimeContextReadRequest'),
+  requestId: z.string().min(1).max(256),
+})
+export type RuntimeContextReadRequestMessage = z.infer<typeof RuntimeContextReadRequestMessage>
+export const RuntimeContextReadCancelMessage = z.object({
+  type: z.literal('runtimeContextReadCancel'),
+  requestId: z.string().min(1).max(256),
+  sessionId: SessionContextReadInput.shape.sessionId,
+})
+export const RuntimeContextReadResultMessage = z.object({
+  type: z.literal('runtimeContextReadResult'),
+  requestId: z.string().min(1).max(256),
+  sessionId: SessionContextReadInput.shape.sessionId,
+  result: ContextReadResult,
+})
+export type RuntimeContextReadResultMessage = z.infer<typeof RuntimeContextReadResultMessage>
 
 export const TranscriptItemDelta = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('complete'), item: TranscriptItem }),
@@ -1095,6 +1193,8 @@ export const RuntimeCommandMessage = z.discriminatedUnion('type', [
   // while one inserted mid-list re-indexes the ones after it.
   RuntimeConfigureRequestMessage,
   RuntimeDurableSendRequestMessage,
+  RuntimeContextReadRequestMessage,
+  RuntimeContextReadCancelMessage,
 ])
 export type RuntimeCommandMessage = z.infer<typeof RuntimeCommandMessage>
 
@@ -1317,6 +1417,7 @@ export const RuntimeDaemonMessage = z.discriminatedUnion('type', [
   // APPENDED for the same reason as the command union's last arm: the golden
   // corpus samples by index, so the end is the one position that costs nothing.
   RuntimeConfigureResultMessage,
+  RuntimeContextReadResultMessage,
 ])
 export type RuntimeDaemonMessage = z.infer<typeof RuntimeDaemonMessage>
 
@@ -1359,6 +1460,9 @@ export const RUNTIME_FRAME_TYPES = [
   'runtimeHistoryResult',
   'runtimeEvent',
   'runtimeFineEvent',
+  'runtimeContextReadRequest',
+  'runtimeContextReadCancel',
+  'runtimeContextReadResult',
 ] as const satisfies readonly RuntimeMessage['type'][]
 
 /** Frames in the union that {@link RUNTIME_FRAME_TYPES} forgot. `never` when the

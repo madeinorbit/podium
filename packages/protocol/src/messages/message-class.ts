@@ -296,6 +296,8 @@ export const CONTROL_PLANE_CLASS = {
    *  like every other session verb, so the same class for the same reason: a
    *  lost one is a failed RPC the caller already handles. */
   runtimeSnapshotRequest: 'control.command',
+  runtimeContextReadRequest: 'control.command',
+  runtimeContextReadCancel: 'control.command',
   runtimeHistoryRequest: 'control.command',
   /**
    * The desired watch level (POD-2293). `control.command` like every other
@@ -452,6 +454,7 @@ export const DAEMON_PLANE_CLASS = {
    *  session verb's reply, for the same reason: a lost one is a failed RPC the
    *  caller already has to handle. */
   runtimeSnapshotResult: 'control.command',
+  runtimeContextReadResult: 'control.command',
   runtimeHistoryResult: 'control.command',
   runtimeEvent: 'control.entity',
   runtimeFineEvent: 'stream.live',

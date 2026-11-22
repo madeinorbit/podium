@@ -510,7 +510,9 @@ export function derivedFamilyProcedures<Svc, Q extends Record<string, AnyDerived
     // the query, and the query never sees a ctx.
     built[name] = t.procedure
       .input(query.input)
-      .query(({ ctx, input }) => query.run(spec.service(familyState(ctx)), input))
+      .query(({ ctx, input, signal }) =>
+        query.run(spec.service(familyState(ctx)), input, { signal }),
+      )
   }
 
   assertSurfaceMatchesDeclarations(spec.family, {}, spec.queries, built)

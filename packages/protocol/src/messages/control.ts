@@ -67,6 +67,8 @@ import { OauthLoopbackCancelMessage, OauthLoopbackRequestMessage } from './oauth
 import {
   RuntimeAnswerRequestMessage,
   RuntimeConfigureRequestMessage,
+  RuntimeContextReadCancelMessage,
+  RuntimeContextReadRequestMessage,
   RuntimeDurableSendRequestMessage,
   RuntimeEventAckMessage,
   RuntimeHistoryRequestMessage,
@@ -260,6 +262,8 @@ export const ControlMessage = z.discriminatedUnion('type', [
    *  Appended at the END for index stability; sent only to a daemon that
    *  accepted `CAP_MACHINE_UNINSTALL`. */
   MachineUninstallRequestMessage,
+  RuntimeContextReadRequestMessage,
+  RuntimeContextReadCancelMessage,
 ])
 export type ControlMessage = z.infer<typeof ControlMessage>
 

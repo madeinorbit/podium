@@ -27,10 +27,15 @@ import type { z } from 'zod'
  *  and say so by naming just that. */
 export const TRPC_ONLY: readonly TransportTag[] = ['trpc']
 
+/** Request lifetime only; existing two-argument handlers remain valid. */
+export interface QueryOptions {
+  readonly signal?: AbortSignal | undefined
+}
+
 export interface Query<Svc, In extends z.ZodTypeAny, Out> {
   readonly input: In
   readonly exposure: readonly TransportTag[]
-  readonly run: (service: Svc, input: z.infer<In>) => Out
+  readonly run: (service: Svc, input: z.infer<In>, options?: QueryOptions) => Out
 }
 
 /** Preserves the schema and return types through a table literal — see the
@@ -39,6 +44,6 @@ export const defineQuery =
   <Svc>() =>
   <In extends z.ZodTypeAny, Out>(
     input: In,
-    run: (service: Svc, input: z.infer<In>) => Out,
+    run: (service: Svc, input: z.infer<In>, options?: QueryOptions) => Out,
     exposure: readonly TransportTag[] = TRPC_ONLY,
   ): Query<Svc, In, Out> => ({ input, exposure, run })

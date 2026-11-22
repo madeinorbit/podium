@@ -39,6 +39,7 @@ import {
 } from '@podium/protocol'
 import {
   CAP_CONTEXT_OBSERVATION_V1,
+  CAP_CONTEXT_READ_V1,
   CAP_DELIVERY_ACCEPTED,
   CAP_DELIVERY_NOT_IN_CONVERSATION,
   type DaemonMessage,
@@ -1127,6 +1128,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
       credential: selected,
       caps: [
         CAP_CONTEXT_OBSERVATION_V1,
+        CAP_CONTEXT_READ_V1,
         ...deliveryCaps(deps.build).filter(
           (cap) => reportUpdateIdentity || cap !== 'update.delivery.feed',
         ),

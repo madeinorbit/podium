@@ -5,7 +5,9 @@ import {
   sameContextSample,
 } from '@podium/model'
 import {
+  admitContextReadResult,
   type ContextObservation,
+  ContextDetailRequest as DetailRequestSchema,
   ContextObservation as ObservationSchema,
 } from '@podium/protocol/daemon'
 import type {
@@ -425,6 +427,19 @@ export class RuntimeContextRelay {
     },
     detail: async (request) => {
       this.bind()
+      const decline = (
+        status: 'cancelled' | 'refused' | 'superseded' | 'unsupported',
+        message: string,
+      ) => ({
+        version: 1 as const,
+        sample: request.sample,
+        status,
+        reason: { code: status, message },
+      })
+      if (request.signal?.aborted || this.disposed)
+        return decline('cancelled', 'Context detail read was cancelled')
+      if (!DetailRequestSchema.safeParse(request).success)
+        return decline('refused', 'Context detail read exceeds its request bounds')
       const strategy = this.strategy
       if (!strategy)
         return {
@@ -433,19 +448,49 @@ export class RuntimeContextRelay {
           sample: request.sample,
           reason: { code: 'no-channel', message: 'No context detail strategy is available' },
         }
+      const declared = contextStrategyFor(this.ports.binding().harness, this.ports.binding().driver)
+      if (!declared.supported || declared.value.capability.detail !== 'on-demand')
+        return decline('unsupported', 'This binding does not support on-demand detail')
+      const before = this.latest?.context
+      if (before?.status !== 'available' || !sameContextSample(before.sample, request.sample))
+        return decline('superseded', 'The requested context sample is no longer current')
       const revision = this.revision?.contextRevision
       try {
-        const result = await boundedContextRead(request, this.lifetime.signal, (bounded) =>
-          strategy.detail({ ...request, ...bounded }),
-        )
+        const result = await boundedContextRead(request, this.lifetime.signal, (bounded) => {
+          // Admission and native invocation share the same synchronous turn.
+          // A new observation/rebind may have arrived at the bounded-read yield.
+          this.bind()
+          const current = this.latest?.context
+          if (
+            strategy !== this.strategy ||
+            current?.status !== 'available' ||
+            !sameContextSample(current.sample, request.sample) ||
+            current.model?.modelId !== before.model?.modelId ||
+            current.model?.providerId !== before.model?.providerId
+          )
+            return Promise.resolve(
+              decline('superseded', 'The requested context sample changed before the read'),
+            )
+          return strategy.detail({ ...request, ...bounded })
+        })
+        this.bind()
         const current = this.latest?.context
         if (
+          !request.signal?.aborted &&
+          !this.disposed &&
+          strategy === this.strategy &&
           revision === this.revision?.contextRevision &&
-          (current?.status === 'available' || current?.status === 'stale') &&
+          current?.status === 'available' &&
           sameContextSample(current.sample, request.sample) &&
-          sameContextSample(result.sample, request.sample)
-        )
-          return result
+          current.model?.modelId === before.model?.modelId &&
+          current.model?.providerId === before.model?.providerId
+        ) {
+          const admitted = admitContextReadResult(
+            { ...request, intent: 'breakdown' },
+            { intent: 'breakdown', result },
+          )
+          if (admitted.intent === 'breakdown') return admitted.result
+        }
         return {
           version: 1,
           status: 'superseded',
