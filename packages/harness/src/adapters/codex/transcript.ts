@@ -612,13 +612,10 @@ function parseArgs(value: unknown): unknown {
   }
 }
 
-function finiteNumber(value: unknown): number | undefined {
-  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
-}
-
 /**
- * Codex: model/effort from `turn_context`, context use from `token_count`.
- * Declared as this harness's `recordRuntime` in its transcript section.
+ * General model/effort observation stays stateless. Context requires the
+ * adapter's stateful strategy to classify ordinary/helper/replayed usage;
+ * legacy percentages project that same normalized snapshot at delivery.
  */
 export function codexRuntime(record: unknown): HarnessRuntimeObservation {
   if (!isRecord(record)) return {}
@@ -634,14 +631,7 @@ export function codexRuntime(record: unknown): HarnessRuntimeObservation {
     }
   }
 
-  if (record.type !== 'event_msg' || payload.type !== 'token_count') return {}
-  const info = isRecord(payload.info) ? payload.info : undefined
-  const usage = info && isRecord(info.total_token_usage) ? info.total_token_usage : undefined
-  const used = usage ? finiteNumber(usage.total_tokens) : undefined
-  const window = info ? finiteNumber(info.model_context_window) : undefined
-  if (used === undefined || window === undefined || window <= 0) return {}
-  const percent = Math.min(100, Math.max(0, (used / window) * 100))
-  return { contextUsagePercent: Math.round(percent * 10) / 10 }
+  return {}
 }
 
 // ---------------------------------------------------------------------------
