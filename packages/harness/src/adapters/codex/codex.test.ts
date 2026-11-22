@@ -81,12 +81,15 @@ function ack(
   }
 }
 
-function start(initialLease: HarnessObservationLease) {
-  const observerHost = host()
+function codexObserverFactory() {
   if (!codexManifest.observer.supported)
     throw new Error(`codex declares observer unsupported: ${codexManifest.observer.reason}`)
-  const observerFactory = codexManifest.observer.value
-  const observation = observerFactory(
+  return codexManifest.observer.value
+}
+
+function start(initialLease: HarnessObservationLease) {
+  const observerHost = host()
+  const observation = codexObserverFactory()(
     {
       cwd: '/repo',
       podiumSessionId: asSessionId('podium-1'),
@@ -221,7 +224,7 @@ describe('Codex observer invocation metadata', () => {
       startedAtMs: Date.parse('2026-11-21T12:00:00.000Z'),
       harnessContext: testHarnessContext({ kind: 'codex', version: 'codex-cli 0.169.0' }),
     }
-    const observation = declaredValue(codexManifest.observer)(input, observerHost)
+    const observation = codexObserverFactory()(input, observerHost)
     try {
       firstStart().opts.onSession?.('thread-a', '/rollout/a.jsonl', 'exact')
       expect(observerHost.onContextPayload).toHaveBeenCalledWith(
@@ -241,7 +244,7 @@ describe('Codex observer invocation metadata', () => {
     const observerHost = host()
     observerHost.contextIdentity = () => ({ observerGeneration: 5, turnEpoch: 1 })
     observerHost.onContextPayload = vi.fn()
-    const observation = declaredValue(codexManifest.observer)(
+    const observation = codexObserverFactory()(
       {
         cwd: '/repo',
         account: testAccount('codex', '/home/podium-test'),
