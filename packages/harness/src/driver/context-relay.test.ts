@@ -1,6 +1,8 @@
 import { asSessionId } from '@podium/model'
 import type { ContextObservation } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { declinedContext } from '../context-types.js'
+import { manifestFor, registerTestManifest } from '../registry.js'
 import type { SessionBinding } from './binding.js'
 import { createContextPayloadBuffer, RuntimeContextRelay } from './context-relay.js'
 import type { SessionMetadataObservation } from './events.js'
@@ -51,7 +53,86 @@ const raw = (id = 'invented-sample', percent = 12) => ({
   nativeSessionId: 'invented-primary',
 })
 
+const decline = {
+  version: 1,
+  status: 'unsupported',
+  reason: { code: 'no-channel', message: 'The invented adapter has no verified context source' },
+} as const
+function declineFixture() {
+  const manifest = manifestFor('fixture')
+  if (!manifest) throw new Error('The shared invented adapter must be installed')
+  releases.push(
+    registerTestManifest({
+      ...manifest,
+      runtime: { ...manifest.runtime, context: declinedContext(decline.reason.message) },
+    }),
+  )
+}
+
 describe('generic context relay', () => {
+  it('emits and replays the current permanent decline across binding changes without a fake revision', async () => {
+    const f = fixture()
+    declineFixture()
+    try {
+      expect(f.relay.snapshot()?.context).toEqual(decline)
+      f.rebind()
+      const rebound = { ...contextFixtureCausal(2, 2), context: decline }
+      expect(f.relay.snapshot()).toEqual(rebound)
+      expect(f.emitted).toEqual([
+        {
+          ...contextFixtureCausal(2, 2),
+          t: 'metadata',
+          change: { kind: 'context-observation', context: decline },
+        },
+      ])
+      expect(await f.relay.replay()).toEqual(rebound)
+      expect(await f.relay.reader.summary({ timeoutMs: 100 })).toEqual({
+        status: 'observation',
+        observation: rebound,
+      })
+      expect(f.bindings).toEqual([])
+    } finally {
+      f.relay.dispose()
+    }
+  })
+  it('clears a supported sample when the new binding declines and rejects the old publisher', async () => {
+    const f = fixture()
+    try {
+      f.relay.observe(raw(), contextFixtureCausal(10))
+      const prior = f.relay.snapshot() as ContextObservation
+      const old = f.bindings[0]
+      if (prior.context.status !== 'available' || !old)
+        throw new Error('Expected an invented native sample and binding')
+      declineFixture()
+      f.rebind()
+      const rebound = f.relay.snapshot()
+      expect(rebound).toMatchObject({ observerGeneration: 2, context: decline })
+      expect(rebound?.context).toEqual(decline)
+      expect(f.emitted.at(-1)).toMatchObject({
+        observerGeneration: 2,
+        change: { kind: 'context-observation', context: decline },
+      })
+      expect(old.signal.aborted).toBe(true)
+      old.publish({
+        ...contextFixtureCausal(100, 2),
+        context: {
+          ...prior.context,
+          sample: {
+            ...prior.context.sample,
+            bindingVersion: 2,
+            observerGeneration: 2,
+            contextRevision: 2,
+          },
+        },
+      })
+      f.relay.observe(raw('stray-native-frame'), contextFixtureCausal(101, 2))
+      expect(f.relay.snapshot()).toEqual(rebound)
+      expect(await f.relay.replay()).toEqual(rebound)
+      expect(f.emitted).toHaveLength(2)
+    } finally {
+      f.relay.dispose()
+    }
+  })
   it('keeps native identity, event time, cursor and atomic summary on coarse delivery and replay', async () => {
     const f = fixture()
     const causal = contextFixtureCausal(10)

@@ -143,21 +143,13 @@ export class RuntimeContextRelay {
                 message: 'Waiting for an attributable context measurement',
               },
             }
-        : rebound
-          ? {
-              version: 1,
-              status: 'unavailable',
-              revision,
-              reason: { code: 'no-channel', message: declaration.reason },
-            }
-          : {
-              version: 1,
-              status: 'unsupported',
-              reason: { code: 'no-channel', message: declaration.reason },
-            },
+        : {
+            version: 1,
+            status: 'unsupported',
+            reason: { code: 'no-channel', message: declaration.reason },
+          },
     }
-    if (rebound && (declaration.supported || previous?.status !== 'unsupported'))
-      this.emit(this.latest)
+    if (rebound) this.emit(this.latest)
     if (!declaration.supported) return
     const lifetime = this.lifetime
     this.strategy = declaration.value.bind({
