@@ -980,8 +980,8 @@ export async function launchTerminalProcess(
     // wiring and this setup so screen-derived state still sees the first screen.
     ctx.observers.initSessionObservers(observedSpawn, session, agentStateProviderFor(agentKind), {
       seedOnFrame: true,
-      startedAtMs: spawnStartedAt,
-      ...(newSessionId ? { newSessionId } : {}),
+      ...(!session.adopted ? { startedAtMs: spawnStartedAt } : {}),
+      ...(newSessionId && !session.adopted ? { newSessionId } : {}),
       ...(harnessContext ? { harnessContext } : {}),
     })
     // The size event above ran before these observers existed: tell them now.

@@ -2063,7 +2063,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
 
   /** Stand up the per-kind transcript observation for a headless session — the
    *  same setup initSessionObservers does on reattach, minus the PTY and state
-   *  tracker (headless sessions have no hook channel; observations that emit
+   *  tracker (observations that emit
    *  state events no-op without a tracker). No discovery floor: the harness
    *  session id is always known here, so observers pin rather than discover. */
   const bindHeadlessSession = (
@@ -2071,6 +2071,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     agentKind: AgentKind,
     cwd: string,
     resumeValue: string,
+    invocation?: Pick<HarnessObserveInput, 'harnessContext' | 'startedAtMs'>,
   ): void => {
     const adapter = adapterForKind(agentKind)
     if (!adapter) throw new Error(`agent kind ${agentKind} has no headless transcript binding`)
@@ -2083,7 +2084,8 @@ export function createSessionObservers(deps: SessionObserversDeps) {
         import('@podium/harness').then((m) => ({ stampOpencodeItems: m.stampOpencodeItems })),
       podiumSessionId: sessionId,
       resumeValue,
-      account: accountFor(agentKind),
+      account: invocation?.harnessContext ?? accountFor(agentKind),
+      ...invocation,
       ...(deps.transcriptRoot ? { transcriptRoot: deps.transcriptRoot } : {}),
     })
   }

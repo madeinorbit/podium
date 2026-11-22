@@ -107,6 +107,7 @@ it('parks the losing Terminal when a reattach and an adopting spawn race for one
     primary: { attachCommand: (label: string) => `podium-host attach ${label}` },
   }
   const enqueued: string[] = []
+  const initSessionObservers = vi.fn()
   const ctx = {
     send: () => {},
     instanceId: 'default',
@@ -127,7 +128,7 @@ it('parks the losing Terminal when a reattach and an adopting spawn race for one
       priorityOf: () => 1,
     },
     observers: {
-      initSessionObservers: () => {},
+      initSessionObservers,
       clearSession: () => {},
       trackedState: () => undefined,
       onResize: () => {},
@@ -158,6 +159,9 @@ it('parks the losing Terminal when a reattach and an adopting spawn race for one
     geometry: { cols: 80, rows: 24 },
   } as unknown as Parameters<typeof launchSpawn>[1])
   expect((holder.durable as { spawn: ReturnType<typeof vi.fn> }).spawn).toHaveBeenCalledOnce()
+  // Adopting the label did not start a writer under the current inventory.
+  expect(initSessionObservers.mock.calls[0]?.[3]).not.toHaveProperty('startedAtMs')
+  expect(initSessionObservers.mock.calls[0]?.[3]).not.toHaveProperty('newSessionId')
   const first = ctx.sessions.get(SESSION)?.terminal
   expect(first?.pid).toBe(1001)
 

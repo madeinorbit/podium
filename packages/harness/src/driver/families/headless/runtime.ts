@@ -78,6 +78,7 @@ import type { CausalEnvelope } from '../../events.js'
  */
 
 import { createHash, randomUUID } from 'node:crypto'
+import { join } from 'node:path'
 import { createLogger } from '@podium/logger'
 import {
   type AccountId,
@@ -104,8 +105,10 @@ import type {
 } from '@podium/protocol/daemon'
 import { isRuntimeFineEvent } from '@podium/protocol/daemon'
 import type { AgentStateEvent } from '../../../agent-state/types.js'
+import type { HarnessContext } from '../../../harness-context-types.js'
 import type { ResolvedHarnessInventory } from '../../../inventory/build-inventory.js'
 import type { LaunchPosture } from '../../../launch-terms.js'
+import type { HarnessObserveInput } from '../../../manifest.js'
 import { declaredValue, supported, unsupported } from '../../../manifest.js'
 import { reduceAgentState } from '../../../observer.js'
 import { harnessAdapterFor } from '../../../registry.js'
@@ -146,7 +149,12 @@ import { claudeSdkHarnessKind } from '../claude-sdk/session.js'
 import type { EngineProcessOwner } from '../engine-supervision.js'
 import type { SessionDriverSlots } from '../session-slots.js'
 import { driverLocalCursor, stampRuntimeEvent } from '../terminal/envelope.js'
+import {
+  installTerminalInstrumentation,
+  instrumentationSupportsDriver,
+} from '../terminal/instrumentation.js'
 import { HeadlessTurnFailure } from '../turn-error.js'
+import { headlessInstallation } from './invocation.js'
 import {
   acknowledgeHostedTurn,
   type HostedTurnDeps,
@@ -185,6 +193,24 @@ export interface HeadlessHistorySession {
 }
 
 export interface HeadlessDriverHost {
+  /** Existing ingest listener, not another server. Only explicitly declared
+   * session instrumentation uses these invocation-scoped capabilities. */
+  instrumentation?: {
+    settingsDir: string
+    endpointFor(sessionId: SessionId, callbackId: string): string
+    listen(
+      sessionId: SessionId,
+      callbackId: string,
+      receive: (payload: unknown) => void,
+    ): () => void
+  }
+  /** New invocation after persisted adoption: resolve once from its dispatch
+   * snapshot. This is never called to label a surviving writer. */
+  turnHarnessContext?(input: {
+    sessionId: SessionId
+    agent: HarnessAgent
+    snapshot: ResolvedHarnessInventory
+  }): HarnessContext
   /** Outbound daemon frames. The driver's only path to the server. */
   send(msg: DaemonMessage): void
   /** This generation's harness inventory (executables, command environment). */
@@ -206,6 +232,7 @@ export interface HeadlessDriverHost {
      *  explicitly selected credential a headless child carries. */
     credentialEnv?: Record<string, string>
     snapshot: ResolvedHarnessInventory
+    harnessContext?: HarnessContext
     execEnv?: Record<string, string>
     envOverlay?: Record<string, string>
   }): { env: Record<string, string>; stripEnv: readonly string[] }
@@ -266,6 +293,7 @@ export interface HeadlessDriverHost {
     agentKind: AgentKind,
     cwd: string,
     resumeValue: string,
+    invocation?: Pick<HarnessObserveInput, 'harnessContext' | 'startedAtMs'>,
   ): void
   /** A cursor-anchored harness-transcript slice, via the same source layer the
    *  `transcriptRead` frame uses. Must refuse foreign history cursors with a
@@ -302,6 +330,7 @@ export interface HeadlessPermissionRequest {
  *  Only the stream-json claude turn honours them; every other turn is a
  *  non-interactive CLI surface with no permission channel. */
 export interface HeadlessRunnerHooks {
+  onInvocationStart?: import('./types.js').HeadlessTurnHooks['onInvocationStart']
   onNativePayload?(payload: unknown): void
   onPermission?: (request: HeadlessPermissionRequest) => void
 }
@@ -347,6 +376,7 @@ export function assertNativeHeadlessAccount(input: {
 // ---------------------------------------------------------------------------
 
 interface LiveTurn {
+  invocation?: Pick<HarnessObserveInput, 'harnessContext' | 'startedAtMs'>
   turnId: string
   rowId?: string
   requestDigest: string
@@ -364,6 +394,7 @@ interface LiveTurn {
 }
 
 interface HeadlessDriverSession {
+  harnessContext?: HarnessContext
   sessionId: SessionId
   agentKind: AgentKind
   cwd: string
@@ -717,8 +748,12 @@ export function createHeadlessRuntime(
    *  AND on failure is what keeps an errored turn from orphaning its thread
    *  (legacy `wireTurnResult` does exactly this). Best-effort: a later
    *  resume/adopt rebind retries. */
-  function bindTranscript(session: HeadlessDriverSession, harnessSessionId: string): void {
-    if (session.boundResume === harnessSessionId) return
+  function bindTranscript(
+    session: HeadlessDriverSession,
+    harnessSessionId: string,
+    freshInvocation = false,
+  ): void {
+    if (session.boundResume === harnessSessionId && !freshInvocation) return
     const live = session.liveTurn
     if (live) {
       live.harnessSessionId = harnessSessionId
@@ -729,7 +764,13 @@ export function createHeadlessRuntime(
       value: harnessSessionId,
     }
     try {
-      host.bindHeadlessSession(session.sessionId, session.agentKind, session.cwd, harnessSessionId)
+      host.bindHeadlessSession(
+        session.sessionId,
+        session.agentKind,
+        session.cwd,
+        harnessSessionId,
+        live?.invocation,
+      )
       session.boundResume = harnessSessionId
     } catch (error) {
       if (live) live.bound = false
@@ -1145,6 +1186,34 @@ export function createHeadlessRuntime(
       launchPosture,
       structured,
     )
+    try {
+      const context =
+        session.harnessContext ??
+        host.turnHarnessContext?.({
+          sessionId: session.sessionId,
+          agent,
+          snapshot,
+        })
+      if (context)
+        spec.harnessContext = {
+          ...context,
+          installation: headlessInstallation({ ...spec, harnessContext: context }, snapshot),
+        }
+    } catch (error) {
+      return {
+        outcome: 'refused',
+        refusal: refuse('not_running', error instanceof Error ? error.message : String(error)),
+      }
+    }
+    const generation = session.observerGeneration
+    const bindingVersion = session.bindingVersion
+    const ownsTurn = () =>
+      sessions.get(session.sessionId) === session &&
+      !session.disposed &&
+      !session.ended &&
+      session.observerGeneration === generation &&
+      session.bindingVersion === bindingVersion &&
+      session.liveTurn?.turnEpoch === turnEpoch
     let handle: HeadlessTurnHandle
     try {
       const emitFn: HeadlessEmit = (event) => {
@@ -1158,9 +1227,16 @@ export function createHeadlessRuntime(
       // replay for it. The capability declares the permission channel, and the
       // receipt still proves `protocol-ack`.
       const hooks: HeadlessRunnerHooks = {
+        onInvocationStart: (invocation) => {
+          if (!ownsTurn()) return
+          const current = session.liveTurn!
+          current.invocation = invocation
+          const nativeSessionId =
+            invocation.nativeSessionId ?? current.harnessSessionId ?? session.resume?.value
+          if (nativeSessionId) bindTranscript(session, nativeSessionId, true)
+        },
         onNativePayload: (payload) => {
-          const current = session.liveTurn
-          if (current && current.turnEpoch === turnEpoch) contextFor(session).observe(payload)
+          if (ownsTurn()) contextFor(session).observe(payload)
         },
         ...(structured
           ? {
@@ -1173,8 +1249,43 @@ export function createHeadlessRuntime(
       }
       const specEnv = spec.env
       const credentialEnv = input.env
+      const adapter = harnessAdapterFor(agent)
+      const instrumentation = adapter && declaredValue(adapter.instrumentation)
+      const channel = host.instrumentation
+      const invocationContext = spec.harnessContext
+      const install =
+        instrumentation &&
+        instrumentation.scope.kind === 'session' &&
+        instrumentationSupportsDriver(instrumentation, HEADLESS_DRIVER_ID) &&
+        channel
+          ? {
+              install: (callbackId: string) =>
+                invocationContext
+                  ? installTerminalInstrumentation({
+                      sessionId: session.sessionId,
+                      harness: agent,
+                      driverId: HEADLESS_DRIVER_ID,
+                      spec: {
+                        ...spec,
+                        workdir: spec.cwd,
+                        harnessContext: invocationContext,
+                        instrumentation: {
+                          endpointUrl: channel.endpointFor(session.sessionId, callbackId),
+                        },
+                      },
+                      sections: { instrumentation },
+                      settingsDir: join(channel.settingsDir, session.sessionId, callbackId),
+                    })
+                  : Promise.resolve({ args: [] }),
+              listen: (callbackId: string) =>
+                channel.listen(session.sessionId, callbackId, (payload) =>
+                  hooks.onNativePayload?.(payload),
+                ),
+            }
+          : undefined
       handle = runners.runTurn(
         {
+          ...(install ? { instrumentation: install } : {}),
           owner: host.engines(),
           childEnv: (invocation) =>
             host.turnChildEnv({
@@ -1183,6 +1294,7 @@ export function createHeadlessRuntime(
               specEnv,
               ...(credentialEnv ? { credentialEnv } : {}),
               snapshot,
+              ...(invocationContext ? { harnessContext: invocationContext } : {}),
               ...invocation,
             }),
           now: () => host.now(),
@@ -1630,6 +1742,7 @@ export function createHeadlessRuntime(
       )
     }
     return {
+      harnessContext: spec.harnessContext,
       sessionId,
       agentKind,
       cwd: spec.workdir,
@@ -1887,6 +2000,7 @@ export function createHeadlessRuntime(
       if (session) {
         contextFor(session).dispose()
         session.disposed = true
+        session.liveTurn?.handle.dispose?.()
         for (const wake of [...session.wakers]) wake()
       }
       sessions.delete(sessionId)
@@ -1897,6 +2011,7 @@ export function createHeadlessRuntime(
       for (const session of sessions.values()) {
         contextFor(session).dispose()
         session.disposed = true
+        session.liveTurn?.handle.dispose?.()
         for (const wake of [...session.wakers]) wake()
         forgetDriver(session.sessionId)
       }

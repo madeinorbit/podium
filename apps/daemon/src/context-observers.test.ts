@@ -1,9 +1,56 @@
-import { type HarnessObserverHost, harnessAdapterFor, supported } from '@podium/harness'
+import {
+  type HarnessObserveInput,
+  type HarnessObserverHost,
+  harnessAdapterFor,
+  supported,
+} from '@podium/harness'
+import { testHarnessContext } from '@podium/harness/driver/testing'
 import { asSessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { createSessionObservers } from './session-observers'
 
 describe('opaque context observer ownership', () => {
+  it('forwards fresh invocation facts, while persisted adoption has no start witness', () => {
+    const adapter = harnessAdapterFor('codex')!
+    const inputs: HarnessObserveInput[] = []
+    const observers = createSessionObservers({
+      send: vi.fn(),
+      onTranscriptDirty: vi.fn(),
+      cwdTracker: { onHookCwd: vi.fn(async () => {}) },
+      harnessAdapterFor: () => ({
+        ...adapter,
+        observer: supported((input) => {
+          inputs.push(input)
+          return { stop() {} }
+        }),
+      }),
+    })
+    const sessionId = asSessionId('invocation-facts')
+    const first = testHarnessContext({ kind: 'codex', version: 'codex-cli 0.169.0' })
+    const changed = testHarnessContext({ kind: 'codex', version: 'codex-cli 0.170.0' })
+    try {
+      observers.bindHeadlessSession(sessionId, 'codex', '/invented', 'native', {
+        harnessContext: first,
+        startedAtMs: 1000,
+      })
+      observers.bindHeadlessSession(sessionId, 'codex', '/invented', 'native', {
+        harnessContext: changed,
+      })
+      observers.bindHeadlessSession(sessionId, 'codex', '/invented', 'native', {
+        harnessContext: changed,
+        startedAtMs: 2000,
+      })
+      expect(inputs.map((input) => [input.harnessContext, input.startedAtMs])).toEqual([
+        [first, 1000],
+        [changed, undefined],
+        [changed, 2000],
+      ])
+      expect(inputs[0]?.account).toBe(first)
+    } finally {
+      observers.disposeObservers()
+      observers.stopAllTails()
+    }
+  })
   it('uses actual driver identity for non-causal stores and fences old callbacks across rebind/disposal', () => {
     const adapter = harnessAdapterFor('opencode')
     if (!adapter) throw new Error('No adapter for the observer fixture')

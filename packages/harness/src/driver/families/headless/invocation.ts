@@ -78,11 +78,26 @@ export function buildHeadlessExec(
  * basename on the daemon's PATH.
  */
 export function headlessInstallation(
-  spec: Pick<HeadlessTurnSpec, 'agent' | 'executablePath'>,
+  spec: Pick<HeadlessTurnSpec, 'agent' | 'executablePath' | 'harnessContext'>,
   snapshot: ResolvedHarnessInventory,
 ): HarnessInstallation {
-  if (spec.executablePath !== undefined) {
-    return installationAtPath(snapshot, spec.agent, spec.executablePath)
+  const selected =
+    spec.executablePath ??
+    (spec.harnessContext?.installation.kind === spec.agent
+      ? spec.harnessContext.installation.executable
+      : undefined)
+  if (selected !== undefined) {
+    const installation = installationAtPath(snapshot, spec.agent, selected)
+    const managed = snapshot.managed?.get(spec.agent)
+    const external = snapshot.executables.get(spec.agent)
+    const matching =
+      managed?.path === selected ? managed : external?.path === selected ? external : undefined
+    return Object.freeze({
+      ...installation,
+      // Only this dispatch's exact executable observation certifies a writer.
+      // Preserve managed provenance without borrowing a default-path version.
+      version: matching?.version ?? '',
+    })
   }
   return harnessInstallation(snapshot, spec.agent)
 }
@@ -119,7 +134,7 @@ export function needsAllocation(spec: HeadlessTurnSpec): boolean {
 /** The allocation command (`create-chat`), run to completion before the turn.
  *  It only allocates a conversation id, so it runs on no-agent terms. */
 export function allocationInvocation(
-  spec: Pick<HeadlessTurnSpec, 'agent' | 'executablePath'>,
+  spec: Pick<HeadlessTurnSpec, 'agent' | 'executablePath' | 'harnessContext'>,
   snapshot: ResolvedHarnessInventory,
 ): HeadlessInvocation {
   const installation = headlessInstallation(spec, snapshot)

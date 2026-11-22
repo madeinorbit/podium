@@ -35,6 +35,7 @@ import type {
   TerminalHarnessProfile,
   TerminalInstrumentationSections,
 } from '@podium/harness/driver/host'
+import { instrumentationSupportsDriver } from '@podium/harness/driver/host'
 import type { AgentKind } from '@podium/model'
 
 /**
@@ -50,6 +51,7 @@ export function terminalProfileFor(agentKind: AgentKind): TerminalHarnessProfile
   const manifest = manifestFor(agentKind)
   if (!manifest) return undefined
   const terminal = manifest.runtime.terminal
+  const instrumentation = declaredValue(manifest.instrumentation)
   // THE MANIFEST'S INTERRUPT ANSWER (POD-3981), read through the same
   // `harnessInterrupt` the legacy `abortKeyFor` path asks — so the day a
   // manifest declares a non-ESC key, or a key that quits when idle, both
@@ -60,7 +62,9 @@ export function terminalProfileFor(agentKind: AgentKind): TerminalHarnessProfile
     // Read off the instrumentation SECTION, not the hookInstall capability: a
     // required install that fails is a spawn refusal, and the section is what
     // the family installs through (POD-4472).
-    instrumentationRequired: declaredValue(manifest.instrumentation) !== undefined,
+    instrumentationRequired:
+      instrumentation !== undefined &&
+      instrumentationSupportsDriver(instrumentation, terminal.driverId),
     sendProof: terminal.sendProof,
     composerReadiness: manifest.capabilities.composerReadiness,
     acceptCorrelation: terminal.acceptCorrelation,

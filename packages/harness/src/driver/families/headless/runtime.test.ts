@@ -13,12 +13,15 @@
  */
 
 import { createHash } from 'node:crypto'
-import { rmSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { asAccountId, asSessionId, type SessionId } from '@podium/model'
 import { DEFAULT_SESSION_POSTURE, type SessionPosture } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { supported } from '../../../manifest.js'
+import { harnessAdapterFor, registerTestManifest } from '../../../registry.js'
 import {
   type AgentSessionHandle,
   canonicalHeadlessContractFacts,
@@ -28,6 +31,7 @@ import {
   type TurnInput,
 } from '../../contract.js'
 import { createMemoryAttachmentStager } from '../../testing/attachment-stager.js'
+import { installContextFixture } from '../../testing/context-fixture.js'
 import { createMemoryDriverSlots } from '../../testing/driver-slots.js'
 import {
   testHarnessContext,
@@ -49,6 +53,7 @@ import { testHarnessSnapshot } from './test-support.js'
 import type { HostedTurnDeps } from './turn.js'
 import type {
   HeadlessEmit,
+  HeadlessTurnHooks,
   HeadlessTurnOutcome,
   HeadlessTurnSpec,
   HostedTurnIdentity,
@@ -80,6 +85,7 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 interface FakeTurn {
+  hooks?: HeadlessTurnHooks
   identity: HostedTurnIdentity
   deps: HostedTurnDeps
   spec: HeadlessTurnSpec
@@ -115,7 +121,7 @@ function makeRunners(): HeadlessDriverRunners & {
     deps: HostedTurnDeps,
     spec: HeadlessTurnSpec,
     emit: HeadlessEmit,
-    hooks?: { onPermission?: FakeTurn['onPermission'] },
+    hooks?: HeadlessTurnHooks,
   ) => {
     let resolve!: (outcome: HeadlessTurnOutcome) => void
     let reject!: (error: unknown) => void
@@ -124,6 +130,7 @@ function makeRunners(): HeadlessDriverRunners & {
       reject = rej
     })
     const turn: FakeTurn = {
+      hooks,
       identity,
       deps,
       spec,
@@ -174,6 +181,189 @@ function makeRunners(): HeadlessDriverRunners & {
   }
   return runners
 }
+
+describe('invocation observation ownership', () => {
+  it('pins a fresh reused-session writer to the dispatch version, never its creation version', async () => {
+    const { runtime, host, runners } = makeRuntime()
+    const sessionId = asSessionId('reused-writer-version')
+    const created = testHarnessContext({
+      kind: 'codex',
+      executable: '/selected/codex',
+      version: 'codex-cli 0.169.0',
+      generation: 1,
+    })
+    let version = 'codex-cli 0.169.0'
+    host.snapshot = async () => ({
+      ...testHarnessSnapshot({}, 2),
+      executables: new Map([
+        ['codex', { kind: 'codex', path: '/selected/codex', version, generation: 2 }],
+      ]),
+    })
+    const binds = vi.spyOn(host, 'bindHeadlessSession')
+    const handle = await runtime.createWithId(
+      sessionId,
+      makeSpec('codex', { harnessContext: created }),
+    )
+    try {
+      await handle.send(makeTurn(sessionId, { sessionUuid: 'codex-native' }), {
+        delivery: 'when-ready',
+        origin: 'human',
+      })
+      const first = runners.turns[0]!
+      first.hooks?.onInvocationStart?.({
+        harnessContext: first.spec.harnessContext,
+        startedAtMs: 1000,
+        nativeSessionId: 'codex-native',
+      })
+      first.resolve({ harnessSessionId: 'codex-native', output: 'first' })
+      await Promise.resolve()
+      version = 'codex-cli 0.170.0'
+      await handle.send(makeTurn(sessionId, { turnId: 'second-writer' }), {
+        delivery: 'when-ready',
+        origin: 'human',
+      })
+      const second = runners.turns[1]!
+      expect(second.spec.harnessContext?.installation).toEqual({
+        kind: 'codex',
+        executable: '/selected/codex',
+        version: 'codex-cli 0.170.0',
+        generation: 2,
+      })
+      expect(created.installation.version).toBe('codex-cli 0.169.0')
+      second.hooks?.onInvocationStart?.({
+        harnessContext: second.spec.harnessContext,
+        startedAtMs: 2000,
+        nativeSessionId: 'codex-native',
+      })
+      expect(binds.mock.calls.at(-1)?.[4]).toMatchObject({
+        harnessContext: second.spec.harnessContext,
+        startedAtMs: 2000,
+      })
+    } finally {
+      runtime.dispose()
+    }
+  })
+  it.each([
+    { drivers: undefined, scope: 'session', installs: false },
+    { drivers: ['other-driver'], scope: 'session', installs: false },
+    { drivers: ['headless'], scope: 'home', installs: false },
+    { drivers: ['headless'], scope: 'session', installs: true },
+  ] as const)('installs only explicit session declarations for an unknown harness: %j', async ({
+    drivers,
+    scope,
+    installs,
+  }) => {
+    const fixture = installContextFixture()
+    const adapter = harnessAdapterFor('fixture')!
+    const install = vi.fn(async () => ({ args: [] }))
+    const release = registerTestManifest({
+      ...adapter,
+      instrumentation: supported({
+        driverIds: drivers,
+        scope:
+          scope === 'session' ? { kind: 'session' } : { kind: 'home', homeOf: () => '/unused' },
+        install,
+        hookTransport: 'loopback-http',
+        payloadCodec: {
+          eventName: () => undefined,
+          sessionId: () => undefined,
+          transcriptPath: () => undefined,
+          decode: async () => [],
+        },
+      }),
+    })
+    const { runtime, host, runners } = makeRuntime()
+    const root = mkdtempSync(join(tmpdir(), 'headless-observation-'))
+    roots.push(root)
+    const listen = vi.fn(() => () => {})
+    host.instrumentation = {
+      settingsDir: root,
+      endpointFor: () => 'http://127.0.0.1:1/hooks/test',
+      listen,
+    }
+    const sessionId = asSessionId('synthetic-observation')
+    const context = testHarnessContext({ kind: adapter.kind, version: 'pinned-v1' })
+    try {
+      const handle = await runtime.createWithId(
+        sessionId,
+        makeSpec('fixture', { harnessContext: context }),
+      )
+      expect(
+        (await handle.send(makeTurn(sessionId), { delivery: 'when-ready', origin: 'human' }))
+          .outcome,
+      ).toBe('accepted')
+      const turn = runners.turns[0]!
+      expect(Boolean(turn.deps.instrumentation)).toBe(installs)
+      if (installs) {
+        await turn.deps.instrumentation!.install('invented-callback')
+        expect(install).toHaveBeenCalledWith(
+          expect.objectContaining({
+            extensionsAllowed: true,
+            harnessContext: turn.spec.harnessContext,
+          }),
+        )
+        expect(turn.spec.harnessContext?.roots).toBe(context.roots)
+        expect(turn.spec.harnessContext?.installation.version).toBe('')
+      }
+      expect(listen).not.toHaveBeenCalled()
+    } finally {
+      runtime.dispose()
+      release()
+      fixture.release()
+    }
+  })
+
+  it('fences replaced turns, old generations, foreign native ids and disposed handlers before decoding', async () => {
+    const fixture = installContextFixture()
+    const { runtime, runners } = makeRuntime()
+    const sessionId = asSessionId('synthetic-callback-lifetime')
+    try {
+      const spec = makeSpec('fixture', {
+        harnessContext: testHarnessContext({ kind: harnessAdapterFor('fixture')!.kind }),
+      })
+      const handle = await runtime.resumeWithId(
+        sessionId,
+        { kind: 'fixture-session', value: 'primary' },
+        spec,
+      )
+      await handle.send(makeTurn(sessionId), { delivery: 'when-ready', origin: 'human' })
+      const first = runners.turns[0]!
+      first.hooks!.onNativePayload!({ id: 'first', percent: 10, nativeSessionId: 'primary' })
+      expect((await handle.snapshot()).context?.context.status).toBe('available')
+      await handle.send(makeTurn(sessionId, { turnId: 'replacement' }), {
+        delivery: 'interrupt',
+        origin: 'human',
+      })
+      const second = runners.turns[1]!
+      const before = (await handle.snapshot()).context
+      first.hooks!.onNativePayload!({ id: 'late-first', percent: 99, nativeSessionId: 'primary' })
+      second.hooks!.onNativePayload!({
+        id: 'foreign-session',
+        percent: 99,
+        nativeSessionId: 'foreign',
+      })
+      expect((await handle.snapshot()).context).toEqual(before)
+      second.hooks!.onNativePayload!({ id: 'second', percent: 20, nativeSessionId: 'primary' })
+      expect((await handle.snapshot()).context?.context).toMatchObject({
+        status: 'available',
+        sample: { id: 'second' },
+      })
+      await runtime.resumeWithId(sessionId, { kind: 'fixture-session', value: 'next-native' }, spec)
+      second.hooks!.onNativePayload!({
+        id: 'late-generation',
+        percent: 99,
+        nativeSessionId: 'next-native',
+      })
+      expect((await handle.snapshot()).context?.context.status).toBe('pending')
+      runtime.dispose()
+      second.hooks!.onNativePayload!({ id: 'disposed', percent: 99 })
+      expect(fixture.bindings.at(-1)?.signal.aborted).toBe(true)
+    } finally {
+      runtime.dispose()
+      fixture.release()
+    }
+  })
+})
 
 interface FakeHost extends HeadlessDriverHost {
   binds: { sessionId: SessionId; agentKind: string; cwd: string; resumeValue: string }[]

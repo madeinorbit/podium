@@ -1246,6 +1246,9 @@ export interface InstalledInstrumentation {
    * can take the handlers out again (POD-7388).
    */
   hookFile?: InstrumentationHookFile
+  /** Invocation-owned resources. Call after the native process actually exits,
+   * not when a durable attachment is detached for adoption. */
+  cleanup?(): void | Promise<void>
   degradedReason?: string
   degradedKind?: InstrumentationDegradedKind
 }

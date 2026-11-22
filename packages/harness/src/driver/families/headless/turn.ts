@@ -24,7 +24,11 @@
 // composes the invocation and reads the output; the supervisor composes the
 // environment.
 
+import { randomUUID } from 'node:crypto'
+import { rm } from 'node:fs/promises'
+import { withArgs } from '../../../bound-command.js'
 import type { ResolvedHarnessInventory } from '../../../inventory/build-inventory.js'
+import type { InstalledInstrumentation } from '../../../manifest.js'
 import { parseCursorChatId } from '../../../registry.js'
 import { type ClaudeStreamTransport, createClaudeStreamClient } from '../claude-sdk/protocol.js'
 import type { EngineAttachment, EngineProcessOwner } from '../engine-supervision.js'
@@ -79,6 +83,12 @@ const SIGKILL = 9
 
 /** What the supervisor hands this family. */
 export interface HostedTurnDeps {
+  /** Optional, explicitly declared session-only instrumentation. The install
+   * runs only after this turn's durable label was proved vacant. */
+  instrumentation?: {
+    install(callbackId: string): Promise<InstalledInstrumentation>
+    listen(callbackId: string): () => void
+  }
   /** The session layer's process owner (podium-host). */
   owner: EngineProcessOwner
   /**
@@ -115,6 +125,7 @@ interface ObservedRun {
   readonly stdout: () => string
   readonly stderrTail: () => string
   onStdoutLine(cb: (line: string) => void): void
+  stopReading(): void
   dispose(): void
 }
 
@@ -159,6 +170,10 @@ function observeRun(attachment: EngineAttachment): ObservedRun {
     stderrTail: () => stderrTail,
     onStdoutLine(cb) {
       stdoutCbs.push(cb)
+    },
+    stopReading() {
+      offData()
+      stdoutCbs.length = 0
     },
     dispose() {
       offData()
@@ -264,6 +279,40 @@ export function runHostedHeadlessTurn(
   let killTimer: ReturnType<typeof setTimeout> | undefined
   let structuredTurn: { interrupt(): void } | undefined
   let structuredClient: ReturnType<typeof createClaudeStreamClient> | undefined
+  let instrumentation: InstalledInstrumentation | undefined
+  let resources: TurnMarker['instrumentation']
+  let disposeCallback: (() => void) | undefined
+  let nativeExited = false
+  let pendingExitAttachment: EngineAttachment | undefined
+  let cleanupPending: Promise<void> | undefined
+  const cleanup = (): Promise<void> =>
+    (cleanupPending ??= (async () => {
+      try {
+        disposeCallback?.()
+      } catch {
+        /* Cleanup is observe-only too. */
+      } finally {
+        disposeCallback = undefined
+      }
+      try {
+        await instrumentation?.cleanup?.()
+      } catch {
+        /* Preserve the native outcome. */
+      } finally {
+        if (resources?.file) await rm(resources.file, { force: true }).catch(() => {})
+      }
+    })())
+  const ownExit = (run: ObservedRun): void => {
+    void run.exited
+      .then(async () => {
+        nativeExited = true
+        await cleanup()
+        if (disposed || settled) run.dispose()
+      })
+      .catch(() => {
+        /* Telemetry cleanup cannot replace the turn outcome. */
+      })
+  }
   let resolveDone!: (value: HeadlessTurnOutcome) => void
   let rejectDone!: (reason: unknown) => void
   const done = new Promise<HeadlessTurnOutcome>((resolve, reject) => {
@@ -276,9 +325,18 @@ export function runHostedHeadlessTurn(
 
   const detach = (): void => {
     if (deadline) clearTimeout(deadline)
-    current?.dispose()
+    if (current && resources && !nativeExited) {
+      // Local shutdown releases the writer but retains an exit-only reader.
+      // The files remain available to the surviving child; a real daemon death
+      // leaves their paths in the ring for its adopting generation instead.
+      const run = current
+      run.stopReading()
+      void run.exited.then(() => run.dispose())
+    } else current?.dispose()
     current = undefined
-    control?.dispose()
+    // A failed replay still has the start attachment's exit subscription.
+    // Keep it until the real exit, including the stop/kill grace period.
+    if (control !== pendingExitAttachment) control?.dispose()
     control = undefined
   }
 
@@ -361,12 +419,41 @@ export function runHostedHeadlessTurn(
     invocation: HeadlessInvocation,
     createdAt: number,
   ): Promise<ObservedRun> => {
+    if (phase === 'turn' && deps.instrumentation) {
+      const callbackId = randomUUID()
+      instrumentation = await deps.instrumentation.install(callbackId)
+      if (settled || disposed) {
+        await instrumentation.cleanup?.()
+        throw new HeadlessTurnError('turn interrupted', pinned)
+      }
+      if (instrumentation.args.length || instrumentation.env || instrumentation.file) {
+        resources = {
+          callbackId,
+          ...(instrumentation.file ? { file: instrumentation.file.path } : {}),
+        }
+        disposeCallback = deps.instrumentation.listen(callbackId)
+        // Preserve the native end-of-options positional tail.
+        const args = invocation.command.args
+        const boundary = args.indexOf('--')
+        invocation = {
+          ...invocation,
+          command: withArgs(
+            invocation.command,
+            boundary < 0
+              ? [...args, ...instrumentation.args]
+              : [...args.slice(0, boundary), ...instrumentation.args, ...args.slice(boundary)],
+          ),
+          execEnv: { ...invocation.execEnv, ...instrumentation.env },
+        }
+      }
+    }
     const wrapped = wrapTurnInvocation({
       marker: {
         phase,
         identityHash,
         createdAt,
         ...(invocation.pinnedSessionId ? { pinnedSessionId: invocation.pinnedSessionId } : {}),
+        ...(resources ? { instrumentation: resources } : {}),
       },
       stdin: invocation.stdin,
       command: invocation.command,
@@ -375,6 +462,7 @@ export function runHostedHeadlessTurn(
       ...(invocation.execEnv ? { execEnv: invocation.execEnv } : {}),
       ...(invocation.envOverlay ? { envOverlay: invocation.envOverlay } : {}),
     })
+    const startedAtMs = now()
     const { attachment: writer } = await deps.owner.startEngine({
       label,
       turnFor: identity.sessionId,
@@ -385,9 +473,42 @@ export function runHostedHeadlessTurn(
       retention: HEADLESS_TURN_RETENTION,
     })
     control = writer
+    let offExit: (() => void) | undefined
+    if (phase === 'turn' && resources) {
+      pendingExitAttachment = writer
+      offExit = writer.connection.onExit(() => {
+        nativeExited = true
+        pendingExitAttachment = undefined
+        void cleanup().finally(() => {
+          offExit?.()
+          writer.dispose()
+        })
+      })
+    }
+    if (phase === 'turn')
+      input.hooks?.onInvocationStart?.({
+        ...(spec.harnessContext ? { harnessContext: spec.harnessContext } : {}),
+        startedAtMs,
+        ...(invocation.pinnedSessionId ? { nativeSessionId: invocation.pinnedSessionId } : {}),
+      })
     const replay = await replayLabel(deps.owner, label)
-    if (!replay) throw new Error(`podium-host for '${label}' vanished right after it started`)
+    if (!replay) {
+      // There is no result stream to drive this child or feed its stdin.
+      // Stop our own process, retaining its start attachment for real-exit
+      // cleanup even though a replay connection could not be established.
+      stopChild(INTERRUPT_GRACE_MS)
+      if (!(await deps.owner.engineAlive(label))) {
+        nativeExited = true
+        pendingExitAttachment = undefined
+        offExit?.()
+        await cleanup()
+      }
+      throw new Error(`podium-host for '${label}' vanished right after it started`)
+    }
     current = replay.run
+    offExit?.()
+    pendingExitAttachment = undefined
+    if (phase === 'turn') ownExit(replay.run)
     if (invocation.stdin.kind === 'bytes') {
       const write = writer.connection.write
       if (!write)
@@ -431,6 +552,7 @@ export function runHostedHeadlessTurn(
     for (const line of run.stdout().split('\n')) if (line) consume(line)
     run.onStdoutLine(consume)
     const exit = await run.exited
+    await cleanup()
     if (settled || disposed) return
     try {
       const outcome = foldHeadlessOutcome({
@@ -578,6 +700,10 @@ export function runHostedHeadlessTurn(
 
     let run: ObservedRun
     if (adopted?.marker.phase === 'turn') {
+      resources = adopted.marker.instrumentation
+      if (resources && deps.instrumentation && spec.toolPolicy !== 'none')
+        disposeCallback = deps.instrumentation.listen(resources.callbackId)
+      ownExit(adopted.run)
       pinned = adopted.marker.pinnedSessionId
       run = adopted.run
       emit({ kind: 'status', status: 'running', ...(pinned ? { harnessSessionId: pinned } : {}) })
@@ -626,7 +752,10 @@ export function runHostedHeadlessTurn(
     await collect(run)
   }
 
-  void main().catch((error: unknown) => finish({ ok: false, error }))
+  void main().catch(async (error: unknown) => {
+    if (!control) await cleanup().catch(() => {})
+    finish({ ok: false, error })
+  })
 
   return {
     turnId: identity.turnId,
@@ -652,6 +781,12 @@ export function runHostedHeadlessTurn(
     dispose: () => {
       if (disposed) return
       disposed = true
+      try {
+        disposeCallback?.()
+      } catch {
+        /* Local teardown is best-effort. */
+      }
+      disposeCallback = undefined
       if (killTimer) clearTimeout(killTimer)
       killTimer = undefined
       // A stream-json conversation cannot be adopted by the next generation
