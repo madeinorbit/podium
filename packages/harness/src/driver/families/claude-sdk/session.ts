@@ -1,18 +1,24 @@
 import { randomUUID } from 'node:crypto'
 import { basename } from 'node:path'
+import { createLogger } from '@podium/logger'
+import type { AgentRuntimeState, ResumeRef, SessionId } from '@podium/model'
+import { DEFAULT_SESSION_POSTURE } from '@podium/protocol'
+import {
+  type DaemonMessage,
+  isRuntimeFineEvent,
+  type RuntimeHistoryPage,
+  type RuntimeHistoryRange,
+} from '@podium/protocol/daemon'
+import { claudeRecordToItems } from '../../../adapters/claude-code/transcript.js'
+import type { HarnessContext } from '../../../harness-context-types.js'
+import type { PodiumGrants } from '../../../posture-types.js'
+import type { TranscriptAnnotation, TranscriptAnnotationStore } from '../../../store/annotations.js'
+import { tailTranscript } from '../../../store/tailer.js'
+import { attachKindsForDriver, configureFieldsForDriver } from '../../configure-catalog.js'
 import type { AgentSessionHandle } from '../../driver.js'
 import type { RuntimeEvent } from '../../events.js'
 import type { PendingInteraction } from '../../interactions.js'
 import type { AttachmentStager } from '../../turns.js'
-import { attachKindsForDriver, configureFieldsForDriver } from '../../configure-catalog.js'
-import type { HarnessContext } from '../../../harness-context-types.js'
-import {
-  type ClaudeSdkRuntime,
-  type ClaudeSdkRuntimeHost,
-  createClaudeSdkRuntime,
-} from './runtime.js'
-import type { ClaudeEngineHost } from './engine-host.js'
-import { claudeEngineProcessKey, type ClaudeEngineFacts } from './engine-facts.js'
 import { reportQueueAbandonment } from '../queue-report.js'
 import type {
   ServerFamilyJournalEntry,
@@ -21,19 +27,13 @@ import type {
   ServerSessionFramePorts,
 } from '../server-family.js'
 import type { SessionDriverSlots } from '../session-slots.js'
-import type { TranscriptAnnotation, TranscriptAnnotationStore } from '../../../store/annotations.js'
-import { tailTranscript } from '../../../store/tailer.js'
-import { claudeRecordToItems } from '../../../adapters/claude-code/transcript.js'
-import { createLogger } from '@podium/logger'
-import type { AgentRuntimeState, ResumeRef, SessionId } from '@podium/model'
+import { type ClaudeEngineFacts, claudeEngineProcessKey } from './engine-facts.js'
+import type { ClaudeEngineHost } from './engine-host.js'
 import {
-  type DaemonMessage,
-  isRuntimeFineEvent,
-  type RuntimeHistoryPage,
-  type RuntimeHistoryRange,
-} from '@podium/protocol/daemon'
-import { DEFAULT_SESSION_POSTURE } from '@podium/protocol'
-import type { PodiumGrants } from '../../../posture-types.js'
+  type ClaudeSdkRuntime,
+  type ClaudeSdkRuntimeHost,
+  createClaudeSdkRuntime,
+} from './runtime.js'
 
 const log = createLogger('harness:claude-sdk-session')
 
@@ -166,9 +166,7 @@ export interface ClaudeSdkSessionDeps extends ServerSessionFramePorts {
 /** How often a watch looks for a session file the first turn has not written yet. */
 const WATCH_LOCATE_MS = 250
 
-export function createClaudeSdkSessionRuntime(
-  deps: ClaudeSdkSessionDeps,
-): DaemonClaudeSdkRuntime {
+export function createClaudeSdkSessionRuntime(deps: ClaudeSdkSessionDeps): DaemonClaudeSdkRuntime {
   let runtime!: DaemonClaudeSdkRuntime
   const engineProcessFor = deps.engine.processFor?.bind(deps.engine)
   const host: ClaudeSdkRuntimeHost = {
@@ -220,6 +218,19 @@ export function createClaudeSdkSessionRuntime(
     onQueueAbandoned: reportQueueAbandonment('claude-sdk', deps.send),
     ...(deps.askUserGate ? { askUserGate: deps.askUserGate } : {}),
     stopEngine: (sessionId, retire) => deps.engine.stopEngine(sessionId, retire),
+    recordModelPolicy(sessionId, policy) {
+      const entry = deps.engine.bindings.recorded(sessionId)
+      if (!entry) return
+      deps.engine.bindings.bound({
+        ...entry,
+        model: policy.model,
+        effort: policy.effort,
+        engineConfiguration: entry.engineConfiguration ?? {
+          ...(entry.model && entry.model !== 'auto' ? { model: entry.model } : {}),
+          ...(entry.effort && entry.effort !== 'auto' ? { effort: entry.effort } : {}),
+        },
+      })
+    },
     releaseEngines: () => deps.engine.releaseEngines(),
     ...(engineProcessFor ? { processFor: engineProcessFor } : {}),
     // THE SESSION FILE IS THE CONVERSATION (POD-6280): the Store's tail of it,
@@ -407,7 +418,10 @@ export function createClaudeSdkSessionRuntime(
       deps.engine.bindings.released(sessionId)
     },
     reportOomKill(sessionId, scopeUnit) {
-      contractRuntime.processEvent(sessionId, { ev: 'oomKilled', ...(scopeUnit ? { scopeUnit } : {}) })
+      contractRuntime.processEvent(sessionId, {
+        ev: 'oomKilled',
+        ...(scopeUnit ? { scopeUnit } : {}),
+      })
     },
 
     /**

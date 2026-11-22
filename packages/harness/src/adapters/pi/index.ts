@@ -21,6 +21,7 @@ import { piDescriptor } from './descriptor.js'
 import { createPiConversationProvider } from './discovery.js'
 import { piInstall } from './install.js'
 import { piPosture } from './posture.js'
+import { resolvePiSelection } from './selection.js'
 import { observePiState, piStateProvider } from './state.js'
 import { piTranscript } from './transcript.js'
 import { piUsage } from './usage.js'
@@ -263,6 +264,7 @@ export const piManifest: AgentManifest = {
   })),
 
   headless: supported({
+    resolveSelection: resolvePiSelection,
     driver: 'resume-exec',
     outputFormat: 'pi-jsonl',
     // The server pre-mints a UUID; `--session-id` creates it on the first turn

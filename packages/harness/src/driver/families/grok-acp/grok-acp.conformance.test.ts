@@ -1,7 +1,7 @@
-import { compareProviderCursor } from '../../../metadata.js'
 import type { SessionId, TranscriptItem } from '@podium/model'
 import { isRuntimeFineEvent } from '@podium/protocol/daemon'
 import { describe, expect, it } from 'vitest'
+import { compareProviderCursor } from '../../../metadata.js'
 import type { AgentSessionHandle } from '../../driver.js'
 import { DriverRefusalError } from '../../errors.js'
 import type { RuntimeEvent } from '../../events.js'
@@ -19,7 +19,12 @@ import {
   testSessionTerms,
 } from '../../testing/harness-context.js'
 import type { ConformanceControl, ConformanceTarget } from '../../testing/index.js'
-import { runConformance, createMemoryAttachmentStager } from '../../testing/index.js'
+import {
+  createMemoryAttachmentStager,
+  createMemoryDriverSlots,
+  runConformance,
+} from '../../testing/index.js'
+import type { EngineBindingRecords } from '../engine-supervision.js'
 import { createGrokAcpClient } from './client.js'
 import {
   createGrokAcpRuntime,
@@ -33,8 +38,6 @@ import {
   type FakeGrokStoredUpdate,
   startFakeGrokAcpServer,
 } from './test-support/fake-acp-server.js'
-import { createMemoryDriverSlots } from '../../testing/index.js'
-import type { EngineBindingRecords } from '../engine-supervision.js'
 
 /**
  * THE ONE HOST FACT THIS FILE VARIES, and it is a fact about the MACHINE rather
@@ -119,14 +122,11 @@ function historyItemsFromFrames(frames: readonly Record<string, unknown>[]): Tra
     }
     return ''
   }
-  const hasOwn = (value: Record<string, unknown>, key: string): boolean =>
-    Object.prototype.hasOwnProperty.call(value, key)
+  const hasOwn = (value: Record<string, unknown>, key: string): boolean => Object.hasOwn(value, key)
   const explicitOf = (value: unknown): string | undefined => {
     if (typeof value === 'string') return value
     if (Array.isArray(value)) {
-      const pieces = value
-        .map(explicitOf)
-        .filter((piece): piece is string => piece !== undefined)
+      const pieces = value.map(explicitOf).filter((piece): piece is string => piece !== undefined)
       return pieces.length > 0 ? pieces.join('') : undefined
     }
     const object = recordOf(value)
@@ -338,6 +338,7 @@ function makeWorld(options: WorldOptions = {}): {
             // absorb a provider adapter that delivers the same settlement
             // twice. This replayable thenable exposes that exact boundary.
             return {
+              // biome-ignore lint/suspicious/noThenProperty: this thenable injects an adoption race.
               then(
                 onfulfilled: (value: unknown) => unknown,
                 onrejected: (reason: unknown) => unknown,
@@ -499,6 +500,11 @@ function makeWorld(options: WorldOptions = {}): {
     return server
   }
   const control: ConformanceControl = {
+    model: {
+      policy: () => ({ model: 'grok-4.5', effort: 'high' }),
+      alternate: () => ({ model: 'grok-4.6', effort: 'low' }),
+      requested: (sessionId) => serverFor(sessionId).lastTurnModel ?? {},
+    },
     askInteraction(sessionId) {
       return serverFor(sessionId).askPermission()
     },
@@ -732,8 +738,7 @@ describe('grok-acp tool result transcript', () => {
       expectToolPair(history, 'duplicate-failed', 'first failed result')
       expect(
         history.filter(
-          (item) =>
-            item.id === 'duplicate-completed:out' || item.id === 'duplicate-failed:out',
+          (item) => item.id === 'duplicate-completed:out' || item.id === 'duplicate-failed:out',
         ),
       ).toHaveLength(2)
       const events: RuntimeEvent[] = []
@@ -799,9 +804,9 @@ describe('grok-acp tool result transcript', () => {
       if (!ref) return
       await handle.kill()
       const resumed = await driver.resume(ref, spec)
-      const replayedTools = (await resumed.transcript.history({ limit: 20 }).then((page) => page.items)).filter(
-        (item) => item.role === 'tool',
-      )
+      const replayedTools = (
+        await resumed.transcript.history({ limit: 20 }).then((page) => page.items)
+      ).filter((item) => item.role === 'tool')
       expect(toolTranscriptShape(replayedTools)).toEqual(toolTranscriptShape(liveTools))
       expectToolPair(replayedTools, 'out-of-order-completed', 'completed before call')
       expectToolPair(replayedTools, 'out-of-order-failed', 'failed before call')
@@ -954,9 +959,9 @@ describe('grok-acp interrupt transcript marker', () => {
 
       // The notification was only a request. Until the pending prompt answers,
       // the turn is still open and its history must not claim it was stopped.
-      expect(await handle.transcript.history({ limit: 20 }).then((page) => page.items)).not.toContainEqual(
-        expect.objectContaining({ event: 'interrupt' }),
-      )
+      expect(
+        await handle.transcript.history({ limit: 20 }).then((page) => page.items),
+      ).not.toContainEqual(expect.objectContaining({ event: 'interrupt' }))
       await expect(handle.state()).resolves.toMatchObject({ phase: 'working' })
 
       world.completeProviderTurn(handle.binding.sessionId, 'cancelled')
@@ -1101,17 +1106,15 @@ describe('grok-acp interrupt transcript marker', () => {
         if (event.t === 'process' && event.ev.ev === 'adopted') break
       }
 
-      expect(await adopted.transcript.history({ limit: 20 }).then((page) => page.items)).toContainEqual(
+      expect(
+        await adopted.transcript.history({ limit: 20 }).then((page) => page.items),
+      ).toContainEqual(
         expect.objectContaining({
           role: 'user',
           text: 'emit native output before the stop fence',
         }),
       )
-      expect(
-        adoptedEvents.filter(
-          (event) => event.t === 'item' || event.t === 'state',
-        ),
-      ).toEqual([])
+      expect(adoptedEvents.filter((event) => event.t === 'item' || event.t === 'state')).toEqual([])
 
       const acceptedAfterRestart: RuntimeEvent[] = []
       for (const event of adoptedEvents) {
@@ -1130,9 +1133,7 @@ describe('grok-acp interrupt transcript marker', () => {
         ),
       ).toHaveLength(1)
       expect(
-        acceptedAfterRestart.filter(
-          (event) => event.t === 'item' || event.t === 'state',
-        ),
+        acceptedAfterRestart.filter((event) => event.t === 'item' || event.t === 'state'),
       ).toEqual([])
     } finally {
       world.target.reset()
@@ -1152,9 +1153,9 @@ describe('grok-acp interrupt transcript marker', () => {
       world.completeProviderTurn(handle.binding.sessionId, 'cancelled')
 
       await expect.poll(async () => (await handle.state()).phase).toBe('idle')
-      expect(await handle.transcript.history({ limit: 20 }).then((page) => page.items)).not.toContainEqual(
-        expect.objectContaining({ event: 'interrupt' }),
-      )
+      expect(
+        await handle.transcript.history({ limit: 20 }).then((page) => page.items),
+      ).not.toContainEqual(expect.objectContaining({ event: 'interrupt' }))
     } finally {
       world.target.reset()
     }
@@ -1178,9 +1179,9 @@ describe('grok-acp interrupt transcript marker', () => {
       await handle.interrupt()
 
       await expect.poll(async () => (await handle.state()).phase).toBe('idle')
-      expect(await handle.transcript.history({ limit: 20 }).then((page) => page.items)).not.toContainEqual(
-        expect.objectContaining({ event: 'interrupt' }),
-      )
+      expect(
+        await handle.transcript.history({ limit: 20 }).then((page) => page.items),
+      ).not.toContainEqual(expect.objectContaining({ event: 'interrupt' }))
     } finally {
       world.target.reset()
     }

@@ -1,4 +1,5 @@
 import type { ModelChoice } from '../../model-probe.js'
+import { GrokModelState, grokModelEfforts } from './model-state.js'
 
 /**
  * Grok's model-probe statement (POD-4737 D3): the probe argv plus the parser
@@ -7,11 +8,35 @@ import type { ModelChoice } from '../../model-probe.js'
  * the binary or the grammar anywhere else.
  */
 
-/** `grok models` — a marker list under "Available models:". */
-export const grokModelProbeArgv = ['grok', 'models'] as const
+/** ACP initialize reports models and effort choices without opening a session. */
+export const grokModelProbeArgv = ['grok', 'agent', '--no-leader', 'stdio'] as const
+export const grokModelProbeInput = `${JSON.stringify({
+  jsonrpc: '2.0',
+  id: 1,
+  method: 'initialize',
+  params: {
+    protocolVersion: 1,
+    clientInfo: { name: 'Podium', version: '1' },
+    clientCapabilities: {},
+  },
+})}\n`
 
-/** grok models → a marker list under "Available models:" (`* id (default)` / `- id`). */
+/** Read ACP metadata, retaining support for older plain model reports. */
 export function parseGrokModels(out: string): ModelChoice[] {
+  for (const line of out.split('\n')) {
+    try {
+      const frame = JSON.parse(line) as { result?: { _meta?: { modelState?: unknown } } }
+      const parsed = GrokModelState.safeParse(frame.result?._meta?.modelState)
+      if (parsed.success)
+        return parsed.data.availableModels.map((model) => ({
+          value: model.modelId,
+          label: model.name ?? model.modelId,
+          efforts: grokModelEfforts(model),
+        }))
+    } catch {
+      // Older plain-text model reports remain readable.
+    }
+  }
   const models: ModelChoice[] = []
   let inList = false
   for (const raw of out.split('\n')) {

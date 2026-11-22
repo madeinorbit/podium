@@ -86,6 +86,7 @@ export interface OpencodeClient {
    *  liveness probe `adopt()` uses to prove a journal entry still describes a
    *  live server rather than a recycled port. */
   health(): Promise<boolean>
+  defaultModel?(): Promise<{ providerID: string; modelID: string } | undefined>
   createSession(input?: {
     title?: string
     agent?: string
@@ -200,6 +201,30 @@ export function createOpencodeClient(config: OpencodeClientConfig): OpencodeClie
     async createSession(input) {
       const response = await request('POST', '/session', input ?? {})
       return OpencodeSession.parse(await response.json())
+    },
+    async defaultModel() {
+      const config = (await (await request('GET', '/config')).json()) as {
+        model?: string
+        provider?: Record<string, unknown>
+      }
+      if (config.model) {
+        const slash = config.model.indexOf('/')
+        if (slash > 0)
+          return {
+            providerID: config.model.slice(0, slash),
+            modelID: config.model.slice(slash + 1),
+          }
+      }
+      const catalog = (await (await request('GET', '/config/providers')).json()) as {
+        providers: { id: string }[]
+        default: Record<string, string>
+      }
+      const configured = Object.keys(config.provider ?? {})
+      const provider = catalog.providers.find(
+        (entry) => configured.length === 0 || configured.includes(entry.id),
+      )
+      const modelID = provider && catalog.default[provider.id]
+      return provider && modelID ? { providerID: provider.id, modelID } : undefined
     },
 
     async getSession(sessionId) {

@@ -429,10 +429,12 @@ describe('composeHeadlessInvocation', () => {
     expect(invocation.stdin).toEqual({ kind: 'bytes', data: 'the prompt' })
   })
 
-  it('cursor: refuses to run without the allocated chat id, and pins to it once allocated', () => {
-    expect(() =>
-      composeHeadlessInvocation({ agent: 'cursor', ...base }, snapshot, { isRoot: false }),
-    ).toThrow(/allocated conversation id/)
+  it('cursor: mints a first chat id and preserves an already supplied id', () => {
+    const fresh = composeHeadlessInvocation({ agent: 'cursor', ...base }, snapshot, {
+      isRoot: false,
+    })
+    expect(fresh.pinnedSessionId).toMatch(/^[\da-f-]{36}$/)
+    expect(fresh.command.args).toContain(fresh.pinnedSessionId)
     const invocation = composeHeadlessInvocation({ agent: 'cursor', ...base }, snapshot, {
       allocated: 'chat-9',
       isRoot: false,

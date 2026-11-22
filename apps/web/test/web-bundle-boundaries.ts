@@ -25,6 +25,8 @@ const BROWSER_HOSTILE_EXCEPTIONS = [
   'packages/harness/src/adapters/codex/composer.ts',
   // Interview cards use only pure JSON/string helpers.
   'packages/harness/src/adapters/codex/interview.ts',
+  // Cursor model/effort ids use pure string helpers, reached through browser.ts.
+  'packages/harness/src/adapters/cursor/model-variants.ts',
   'packages/harness/src/adapters/shared/json-util.ts',
   // Version floors are pure data and string parsing.
   'packages/harness/src/version-policy.ts',

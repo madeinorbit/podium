@@ -85,6 +85,20 @@ export function harnessSupportsNoTools(kind: AgentKind | string): boolean {
   return HARNESS_NO_TOOLS[kind as BuiltinHarnessKind] === true
 }
 
+export {
+  CODEX_ASYNC_QUESTION_TOOL,
+  codexQuestionReplyText,
+  parseCodexQuestionReplies,
+} from './adapters/codex/interview'
+export { cursorEffortVariant, cursorModelEffort } from './adapters/cursor/model-variants'
+/**
+ * Opaque cursor and stream-item identity (POD-4469: dissolved from
+ * `@podium/transcript/browser`). Parsing, paging and tailing remain behind the
+ * host-only store entry; these pure cursor helpers are the only transcript
+ * machinery a rendered feed needs.
+ */
+export { decodeCursor, encodeCursor } from './store/cursor-codec'
+export { streamIdOfCursor, streamItemIdOf } from './store/stream-identity'
 export type {
   HarnessVersion,
   HarnessVersionDiagnostic,
@@ -110,19 +124,6 @@ export {
   OPENCODE_VERSION_POLICY,
   parseHarnessVersion,
 } from './version-policy'
-/**
- * Opaque cursor and stream-item identity (POD-4469: dissolved from
- * `@podium/transcript/browser`). Parsing, paging and tailing remain behind the
- * host-only store entry; these pure cursor helpers are the only transcript
- * machinery a rendered feed needs.
- */
-export { decodeCursor, encodeCursor } from './store/cursor-codec'
-export { streamIdOfCursor, streamItemIdOf } from './store/stream-identity'
-export {
-  CODEX_ASYNC_QUESTION_TOOL,
-  codexQuestionReplyText,
-  parseCodexQuestionReplies,
-} from './adapters/codex/interview'
 
 // ---------------------------------------------------------------------------
 // Wire descriptors (POD-4475): the DATA half of the harness contract.
@@ -159,8 +160,7 @@ export const BUNDLED_DESCRIPTOR_SCHEMA_VERSION = 1
  * report names are appended. Clients always render through
  * {@link resolveDescriptors}, never this list directly.
  */
-export const BUNDLED_DESCRIPTORS: readonly HarnessDescriptorWire[] =
-  GENERATED_BUNDLED_DESCRIPTORS
+export const BUNDLED_DESCRIPTORS: readonly HarnessDescriptorWire[] = GENERATED_BUNDLED_DESCRIPTORS
 
 /** The bundled row for a harness this build knows, or `undefined`. */
 export function bundledDescriptorFor(kind: string): HarnessDescriptorWire | undefined {
@@ -388,7 +388,9 @@ export function parseServedDescriptors(frame: unknown): HarnessDescriptorWire[] 
             },
           }
         : {}),
-      ...(defaultModel !== undefined || defaultEffort !== undefined || defaultPanelMode !== undefined
+      ...(defaultModel !== undefined ||
+      defaultEffort !== undefined ||
+      defaultPanelMode !== undefined
         ? {
             defaults: {
               ...(defaultModel !== undefined ? { model: defaultModel } : {}),

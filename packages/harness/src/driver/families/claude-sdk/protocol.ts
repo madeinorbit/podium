@@ -155,7 +155,15 @@ export function buildClaudeStreamInvocation(
   ]
   return harnessCommand(
     context,
-    { args },
+    {
+      args,
+      // Claude's environment setting takes precedence over --effort. Explicit
+      // picks must override an inherited default; Auto leaves that default intact.
+      env:
+        spec.effort && EFFORT_LEVELS.has(spec.effort)
+          ? { CLAUDE_CODE_EFFORT_LEVEL: spec.effort }
+          : {},
+    },
     agentLaunchTerms(terms.manifest, terms.mode, terms.posture, spec.toolPolicy),
   )
 }

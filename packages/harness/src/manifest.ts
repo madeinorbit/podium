@@ -718,6 +718,16 @@ export interface HeadlessExecOptions {
 }
 
 export interface HarnessHeadless {
+  /** Resolve native model variants and Auto picks before resuming a CLI.
+   * This is metadata only, never a turn. */
+  resolveSelection?(input: {
+    model?: string
+    effort?: string
+    cwd: string
+    toolPolicy?: 'none'
+    installation: HarnessContext['installation']
+    env: Readonly<Record<string, string>>
+  }): Promise<{ model?: string; effort?: string }>
   /**
    * Which daemon driver runs a turn:
    *   'claude-sdk'  — the Claude Agent SDK (in-process query, partial events);

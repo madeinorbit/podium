@@ -1037,7 +1037,9 @@ export async function launchTerminalProcess(
           ...(driverId
             ? {
                 driverId,
-                configureFields: [...configureFieldsForDriver(driverId)],
+                configureFields: [
+                  ...configureFieldsForDriver(driverId, handleFor(ctx, sessionId)?.binding.harness),
+                ],
                 attachKinds: [...attachKindsForDriver(driverId)],
               }
             : {}),
@@ -1549,7 +1551,7 @@ async function adoptServerDriverSession(
         cwd: live.binding.workdir ?? msg.cwd,
         agentKind: msg.agentKind,
         driverId: live.binding.driver,
-        configureFields: [...configureFieldsForDriver(live.binding.driver)],
+        configureFields: [...configureFieldsForDriver(live.binding.driver, live.binding.harness)],
         attachKinds: [...attachKindsForDriver(live.binding.driver)],
       })
       ctx.send({ type: 'agentState', sessionId: msg.sessionId, state: await live.state() })
@@ -1669,7 +1671,7 @@ async function adoptServerDriverSession(
       // same question — which live driver holds this session — and a bind that
       // named the driver but not what it can change leaves a client guessing at
       // exactly the thing this field exists to stop it guessing.
-      configureFields: [...configureFieldsForDriver(handle.binding.driver)],
+      configureFields: [...configureFieldsForDriver(handle.binding.driver, handle.binding.harness)],
       attachKinds: [...attachKindsForDriver(handle.binding.driver)],
     })
     ctx.send({ type: 'agentState', sessionId: msg.sessionId, state: await handle.state() })
@@ -1729,13 +1731,24 @@ async function adoptHeadlessSession(ctx: DaemonContext, msg: ReattachControl): P
   }
   try {
     const handle = await runtime.adopt(binding)
+    const supportsEffort = configureFieldsForDriver('headless', msg.agentKind).includes('effort')
+    if (
+      !existingHeadless &&
+      (msg.model !== undefined || (msg.effort !== undefined && supportsEffort))
+    ) {
+      const changed = await handle.configure({
+        ...(msg.model !== undefined ? { model: msg.model } : {}),
+        ...(msg.effort !== undefined && supportsEffort ? { effort: msg.effort } : {}),
+      })
+      if (!('ok' in changed)) throw new Error(changed.detail ?? changed.reason)
+    }
     sendBind(ctx, {
       sessionId: msg.sessionId,
       cmd: `headless (${handle.binding.driver})`,
       cwd: msg.cwd,
       agentKind: msg.agentKind,
       driverId: handle.binding.driver,
-      configureFields: [...configureFieldsForDriver(handle.binding.driver)],
+      configureFields: [...configureFieldsForDriver(handle.binding.driver, handle.binding.harness)],
       attachKinds: [...attachKindsForDriver(handle.binding.driver)],
     })
     ctx.send({ type: 'agentState', sessionId: msg.sessionId, state: await handle.state() })
@@ -1781,7 +1794,10 @@ async function adoptHeadlessSession(ctx: DaemonContext, msg: ReattachControl): P
           role: 'executor',
         },
         workdir: msg.cwd,
-        model: {},
+        model: {
+          ...(msg.model !== undefined ? { model: msg.model } : {}),
+          ...(msg.effort !== undefined ? { effort: msg.effort } : {}),
+        },
         instructions: {
           supported: false,
           reason: 'headless reattach carries no sticky instructions',
@@ -1795,7 +1811,9 @@ async function adoptHeadlessSession(ctx: DaemonContext, msg: ReattachControl): P
         cwd: msg.cwd,
         agentKind: msg.agentKind,
         driverId: handle.binding.driver,
-        configureFields: [...configureFieldsForDriver(handle.binding.driver)],
+        configureFields: [
+          ...configureFieldsForDriver(handle.binding.driver, handle.binding.harness),
+        ],
         attachKinds: [...attachKindsForDriver(handle.binding.driver)],
       })
       ctx.send({ type: 'agentState', sessionId: msg.sessionId, state: await handle.state() })
@@ -1920,7 +1938,7 @@ async function resumeJournalledServerSession(
       // same question — which live driver holds this session — and a bind that
       // named the driver but not what it can change leaves a client guessing at
       // exactly the thing this field exists to stop it guessing.
-      configureFields: [...configureFieldsForDriver(handle.binding.driver)],
+      configureFields: [...configureFieldsForDriver(handle.binding.driver, handle.binding.harness)],
       attachKinds: [...attachKindsForDriver(handle.binding.driver)],
     })
     ctx.send({ type: 'agentState', sessionId: msg.sessionId, state: await handle.state() })
@@ -2755,7 +2773,12 @@ export async function recoverTerminalProcess(
           ...(driverId
             ? {
                 driverId,
-                configureFields: [...configureFieldsForDriver(driverId)],
+                configureFields: [
+                  ...configureFieldsForDriver(
+                    driverId,
+                    handleFor(ctx, msg.sessionId)?.binding.harness,
+                  ),
+                ],
                 attachKinds: [...attachKindsForDriver(driverId)],
               }
             : {}),
@@ -2915,7 +2938,12 @@ export async function recoverTerminalProcess(
           ...(driverId
             ? {
                 driverId,
-                configureFields: [...configureFieldsForDriver(driverId)],
+                configureFields: [
+                  ...configureFieldsForDriver(
+                    driverId,
+                    handleFor(ctx, msg.sessionId)?.binding.harness,
+                  ),
+                ],
                 attachKinds: [...attachKindsForDriver(driverId)],
               }
             : {}),
@@ -2998,7 +3026,9 @@ export async function stealTerminalWriter(
     ...(driverId
       ? {
           driverId,
-          configureFields: [...configureFieldsForDriver(driverId)],
+          configureFields: [
+            ...configureFieldsForDriver(driverId, handleFor(ctx, msg.sessionId)?.binding.harness),
+          ],
           attachKinds: [...attachKindsForDriver(driverId)],
         }
       : {}),

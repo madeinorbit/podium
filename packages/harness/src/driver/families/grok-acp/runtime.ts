@@ -1,19 +1,3 @@
-import { withDeliveryQueue } from '../../delivery-queue.js'
-/**
- * Grok as a real server-family session over `grok agent stdio` (ACP).
- *
- * The child is process-per-session and its inherited pipes are the complete
- * transport: no port, socket, rendezvous file or correlation secret exists.
- * The daemon owns process launch and native-file export through the host port;
- * this package owns protocol, receipts, permissions, observation and resume.
- */
-import { type AgentStateEvent } from '../../../agent-state/types.js'
-import {
-  classifyGrokProviderFailure,
-  translateGrokUpdatePayload,
-} from '../../../adapters/grok/instrumentation.js'
-import { grokPromptEntryId, grokReplyItemId } from '../../../adapters/grok/transcript.js'
-import { initialAgentState, reduceAgentState } from '../../../observer.js'
 import type {
   AgentRuntimeState,
   HarnessRef,
@@ -28,12 +12,29 @@ import {
   type ProviderCursor,
   type SessionPosture,
 } from '@podium/protocol'
-import type { HarnessContext } from '../../../harness-context-types.js'
 import type {
   QueueDrainAbandonedReason,
   RuntimeHistoryPage,
   RuntimeHistoryRange,
 } from '@podium/protocol/daemon'
+import {
+  classifyGrokProviderFailure,
+  translateGrokUpdatePayload,
+} from '../../../adapters/grok/instrumentation.js'
+import { type GrokModelState, grokModelEfforts } from '../../../adapters/grok/model-state.js'
+import { grokPromptEntryId, grokReplyItemId } from '../../../adapters/grok/transcript.js'
+/**
+ * Grok as a real server-family session over `grok agent stdio` (ACP).
+ *
+ * The child is process-per-session and its inherited pipes are the complete
+ * transport: no port, socket, rendezvous file or correlation secret exists.
+ * The daemon owns process launch and native-file export through the host port;
+ * this package owns protocol, receipts, permissions, observation and resume.
+ */
+import type { AgentStateEvent } from '../../../agent-state/types.js'
+import type { HarnessContext } from '../../../harness-context-types.js'
+import { initialAgentState, reduceAgentState } from '../../../observer.js'
+import type { PodiumGrants } from '../../../posture-types.js'
 import type { AttachEndpoint, AttachRequest, SessionLease } from '../../attach.js'
 import type {
   ArchiveFile,
@@ -49,6 +50,7 @@ import type {
   UsageSnapshot,
 } from '../../capabilities.js'
 import { decideConfigure, noWhitespaceCheck } from '../../configure.js'
+import { withDeliveryQueue } from '../../delivery-queue.js'
 import type { AgentSessionHandle, RuntimeDriver } from '../../driver.js'
 import { DeliveryUnprovenError, DriverRefusalError, wasNeverSent } from '../../errors.js'
 import {
@@ -65,26 +67,26 @@ import type {
   PermissionAnswer,
 } from '../../interactions.js'
 import type { OnQueueAbandoned } from '../../queue-abandonment.js'
+import type { ModelPolicy } from '../../session-spec.js'
 import {
   type EngineSessionSpec,
   instructionsText,
   type SessionSpec,
   sessionPostureOf,
 } from '../../session-spec.js'
-import type { PodiumGrants } from '../../../posture-types.js'
 import {
   type AnswerOptions,
   type AttachmentStager,
   type Refusal,
   type SendOptions,
-  textWithAttachmentPaths,
   type TurnInput,
   type TurnReceipt,
+  textWithAttachmentPaths,
 } from '../../turns.js'
-import { stampRuntimeEvent } from '../terminal/envelope.js'
 import { type AskUserGate, askUserRefusal } from '../ask-user-gate.js'
-import type { SessionDriverSlots } from '../session-slots.js'
 import type { EngineBindingRecords } from '../engine-supervision.js'
+import type { SessionDriverSlots } from '../session-slots.js'
+import { stampRuntimeEvent } from '../terminal/envelope.js'
 import { grokAcpCapabilities } from './capabilities.js'
 import {
   createGrokAcpClient,
@@ -244,6 +246,7 @@ export interface GrokAcpJournalEntry {
   seq: number
   turnEpoch: number
   bindingVersion: number
+  modelPolicy?: ModelPolicy
 }
 
 interface QueuedTurn {
@@ -317,6 +320,8 @@ interface PromptDelivery {
 interface DriverSession {
   sessionId: SessionId
   spec: EngineSessionSpec
+  models?: GrokModelState
+  defaultModel?: string
   endpoint: GrokAcpEndpoint
   client: GrokAcpClient
   grokSessionId: string
@@ -398,6 +403,7 @@ export interface GrokAcpRuntime {
 
 interface BufferedConnection {
   client: GrokAcpClient
+  models?: GrokModelState
   bind(handlers: {
     promptResult(result: GrokAcpPromptResult): void
     notification(frame: GrokAcpFrame): void
@@ -435,6 +441,7 @@ export function createGrokAcpRuntime(
       seq: session.seq,
       turnEpoch: session.turnEpoch,
       bindingVersion: session.binding.bindingVersion,
+      modelPolicy: session.spec.model,
     })
   }
 
@@ -485,7 +492,7 @@ export function createGrokAcpRuntime(
         previous?.turnEpoch === turnEpoch &&
         (change.errorClass === 'unknown' || !change.detail) &&
         previous.change.errorClass !== 'unknown' &&
-        !!previous.change.detail
+        previous.change.detail
       )
         return
       session.lastTurnFailure = { turnEpoch, change }
@@ -671,8 +678,7 @@ export function createGrokAcpRuntime(
       ? (value as Record<string, unknown>)
       : undefined
 
-  const hasOwn = (value: Record<string, unknown>, key: string): boolean =>
-    Object.prototype.hasOwnProperty.call(value, key)
+  const hasOwn = (value: Record<string, unknown>, key: string): boolean => Object.hasOwn(value, key)
 
   function contentText(value: unknown): string {
     if (typeof value === 'string') return value
@@ -1239,6 +1245,7 @@ export function createGrokAcpRuntime(
     endpoint: GrokAcpEndpoint
     connection: BufferedConnection
     grokSessionId: string
+    models?: GrokModelState
     bindingVersion: number
     observerGeneration: number
     providerEventSeq?: number
@@ -1250,6 +1257,8 @@ export function createGrokAcpRuntime(
     const session: DriverSession = {
       sessionId: input.sessionId,
       spec: input.spec,
+      models: input.models ?? input.connection.models,
+      defaultModel: input.connection.models?.currentModelId ?? input.models?.currentModelId,
       endpoint: input.endpoint,
       client: input.connection.client,
       grokSessionId: input.grokSessionId,
@@ -1616,6 +1625,37 @@ export function createGrokAcpRuntime(
    * our id — replayed by `session/load` after a restart — so the send is
    * accepted as it stands, naming that entry, and its turn ends at once.
    */
+  function modelConfiguration(
+    session: DriverSession,
+    policy: ModelPolicy,
+  ): Refusal | { model?: string; effort?: string } {
+    const model =
+      policy.model === 'auto'
+        ? session.defaultModel
+        : (policy.model ?? session.models?.currentModelId)
+    if (!model) {
+      return policy.model === 'auto' || (policy.effort && policy.effort !== 'auto')
+        ? {
+            reason: 'invalid_value',
+            detail: 'Grok has not reported the default model for this session',
+          }
+        : {}
+    }
+    const info = session.models?.availableModels.find((candidate) => candidate.modelId === model)
+    if (session.models && !info)
+      return { reason: 'invalid_value', detail: `Grok has not reported model ${model}` }
+    const explicitEffort = policy.effort && policy.effort !== 'auto' ? policy.effort : undefined
+    if (explicitEffort && info && !grokModelEfforts(info).includes(explicitEffort)) {
+      return {
+        reason: 'invalid_value',
+        detail: `Grok model ${model} does not support effort ${explicitEffort}`,
+      }
+    }
+    const defaultOption = info?._meta?.reasoningEfforts?.find((option) => option.default)
+    const effort = explicitEffort ?? defaultOption?.value ?? defaultOption?.id
+    return { model, ...(effort ? { effort } : {}) }
+  }
+
   function deliverPrompt(
     session: DriverSession,
     input: TurnInput,
@@ -1677,6 +1717,31 @@ export function createGrokAcpRuntime(
           delivery.decide()
           wakeIdle(session)
           return
+        }
+        const overrides = input.overrides?.supported ? input.overrides.value : undefined
+        const configuration = modelConfiguration(session, { ...session.spec.model, ...overrides })
+        if ('reason' in configuration) {
+          throw new DriverRefusalError(configuration, 'Grok model configuration')
+        }
+        if (configuration.model) {
+          const response = await session.client.call<{ _meta?: { model?: { Err?: unknown } } }>(
+            GROK_ACP_METHODS.sessionSetModel,
+            {
+              sessionId: session.grokSessionId,
+              modelId: configuration.model,
+              ...(configuration.effort ? { _meta: { reasoningEffort: configuration.effort } } : {}),
+            },
+          )
+          if (response._meta?.model?.Err !== undefined) {
+            throw new Error(
+              `Grok refused the model change: ${JSON.stringify(response._meta.model.Err)}`,
+            )
+          }
+          if (session.models)
+            session.models = { ...session.models, currentModelId: configuration.model }
+        }
+        if (session.disposed || !session.endpoint.alive()) {
+          throw new DriverRefusalError({ reason: 'not_running' }, 'Grok model configuration')
         }
         // The ack can land inside this call, before it returns.
         options.onTypingStarted?.()
@@ -2366,44 +2431,39 @@ export function createGrokAcpRuntime(
         },
       },
 
-      /**
-       * PERMISSION MODE, IMMEDIATELY. Model and effort refuse, and this driver
-       * is the one where that refusal is unarguable: it sends no model on
-       * `session/new` and none on `session/prompt`, so there is no value for a
-       * configure to change and nothing that would carry one to Grok.
-       *
-       * Routed through {@link decideConfigure} (POD-3081) rather than
-       * hand-branching, so the three rules that used to differ here are the same
-       * as everywhere else: an undeclared field answers `unsupported` BEFORE its
-       * value is looked at, an empty request is named as the caller bug it is
-       * rather than answered `{ok:true}`, and an empty-string mode is
-       * `invalid_value` instead of being sent to Grok to be rejected there.
-       *
-       * A FAILED `session/set_mode` IS NO LONGER `unsupported`. The verb is
-       * supported — the call failed — and typing a transport failure as a
-       * permanent capability gap tells a caller to stop offering a control that
-       * would work on the next attempt.
-       */
+      /** Sticky picks apply at the next prompt boundary, including after
+       *  adoption. Mode changes use Grok's immediate mode RPC. */
       async configure(request: ConfigureRequest) {
         const declared = capabilities.configure
         if (!declared.supported) {
           return { reason: 'unsupported' as const, detail: declared.reason }
         }
+        if (session.disposed) return { reason: 'not_running' as const }
         const decision = decideConfigure({
           declared: declared.value,
           request,
           policy: session.spec.model,
-          checks: { permissionMode: noWhitespaceCheck('a Grok ACP mode id') },
+          checks: {
+            model: noWhitespaceCheck('a Grok model id'),
+            effort: noWhitespaceCheck('a Grok reasoning effort'),
+            permissionMode: noWhitespaceCheck('a Grok ACP mode id'),
+          },
         })
         if (!('ok' in decision)) return decision
+        const configuration = modelConfiguration(session, decision.policy)
+        if ('reason' in configuration) return configuration
         try {
-          await session.client.call(GROK_ACP_METHODS.sessionSetMode, {
-            sessionId: session.grokSessionId,
-            modeId: request.permissionMode,
-          })
+          if (request.permissionMode !== undefined) {
+            await session.client.call(GROK_ACP_METHODS.sessionSetMode, {
+              sessionId: session.grokSessionId,
+              modeId: request.permissionMode,
+            })
+          }
         } catch (error) {
           return { reason: 'not_running' as const, detail: String(error) }
         }
+        session.spec = { ...session.spec, model: decision.policy }
+        persist(session)
         return { ok: true as const }
       },
 
@@ -2426,6 +2486,7 @@ export function createGrokAcpRuntime(
   ): Promise<BufferedConnection> {
     const connection = connect(endpoint, sessionId)
     const initialized = await connection.client.initialize()
+    connection.models = initialized._meta?.modelState
     if (initialized.agentCapabilities?.loadSession === false) {
       throw new Error('Grok ACP initialize declined session/load')
     }
@@ -2508,6 +2569,7 @@ export function createGrokAcpRuntime(
       endpoint,
       connection,
       grokSessionId: created.sessionId,
+      models: created.models,
       bindingVersion: 1,
       observerGeneration: 1,
     })
@@ -2550,12 +2612,15 @@ export function createGrokAcpRuntime(
     if (!session) throw new Error('Grok ACP session disappeared during load')
     session.loading = true
     try {
-      await connection.client.call(GROK_ACP_METHODS.sessionLoad, {
-        sessionId: input.grokSessionId,
-        cwd: input.spec.workdir,
-        mcpServers: [],
-        ...sessionMeta(input.spec, endpoint),
-      })
+      const loaded = GrokAcpSessionResult.parse(
+        await connection.client.call(GROK_ACP_METHODS.sessionLoad, {
+          sessionId: input.grokSessionId,
+          cwd: input.spec.workdir,
+          mcpServers: [],
+          ...sessionMeta(input.spec, endpoint),
+        }),
+      )
+      session.models = loaded.models ?? session.models
       await session.ingestChain
       await setInitialPermissionMode(session)
       return handle
@@ -2583,13 +2648,13 @@ export function createGrokAcpRuntime(
     }
   }
 
-  const adoptedSpec = (workdir: string): EngineSessionSpec => ({
+  const adoptedSpec = (workdir: string, model: ModelPolicy = {}): EngineSessionSpec => ({
     harness: 'grok',
     selection: { auth: 'subscription', platform: 'linux', available: [GROK_ACP_DRIVER_ID] },
     workdir,
     // An adopted session's posture is not journalled: it runs on the default.
     posture: DEFAULT_SESSION_POSTURE,
-    model: {},
+    model,
     instructions: { supported: false, reason: 'adopted session carries its own context' },
     mcpServers: { supported: false, reason: 'adopted session carries its own config' },
   })
@@ -2624,7 +2689,7 @@ export function createGrokAcpRuntime(
       }
       const handle = await loadSession({
         sessionId: binding.sessionId,
-        spec: adoptedSpec(entry.workdir),
+        spec: adoptedSpec(entry.workdir, entry.modelPolicy),
         harnessContext: await host.harnessContextFor(binding.sessionId),
         grants: await host.podiumGrantsFor(binding.sessionId),
         grokSessionId: entry.grokSessionId,

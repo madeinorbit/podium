@@ -3,6 +3,7 @@ import { useCommands } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { EffectModel } from '@podium/client-graph/models'
 import { awaitEffect } from '@podium/client-graph/write/await-effect'
+import { cursorEffortVariant, cursorModelEffort } from '@podium/harness/browser'
 import { observer } from 'mobx-react-lite'
 import type { JSX } from 'react'
 import { useCallback, useEffect, useState } from 'react'
@@ -130,6 +131,7 @@ const ConfigurableChip = observer(function ConfigurableChip({
 }): JSX.Element {
   const configureSession = useCommands<Trpc>().sessions.configure
   const sessionId = session.sessionId
+  const liveModels = useModelCatalog(session.machineId)[agentKind]
   const { pool, change } = useConfigureChange(sessionId)
   // A change this device is still writing, or whose record has not reached
   // the pool yet: its patch paints until the record does.
@@ -182,8 +184,24 @@ const ConfigurableChip = observer(function ConfigurableChip({
         agentKind={agentKind}
         machineId={session.machineId}
         value={model}
+        disabled={pending !== undefined}
         onChange={(next) => {
-          if (next !== model) void configure({ model: next })
+          if (next === model) return
+          const levels = liveModels?.find((entry) => entry.value === next)?.efforts
+          void configure({
+            model: next,
+            ...(agentKind === 'cursor' && session.configureFields?.includes('effort')
+              ? {
+                  effort: levels?.includes(cursorModelEffort(next) ?? '')
+                    ? cursorModelEffort(next)
+                    : 'auto',
+                }
+              : session.configureFields?.includes('effort') &&
+                  effort !== 'auto' &&
+                  !levels?.includes(effort)
+                ? { effort: 'auto' }
+                : {}),
+          })
         }}
       />
       <EffortPicker
@@ -192,10 +210,14 @@ const ConfigurableChip = observer(function ConfigurableChip({
         machineId={session.machineId}
         model={model}
         value={effort}
-        disabled={session.configureFields?.includes('effort') !== true}
+        disabled={pending !== undefined || session.configureFields?.includes('effort') !== true}
         className="shrink-0"
         onChange={(next) => {
-          if (next !== effort) void configure({ effort: next })
+          if (next === effort) return
+          if (agentKind === 'cursor') {
+            const variant = cursorEffortVariant(liveModels ?? [], model, next)
+            if (variant) void configure({ model: variant, effort: next })
+          } else void configure({ effort: next })
         }}
       />
     </span>

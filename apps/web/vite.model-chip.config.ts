@@ -61,6 +61,10 @@ export default defineConfig(async (env) => {
       },
     },
     root: fileURLToPath(new URL('.', import.meta.url)),
+    optimizeDeps: {
+      ...((real.optimizeDeps ?? {}) as Record<string, unknown>),
+      entries: [fileURLToPath(new URL('./model-chip-harness.html', import.meta.url))],
+    },
     server: {
       port: 55595,
       strictPort: true,
