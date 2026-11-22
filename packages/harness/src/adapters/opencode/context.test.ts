@@ -708,11 +708,8 @@ describe('OpenCode capacity and lifecycle admission', () => {
 })
 
 describe('OpenCode Store-backed support', () => {
-  it.each([
-    'generic-pty',
-    'headless',
-  ])('%s uses existing owned Store rows and never probes for a limit', async (driver) => {
-    const f = setup(driver, stableData)
+  it('generic-pty uses existing owned Store rows and never probes for a limit', async () => {
+    const f = setup('generic-pty', stableData)
     const rows = storeRows(stableData)
     f.observe(
       { session: { ...nativeSession(stableData), model: JSON.stringify(modelB) }, rows },
@@ -730,6 +727,26 @@ describe('OpenCode Store-backed support', () => {
       rows: rows.slice(0, 3).map((row) => ({ ...row, timeUpdated: 1_795_296_300_000 })),
     })
     expect((await available(f.bound)).sample).toEqual(value.sample)
+    f.lifetime.abort()
+  })
+
+  it('declines headless without a verified invocation-owned native source', () => {
+    const declaration = opencodeContext.forDriver('headless')
+    expect(declaration.supported).toBe(false)
+    if (declaration.supported) throw new Error('Headless has no owned observation source')
+    expect(declaration.reason).toContain('invocation-owned native source')
+  })
+
+  it('explains the explicit resumed launch and response prerequisites before a Store sample', async () => {
+    const f = setup('generic-pty', stableData)
+    expect(await f.bound.summary({ timeoutMs: 100 })).toMatchObject({
+      status: 'refused',
+      reason: {
+        code: 'waiting',
+        message: expect.stringContaining('verified explicitly resumed terminal launch'),
+      },
+    })
+    expect(f.request).not.toHaveBeenCalled()
     f.lifetime.abort()
   })
 

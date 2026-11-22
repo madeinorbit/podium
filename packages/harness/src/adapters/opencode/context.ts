@@ -615,7 +615,13 @@ class OpenCodeContext implements ContextSessionStrategy {
       ? { status: 'observation' as const, observation: this.current }
       : {
           status: 'refused' as const,
-          reason: { code: 'waiting', message: 'No bound native context observation yet' },
+          reason: {
+            code: 'waiting',
+            message:
+              this.generation === 'store'
+                ? 'Store context requires a verified explicitly resumed terminal launch and a completed main-session request'
+                : 'No bound native context observation yet',
+          },
         }
   }
 
@@ -682,12 +688,17 @@ const strategies = {
 
 export const opencodeContext: HarnessContextSection = {
   forDriver(driver) {
+    if (driver === 'headless')
+      return {
+        supported: false,
+        reason: 'OpenCode headless context has no verified invocation-owned native source',
+      }
     const generation =
       driver === 'opencode-server'
         ? 'stable'
         : driver === 'opencode2-server'
           ? 'preview'
-          : driver === 'generic-pty' || driver === 'headless'
+          : driver === 'generic-pty'
             ? 'store'
             : undefined
     return generation
