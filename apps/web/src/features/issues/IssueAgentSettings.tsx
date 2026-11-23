@@ -1,24 +1,24 @@
-import type { Trpc } from '@/app/trpc'
+import { issueAgentLabel, issueDefaultAgentKind } from '@podium/client-core/agent-models'
 import { useCommands } from '@podium/client-core/react'
 import type { IssueViewModel } from '@podium/client-core/replica'
-import type { IssueUpdatePatch } from '@podium/commands'
 import { agentSettingsDraft } from '@podium/client-graph/write/agent-settings-draft'
-import { observer } from 'mobx-react-lite'
+import type { IssueUpdatePatch } from '@podium/commands'
 import { asMachineId, HOST_REPOS } from '@podium/model/browser'
 import { Check, ChevronDown, LoaderCircle } from 'lucide-react'
+import { observer } from 'mobx-react-lite'
 import { type JSX, useEffect, useMemo, useState } from 'react'
-import { useMyCodingHarness } from '@/lib/my-preferences'
+import type { Trpc } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
 import { DropdownMenuOwner } from '@/components/ui/dropdown-menu'
 import { machineOptionLabel, useMachineChoices } from '@/features/machines/machine-choices'
 import { CapabilityAgentMenu } from '@/lib/agent-capability'
 import { agentFleetTileTint, agentIconFor } from '@/lib/agent-tone'
-import { issueAgentLabel, issueDefaultAgentKind } from '@podium/client-core/agent-models'
 import { EffortPicker, ModelPicker } from '@/lib/ModelEffortPicker'
+import { useMyCodingHarness } from '@/lib/my-preferences'
 import { PropertyMenu } from '@/lib/PropertyMenu'
 import { cn } from '@/lib/utils'
 import type { LaunchMachine } from './LaunchBox'
-import { useAgentFleetOptions } from './use-agent-fleet-options'
+import { useAgentFleet } from './use-agent-fleet-options'
 
 type SettingsIssue = Pick<IssueViewModel, 'id'> &
   Partial<
@@ -100,7 +100,7 @@ export const IssueAgentSettings = observer(function IssueAgentSettings({
 
   const agentKind = issueDefaultAgentKind(selected.defaultAgent, codingHarness)
   const AgentIcon = agentIconFor(agentKind)
-  const agentOptions = useAgentFleetOptions(issue)
+  const agentFleet = useAgentFleet({ repoPath: issue.repoPath, machineId: selected.machineId })
   const machine = machines.find((m) => m.id === selected.machineId)
   const machineChoices = useMachineChoices(
     machines,
@@ -139,7 +139,8 @@ export const IssueAgentSettings = observer(function IssueAgentSettings({
         <div className="overflow-hidden rounded-lg bg-[var(--well-floor)] shadow-[inset_0_0_0_1px_var(--hairline-bar)]">
           <CapabilityAgentMenu
             selectedValue={agentKind}
-            options={agentOptions}
+            options={agentFleet.options}
+            setup={{ machineId: selected.machineId, machines: agentFleet.setupMachines }}
             onSelect={(value) => {
               if (value !== selected.defaultAgent)
                 save({ defaultAgent: value, defaultModel: 'auto', defaultEffort: 'auto' })

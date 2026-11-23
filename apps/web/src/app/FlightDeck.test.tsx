@@ -1,3 +1,4 @@
+import { closeSetupAgents, setupAgentsRequest } from '@/features/setup-agents/open-setup-agents'
 import '@/test-support/mock-pool-fixture'
 import { readFileSync, writeFileSync } from 'node:fs'
 import {
@@ -1001,7 +1002,7 @@ describe('flight deck mission agent action', () => {
    * The host runs codex and not cursor, so the counterfactual is inside the same
    * menu: a gate applied indiscriminately fails the Codex half.
    */
-  it('refuses a harness the mission’s host does not have, and offers the one it does', async () => {
+  it('hides missing harnesses and offers setup on the mission host', async () => {
     harness.codingHarness = 'codex'
     harness.repos = [
       { path: '/repo', kind: 'repository', branch: 'main', machineId: 'mine', worktrees: [] },
@@ -1036,14 +1037,17 @@ describe('flight deck mission agent action', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Add agent to mission' }))
 
-    const cursor = await screen.findByRole('menuitem', { name: /Add Cursor/ })
-    expect(cursor.textContent).toContain('not installed')
-    expect(cursor.getAttribute('data-refused')).toBe('true')
-    fireEvent.click(cursor)
+    expect(await screen.findByRole('menuitem', { name: 'Set up agents…' })).toBeTruthy()
+    expect(screen.queryByRole('menuitem', { name: /Add Cursor/ })).toBeNull()
     expect(harness.startIssueSession).not.toHaveBeenCalled()
 
     const codex = await screen.findByRole('menuitem', { name: 'Add Codex (default)' })
     expect(codex.getAttribute('data-refused')).toBeNull()
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Set up agents…' }))
+    expect(setupAgentsRequest()).toMatchObject({ machineId: 'mine', origin: 'menu' })
+    act(() => setupAgentsRequest()?.onStart?.('cursor'))
+    expect(harness.startIssueSession).toHaveBeenCalledWith({ issueId: 'root', agentKind: 'cursor' })
+    closeSetupAgents()
   })
 })
 

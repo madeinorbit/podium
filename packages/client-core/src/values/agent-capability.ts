@@ -1,5 +1,6 @@
 import type { AgentCapabilityRejection, AgentLoginCondition, HandoffMachine } from '@podium/model'
 import {
+  agentCapabilityRejection,
   agentLoginCondition,
   agentProbeTimeoutDescription,
   harnessRejection,
@@ -13,6 +14,8 @@ export interface AgentRowStatus {
   reason?: string
   hint?: string
   warning?: string
+  /** Missing harnesses belong in Set up agents, rather than in launch menus. */
+  hidden?: boolean
 }
 
 export function spawnAgentLabel(menuLabel: string): string {
@@ -111,6 +114,16 @@ export function agentFleetStatus(
   }
   const usable = candidates.filter((candidate) => candidate.rejection === undefined)
   if (usable.length === 0) {
+    if (candidates.every((candidate) => candidate.rejection === 'harness-missing')) {
+      const only = candidates.length === 1 ? candidates[0] : undefined
+      return {
+        hidden: true,
+        reason: only
+          ? agentCapabilityReason(only.machineName, label, 'harness-missing')
+          : `${agent} is not installed on any available machine.`,
+        hint: 'not installed',
+      }
+    }
     const only = candidates.length === 1 ? candidates[0] : undefined
     if (only) {
       const reason = agentCapabilityReason(
@@ -121,12 +134,6 @@ export function agentFleetStatus(
       )
       const hint = agentCapabilityHint(only.rejection)
       return { ...(reason ? { reason } : {}), ...(hint ? { hint } : {}) }
-    }
-    if (candidates.every((candidate) => candidate.rejection === 'harness-missing')) {
-      return {
-        reason: `${agent} is not installed on any available machine.`,
-        hint: 'not installed',
-      }
     }
     return { reason: `No available machine can run ${agent}.`, hint: 'no host' }
   }
@@ -142,6 +149,26 @@ export function agentFleetStatus(
     return warning ? { warning, hint: SIGNED_OUT_HINT } : {}
   }
   return {}
+}
+
+/** The same menu reading for a concrete target, including offline/probing refusals. */
+export function agentMachineStatus<M extends HandoffMachine & { name: string }>(
+  machine: M,
+  agentKind: string,
+  label: string,
+): AgentRowStatus {
+  const rejection = agentCapabilityRejection(machine, agentKind)
+  return agentFleetStatus(
+    [
+      {
+        machineName: machine.name,
+        rejection,
+        probeDescription: agentProbeTimeoutDescription(machine, agentKind),
+        loggedOut: agentLoginCondition(machine, agentKind) === 'logged-out',
+      },
+    ],
+    label,
+  )
 }
 
 /** Build the harness reading after the shared machine-authority slice has

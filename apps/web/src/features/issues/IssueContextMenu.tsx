@@ -50,6 +50,7 @@ import {
   issueHandoffBlockerText,
 } from '@/lib/session-context-menu'
 import { useSessionHandoff } from '@/lib/session-handoff'
+import { SetupAgentsMenuItem } from '@/lib/setup-agents-menu-item'
 import { useCursorMenu } from '@/lib/use-cursor-menu'
 import { useFeature } from '@/lib/use-feature'
 import { sessionDisplayName } from '@/lib/WorkerLabel'
@@ -79,6 +80,7 @@ import type { IssueMenuPoolInputs } from './issue-menu-pool-inputs'
 import { readIssueMenuChoices, readIssueMenuOrigins } from './issue-menu-readers'
 import { useIssueViews } from './issue-page/opening-context'
 import { isIssueStartable } from './issue-startable'
+import { useAgentFleet } from './use-agent-fleet-options'
 
 /** Shared menu section heading. */
 // A null label draws a bare rule instead of a heading. `danger` takes one
@@ -166,6 +168,7 @@ export const IssueContextMenu = observer(function IssueContextMenu({
   const handOff = useSessionHandoff()
   const codingHarness = useMyCodingHarness()
   const { sessions, repos, machines } = poolInputs
+  const agentFleet = useAgentFleet(issues[0] ?? {})
   const handoffEnabled = useFeature('session-handoff')
   // The app-wide dialog, replacing two raw `window.confirm` calls (POD-1077).
   // A native confirm cannot be styled, cannot be dismissed the way every other
@@ -407,6 +410,7 @@ export const IssueContextMenu = observer(function IssueContextMenu({
   }
 
   const menuData = createIssueMenuData({
+    agentMachines: agentFleet.machines,
     codingHarness,
     issues,
     allIssues,
@@ -720,6 +724,15 @@ export const IssueContextMenu = observer(function IssueContextMenu({
             />
           )}
           {submenuItems.get(sub.kind)}
+          {sub.kind === 'agent' && (
+            <SetupAgentsMenuItem
+              variant="context"
+              machineId={first.machineId}
+              machines={agentFleet.setupMachines}
+              onOpen={onClose}
+              onStart={(harness) => assignAgent(harness)}
+            />
+          )}
         </div>
       )}
     </div>,

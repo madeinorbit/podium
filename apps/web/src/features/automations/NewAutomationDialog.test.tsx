@@ -3,16 +3,37 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { observable, runInAction } from 'mobx'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import '@/test-support/model-catalog-mock'
+import { closeSetupAgents, setupAgentsRequest } from '@/features/setup-agents/open-setup-agents'
 
 const create = vi.fn(async () => ({}))
 const update = vi.fn(async () => ({}))
+vi.mock('@/app/header-data', () => ({ usePoolMachine: () => undefined }))
+vi.mock('@/features/issues/use-agent-fleet-options', () => ({
+  useAgentFleet: () => ({
+    machines: [{ id: 'host', name: 'Workstation' }],
+    setupMachines: [{ id: 'host', name: 'Workstation' }],
+    options: [
+      { value: 'codex', label: 'Codex', status: {} },
+      { value: 'pi', label: 'Pi', status: { hint: 'signed out' } },
+    ],
+  }),
+}))
 vi.mock('@/app/automation-readers', () => ({
   useAutomationTargets: () => ({
     ids: ['podium'],
-    excluded: { unauthorized: 0, unreachable: 0, incapable: 0, disabled: 0, degraded: 0 }, pending: 0,
+    excluded: { unauthorized: 0, unreachable: 0, incapable: 0, disabled: 0, degraded: 0 },
+    pending: 0,
   }),
-  useAutomationTarget: () => ({ value: '/repos/podium', label: 'podium', availability: 'available' }),
-  useAutomationTargetForPath: () => ({ value: '/repos/podium', label: 'podium', availability: 'available' }),
+  useAutomationTarget: () => ({
+    value: '/repos/podium',
+    label: 'podium',
+    availability: 'available',
+  }),
+  useAutomationTargetForPath: () => ({
+    value: '/repos/podium',
+    label: 'podium',
+    availability: 'available',
+  }),
   useAutomationTargetMachine: () => undefined,
 }))
 
@@ -39,16 +60,31 @@ const automation: AutomationWire = {
 
 afterEach(() => {
   cleanup()
+  closeSetupAgents()
   vi.clearAllMocks()
 })
 
 describe('NewAutomationDialog edit mode', () => {
   it('keeps untouched inputs live, discards to live and submits only changed fields', async () => {
     const record = observable({ ...automation })
-    render(<NewAutomationDialog trpc={{ automations: { create: { mutate: create }, update: { mutate: update } } } as never}
-      automation={record} onClose={vi.fn()} onSaved={vi.fn()} />)
-    fireEvent.change(screen.getByDisplayValue('Nightly sweep'), { target: { value: 'Local sweep' } })
-    act(() => runInAction(() => { record.name = 'Remote sweep'; record.prompt = 'Remote prompt'; record.cron = '*/5 * * * *' }))
+    render(
+      <NewAutomationDialog
+        trpc={{ automations: { create: { mutate: create }, update: { mutate: update } } } as never}
+        automation={record}
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+      />,
+    )
+    fireEvent.change(screen.getByDisplayValue('Nightly sweep'), {
+      target: { value: 'Local sweep' },
+    })
+    act(() =>
+      runInAction(() => {
+        record.name = 'Remote sweep'
+        record.prompt = 'Remote prompt'
+        record.cron = '*/5 * * * *'
+      }),
+    )
     expect(await screen.findByDisplayValue('Remote prompt')).toBeTruthy()
     expect(screen.getByDisplayValue('*/5 * * * *')).toBeTruthy()
     expect(screen.getByDisplayValue('Local sweep')).toBeTruthy()
@@ -57,7 +93,12 @@ describe('NewAutomationDialog edit mode', () => {
     expect(screen.queryByRole('button', { name: 'Discard' })).toBeNull()
     fireEvent.change(screen.getByDisplayValue('Remote sweep'), { target: { value: 'Saved sweep' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
-    await waitFor(() => expect(update).toHaveBeenCalledExactlyOnceWith({ id: record.id, patch: { name: 'Saved sweep' } }))
+    await waitFor(() =>
+      expect(update).toHaveBeenCalledExactlyOnceWith({
+        id: record.id,
+        patch: { name: 'Saved sweep' },
+      }),
+    )
   })
   it('prefills the exact schedule and skips an unchanged save', async () => {
     const onSaved = vi.fn()
@@ -133,11 +174,40 @@ describe('NewAutomationDialog edit mode', () => {
   })
 })
 
-
 it('offers no Use option in the automation launch menu', async () => {
-  render(<NewAutomationDialog trpc={{ automations: { create: { mutate: create }, update: { mutate: update } } } as never}
-    automation={automation} onClose={vi.fn()} onSaved={vi.fn()} />)
+  render(
+    <NewAutomationDialog
+      trpc={{ automations: { create: { mutate: create }, update: { mutate: update } } } as never}
+      automation={automation}
+      onClose={vi.fn()}
+      onSaved={vi.fn()}
+    />,
+  )
   fireEvent.click(screen.getByRole('button', { name: 'Model' }))
-  fireEvent.change(await screen.findByPlaceholderText('Filter…'), { target: { value: 'my-custom-model' } })
+  fireEvent.change(await screen.findByPlaceholderText('Filter…'), {
+    target: { value: 'my-custom-model' },
+  })
   expect(screen.queryByRole('menuitem', { name: /Use / })).toBeNull()
+})
+
+it('selects the setup harness without starting or saving the automation', async () => {
+  render(
+    <NewAutomationDialog
+      trpc={{ automations: { create: { mutate: create }, update: { mutate: update } } } as never}
+      automation={automation}
+      onClose={vi.fn()}
+      onSaved={vi.fn()}
+    />,
+  )
+  fireEvent.click(screen.getByRole('button', { name: 'Agent' }))
+  fireEvent.click(await screen.findByRole('menuitem', { name: 'Set up agents…' }))
+  expect(setupAgentsRequest()).toMatchObject({ machineId: 'host', origin: 'menu' })
+  act(() => setupAgentsRequest()?.onStart?.('pi'))
+  expect(screen.getByRole('button', { name: 'Agent' }).textContent).toContain('Pi')
+  expect(update).not.toHaveBeenCalled()
+  expect(create).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+  await waitFor(() =>
+    expect(update).toHaveBeenCalledWith({ id: automation.id, patch: { agentKind: 'pi' } }),
+  )
 })

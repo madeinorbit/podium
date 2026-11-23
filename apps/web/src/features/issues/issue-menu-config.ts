@@ -1,10 +1,16 @@
 import type { IssueNavigationModel } from '@podium/client-core/values'
-import { discoveredPlacement, type ProposalShape } from '@podium/client-core/values'
+import {
+  agentFleetStatus,
+  candidateFromAvailability,
+  discoveredPlacement,
+  type ProposalShape,
+} from '@podium/client-core/values'
 import {
   canonicalIssueCloseReason,
   ISSUE_STATUS_LABELS,
   type IssueStatus,
   isIssueStatus,
+  type MachineFacts,
   PICKABLE_ISSUE_STATUSES,
   type SessionId,
 } from '@podium/model/browser'
@@ -63,7 +69,6 @@ export type IssueMenuSubmenu =
   | 'defer'
   | 'duplicate'
 
-
 /**
  * Menu sections, in render order. `placement` and `danger` are POD-1077's.
  *
@@ -77,12 +82,7 @@ export type IssueMenuSubmenu =
  * alone under a rule. The section that is genuinely destructive is the one
  * named for it.
  */
-export type IssueMenuSection =
-  | 'main'
-  | 'placement'
-  | 'lifecycle'
-  | 'destructive'
-  | 'danger'
+export type IssueMenuSection = 'main' | 'placement' | 'lifecycle' | 'destructive' | 'danger'
 
 export interface IssueMenuOption {
   id: string
@@ -109,6 +109,7 @@ export interface IssueHandoffMenuData {
 }
 
 export interface IssueMenuData {
+  agentMachines?: readonly MachineFacts[]
   codingHarness?: string
   first: IssueNavigationModel
   issues: readonly IssueNavigationModel[]
@@ -274,7 +275,34 @@ export const ISSUE_MENU_CONFIG: readonly IssueMenuConfig[] = [
           value: kind,
           label: issueAgentLabel(kind),
         })),
-      ]
+      ].flatMap((option) => {
+        const hosts = data.agentMachines ?? []
+        const status = hosts.length
+          ? agentFleetStatus(
+              hosts.map((machine) =>
+                candidateFromAvailability(
+                  machine,
+                  machine.use === 'denied'
+                    ? 'unauthorized'
+                    : machine.online
+                      ? 'available'
+                      : 'unreachable',
+                  option.value || defaultKind,
+                ),
+              ),
+              option.label,
+            )
+          : {}
+        return status.hidden
+          ? []
+          : [
+              {
+                ...option,
+                ...(status.reason ? { disabled: true } : {}),
+                ...(status.hint ? { hint: status.hint } : {}),
+              },
+            ]
+      })
     },
   },
   {
@@ -419,6 +447,7 @@ export const ISSUE_MENU_CONFIG: readonly IssueMenuConfig[] = [
 
 /** Build the data passed to the shared tree; hosts only supply environment-specific handoff data. */
 export function createIssueMenuData(input: {
+  agentMachines?: readonly MachineFacts[]
   codingHarness?: string
   issues: readonly IssueNavigationModel[]
   allIssues: readonly IssueNavigationModel[]
@@ -435,6 +464,7 @@ export function createIssueMenuData(input: {
   if (!first) return null
   const targetIds = new Set(input.issues.map((issue) => issue.id))
   return {
+    agentMachines: input.agentMachines,
     codingHarness: input.codingHarness,
     first,
     issues: input.issues,
@@ -444,19 +474,23 @@ export function createIssueMenuData(input: {
     renameEnabled: input.renameEnabled ?? false,
     handoffEnabled: input.handoffEnabled ?? false,
     primaryStart: input.primaryStart ?? false,
-    get labels() { return [
-      ...new Set([
-        ...(input.choiceIssues?.() ?? input.allIssues).flatMap((issue) => issue.labels),
-        ...input.issues.flatMap((issue) => issue.labels),
-      ]),
-    ].sort() },
-    get duplicateTargets() { return (input.choiceIssues?.() ?? input.allIssues)
-      .filter(
-        (issue) =>
-          !issue.deletedAt && issue.repoPath === first.repoPath && !targetIds.has(issue.id),
-      )
-      .sort((a, b) => a.seq - b.seq)
-      .map((issue) => ({ id: issue.id, ref: issueDisplayRef(issue), title: issue.title })) },
+    get labels() {
+      return [
+        ...new Set([
+          ...(input.choiceIssues?.() ?? input.allIssues).flatMap((issue) => issue.labels),
+          ...input.issues.flatMap((issue) => issue.labels),
+        ]),
+      ].sort()
+    },
+    get duplicateTargets() {
+      return (input.choiceIssues?.() ?? input.allIssues)
+        .filter(
+          (issue) =>
+            !issue.deletedAt && issue.repoPath === first.repoPath && !targetIds.has(issue.id),
+        )
+        .sort((a, b) => a.seq - b.seq)
+        .map((issue) => ({ id: issue.id, ref: issueDisplayRef(issue), title: issue.title }))
+    },
     handoff: input.handoff,
   }
 }

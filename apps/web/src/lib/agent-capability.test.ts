@@ -14,6 +14,7 @@ import { describe, expect, it } from 'vitest'
 import {
   agentFleetStatus,
   agentLabel,
+  agentMachineStatus,
   candidateFromAvailability,
   SIGNED_OUT_HINT,
 } from './agent-capability'
@@ -107,10 +108,11 @@ describe('agentFleetStatus', () => {
 
   it('speaks one host’s own words when there is only one host', () => {
     const status = agentFleetStatus(
-      [{ machineName: 'vmi34', rejection: 'harness-missing' }],
+      [{ machineName: 'Workstation', rejection: 'harness-missing' }],
       'New Cursor',
     )
-    expect(status.reason).toBe('Cursor is not installed on vmi34.')
+    expect(status.hidden).toBe(true)
+    expect(status.reason).toBe('Cursor is not installed on Workstation.')
     expect(status.hint).toBe('not installed')
   })
 
@@ -118,7 +120,7 @@ describe('agentFleetStatus', () => {
     const status = agentFleetStatus(
       [
         {
-          machineName: 'vmi34',
+          machineName: 'Workstation',
           rejection: 'harness-probe-timed-out',
           probeDescription: 'timed out after 60s',
         },
@@ -126,7 +128,7 @@ describe('agentFleetStatus', () => {
       'New Cursor',
     )
     expect(status.reason).toBe(
-      'Couldn’t determine whether Cursor is installed on vmi34; probe timed out after 60s. Retry.',
+      'Couldn’t determine whether Cursor is installed on Workstation; probe timed out after 60s. Retry.',
     )
     expect(status.hint).toBe('probe timed out')
   })
@@ -139,6 +141,7 @@ describe('agentFleetStatus', () => {
       ],
       'New Cursor',
     )
+    expect(status.hidden).toBe(true)
     expect(status.reason).toContain('not installed')
     expect(status.hint).toBe('not installed')
   })
@@ -156,6 +159,7 @@ describe('agentFleetStatus', () => {
       ],
       'New Cursor',
     )
+    expect(status.hidden).toBeUndefined()
     expect(status.hint).toBe('no host')
     expect(status.reason).not.toContain('asleep')
     expect(status.reason).not.toContain('theirs')
@@ -180,5 +184,34 @@ describe('agentLabel', () => {
     expect(agentLabel('New Claude')).toBe('Claude')
     expect(agentLabel('Claude Code (default)')).toBe('Claude Code')
     expect(agentLabel('Cursor')).toBe('Cursor')
+  })
+})
+
+describe('concrete machine menu status', () => {
+  it('hides missing agents regardless of installability, but keeps a runnable own install', () => {
+    for (const installable of [true, false]) {
+      const agent = { ...harness('cursor', false), management: { installable } }
+      const machine = host('Workstation', [agent])
+      expect(agentMachineStatus(machine, 'cursor', 'New Cursor').hidden).toBe(true)
+      agent.installed = true
+      expect(agentMachineStatus(machine, 'cursor', 'New Cursor').hidden).toBeUndefined()
+    }
+  })
+
+  it('keeps the offline and probe-timeout readings visible', () => {
+    expect(
+      agentMachineStatus(
+        host('Workstation', [harness('cursor', false)], false),
+        'cursor',
+        'Cursor',
+      ),
+    ).toMatchObject({ hint: 'offline' })
+    const probing = agentMachineStatus(
+      host('Workstation', [harness('cursor', null)]),
+      'cursor',
+      'Cursor',
+    )
+    expect(probing.hidden).toBeUndefined()
+    expect(probing.hint).toBe('probe timed out')
   })
 })

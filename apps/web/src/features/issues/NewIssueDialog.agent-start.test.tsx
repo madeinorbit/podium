@@ -213,7 +213,7 @@ describe('NewIssueDialog start-work band', () => {
     expect((screen.getByLabelText('Title') as HTMLInputElement).value).toBe('Not queued')
   })
 
-  it('greys out harnesses unavailable on every repo host', async () => {
+  it('hides harnesses missing on every repo host', async () => {
     machines.push({
       id: 'mine',
       name: 'mine',
@@ -229,12 +229,8 @@ describe('NewIssueDialog start-work band', () => {
     render(<NewIssueDialog onClose={vi.fn()} />)
 
     fireEvent.click(screen.getByRole('button', { name: 'Agent' }))
-    const cursor = await screen.findByRole('menuitem', { name: /Cursor/ })
-    expect(cursor.textContent).toContain('not installed')
-    expect(cursor.getAttribute('data-refused')).toBe('true')
-    fireEvent.click(cursor)
-    expect(screen.getByRole('button', { name: 'Agent' }).textContent).toContain('Claude Code')
-
+    expect(await screen.findByRole('menuitem', { name: 'Set up agents…' })).toBeTruthy()
+    expect(screen.queryByRole('menuitem', { name: /Cursor/ })).toBeNull()
     const claude = screen.getByRole('menuitem', { name: 'Claude Code' })
     expect(claude.getAttribute('data-refused')).toBeNull()
   })

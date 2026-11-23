@@ -1,4 +1,4 @@
-import { asIssueId } from '@podium/model'
+import { asIssueId, type MachineFacts } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
 import { type IssueMenuSurface, issueMenuEligibility } from './issue-context-menu'
@@ -30,13 +30,57 @@ const deps = {
 describe('declarative issue menu projections', () => {
   it('uses Settings for the auto default row and excludes that harness from the remaining choices', () => {
     const issue = makeIssue({ defaultAgent: 'auto' })
-    const data = createIssueMenuData({ issues: [issue], allIssues: [issue], codingHarness: 'codex',
-      eligibility: issueMenuEligibility([issue], 'palette'), surface: 'palette' })!
-    const agent = issueMenuEntries(data).find(entry => entry.id === 'agent')!
+    const data = createIssueMenuData({
+      issues: [issue],
+      allIssues: [issue],
+      codingHarness: 'codex',
+      eligibility: issueMenuEligibility([issue], 'palette'),
+      surface: 'palette',
+    })!
+    const agent = issueMenuEntries(data).find((entry) => entry.id === 'agent')!
     if (agent.kind !== 'submenu') throw new Error('missing agent menu')
     expect(agent.options(data)[0]).toMatchObject({ value: '', label: 'Codex (default)' })
-    expect(agent.options(data).some(option => option.value === 'codex')).toBe(false)
+    expect(agent.options(data).some((option) => option.value === 'codex')).toBe(false)
   })
+  it('filters missing and un-installable harnesses while keeping signed-out and probing choices', () => {
+    const issue = makeIssue({ defaultAgent: 'codex' })
+    const machine = {
+      id: 'host',
+      name: 'Workstation',
+      online: true,
+      serviceAssignment: { server: false, agentExecution: true },
+      availability: { daemon: true },
+      inventory: {
+        agents: [
+          { kind: 'codex', installed: false, management: { installable: true } },
+          { kind: 'cursor', installed: false, management: { installable: false } },
+          { kind: 'pi', installed: true, login: { state: 'out' } },
+          { kind: 'grok', installed: null },
+        ],
+      },
+    } as unknown as MachineFacts
+    const data = createIssueMenuData({
+      issues: [issue],
+      allIssues: [issue],
+      agentMachines: [machine],
+      eligibility: issueMenuEligibility([issue], 'palette'),
+      surface: 'palette',
+    })!
+    const agent = issueMenuEntries(data).find((entry) => entry.id === 'agent')!
+    if (agent.kind !== 'submenu') throw new Error('missing agent menu')
+    const options = agent.options(data)
+    expect(options.some((option) => option.value === '' || option.value === 'cursor')).toBe(false)
+    expect(options.find((option) => option.value === 'pi')).toMatchObject({ hint: 'signed out' })
+    expect(options.find((option) => option.value === 'pi')?.disabled).toBeUndefined()
+    expect(options.find((option) => option.value === 'grok')).toMatchObject({
+      disabled: true,
+      hint: 'probe timed out',
+    })
+    expect(
+      issueMenuPaletteCommands(data, deps).some((command) => command.label.includes('Cursor')),
+    ).toBe(false)
+  })
+
   it('uses identical action and option keys for the menu and palette', () => {
     const issue = makeIssue({ labels: ['bug'] })
     const sibling = makeIssue({ id: asIssueId('sibling'), title: 'Sibling' })
@@ -183,24 +227,33 @@ describe('declarative issue menu projections', () => {
       defer && defer.kind === 'submenu' ? defer.options(data).map((o) => o.value) : [],
     ).toEqual(['hour', 'tomorrow', 'week', 'next-message'])
   })
-
-
 })
-
 
 it('builds no catalog choices for main/status menus, then derives the visible options without memoizing', () => {
   const subject = makeIssue({ labels: ['own'] })
-  const candidate = makeIssue({ id: asIssueId('candidate'), seq: 2, title: 'Canonical', labels: ['other'] })
+  const candidate = makeIssue({
+    id: asIssueId('candidate'),
+    seq: 2,
+    title: 'Canonical',
+    labels: ['other'],
+  })
   const choices = vi.fn(() => [subject, candidate])
-  const data = createIssueMenuData({ issues: [subject], allIssues: [subject], choiceIssues: choices,
-    eligibility: issueMenuEligibility([subject], 'palette'), surface: 'palette' })!
+  const data = createIssueMenuData({
+    issues: [subject],
+    allIssues: [subject],
+    choiceIssues: choices,
+    eligibility: issueMenuEligibility([subject], 'palette'),
+    surface: 'palette',
+  })!
   const entries = issueMenuEntries(data)
   expect(choices).not.toHaveBeenCalled()
-  const status = entries.find(entry => entry.kind === 'submenu' && entry.id === 'status')!
+  const status = entries.find((entry) => entry.kind === 'submenu' && entry.id === 'status')!
   if (status.kind === 'submenu') status.options(data)
   expect(choices).not.toHaveBeenCalled()
   expect(data.labels).toEqual(['other', 'own'])
-  expect(data.duplicateTargets).toEqual([{ id: 'candidate', title: 'Canonical', ref: expect.any(String) }])
+  expect(data.duplicateTargets).toEqual([
+    { id: 'candidate', title: 'Canonical', ref: expect.any(String) },
+  ])
   expect(choices).toHaveBeenCalledTimes(2)
   candidate.title = 'Changed canonical'
   expect(data.duplicateTargets[0]?.title).toBe('Changed canonical')

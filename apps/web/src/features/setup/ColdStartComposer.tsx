@@ -1100,6 +1100,7 @@ export function ColdStartComposer({
                     </button>
                   }
                   options={agentOptions}
+                  setup={{ machineId: selectedMachine?.id, machines: targetMachines }}
                   selectedValue={agent}
                   onSelect={(nextAgent) => {
                     const kind = issueAgentKind(nextAgent) ?? agent
