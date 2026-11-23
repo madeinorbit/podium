@@ -196,10 +196,11 @@ bun run test:file -- apps/server/src/core-cluster.core-process.bun.test.ts
 
 `test:file` runs these files as their own serial Bun group with one focused validation
 slot (1,000 MB admission charge). Run one cluster at a time and keep the default of two
-Core processes on the shared host. Each Core boots its own HTTP and WebSocket listener,
-store connection pool, sync worker, and background worker. Postgres uses one disposable
-clone per cluster from the [Postgres test harness](#postgres-store-lane). SQLite runs one
-Core over a temporary database file and can restart that Core against the same file.
+Core processes on the shared host. Register new Core process test files in the explicit
+`test:bun` roster. Each Core boots its own HTTP and WebSocket listener, store connection
+pool, sync worker, and background worker. Postgres uses one disposable clone per cluster
+from the [Postgres test harness](#postgres-store-lane). SQLite runs one Core over a temporary
+database file and can restart that Core against the same file.
 
 On a shared Linux validation VM with the Postgres container already running, the sample
 took 14.9 s wall time for both engines (7.4 s SQLite, 6.9 s Postgres). The test process tree
