@@ -31,7 +31,7 @@ async function relay(
   input: unknown,
 ): Promise<RelayResult> {
   const requestId = `r-cm-${++request}`
-  await o.reg.gateway.routeDaemonFrame(o.store.hostMachineId, {
+  await o.reg.gateway.routeDaemonFrame(o.store.hostMachine!.id, {
     type: 'agentRelayRequest',
     requestId,
     sessionId,
