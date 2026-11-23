@@ -17,19 +17,28 @@
  *     values in free pages and unused cell space, then truncates the WAL, whose
  *     frames hold page images from before. A truncate kept busy by a reader is
  *     retried; when it stays busy the state row says so and the next start
- *     finishes it;
- *  3. scrubs Podium's retained upgrade snapshots (`legacy-snapshot-scrub.ts`).
+ *     finishes it. A large file is compacted on a worker thread while the boot
+ *     reports progress (`legacy-plaintext-jobs.ts`), and only with room on disk
+ *     for the copy and the WAL (`migrations/legacy-compaction-space.ts`); without it the
+ *     step says why and the next start tries again (POD-7252);
+ *  3. once the server is up, scrubs Podium's retained upgrade snapshots
+ *     (`legacy-snapshot-scrub.ts`) on a worker thread.
  *
  * The state row (`meta['legacy-plaintext']`) makes a start after a clean pass do
  * nothing: `done` with no old row left skips the step.
  */
 
 import type { SqlDatabase } from '@podium/runtime/sqlite'
+import type { LegacyPlaintextJobRunner } from './legacy-plaintext-jobs'
 
 /** The `meta` key of the step's state. */
 export const LEGACY_PLAINTEXT_STATE_KEY = 'legacy-plaintext'
 /** The `meta` key of the snapshot identities already scrubbed (JSON). */
 export const LEGACY_PLAINTEXT_SNAPSHOTS_KEY = 'legacy-plaintext:snapshots'
+/** The `meta` key of the snapshots that failed, with their tries (JSON). */
+export const LEGACY_PLAINTEXT_FAILURES_KEY = 'legacy-plaintext:snapshot-failures'
+/** The `meta` key of when the file was last compacted clean (epoch ms). */
+export const LEGACY_PLAINTEXT_COMPACTED_AT_KEY = 'legacy-plaintext:compacted-at'
 
 /**
  * - absent: the step never ran (a database from before this release).
@@ -47,6 +56,12 @@ export interface LegacyPlaintextOptions {
   attempts?: number
   /** Waits between attempts. Default: a synchronous sleep. */
   wait?: (ms: number) => void
+  /** Runs the vacuum and scrub jobs. Default: a worker thread for a large file. */
+  runJob?: LegacyPlaintextJobRunner
+  /** Free bytes on a directory's filesystem. Default: `freeDiskBytes`. */
+  freeBytes?: (dir: string) => number
+  /** Progress sink and interval for the compaction. Default: the supervisor, every 15 s. */
+  progress?: { report?: (stage: string) => void; everyMs?: number }
 }
 
 /** What the step did at this start; `{ ran: false }` when it had nothing to do. */
@@ -57,9 +72,22 @@ export type LegacyPlaintextReport =
       destroyed: number
       /** Old values left in place, by id (never the value). */
       leftInPlace: string[]
-      compaction: 'clean' | 'busy' | 'skipped'
+      /** `no-space`: not enough free disk for the copy and the WAL; left pending. */
+      compaction: 'clean' | 'busy' | 'skipped' | 'no-space'
+      /** Retained snapshots the scrub after start will work on, by path. */
+      snapshotsToScrub: string[]
+    }
+
+/** What the snapshot scrub after start did; `{ ran: false }` when it had nothing to do. */
+export type LegacySnapshotScrubReport =
+  | { ran: false }
+  | {
+      ran: true
+      scrubbed: number
       /** Snapshots that could not be scrubbed, by path and reason. */
-      snapshotProblems: string[]
+      problems: string[]
+      /** Snapshots no longer tried, by path. */
+      givenUp: string[]
     }
 
 /** One old value to delete, checked against its credential by the caller. */
@@ -171,19 +199,32 @@ const sleep = (ms: number): void => {
 
 /**
  * Compact the file and truncate its WAL, so no deleted or overwritten value is
- * left in a free page, unused cell space or an old WAL frame. The truncate is
- * retried while a reader keeps it busy (50 ms, doubling, at most 1 s apart).
- * `clean` moves the state on to `compacted`; `busy` leaves it pending.
- * Must run on a connection with no open transaction.
+ * left in a free page, unused cell space or an old WAL frame. In this thread:
+ * the in-memory database, and tests. Must run on a connection with no open
+ * transaction.
  */
 export function compactDatabase(
   db: SqlDatabase,
   options: Pick<LegacyPlaintextOptions, 'attempts' | 'wait'> = {},
 ): 'clean' | 'busy' {
+  withSecureDelete(db, () => db.exec('VACUUM'))
+  return finishCompaction(db, options)
+}
+
+/**
+ * The compaction's second half, after the `VACUUM` (here or on a worker's
+ * connection): truncate the WAL, retried while a reader keeps it busy (50 ms,
+ * doubling, at most 1 s apart). `clean` moves the state on to `compacted` and
+ * records when; `busy` leaves it pending.
+ */
+export function finishCompaction(
+  db: SqlDatabase,
+  options: Pick<LegacyPlaintextOptions, 'attempts' | 'wait'> = {},
+  now: number = Date.now(),
+): 'clean' | 'busy' {
   const attempts = options.attempts ?? 20
   const wait = options.wait ?? sleep
   return withSecureDelete(db, () => {
-    db.exec('VACUUM')
     // Each try answers at once; the waits between tries are ours, not the
     // connection's busy timeout (seconds per try).
     const timeout = (db.prepare('PRAGMA busy_timeout').get() as { timeout: number }).timeout
@@ -194,10 +235,25 @@ export function compactDatabase(
       db.exec(`PRAGMA busy_timeout = ${Number(timeout) || 0}`)
     }
     writeLegacyPlaintextState(db, 'compacted')
+    writeMeta(db, LEGACY_PLAINTEXT_COMPACTED_AT_KEY, String(now))
     // The state write is a WAL frame with no secret in it; fold it in too.
     db.prepare('PRAGMA wal_checkpoint(TRUNCATE)').get()
     return 'clean'
   })
+}
+
+/** A `meta` value, or `undefined`. */
+export function readMeta(db: SqlDatabase, key: string): string | undefined {
+  const row = db.prepare('SELECT value FROM meta WHERE key = ?').get(key) as
+    | { value: string }
+    | undefined
+  return row?.value
+}
+
+export function writeMeta(db: SqlDatabase, key: string, value: string): void {
+  db.prepare(
+    'INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
+  ).run(key, value)
 }
 
 /** `PRAGMA wal_checkpoint(TRUNCATE)` until no reader keeps it busy, or `attempts` run out. */

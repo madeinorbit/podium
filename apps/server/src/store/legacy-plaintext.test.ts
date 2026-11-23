@@ -8,7 +8,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { copyFileSync, existsSync, mkdtempSync, readFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { addSink, createRingBufferSink } from '@podium/logger'
@@ -16,11 +16,19 @@ import { asUserId, firstAdminMemberId, primeFirstAdminMember, type UserId } from
 import { hashPassword } from '@podium/runtime/auth-store'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { afterEach, describe, expect, it } from 'vitest'
+import { measureCompactionSpace } from '../migrations/legacy-compaction-space'
+import { scrubLegacySnapshots } from '../migrations/legacy-snapshot-scrub'
 import { credentialIdFromLegacy } from '../modules/credentials/legacy-ids'
 import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import { SessionStore } from '../store'
 import { memberFacts } from './fixtures/test-support'
 import { LEGACY_PLAINTEXT_STATE_KEY, type LegacyPlaintextOptions } from './legacy-plaintext'
+import {
+  defaultLegacyPlaintextJobRunner,
+  executeLegacyPlaintextJob,
+  type LegacyPlaintextJobRunner,
+  withProgressHeartbeat,
+} from './legacy-plaintext-jobs'
 
 /** Obviously fake old values, one per place a key was kept before the vault. */
 const ACCOUNT_KEY = 'FAKE-sk-ant-destroy-account-0001'
@@ -92,6 +100,20 @@ const accountRows = (dbPath: string) =>
     id: string
     credential: string
   }[]
+
+const stateOf = (dbPath: string) =>
+  sql(dbPath, (db) =>
+    db.prepare('SELECT value FROM meta WHERE key = ?').get(LEGACY_PLAINTEXT_STATE_KEY),
+  )
+
+/** A runner whose scrub finds no room for a copy, as the dev.38 host's disk did. */
+const noRoomToScrub: LegacyPlaintextJobRunner = async (job) =>
+  job.kind === 'scrub'
+    ? {
+        kind: 'scrub',
+        results: scrubLegacySnapshots(job.dbPath, { ...job, freeBytes: () => 0 }),
+      }
+    : executeLegacyPlaintextJob(job)
 
 const secretKeys = (dbPath: string) =>
   (
@@ -244,11 +266,134 @@ describe('the old plaintext keys after the move into the vault', () => {
     expect(heldIn(databaseBytes(snapshot))).toEqual(PLANTED)
 
     const store = await openAt(dbPath, keyPath)
-    expect(store.legacyPlaintextReport).toMatchObject({ ran: true, snapshotProblems: [] })
+    // The boot leaves the snapshot to the scrub after start (POD-7252).
+    expect(store.legacyPlaintextReport).toMatchObject({ ran: true, snapshotsToScrub: [snapshot] })
+    expect(heldIn(databaseBytes(snapshot))).toEqual(PLANTED)
+    expect(stateOf(dbPath)).toEqual({ value: 'compacted' })
+
+    expect(await store.scrubLegacySnapshots()).toEqual({
+      ran: true,
+      scrubbed: 1,
+      problems: [],
+      givenUp: [],
+    })
     expect(heldIn(databaseBytes(snapshot))).toEqual([])
     expect(sql(snapshot, (db) => db.prepare('PRAGMA integrity_check').all())).toEqual([
       { integrity_check: 'ok' },
     ])
+    expect(stateOf(dbPath)).toEqual({ value: 'done' })
+  })
+
+  it('compacts a large file on a worker thread, reporting progress while it runs (POD-7252)', async () => {
+    const { dbPath, keyPath } = place()
+    await plantOldDatabase(dbPath, keyPath)
+    const stages: string[] = []
+    const worker = defaultLegacyPlaintextJobRunner(0)
+    const store = await openAt(dbPath, keyPath, {
+      // The real worker, held a little so the heartbeat is seen.
+      runJob: async (job, bytes, signal) => {
+        const result = await worker(job, bytes, signal)
+        await new Promise((resolve) => setTimeout(resolve, 60))
+        return result
+      },
+      progress: { report: (stage) => stages.push(stage), everyMs: 20 },
+    })
+    expect(ran(store).compaction).toBe('clean')
+    expect(heldIn(databaseBytes(dbPath))).toEqual([])
+    expect(stages[0]).toBe('vault: compacting the database')
+    expect(stages.length).toBeGreaterThan(1)
+    // Every step has a name of its own: the supervisor counts only new ones.
+    expect(new Set(stages).size).toBe(stages.length)
+  })
+
+  it('does not compact without room on disk, and the next start with room does (POD-7252)', async () => {
+    const { dbPath, keyPath } = place()
+    await plantOldDatabase(dbPath, keyPath)
+    const first = await openAt(dbPath, keyPath, { freeBytes: () => 0 })
+    expect(ran(first).compaction).toBe('no-space')
+    await close(first)
+    expect(stateOf(dbPath)).toEqual({ value: 'compaction-pending' })
+    // The rows are gone; a value an old version freed is still in a free page.
+    expect(accountRows(dbPath)).toEqual([])
+    expect(heldIn(databaseBytes(dbPath))).toContain(FREED)
+
+    const second = await openAt(dbPath, keyPath)
+    expect(second.legacyPlaintextReport).toMatchObject({ ran: true, compaction: 'clean' })
+    expect(heldIn(databaseBytes(dbPath))).toEqual([])
+    expect(stateOf(dbPath)).toEqual({ value: 'done' })
+  })
+
+  it('a snapshot without room to scrub is tried a bounded number of times (POD-7252)', async () => {
+    const { dbPath, keyPath } = place()
+    await plantOldDatabase(dbPath, keyPath)
+    const snapshot = `${dbPath}.backup-vdrizzle-40-2026-11-01T00-00-00-000Z`
+    copyFileSync(dbPath, snapshot)
+    if (existsSync(`${dbPath}-wal`)) copyFileSync(`${dbPath}-wal`, `${snapshot}-wal`)
+
+    const reports = []
+    for (let start = 0; start < 3; start += 1) {
+      const store = await openAt(dbPath, keyPath, { runJob: noRoomToScrub })
+      expect(ran(store).snapshotsToScrub).toEqual([snapshot])
+      reports.push(await store.scrubLegacySnapshots())
+      await close(store)
+    }
+    expect(reports.map((report) => report.ran && report.problems.length)).toEqual([1, 1, 1])
+    expect(reports.map((report) => report.ran && report.givenUp)).toEqual([[], [], [snapshot]])
+
+    // Given up: the start finds nothing to scrub, and the step is not finished.
+    const fourth = await openAt(dbPath, keyPath, { runJob: noRoomToScrub })
+    expect(ran(fourth).snapshotsToScrub).toEqual([])
+    expect(await fourth.scrubLegacySnapshots()).toEqual({ ran: false })
+    await close(fourth)
+    expect(stateOf(dbPath)).toEqual({ value: 'compacted' })
+    expect(heldIn(databaseBytes(snapshot))).toEqual(PLANTED)
+
+    // Once retention prunes it, the step finishes.
+    for (const suffix of ['', '-wal', '-shm']) rmSync(`${snapshot}${suffix}`, { force: true })
+    const fifth = await openAt(dbPath, keyPath)
+    expect(ran(fifth).snapshotsToScrub).toEqual([])
+    await close(fifth)
+    expect(stateOf(dbPath)).toEqual({ value: 'done' })
+  })
+
+  it('a snapshot taken after the compaction is a copy of the clean file and is not scrubbed (POD-7252)', async () => {
+    const { dbPath, keyPath } = place()
+    await plantOldDatabase(dbPath, keyPath)
+    // A snapshot the scrub cannot finish keeps the step open across starts.
+    const stuck = `${dbPath}.backup-vdrizzle-40-2026-11-01T00-00-00-000Z`
+    copyFileSync(dbPath, stuck)
+    const first = await openAt(dbPath, keyPath, { runJob: noRoomToScrub })
+    await first.scrubLegacySnapshots()
+    await close(first)
+    // The next update's backup: a copy of the compacted file, made after it.
+    const later = `${dbPath}.backup-vdrizzle-41-2026-11-02T00-00-00-000Z`
+    copyFileSync(dbPath, later)
+    const second = await openAt(dbPath, keyPath, { runJob: noRoomToScrub })
+    expect(ran(second).snapshotsToScrub).toEqual([stuck])
+  })
+
+  it('measures the room a compaction needs: the copy and the WAL, on one disk twice', () => {
+    const { dbPath } = place()
+    sql(dbPath, (db) => db.exec('CREATE TABLE t (v BLOB); INSERT INTO t VALUES (zeroblob(100000))'))
+    const sameDisk = measureCompactionSpace(dbPath, () => Number.MAX_SAFE_INTEGER, tmpdir())
+    expect(sameDisk.ok).toBe(true)
+    const tight = measureCompactionSpace(dbPath, () => 1024, tmpdir())
+    expect(tight.ok).toBe(false)
+    expect(tight.detail).toMatch(/^need ~\d+ bytes free in /)
+  })
+
+  it('a heartbeat names each step anew, and stops with the work', async () => {
+    const stages: string[] = []
+    await withProgressHeartbeat(
+      'step',
+      async () => await new Promise((resolve) => setTimeout(resolve, 55)),
+      (stage) => stages.push(stage),
+      10,
+    )
+    const seen = stages.length
+    expect(stages.slice(0, 3)).toEqual(['step', 'step, 0.01 s', 'step, 0.02 s'])
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    expect(stages.length).toBe(seen)
   })
 
   it('every moved key still opens from the vault after the step', async () => {

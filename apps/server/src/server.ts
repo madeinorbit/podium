@@ -1581,7 +1581,18 @@ export async function startServer(
   // database, and boot may not wait for that any more than a request may.
   // This is also where a 0.1.0 install's existing `<db>.backup-v*` files and the
   // boot migration's own snapshots first enter the catalogue.
-  registry.sessionStore.discoverDatabaseSnapshots()
+  //
+  // LEGACY(remove-after: 2027-05): moves keys stored before the vault into it; removing it ends direct upgrades from versions before 2026-11 and drops the accounts table
+  // First the old plaintext keys leave the retained snapshots (POD-7252), on a
+  // worker thread and off the readiness path: a scrubbed snapshot changes size,
+  // so it is catalogued and proved after the scrub, not before it. With nothing
+  // to scrub this settles at once. It never rejects.
+  void registry.sessionStore
+    .scrubLegacySnapshots()
+    .then(() => registry.sessionStore.discoverDatabaseSnapshots())
+    .catch((error: unknown) =>
+      log.error('reconciling the recovery-snapshot catalogue failed', { err: error }),
+    )
 
   const requestPeerAddresses = new WeakMap<Request, string>()
   /**

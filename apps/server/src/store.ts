@@ -58,13 +58,20 @@ import { createLogger } from '@podium/logger'
 import { asMachineId, type MachineId, type WorkspaceId } from '@podium/model'
 import { stateDir } from '@podium/runtime/config'
 import { resolveInstanceId } from '@podium/runtime/instance'
+import { reportLifecycleProgress } from '@podium/runtime/lifecycle-channel'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
 import type { UpdateSigningKey } from '@podium/runtime/update-signing-key'
 import { fileKeyProvider, resolveVaultKeyPath } from '@podium/runtime/vault-key'
 import { SyncRepository } from '@podium/sync'
 import { isFeatureEnabled } from './features'
 import type { BackupPreflight } from './migrations/backup'
-import { type SnapshotStamp, scrubLegacySnapshots } from './migrations/legacy-snapshot-scrub'
+import { measureCompactionSpace } from './migrations/legacy-compaction-space'
+import {
+  planSnapshotScrub,
+  SNAPSHOT_SCRUB_ATTEMPTS,
+  type SnapshotFailure,
+  type SnapshotStamp,
+} from './migrations/legacy-snapshot-scrub'
 import type { SnapshotVerifierDeps } from './migrations/snapshot-verifier'
 import {
   openStoreLifecycle,
@@ -106,13 +113,24 @@ import { JanitorReadsRepository } from './store/janitor-reads'
 import {
   applyLegacyDestruction,
   compactDatabase,
+  finishCompaction,
   hasLegacyPlaintextRows,
+  LEGACY_PLAINTEXT_COMPACTED_AT_KEY,
+  LEGACY_PLAINTEXT_FAILURES_KEY,
   LEGACY_PLAINTEXT_SNAPSHOTS_KEY,
   type LegacyPlaintextOptions,
   type LegacyPlaintextReport,
+  type LegacySnapshotScrubReport,
   readLegacyPlaintextState,
+  readMeta,
   writeLegacyPlaintextState,
+  writeMeta,
 } from './store/legacy-plaintext'
+import {
+  defaultLegacyPlaintextJobRunner,
+  type LegacyPlaintextJobRunner,
+  withProgressHeartbeat,
+} from './store/legacy-plaintext-jobs'
 import { LocksRepository } from './store/locks'
 import { MachinesRepository, RETIRED_MACHINE_SENTINELS } from './store/machines'
 import { MaintenanceRepository } from './store/maintenance'
@@ -556,35 +574,167 @@ export class StoreDatabase {
   }
 
   // LEGACY(remove-after: 2027-05): moves keys stored before the vault into it; removing it ends direct upgrades from versions before 2026-11 and drops the accounts table
-  /** Scrub the retained upgrade snapshots; returns the problems, by path and reason. */
-  private scrubSnapshots(knownValues: readonly string[]): string[] {
-    const stored = this.db
-      .prepare('SELECT value FROM meta WHERE key = ?')
-      .get(LEGACY_PLAINTEXT_SNAPSHOTS_KEY) as { value: string } | undefined
-    const done = stored ? (JSON.parse(stored.value) as SnapshotStamp[]) : []
-    const results = scrubLegacySnapshots(this.location, { knownValues, done })
-    const stamps = results.flatMap((result) => (result.stamp ? [result.stamp] : []))
-    this.db
-      .prepare(
-        'INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
+  /**
+   * The values the scrub after start searches the snapshots for, besides what
+   * each holds: kept from the boot's pass until the scrub takes them, and only
+   * when a snapshot needs it.
+   */
+  private legacyKnownValues: string[] | undefined
+  /** The scrub after start, once begun ({@link scrubLegacySnapshots}). */
+  private legacyScrub: Promise<LegacySnapshotScrubReport> | undefined
+  /** Aborted at close: a scrub still running is ended and its result dropped. */
+  private readonly legacyJobs = new AbortController()
+
+  private legacyJobRunner(): LegacyPlaintextJobRunner {
+    return this.vaultBoot.legacyPlaintext.runJob ?? defaultLegacyPlaintextJobRunner()
+  }
+
+  /**
+   * What the scrub reads from `meta`: the snapshots done, those that failed, and
+   * when the file was compacted clean, which counts only while that is the
+   * state: a later deletion makes snapshots after it hold the deleted values.
+   */
+  private legacyScrubInputs(): {
+    done: SnapshotStamp[]
+    failures: SnapshotFailure[]
+    cleanSinceMs?: number
+  } {
+    const json = <T>(key: string): T[] => {
+      const value = readMeta(this.db, key)
+      return value ? (JSON.parse(value) as T[]) : []
+    }
+    const at = Number(readMeta(this.db, LEGACY_PLAINTEXT_COMPACTED_AT_KEY))
+    const clean = readLegacyPlaintextState(this.db) === 'compacted' && at > 0
+    return {
+      done: json<SnapshotStamp>(LEGACY_PLAINTEXT_SNAPSHOTS_KEY),
+      failures: json<SnapshotFailure>(LEGACY_PLAINTEXT_FAILURES_KEY),
+      ...(clean ? { cleanSinceMs: at } : {}),
+    }
+  }
+
+  // LEGACY(remove-after: 2027-05): moves keys stored before the vault into it; removing it ends direct upgrades from versions before 2026-11 and drops the accounts table
+  /**
+   * Compact the live file for the step (POD-7252). The in-memory database and a
+   * small file compact here; a large one on a worker's connection while the
+   * boot reports progress, so the handover and systemd's start limit follow it.
+   * Without room for the copy and the WAL nothing is written: the state stays
+   * pending and the next start measures again.
+   */
+  private async compactLegacyPlaintext(
+    options: LegacyPlaintextOptions,
+  ): Promise<'clean' | 'busy' | 'no-space'> {
+    if (this.location === ':memory:') return compactDatabase(this.db, options)
+    const space = measureCompactionSpace(this.location, options.freeBytes)
+    if (!space.ok) {
+      log.warn(
+        'not compacting the database after removing the old plaintext keys: not enough free disk space; the next start tries again',
+        { detail: space.detail },
       )
-      .run(LEGACY_PLAINTEXT_SNAPSHOTS_KEY, JSON.stringify(stamps))
+      return 'no-space'
+    }
+    const started = performance.now()
+    const bytes = space.bytes
+    await withProgressHeartbeat(
+      'vault: compacting the database',
+      async () =>
+        await this.legacyJobRunner()(
+          { kind: 'vacuum', dbPath: this.location },
+          bytes,
+          this.legacyJobs.signal,
+        ),
+      options.progress?.report ?? reportLifecycleProgress,
+      options.progress?.everyMs,
+    )
+    log.info('compacted the database', {
+      bytes,
+      durationMs: Math.round(performance.now() - started),
+    })
+    return finishCompaction(this.db, options)
+  }
+
+  // LEGACY(remove-after: 2027-05): moves keys stored before the vault into it; removing it ends direct upgrades from versions before 2026-11 and drops the accounts table
+  /**
+   * Scrub the retained upgrade snapshots, after the server is up (POD-7252): on
+   * a worker thread for a large snapshot, so neither the boot nor a request
+   * waits for it. Records what was scrubbed and what failed, with its tries, and
+   * finishes the step when nothing is left. Once per process; a later call
+   * returns the same report. Never rejects.
+   */
+  async scrubLegacySnapshots(): Promise<LegacySnapshotScrubReport> {
+    this.legacyScrub ??= this.scrubLegacySnapshotsOnce().catch((error: unknown) => {
+      if (!this.legacyJobs.signal.aborted) {
+        log.warn('scrubbing the old keys from the retained snapshots failed', { err: error })
+      }
+      return { ran: false } as const
+    })
+    return await this.legacyScrub
+  }
+
+  private async scrubLegacySnapshotsOnce(): Promise<LegacySnapshotScrubReport> {
+    const knownValues = this.legacyKnownValues
+    this.legacyKnownValues = undefined
+    if (knownValues === undefined || this.location === ':memory:') return { ran: false }
+    const inputs = await this.executor.exclusive(async () => this.legacyScrubInputs())
+    const { toScrub, largestBytes } = planSnapshotScrub(this.location, inputs)
+    if (toScrub.length === 0) return { ran: false }
+    const outcome = await this.legacyJobRunner()(
+      { kind: 'scrub', dbPath: this.location, knownValues, ...inputs },
+      largestBytes,
+      this.legacyJobs.signal,
+    )
+    if (outcome.kind !== 'scrub') throw new Error("the scrub job returned another job's result")
+    const results = outcome.results
     const problems = results.flatMap((result) =>
       result.outcome === 'failed' ? [`${result.path}: ${result.reason}`] : [],
     )
+    const givenUp = results.flatMap((result) =>
+      result.outcome === 'given-up' ||
+      (result.failure && result.failure.attempts >= SNAPSHOT_SCRUB_ATTEMPTS)
+        ? [result.path]
+        : [],
+    )
     const scrubbed = results.filter((result) => result.outcome === 'scrubbed').length
+    await this.executor.exclusive(async () => {
+      writeMeta(
+        this.db,
+        LEGACY_PLAINTEXT_SNAPSHOTS_KEY,
+        JSON.stringify(results.flatMap((result) => (result.stamp ? [result.stamp] : []))),
+      )
+      writeMeta(
+        this.db,
+        LEGACY_PLAINTEXT_FAILURES_KEY,
+        JSON.stringify(results.flatMap((result) => (result.failure ? [result.failure] : []))),
+      )
+      const clean = results.every(
+        (result) => result.outcome !== 'failed' && result.outcome !== 'given-up',
+      )
+      if (
+        clean &&
+        readLegacyPlaintextState(this.db) === 'compacted' &&
+        !hasLegacyPlaintextRows(this.db)
+      ) {
+        writeLegacyPlaintextState(this.db, 'done')
+      }
+    })
     if (scrubbed > 0) log.info('removed the old keys from the retained snapshots', { scrubbed })
     if (problems.length > 0) {
       log.warn('some retained snapshots still hold old keys or could not be read', { problems })
     }
-    return problems
+    if (givenUp.length > 0) {
+      log.warn(
+        'no longer trying to remove the old keys from these retained snapshots; they go when retention prunes them, or delete them',
+        { givenUp },
+      )
+    }
+    return { ran: true, scrubbed, problems, givenUp }
   }
 
   // LEGACY(remove-after: 2027-05): moves keys stored before the vault into it; removing it ends direct upgrades from versions before 2026-11 and drops the accounts table
   /**
    * Destroy the old plaintext keys the import moved (`store/legacy-plaintext.ts`):
    * check each against its credential, delete the confirmed ones, compact the
-   * file, scrub the retained snapshots. Nothing once a pass left nothing.
+   * file. The retained snapshots are scrubbed after start
+   * ({@link scrubLegacySnapshots}). Nothing once a pass left nothing.
    */
   private async destroyLegacyPlaintext(
     store: SessionStore,
@@ -607,18 +757,35 @@ export class StoreDatabase {
     }
     return await this.executor.exclusive(async () => {
       const destroyed = applyLegacyDestruction(this.db, destroy)
-      const compaction =
-        readLegacyPlaintextState(this.db) === 'compaction-pending'
-          ? compactDatabase(this.db, options)
-          : 'skipped'
-      const snapshotProblems = this.location === ':memory:' ? [] : this.scrubSnapshots(knownValues)
-      if (compaction !== 'busy' && leftInPlace.length === 0 && snapshotProblems.length === 0) {
+      const state = readLegacyPlaintextState(this.db)
+      let compaction: 'clean' | 'busy' | 'skipped' | 'no-space' = 'skipped'
+      if (state === 'compaction-pending') {
+        compaction = await this.compactLegacyPlaintext(options)
+      } else if (
+        state === 'compacted' &&
+        readMeta(this.db, LEGACY_PLAINTEXT_COMPACTED_AT_KEY) === undefined
+      ) {
+        // Compacted by a version that kept no time: every snapshot there now is
+        // older than this, and every later one a copy of the compacted file.
+        writeMeta(this.db, LEGACY_PLAINTEXT_COMPACTED_AT_KEY, String(Date.now()))
+      }
+      const plan =
+        this.location === ':memory:'
+          ? { toScrub: [], unclean: [], largestBytes: 0 }
+          : planSnapshotScrub(this.location, this.legacyScrubInputs())
+      if (plan.toScrub.length > 0) this.legacyKnownValues = knownValues
+      if (
+        (compaction === 'clean' || compaction === 'skipped') &&
+        leftInPlace.length === 0 &&
+        plan.toScrub.length === 0 &&
+        plan.unclean.length === 0
+      ) {
         writeLegacyPlaintextState(this.db, 'done')
       }
       if (destroyed > 0 || compaction !== 'skipped') {
         log.info('destroyed the old plaintext keys', { destroyed, compaction })
       }
-      return { ran: true, destroyed, leftInPlace, compaction, snapshotProblems }
+      return { ran: true, destroyed, leftInPlace, compaction, snapshotsToScrub: plan.toScrub }
     })
   }
 
@@ -791,6 +958,8 @@ export class StoreDatabase {
   }
 
   private async closeOnce(persist?: () => Promise<void>): Promise<void> {
+    // A snapshot scrub still running is ended; its result is not written.
+    this.legacyJobs.abort()
     if (this.plannerStatisticsTimer !== undefined) clearInterval(this.plannerStatisticsTimer)
     this.plannerStatisticsTimer = undefined
     // Abort the detached verifier first, then await its child inside close so a
@@ -1292,6 +1461,11 @@ export class SessionStore {
 
   discoverDatabaseSnapshots(): boolean {
     return this.database.discoverDatabaseSnapshots()
+  }
+
+  // LEGACY(remove-after: 2027-05): moves keys stored before the vault into it; removing it ends direct upgrades from versions before 2026-11 and drops the accounts table
+  async scrubLegacySnapshots(): Promise<LegacySnapshotScrubReport> {
+    return await this.database.scrubLegacySnapshots()
   }
 
   get transferFenceActive(): boolean {
