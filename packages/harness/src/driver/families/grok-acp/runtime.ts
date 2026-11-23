@@ -495,6 +495,21 @@ export function createGrokAcpRuntime(
       }),
       ...causal,
     }
+    if (causal && event.t === 'metadata' && event.change.kind === 'context-observation') {
+      // Runtime replay advances independently of the native observation. Keep
+      // every original source field, rather than relabeling a retained sample.
+      event.change = {
+        ...event.change,
+        source: {
+          at: causal.at,
+          provenance: causal.provenance,
+          cursor: causal.cursor,
+          observerGeneration: causal.observerGeneration,
+          turnEpoch: causal.turnEpoch,
+        },
+      }
+      event.cursor = cursorFor(session)
+    }
     session.log.push({ seq: session.seq, event })
     contextFor(session).event(event)
     if (session.log.length > GROK_ACP_EVENT_LOG_LIMIT) {

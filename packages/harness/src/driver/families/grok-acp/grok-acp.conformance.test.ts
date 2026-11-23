@@ -1,5 +1,5 @@
 import type { SessionId, TranscriptItem } from '@podium/model'
-import { isRuntimeFineEvent } from '@podium/protocol/daemon'
+import { contextObservationFromMetadata, isRuntimeFineEvent } from '@podium/protocol/daemon'
 import { describe, expect, it } from 'vitest'
 import { compareProviderCursor } from '../../../metadata.js'
 import type { AgentSessionHandle } from '../../driver.js'
@@ -834,6 +834,46 @@ describe('grok-acp tool result transcript', () => {
         'fresh after reset',
       )
     } finally {
+      world.target.reset()
+    }
+  })
+})
+
+describe('grok-acp context replay provenance', () => {
+  it('advances replay while retaining the original context source cursor', async () => {
+    const world = makeWorld()
+    const { driver, control } = world.target.createDriver()
+    let stream: AsyncIterator<RuntimeEvent> | undefined
+    try {
+      const handle = await driver.create(world.target.spec())
+      await handle.send(
+        { text: 'context replay witness' },
+        { origin: 'human', delivery: 'when-ready' },
+      )
+      await control.completeTurn(handle.binding.sessionId)
+      const checkpoint = await handle.snapshot()
+      control.restartSupervisor()
+      const adopted = await driver.adopt(checkpoint.binding)
+      control.askInteraction(adopted.binding.sessionId, 'permission')
+      stream = adopted.events(checkpoint.cursor)[Symbol.asyncIterator]()
+      const next = await stream.next()
+      if (next.done) throw new Error('Expected the context replay frame')
+      const event = next.value
+      if (event.t !== 'metadata' || event.change.kind !== 'context-observation')
+        throw new Error('Expected the context replay frame')
+      const source = event.change.source
+      expect(source).toBeDefined()
+      if (!source) throw new Error('Expected the original context source')
+      expect(source.cursor.components.seq).toBe(checkpoint.cursor.components.seq)
+      expect(Number(event.cursor.components.seq)).toBeGreaterThan(
+        Number(source.cursor.components.seq),
+      )
+      expect(contextObservationFromMetadata(event)).toEqual({
+        ...source,
+        context: event.change.context,
+      })
+    } finally {
+      await stream?.return?.()
       world.target.reset()
     }
   })

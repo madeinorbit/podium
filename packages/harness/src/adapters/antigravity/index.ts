@@ -1,5 +1,6 @@
 import { join } from 'node:path'
 import { transcriptEchoAcceptCorrelation } from '../../accept-correlation.js'
+import { declinedContext } from '../../context-types.js'
 import { composeAgentInstructions } from '../../instructions.js'
 import {
   type AgentManifest,
@@ -195,6 +196,9 @@ export const antigravityManifest: AgentManifest = {
     }),
   }),
   runtime: {
+    context: declinedContext(
+      'Antigravity context occupancy and effective capacity are not yet verified for this driver',
+    ),
     server: unsupported(
       'agy acp is available upstream; Podium currently drives Antigravity headless sessions with the verified structured print protocol',
     ),

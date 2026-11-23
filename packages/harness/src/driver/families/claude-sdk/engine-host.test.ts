@@ -302,7 +302,6 @@ describe('the claude stream engine host', () => {
     host.releaseEngines()
   })
 
-
   it('never launches an engine for an opaque native read and observes across turns', async () => {
     const attachment = fakeAttachment()
     const ports = fakePorts({ spawn: attachment })

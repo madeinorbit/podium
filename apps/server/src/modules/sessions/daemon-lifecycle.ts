@@ -1075,6 +1075,13 @@ export class SessionDaemonLifecycle {
             ? await this.store.observationCheckpoints.get(msg.sessionId)
             : null
         if (
+          msg.event.t === 'metadata' &&
+          msg.event.change.kind === 'context-observation' &&
+          msg.event.change.source &&
+          msg.event.change.source.observerGeneration !== msg.event.observerGeneration
+        ) {
+          result = { kind: 'rejected', reason: 'stale-observer-generation' }
+        } else if (
           msg.event.t === 'binding' &&
           identityLease &&
           (identityLease.observationGeneration !== msg.event.observerGeneration ||

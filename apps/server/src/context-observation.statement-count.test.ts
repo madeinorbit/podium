@@ -75,7 +75,7 @@ const contextPin = (agentKind: 'codex' | 'opencode', bootstrap = true): Statemen
       snapshot = snapshotOf(request.sessionId),
     ) => {
       requests.delete(request.requestId)
-      await reg.gateway.routeDaemonFrame(store.hostMachineId, {
+      await reg.gateway.routeDaemonFrame(store.hostMachine!.id, {
         type: 'runtimeSnapshotResult',
         requestId: request.requestId,
         sessionId: request.sessionId,
@@ -98,7 +98,7 @@ const contextPin = (agentKind: 'codex' | 'opencode', bootstrap = true): Statemen
     await quietShipping(reg)
     const bind = async (sessionId: SessionId) => {
       await settledOperation(() =>
-        reg.gateway.routeDaemonFrame(store.hostMachineId, {
+        reg.gateway.routeDaemonFrame(store.hostMachine!.id, {
           type: 'bind',
           sessionId,
           cmd: 'invented context provider',
@@ -206,7 +206,7 @@ const contextPin = (agentKind: 'codex' | 'opencode', bootstrap = true): Statemen
   },
   target: (f) => f.store,
   run: async (f) => {
-    await settledOperation(() => f.reg.gateway.routeDaemonFrame(f.store.hostMachineId, f.frame))
+    await settledOperation(() => f.reg.gateway.routeDaemonFrame(f.store.hostMachine!.id, f.frame))
     await settledOperation(() => f.reg.modules.sessions.flushBroadcasts())
   },
   check: async (_, f) => {
@@ -268,7 +268,7 @@ function measurement(
 
 async function admitGeneration(f: Fixture, generation: number): Promise<void> {
   await settledOperation(() =>
-    f.reg.gateway.routeDaemonFrame(f.store.hostMachineId, {
+    f.reg.gateway.routeDaemonFrame(f.store.hostMachine!.id, {
       type: 'runtimeEvent',
       sessionId: f.frame.sessionId,
       deliveryId: `invented-lifecycle-${generation}`,
@@ -286,6 +286,88 @@ async function admitGeneration(f: Fixture, generation: number): Promise<void> {
 }
 
 describe('context telemetry stays live and uses a constant lease read', () => {
+  it('folds the original context envelope when transport replay has a newer cursor', async () => {
+    await expectConstantStatements(
+      {
+        ...pin,
+        run: async (f) => {
+          const event = f.frame.event
+          if (event.t !== 'metadata' || event.change.kind !== 'context-observation')
+            throw new Error('Expected invented context metadata')
+          const { t, change, ...source } = event
+          f.frame = {
+            ...f.frame,
+            event: {
+              ...f.frame.event,
+              cursor: { segmentId: 'invented-runtime-stream', components: { seq: 100 } },
+              t,
+              change: { ...change, source },
+            },
+          }
+          await pin.run(f, 0)
+        },
+        check: async (_, f) => {
+          await pin.check?.(undefined, f, 0)
+          const event = f.frame.event
+          if (event.t !== 'metadata' || event.change.kind !== 'context-observation')
+            throw new Error('Expected invented context metadata')
+          const observation = f.reg.modules.sessions.sessions.get(
+            f.frame.sessionId,
+          )?.contextObservation
+          expect(observation).toEqual({ ...event.change.source, context: event.change.context })
+          expect(observation?.cursor).not.toEqual(event.cursor)
+        },
+      },
+      1,
+    )
+  })
+  it('rejects another source generation without granting it the transport lease', async () => {
+    await expectConstantStatements(
+      {
+        ...pin,
+        run: async (f) => {
+          const event = f.frame.event
+          if (
+            event.t !== 'metadata' ||
+            event.change.kind !== 'context-observation' ||
+            event.change.context.status !== 'available'
+          )
+            throw new Error('Expected invented context measurement')
+          const generation = event.observerGeneration + 1
+          f.frame = {
+            ...f.frame,
+            event: {
+              ...event,
+              change: {
+                ...event.change,
+                context: {
+                  ...event.change.context,
+                  sample: { ...event.change.context.sample, observerGeneration: generation },
+                },
+                source: {
+                  at: event.at,
+                  provenance: event.provenance,
+                  cursor: event.cursor,
+                  observerGeneration: generation,
+                  turnEpoch: event.turnEpoch,
+                },
+              },
+            },
+          }
+          await pin.run(f, 0)
+        },
+        check: async (_, f) => {
+          expect(f.acknowledgements.get(f.frame.deliveryId ?? '')).toBe('rejected')
+          expect(
+            f.reg.modules.sessions.sessions.get(f.frame.sessionId)?.contextObservation?.context
+              .status,
+          ).toBe('unavailable')
+          expect(await f.store.sessions.getSession(f.frame.sessionId)).toEqual(f.stored)
+        },
+      },
+      1,
+    )
+  })
   it('reads exactly one lease at small and larger working sets without saving telemetry', async () => {
     await expectConstantStatements(pin, 1)
   })

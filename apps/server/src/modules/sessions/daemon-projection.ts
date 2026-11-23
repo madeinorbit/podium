@@ -7,6 +7,7 @@ import type {
   SessionMetadataObservation,
   SessionSnapshot,
 } from '@podium/protocol/daemon'
+import { contextObservationFromMetadata } from '@podium/protocol/daemon'
 import type { SessionsDaemonFrame } from '../../gateway/daemon-frame-routing'
 import { harnessCapabilitiesFor, harnessUsesPromptTitleFallback } from '../../harness-manifest'
 import {
@@ -119,9 +120,8 @@ export class SessionDaemonProjection {
     if (event.change.kind === 'context-observation') {
       const session = this.ports.sessions.get(sessionId)
       if (!session) return
-      const { t: _type, change, ...causal } = event
-      if (session.setContextObservation({ ...causal, context: change.context }))
-        this.ports.broadcastSessions()
+      const observation = contextObservationFromMetadata(event)
+      if (observation && session.setContextObservation(observation)) this.ports.broadcastSessions()
       return
     }
     const previous = this.metadataQueue.get(sessionId) ?? Promise.resolve()

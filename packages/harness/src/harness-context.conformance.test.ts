@@ -373,7 +373,8 @@ function harnessOn(world: World, kind: Kind): Harness {
   }
   const snapshot = {
     executables: new Map([
-      [kind, { kind, path: selected, version: 'codex-cli 0.162.0', generation: 1 }],
+      // The recording binary proves isolation, not native version compatibility.
+      [kind, { kind, path: selected, generation: 1 }],
     ]),
     commandEnvironment: {
       env: machineEnv,
@@ -646,12 +647,17 @@ const CONTEXT_CASES: Record<string, Case> = Object.fromEntries(
   ]),
 )
 
+function invocationDirectory(h: Harness): string {
+  const dir = join(h.world.root, `runtime-${h.kind}`)
+  mkdirSync(dir, { recursive: true })
+  return dir
+}
+
 const CASES: Record<string, Case> = {
   ...CONTEXT_CASES,
   // --- not Declared, but every harness has them ----------------------------
   launch: (h) => {
-    const runtimeDir = join(h.world.root, `runtime-${h.kind}`)
-    mkdirSync(runtimeDir, { recursive: true })
+    const runtimeDir = invocationDirectory(h)
     const command = agentLaunchCommand(h.kind as BuiltinHarnessKind, {
       cwd: CWD,
       harnessContext: h.context,
@@ -737,12 +743,17 @@ const CASES: Record<string, Case> = {
   },
   exec: (h) => {
     const exec = declaredValue(h.manifest.exec)!
-    const argv = exec({ prompt: 'conformance', systemPrompt: 'system' })
+    const argv = exec({
+      prompt: 'conformance',
+      systemPrompt: 'system',
+      runtimeDir: invocationDirectory(h),
+    })
     const { stdin, ...command } = harnessCommand(h.context, argv, termsFor(h, 'turn'))
     h.spawn(command, { ...(stdin !== undefined ? { stdin } : {}) })
   },
   headless: (h) => {
     if (h.kind === 'fixture') return // the fixture's headless runs through buildExec below
+    const runtimeDir = invocationDirectory(h)
     const spec: HeadlessTurnSpec = {
       agent: h.kind as BuiltinHarnessKind,
       accountId: asAccountId(`native:${h.kind}:poisoned`),
@@ -750,7 +761,8 @@ const CASES: Record<string, Case> = {
       cwd: CWD,
       prompt: 'conformance',
       sessionUuid: RESUME,
-      launchPosture: testLaunchPosture(h.context),
+      runtimeDir,
+      launchPosture: testLaunchPosture(h.context, { runtimeDir }),
     }
     // Cursor allocates its chat first (`create-chat`), then runs pinned to it.
     const allocated = needsAllocation(spec) ? RESUME : undefined
@@ -768,7 +780,12 @@ const CASES: Record<string, Case> = {
     const buildExec = declaredValue(declaredValue(h.manifest.headless)!.buildExec)!
     const { stdin, ...command } = harnessCommand(
       h.context,
-      buildExec({ prompt: 'conformance', sessionId: RESUME, resumeValue: RESUME }),
+      buildExec({
+        prompt: 'conformance',
+        sessionId: RESUME,
+        resumeValue: RESUME,
+        runtimeDir: invocationDirectory(h),
+      }),
       termsFor(h, 'turn'),
     )
     h.spawn(command, { ...(stdin !== undefined ? { stdin } : {}) })

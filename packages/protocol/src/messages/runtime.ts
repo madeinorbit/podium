@@ -522,9 +522,33 @@ export const SessionMetadataChange = z.discriminatedUnion('kind', [
   }),
   z.object({ kind: z.literal('color'), source: z.literal('transcript'), color: z.string() }),
   z.object({ kind: z.literal('context'), source: z.literal('transcript'), percent: z.number() }),
-  z.object({ kind: z.literal('context-observation'), context: ContextSummary }),
+  z.object({
+    kind: z.literal('context-observation'),
+    context: ContextSummary,
+    /** The native observation envelope when the runtime stream cursor differs.
+     * Omission means the event envelope itself is the observation source. */
+    source: CausalEnvelope.optional(),
+  }),
 ])
 export type SessionMetadataChange = z.infer<typeof SessionMetadataChange>
+
+function refineMetadataContext(
+  value: CausalEnvelope & { change: SessionMetadataChange },
+  ctx: z.RefinementCtx,
+): void {
+  if (value.change.kind !== 'context-observation') return
+  const source = value.change.source ?? value
+  if (source.observerGeneration !== value.observerGeneration) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['change', 'source'],
+      message: 'Context source must belong to the admitted observer generation',
+    })
+    return
+  }
+  refineContextCausality(source, value.change.context, ctx)
+}
+
 export const SessionMetadataObservation = z
   .intersection(
     CausalEnvelope,
@@ -533,11 +557,26 @@ export const SessionMetadataObservation = z
       change: SessionMetadataChange,
     }),
   )
-  .superRefine((value, ctx) => {
-    if (value.change.kind === 'context-observation')
-      refineContextCausality(value, value.change.context, ctx)
-  })
+  .superRefine(refineMetadataContext)
 export type SessionMetadataObservation = z.infer<typeof SessionMetadataObservation>
+
+/** Retain native event time/cursor while a runtime stream advances separately. */
+export function contextObservationFromMetadata(
+  event: SessionMetadataObservation,
+): ContextObservation | undefined {
+  if (event.change.kind !== 'context-observation') return undefined
+  const parsed = SessionMetadataObservation.safeParse(event)
+  if (!parsed.success || parsed.data.change.kind !== 'context-observation') return undefined
+  const source = parsed.data.change.source ?? parsed.data
+  return {
+    at: source.at,
+    provenance: source.provenance,
+    cursor: source.cursor,
+    observerGeneration: source.observerGeneration,
+    turnEpoch: source.turnEpoch,
+    context: parsed.data.change.context,
+  }
+}
 
 /**
  * WHY A `failed` DELIVERY FAILED, when the daemon can say (POD-4775).
@@ -669,8 +708,7 @@ export type RuntimeEventBody = z.infer<typeof RuntimeEventBody>
 export const RuntimeEvent = z
   .intersection(CausalEnvelope, RuntimeEventBody)
   .superRefine((value, ctx) => {
-    if (value.t === 'metadata' && value.change.kind === 'context-observation')
-      refineContextCausality(value, value.change.context, ctx)
+    if (value.t === 'metadata') refineMetadataContext(value, ctx)
   })
 export type RuntimeEvent = z.infer<typeof RuntimeEvent>
 

@@ -17,7 +17,7 @@ The `descriptor` and `catalog` Adapter sections (spec §4.1/§4.5) are NOT rows 
 | `exec` | supported | supported | supported | supported | supported | supported | supported |
 | `headless` | supported | supported | supported | supported | supported | supported | supported |
 | `state` | supported | supported | supported | supported | supported | supported | supported |
-| `instrumentation` | supported | supported | supported | declined | declined | declined | supported |
+| `instrumentation` | supported | supported | supported | declined | declined | supported | supported |
 | `observer` | supported | supported | supported | supported | supported | supported | supported |
 | `transcript` | supported | supported | supported | supported | supported | supported | supported |
 | `composer` | supported | supported | declined | declined | declined | declined | declined |
@@ -30,6 +30,14 @@ The `descriptor` and `catalog` Adapter sections (spec §4.1/§4.5) are NOT rows 
 | `inventory.portableCredential` | supported | supported | supported | declined | declined | declined | declined |
 | `runtime.server` | declined | supported | supported | supported | declined | declined | declined |
 | `runtime.embedded` | supported | declined | declined | declined | declined | declined | declined |
+| `runtime.context.codex-app-server` | declined | supported | declined | declined | declined | declined | declined |
+| `runtime.context.opencode-server` | declined | declined | declined | supported | declined | declined | declined |
+| `runtime.context.opencode2-server` | declined | declined | declined | supported | declined | declined | declined |
+| `runtime.context.grok-acp` | declined | declined | supported | declined | declined | declined | declined |
+| `runtime.context.claude-sdk` | supported | declined | declined | declined | declined | declined | declined |
+| `runtime.context.generic-pty` | supported | supported | declined | supported | declined | supported | declined |
+| `runtime.context.fake` | declined | declined | declined | declined | declined | declined | declined |
+| `runtime.context.headless` | supported | supported | declined | declined | declined | supported | declined |
 | `usage.quota` | supported | supported | supported | declined | declined | declined | supported |
 | `usage.history` | declined | declined | supported | declined | declined | declined | declined |
 | `usage.transcripts` | supported | supported | supported | declined | declined | declined | supported |
@@ -43,7 +51,7 @@ The `descriptor` and `catalog` Adapter sections (spec §4.1/§4.5) are NOT rows 
 | `runtime.server.versionRange` | declined | supported | supported | supported | declined | declined | declined |
 | `runtime.server.clientTerminal` | declined | supported | supported | supported | declined | declined | declined |
 
-## claude-code — supported 26/30
+## claude-code — supported 29/38
 
 - `runtime.server`: Claude Code ships no server mode — the Agent SDK is in-process and `claude -p` is one-shot
 - `runtime.context.codex-app-server`: This Claude driver has no verified native context observation mechanism
@@ -55,7 +63,7 @@ The `descriptor` and `catalog` Adapter sections (spec §4.1/§4.5) are NOT rows 
 - `headless.buildExec`: the Claude Agent SDK builds its own invocation in-process
 - `transcript.sqliteLocator`: this harness stores transcripts in files — there is no database to locate
 
-## codex — supported 26/32
+## codex — supported 29/40
 
 - `inventory.loginCommandProbe`: Codex login detection still uses its guarded local auth file
 - `runtime.embedded`: Codex ships a server, not a library to host in-process
@@ -69,7 +77,7 @@ The `descriptor` and `catalog` Adapter sections (spec §4.1/§4.5) are NOT rows 
 - `transcript.sqliteLocator`: this harness stores transcripts in files — there is no database to locate
 - `credentials.transfer`: Codex credentials live in a plain file; no platform transfer applies
 
-## grok — supported 23/32
+## grok — supported 24/40
 
 - `composer`: grok has no composer scrape rules yet
 - `handoffTranscript`: cross-machine handoff is not supported for grok sessions
@@ -88,7 +96,7 @@ The `descriptor` and `catalog` Adapter sections (spec §4.1/§4.5) are NOT rows 
 - `transcript.sqliteLocator`: this harness stores transcripts in files — there is no database to locate
 - `credentials.transfer`: Grok credentials live in a plain file; no platform transfer applies
 
-## opencode — supported 12/28
+## opencode — supported 15/36
 
 - `credentials`: OpenCode credential portability is not supported yet
 - `usage`: OpenCode exposes no vendor quota endpoint and stores transcripts in SQLite — no harvest layout to declare yet
@@ -112,7 +120,7 @@ The `descriptor` and `catalog` Adapter sections (spec §4.1/§4.5) are NOT rows 
 - `transcript.recordColor`: opencode has no identity-colour record
 - `transcript.chainPaths`: opencode stores transcripts in SQLite — there are no files to chain
 
-## cursor — supported 9/26
+## cursor — supported 9/34
 
 - `credentials`: Cursor credential portability is not supported yet
 - `usage`: Cursor exposes no declared quota endpoint or transcript harvest layout yet
@@ -140,7 +148,7 @@ The `descriptor` and `catalog` Adapter sections (spec §4.1/§4.5) are NOT rows 
 - `transcript.recordColor`: this harness does not report an identity colour in its records
 - `transcript.sqliteLocator`: this harness stores transcripts in files — there is no database to locate
 
-## pi — supported 13/27
+## pi — supported 16/35
 
 - `usage`: Pi exposes no declared quota endpoint or transcript harvest layout yet
 - `install`: Pi is distributed through npm, its standalone installer, and GitHub releases — no single vendor install script to run
@@ -162,7 +170,7 @@ The `descriptor` and `catalog` Adapter sections (spec §4.1/§4.5) are NOT rows 
 - `transcript.sqliteLocator`: this harness stores transcripts in files — there is no database to locate
 - `credentials.transfer`: Pi credentials live in a plain file; no platform transfer applies
 
-## antigravity — supported 18/30
+## antigravity — supported 18/38
 
 - `managedInstall`: Antigravity releases and updater not yet measured for a Podium-managed install
 - `composer`: Antigravity composer rendering varies by terminal; submit receipt verification uses native transcript echoes
@@ -172,6 +180,14 @@ The `descriptor` and `catalog` Adapter sections (spec §4.1/§4.5) are NOT rows 
 - `inventory.portableCredential`: Google logins are signed into isolated homes on each machine; shared OS-keyring credentials are never automatically propagated
 - `runtime.server`: agy acp is available upstream; Podium currently drives Antigravity headless sessions with the verified structured print protocol
 - `runtime.embedded`: Antigravity is a native executable; Podium does not embed its Python SDK
+- `runtime.context.codex-app-server`: Antigravity context occupancy and effective capacity are not yet verified for this driver
+- `runtime.context.opencode-server`: Antigravity context occupancy and effective capacity are not yet verified for this driver
+- `runtime.context.opencode2-server`: Antigravity context occupancy and effective capacity are not yet verified for this driver
+- `runtime.context.grok-acp`: Antigravity context occupancy and effective capacity are not yet verified for this driver
+- `runtime.context.claude-sdk`: Antigravity context occupancy and effective capacity are not yet verified for this driver
+- `runtime.context.generic-pty`: Antigravity context occupancy and effective capacity are not yet verified for this driver
+- `runtime.context.fake`: Antigravity context occupancy and effective capacity are not yet verified for this driver
+- `runtime.context.headless`: Antigravity context occupancy and effective capacity are not yet verified for this driver
 - `usage.history`: Antigravity does not persist quota-window samples in its conversation logs
 - `transcript.recordColor`: this harness does not report an identity colour in its records
 - `transcript.sqliteLocator`: this harness stores transcripts in files — there is no database to locate

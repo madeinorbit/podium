@@ -77,7 +77,7 @@ export type SessionMetadataChange =
   /** Capability-gated normalized replacement, including pending/clear states.
    * Coarse metadata is retained and bootstrap-replayable. The old percent arm
    * is only an older-peer compatibility projection. */
-  | { kind: 'context-observation'; context: ContextSummary }
+  | { kind: 'context-observation'; context: ContextSummary; source?: CausalEnvelope }
 
 export type SessionMetadataObservation = CausalEnvelope & {
   t: 'metadata'

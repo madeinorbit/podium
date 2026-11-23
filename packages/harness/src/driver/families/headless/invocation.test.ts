@@ -49,6 +49,7 @@ describe('fresh invocation installation witness', () => {
       executable: selected,
       version: selected === '/selected/codex' ? 'codex-cli 0.170.0' : '',
       generation: 2,
+      provenance: 'external',
     })
     expect(creation.installation.version).toBe('codex-cli 0.169.0')
     expect(
@@ -57,6 +58,52 @@ describe('fresh invocation installation witness', () => {
         current,
       ),
     ).toMatchObject({ executable: '/explicit/unobserved', version: '' })
+  })
+
+  it('keeps the selected managed release witness distinct from the external default', () => {
+    const creation = testHarnessContext({
+      kind: 'codex',
+      executable: '/managed/codex',
+      version: 'codex-cli 0.168.0',
+    })
+    const current = {
+      ...testHarnessSnapshot({}, 3),
+      executables: new Map([
+        [
+          'codex' as const,
+          {
+            kind: 'codex' as const,
+            path: '/external/codex',
+            version: 'codex-cli 0.170.0',
+            generation: 3,
+          },
+        ],
+      ]),
+      managed: new Map([
+        [
+          'codex' as const,
+          {
+            kind: 'codex' as const,
+            path: '/managed/codex',
+            version: 'codex-cli 0.169.0',
+            generation: 3,
+            release: 7,
+            vendorUpdated: true,
+          },
+        ],
+      ]),
+    }
+
+    expect(headlessInstallation({ agent: 'codex', harnessContext: creation }, current)).toEqual({
+      kind: 'codex',
+      executable: '/managed/codex',
+      version: 'codex-cli 0.169.0',
+      generation: 3,
+      provenance: 'managed',
+      release: 7,
+      vendorUpdated: true,
+    })
+    expect(creation.installation.version).toBe('codex-cli 0.168.0')
   })
 })
 

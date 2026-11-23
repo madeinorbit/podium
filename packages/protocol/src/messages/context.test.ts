@@ -8,6 +8,7 @@ import {
   ContextDetailResult,
   ContextObservation,
   ContextSummaryReadResult,
+  contextObservationFromMetadata,
   isDurableRuntimeEvent,
   RuntimeEvent,
   SessionSnapshot,
@@ -72,6 +73,30 @@ describe('context wire vocabulary', () => {
       SessionConditionPayload.parse({ busy: false, requestsGated: 0, context: summary }).context,
     ).toEqual(summary)
     expect(CAP_CONTEXT_OBSERVATION_V1).toBe('context.observation.v1')
+  })
+  it('preserves native provenance when its stream cursor and turn have advanced', () => {
+    const { context, ...source } = observation
+    const event = RuntimeEvent.parse({
+      ...source,
+      provenance: 'replay',
+      cursor: { segmentId: 'runtime-stream', components: { seq: 99 } },
+      turnEpoch: source.turnEpoch + 1,
+      t: 'metadata',
+      change: { kind: 'context-observation', context, source },
+    })
+    if (event.t !== 'metadata') throw new Error('Expected context metadata')
+    expect(contextObservationFromMetadata(event)).toEqual(observation)
+    expect(roundTrip(RuntimeEvent, event)).toEqual(event)
+  })
+  it('refuses a source from another observer behind a current transport envelope', () => {
+    const { context, ...source } = observation
+    const event = {
+      ...source,
+      observerGeneration: source.observerGeneration + 1,
+      t: 'metadata',
+      change: { kind: 'context-observation', context, source },
+    }
+    expect(RuntimeEvent.safeParse(event).success).toBe(false)
   })
   it('rejects samples from a different observer or turn while accepting stale retained samples', () => {
     expect(ContextObservation.safeParse({ ...observation, observerGeneration: 3 }).success).toBe(

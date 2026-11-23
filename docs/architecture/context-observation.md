@@ -91,6 +91,9 @@ idle age alone does not invalidate it.
 `context-observation` is coarse metadata, including clears. The driver retains or
 reconstructs its envelope in `SessionSnapshot.context` through its existing replay
 owner. Bootstrap/reconnect must retain the sample's original causal identity.
+When the runtime stream has a separate cursor, metadata carries the original
+observation envelope in `source`. The server restores that envelope before
+folding the reading and rejects a source from another observer generation.
 Server/client live values are demand-bound and unsaved: the declared
 [`SessionConditionLive.context`](../../packages/model/src/records/live-payloads.ts)
 flows through [session live topics](../../apps/server/src/modules/sessions/live-topics.ts)
