@@ -64,7 +64,6 @@ createRoot(document.getElementById('root') as HTMLElement).render(
       throw new Error(message)
     }}
     attachRuntime={(owner) => {
-      void owner.access.refreshRepos()
       const detach = attachWorklistPool(owner, (error) => {
         throw error
       })
