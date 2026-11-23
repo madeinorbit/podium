@@ -20,11 +20,14 @@ import { ResizableAside } from '@/features/worklist/sidebar-common'
 import { browserClockWakeSource } from '@/lib/clock-wake-source'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { createSidebarFixture } from '../test/sidebar-fixture'
+import { createSidebarFoldFixture } from '../test/sidebar-fold-fixture'
 import '@/index.css'
 import '@/styles.css'
 
 const params = new URLSearchParams(location.search)
-const synthetic = createSidebarFixture(Number(params.get('rows') ?? 24))
+const synthetic = params.has('foldBench')
+  ? createSidebarFoldFixture()
+  : createSidebarFixture(Number(params.get('rows') ?? 24))
 /** The fixture's answers, and an empty answer for any other call the board makes. */
 const fallback = (target: unknown, path: string[] = []): unknown =>
   new Proxy(typeof target === 'function' ? target : () => {}, {

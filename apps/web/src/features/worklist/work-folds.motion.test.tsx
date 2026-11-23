@@ -20,10 +20,20 @@ import { WorklistMotion } from './worklist-motion'
 
 afterEach(cleanup)
 
-function Panel({ open }: { open: boolean }): JSX.Element {
+function Panel({
+  open,
+  rowCount = 20,
+  retain = false,
+  quick = false,
+}: {
+  open: boolean
+  rowCount?: number
+  retain?: boolean
+  quick?: boolean
+}): JSX.Element {
   return (
     <WorklistMotion layoutGroupId="fold-panel-test">
-      <FoldPanel open={open} testId="panel">
+      <FoldPanel open={open} rowCount={rowCount} retain={retain} quick={quick} testId="panel">
         <div>the rows</div>
       </FoldPanel>
     </WorklistMotion>
@@ -55,5 +65,31 @@ describe('FoldPanel', () => {
     render(<Panel open={true} />)
     expect(screen.getByText('the rows')).toBeTruthy()
     expect(screen.getByTestId('panel').style.height).not.toBe('0px')
+  })
+
+  it('removes more than 20 rows in the closing commit and reopens immediately', () => {
+    // Only one child is mounted, as in a virtual window: the complete count
+    // controls the bound rather than the number of current DOM rows.
+    const view = render(<Panel open rowCount={21} />)
+    view.rerender(<Panel open={false} rowCount={21} />)
+    expect(screen.queryByTestId('panel')).toBeNull()
+    view.rerender(<Panel open rowCount={21} />)
+    expect(screen.getByText('the rows')).toBeTruthy()
+    expect(screen.getByTestId('panel').style.height).not.toBe('0px')
+    view.rerender(<Panel open={false} rowCount={21} />)
+    expect(screen.queryByText('the rows')).toBeNull()
+  })
+
+  it('retains a large drag fold hidden and inert, then restores its content', () => {
+    const view = render(<Panel open rowCount={58} />)
+    view.rerender(<Panel open={false} rowCount={58} retain quick />)
+    const panel = screen.getByTestId('panel')
+    expect(panel.style.display).toBe('none')
+    expect(panel.getAttribute('aria-hidden')).toBe('true')
+    expect(panel.hasAttribute('inert')).toBe(true)
+    expect(screen.getByText('the rows')).toBeTruthy()
+    view.rerender(<Panel open rowCount={58} quick />)
+    expect(screen.getByTestId('panel').style.display).not.toBe('none')
+    expect(screen.getByTestId('panel').hasAttribute('inert')).toBe(false)
   })
 })

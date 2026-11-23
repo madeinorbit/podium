@@ -1,20 +1,17 @@
-import { useAgeNow, useClock } from '@/lib/clock-hooks'
 import { relativeTime } from '@podium/client-core/focus'
-import {
-  type IssueNavigationModel,
-  issueClosedFoldAt,
-} from '@podium/client-core/values'
-import { canonicalIssueCloseReason, ISSUE_STATUS_LABELS } from '@podium/model/browser'
-import { issueDisplayRef, issueRefText } from '@podium/protocol'
+import { type IssueNavigationModel, issueClosedFoldAt } from '@podium/client-core/values'
 import { observer } from '@podium/client-graph/react'
 import type { WorklistIssue } from '@podium/client-graph/worklist/issue'
+import { canonicalIssueCloseReason, ISSUE_STATUS_LABELS } from '@podium/model/browser'
+import { issueDisplayRef, issueRefText } from '@podium/protocol'
 import { Archive } from 'lucide-react'
 import * as m from 'motion/react-m'
 import type { JSX, MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 import { useRef, useState } from 'react'
 import { PanelVisible, usePanelVisible } from '@/app/panel-visible'
-import { useReducedMotion } from '@/lib/use-reduced-motion'
 import { NotSavedMark } from '@/components/NotSavedMark'
+import { useAgeNow, useClock } from '@/lib/clock-hooks'
+import { useReducedMotion } from '@/lib/use-reduced-motion'
 import { cn } from '@/lib/utils'
 import type { RowTone } from './pool-row-data'
 import { RowStatusMark, rowToneInk } from './WorkRowShell'
@@ -56,7 +53,7 @@ export const SECTION_BAND_LABEL_CLASS =
   'label-mono min-w-0 flex-1 truncate tracking-[.16em] text-muted-foreground'
 
 /**
- * THE DISCLOSURE, ANIMATED (POD-1253).
+ * SMALL DISCLOSURES, ANIMATED (POD-1253).
  *
  * Every fold in this column — the section bands, the snoozed tail, the closed
  * tail — used to be `{!collapsed && rows}`: thirty rows present in one frame and
@@ -109,6 +106,12 @@ const FOLD_OUT = {
   opacity: { duration: 0.08, ease: EASE_IN },
 }
 
+// Twenty rows already span about a sidebar viewport. Larger height changes move
+// every neighbouring virtual window on each frame.
+// Bound that work using the full row count, including rows outside the viewport,
+// without adding a geometry read to the press. Small disclosures keep their motion.
+const MAX_ANIMATED_FOLD_ROWS = 20
+
 /**
  * NO `AnimatePresence` (POD-1253). The obvious spelling of this is
  * `<AnimatePresence>{open && <m.div exit=… />}</AnimatePresence>`, and it
@@ -121,6 +124,7 @@ const FOLD_OUT = {
  */
 export function FoldPanel({
   open,
+  rowCount,
   id,
   testId,
   dragScope,
@@ -129,6 +133,8 @@ export function FoldPanel({
   children,
 }: {
   open: boolean
+  /** Complete section size, including windowed rows that are not mounted. */
+  rowCount: number
   id?: string
   testId?: string
   /** Optional manual-sort scope. When present, draggable rows must be direct
@@ -142,6 +148,8 @@ export function FoldPanel({
   children: ReactNode
 }): JSX.Element | null {
   const reduceMotion = useReducedMotion()
+  const large = rowCount > MAX_ANIMATED_FOLD_ROWS
+  const instant = reduceMotion || large
   const parentVisible = usePanelVisible()
   // Derived during render, not in an effect: an effect would mount the rows one
   // frame after the press, and that frame is visible at the head of a gesture
@@ -150,6 +158,9 @@ export function FoldPanel({
   const visited = useRef(open)
   if (open) visited.current = true
   if (open && !rendered) setRendered(true)
+  // Retire a large fold in the header's own commit, without waiting for Motion's
+  // completion callback. A drag may retain it, hidden, for the return gesture.
+  if (!open && large && rendered) setRendered(false)
   // The first paint of a column is not a disclosure: an open fold on load must
   // simply BE open, or every reload plays thirty rows unrolling. Only a fold
   // that has actually been toggled animates in, which is what this ref tracks —
@@ -168,11 +179,19 @@ export function FoldPanel({
       inert={!open}
       className="min-w-0 overflow-hidden"
       style={{ contain: 'layout paint', ...(!rendered ? { display: 'none' } : {}) }}
-      initial={firstPaint ? false : { height: 0, opacity: 0 }}
+      initial={firstPaint || instant ? false : { height: 0, opacity: 0 }}
       animate={
         open
-          ? { height: 'auto', opacity: 1, transition: reduceMotion ? { duration: 0 } : quick ? FOLD_QUICK : FOLD_IN }
-          : { height: 0, opacity: 0, transition: reduceMotion ? { duration: 0 } : quick ? FOLD_QUICK : FOLD_OUT }
+          ? {
+              height: 'auto',
+              opacity: 1,
+              transition: instant ? { duration: 0 } : quick ? FOLD_QUICK : FOLD_IN,
+            }
+          : {
+              height: 0,
+              opacity: 0,
+              transition: instant ? { duration: 0 } : quick ? FOLD_QUICK : FOLD_OUT,
+            }
       }
       onAnimationComplete={() => {
         // Only the CLOSING one retires the subtree; the opening animation
@@ -252,7 +271,10 @@ function FoldedWorkRowInner({
   const stampIso = lane === 'closed' ? (model?.foldAt ?? issueClosedFoldAt(issue)) : issue.updatedAt
   const voice = foldedVoice(issue, lane)
   return (
-    <div className="group/closed relative min-w-0 px-2 py-px" data-testid={lane === 'closed' ? 'closed-fold-row' : 'snoozed-fold-row'}>
+    <div
+      className="group/closed relative min-w-0 px-2 py-px"
+      data-testid={lane === 'closed' ? 'closed-fold-row' : 'snoozed-fold-row'}
+    >
       <button
         data-pressable
         type="button"
@@ -271,7 +293,11 @@ function FoldedWorkRowInner({
           <span
             className={cn(
               'shell-work-row-title min-w-0 flex-1 truncate',
-              active ? 'font-semibold text-text-strong' : lane === 'closed' ? 'text-text-dim' : 'text-foreground',
+              active
+                ? 'font-semibold text-text-strong'
+                : lane === 'closed'
+                  ? 'text-text-dim'
+                  : 'text-foreground',
             )}
           >
             {issue.title}
@@ -286,7 +312,10 @@ function FoldedWorkRowInner({
             {stampIso && <FoldAge stamp={stampIso} />}
           </span>
         </span>
-        <span className="shell-work-row-status flex w-full min-w-0 items-center gap-[7px]" data-tone={voice.tone}>
+        <span
+          className="shell-work-row-status flex w-full min-w-0 items-center gap-[7px]"
+          data-tone={voice.tone}
+        >
           <RowStatusMark tone={voice.tone} />
           <span className="flex min-w-0 flex-1 items-center gap-[5px] overflow-hidden whitespace-nowrap">
             <span style={{ color: rowToneInk(voice.tone) }}>{voice.word}</span>
@@ -324,14 +353,28 @@ export const FoldedWorkRow = FoldedWorkRowInner
 export const WorklistFoldedRow = observer(FoldedWorkRowInner)
 
 /** The sub-fact after the folded word: `· merged`, `· 3h left`. */
-const FoldMarker = observer(function FoldMarker({ issue, lane }: { issue: IssueNavigationModel; lane: 'closed' | 'snoozed' }) {
+const FoldMarker = observer(function FoldMarker({
+  issue,
+  lane,
+}: {
+  issue: IssueNavigationModel
+  lane: 'closed' | 'snoozed'
+}) {
   const marker = foldedMarker(issue, lane, useClock(60_000, lane === 'snoozed'))
   const sub =
     lane === 'snoozed'
-      ? marker === 'snoozed' ? null : `${marker.replace('snoozed ', '')} left`
-      : marker === 'merged' ? 'merged' : null
+      ? marker === 'snoozed'
+        ? null
+        : `${marker.replace('snoozed ', '')} left`
+      : marker === 'merged'
+        ? 'merged'
+        : null
   return sub ? <span className="text-text-faint">· {sub}</span> : null
 })
 function FoldAge({ stamp }: { stamp: string }) {
-  return <span>{relativeTime(stamp, useAgeNow(stamp)).replace(/ ago$/, '').replace('just now', 'now')}</span>
+  return (
+    <span>
+      {relativeTime(stamp, useAgeNow(stamp)).replace(/ ago$/, '').replace('just now', 'now')}
+    </span>
+  )
 }

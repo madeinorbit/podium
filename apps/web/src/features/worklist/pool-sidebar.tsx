@@ -725,7 +725,11 @@ const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({
             onToggle={() => toggle(PINNED_FOLD_KEY)}
             testId="pinned-section-label"
           />
-          <FoldPanel open={!collapsed.has(PINNED_FOLD_KEY)} testId="pinned-section-rows">
+          <FoldPanel
+            open={!collapsed.has(PINNED_FOLD_KEY)}
+            rowCount={pinned.length}
+            testId="pinned-section-rows"
+          >
             {windowRows(pinned, renderRow, 'pinned')}
           </FoldPanel>
         </m.div>
@@ -779,6 +783,7 @@ const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({
             {!empty && (
               <FoldPanel
                 open={!shut && folderDrag === null}
+                rowCount={band.rows.length}
                 quick={quickFold}
                 retain={folderDrag !== null}
                 testId="project-group-rows"
