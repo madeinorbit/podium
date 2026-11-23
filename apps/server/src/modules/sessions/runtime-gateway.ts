@@ -38,14 +38,15 @@ import type {
   ObservationInputOrigin,
   SessionPosture,
 } from '@podium/protocol'
-import type {
-  DeliveryCancelResult,
-  Refusal,
-  RuntimeAttachmentRef,
-  RuntimeEvent,
-  StagedAttachmentRef,
-  TurnDelivery,
-  TurnReceipt,
+import {
+  type DeliveryCancelResult,
+  isRuntimeFineEvent,
+  type Refusal,
+  type RuntimeAttachmentRef,
+  type RuntimeEvent,
+  type StagedAttachmentRef,
+  type TurnDelivery,
+  type TurnReceipt,
 } from '@podium/protocol/daemon'
 import type { LedgerWriter } from '@podium/sync'
 import type { InboxPrincipalReference, QueuedDelivery } from './inbox'
@@ -236,6 +237,11 @@ export type RuntimeFineWatchAvailability = typeof RUNTIME_FINE_WATCH_AVAILABILIT
 
 export class SessionRuntimeGateway {
   private readonly listeners = new Set<RuntimeEventListener>()
+  /** Pending work only; a session leaves this map as soon as its tail settles. */
+  private readonly inbound = new Map<SessionId, Promise<void>>()
+  private sliceItems = 0
+  private sliceStarted = 0
+  private sliceYield: Promise<void> | undefined
 
   constructor(private readonly ports: SessionRuntimeGatewayPorts) {}
 
@@ -417,6 +423,46 @@ export class SessionRuntimeGateway {
     _machineId: MachineId,
     msg: { sessionId: SessionId; event: RuntimeEvent },
   ): Promise<RuntimeEventGateResult> {
+    if (isRuntimeFineEvent(msg.event)) return await this.recordAndPublish(msg)
+    // A yield must not let a later frame read the checkpoint or fold a reset
+    // ahead of earlier work. Keep the durable gate AND its transcript listeners
+    // in the same session's FIFO; a failed commit still rejects its own caller.
+    const completion = (this.inbound.get(msg.sessionId) ?? Promise.resolve()).then(async () => {
+      await this.paceIngress()
+      return await this.recordAndPublish(msg)
+    })
+    const tail = completion.then(
+      () => {},
+      () => {},
+    )
+    this.inbound.set(msg.sessionId, tail)
+    void tail.then(() => {
+      if (this.inbound.get(msg.sessionId) === tail) this.inbound.delete(msg.sessionId)
+    })
+    return await completion
+  }
+
+  private async paceIngress(): Promise<void> {
+    // SQLite awaits can resolve entirely as microtasks. Share one budget and
+    // one actual timer yield across sessions, including their post-commit folds.
+    if (
+      !this.sliceYield &&
+      (this.sliceItems >= 32 || (this.sliceItems > 0 && performance.now() - this.sliceStarted >= 8))
+    ) {
+      this.sliceYield = new Promise<void>((resolve) => setTimeout(resolve, 0)).then(() => {
+        this.sliceItems = 0
+        this.sliceYield = undefined
+      })
+    }
+    if (this.sliceYield) await this.sliceYield
+    if (this.sliceItems === 0) this.sliceStarted = performance.now()
+    this.sliceItems++
+  }
+
+  private async recordAndPublish(msg: {
+    sessionId: SessionId
+    event: RuntimeEvent
+  }): Promise<RuntimeEventGateResult> {
     const completion: Promise<RuntimeEventGateResult> = this.ports.events.record(
       msg.sessionId,
       msg.event,

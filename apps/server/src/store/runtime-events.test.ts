@@ -11,6 +11,7 @@ import { SessionRegistry } from '../relay'
 import type { SessionStore } from '../store'
 import { openTestStore } from '../test-support/open-test-store'
 import { RUNTIME_EVENT_LOG_KIND, type RuntimeEventLogRecord } from './events'
+import { afterCommit } from './executor/executor'
 
 function stateEvent(input: {
   at: string
@@ -123,6 +124,157 @@ async function bindContract(
 }
 
 describe('durable runtime observation gate', () => {
+  it('paces and resumes an interrupted 2,000-item turn-end replay before a live turn without losing order, aliases or fences', async () => {
+    const store = await openTestStore(':memory:')
+    const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    const acks: Extract<ControlMessage, { type: 'runtimeEventAck' }>[] = []
+    const committed = new Set<number>()
+    const earlyAcks: string[] = []
+    let interruptReplay = false
+    const save = store.events.saveRuntimeEventCheckpoint.bind(store.events)
+    const checkpoint = vi
+      .spyOn(store.events, 'saveRuntimeEventCheckpoint')
+      .mockImplementation(async (head) => {
+        if (interruptReplay) throw new Error('interrupted replay commit')
+        await save(head)
+        afterCommit(() => {
+          committed.add(Number(head.cursor.components.seq))
+        })
+      })
+    let heartbeat: ReturnType<typeof setTimeout> | undefined
+    try {
+      const sessionId = await bindContract(
+        registry,
+        store,
+        (msg) => {
+          if (msg.type !== 'runtimeEventAck') return
+          acks.push(msg)
+          if (msg.outcome === 'committed' && !committed.has(Number(msg.deliveryId)))
+            earlyAcks.push(msg.deliveryId)
+        },
+        'generic-pty',
+      )
+      const at = '2026-08-23T00:00:00.000Z'
+      const send = (event: RuntimeEvent) =>
+        registry.gateway.routeDaemonFrame(store.hostMachine!.id, {
+          type: 'runtimeEvent',
+          sessionId,
+          deliveryId: String(event.cursor.components.seq),
+          event,
+        })
+      const items = Array.from({ length: 2_000 }, (_, n) => ({
+        id: `replay-${n}`,
+        cursor: `native:${n}`,
+        role: 'assistant' as const,
+        text: `Replay message ${n}`,
+        ts: new Date(Date.parse(at) + n * 1_000).toISOString(),
+      }))
+      await send(stateEvent({ at, seq: 1, observerGeneration: 1, provenance: 'bootstrap' }))
+      await send({
+        ...stateEvent({ at, seq: 2, observerGeneration: 1 }),
+        t: 'transcript-reset',
+        items: items.slice(0, 207),
+      })
+      await send(turnEvent({ at, seq: 3, turnEpoch: 1, ev: 'completed' }))
+      // The first overlap changes id under a stable cursor; the second changes
+      // cursor under a stable id. Both must keep their retained aliases.
+      items[0] = { ...items[0]!, id: 'provider-replay-0' }
+      items[1] = { ...items[1]!, cursor: 'native:rotated-1' }
+      acks.length = 0
+      let acksAtHeartbeat = -1
+      heartbeat = setTimeout(() => {
+        acksAtHeartbeat = acks.length
+      }, 0)
+      const replayEvent = (n: number) =>
+        terminalItemEvent({ at: items[n]!.ts, seq: n + 4, item: items[n]! })
+      await Promise.all(items.slice(0, 64).map((_item, n) => send(replayEvent(n))))
+      interruptReplay = true
+      await send(replayEvent(64))
+      expect(acks).toHaveLength(64)
+      expect((await store.events.runtimeEventCheckpoint(sessionId))?.cursor.components.seq).toBe(67)
+      interruptReplay = false
+      const replay = items.slice(64).map((_item, n) => send(replayEvent(n + 64)))
+      const liveItem = {
+        id: 'live',
+        cursor: 'native:live',
+        role: 'assistant' as const,
+        text: 'Live reply after replay',
+        ts: new Date(Date.parse(at) + 3_000_000).toISOString(),
+      }
+      // Queue the next live turn while replay is still pending. Ingress must
+      // keep its causal position through every event-loop yield.
+      const live = [
+        send(turnEvent({ at: liveItem.ts, seq: 2_004, turnEpoch: 2, ev: 'started' })),
+        send({
+          ...terminalItemEvent({ at: liveItem.ts, seq: 2_005, item: liveItem }),
+          turnEpoch: 2,
+        }),
+        send(turnEvent({ at: liveItem.ts, seq: 2_006, turnEpoch: 2, ev: 'completed' })),
+      ]
+      await Promise.all([...replay, ...live])
+      expect(acksAtHeartbeat).toBeGreaterThanOrEqual(0)
+      expect(acksAtHeartbeat).toBeLessThan(2_000)
+      expect(earlyAcks).toEqual([])
+      expect(acks.map((ack) => ack.deliveryId)).toEqual(
+        Array.from({ length: 2_003 }, (_, n) => String(n + 4)),
+      )
+      expect(acks.every((ack) => ack.outcome === 'committed')).toBe(true)
+      const events = await store.events.listRuntimeEvents(sessionId, 3_000)
+      expect(events.map((event) => event.cursor.components.seq)).toEqual(
+        Array.from({ length: 2_006 }, (_, n) => n + 1),
+      )
+      expect(await store.events.runtimeEventCheckpoint(sessionId)).toMatchObject({
+        observerGeneration: 1,
+        turnEpoch: 2,
+        closedTurnEpoch: 2,
+        cursor: { components: { seq: 2_006 } },
+      })
+      const terminal = registry.modules.sessions.sessions.get(sessionId)!.terminal
+      for (const transcript of [terminal.transcriptItems(), terminal.runtimeTranscriptItems()]) {
+        expect(transcript.map((item) => item.id)).toEqual(
+          [...items, liveItem].map((item) => item.id),
+        )
+        expect(
+          mergeTranscriptItems(transcript, [
+            { ...items[0]!, id: 'replay-0', cursor: 'rotated:0' },
+            { ...items[1]!, id: 'rotated-1', cursor: 'native:1' },
+          ]),
+        ).toHaveLength(2_001)
+      }
+      await send(
+        stateEvent({
+          at: liveItem.ts,
+          seq: 1,
+          observerGeneration: 2,
+          turnEpoch: 2,
+          provenance: 'bootstrap',
+          change: {
+            kind: 'state_snapshot',
+            state: {
+              phase: 'idle',
+              since: liveItem.ts,
+              nativeSubagentCount: 0,
+              idle: { kind: 'done' },
+            },
+          },
+        }),
+      )
+      await send(
+        terminalItemEvent({ at: liveItem.ts, seq: 2_007, item: { ...liveItem, text: 'stale' } }),
+      )
+      expect(acks.at(-1)).toMatchObject({
+        outcome: 'rejected',
+        rejectionReason: 'stale-observer-generation',
+      })
+      expect(terminal.transcriptItems().at(-1)?.text).toBe(liveItem.text)
+    } finally {
+      clearTimeout(heartbeat)
+      checkpoint.mockRestore()
+      await registry.dispose()
+      await store.close()
+    }
+  }, 120_000)
+
   it('restores full state after a quiet restart and accepts bookkeeping after a closed turn', async () => {
     const store = await openTestStore(':memory:')
     const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
@@ -1074,7 +1226,10 @@ describe('durable runtime observation gate', () => {
   it('rolls event, checkpoint, and session recency back together when ingress persistence fails', async () => {
     const store = await openTestStore(':memory:')
     const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
-    const sessionId = await bindContract(registry, store)
+    const acks: Extract<ControlMessage, { type: 'runtimeEventAck' }>[] = []
+    const sessionId = await bindContract(registry, store, (msg) => {
+      if (msg.type === 'runtimeEventAck') acks.push(msg)
+    })
     const before = (await registry.modules.sessions.sessionById(sessionId))?.lastActiveAt ?? ''
     const rollbackBootstrapCompletion: Promise<void> = registry.gateway.routeDaemonFrame(
       store.hostMachine!.id,
@@ -1091,6 +1246,12 @@ describe('durable runtime observation gate', () => {
       },
     )
     await rollbackBootstrapCompletion
+    acks.length = 0
+    const event = stateEvent({
+      at: new Date(Date.parse(before) + 1_000).toISOString(),
+      seq: 2,
+      observerGeneration: 1,
+    })
     const originalSave = store.events.saveRuntimeEventCheckpoint
     store.events.saveRuntimeEventCheckpoint = () => {
       throw new Error('injected checkpoint failure')
@@ -1106,12 +1267,32 @@ describe('durable runtime observation gate', () => {
           }),
         })
       await expect(rejectedIngress).rejects.toThrow('injected checkpoint failure')
+      // The actual daemon path catches the failure, but must leave its outbox
+      // entry unacknowledged so reconnect can retry that same causal event.
+      await registry.gateway.routeDaemonFrame(store.hostMachine!.id, {
+        type: 'runtimeEvent',
+        sessionId,
+        deliveryId: 'failed-commit',
+        event,
+      })
     } finally {
       store.events.saveRuntimeEventCheckpoint = originalSave
     }
     expect(await store.events.listRuntimeEvents(sessionId)).toHaveLength(1)
     expect((await store.events.runtimeEventCheckpoint(sessionId))?.cursor.components.seq).toBe(1)
     expect((await registry.modules.sessions.sessionById(sessionId))?.lastActiveAt).toBe(before)
+    expect(acks).toEqual([])
+    await registry.gateway.routeDaemonFrame(store.hostMachine!.id, {
+      type: 'runtimeEvent',
+      sessionId,
+      deliveryId: 'retried-commit',
+      event,
+    })
+    expect(acks).toEqual([
+      { type: 'runtimeEventAck', deliveryId: 'retried-commit', outcome: 'committed' },
+    ])
+    expect(await store.events.listRuntimeEvents(sessionId)).toHaveLength(2)
+    expect((await store.events.runtimeEventCheckpoint(sessionId))?.cursor.components.seq).toBe(2)
 
     await registry.dispose()
     await store.close()

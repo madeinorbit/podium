@@ -10,14 +10,15 @@
 
 import type { MachineId, SessionId } from '@podium/model'
 import { asUserId } from '@podium/model'
-import type { TurnDelivery, TurnReceipt } from '@podium/protocol/daemon'
-import { describe, expect, it } from 'vitest'
+import type { RuntimeEvent, TurnDelivery, TurnReceipt } from '@podium/protocol/daemon'
+import { describe, expect, it, vi } from 'vitest'
 import { messageTestWriter } from '../../test-support/message-writer'
 import { SYSTEM_INBOX_PRINCIPAL } from './inbox'
 import {
   type RuntimeDaemonRpcPort,
   type RuntimeDurableQueuePort,
   SessionRuntimeGateway,
+  type SessionRuntimeGatewayPorts,
 } from './runtime-gateway'
 
 const SESSION = 'session-1' as SessionId
@@ -29,6 +30,7 @@ function makeGateway(
     queue?: Partial<RuntimeDurableQueuePort>
     forwarded?: Parameters<RuntimeDaemonRpcPort['runtimeSend']>[0][]
     configureResult?: Awaited<ReturnType<RuntimeDaemonRpcPort['runtimeConfigure']>>['result']
+    events?: Partial<SessionRuntimeGatewayPorts['events']>
   } = {},
 ): {
   gateway: SessionRuntimeGateway
@@ -99,6 +101,7 @@ function makeGateway(
         ready: () => durableEvents.length > 0,
         recent: async () => durableEvents,
         replayBoardProjection: async () => {},
+        ...overrides.events,
       },
     }),
     forwarded,
@@ -107,6 +110,141 @@ function makeGateway(
     enqueued,
   }
 }
+
+describe('paced runtime ingress', () => {
+  const event = (seq: number): RuntimeEvent => ({
+    t: 'item',
+    item: {
+      kind: 'complete',
+      item: {
+        id: `item-${seq}`,
+        cursor: `item:${seq}`,
+        role: 'assistant',
+        text: `Message ${seq}`,
+      },
+    },
+    at: '2026-08-14T00:00:00.000Z',
+    provenance: 'live',
+    cursor: { segmentId: 'seg', components: { seq } },
+    observerGeneration: 1,
+    turnEpoch: 1,
+  })
+
+  it.each([
+    false,
+    true,
+  ])('yields after 32 items, including sequential callers (concurrent=%s)', async (concurrent) => {
+    const clock = vi.spyOn(performance, 'now').mockReturnValue(0)
+    const { gateway } = makeGateway()
+    const folded: number[] = []
+    gateway.onEvent(async (_sessionId, value) => {
+      folded.push(Number(value.cursor.components.seq))
+    })
+    let atHeartbeat = -1
+    const heartbeat = setTimeout(() => {
+      atHeartbeat = folded.length
+    }, 0)
+    try {
+      const record = (n: number) => gateway.record(MACHINE, { sessionId: SESSION, event: event(n) })
+      if (concurrent) await Promise.all(Array.from({ length: 70 }, (_, n) => record(n)))
+      else for (let n = 0; n < 70; n++) await record(n)
+      expect(atHeartbeat).toBe(32)
+      expect(folded).toEqual(Array.from({ length: 70 }, (_, n) => n))
+    } finally {
+      clearTimeout(heartbeat)
+      clock.mockRestore()
+    }
+  })
+
+  it('yields after 8 ms, counting both the commit and transcript listener', async () => {
+    let now = 0
+    const clock = vi.spyOn(performance, 'now').mockImplementation(() => now)
+    const { gateway } = makeGateway({
+      events: {
+        record: async () => {
+          now += 1
+          return { kind: 'accepted', eventId: 1 }
+        },
+      },
+    })
+    let folded = 0
+    gateway.onEvent(async () => {
+      now += 3
+      folded++
+    })
+    let atHeartbeat = -1
+    const heartbeat = setTimeout(() => {
+      atHeartbeat = folded
+    }, 0)
+    try {
+      await Promise.all(
+        Array.from({ length: 5 }, (_, n) =>
+          gateway.record(MACHINE, {
+            sessionId: SESSION,
+            event: event(n),
+          }),
+        ),
+      )
+      expect(atHeartbeat).toBe(2)
+      expect(folded).toBe(5)
+    } finally {
+      clearTimeout(heartbeat)
+      clock.mockRestore()
+    }
+  })
+
+  it('waits for commit and folding in order, propagates failure, then accepts a retry', async () => {
+    const pending = () => {
+      let resolve = () => {}
+      const promise = new Promise<void>((yes) => {
+        resolve = yes
+      })
+      return { promise, resolve: () => resolve() }
+    }
+    const commit = pending()
+    const fold = pending()
+    const failed = new Error('commit failed')
+    const called: number[] = []
+    let fail = true
+    const { gateway } = makeGateway({
+      events: {
+        record: async (_sessionId, value) => {
+          const seq = Number(value.cursor.components.seq)
+          called.push(seq)
+          if (seq === 1) await commit.promise
+          if (seq === 2 && fail) throw failed
+          return { kind: 'accepted', eventId: seq }
+        },
+      },
+    })
+    const folded: number[] = []
+    gateway.onEvent(async (_sessionId, value) => {
+      const seq = Number(value.cursor.components.seq)
+      if (seq === 1) await fold.promise
+      folded.push(seq)
+    })
+    const first = gateway.record(MACHINE, { sessionId: SESSION, event: event(1) })
+    const second = gateway.record(MACHINE, { sessionId: SESSION, event: event(2) })
+    const rejected = expect(second).rejects.toBe(failed)
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      expect(called).toEqual([1])
+      commit.resolve()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      expect(called).toEqual([1])
+      expect(folded).toEqual([])
+    } finally {
+      commit.resolve()
+      fold.resolve()
+      await first
+      await rejected
+    }
+    fail = false
+    await gateway.record(MACHINE, { sessionId: SESSION, event: event(2) })
+    expect(called).toEqual([1, 2, 2])
+    expect(folded).toEqual([1, 2])
+  })
+})
 
 describe('attachment staging', () => {
   it('routes bytes to the owning machine and returns the staged ref', async () => {
