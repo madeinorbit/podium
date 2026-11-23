@@ -95,9 +95,13 @@ export function sessionHomeFor(
   kind: AgentKind,
   machine: MachineHomeFacts = settledHomeFacts(ctx),
 ): HarnessHome | undefined {
-  if (!sessionId || !ctx.access) return undefined
-  const homeId = ctx.access.homeIdOf(sessionId, machine)
-  if (homeId === undefined) return undefined
+  const homeId = sessionId && ctx.access ? ctx.access.homeIdOf(sessionId, machine) : undefined
+  if (homeId === undefined) {
+    // The machine's own login: the person's folder, or, where only Podium's
+    // install is there, the Podium home (POD-7494).
+    const podiumSide = ownLoginInPodiumHome(kind, machine)
+    return podiumSide && ctx.homes ? ctx.homes.ensurePodiumHome(podiumSide).home : undefined
+  }
   const podium = parsePodiumHomeId(homeId)
   if (podium && podium === kind && ctx.homes) return ctx.homes.ensurePodiumHome(podium).home
   const home = podium ? undefined : ctx.homes?.get(homeId)
@@ -107,6 +111,34 @@ export function sessionHomeFor(
     )
   }
   return home
+}
+
+/**
+ * THE MACHINE'S OWN LOGIN WHERE ONLY PODIUM'S INSTALL IS THERE (POD-7494,
+ * managed installs §4.2). A harness that keeps its state in a folder a
+ * variable moves, installed on this machine by Podium alone, has no person's
+ * own login to run: Podium's install never runs in the person's folder (M9).
+ * Its own login is then the Podium home's. A session on no credential (or on
+ * the `default` home) and the native login pane run there, on Podium's
+ * install, so a sign-in made in that pane is the login those sessions read;
+ * the inventory reports that home's login as the harness's (`withHomeLogins`).
+ *
+ * With the person's install there too, their own login stays on their side:
+ * their binary, their folder, exactly as launches always chose. A harness
+ * without a folder variable shares one folder either way (§4.7,
+ * {@link defaultFolderSide}).
+ *
+ * Returns the harness when its own login runs in the Podium home.
+ */
+export function ownLoginInPodiumHome(
+  kind: AgentKind,
+  machine: MachineHomeFacts,
+): HomeHarness | undefined {
+  const harness = HomeHarness.safeParse(kind)
+  if (!harness.success || !harnessHomeVariable(harness.data)) return undefined
+  if (!machine.managedInstall(harness.data) || machine.externalInstall?.(harness.data))
+    return undefined
+  return harness.data
 }
 
 /**

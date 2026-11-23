@@ -19,31 +19,58 @@ import {
 } from '@podium/harness'
 import type { HomeLogin, Inventory } from '@podium/model'
 import { DEFAULT_HOME_ID, HOME_HARNESSES } from '@podium/protocol'
+import type { MachineHomeFacts } from '../control/access'
+import { ownLoginInPodiumHome } from '../session-harness-context'
 import { type HarnessHome, isPodiumHome } from './registry'
 
 export function withHomeLogins(
   inventory: Inventory,
   homes: readonly HarnessHome[],
   account: { home: string; env: HarnessEnvironment },
+  /**
+   * What the inventory found installed (managed installs §4.2). A harness
+   * Podium alone installed here keeps its own login in the Podium home
+   * (`ownLoginInPodiumHome`, POD-7494): its `login`, and the `default`
+   * entry, are read there. Absent: every login is the person's folder's.
+   */
+  machine?: MachineHomeFacts,
 ): Inventory {
   return {
     ...inventory,
     agents: inventory.agents.map((agent) => {
-      if (!(HOME_HARNESSES as readonly string[]).includes(agent.kind)) return agent
-      // The Podium home holds no login (managed installs §4.3): credentials
-      // are passed in there, so it has no entry.
+      const podiumSide = machine ? ownLoginInPodiumHome(agent.kind, machine) : undefined
+      const login = podiumSide ? podiumHomeLogin(homes, podiumSide, account) : agent.login
+      if (!(HOME_HARNESSES as readonly string[]).includes(agent.kind))
+        return login === agent.login ? agent : { ...agent, login }
+      // A Podium home holds no login of a credential (managed installs §4.3):
+      // credentials are passed in there, so it has no entry of its own. Where
+      // it holds the machine's own login, that is the `default` entry.
       const own = homes
         .filter((home) => home.harness === agent.kind && !isPodiumHome(home))
         .sort((a, b) => a.homeId.localeCompare(b.homeId))
       return {
         ...agent,
+        login,
         logins: [
-          loginEntry(DEFAULT_HOME_ID, agent.login),
+          loginEntry(DEFAULT_HOME_ID, login),
           ...own.map((home) => loginEntry(home.homeId, readHomeLogin(home, account))),
         ],
       }
     }),
   }
+}
+
+/**
+ * The machine's own login of `harness` where it lives in the Podium home: what
+ * that home's login files say, or signed out while the home is not made yet.
+ */
+function podiumHomeLogin(
+  homes: readonly HarnessHome[],
+  harness: string,
+  account: { home: string; env: HarnessEnvironment },
+): HarnessLogin {
+  const home = homes.find((candidate) => candidate.harness === harness && isPodiumHome(candidate))
+  return home ? readHomeLogin(home, account) : { state: 'out' }
 }
 
 function loginEntry(

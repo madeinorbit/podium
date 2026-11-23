@@ -175,11 +175,19 @@ always runs on the person's side.
 |---|---|---|
 | Only the person's install | their binary, their folder | their binary; a passed-in credential runs in their folder, a second sign-in in its own linked folder. As built by credential management. |
 | No install | cannot start; the harness shows **Install** | cannot start; the harness shows **Install** |
-| Only a managed install | there is no such login | managed binary, the Podium home |
+| Only a managed install | the machine's own login is the Podium home's: managed binary, the Podium home | managed binary, the Podium home |
 | Both | their binary, their folder | managed binary, the Podium home |
 
 So the binary follows the home: the person's folder gets the person's binary,
 and a Podium home gets the managed binary when there is one.
+
+With only a managed install there is no person's login to run, so the
+machine's own login of a harness with a folder variable lives in the Podium
+home (POD-7494): a session on no credential and the native sign-in terminal
+(Settings, Set up agents) run there on the managed binary, and the inventory
+reports that home's login as the harness's. Once the person installs their
+own copy, their own login is theirs again and the sign-in made in the Podium
+home stays there.
 
 ### 4.3 One Podium home per harness; the credential is passed in
 

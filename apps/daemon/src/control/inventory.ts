@@ -34,6 +34,7 @@ import { withHomeLogins } from '../homes/logins'
 import { homeModelProbe } from '../homes/probes'
 import { isPodiumHome } from '../homes/registry'
 import { opencode2VersionProbe } from '../runtime/version-probe'
+import { snapshotHomeFacts } from '../session-harness-context'
 import type { ControlHandlers, DaemonContext } from './context'
 
 const log = createLogger('daemon:inventory')
@@ -263,11 +264,18 @@ export async function reportInventory(
         inventory: {
           // One login per home, `default` first (credential management §10).
           ...(ctx.homes
-            ? withHomeLogins(inventory, ctx.homes.list(), {
-                home:
-                  resolveManagementCredentialHome(ctx) ?? snapshot.commandEnvironment.machineHome,
-                env: snapshot.commandEnvironment.env,
-              })
+            ? withHomeLogins(
+                inventory,
+                ctx.homes.list(),
+                {
+                  home:
+                    resolveManagementCredentialHome(ctx) ?? snapshot.commandEnvironment.machineHome,
+                  env: snapshot.commandEnvironment.env,
+                },
+                // The installs this wave found: a harness only Podium installed
+                // reports the Podium home's login as its own (POD-7494).
+                snapshotHomeFacts(snapshot),
+              )
             : inventory),
           homePath: snapshot.commandEnvironment.machineHome,
           runtimeDrivers,
