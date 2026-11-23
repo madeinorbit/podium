@@ -27,7 +27,7 @@
 
 import { createDemandAtoms } from '@podium/mobx-helpers'
 import { isFinished } from '@podium/model/browser'
-import { createAtom, type IAtom, runInAction } from 'mobx'
+import { action, createAtom, type IAtom, runInAction } from 'mobx'
 import { LOADING } from './loading'
 import { type Gone, NOT_VISIBLE } from './lookup'
 import type { CollectionLoaderPort, LoaderInstance } from './shared/source'
@@ -189,6 +189,8 @@ const readKey = (spec: LoaderInstance): string =>
   ])
 
 export class PoolCollections {
+  /** A reader with no loader yet must hear when a device store is attached. */
+  private readonly attachment = createAtom('pool.collections.attachment')
   private readonly markers: IAtom
   private readonly stubs: IAtom
   private readonly connection: IAtom
@@ -286,8 +288,9 @@ export class PoolCollections {
    * Read another device store's collections (a pool built from rows, such as
    * the startup check's states). Every reader hears of it.
    */
-  attach(source: () => CollectionLoaderPort | undefined): void {
+  @action attach(source: () => CollectionLoaderPort | undefined): void {
     this.source = source
+    this.attachment.reportChanged()
     this.markersMoved()
     this.stubsMoved()
     this.connection.reportChanged()
@@ -295,6 +298,8 @@ export class PoolCollections {
 
   /** The loader, subscribed once it exists. */
   private loader(): CollectionLoaderPort | undefined {
+    // Observe before any early return, including the no-loader fixture path.
+    this.attachment.reportObserved()
     if (this.disposed) return undefined
     const loader = this.source()
     if (loader !== this.bound) {

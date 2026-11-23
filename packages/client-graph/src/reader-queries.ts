@@ -1,5 +1,6 @@
 import type { NavigationTopologyDelta } from '@podium/client-core/ui'
 import type { IssueCloseMemberCounts } from '@podium/client-core/values'
+import { createDemandAtoms } from '@podium/mobx-helpers'
 import { machinePathAncestors, machinePathKey, machinePathSeparator } from '@podium/model/browser'
 import { parseSessionRef } from '@podium/protocol'
 import { createAtom, type IAtom, observe, untracked } from 'mobx'
@@ -88,6 +89,9 @@ export class ReaderQueries {
   private readonly sessionPathAtoms = new Map<string, { atom: IAtom; value: boolean }>()
   private readonly topologyListeners = new Set<(delta: NavigationTopologyDelta) => void>()
   private readonly worktrees = createWorktreeQuestions()
+  private readonly worktreePathAtoms = createDemandAtoms<string>(
+    (key) => `history.worktreePath:${key}`,
+  )
   private readonly firstWorktreeAtom = createAtom('history.firstWorktree')
   private effectiveSessions: SessionQuestions | undefined
   private effectiveSource: DeviceQueries | undefined
@@ -193,13 +197,17 @@ export class ReaderQueries {
   }
   private changeWorktree(id: string, row: Readonly<Record<string, unknown>> | undefined): void {
     const before = this.worktrees.first()
+    const key = machinePathKey(id)
+    const pathBefore = this.worktrees.path(key)
     this.worktrees.set(id, row)
+    if (pathBefore !== this.worktrees.path(key)) this.worktreePathAtoms.get(key)?.reportChanged()
     if (before !== this.worktrees.first()) {
       this.firstWorktreeAtom.reportChanged()
       this.publishTopology({ reset: false, sessions: [] })
     }
   }
   registeredWorktreePath(path: string): string | undefined {
+    this.worktreePathAtoms.observe(machinePathKey(path))
     return this.worktrees.path(path)
   }
   firstWorktreePath(): string | null {
@@ -1685,6 +1693,7 @@ export class ReaderQueries {
     this.topologyListeners.clear()
     this.publicationTopologyBefore = undefined
     this.worktrees.clear()
+    this.worktreePathAtoms.clear()
     this.residentIssueIds.clear()
     this.residentOrder.issue.clear()
     this.residentOrder.session.clear()
