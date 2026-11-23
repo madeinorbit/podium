@@ -325,6 +325,43 @@ describe('bounded variable-height issue window', () => {
     expect(rows()).toEqual(visible)
   })
 
+  it('preserves the viewport when measuring layout triggers browser scroll clamping', () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('ResizeObserver', RecordingResizeObserver)
+    const view = render(<SectionedWindowHarness keys={SHORT_KEYS} />)
+    const scroll = view.getByTestId('sectioned-scroll')
+    const container = view.getByTestId('sectioned-container')
+    const section = container.parentElement as HTMLElement
+    sizeViewport(scroll, 320)
+    let precedingHeight = 3074
+    let clampOnLayout = false
+    Object.defineProperty(container, 'offsetParent', { configurable: true, value: section })
+    Object.defineProperty(section, 'offsetParent', { configurable: true, value: scroll })
+    vi.spyOn(section, 'offsetTop', 'get').mockImplementation(() => {
+      if (clampOnLayout) {
+        clampOnLayout = false
+        scroll.scrollTop = 240
+      }
+      return precedingHeight
+    })
+    vi.spyOn(section, 'offsetHeight', 'get').mockReturnValue(560)
+    vi.spyOn(scroll, 'scrollHeight', 'get').mockImplementation(() => precedingHeight + 560)
+    scroll.scrollTop = 3314
+    fireEvent.scroll(scroll)
+    flushViewport()
+
+    // A motion frame changes height without a React commit. The next layout
+    // read flushes that change and clamps the previously valid scroll offset.
+    precedingHeight = 0
+    clampOnLayout = true
+    RecordingResizeObserver.resize(view.getByTestId('preceding-section'))
+    flushViewport()
+    expect(scroll.scrollTop).toBe(240)
+    expect(view.getAllByTestId('sectioned-row').map((node) => node.textContent)).toContain(
+      'issue-6',
+    )
+  })
+
   it('does not anchor a retained window while its own fold is hidden', () => {
     vi.useFakeTimers()
     const view = render(<SectionedWindowHarness keys={SHORT_KEYS} />)
