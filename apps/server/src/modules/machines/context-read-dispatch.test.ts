@@ -11,7 +11,7 @@ import { type MachinesDeps, MachinesService } from './service'
 const service = () =>
   new MachinesService({
     instanceId: 'default',
-    hostMachineId: asMachineId('invented-host'),
+    hostMachine: { id: asMachineId('invented-host') },
     store: {
       machines: {
         getMachine: async () => ({ revokedAt: null }),
