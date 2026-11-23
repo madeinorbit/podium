@@ -19,7 +19,7 @@ import { fixtureWriteScope } from '@podium/sync/testing'
 import { describe, expect, it, vi } from 'vitest'
 import type { CommandPrincipal } from '../../command-principal'
 import type { IssueRow, SessionStore } from '../../store'
-import { probeStatements } from '../../store/executor/statement-probe'
+import { probeStatements, type StatementProbeHolder } from '../../store/executor/statement-probe'
 import { OPERATOR } from '../../test-support/capabilities'
 import { TEST_MACHINE_ID } from '../../test-support/machine-id'
 import { openTestStore } from '../../test-support/open-test-store'
@@ -194,7 +194,7 @@ const deckPin: StatementPin<Fixture> = {
   run: (f) => call(f, 'deck', { id: 'iss_1' }),
   count: async (f, run) => {
     f.issueRowsRead = 0
-    const detach = probeStatements(f.store, (statement) => {
+    const detach = probeStatements(f.store as unknown as StatementProbeHolder, (statement) => {
       if (statement.sql.includes('from "issues"')) f.issueRowsRead += statement.rows
     })
     try {
@@ -236,12 +236,12 @@ describe('issue listings: pinned statement counts at 5 and 200 issues', () => {
   it('deck pin detects restoring the per-ID authorization loop', async () => {
     await expectArmed(deckPin, 6, () => {
       const issueReader = IssueCommandCtx.prototype.issueReader
-      const spy = vi
-        .spyOn(IssueCommandCtx.prototype, 'issueReader')
-        .mockImplementation(function () {
-          const reader = issueReader.call(this)
-          return { viewer: reader.viewer, mayRead: reader.mayRead }
-        })
+      const spy = vi.spyOn(IssueCommandCtx.prototype, 'issueReader').mockImplementation(function (
+        this: IssueCommandCtx,
+      ) {
+        const reader = issueReader.call(this)
+        return { viewer: reader.viewer, mayRead: reader.mayRead }
+      })
       return () => spy.mockRestore()
     })
   })

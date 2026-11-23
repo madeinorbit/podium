@@ -25,7 +25,10 @@ import { SessionRecords } from '../../apps/server/src/modules/sessions/records'
 import type { Session } from '../../apps/server/src/modules/sessions/session'
 import type { SessionStore } from '../../apps/server/src/store'
 import { withReadScope } from '../../apps/server/src/store/executor/read-scope'
-import { probeStatements } from '../../apps/server/src/store/executor/statement-probe'
+import {
+  probeStatements,
+  type StatementProbeHolder,
+} from '../../apps/server/src/store/executor/statement-probe'
 import { issueRowFixture } from '../../apps/server/src/test-support/issue-row'
 import { TEST_MACHINE_ID } from '../../apps/server/src/test-support/machine-id'
 import { openTestStore } from '../../apps/server/src/test-support/open-test-store'
@@ -174,7 +177,7 @@ for (const issues of [7879, 7884]) {
         checkpointStatements: 0,
         checkpointRows: 0,
       }
-      const detach = probeStatements(store, (statement) => {
+      const detach = probeStatements(store as unknown as StatementProbeHolder, (statement) => {
         sample.statements++
         sample.sqlMs += statement.durationMs / statement.batchSize
         if (statement.sql.includes('from "issues"')) {
