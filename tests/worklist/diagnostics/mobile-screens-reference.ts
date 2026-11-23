@@ -1,4 +1,6 @@
 /** Stateless record oracle. No client-graph runtime reads participate in expected answers. */
+
+import type { SessionView } from '@podium/client-core/session-values'
 import {
   buildFlightDeckRows,
   confirmedWorkingAgentCountsByIssue,
@@ -23,7 +25,7 @@ import {
   taskProgressMap,
   taskStateWord,
 } from '@podium/client-core/values'
-import { defaultSeatBy } from '@podium/client-graph/mission-seat'
+import { defaultSeat } from '@podium/client-graph/mission-seat'
 import { asIssueId, dedupeSessionsByResume, isFinished } from '@podium/model'
 import {
   coordinatedSeat,
@@ -453,14 +455,17 @@ export function expectMobileScreens(
     facts.crews.set(root?.id ?? '', crew)
   }
   // The phone opens a mission on the shared default seat (dev/tf 75d210056f):
-  // coordinator, lone member, then most recently active, over open sessions. The
-  // oracle applies the same rule to its own source records (open: not archived,
-  // not exited; a source record exists by being present).
-  const automatic = defaultSeatBy(
-    crew,
+  // coordinator, lone member, then most recently active, over open sessions.
+  // The oracle hands the same rule its own source records, each answering
+  // `open` as the session model does (present, not archived, not exited).
+  const seat = defaultSeat(
+    crew.map((session) => ({
+      ...session,
+      open: !session.archived && session.status !== 'exited',
+    })) as unknown as SessionView[],
     root?.coordinatorSessionId,
-    (session) => !session.archived && session.status !== 'exited',
   )
+  const automatic = crew.find((session) => session.sessionId === seat?.sessionId)
   const current =
     crew.find((session) => session.sessionId === input.requestedSessionId) ?? automatic
   const header = (current?.issueId ? members.get(current.issueId) : undefined) ?? root

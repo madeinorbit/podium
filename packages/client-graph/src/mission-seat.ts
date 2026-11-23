@@ -18,17 +18,7 @@ export function defaultSeat<S extends SessionModel | SessionView>(
   sessions: readonly S[],
   coordinatorSessionId: string | null | undefined,
 ): S | undefined {
-  return defaultSeatBy(sessions, coordinatorSessionId, (session) => (session as SessionModel).open)
-}
-
-/** {@link defaultSeat} over any session shape that can say whether it is open
- *  (the worklist reference oracle passes its own source records). */
-export function defaultSeatBy<S extends { sessionId: string; lastActiveAt: string }>(
-  sessions: readonly S[],
-  coordinatorSessionId: string | null | undefined,
-  isOpen: (session: S) => boolean,
-): S | undefined {
-  const active = sessions.filter(isOpen)
+  const active = sessions.filter((session) => (session as SessionModel).open)
   return (
     active.find((session) => session.sessionId === coordinatorSessionId) ??
     (active.length === 1 ? active[0] : undefined) ??
