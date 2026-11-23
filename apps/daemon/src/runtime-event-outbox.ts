@@ -43,6 +43,8 @@ export interface RuntimeEventOutbox {
   deliveryJournal(sessionId: SessionId): DeliveryJournal
   enqueue(event: DurableRuntimeEvent): void
   acknowledge(deliveryId: string): boolean
+  /** Constant-time count of retained deliveries, without materializing pending(). */
+  readonly pendingCount: number
   pending(): readonly DurableRuntimeEvent[]
   /** Release the journal handle. For shutdown and for tests; the data is already durable. */
   close(): void
@@ -464,6 +466,9 @@ export function createRuntimeEventOutbox(dir: string): RuntimeEventOutbox {
       retire(deliveryId)
       maybeCompact()
       return true
+    },
+    get pendingCount() {
+      return events.size
     },
     pending: () => [...events.values()],
     close() {

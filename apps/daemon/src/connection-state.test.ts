@@ -1756,10 +1756,19 @@ it('resends only overdue runtime events on a live link, backing off while acks l
     expect(ids()).toEqual(['a'])
     delivered.length = 0
 
-    // Draining the pending set stops the retry and resets the interval.
+    // ACKs must not enumerate the backlog just to decide whether to retry.
+    const pending = vi.spyOn(outbox, 'pending')
+    conn.acknowledgeRuntimeEvent('unknown')
+    expect(harness.next(4_000)).toBeDefined()
     conn.acknowledgeRuntimeEvent('a')
+    expect(harness.next(4_000)).toBeDefined()
+    conn.acknowledgeRuntimeEvent('a')
+    expect(harness.next(4_000)).toBeDefined()
+    // Draining the pending set stops the retry and resets the interval.
     conn.acknowledgeRuntimeEvent('b')
     expect(harness.next(4_000)).toBeUndefined()
+    expect(pending).not.toHaveBeenCalled()
+    pending.mockRestore()
     conn.send(event('c'))
     expect(harness.next(500)).toBeDefined()
   } finally {

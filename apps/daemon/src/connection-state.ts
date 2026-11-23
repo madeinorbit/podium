@@ -1600,7 +1600,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     acknowledgeRuntimeEvent(deliveryId) {
       deps.runtimeEventOutbox.acknowledge(deliveryId)
       runtimeEventSentAtTick.delete(deliveryId)
-      if (deps.runtimeEventOutbox.pending().length === 0) {
+      if (deps.runtimeEventOutbox.pendingCount === 0) {
         stopRuntimeEventRetry()
         runtimeEventRetryMs = RUNTIME_EVENT_RETRY_MIN_MS
       }
