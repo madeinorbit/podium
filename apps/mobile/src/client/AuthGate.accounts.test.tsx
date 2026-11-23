@@ -120,7 +120,15 @@ it('admits a verified mobile account with the same identity used by the web gate
 it('keeps a signed-out protected account at sign-in before navigation can mount', async () => {
   vi.stubGlobal(
     'fetch',
-    vi.fn(async () => Response.json({ needsAuth: true, authed: false, userId: null })),
+    vi.fn(async () =>
+      Response.json({
+        needsAuth: true,
+        authed: false,
+        userId: null,
+        capabilities: passwordCapabilities,
+        prompt: 'password',
+      }),
+    ),
   )
   render(
     <AuthGate>

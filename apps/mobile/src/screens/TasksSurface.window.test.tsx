@@ -30,9 +30,11 @@ const state = vi.hoisted(() => ({
   showActions: false,
   setIssueTucked: vi.fn(async (_id: string, _tucked: boolean) => {}),
 }))
-vi.mock('../client/hooks', () => ({
-  useStoreActions: () => ({ setIssueTucked: state.setIssueTucked }),
+vi.mock('@podium/client-core/react', async (original) => ({
+  ...(await original<typeof import('@podium/client-core/react')>()),
+  useCommands: () => ({ issues: { setTucked: state.setIssueTucked } }),
 }))
+vi.mock('../components/NoticeBell', () => ({ useUnreadNotices: () => 0 }))
 vi.mock('../client/use-issue-close', () => ({ useIssueCloseGuard: () => () => false }))
 vi.mock('react-native', async (original) => ({
   ...(await original<object>()),
@@ -70,6 +72,7 @@ vi.mock('./WorkListRow', () => ({ NAV_LOADER_DELAY_MS: 0, useDelayedFlag: () => 
 vi.mock('../lib/clock-hooks', () => ({ useAgeNow: state.age }))
 vi.mock('../hooks/useRefreshableTab', () => ({ MIN_REFRESH_CONFIRMATION_MS: 0 }))
 vi.mock('expo-router', () => ({
+  useRouter: () => ({ push: () => {} }),
   Stack: {
     Screen: ({ options }: { options: typeof state.header }) => {
       state.header = options

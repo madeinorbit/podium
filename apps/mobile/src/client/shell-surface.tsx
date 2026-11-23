@@ -20,9 +20,18 @@ export function useShellErrorChannel(): {
   report(message: string): void
   readonly notices: NoticeSink
 } {
-  const [notice, setNotice] = useState<{ message: string } | null>(null)
-  const report = useCallback((message: string) => setNotice({ message }), [])
-  const notices = useMemo<NoticeSink>(() => ({ error: report, info: () => {} }), [report])
+  // A launch failure carries its notice id (`launch:<sessionId>`); an accepted
+  // retry of that launch dismisses only that notice, never a newer error.
+  const [notice, setNotice] = useState<{ message: string; id?: string } | null>(null)
+  const report = useCallback((message: string, id?: string) => setNotice({ message, id }), [])
+  const dismissError = useCallback(
+    (id: string) => setNotice((current) => (current?.id === id ? null : current)),
+    [],
+  )
+  const notices = useMemo<NoticeSink>(
+    () => ({ error: report, dismissError, info: () => {} }),
+    [report, dismissError],
+  )
   const error = useMemo(
     () =>
       notice === null

@@ -685,7 +685,11 @@ it.each([
 
 it('keeps native proposal action trees inside the shared 40-row window', async () => {
   await mount(700)
-  expect(screen.getAllByTestId('long-press-menu')).toHaveLength(ROW_WINDOW_SIZE)
+  // Device-first loading: a large deck settles after the first paint.
+  await waitFor(
+    () => expect(screen.getAllByTestId('long-press-menu')).toHaveLength(ROW_WINDOW_SIZE),
+    { timeout: 10_000 },
+  )
   expect(screen.getByText('Proposal 0')).toBeTruthy()
   expect(screen.queryByText('Proposal 500')).toBeNull()
   await act(() => new Promise<void>((resolve) => setTimeout(resolve, ROW_PRIME_MS + 20)))

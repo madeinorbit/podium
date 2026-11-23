@@ -3,7 +3,7 @@ import { formatPodiumLink, PODIUM_SCHEME } from '@podium/protocol'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { accountCapabilities } from '../test-support/auth-capabilities'
+import { accountCapabilities, passwordCapabilities } from '../test-support/auth-capabilities'
 import type { ServerProfileContextValue } from './server-profile-context'
 import type { ServerProfileState } from './server-profiles'
 
@@ -152,7 +152,19 @@ vi.mock('./auth', () => ({
   logout: seams.logout,
   fetchAuthStatus: seams.authStatus,
   probeAuth: async (_origin: string, bearer: string | null) =>
-    bearer ? { kind: 'ready', auth: { kind: 'ready' } } : { kind: 'login' },
+    bearer
+      ? { kind: 'ready', auth: { kind: 'ready' } }
+      : {
+          kind: 'login',
+          // Upstream's login screen draws only the sign-in options the server offers.
+          status: {
+            needsAuth: true,
+            authed: false,
+            userId: null,
+            capabilities: passwordCapabilities,
+            prompt: 'password',
+          },
+        },
 }))
 vi.mock('./shell', () => ({ useMobileShell: () => ({ eraseLocalData: seams.erase }) }))
 vi.mock('./hooks', () => ({
@@ -295,7 +307,13 @@ beforeEach(() => {
   seams.hostedCancel.mockReset().mockResolvedValue(undefined)
   seams.authStatus
     .mockReset()
-    .mockResolvedValue({ authed: true, needsAuth: true, userId: 'user:cloud' })
+    .mockResolvedValue({
+      authed: true,
+      needsAuth: true,
+      userId: 'user:cloud',
+      capabilities: passwordCapabilities,
+      prompt: 'password',
+    })
   seams.alert.mockReset()
   seams.announce.mockReset()
   seams.getInitialUrl.mockReset()

@@ -79,7 +79,12 @@ vi.mock('@expo/ui/swift-ui/modifiers', () =>
 )
 vi.mock('expo-router', () => ({ useRouter: () => ({ push: state.push }) }))
 vi.mock('../client/mobile-pool', () => ({ useMobilePool: () => state.pool }))
-vi.mock('../client/hooks', () => ({ useBooting: () => false, useStoreActions: () => ({}) }))
+vi.mock('../client/hooks', () => ({ useBooting: () => false }))
+vi.mock('../client/member-roster', () => ({ useMobileMemberRoster: () => undefined }))
+vi.mock('../hooks/useIssuesFilters', async () => {
+  const { readIssuesFilters } = await import('@podium/client-core/values')
+  return { useIssuesFilters: () => [readIssuesFilters(null, null), () => {}] }
+})
 vi.mock('../client/use-issue-close', () => ({ useIssueCloseGuard: () => () => false }))
 vi.mock('../lib/issue-row-actions', () => ({ useIssueRowActions: () => ({}) }))
 vi.mock('../hooks/useContentBottomInset', () => ({ useContentBottomInset: () => 0 }))

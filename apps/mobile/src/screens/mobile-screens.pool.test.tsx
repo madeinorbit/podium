@@ -654,9 +654,11 @@ it('three mounted phone screens keep cumulative legacy derivations at zero (ON=t
   await act(async () => {
     refreshClocks()
   })
-  if (beforeClock?.includes('55m')) {
-    expect(screen.getByTestId('mission').textContent).toContain('56m')
-  }
+  // Upstream also asserted the chat tail's "55m" turning "56m" here. On the
+  // phone that clock pauses while the chat footer is not visible content
+  // (dev/tf b34ea25229, d8325f7903), and jsdom never measures it visible, so the
+  // label stays put by design. The wake must still cost no derivations.
+  void beforeClock
   await checkpoint('idle clock')
   await act(async () => {
     fireEvent.click(screen.getByLabelText('Close task search'))
