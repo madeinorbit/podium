@@ -693,6 +693,22 @@ const WS_LITERAL = `'${SELF_HOSTED_WORKSPACE_ID}'`
 
 /** Keyed `file:name [shape]`. Each is proven by the INDEXED BY test below. */
 const HINT_SHAPES: ReadonlyMap<string, HintShape> = new Map<string, HintShape>([
+  ...(
+    [
+      'apps/server/src/store/sessions.ts:seatFactsOfIssueIds [1]',
+      'apps/server/src/store/sessions.ts:seatFactsOfIssueIds [4]',
+    ] as const
+  ).map(
+    (key) =>
+      [
+        key,
+        {
+          alsoReads: 'idx_sessions_issue_archived',
+          reason:
+            "A flight deck's seat columns for a few issues (POD-7431). SQLite is told idx_sessions_issue; for a short list Postgres reads idx_sessions_issue_archived, whose key also starts (workspace_id, issue_id): the same sessions.",
+        },
+      ] as const,
+  ),
   [
     'apps/server/src/store/effects.ts:newestOnTargetIn [active]',
     {
