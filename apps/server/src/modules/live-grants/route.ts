@@ -16,6 +16,7 @@
 
 import {
   LiveGrantSigningUnavailable,
+  LiveGrantTooLarge,
   MAX_GRANT_IDS,
   type SignedLiveGrant,
   signClientGrant,
@@ -114,6 +115,10 @@ export function registerLiveGrantRoutes(app: Hono, deps: LiveGrantRouteDeps): vo
     } catch (error) {
       if (error instanceof LiveGrantSigningUnavailable) {
         return c.json({ error: 'live grants are not configured on this server' }, 503)
+      }
+      // Too many or too long roots, or a token past the budget: the screen asks for less.
+      if (error instanceof LiveGrantTooLarge) {
+        return c.json({ error: 'live grant too large', reason: error.reason }, 413)
       }
       throw error
     }

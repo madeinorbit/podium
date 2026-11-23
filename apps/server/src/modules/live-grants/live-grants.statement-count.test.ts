@@ -40,6 +40,8 @@ import { issueClientGrant } from './route'
 
 interface Fixture {
   store: SessionStore
+  /** As `server.ts` composes them: the production `MachinesService` included. */
+  sources: ReturnType<typeof grantSources>
   sessions: SessionId[]
   machines: string[]
 }
@@ -70,7 +72,7 @@ async function fixture(size: number): Promise<Fixture> {
     ...[M_ALICE, M_SHARED, M_PRIVATE].slice(0, size),
     ...Array.from({ length: Math.max(0, size - 3) }, (_, i) => asMachineId(`unknown-${i}`)),
   ]
-  return { store, sessions, machines }
+  return { store, sources: grantSources(store), sessions, machines }
 }
 
 const pin: StatementPin<Fixture> = {
@@ -82,7 +84,7 @@ const pin: StatementPin<Fixture> = {
     await withOperation(
       async () =>
         await issueClientGrant(
-          { sources: grantSources(f.store), keys: { ring: async () => ring } },
+          { sources: f.sources, keys: { ring: async () => ring } },
           SELF_HOSTED_WORKSPACE_ID,
           { principal: principalOf(ALICE), role: ROLE[ALICE]! },
           { sessions: f.sessions, machines: f.machines },
@@ -102,9 +104,12 @@ const pin: StatementPin<Fixture> = {
     expect(named.every((id) => Number(id.slice('pin-'.length)) % 3 === 0)).toBe(true)
     expect(verified.grant.allowsSession(f.sessions[0]!, 'use')).toBe(true)
     expect(verified.grant.allowsMachine(M_ALICE, 'use')).toBe(true)
-    expect(verified.grant.allowsMachine(M_PRIVATE, 'view')).toBe(false)
+    expect(verified.grant.allowsMachine(M_PRIVATE, 'use')).toBe(false)
   },
-  teardown: async (f) => await f.store.close(),
+  teardown: async (f) => {
+    f.sources.machines.dispose()
+    await f.store.close()
+  },
 }
 
 describe('live client grant statement count', () => {

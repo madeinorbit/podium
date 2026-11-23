@@ -10,8 +10,14 @@
  *   holding machine `use` on the session's host (`mayWatch` / `mayDrive` in
  *   session-control-policy.ts). No session `manage` is granted: the room has no
  *   action that needs it.
- * - machine `view`, `use`, `manage`: the verbs `machineVerbsFor` resolves from
- *   the machine's grant edges (machine-access.ts).
+ * - machine `view`: the machine RECORD's rule. Every member of the workspace
+ *   reads every machine record and its `machine.condition` topic (machines are
+ *   `deployment-substrate` in feed-visibility.ts; the topic's visibility is
+ *   `'machine'`), so every machine the workspace has is viewable (review F6,
+ *   the coordinator's decision: no member loses a reading the room takes over).
+ * - machine `use`, `manage`: the verbs `machineVerbsFor` resolves from the
+ *   machine's grant edges (machine-access.ts). `machine.use` topics (metrics,
+ *   processes, checkouts) and direct asks need `use`.
  * - roots: on a machine the member may `use`, the repository roots registered
  *   there, the allowlist the `files` and `git` families check
  *   (`assertReadableRoot`).
@@ -63,8 +69,6 @@ export interface ClientGrantScopes {
   readonly logins: string[]
 }
 
-const VERB_ACTION = { see: 'view', use: 'use', manage: 'manage' } as const
-
 /** The scopes `principal` holds on the named ids. An id it may not see is left out. */
 export async function clientGrantScopes(
   sources: ClientGrantSources,
@@ -97,9 +101,13 @@ export async function clientGrantScopes(
   const machines: Record<string, LiveGrantAction[]> = {}
   const usable: MachineId[] = []
   for (const id of machineIds) {
+    // An id the workspace has no machine for is left out, like a missing session.
+    if (ownership.rowFor(id as MachineId) === undefined) continue
     const verbs = machineVerbsFor(principal, id as MachineId, ownership)
-    if (verbs.size === 0) continue
-    machines[id] = [...verbs].map((verb) => VERB_ACTION[verb])
+    const actions: LiveGrantAction[] = ['view']
+    if (verbs.has('use')) actions.push('use')
+    if (verbs.has('manage')) actions.push('manage')
+    machines[id] = actions
     if (verbs.has('use')) usable.push(id as MachineId)
   }
 

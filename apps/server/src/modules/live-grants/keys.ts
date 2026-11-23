@@ -4,7 +4,9 @@
  * - A key file, when `PODIUM_LIVE_GRANT_KEYS_FILE` names one: the hosted way,
  *   and allowed on self-hosted too. Every Core process reads the same file (a
  *   mounted secret) and reads it again when it changes, so a rotation needs no
- *   restart. A named file that cannot be read fails the boot.
+ *   restart. A named file that cannot be read fails the boot. Rotation window:
+ *   keep the old key about an hour plus two minutes after every Core process
+ *   signs with the new one (see `@podium/live-grants` keys.ts).
  * - Hosted without a file: no key, never one minted. Grant requests answer 503
  *   until the operator configures it.
  * - Self-hosted without a file: a ring minted on first use into the install's
