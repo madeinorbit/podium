@@ -1,10 +1,11 @@
 // @vitest-environment happy-dom
 import { act, cleanup, fireEvent, render } from '@testing-library/react'
-import { type JSX, Profiler, useRef, useState } from 'react'
+import { type JSX, Profiler, type RefObject, useRef, useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ISSUE_VIRTUAL_MAX_ITEMS, useBoundedVirtualList } from './use-bounded-virtual-list'
 
 const KEYS = Array.from({ length: 674 }, (_, index) => `issue-${index}`)
+const SHORT_KEYS = KEYS.slice(0, 14)
 
 function WindowHarness({
   keys = KEYS,
@@ -69,10 +70,12 @@ function NestedWindowHarness({ keys = KEYS }: { keys?: string[] }): JSX.Element 
 /** Stable refs, as WorklistWindow passes them: no render re-subscribes. */
 function SectionedWindowHarness({
   late = false,
+  hidden = false,
   onScrollAnchor,
   keys = KEYS,
 }: {
   late?: boolean
+  hidden?: boolean
   onScrollAnchor?: () => void
   keys?: string[]
 }): JSX.Element {
@@ -89,7 +92,7 @@ function SectionedWindowHarness({
     <div ref={scrollRef} data-testid="sectioned-scroll">
       {late ? <div data-testid="late-section" /> : null}
       <div data-testid="preceding-section" />
-      <div>
+      <div aria-hidden={hidden || undefined}>
         <div ref={containerRef} data-testid="sectioned-container">
           {virtual.items.map((item) => (
             <div key={item.key} data-testid="sectioned-row">
@@ -98,6 +101,41 @@ function SectionedWindowHarness({
           ))}
         </div>
       </div>
+    </div>
+  )
+}
+
+function SiblingWindow({
+  name,
+  keys,
+  scrollRef,
+}: {
+  name: string
+  keys: string[]
+  scrollRef: RefObject<HTMLElement | null>
+}): JSX.Element {
+  const containerRef = useRef<HTMLDivElement | null>(null)
+  const virtual = useBoundedVirtualList({ keys, scrollRef, containerRef, estimateSize: 40 })
+  return (
+    <div data-testid={`section-${name}`}>
+      <div ref={containerRef} data-testid={`container-${name}`}>
+        {virtual.items.map((item) => (
+          <div key={item.key} data-testid={`row-${name}`}>
+            {item.key}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function SiblingWindowsHarness(): JSX.Element {
+  const scrollRef = useRef<HTMLDivElement | null>(null)
+  return (
+    <div ref={scrollRef} data-testid="sibling-scroll">
+      <div data-testid="sibling-preceding" />
+      <SiblingWindow name="short" keys={SHORT_KEYS} scrollRef={scrollRef} />
+      <SiblingWindow name="long" keys={KEYS} scrollRef={scrollRef} />
     </div>
   )
 }
@@ -287,6 +325,27 @@ describe('bounded variable-height issue window', () => {
     expect(rows()).toEqual(visible)
   })
 
+  it('does not anchor a retained window while its own fold is hidden', () => {
+    vi.useFakeTimers()
+    const view = render(<SectionedWindowHarness keys={SHORT_KEYS} />)
+    const scroll = view.getByTestId('sectioned-scroll')
+    const container = view.getByTestId('sectioned-container')
+    const section = container.parentElement as HTMLElement
+    sizeViewport(scroll, 320)
+    let precedingHeight = 3074
+    Object.defineProperty(container, 'offsetParent', { configurable: true, value: section })
+    Object.defineProperty(section, 'offsetParent', { configurable: true, value: scroll })
+    vi.spyOn(section, 'offsetTop', 'get').mockImplementation(() => precedingHeight)
+    vi.spyOn(section, 'offsetHeight', 'get').mockReturnValue(560)
+    scroll.scrollTop = 3154
+    fireEvent.scroll(scroll)
+    flushViewport()
+    precedingHeight = 0
+    view.rerender(<SectionedWindowHarness keys={SHORT_KEYS} hidden />)
+    flushViewport()
+    expect(scroll.scrollTop).toBe(3154)
+  })
+
   it('does not treat browser scroll clamping during a fold as a user scroll', () => {
     vi.useFakeTimers()
     vi.stubGlobal('ResizeObserver', RecordingResizeObserver)
@@ -316,6 +375,41 @@ describe('bounded variable-height issue window', () => {
       'issue-6',
     )
   })
+  it.each([
+    'commit',
+    'resize',
+  ] as const)('does not let sibling windows repeat a shared correction via %s', (delivery) => {
+    vi.useFakeTimers()
+    vi.stubGlobal('ResizeObserver', RecordingResizeObserver)
+    const view = render(<SiblingWindowsHarness />)
+    const scroll = view.getByTestId('sibling-scroll')
+    sizeViewport(scroll, 320)
+    let precedingHeight = 3074
+    for (const [name, prefix, count] of [
+      ['short', 0, 14],
+      ['long', 560, 674],
+    ] as const) {
+      const container = view.getByTestId(`container-${name}`)
+      const section = view.getByTestId(`section-${name}`)
+      Object.defineProperty(container, 'offsetParent', { configurable: true, value: section })
+      Object.defineProperty(section, 'offsetParent', { configurable: true, value: scroll })
+      vi.spyOn(section, 'offsetTop', 'get').mockImplementation(() => precedingHeight + prefix)
+      vi.spyOn(section, 'offsetHeight', 'get').mockReturnValue(count * 40)
+    }
+    scroll.scrollTop = 3154
+    fireEvent.scroll(scroll)
+    flushViewport()
+    const visible = view.getAllByTestId('row-short').map((node) => node.textContent)
+    for (const height of [0, 3074]) {
+      precedingHeight = height
+      if (delivery === 'commit') view.rerender(<SiblingWindowsHarness />)
+      else RecordingResizeObserver.resize(view.getByTestId('sibling-preceding'))
+      flushViewport()
+      expect(scroll.scrollTop).toBe(height + 80)
+      expect(view.getAllByTestId('row-short').map((node) => node.textContent)).toEqual(visible)
+    }
+  })
+
   it.each([
     0, 48,
   ])('keeps selection redraw and scroll ID reads flat at 1x and 4x with height %i', (height) => {

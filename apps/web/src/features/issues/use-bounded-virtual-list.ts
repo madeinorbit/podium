@@ -13,6 +13,10 @@ export const ISSUE_VIRTUAL_MAX_ITEMS = 72
 export const ISSUE_VIRTUAL_SIZE_CACHE = 128
 const DEFAULT_OVERSCAN = 4
 const DEFAULT_INITIAL_ITEMS = 16
+// A grouped surface has several independent windows. A correction by one of
+// them invalidates the others' scroll snapshots; it is not a user scroll that
+// transfers ownership to a different section in the old layout.
+const scrollAnchorVersions = new WeakMap<HTMLElement, number>()
 
 export interface VirtualIssueItem {
   key: string
@@ -168,6 +172,7 @@ export function useBoundedVirtualList({
     top: number
     scrollTop: number
     section: { start: number; end: number } | null
+    anchorVersion: number
   } | null>(null)
   const onScrollAnchorRef = useRef(onScrollAnchor)
   onScrollAnchorRef.current = onScrollAnchor
@@ -220,8 +225,12 @@ export function useBoundedVirtualList({
     const prior = priorLayoutRef.current
     const scroll = scrollRef.current
     const container = containerRef?.current
+    // A closing/retained fold cannot supply a visible row to anchor. In
+    // particular, a folder drag hides its visited windows before restoring them.
+    const visible = !container?.closest('[aria-hidden="true"], [inert]')
     const currentTop = localScrollTop(scroll, container)
     const saved = priorViewportRef.current
+    const anchorVersion = scroll ? (scrollAnchorVersions.get(scroll) ?? 0) : 0
     const scrollTop = scroll?.scrollTop ?? 0
     const maxScroll = scroll ? Math.max(0, scroll.scrollHeight - scroll.clientHeight) : 0
     // Shrinking the scroll extent can clamp the browser's offset before any
@@ -232,7 +241,9 @@ export function useBoundedVirtualList({
     const changed = prior !== current || top !== currentTop
     if (
       changed &&
+      visible &&
       saved &&
+      saved.anchorVersion === anchorVersion &&
       prior.keys.length > 0 &&
       scroll &&
       top < prior.totalSize &&
@@ -250,6 +261,7 @@ export function useBoundedVirtualList({
           offsetAt(current, currentIndex) - offsetAt(prior, anchorIndex) + top - currentTop
         if (delta !== 0) {
           scroll.scrollTop += delta
+          scrollAnchorVersions.set(scroll, anchorVersion + 1)
           onScrollAnchorRef.current?.()
         }
       }
@@ -257,8 +269,13 @@ export function useBoundedVirtualList({
     priorLayoutRef.current = current
     const nextTop = localScrollTop(scroll, container)
     priorViewportRef.current =
-      scroll && (!containerRef || container)
-        ? { top: nextTop, scrollTop: scroll.scrollTop, section: sectionBounds(scroll, container) }
+      scroll && visible && (!containerRef || container)
+        ? {
+            top: nextTop,
+            scrollTop: scroll.scrollTop,
+            section: sectionBounds(scroll, container),
+            anchorVersion: scrollAnchorVersions.get(scroll) ?? 0,
+          }
         : null
     return { top: nextTop, height: scroll?.clientHeight ?? 0, changed }
   }, [scrollRef, containerRef])
