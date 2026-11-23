@@ -1,4 +1,7 @@
 /** The named process-wide seams share code, never another workspace's state (POD-7289). */
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { asMachineId, asUserId, INSTANCE_PREFERENCES_ROW_ID, Inventory } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import { DEVICE_GRADE_PRINCIPAL } from '@podium/sync'
@@ -7,6 +10,7 @@ import { INSTALL_FAILING_NOTICE_MS } from '../modules/machines/install-notices'
 import { asSystemWrite } from '../plain-command-scope'
 import { SessionRegistry } from '../relay'
 import type { SessionStore } from '../store'
+import { openWorkerReadSession } from '../sync-worker/read-session'
 import { jobWorkspaceId, type SyncJob } from '../sync-worker/types'
 import { bootstrapVisibility } from '../sync-worker/visibility'
 import { countStatements, settledCommand } from '../test-support/statement-count'
@@ -19,11 +23,13 @@ const TAGS = ['a', 'b'] as const
 const USER = asUserId('member-shared')
 const MACHINE = asMachineId('machine-shared')
 const NOW = Date.parse('2026-11-20T12:00:00.000Z')
+let directory: string
 let stores: Record<Tag, SessionStore>
 let registries: Partial<Record<Tag, SessionRegistry>>
 
 beforeEach(async () => {
-  const [a, b] = await openWorkspaceStores(['ws_a', 'ws_b'], { path: ':memory:' })
+  directory = mkdtempSync(join(tmpdir(), 'workspace-runtime-'))
+  const [a, b] = await openWorkspaceStores(['ws_a', 'ws_b'], { path: join(directory, 'store.db') })
   stores = { a, b }
   registries = {}
   for (const tag of TAGS) {
@@ -53,8 +59,15 @@ beforeEach(async () => {
 })
 
 afterEach(async () => {
-  for (const tag of TAGS) await registries?.[tag]?.dispose()
-  await stores?.a.close()
+  try {
+    for (const tag of TAGS) await registries?.[tag]?.dispose()
+  } finally {
+    try {
+      await stores?.a.close()
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  }
 })
 
 const inventory = (failing: boolean) =>
@@ -154,37 +167,44 @@ describe('two workspaces in one process', () => {
         ),
       )
     }
-    const contexts = await Promise.all(
-      TAGS.map(
-        async (tag) =>
-          await bootstrapVisibility(stores[tag].database.queries, {
-            workspaceId: stores[tag].workspaceId,
-          }).context,
-      ),
-    )
-    for (const [index, tag] of TAGS.entries()) {
-      const context = contexts[index]
-      if (!context) throw new Error(`workspace ${tag} has no sync context`)
-      expect(await context.sync.readFeedIdentity()).toEqual(
-        await stores[tag].sync.readFeedIdentity(),
+    const session = await openWorkerReadSession(stores.a.database.location)
+    try {
+      const contexts = await Promise.all(
+        TAGS.map(
+          async (tag) =>
+            await bootstrapVisibility(session.executor, {
+              workspaceId: stores[tag].workspaceId,
+            }).context,
+        ),
       )
-      const rows = await context.records.build('instancePreferences', [INSTANCE_PREFERENCES_ROW_ID])
-      expect(rows).toHaveLength(1)
-      expect(rows[0]?.value).toMatchObject({ 'experimental.concertmaster': tag === 'a' })
-      const job: SyncJob = {
-        workspaceId: stores[tag].workspaceId,
-        transferId: tag,
-        principal: { ...DEVICE_GRADE_PRINCIPAL, user: USER },
-        feedId: 'feed',
-        epoch: 'epoch',
-        encoding: 'identity',
+      for (const [index, tag] of TAGS.entries()) {
+        const context = contexts[index]
+        if (!context) throw new Error(`workspace ${tag} has no sync context`)
+        expect(await context.sync.readFeedIdentity()).toEqual(
+          await stores[tag].sync.readFeedIdentity(),
+        )
+        const rows = await context.records.build('instancePreferences', [
+          INSTANCE_PREFERENCES_ROW_ID,
+        ])
+        expect(rows).toHaveLength(1)
+        expect(rows[0]?.value).toMatchObject({ 'experimental.concertmaster': tag === 'a' })
+        const job: SyncJob = {
+          workspaceId: stores[tag].workspaceId,
+          transferId: tag,
+          principal: { ...DEVICE_GRADE_PRINCIPAL, user: USER },
+          feedId: 'feed',
+          epoch: 'epoch',
+          encoding: 'identity',
+        }
+        expect(jobWorkspaceId(job)).toBe(stores[tag].workspaceId)
+        const { workspaceId: _workspace, ...missing } = job
+        expect(() => jobWorkspaceId(missing as SyncJob)).toThrow('explicit workspace')
       }
-      expect(jobWorkspaceId(job)).toBe(stores[tag].workspaceId)
-      const { workspaceId: _workspace, ...missing } = job
-      expect(() => jobWorkspaceId(missing as SyncJob)).toThrow('explicit workspace')
+      expect(await contexts[0]?.sync.readFeedIdentity()).not.toEqual(
+        await contexts[1]?.sync.readFeedIdentity(),
+      )
+    } finally {
+      await session.close()
     }
-    expect(await contexts[0]?.sync.readFeedIdentity()).not.toEqual(
-      await contexts[1]?.sync.readFeedIdentity(),
-    )
   })
 })
