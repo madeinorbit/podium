@@ -9,6 +9,7 @@ import type { SqlDatabaseLike } from '@podium/sync/adapters/mobile-sqlite'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { Component, type ReactNode } from 'react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { passwordCapabilities } from '../test-support/auth-capabilities'
 
 const device = vi.hoisted(() => ({
   metadata: new Map<string, string>(),
@@ -192,7 +193,10 @@ beforeEach(() => {
         needsAuth: device.protected,
         authed,
         userId: authed ? 'first-member' : null,
-        ...(authed ? { memberId: 'first-member', syncBoundaryId: 'fresh-boundary' } : {}),
+        ...(authed
+          ? { memberId: 'first-member', syncBoundaryId: 'fresh-boundary' }
+          : // Upstream's sign-in screen draws only the options the server offers.
+            { capabilities: passwordCapabilities, prompt: 'password' }),
       })
     }
     if (url.pathname === '/auth/login') {

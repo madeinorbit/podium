@@ -15,7 +15,10 @@ vi.mock('expo-router/stack', () => ({
     { Screen: () => null },
   ),
 }))
-vi.mock('../client/hooks', () => ({ useStoreActions: () => ({}) }))
+vi.mock('@podium/client-core/react', async (original) => ({
+  ...(await original<typeof import('@podium/client-core/react')>()),
+  useCommands: () => ({ issues: {}, sessions: {}, preferences: {} }),
+}))
 vi.mock('../client/use-issue-close', () => ({ useIssueCloseGuard: () => () => false }))
 vi.mock('../client/use-issue-model', () => ({ useIssueModel: () => undefined }))
 vi.mock('../navigation/use-dismiss-on-root-leave', () => ({ useDismissOnRootLeave: () => {} }))

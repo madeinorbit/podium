@@ -15,7 +15,7 @@ import {
 import { isFinished } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import { useLocalSearchParams } from 'expo-router'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { ScrollView, StyleSheet, View } from 'react-native'
 import { useConnected, useTrpc } from '../client/hooks'
 import { issueObserver as observer } from '../client/issue-observer'
@@ -236,6 +236,11 @@ const IssueContent = observer(function IssueContent({
   const hasMates = useHasIssueMates(issue, true)
   const [detailsOpen, detailsCollapsed] = useDetailsFold()
   const keyboardLift = useKeyboardLift()
+  // The ••• menu's hooks run before any record read below: the issue observer
+  // catches LOADING inside this render, so a hook after a read that can throw
+  // would change the hook count between renders. The menu is cached by its key.
+  const menuRun = useRef<Parameters<typeof issueMenuEntries>[1]['current']>(null as never)
+  const menuCache = useRef<{ key: string; actions: readonly ScreenAction[] } | null>(null)
 
   /** Run a mutation, surfacing any thrown error verbatim as an inline note. */
   const run: RunMutation = async (fn) => {
@@ -275,8 +280,16 @@ const IssueContent = observer(function IssueContent({
     if (pool) issueActivity(pool, issue.id).appendComment(body)
   }
 
-  const sessions = detail?.phoneSessions ?? EMPTY_SESSIONS
-  if (typeof sessions === 'symbol') throw sessions
+  // Seats still loading are thrown only after every hook below has run: the
+  // issue observer catches LOADING inside this render, so an early throw would
+  // change the hook count between renders.
+  const rawSessions = detail?.phoneSessions ?? EMPTY_SESSIONS
+  const rawActive = detail?.dockActiveSessions ?? EMPTY_SESSIONS
+  const rawMembers = detail?.memberSessions ?? EMPTY_SESSIONS
+  const seatsLoading = [rawSessions, rawActive, rawMembers].find(
+    (value) => typeof value === 'symbol',
+  )
+  const sessions = typeof rawSessions === 'symbol' ? EMPTY_SESSIONS : rawSessions
   const agents = sessions.filter((session) => session.agentKind !== 'shell')
   const parentEdge = resolveEdgeFromPool(pool, issue.parentId)
   const parent = parentEdge.render === 'issue' ? parentEdge.resolution.value : undefined
@@ -287,12 +300,10 @@ const IssueContent = observer(function IssueContent({
   // The shared page view orders open seats as desktop does: wanting attention
   // (an open offer), then the coordinator, then most recent. Its first seat
   // leads the page; a task with none open falls back to its roster.
-  const active = detail?.dockActiveSessions ?? EMPTY_SESSIONS
-  if (typeof active === 'symbol') throw active
+  const active = typeof rawActive === 'symbol' ? EMPTY_SESSIONS : rawActive
   // Archived seats leave the open lists; the shared member roster keeps them,
   // so a finished task still shows (and opens) the session that did it.
-  const members = detail?.memberSessions ?? EMPTY_SESSIONS
-  if (typeof members === 'symbol') throw members
+  const members = typeof rawMembers === 'symbol' ? EMPTY_SESSIONS : rawMembers
   const seats =
     active.length > 0
       ? active
@@ -308,7 +319,6 @@ const IssueContent = observer(function IssueContent({
   // leaves the chat two screens down, where the stack freezes it blank.
   const launch = () =>
     dismiss ? router.replace(launchAgentHref(issue.id)) : router.push(launchAgentHref(issue.id))
-  const menuRun = useRef({ commands, onBack, launch })
   menuRun.current = { commands, onBack, launch }
   const menuKey = JSON.stringify({
     live: !issue.deletedAt,
@@ -318,16 +328,17 @@ const IssueContent = observer(function IssueContent({
     finished: isFinished(issue),
     hasMates,
   })
-  // biome-ignore lint/correctness/useExhaustiveDependencies: `menuKey` carries the facts by value.
-  const menuEntries = useMemo(
-    () => issueMenuEntries(JSON.parse(menuKey) as IssueMenuFacts, menuRun, setSheet),
-    [menuKey],
-  )
   const menuTitle = issueDisplayRef(issue)
-  const menuBarActions = useMemo<readonly ScreenAction[]>(
-    () => [{ label: 'More actions', icon: MoreHorizontal, items: menuEntries, menuTitle }],
-    [menuEntries, menuTitle],
-  )
+  const menuCacheKey = `${menuKey}\u0000${menuTitle}`
+  if (menuCache.current?.key !== menuCacheKey) {
+    const items = issueMenuEntries(JSON.parse(menuKey) as IssueMenuFacts, menuRun, setSheet)
+    menuCache.current = {
+      key: menuCacheKey,
+      actions: [{ label: 'More actions', icon: MoreHorizontal, items, menuTitle }],
+    }
+  }
+  const menuBarActions = menuCache.current.actions
+  if (seatsLoading) throw seatsLoading
 
   /**
    * Dismiss THIS sheet, and only if it is still the one showing.

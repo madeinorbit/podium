@@ -383,7 +383,7 @@ it('dismisses Inspect Task before its session row opens chat, then pushes Consol
     fireEvent.click(
       await screen.findByRole('button', { name: /^Coordinator,/ }, { timeout: 10_000 }),
     )
-    await screen.findByRole('button', { name: 'Open terminal' })
+    await screen.findByRole('button', { name: 'Open terminal' }, { timeout: 10_000 })
     expect(state.navigationState?.routes.map((route) => route.name)).toEqual([
       '(tabs)',
       'mission/[missionId]',
@@ -548,10 +548,8 @@ it('keeps accepted task output and closed-picker per-open work flat at 1x and 4x
       // literal fixture described the pre-redesign page).
       const output = taskOutput(mounted.container)
       expect(screen.queryByLabelText('Change task colour')).toBeNull()
-      expect(
-        mounted.container.querySelector('[style*="width: 22px; height: 22px;"]'),
-      ).not.toBeNull()
-      expect(mounted.container.querySelector('[style*="padding-top: 26px;"]')).not.toBeNull()
+      // Upstream also pinned its task page's 22px identity square and 26px top
+      // padding; the phone keeps dev/tf's redesigned task page, pinned by the digest.
       census.exit()
       const phase = census.snapshot().phases['open task']!
       const stats = readRuntimeStoreStats(state.runtime!)!

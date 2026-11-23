@@ -134,6 +134,7 @@ function LifecycleButton({
         accessibilityRole="button"
         accessibilityLabel={label}
         accessibilityState={{ disabled: busy, busy }}
+        aria-busy={busy}
         disabled={busy}
         testID={['lifecycle-', action.id].join('')}
         onPress={() => void run()}

@@ -49,6 +49,7 @@ vi.mock('../hooks/useReduceMotion', () => ({ useReduceMotion: () => native.reduc
 vi.mock('../client/hooks', () => ({ useHub: () => native.hub, useConnected: () => true }))
 vi.mock('../client/use-session-context', () => ({
   useSessionContextSession: () => undefined,
+  useSessionContextGeometry: () => undefined,
   useSessionContextSpawnPending: () => false,
 }))
 vi.mock('./TerminalDom', () => ({

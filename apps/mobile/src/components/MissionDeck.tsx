@@ -248,6 +248,7 @@ export const MissionDeck = observer(function MissionDeck({
                 accessibilityRole="button"
                 accessibilityLabel={`Proposals, ${proposalIds.length}`}
                 accessibilityState={{ expanded: proposalsOpen }}
+                aria-expanded={proposalsOpen}
                 onPress={() => setProposalsOpen((open) => !open)}
                 style={styles.sectionToggle}
               >

@@ -76,6 +76,7 @@ export function ComposeStartButton(props: ComposeSheetHeaderProps) {
             accessibilityLabel="Start Task"
             accessibilityHint="Hold for Save to Backlog"
             accessibilityState={{ disabled: !props.canStart }}
+            aria-disabled={!props.canStart}
             onPress={onPress}
             onLongPress={onLongPress}
             style={styles.round}
@@ -89,6 +90,7 @@ export function ComposeStartButton(props: ComposeSheetHeaderProps) {
             accessibilityLabel="Start Task"
             accessibilityHint="Hold for Save to Backlog"
             accessibilityState={{ disabled: !props.canStart }}
+            aria-disabled={!props.canStart}
             style={styles.round}
           >
             {content}

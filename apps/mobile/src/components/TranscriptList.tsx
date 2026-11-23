@@ -673,6 +673,7 @@ const EnvelopeContents = observer(function EnvelopeContents({
               accessibilityRole="button"
               accessibilityLabel={`Reply to ${who}`}
               accessibilityState={{ selected: replying }}
+              aria-selected={replying}
               onPress={() => mailReply.start(envelope)}
               style={({ pressed }) => [styles.wellButton, pressed && styles.murmurPressed]}
             >

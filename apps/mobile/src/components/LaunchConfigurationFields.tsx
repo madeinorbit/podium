@@ -275,6 +275,7 @@ export const LaunchConfigurationFields = observer(function LaunchConfigurationFi
             accessible
             accessibilityLabel={`${row.label}, ${row.valueLabel}`}
             accessibilityState={{ disabled: true }}
+            aria-disabled={true}
             style={rowStyle}
           >
             {content}

@@ -68,8 +68,8 @@ import { MissionBar } from './MissionBar'
 
 const full = {
   ready: true,
-  buckets: { done: 41, total: 64, working: 2, waiting: 0, todo: 21 },
-  counts: { 'needs-you': 1, 'up-next': 11 },
+  phoneBuckets: { done: 41, total: 64, working: 2, waiting: 0, todo: 21 },
+  phoneCounts: { 'needs-you': 1, 'up-next': 11 },
 } as unknown as FullDeck
 // Nested RN Text inherits its parent's foreground when it has no own color.
 const token = (node: HTMLElement) =>
@@ -173,8 +173,8 @@ it('uses the light foreground when iOS reports an unspecified appearance', () =>
 
 const long = {
   ...full,
-  buckets: { done: 106, total: 112, working: 2, waiting: 0, todo: 4 },
-  counts: { 'needs-you': 1, 'up-next': 33 },
+  phoneBuckets: { done: 106, total: 112, working: 2, waiting: 0, todo: 4 },
+  phoneCounts: { 'needs-you': 1, 'up-next': 33 },
 } as unknown as FullDeck
 
 it.each([
@@ -213,8 +213,8 @@ it.each([
   appearance.fontScale = 3.12
   const single = {
     ...long,
-    buckets: { ...long.buckets, working },
-    counts: { 'needs-you': needsYou, 'up-next': 33 },
+    phoneBuckets: { ...long.phoneBuckets, working },
+    phoneCounts: { 'needs-you': needsYou, 'up-next': 33 },
   } as unknown as FullDeck
   render(<MissionBar full={single} onOpen={() => {}} />)
   const label = visibleText(reading)

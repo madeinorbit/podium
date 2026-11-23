@@ -33,6 +33,7 @@ export const MissionProposalRow = observer(function MissionProposalRow({
         accessibilityRole="button"
         accessibilityLabel={`Proposal ${facts.ref} ${facts.title}`}
         accessibilityState={{ busy: status?.phase === 'pending' }}
+        aria-busy={status?.phase === 'pending'}
         haptic={false}
         onPress={onPress}
         onLongPress={() => setMenu(true)}

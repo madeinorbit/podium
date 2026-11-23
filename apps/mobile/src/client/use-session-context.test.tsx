@@ -73,6 +73,11 @@ vi.mock('expo-router', () => ({
   useLocalSearchParams: () => ({ sessionId: seams.route }),
   useFocusEffect: (fn: () => (() => void) | void) => useEffect(fn, [fn]),
 }))
+// The phone's terminal route reads safe-area insets (dev/tf Console layout).
+vi.mock('react-native-safe-area-context', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('react-native-safe-area-context')>()),
+  useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: 0, left: 0 }),
+}))
 vi.mock('expo-haptics', () => ({
   ImpactFeedbackStyle: { Light: 'light' },
   NotificationFeedbackType: { Error: 'error' },

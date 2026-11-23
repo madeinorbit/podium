@@ -52,6 +52,7 @@ export const DeckPhaseHeading = observer(function DeckPhaseHeading({
       accessibilityRole="button"
       accessibilityLabel={`${title}, ${TASK_WORD_LABEL[facts.word]}, ${done} of ${total} done`}
       accessibilityState={{ expanded: open }}
+      aria-expanded={open}
       hitSlop={SECTION_SLOP}
       onPress={() => phase.deck.toggleFold(phase.id)}
       style={({ pressed }) => [styles.section, pressed && styles.dimmed]}
@@ -153,6 +154,7 @@ export const DeckTaskRow = observer(function DeckTaskRow({
             accessibilityRole="button"
             accessibilityLabel={`${open ? 'Collapse' : 'Expand'} ${title}`}
             accessibilityState={{ expanded: open }}
+            aria-expanded={open}
             hitSlop={DISCLOSURE_SLOP}
             style={styles.foldToggle}
             onPress={() => task.deck.toggleFold(task.id)}
@@ -181,6 +183,7 @@ export const DeckAgentRow = observer(function DeckAgentRow({
       accessibilityRole="button"
       accessibilityLabel={`${name}, ${SESSION_WORD_LABEL[session.word]}${current ? ', open' : ''}`}
       accessibilityState={{ selected: current }}
+      aria-selected={current}
       pressRetentionOffset={12}
       onPress={onPress}
       style={({ pressed }) => [styles.agent, current && styles.selected, pressed && styles.pressed]}
@@ -237,6 +240,7 @@ export const DeckSeatRow = observer(function DeckSeatRow({
       accessibilityRole="button"
       accessibilityLabel={`${name}, ${word}${current ? ', open' : ''}`}
       accessibilityState={{ selected: current }}
+      aria-selected={current}
       pressRetentionOffset={12}
       onPress={onPress}
       // The open seat is a full-bleed row tint the card clips to its own shape;

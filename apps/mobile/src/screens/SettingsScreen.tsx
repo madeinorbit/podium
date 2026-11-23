@@ -472,6 +472,7 @@ const SettingsServers = observer(function SettingsServers() {
             accessibilityRole="button"
             accessibilityLabel={`Switch to ${row.name}`}
             accessibilityState={{ selected: row.id === profile.id }}
+            aria-selected={row.id === profile.id}
           >
             <View style={styles.serverDetails}>
               <Text style={styles.rowTitle} numberOfLines={lines}>
