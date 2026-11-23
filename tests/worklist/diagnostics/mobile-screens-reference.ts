@@ -23,14 +23,13 @@ import {
   taskProgressMap,
   taskStateWord,
 } from '@podium/client-core/values'
+import { defaultSeatBy } from '@podium/client-graph/mission-seat'
 import { asIssueId, dedupeSessionsByResume, isFinished } from '@podium/model'
 import {
   coordinatedSeat,
   coordinatorLive,
   leafTasks,
-  sessionWord,
   sessionWorkingFact,
-  wordWantsAttention,
 } from '@podium/model/browser'
 import { expect } from 'vitest'
 import type { MobileScreenInput } from './mobile-screens-snapshot'
@@ -453,21 +452,15 @@ export function expectMobileScreens(
       : []
     facts.crews.set(root?.id ?? '', crew)
   }
-  // The expected answer uses source records and the declared phone triage rule.
-  // Calling the production selector here passed raw rows to model-only getters
-  // and silently ranked every source session as closed.
-  const selectionRank = (session: (typeof crew)[number]) => {
-    if (session.archived || session.status === 'exited' || session.status === 'hibernated') return 3
-    const issue = session.issueId ? members.get(session.issueId) : undefined
-    if (
-      wordWantsAttention(sessionWord(session, { issueClosed: issue ? isFinished(issue) : false }))
-    )
-      return 0
-    return session.agentState?.phase === 'working' ? 1 : 2
-  }
-  const automatic = [...crew].sort(
-    (a, b) => selectionRank(a) - selectionRank(b) || b.lastActiveAt.localeCompare(a.lastActiveAt),
-  )[0]
+  // The phone opens a mission on the shared default seat (dev/tf 75d210056f):
+  // coordinator, lone member, then most recently active, over open sessions. The
+  // oracle applies the same rule to its own source records (open: not archived,
+  // not exited; a source record exists by being present).
+  const automatic = defaultSeatBy(
+    crew,
+    root?.coordinatorSessionId,
+    (session) => !session.archived && session.status !== 'exited',
+  )
   const current =
     crew.find((session) => session.sessionId === input.requestedSessionId) ?? automatic
   const header = (current?.issueId ? members.get(current.issueId) : undefined) ?? root
