@@ -222,26 +222,67 @@ const eventCutOf = prepared((db, t) =>
     .prepare(),
 )
 
-/** Prunable events: older than the cutoff, or at or below the cap. */
-const prunableEvents = (t: StoreTables) =>
+/**
+ * PRUNABLE EVENTS AS TWO SEEKS (POD-7435), as the server's delete reads them
+ * (`EventsRepository.pruneEventBatch`): at or below the cap along the
+ * `(workspace_id, id)` key, or older than the cutoff along `idx_podium_events_ts`.
+ * Ids do not follow ts (a historical transcript replay appends old timestamps
+ * under new ids), so the two limits have no one range; their `OR` walked the
+ * whole log on every janitor tick.
+ */
+const overCapEvents = (t: StoreTables) =>
+  inWorkspace(t.podiumEvents, lte(t.podiumEvents.id, param(t.podiumEvents.id, 'capThroughId')))
+
+const agedEvents = (t: StoreTables, ...more: SQL[]) =>
   inWorkspace(
     t.podiumEvents,
-    sql`(${t.podiumEvents.ts} < ${param(t.podiumEvents.ts, 'cutoff')} OR ${t.podiumEvents.id} <= ${param(t.podiumEvents.id, 'capThroughId')})`,
+    sql`${t.podiumEvents.ts} < ${param(t.podiumEvents.ts, 'cutoff')}`,
+    ...more,
   )
 
-/** The lowest prunable event id. */
-const eventPruneHeadOf = prepared((db, t) =>
-  db
-    .select({ head: sql<number | null>`MIN(${t.podiumEvents.id})`.mapWith(asNumber) })
+/** The lowest prunable event id: the lower of the two arms' lowest. */
+const eventPruneHeadOf = prepared((db, t) => {
+  const arms = db
+    .select({ head: sql<number | null>`MIN(${t.podiumEvents.id})`.as('head') })
     .from(t.podiumEvents)
-    .where(prunableEvents(t))
-    .prepare(),
-)
+    .where(overCapEvents(t))
+    .unionAll(
+      db
+        // `+ 0`: not the bare key, so Postgres does not answer the MIN by walking the
+        // primary key up from the oldest id until an aged row turns up, which reads
+        // the log when the aged rows are a replay's newest ids. It reads the aged
+        // rows' range of idx_podium_events_ts instead, as SQLite does.
+        .select({ head: sql<number | null>`MIN(${t.podiumEvents.id} + 0)`.as('head') })
+        .from(t.podiumEvents)
+        .where(agedEvents(t)),
+    )
+    .as('arms')
+  return db
+    .select({ head: sql<number | null>`MIN(${arms.head})`.mapWith(asNumber) })
+    .from(arms)
+    .prepare()
+})
 
-/** How many events are prunable. */
-const eventPruneCountOf = prepared((db, t) =>
-  db.select({ n: count() }).from(t.podiumEvents).where(prunableEvents(t)).prepare(),
-)
+/** How many events are prunable: those over the cap, and the aged ones above it. */
+const eventPruneCountOf = prepared((db, t) => {
+  const arms = db
+    .select({ n: count().as('n') })
+    .from(t.podiumEvents)
+    .where(overCapEvents(t))
+    .unionAll(
+      db
+        .select({ n: count().as('n') })
+        .from(t.podiumEvents)
+        .where(
+          agedEvents(t, sql`${t.podiumEvents.id} > ${param(t.podiumEvents.id, 'capThroughId')}`),
+        ),
+    )
+    .as('arms')
+  return db
+    .select({ n: sql<number>`COALESCE(SUM(${arms.n}), 0)`.mapWith(Number) })
+    .from(arms)
+    .prepare()
+})
 
 // ---------------------------------------------------------------------------
 // Change-log retention: the feed's bounds and its newest aged sequence.

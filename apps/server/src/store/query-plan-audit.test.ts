@@ -346,7 +346,7 @@ const ALLOWLIST: ReadonlyMap<string, string> = new Map([
   ],
   [
     'apps/server/src/store/events.ts:deletePruneBatch',
-    'Reads the oldest events in id order and stops at the batch limit.',
+    'Two bounded arms (POD-7435): the oldest ids at or below the cap along (workspace_id, id), and the oldest ts below the cutoff along idx_podium_events_ts, each cut to a batch of candidates. The sort merges those at most two batches and keeps the lowest ids; it never reads the log.',
   ],
   [
     'apps/server/src/store/events.ts:subscriptionsOf',
@@ -439,16 +439,8 @@ const ALLOWLIST: ReadonlyMap<string, string> = new Map([
   ],
   ['apps/server/src/store/janitor-reads.ts:maxEventIdOf', MIN_MAX_SEEK],
   [
-    'apps/server/src/store/janitor-reads.ts:eventPruneHeadOf',
-    "Walks the workspace's events oldest first along its key (workspace_id, id) and stops at the first prunable one: the cap is a prefix of the ids and the age cutoff starts at the oldest end, so the head is found at once whenever there is one.",
-  ],
-  [
     'apps/server/src/store/janitor-reads.ts:eventsAboveGuessOf',
     "Counts the workspace's events above the row cap's guess on the narrowest index (named on SQLite): a kind and a rowid per entry, never a table page, and the log is held to the cap (POD-7035, as events.ts:eventsAboveId).",
-  ],
-  [
-    'apps/server/src/store/janitor-reads.ts:eventPruneCountOf',
-    'Counts the prunable events (too old, or over the cap): the OR of age and cap has no one index, and the log is bounded by the retention policy it prunes to.',
   ],
   [
     'apps/server/src/store/janitor-reads.ts:worktreeGcFirst',

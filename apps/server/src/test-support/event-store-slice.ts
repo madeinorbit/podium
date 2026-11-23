@@ -35,6 +35,7 @@ import { pgQueryLayer } from '../store/executor/pg-drizzle'
 import { instrumentDriver, statementProbeHubFor } from '../store/executor/statement-probe'
 import { type GlobalQueries, legacyWorkspaceQueries } from '../store/executor/sync-drizzle'
 import { InteractionsRepository } from '../store/interactions'
+import { JanitorReadsRepository } from '../store/janitor-reads'
 import { LocksRepository } from '../store/locks'
 import { MaintenanceRepository } from '../store/maintenance'
 import { ObservationCheckpointsRepository } from '../store/observation-checkpoints'
@@ -61,6 +62,8 @@ export interface EventStoreSlice {
   readonly transcriptCosts: TranscriptCostsRepository
   readonly maintenance: MaintenanceRepository
   readonly locks: LocksRepository
+  /** The janitor's reads of the workspace: reads only, so nothing to drain. */
+  readonly janitorReads: JanitorReadsRepository
   /** What `countStatements` attaches to: the store's driver, on either engine. */
   readonly probeTarget: { readonly db: object }
   /**
@@ -89,6 +92,7 @@ function sliceOver(slice: SliceStore): EventStoreSlice {
     transcriptCosts: drained(new TranscriptCostsRepository(queries)),
     maintenance: drained(new MaintenanceRepository(queries)),
     locks: drained(new LocksRepository(queries)),
+    janitorReads: new JanitorReadsRepository(queries),
     probeTarget: slice.probeTarget,
     run: async (statement: SQL): Promise<void> => {
       await drainedWrite(slice, async () => {

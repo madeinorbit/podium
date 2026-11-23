@@ -659,9 +659,31 @@ const eventIdAtOrBelow = prepared((db, t) =>
 )
 
 /**
+ * THE RETENTION VICTIMS AS TWO BOUNDED SEEKS (POD-7435).
+ *
+ * An event is prunable when it is beyond the row cap (`id <= capThroughId`) or
+ * older than the age cutoff (`ts < cutoff`). The two limits are independent:
+ * ids do not follow ts, because a historical transcript replay appends old
+ * timestamps under new ids. One `OR` over both had no index to seek, so the
+ * candidate read walked the workspace's whole log in id order (about 50 MB on
+ * the operator's database) to find the few dozen rows a steady-state pass
+ * deletes.
+ *
+ * Each limit is its own arm, read in its index's order and cut to `budget`
+ * candidates: the cap arm walks `(workspace_id, id)` up from the oldest id and
+ * ends at `capThroughId`; the age arm walks `idx_podium_events_ts` up from the
+ * oldest ts and ends at the cutoff. A unit therefore reads at most `budget`
+ * entries per arm, and only as many as there are victims when fewer qualify.
+ * The arms are merged without duplicates, the projector fence applied, and the
+ * LOWEST IDS of what is left are the batch: across both arms the oldest ids go
+ * first, as before; among age victims the arm's order picks the oldest ts.
+ *
  * The projector's head fences runtime rows: anything above it has not been
  * projected yet and must survive retention. COALESCE covers the projector
- * never having run, where the head is 0 and nothing is fenced.
+ * never having run, where the head is 0 and every runtime row is fenced. The
+ * fence is applied to the budgeted candidates, so unprojected rows at the
+ * front of an arm hold back that arm's later victims until the projector
+ * passes them; it advances on each accepted runtime event.
  */
 const pruneCandidates = (db: StoreDrizzle, t: StoreTables) => {
   const projectedThrough = db
@@ -673,25 +695,44 @@ const pruneCandidates = (db: StoreDrizzle, t: StoreTables) => {
         eq(t.runtimeEventProjectionCursors.projector, RUNTIME_BOARD_PROJECTOR),
       ),
     )
-  return db
-    .select({ id: t.podiumEvents.id, kind: t.podiumEvents.kind, subject: t.podiumEvents.subject })
+  const overCap = db
+    .select({ id: t.podiumEvents.id, kind: t.podiumEvents.kind })
+    .from(t.podiumEvents)
+    .where(
+      inWorkspace(t.podiumEvents, lte(t.podiumEvents.id, param(t.podiumEvents.id, 'capThroughId'))),
+    )
+    .orderBy(asc(t.podiumEvents.id))
+    .limit(sql.placeholder('budget'))
+    .as('over_cap')
+  const tooOld = db
+    .select({ id: t.podiumEvents.id, kind: t.podiumEvents.kind })
     .from(t.podiumEvents)
     .where(
       inWorkspace(
         t.podiumEvents,
-        or(
-          sql`${t.podiumEvents.ts} < ${sql.placeholder('cutoff')}`,
-          lte(t.podiumEvents.id, param(t.podiumEvents.id, 'capThroughId')),
-        ),
-        not(
-          and(
-            eq(t.podiumEvents.kind, RUNTIME_EVENT_LOG_KIND),
-            gt(t.podiumEvents.id, sql`COALESCE((${projectedThrough}), 0)`),
-          ) ?? sql`0`,
-        ),
+        sql`${t.podiumEvents.ts} < ${param(t.podiumEvents.ts, 'cutoff')}`,
       ),
     )
-    .orderBy(asc(t.podiumEvents.id))
+    .orderBy(asc(t.podiumEvents.ts), asc(t.podiumEvents.id))
+    .limit(sql.placeholder('budget'))
+    .as('too_old')
+  const candidates = db
+    .select({ id: overCap.id, kind: overCap.kind })
+    .from(overCap)
+    .union(db.select({ id: tooOld.id, kind: tooOld.kind }).from(tooOld))
+    .as('candidates')
+  return db
+    .select({ id: candidates.id })
+    .from(candidates)
+    .where(
+      not(
+        and(
+          eq(candidates.kind, RUNTIME_EVENT_LOG_KIND),
+          gt(candidates.id, sql`COALESCE((${projectedThrough}), 0)`),
+        ) ?? sql`0`,
+      ),
+    )
+    .orderBy(asc(candidates.id))
     .limit(sql.placeholder('batchSize'))
 }
 
@@ -1589,8 +1630,14 @@ export class EventsRepository {
     if (!Number.isInteger(batchSize) || batchSize <= 0) {
       throw new RangeError('batchSize must be a positive integer')
     }
-    // The projector's head fences runtime rows (see deletePruneBatch).
-    const params = { cutoff: plan.cutoff, capThroughId: plan.capThroughId, batchSize }
+    // Each arm reads at most a batch of candidates; the projector's head fences
+    // runtime rows (see pruneCandidates).
+    const params = {
+      cutoff: plan.cutoff,
+      capThroughId: plan.capThroughId,
+      batchSize,
+      budget: batchSize,
+    }
     // Retention can take events of the feed window and a session's transcript
     // evidence: the batch runs as a change-log commit, so what moved is
     // appended in the batch's own transaction (POD-6920).
