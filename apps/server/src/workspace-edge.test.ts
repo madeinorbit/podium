@@ -335,6 +335,7 @@ describe('hosted edge, two workspaces in one database', () => {
       '/%66iles/asset',
       '/%74rpc/machines.list',
       '/%73ync/bootstrap',
+      '/%6cive/grant',
       '/auth/%6dobile-pair/start',
     ]
     const paths = [...named, ...HTTP_BOUND.map((entry) => encoded(samplePath(entry)))]
@@ -354,6 +355,7 @@ describe('hosted edge, two workspaces in one database', () => {
       '/%66iles/asset',
       '/%74rpc/x',
       '/%73ync/bootstrap',
+      '/%6cive/grant',
       '/auth/%6dobile-pair/start',
       '/auth/%6dembers/list',
       '/auth/%61dmin/viewer',

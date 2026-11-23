@@ -135,6 +135,12 @@ export const WORKSPACE_ENTRY_POINTS: readonly EntryPoint[] = [
   },
   {
     transport: 'http',
+    path: '/live/',
+    binding: 'member',
+    why: "live grants; the grant's audience is the bound workspace and it names only what the member resolved in it may see",
+  },
+  {
+    transport: 'http',
     path: '/files/',
     binding: 'member',
     why: "assets and artifacts are read from the bound workspace's stores; an artifact path segment must name the bound workspace",
