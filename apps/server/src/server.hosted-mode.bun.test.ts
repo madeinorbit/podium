@@ -271,9 +271,14 @@ for (const engine of ['sqlite', 'pg'] as const) {
       })
 
       it('serves the unbound routes without a selector', async () => {
-        for (const path of ['/health', '/version', '/readiness']) {
+        for (const path of ['/health', '/version']) {
           expect((await fetch(`${f.origin()}${path}`)).status, path).toBe(200)
         }
+        // The readiness route answers this first-run server's state itself
+        // (503 while unconfigured); the edge did not refuse it.
+        expect(await (await fetch(`${f.origin()}/readiness`)).json()).toMatchObject({
+          state: 'unconfigured',
+        })
       })
     })
 
