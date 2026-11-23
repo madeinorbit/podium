@@ -235,8 +235,11 @@ export function useBoundedVirtualList({
     const maxScroll = scroll ? Math.max(0, scroll.scrollHeight - scroll.clientHeight) : 0
     // Shrinking the scroll extent can clamp the browser's offset before any
     // observer or effect runs. That movement is not a request to change rows.
+    // scrollHeight/clientHeight are rounded; animated scrollTop can be fractional.
     const anchorScrollTop =
-      saved && scrollTop === maxScroll && saved.scrollTop > maxScroll ? saved.scrollTop : scrollTop
+      saved && Math.abs(scrollTop - maxScroll) <= 1 && saved.scrollTop > maxScroll
+        ? saved.scrollTop
+        : scrollTop
     const top = saved ? saved.top + anchorScrollTop - saved.scrollTop : currentTop
     const changed = prior !== current || top !== currentTop
     if (

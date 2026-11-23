@@ -346,7 +346,9 @@ describe('bounded variable-height issue window', () => {
     expect(scroll.scrollTop).toBe(3154)
   })
 
-  it('does not treat browser scroll clamping during a fold as a user scroll', () => {
+  it.each([
+    0, 0.5,
+  ])('does not treat scroll clamping with %i px rounding as a user scroll', (rounding) => {
     vi.useFakeTimers()
     vi.stubGlobal('ResizeObserver', RecordingResizeObserver)
     const keys = KEYS.slice(0, 14)
@@ -365,12 +367,15 @@ describe('bounded variable-height issue window', () => {
     fireEvent.scroll(scroll)
     flushViewport()
 
-    precedingHeight = 0
-    // The browser clamps scrollTop as soon as the scroll extent shrinks.
-    scroll.scrollTop = 240
-    RecordingResizeObserver.resize(view.getByTestId('preceding-section'))
-    flushViewport()
-    expect(scroll.scrollTop).toBe(240)
+    for (const height of [3054, 0]) {
+      precedingHeight = height
+      // The browser clamps scrollTop as soon as the scroll extent shrinks;
+      // scrollHeight is rounded even while animated scrollTop is fractional.
+      scroll.scrollTop = height + 240 - rounding
+      RecordingResizeObserver.resize(view.getByTestId('preceding-section'))
+      flushViewport()
+      expect(scroll.scrollTop).toBe(height + 240)
+    }
     expect(view.getAllByTestId('sectioned-row').map((node) => node.textContent)).toContain(
       'issue-6',
     )
