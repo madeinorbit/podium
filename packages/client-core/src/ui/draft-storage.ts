@@ -8,20 +8,7 @@ import {
 } from '../replica/contract'
 import type { DeviceStorage } from './device-storage'
 
-export const DEVICE_DRAFT_KEYS = new Set([
-  'podium.drafts.v1',
-  'podium.newWork.model',
-  'podium.newWork.effort',
-  'podium.newWork.machine',
-  'podium.newWork.repo',
-  'podium.githubProjectIntake.draft',
-  'podium.localProjectIntake.draft',
-  'podium.existingPodium.clientDraft',
-  'podium.existingPodium.machineDraft',
-  'podium.onboarding.vpsServerDraft',
-  'podium.firstTaskActivation.draft',
-  'podium.onboarding.active',
-])
+export { DEVICE_DRAFT_KEYS } from './draft-keys'
 export interface LegacyDeviceKeys extends UiState {
   keys(): readonly string[]
 }

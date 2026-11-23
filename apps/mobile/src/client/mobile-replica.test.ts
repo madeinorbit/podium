@@ -4,8 +4,10 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { PodiumClientApi } from '@podium/client-core/api'
+import { DraftStore } from '@podium/client-core/conversation'
 import type { NoticeSink } from '@podium/client-core/notices'
 import {
+  createAsyncStorageReplicaStorage,
   principalKeyPrefix,
   REPLICA_KEY_PREFIX,
   type Replica,
@@ -225,6 +227,7 @@ const STUB_API = {} as unknown as PodiumClientApi
 async function open(args: {
   file: string
   storage: StorageApi & { keys?: () => string[] }
+  api?: PodiumClientApi
   evidence?: LegacyIdentityEvidence
   /** WHO IS SIGNED IN. Omitted, the pre-identity default stands (the legacy
    *  arm the cases above exercise); named, the store is opened under that
@@ -279,7 +282,7 @@ async function open(args: {
     },
   }
   const opened = await openMobileReplica({
-    api: STUB_API,
+    api: args.api ?? STUB_API,
     openStore: async () => {
       const { SqliteSyncStore } = await import('@podium/sync/adapters/mobile-sqlite')
       return SqliteSyncStore.open({
@@ -1089,11 +1092,131 @@ describe('phone: signing in to workspace A, then B, on one device', () => {
   function recordingApi() {
     const sent: unknown[] = []
     const api = {
-      sync: { submit: { mutate: async (input: unknown) => void sent.push(input) } },
+      sync: {
+        submit: {
+          mutate: async (input: unknown) => {
+            sent.push(input)
+            return {
+              outcome: 'applied',
+              result: { ok: true },
+              receipt: { feedId: 'feed', epoch: 'e1', seq: 1 },
+              replayed: false,
+            }
+          },
+        },
+      },
     } as unknown as PodiumClientApi
     return { api, sent }
   }
   const notices = { error: () => {}, info: () => {} } as unknown as NoticeSink
+
+  it.each([
+    'writes',
+    'drafts',
+    'writes and drafts',
+  ] as const)('keeps %s in five workspaces and sends them on return', async (work) => {
+    const file = freshDatabaseFile()
+    const native = new Map<string, string>()
+    const workspaces = Array.from({ length: 5 }, (_, index) => ({
+      boundary: `ws-${index}`,
+      sessionId: asSessionId(`session-${index}`),
+      mutationId: asMutationId(`write-${index}`),
+      server: recordingApi(),
+    }))
+    const signIn = async (workspace: (typeof workspaces)[number]) => {
+      // A fresh bridge each time proves the previous workspace reached AsyncStorage.
+      const bridge = await createAsyncStorageReplicaStorage({
+        getAllKeys: async () => [...native.keys()],
+        getItem: async (key) => native.get(key) ?? null,
+        setItem: async (key, value) => void native.set(key, value),
+        removeItem: async (key) => void native.delete(key),
+      })
+      return await open({
+        file,
+        api: workspace.server.api,
+        storage: { ...bridge.storage, keys: bridge.keys },
+        flushStorage: bridge.flushDurable,
+        principal: principalOf(workspace.boundary),
+        clientPrincipal: MEMBER,
+      })
+    }
+    for (const workspace of workspaces) {
+      const session = await signIn(workspace)
+      seedIssue(session.store, session.principal, {
+        id: workspace.boundary,
+        title: workspace.boundary,
+      })
+      if (work.includes('drafts')) {
+        const drafts = new DraftStore({
+          storage: openLegacyDeviceKeys(session.replica.deviceStorage()),
+          hub: { on: () => () => {}, sendDraftEdit: () => false },
+        })
+        drafts.set(workspace.sessionId, `Unsent draft in ${workspace.boundary}`)
+        drafts.dispose()
+      }
+      if (work.includes('writes')) {
+        const queue = engineOutbox(session)
+        await queue.enqueue(
+          'dismissOffer',
+          { sessionId: workspace.sessionId, offerCreatedAt: '2026-11-23T00:00:00.000Z' },
+          { mutationId: workspace.mutationId },
+        )
+        queue.dispose()
+      }
+      await session.dispose()
+      expect(workspace.server.sent).toEqual([])
+    }
+    for (const workspace of workspaces) {
+      const session = await signIn(workspace)
+      try {
+        expect(session.replica.rows('issueProjections').map((row) => row.id)).toEqual([
+          workspace.boundary,
+        ])
+        if (work.includes('drafts')) {
+          const sentDrafts: unknown[] = []
+          const drafts = new DraftStore({
+            storage: openLegacyDeviceKeys(session.replica.deviceStorage()),
+            hub: {
+              on: () => () => {},
+              sendDraftEdit: (...args) => {
+                sentDrafts.push(args)
+                return true
+              },
+            },
+          })
+          expect(drafts.get(workspace.sessionId)).toBe(`Unsent draft in ${workspace.boundary}`)
+          drafts.flushDirty()
+          expect(sentDrafts).toEqual([
+            [workspace.sessionId, 0, `Unsent draft in ${workspace.boundary}`],
+          ])
+          drafts.dispose()
+        }
+        if (work.includes('writes')) {
+          const queue = session.createOutboxFn({
+            api: workspace.server.api,
+            replica: session.replica,
+            notices,
+            isOnline: () => true,
+          })
+          expect(queue.pending().map((entry) => entry.mutationId)).toEqual([workspace.mutationId])
+          await queue.drain()
+          await vi.waitFor(async () =>
+            expect(await session.store.viewFor(session.principal).outbox.read()).toEqual([]),
+          )
+          expect(workspace.server.sent).toEqual([
+            expect.objectContaining({
+              mutationId: workspace.mutationId,
+              command: 'sessions.dismissOffer',
+              input: expect.objectContaining({ sessionId: workspace.sessionId }),
+            }),
+          ])
+          queue.dispose()
+        }
+      } finally {
+        await session.dispose()
+      }
+    }
+  })
 
   it('shows and sends nothing of A in B, and finds all of A again on the way back', async () => {
     const file = freshDatabaseFile()

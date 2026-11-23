@@ -14,6 +14,7 @@ import {
   createSideCache,
   eraseLegacyTranscriptKeys,
   FeedSink,
+  inspectPrincipalNamespaces,
   parseReplicaNamespaceKey,
   preparePrincipalNamespace,
   type Replica,
@@ -205,9 +206,29 @@ export async function openReplicaAssembly<T extends ReplicaDataStore>(
       await erasePrincipal(stale, cleanup.principal)
       await cleanup.complete()
     }
-    const namespace = preparePrincipalNamespace({ ...settings, principal: options.principal, now })
+    // A namespace is a cache only after its durable authored-work region is
+    // known clean. Failure to read another workspace must never authorize loss.
+    const cleanPrincipals = new Set<string>()
+    for (const principal of inspectPrincipalNamespaces(settings)) {
+      if (principal === options.principal) continue
+      try {
+        if ((await store.viewFor(principal).outbox.read()).length === 0)
+          cleanPrincipals.add(principal)
+      } catch {
+        // Keep unreadable work; the acting workspace can still open normally.
+      }
+    }
+    const namespace = preparePrincipalNamespace({
+      ...settings,
+      principal: options.principal,
+      now,
+      canEvict: (principal) => cleanPrincipals.has(principal),
+    })
     for (const stalePrincipal of namespace.evictedPrincipals) {
-      await store.erasePrincipal(stalePrincipal)
+      // Never run the sign-out eraser during retention: another tab may have
+      // queued work since the clean check. Cache discard preserves every outbox row.
+      store.viewFor(stalePrincipal).cache.discardCache()
+      await store.settled()
       await eraseTranscripts(stalePrincipal)
     }
     // Chat history left the shared key space; its old keys go, unread.

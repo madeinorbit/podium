@@ -7,9 +7,9 @@
  *
  * Retention policy (the security/default decision for POD-401):
  * - sign-out erases the acting principal's namespace;
- * - at most three principal namespaces are retained on a device;
- * - an inactive namespace expires after 30 days;
- * - the active namespace is never selected for retention eviction.
+ * - retain three namespaces, allowing more while they hold authored work;
+ * - a clean inactive namespace expires after 30 days;
+ * - the active namespace and unsent work are never selected for eviction.
  *
  * The theme is intentionally outside this module. It is the sole raw pre-auth
  * storage read because it is cosmetic and carries no identity, cursor, entity or
@@ -18,6 +18,7 @@
 
 import { createLogger } from '@podium/logger'
 import type { StorageApi } from './contract'
+import { hasPendingNamespaceSettings, isAuthoredNamespaceKey } from './principal-retention'
 
 const log = createLogger('client-core:principal-storage')
 
@@ -45,6 +46,8 @@ export interface PrincipalNamespaceInit {
   readonly principal: string
   readonly now?: () => number
   readonly policy?: PrincipalNamespacePolicy
+  /** True only after the durable outbox was read and found empty. Absent: keep it. */
+  readonly canEvict?: (principal: string) => boolean
 }
 
 export interface PrincipalNamespace {
@@ -135,26 +138,38 @@ export function preparePrincipalNamespace(init: PrincipalNamespaceInit): Princip
     })
   }
 
+  const canEvict = (entry: NamespaceMarker & { keyPrefix: string }): boolean => {
+    if (entry.principal === init.principal) return false
+    try {
+      return (
+        init.canEvict?.(entry.principal) === true &&
+        !hasPendingNamespaceSettings(init.storage, entry.keyPrefix)
+      )
+    } catch {
+      return false
+    }
+  }
   const stale = [...markers.values()]
-    .filter(
-      (entry) =>
-        entry.principal !== init.principal && now - entry.lastUsedAt > policy.maxInactiveMs,
-    )
+    .filter((entry) => now - entry.lastUsedAt > policy.maxInactiveMs && canEvict(entry))
     .sort((a, b) => a.lastUsedAt - b.lastUsedAt)
 
   const staleRoots = new Set(stale.map((entry) => entry.keyPrefix))
   const retained = [...markers.values()]
     .filter((entry) => !staleRoots.has(entry.keyPrefix))
-    .sort((a, b) => b.lastUsedAt - a.lastUsedAt)
-  for (const entry of retained.slice(policy.maxRetainedPrincipals)) {
-    if (entry.principal !== init.principal) staleRoots.add(entry.keyPrefix)
+    .sort((a, b) => a.lastUsedAt - b.lastUsedAt)
+  let excess = retained.length - policy.maxRetainedPrincipals
+  for (const entry of retained) {
+    if (excess <= 0) break
+    if (!canEvict(entry)) continue
+    staleRoots.add(entry.keyPrefix)
+    excess -= 1
   }
 
   const evictedPrincipals: string[] = []
   for (const root of staleRoots) {
     const marker = markers.get(root)
     if (marker !== undefined) evictedPrincipals.push(marker.principal)
-    eraseRoot(init.storage, safeKeys(init.enumerateKeys), root)
+    eraseRoot(init.storage, safeKeys(init.enumerateKeys), root, true)
   }
 
   // QUOTA SELF-HEAL (POD-3967, incident root cause 2). The marker write above
@@ -163,10 +178,8 @@ export function preparePrincipalNamespace(init: PrincipalNamespaceInit): Princip
   // to boot — while the eviction that would have made room could never run
   // because it needed the marker. Retry the marker now that retention has
   // evicted what it was going to evict; if it still does not fit, evict the
-  // remaining INACTIVE namespaces one at a time, least recently used first,
-  // retrying after each. The active namespace is never evicted, and nothing
-  // about the retention policy itself changes: this only decides what gives
-  // way when the device is genuinely out of room.
+  // remaining CLEAN INACTIVE namespaces one at a time, least recently used first,
+  // retrying after each. The active namespace and unsent work never give way.
   const writeMarker = (): boolean => {
     try {
       init.storage.setItem(
@@ -182,12 +195,12 @@ export function preparePrincipalNamespace(init: PrincipalNamespaceInit): Princip
     let fits = writeMarker()
     if (!fits) {
       const inactive = [...markers.values()]
-        .filter((entry) => entry.principal !== init.principal && !staleRoots.has(entry.keyPrefix))
+        .filter((entry) => !staleRoots.has(entry.keyPrefix) && canEvict(entry))
         .sort((a, b) => a.lastUsedAt - b.lastUsedAt)
       for (const entry of inactive) {
         staleRoots.add(entry.keyPrefix)
         evictedPrincipals.push(entry.principal)
-        eraseRoot(init.storage, safeKeys(init.enumerateKeys), entry.keyPrefix)
+        eraseRoot(init.storage, safeKeys(init.enumerateKeys), entry.keyPrefix, true)
         fits = writeMarker()
         if (fits) break
       }
@@ -263,9 +276,15 @@ function safeKeys(enumerate: () => string[]): string[] {
   }
 }
 
-function eraseRoot(storage: StorageApi, keys: readonly string[], root: string): void {
+function eraseRoot(
+  storage: StorageApi,
+  keys: readonly string[],
+  root: string,
+  preserveAuthoredWork = false,
+): void {
   for (const key of keys) {
     if (key !== root && !key.startsWith(`${root}.`)) continue
+    if (preserveAuthoredWork && isAuthoredNamespaceKey(root, key)) continue
     storage.removeItem(key)
   }
 }

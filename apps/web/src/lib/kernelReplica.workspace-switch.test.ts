@@ -15,13 +15,14 @@
  */
 
 import type { PodiumClientApi } from '@podium/client-core/api'
+import { DraftStore } from '@podium/client-core/conversation'
 import type { NoticeSink } from '@podium/client-core/notices'
 import { classifyAuthStatus } from '@podium/client-core/replica-assembly'
 import type { TranscriptStore } from '@podium/client-core/transcript-store'
 import { openLegacyDeviceKeys } from '@podium/client-core/ui'
 import { asMutationId, asSessionId } from '@podium/model'
 import { IDBFactory, IDBKeyRange } from 'fake-indexeddb'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { type KernelAssembly, openKernelAssembly, webTranscriptDatabases } from './kernelReplica'
 
 const MEMBER = 'member-1'
@@ -38,7 +39,19 @@ function principalOf(syncBoundaryId: string): string {
 function recordingApi() {
   const sent: unknown[] = []
   const api = {
-    sync: { submit: { mutate: async (input: unknown) => void sent.push(input) } },
+    sync: {
+      submit: {
+        mutate: async (input: unknown) => {
+          sent.push(input)
+          return {
+            outcome: 'applied',
+            result: { ok: true },
+            receipt: { feedId: 'feed', epoch: 'e1', seq: 1 },
+            replayed: false,
+          }
+        },
+      },
+    },
   } as unknown as PodiumClientApi
   return { api, sent }
 }
@@ -52,10 +65,14 @@ afterEach(async () => {
   localStorage.clear()
 })
 
-async function signIn(factory: IDBFactory, syncBoundaryId: string) {
+async function signIn(
+  factory: IDBFactory,
+  syncBoundaryId: string,
+  api: PodiumClientApi = {} as PodiumClientApi,
+) {
   const principal = principalOf(syncBoundaryId)
   const assembly = await openKernelAssembly({
-    trpc: {} as never,
+    trpc: api as never,
     principal,
     factory: factory as never,
     evidence: { kind: 'single-account', principal },
@@ -77,6 +94,106 @@ async function signOut(session: Awaited<ReturnType<typeof signIn>>) {
 }
 
 describe('web: signing in to workspace A, then B, on one browser', () => {
+  it.each([
+    'writes',
+    'drafts',
+    'writes and drafts',
+  ] as const)('keeps %s in five workspaces and sends them on return', async (work) => {
+    const device = new IDBFactory()
+    const workspaces = Array.from({ length: 5 }, (_, index) => ({
+      boundary: `ws-${index}`,
+      sessionId: asSessionId(`session-${index}`),
+      mutationId: asMutationId(`write-${index}`),
+      server: recordingApi(),
+    }))
+    for (const workspace of workspaces) {
+      const session = await signIn(device, workspace.boundary, workspace.server.api)
+      session.assembly.store.viewFor(session.principal).cache.applyAtomic({
+        operations: [
+          {
+            kind: 'upsert',
+            entity: 'issueProjection',
+            entityId: workspace.boundary,
+            value: { id: workspace.boundary, title: workspace.boundary, status: 'open' },
+            provenance: { seq: 1, originId: 'o', causationId: 'c', mutationId: asMutationId('m') },
+          },
+        ],
+        cursor: { feedId: 'feed', epoch: 'e1', seq: 1 },
+      })
+      if (work.includes('drafts')) {
+        const drafts = new DraftStore({
+          storage: openLegacyDeviceKeys(session.replica.deviceStorage()),
+          hub: { on: () => () => {}, sendDraftEdit: () => false },
+        })
+        drafts.set(workspace.sessionId, `Unsent draft in ${workspace.boundary}`)
+        drafts.dispose()
+      }
+      if (work.includes('writes')) {
+        const queue = session.assembly.createOutboxFn({
+          api: workspace.server.api,
+          replica: session.replica,
+          notices,
+          isOnline: () => false,
+        })
+        await queue.enqueue(
+          'dismissOffer',
+          { sessionId: workspace.sessionId, offerCreatedAt: '2026-11-23T00:00:00.000Z' },
+          { mutationId: workspace.mutationId },
+        )
+        queue.dispose()
+      }
+      await signOut(session)
+      expect(workspace.server.sent).toEqual([])
+    }
+    for (const workspace of workspaces) {
+      const session = await signIn(device, workspace.boundary, workspace.server.api)
+      expect(session.replica.rows('issueProjections').map((row) => row.id)).toEqual([
+        workspace.boundary,
+      ])
+      if (work.includes('drafts')) {
+        const sentDrafts: unknown[] = []
+        const drafts = new DraftStore({
+          storage: openLegacyDeviceKeys(session.replica.deviceStorage()),
+          hub: {
+            on: () => () => {},
+            sendDraftEdit: (...args) => {
+              sentDrafts.push(args)
+              return true
+            },
+          },
+        })
+        expect(drafts.get(workspace.sessionId)).toBe(`Unsent draft in ${workspace.boundary}`)
+        drafts.flushDirty()
+        expect(sentDrafts).toEqual([
+          [workspace.sessionId, 0, `Unsent draft in ${workspace.boundary}`],
+        ])
+        drafts.dispose()
+      }
+      if (work.includes('writes')) {
+        const queue = session.assembly.createOutboxFn({
+          api: workspace.server.api,
+          replica: session.replica,
+          notices,
+          isOnline: () => true,
+        })
+        expect(queue.pending().map((entry) => entry.mutationId)).toEqual([workspace.mutationId])
+        await queue.drain()
+        await vi.waitFor(async () =>
+          expect(await session.assembly.store.viewFor(session.principal).outbox.read()).toEqual([]),
+        )
+        expect(workspace.server.sent).toEqual([
+          expect.objectContaining({
+            mutationId: workspace.mutationId,
+            command: 'sessions.dismissOffer',
+            input: expect.objectContaining({ sessionId: workspace.sessionId }),
+          }),
+        ])
+        queue.dispose()
+      }
+      await signOut(session)
+    }
+  })
+
   it('shows and sends nothing of A in B, and finds all of A again on the way back', async () => {
     const device = new IDBFactory()
 

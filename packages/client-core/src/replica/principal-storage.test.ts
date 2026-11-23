@@ -115,6 +115,7 @@ describe('principal replica storage', () => {
         principal,
         now: () => at,
         policy: POLICY,
+        canEvict: () => true,
       })
     const alice = open('alice', 0)
     memory.api.setItem(`${alice.keyPrefix}.cursor.v1`, '1')
@@ -128,6 +129,119 @@ describe('principal replica storage', () => {
     const dana = open('dana', 200)
     expect(new Set(dana.evictedPrincipals)).toEqual(new Set(['bob', 'carol']))
     expect(dana.knownPrincipals).toEqual(['dana'])
+  })
+
+  it('keeps namespaces without proof that their durable outboxes are empty', () => {
+    const memory = keyedStorage()
+    for (let index = 0; index < 5; index += 1) {
+      const namespace = preparePrincipalNamespace({
+        storage: memory.api,
+        enumerateKeys: memory.keys,
+        basePrefix: 'podium.replica',
+        principal: `workspace-${index}`,
+        now: () => index * 200,
+        policy: POLICY,
+      })
+      expect(namespace.evictedPrincipals).toEqual([])
+      expect(namespace.knownPrincipals).toHaveLength(index + 1)
+    }
+  })
+
+  it.each([
+    ['.outbox.v1', '[{"mutationId":"queued"}]'],
+    ['.outbox-awaiting.v1', '[{"mutationId":"awaiting"}]'],
+    ['.outbox-dead-letter.v1', '[{"mutationId":"parked"}]'],
+    ['.outbox.v1', 'unreadable'],
+    ['.uistate.v1', 'unreadable'],
+    ['.uistate.v1', JSON.stringify({ 'podium.firstTaskActivation.draft': '{"title":"Unsent"}' })],
+    ...[
+      { text: 'offline edit', serverRev: 1, editedAt: 1, dirty: true },
+      { text: '', serverRev: 1, editedAt: 1, dirty: true },
+      { text: 'legacy edit', serverRev: 0, editedAt: 1 },
+    ].map((draft) => [
+      '.uistate.v1',
+      JSON.stringify({ 'podium.drafts.v1': JSON.stringify({ s1: draft }) }),
+    ]),
+  ])('preserves authored work in %s across age and count cleanup (%s)', (suffix, value) => {
+    const memory = keyedStorage()
+    const open = (principal: string, at: number) =>
+      preparePrincipalNamespace({
+        storage: memory.api,
+        enumerateKeys: memory.keys,
+        basePrefix: 'podium.replica',
+        principal,
+        now: () => at,
+        policy: POLICY,
+        canEvict: () => true,
+      })
+    const alice = open('alice', 0)
+    const workKey = `${alice.keyPrefix}${suffix}`
+    memory.api.setItem(workKey, value!)
+    open('bob', 50)
+    // Alice is the oldest, but only the clean Bob namespace may give way.
+    expect(open('carol', 75).evictedPrincipals).toEqual(['bob'])
+    expect(open('dana', 200).evictedPrincipals).toEqual(['carol'])
+    expect(memory.api.getItem(workKey)).toBe(value)
+  })
+
+  it('reclaims confirmed draft caches and preferences, while preserving authored homes', () => {
+    const memory = keyedStorage()
+    const init = {
+      storage: memory.api,
+      enumerateKeys: memory.keys,
+      basePrefix: 'podium.replica',
+      canEvict: () => true,
+      policy: { ...POLICY, maxRetainedPrincipals: 1 },
+    }
+    const alice = preparePrincipalNamespace({ ...init, principal: 'alice', now: () => 1 })
+    const draftsKey = `${alice.keyPrefix}.uistate.v1`
+    memory.api.setItem(
+      draftsKey,
+      JSON.stringify({
+        'podium.newWork.model': 'default',
+        'podium.drafts.v1': JSON.stringify({ s1: { text: 'synced', dirty: false } }),
+      }),
+    )
+    memory.api.setItem(`${alice.keyPrefix}.ui.v1`, '{"view":"worklist"}')
+    const bob = preparePrincipalNamespace({ ...init, principal: 'bob', now: () => 2 })
+    expect(bob.evictedPrincipals).toEqual(['alice'])
+    expect(memory.api.getItem(`${alice.keyPrefix}.ui.v1`)).toBeNull()
+    // Retention never deletes the home a concurrent writer may have just updated.
+    expect(memory.api.getItem(draftsKey)).not.toBeNull()
+  })
+
+  it('keeps a namespace when its settings or outbox eligibility cannot be read', () => {
+    const memory = keyedStorage()
+    const init = {
+      storage: memory.api,
+      enumerateKeys: memory.keys,
+      basePrefix: 'podium.replica',
+      policy: { ...POLICY, maxRetainedPrincipals: 1 },
+    }
+    const alice = preparePrincipalNamespace({ ...init, principal: 'alice', now: () => 1 })
+    const get = memory.api.getItem
+    vi.spyOn(memory.api, 'getItem').mockImplementation((key) => {
+      if (key === `${alice.keyPrefix}.uistate.v1`) throw new Error('read failed')
+      return get(key)
+    })
+    expect(
+      preparePrincipalNamespace({
+        ...init,
+        principal: 'bob',
+        now: () => 200,
+        canEvict: () => true,
+      }).evictedPrincipals,
+    ).toEqual([])
+    expect(
+      preparePrincipalNamespace({
+        ...init,
+        principal: 'carol',
+        now: () => 400,
+        canEvict: () => {
+          throw new Error('outbox unreadable')
+        },
+      }).knownPrincipals,
+    ).toEqual(['alice', 'bob', 'carol'])
   })
 
   it('legacy inputs are consumed once by the acting principal; theme alone remains raw', () => {
@@ -208,6 +322,7 @@ describe('quota self-heal (POD-3967)', () => {
       principal: 'user:sole',
       now: () => 1,
       policy: POLICY,
+      canEvict: () => true,
     })
     expect(old.durable).toBe(true)
     memory.api.setItem(`${old.keyPrefix}.blob`, 'x'.repeat(250))
@@ -220,11 +335,31 @@ describe('quota self-heal (POD-3967)', () => {
       principal: 'mem_successor',
       now: () => 2,
       policy: POLICY,
+      canEvict: () => true,
     })
     expect(successor.durable).toBe(true)
     expect(successor.evictedPrincipals).toEqual(['user:sole'])
     expect(memory.keys().some((key) => key.startsWith(old.keyPrefix))).toBe(false)
     expect(memory.keys()).toContain(`${successor.keyPrefix}.namespace.v1`)
+  })
+
+  it('does not sacrifice unsent work when quota recovery has no clean namespace', () => {
+    const memory = quotaStorage(500)
+    const init = {
+      storage: memory.api,
+      enumerateKeys: memory.keys,
+      basePrefix: 'podium.replica',
+      policy: POLICY,
+      canEvict: () => true,
+    }
+    const alice = preparePrincipalNamespace({ ...init, principal: 'alice', now: () => 1 })
+    memory.api.setItem(`${alice.keyPrefix}.outbox.v1`, '[{}]')
+    memory.api.setItem(`${alice.keyPrefix}.blob`, 'x'.repeat(300))
+    const bob = preparePrincipalNamespace({ ...init, principal: 'bob', now: () => 2 })
+    expect(bob.durable).toBe(false)
+    expect(bob.evictedPrincipals).toEqual([])
+    expect(memory.api.getItem(`${alice.keyPrefix}.outbox.v1`)).toBe('[{}]')
+    expect(memory.api.getItem(`${alice.keyPrefix}.blob`)).toHaveLength(300)
   })
 
   it('never evicts the active namespace and stays non-durable when nothing can give way', () => {
