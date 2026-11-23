@@ -1,6 +1,6 @@
 /** Invented normalized readings for shared-model consumers; no native fields. */
 import '@podium/client-graph/synced-models'
-import { type ContextSummary, HarnessId, Inventory } from '@podium/model'
+import { type ContextSummary, driverContextFor, HarnessId, Inventory } from '@podium/model'
 import { liveFixture } from './live-fixture'
 import { MobxPool, type PoolLazyOptions } from './pool'
 
@@ -43,50 +43,59 @@ export const contextInventory: Inventory = {
     { harness: 'codex', id: 'generic-pty', family: 'terminal' },
     { harness: 'cursor', id: 'generic-pty', family: 'terminal' },
   ],
-  contextCapabilities: [
-    {
-      harness: HarnessId.parse('codex'),
-      driverId: 'generic-pty',
-      capability: { summary: 'passive', detail: 'on-demand' },
-      availability: {
-        status: 'unavailable',
-        reason: { code: 'not-probed', message: 'No native inspection port' },
+  driverCapabilities: {
+    'generic-pty': {
+      context: {
+        [HarnessId.parse('codex')]: {
+          capability: { summary: 'passive', detail: 'on-demand' },
+          availability: {
+            status: 'unavailable',
+            reason: { code: 'not-probed', message: 'No native inspection port' },
+          },
+        },
+        [HarnessId.parse('cursor')]: {
+          availability: {
+            status: 'unsupported',
+            reason: { code: 'no-channel', message: 'Synthetic unsupported implementation' },
+          },
+        },
       },
     },
-    {
-      harness: HarnessId.parse('cursor'),
-      driverId: 'generic-pty',
-      availability: {
-        status: 'unsupported',
-        reason: { code: 'no-channel', message: 'Synthetic unsupported implementation' },
+    headless: {
+      context: {
+        [HarnessId.parse('codex')]: {
+          capability: { summary: 'passive', detail: 'none' },
+          availability: { status: 'available' },
+        },
       },
     },
-    {
-      harness: HarnessId.parse('codex'),
-      driverId: 'headless',
-      capability: { summary: 'passive', detail: 'none' },
-      availability: { status: 'available' },
-    },
-  ],
+  },
 }
 
 /** Newer peers may advertise a harness and driver this client cannot name.
- * Legacy session/launch vocabularies stay untouched; the new context field
- * carries the existing open wire identity and common capability value. */
+ * Legacy session/launch vocabularies stay untouched; the driver capability
+ * map carries the open wire identities and the common capability value. */
 export const futureContextInventory = Inventory.parse({
   os: 'linux',
   arch: 'x64',
   agents: [],
   runtimeDrivers: [],
-  contextCapabilities: [
-    {
-      harness: 'future-context-harness',
-      driverId: 'future-context-driver',
-      capability: { summary: 'passive', detail: 'on-demand' },
-      availability: { status: 'available' },
+  driverCapabilities: {
+    'future-context-driver': {
+      context: {
+        'future-context-harness': {
+          capability: { summary: 'passive', detail: 'on-demand' },
+          availability: { status: 'available' },
+        },
+      },
     },
-  ],
+  },
 })
+
+/** One harness's entry on one driver of a fixture inventory. */
+export function contextEntry(inventory: Inventory, driverId: string, harness: string) {
+  return driverContextFor(inventory.driverCapabilities, driverId, harness)
+}
 
 export function sessionContextFixture(lazy?: PoolLazyOptions) {
   let now = Date.parse(contextStamp)

@@ -1,4 +1,5 @@
 import { isBuiltinHarnessKind } from '@podium/model'
+import { canonicalDriverIdOf } from '@podium/harness/browser'
 import type { IssueBriefWire, IssueDescriptionWire, IssuePanelTodoWire, IssuePanelArtifactWire, IssuePanelDeferredWire, IssuePanelStateWire } from '@podium/model'
 import type { LayoutWire } from '@podium/model'
 import { type IssueNavigationModel, issuePendingDecision, missionTaskBucket, type MissionTaskBucket } from '@podium/client-core/values'
@@ -13,7 +14,8 @@ import {
   type ContextOccupancy,
   type ContextReason,
   type ContextSummary,
-  type Inventory,
+  type DriverContextWire,
+  driverContextFor,
 } from '@podium/model/browser'
 import type { ConcertmasterEntryWire, EffectError, EffectRecordWire, EffectStatus, InstancePreferences, IssueGitState, IssuePanel, IssuePanelArtifact, IssueProjection, NoticeWire, PersonalPreferences, PinKind, PinWire, ReadPositionWire, SuperagentThreadWire, TabOrderWire } from '@podium/model'
 import { type PodiumSettings, resolveRole } from '@podium/runtime'
@@ -1126,18 +1128,20 @@ export class SessionModel extends EntityModel {
   @lazy get context(): ContextSummary | undefined {
     return lastValue(this.contextReading)?.context
   }
-  /** The shared machine's context mechanism for this harness × bound driver. Preserve the
-   * pool's loading/gone answers, including an absent session or machine. */
-  @lazy get contextImplementation(): Lookup<
-    NonNullable<Inventory['contextCapabilities']>[number] | undefined
-  > {
+  /** The shared machine's context entry for the canonical bound driver, then
+   * this harness. Preserve the pool's loading/gone answers, including an absent
+   * session or machine; an inventory without the entry is unknown. */
+  @lazy get contextImplementation(): Lookup<DriverContextWire | undefined> {
     const row = this.row
     if (row === LOADING || isGone(row)) return row
     if (!this.machineId) return undefined
     const machine = this.host.model('machine', this.machineId)
     if (machine === LOADING || isGone(machine)) return machine
-    return machine.contextCapabilities?.find(
-      (driver) => driver.harness === this.agentKind && driver.driverId === this.driverId,
+    const driverId = this.driverId
+    return driverContextFor(
+      machine.driverCapabilities,
+      driverId === undefined ? undefined : canonicalDriverIdOf(driverId),
+      this.agentKind,
     )
   }
   @lazy get contextCapability(): ContextCapability | undefined {

@@ -5951,30 +5951,30 @@ type Output_machines_applyUpdate = {
                 version?: string | undefined;
             }[];
             arch: "arm64" | "x64";
+            driverCapabilities?: Record<string, {
+                context: Partial<Record<string & z.BRAND<"HarnessId">, {
+                    availability: {
+                        reason: {
+                            code: string;
+                            message: string;
+                        };
+                        status: "unavailable";
+                    } | {
+                        reason: {
+                            code: string;
+                            message: string;
+                        };
+                        status: "unsupported";
+                    } | {
+                        status: "available";
+                    };
+                    capability?: undefined | {
+                        detail: "none" | "on-demand";
+                        summary: "explicit" | "passive" | "passive-and-explicit";
+                    };
+                }>>;
+            }> | undefined;
             homePath?: string | undefined;
-            contextCapabilities?: undefined | {
-                availability: {
-                    reason: {
-                        code: string;
-                        message: string;
-                    };
-                    status: "unavailable";
-                } | {
-                    reason: {
-                        code: string;
-                        message: string;
-                    };
-                    status: "unsupported";
-                } | {
-                    status: "available";
-                };
-                capability?: undefined | {
-                    detail: "none" | "on-demand";
-                    summary: "explicit" | "passive" | "passive-and-explicit";
-                };
-                driverId: string;
-                harness: string & z.BRAND<"HarnessId">;
-            }[];
             os: "darwin" | "linux" | "win32";
             podiumVersion?: string | undefined;
             runtimeDrivers?: undefined | {
@@ -6161,6 +6161,29 @@ type Output_machines_uninstall = {
                 version?: string | undefined;
             }[];
             arch: "arm64" | "x64";
+            driverCapabilities?: Record<string, {
+                context: Partial<Record<string & z.BRAND<"HarnessId">, {
+                    availability: {
+                        reason: {
+                            code: string;
+                            message: string;
+                        };
+                        status: "unavailable";
+                    } | {
+                        reason: {
+                            code: string;
+                            message: string;
+                        };
+                        status: "unsupported";
+                    } | {
+                        status: "available";
+                    };
+                    capability?: undefined | {
+                        detail: "none" | "on-demand";
+                        summary: "explicit" | "passive" | "passive-and-explicit";
+                    };
+                }>>;
+            }> | undefined;
             homePath?: string | undefined;
             os: "darwin" | "linux" | "win32";
             podiumVersion?: string | undefined;

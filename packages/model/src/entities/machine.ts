@@ -192,6 +192,23 @@ export const ToolInventory = z.object({
 })
 export type ToolInventory = z.infer<typeof ToolInventory>
 
+/** One harness's context mechanism on one driver. A declaration is distinct
+ *  from native admission: `capability` is absent when the implementation
+ *  declines, and `availability` keeps its unsupported reason. */
+export const DriverContextWire = z.object({
+  capability: ContextCapability.optional(),
+  availability: ContextAvailability,
+})
+export type DriverContextWire = z.infer<typeof DriverContextWire>
+
+/** One driver's machine-level facts, independent of any session. `context` is
+ *  keyed by open harness id, so several harnesses sharing one driver id
+ *  (`generic-pty`, `headless`) each keep their own entry. */
+export const DriverCapabilitiesWire = z.object({
+  context: z.record(HarnessId, DriverContextWire),
+})
+export type DriverCapabilitiesWire = z.infer<typeof DriverCapabilitiesWire>
+
 /** `USE` — the whole inventory is use-gated detail: it is the answer to "what
  *  can I run on your hardware, and as whom", which §3.1.4 M2 calls a
  *  code-execution boundary rather than a privacy one. */
@@ -218,24 +235,33 @@ export const Inventory = z.object({
       }),
     )
     .optional(),
-  /** Context mechanisms include explicit-only drivers that are not launch
-   * choices. One machine source, keyed by harness and bound driver; absent
-   * from older inventories. A declaration is distinct from native admission. */
-  contextCapabilities: z
-    .array(
-      z.object({
-        harness: HarnessId,
-        driverId: z.string().min(1),
-        capability: ContextCapability.optional(),
-        availability: ContextAvailability,
-      }),
-    )
-    .optional(),
+  /** What each driver this daemon knows can do, keyed by canonical driver id.
+   * A session names only its bound driver; clients look the rest up here,
+   * through the session's machine. Not `runtimeDrivers`: that list is what a
+   * launcher may offer, while this also answers for explicit-only drivers such
+   * as `headless`. Absent from older inventories, and a missing driver or
+   * harness entry means unknown, never "unsupported". */
+  driverCapabilities: z.record(z.string().min(1), DriverCapabilitiesWire).optional(),
   /** Non-harness CLIs (currently just `gh` for #214). Defaulted so an
    *  inventory_json blob persisted before this field parses back cleanly. */
   tools: z.array(ToolInventory).default([]),
 })
 export type Inventory = z.infer<typeof Inventory>
+
+/** One harness's context entry in a machine's `driverCapabilities`.
+ *  `undefined` is unknown: an older inventory, a driver or harness it does not
+ *  report, or no identity to look up. `driverId` must already be canonical.
+ *  Only own keys resolve, so a wire key never reaches a prototype member. */
+export function driverContextFor(
+  drivers: Inventory['driverCapabilities'],
+  driverId: string | undefined,
+  harness: string | undefined,
+): DriverContextWire | undefined {
+  if (!drivers || !driverId || !harness || !Object.hasOwn(drivers, driverId)) return undefined
+  const context: Readonly<Partial<Record<string, DriverContextWire>>> | undefined =
+    drivers[driverId]?.context
+  return context && Object.hasOwn(context, harness) ? context[harness] : undefined
+}
 
 /** The headed driver is selected from the destination's admitted inventory. */
 export function terminalRuntimeDriver(

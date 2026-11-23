@@ -274,14 +274,16 @@ export function createContextFixture(
     arch: 'x64',
     agents: [],
     runtimeDrivers: [],
-    contextCapabilities: [
-      {
-        harness: agentKind,
-        driverId,
-        capability: { summary: 'passive', detail: 'on-demand' },
-        availability: { status: 'available' },
+    driverCapabilities: {
+      [driverId]: {
+        context: {
+          [agentKind]: {
+            capability: { summary: 'passive', detail: 'on-demand' },
+            availability: { status: 'available' },
+          },
+        },
       },
-    ],
+    },
   })
   pool.apply({
     type: 'replace',

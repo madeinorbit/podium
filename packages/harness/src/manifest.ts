@@ -23,6 +23,7 @@ import type {
 } from '@podium/protocol'
 import type { CausalEnvelope } from '@podium/protocol/daemon'
 import type { HarnessContextSection } from './context-types.js'
+import { canonicalDriverIdOf, RETIRED_DRIVER_IDS } from './driver-alias.js'
 import type { HarnessContext } from './harness-context-types.js'
 import type { PostureSection } from './posture-types.js'
 import type {
@@ -1487,15 +1488,14 @@ export const DRIVER_IDS = [
   'headless',
 ] as const
 
-/** Driver ids accepted from older daemons and user preferences during rollout. */
-export const RETIRED_DRIVER_IDS = ['claude-pty'] as const
+export { RETIRED_DRIVER_IDS }
 export type RetiredDriverId = (typeof RETIRED_DRIVER_IDS)[number]
 /** Known input ids during rollout; declarations and emitted selections stay DriverId. */
 export type AcceptedDriverId = DriverId | RetiredDriverId
 export function canonicalDriverId(driverId: AcceptedDriverId): DriverId
 export function canonicalDriverId(driverId: string): string
 export function canonicalDriverId(driverId: string): string {
-  return driverId === 'claude-pty' ? 'generic-pty' : driverId
+  return canonicalDriverIdOf(driverId)
 }
 
 /** A CONST ARRAY rather than a bare union, so the set exists at RUN time too:

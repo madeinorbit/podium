@@ -1,9 +1,10 @@
-import { ContextSummary } from '@podium/model'
+import { ContextSummary, driverContextFor, HarnessId } from '@podium/model'
 import { autorun, observable, runInAction } from 'mobx'
 import { describe, expect, it, vi } from 'vitest'
 import { LOADING } from './loading'
 import { isGone, requireHere } from './lookup'
 import {
+  contextEntry,
   contextInventory,
   contextSample,
   futureContextInventory,
@@ -229,10 +230,14 @@ describe('shared machine context lookup', () => {
       // this task does not widen that legacy record or launch vocabulary.
       f.updateSession({ agentKind: 'future-context-harness', driverId: 'future-context-driver' })
       f.publish(contextSample)
-      expect(f.model.contextImplementation).toBe(futureContextInventory.contextCapabilities?.[0])
-      expect(f.model.contextCapability).toBe(
-        futureContextInventory.contextCapabilities?.[0]?.capability,
+      const future = contextEntry(
+        futureContextInventory,
+        'future-context-driver',
+        'future-context-harness',
       )
+      expect(future).toBeDefined()
+      expect(f.model.contextImplementation).toBe(future)
+      expect(f.model.contextCapability).toBe(future?.capability)
       expect(f.model.contextSupport).toBe('supported')
       expect(f.model.contextState).toBe('available')
       expect(f.model.contextDetailLevel).toBe('on-demand')
@@ -252,9 +257,12 @@ describe('shared machine context lookup', () => {
     const stop = autorun(() => void f.model.contextSupport)
     try {
       const machine = requireHere(f.pool.model('machine', 'm1'))
-      expect(machine.contextCapabilities).toBe(contextInventory.contextCapabilities)
-      expect(f.model.contextImplementation).toBe(machine.contextCapabilities?.[0])
-      expect(f.model.contextCapability).toBe(machine.contextCapabilities?.[0]?.capability)
+      const shared = machine.driverCapabilities
+      expect(shared).toBe(machine.inventory?.driverCapabilities)
+      const terminalCodex = driverContextFor(shared, 'generic-pty', 'codex')
+      expect(terminalCodex?.capability?.detail).toBe('on-demand')
+      expect(f.model.contextImplementation).toBe(terminalCodex)
+      expect(f.model.contextCapability).toBe(terminalCodex?.capability)
       expect(f.model.contextSupport).toBe('supported')
       expect(f.model.contextAvailability?.status).toBe('unavailable')
       expect(f.model.contextState).toBe('unavailable')
@@ -266,12 +274,20 @@ describe('shared machine context lookup', () => {
         false,
       )
       expect(f.model.contextSupport).toBe('supported')
-      expect(f.model.contextImplementation).toBe(machine.contextCapabilities?.[2])
+      expect(f.model.contextImplementation).toBe(driverContextFor(shared, 'headless', 'codex'))
       expect(f.model.contextDetailLevel).toBe('none')
+      f.updateSession({ agentKind: 'cursor', driverId: 'headless' })
+      // No cursor headless entry: unknown, never borrowed from codex.
+      expect(f.model.contextImplementation).toBeUndefined()
+      expect(f.model.contextSupport).toBe('unknown')
       f.updateSession({ agentKind: 'cursor' })
-      expect(f.model.contextImplementation).toBe(machine.contextCapabilities?.[1])
+      expect(f.model.contextImplementation).toBe(driverContextFor(shared, 'generic-pty', 'cursor'))
       expect(f.model.contextSupport).toBe('unsupported')
       expect(f.model.contextDetailLevel).toBe('none')
+      // A session bound under the retired alias resolves its canonical record.
+      f.updateSession({ agentKind: 'codex', driverId: 'claude-pty' })
+      expect(f.model.contextImplementation).toBe(terminalCodex)
+      expect(f.model.contextSupport).toBe('supported')
     } finally {
       stop()
       f.pool.dispose()
@@ -279,10 +295,10 @@ describe('shared machine context lookup', () => {
   })
 
   it.each([
-    { ...contextInventory, contextCapabilities: undefined },
+    { ...contextInventory, driverCapabilities: undefined },
     {
       ...contextInventory,
-      contextCapabilities: undefined,
+      driverCapabilities: undefined,
       runtimeDrivers: [
         { harness: 'codex' as const, id: 'generic-pty', family: 'terminal' as const },
       ],
@@ -327,17 +343,21 @@ describe('shared machine context lookup', () => {
       expect(f.pool.sessionObject('s2').contextCapability).toBe(f.model.contextCapability)
       f.updateInventory({
         ...contextInventory,
-        contextCapabilities: contextInventory.contextCapabilities?.map((driver) => ({
-          ...driver,
-          capability: undefined,
-          availability: {
-            status: 'unsupported',
-            reason: {
-              code: 'changed-installation',
-              message: 'Context support is no longer admitted',
+        driverCapabilities: {
+          'generic-pty': {
+            context: {
+              [HarnessId.parse('codex')]: {
+                availability: {
+                  status: 'unsupported',
+                  reason: {
+                    code: 'changed-installation',
+                    message: 'Context support is no longer admitted',
+                  },
+                },
+              },
             },
           },
-        })),
+        },
       })
       expect(f.model.contextSupport).toBe('unsupported')
       expect(f.pool.sessionObject('s2').contextSupport).toBe('unsupported')

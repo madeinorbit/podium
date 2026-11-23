@@ -104,10 +104,44 @@ The model derives offline/stale presentation without rewriting the sample.
 ## Capability and detail demand
 
 The [machine inventory projection](../../apps/daemon/src/control/inventory.ts)
-stores `contextCapabilities` once, keyed by harness and bound driver, including
-executor-only headless modes without changing launch choices. `SessionModel`
-resolves that shared machine value; sessions do not store capability copies. An
-absent old inventory row means unknown support.
+reports context support once per machine, as the `context` part of each
+driver's record in `Inventory.driverCapabilities`. The outer key is the
+canonical driver id (a retired alias such as `claude-pty` reports under
+`generic-pty`); the inner key is the open harness id, so harnesses sharing
+`generic-pty` or `headless` keep separate entries. Executor-only headless modes
+appear there without becoming launch choices: `runtimeDrivers` is unchanged.
+
+```json
+"driverCapabilities": {
+  "generic-pty": {
+    "context": {
+      "codex": {
+        "capability": { "summary": "passive", "detail": "on-demand" },
+        "availability": { "status": "unavailable", "reason": { "code": "not-probed", "message": "…" } }
+      },
+      "antigravity": {
+        "availability": { "status": "unsupported", "reason": { "code": "unsupported-implementation", "message": "…" } }
+      }
+    }
+  },
+  "headless": { "context": { "codex": { "capability": { … }, "availability": { … } } } }
+}
+```
+
+`capability` is absent when the implementation declines; `availability` keeps
+the reason. A consumer resolves the canonical bound driver, then the harness,
+with [`driverContextFor`](../../packages/model/src/entities/machine.ts), which
+reads own keys only. [`SessionModel.contextImplementation`](../../packages/client-graph/src/models.ts)
+does exactly that through the session's machine:
+
+```ts
+driverContextFor(machine.driverCapabilities, canonicalDriverIdOf(session.driverId), session.agentKind)
+```
+
+Sessions do not store capability copies. An inventory without
+`driverCapabilities`, or without the driver or harness entry, means unknown
+support, never unsupported. Later per-driver facts (family, configure fields,
+attach kinds) join the same record beside `context`.
 
 [`CAP_CONTEXT_OBSERVATION_V1` and `CAP_CONTEXT_READ_V1`](../../packages/protocol/src/messages/runtime.ts)
 are negotiated separately. Observation support does not authorize detail frames.

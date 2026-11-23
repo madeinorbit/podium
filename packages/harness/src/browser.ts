@@ -92,6 +92,9 @@ export {
   parseCodexQuestionReplies,
 } from './adapters/codex/interview'
 export { cursorEffortVariant, cursorModelEffort } from './adapters/cursor/model-variants'
+/** Retired driver aliases resolve to the id a daemon keys its inventory by,
+ *  so a client can look up a session bound before a rename (POD-7405). */
+export { canonicalDriverIdOf } from './driver-alias'
 /**
  * Opaque cursor and stream-item identity (POD-4469: dissolved from
  * `@podium/transcript/browser`). Parsing, paging and tailing remain behind the
