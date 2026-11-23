@@ -261,10 +261,27 @@ export class PhoneWorklist {
         row.issue.isDraftVessel
       )
         continue
+      // A sub-task under a listed parent already shows there as the parent's
+      // search hit (POD-2656: dev/tf's sub-task matches on upstream's search).
+      if (this.underListedParent(row.issue.parentId, present)) continue
       const lane = isFinished(row.issue) ? 'closed' : row.issue.deferred ? 'snoozed' : 'open'
       hits[lane].push(id)
     }
     return hits
+  }
+
+  private underListedParent(
+    parentId: string | null | undefined,
+    present: ReadonlySet<string>,
+  ): boolean {
+    const seen = new Set<string>()
+    for (let id = parentId; id && !seen.has(id); ) {
+      if (present.has(id)) return true
+      seen.add(id)
+      const parent = this.worklist.knownRow(id)
+      id = parent?.ready === 'ready' ? parent.issue.parentId : undefined
+    }
+    return false
   }
 
   @lazy get counts(): Readonly<Record<PhoneWorkLane, number>> {
