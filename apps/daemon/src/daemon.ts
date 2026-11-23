@@ -267,6 +267,8 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       try {
         await host.close(closeOpts)
         await connection?.close()
+        // Finish a background compaction and commit pending ACKs before exit.
+        runtimeEventOutbox.close()
       } finally {
         instance.releaseGuards()
       }

@@ -1,9 +1,9 @@
-import { fsyncPath } from '@podium/runtime/fsync'
 import { createHash, randomUUID } from 'node:crypto'
 import {
   appendFileSync,
   closeSync,
   existsSync,
+  fsync,
   fsyncSync,
   mkdirSync,
   openSync,
@@ -14,18 +14,23 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { join } from 'node:path'
-import {
-  RuntimeEventMessage,
-  RuntimeEventBody as RuntimeEventBodySchema,
-  isDurableRuntimeEvent,
-  type RuntimeEventMessage as RuntimeEventFrame,
-} from '@podium/protocol/daemon'
-import { mergeHarnessRefs, type SessionId } from '@podium/model'
 import type { DeliveryJournal, DeliveryOutcome } from '@podium/harness/driver/host'
+import { createLogger } from '@podium/logger'
+import { mergeHarnessRefs, type SessionId } from '@podium/model'
+import {
+  isDurableRuntimeEvent,
+  RuntimeEventBody as RuntimeEventBodySchema,
+  type RuntimeEventMessage as RuntimeEventFrame,
+  RuntimeEventMessage,
+} from '@podium/protocol/daemon'
+import { fsyncPath, fsyncPathAsync } from '@podium/runtime/fsync'
 
 const FILE_NAME = 'runtime-event-outbox.json'
 const JOURNAL_NAME = 'runtime-event-outbox.log'
+/** A journal being prepared by compaction; it replaces {@link JOURNAL_NAME} only once durable. */
+const NEXT_JOURNAL_NAME = 'runtime-event-outbox.log.next'
 const FILE_VERSION = 1
+const log = createLogger('daemon:runtime-event-outbox')
 
 /**
  * How many journal records may accumulate before the snapshot is rewritten.
@@ -46,7 +51,12 @@ export interface RuntimeEventOutbox {
   /** Constant-time count of retained deliveries, without materializing pending(). */
   readonly pendingCount: number
   pending(): readonly DurableRuntimeEvent[]
-  /** Release the journal handle. For shutdown and for tests; the data is already durable. */
+  /**
+   * Resolves once every written record is durable and no compaction is running.
+   * For tests and benchmarks; nothing in the daemon waits on it.
+   */
+  settled(): Promise<void>
+  /** Finish a running compaction, commit pending ACKs and release the journal handle. */
   close(): void
 }
 
@@ -60,6 +70,20 @@ export function prepareRuntimeEventDelivery(
   const retained = { ...message, deliveryId: message.deliveryId ?? randomUUID() }
   outbox.enqueue(retained)
   return retained
+}
+
+/** One background compaction; see the step list in createRuntimeEventOutbox. */
+interface Compaction {
+  /** Records appended since the snapshot body was captured, in journal order. */
+  readonly carry: { record: string; durable: boolean }[]
+  /** How many carried records the next journal held when its fsync was issued. */
+  copied: number
+  readonly epoch: string
+  readonly hash: string
+  snapshotFd?: number
+  journalFd?: number
+  /** Invalidates a thread-pool result that a synchronous finish or an abandon overtook. */
+  ticket: number
 }
 
 interface TypingRecord {
@@ -171,12 +195,27 @@ function parseSnapshot(
  * {@link COMPACT_AFTER_RECORDS} records, opportunistically when the backlog
  * drains to empty, or when boot must establish/repair typing coverage.
  *
- * DURABILITY IS DELIBERATELY UNCHANGED. Every mutation still fsyncs before the
- * call returns, so a reopen immediately after an enqueue still sees the event —
- * that is the guarantee the daemon's at-least-once delivery rests on, and it is
- * the one thing that must NOT be traded for throughput. Batching these fsyncs
- * behind a timer would be faster still and would silently widen the crash window
- * that this contract exists to close.
+ * DURABILITY OF WHAT WAS PROMISED IS UNCHANGED. Every enqueue, typing fence and
+ * delivery outcome still fsyncs before the call returns, so a reopen immediately
+ * after an enqueue still sees the event — that is the guarantee the daemon's
+ * at-least-once delivery rests on, and it is not traded for throughput.
+ *
+ * ACKNOWLEDGEMENTS ARE GROUP-COMMITTED (POD-7438). An ACK retirement only ever
+ * removes work, so losing it in a crash costs one idempotent replay of an event
+ * the server already deduplicates by delivery id; it never loses an event. A
+ * reconnect replay acknowledges its whole backlog in one burst, and paying an
+ * fsync per ACK on the daemon thread stalled it for seconds. An ACK record is
+ * therefore written to the journal in order, on the caller's thread (a page
+ * cache copy), and made durable by one background fsync covering every ACK
+ * written since the previous one. A process kill loses nothing (the page cache
+ * survives it); a power cut loses at most the ACKs of the fsync in flight.
+ *
+ * COMPACTION RUNS OFF THE CALLER'S THREAD TOO. The snapshot body is captured
+ * synchronously, then each fsync runs in the thread pool and each rename runs on
+ * this thread once its precondition is durable. Records appended meanwhile go to
+ * the old journal, which stays authoritative until the new one replaces it, and
+ * are carried into the new journal behind its coverage header. Boot and
+ * {@link RuntimeEventOutbox.close} finish a compaction synchronously.
  *
  * A TORN TRAILING RECORD IS EXPECTED, not corruption: a crash mid-append leaves
  * a partial final line. Recovery stops at the last complete record, because the
@@ -189,6 +228,9 @@ export function createRuntimeEventOutbox(dir: string): RuntimeEventOutbox {
   const path = join(dir, FILE_NAME)
   const temporary = `${path}.tmp`
   const journalPath = join(dir, JOURNAL_NAME)
+  const nextJournalPath = join(dir, NEXT_JOURNAL_NAME)
+  // A next journal that never replaced the journal holds only copies of its records.
+  rmSync(nextJournalPath, { force: true })
   let events = new Map<string, DurableRuntimeEvent>()
   const typing = new Map<string, TypingRecord>()
   let typingEpoch: string | undefined
@@ -392,60 +434,265 @@ export function createRuntimeEventOutbox(dir: string): RuntimeEventOutbox {
   let journalFd: number | undefined = openSync(journalPath, 'a', 0o600)
   fsyncSync(journalFd)
   fsyncPath(dir)
-
-  const writeSnapshot = (next: Map<string, DurableRuntimeEvent>): string => {
-    const body = `${JSON.stringify({ version: FILE_VERSION, events: [...next.values()], typing: [...typing.values()], typingEpoch }, null, 2)}\n`
-    const fd = openSync(temporary, 'w', 0o600)
-    try {
-      writeFileSync(fd, body)
-      fsyncSync(fd)
-    } finally {
-      closeSync(fd)
-    }
-    renameSync(temporary, path)
-    fsyncPath(dir)
-    return snapshotHash(body)
+  /** Bumped whenever {@link journalFd} stops naming the journal, so a late fsync result is ignored. */
+  let journalGeneration = 0
+  /** Records written to the journal descriptor, and how many of them a finished fsync covers. */
+  let writtenRecords = 0
+  let syncedRecords = 0
+  let syncInFlight = false
+  /** A journal rename whose directory entry is not durable yet; a durable append must not outrun it. */
+  let directoryPending = false
+  let compaction: Compaction | undefined
+  /** After a failed background compaction, wait for this many journal records before the next try. */
+  let compactRetryAt = 0
+  /** Thread-pool operations not yet reported back; {@link settled} waits for them. */
+  let inFlight = 0
+  const idleWaiters: Array<() => void> = []
+  const settle = (): void => {
+    if (inFlight > 0 || compaction || syncedRecords < writtenRecords) return
+    for (const resolve of idleWaiters.splice(0)) resolve()
+  }
+  const background = (
+    start: (done: (error?: unknown) => void) => void,
+    then: (error?: unknown) => void,
+  ): void => {
+    inFlight += 1
+    start((error) => {
+      inFlight -= 1
+      then(error)
+      settle()
+    })
   }
 
-  /** Fold the journal into the snapshot and start a fresh one. */
-  const compact = (): void => {
+  const renderSnapshot = (): string =>
+    `${JSON.stringify({ version: FILE_VERSION, events: [...events.values()], typing: [...typing.values()], typingEpoch }, null, 2)}\n`
+
+  /** Group commit: one fsync covers every record written before it was issued. */
+  const scheduleSync = (): void => {
+    if (syncInFlight || journalFd === undefined || syncedRecords >= writtenRecords) return
+    const fd = journalFd
+    const generation = journalGeneration
+    const covers = writtenRecords
+    syncInFlight = true
+    background(
+      (done) => fsync(fd, (error) => done(error ?? undefined)),
+      (error) => {
+        syncInFlight = false
+        if (generation === journalGeneration) {
+          // A failed fsync is not retried in a loop; the next record or close() retries it.
+          if (error) {
+            log.warn('runtime event outbox acknowledgement fsync failed', { err: error })
+            return
+          }
+          syncedRecords = Math.max(syncedRecords, covers)
+        }
+        scheduleSync()
+      },
+    )
+  }
+
+  /**
+   * Fold the journal into the snapshot and start a fresh one, as a chain of
+   * steps that each wait for the previous step's data to be durable. Order:
+   *   1. capture the snapshot body and write it to the temporary file;
+   *   2. after its fsync, rename it over the snapshot;
+   *   3. after the directory fsync, write the coverage header and the records
+   *      appended since step 1 to the next journal;
+   *   4. after its fsync, append the records that arrived during that fsync,
+   *      rename the next journal over the journal and switch the descriptor.
+   * Until step 4 the old journal holds every record, so a crash at any point
+   * reopens a complete history; between steps 2 and 4 its coverage header no
+   * longer matches the snapshot, which recovery treats as an uncovered lifetime.
+   */
+  const beginCompaction = (): Compaction & { snapshotFd: number } => {
     typingEpoch = randomUUID()
-    const hash = writeSnapshot(events)
+    const body = renderSnapshot()
+    const fd = openSync(temporary, 'w', 0o600)
+    const job = {
+      carry: [],
+      copied: 0,
+      epoch: typingEpoch,
+      hash: snapshotHash(body),
+      snapshotFd: fd,
+      ticket: 0,
+    } satisfies Compaction
+    compaction = job
+    writeFileSync(fd, body)
+    return job
+  }
+
+  /** Continue once `target` is durable: inline for a synchronous caller, from the thread pool otherwise. */
+  const whenDurable = (
+    job: Compaction,
+    target: number | 'directory',
+    sync: boolean,
+    then: () => void,
+  ): void => {
+    job.ticket += 1
+    if (sync) {
+      if (target === 'directory') fsyncPath(dir)
+      else fsyncSync(target)
+      then()
+      return
+    }
+    const ticket = job.ticket
+    const start =
+      target === 'directory'
+        ? (done: (error?: unknown) => void) => {
+            fsyncPathAsync(dir).then(() => done(), done)
+          }
+        : (done: (error?: unknown) => void) => fsync(target, (error) => done(error ?? undefined))
+    background(start, (error) => {
+      // Finished synchronously by close(), or abandoned, while this fsync ran.
+      if (compaction !== job || job.ticket !== ticket) return
+      if (error) return abandon(job, error)
+      try {
+        then()
+      } catch (failure) {
+        abandon(job, failure)
+      }
+    })
+  }
+
+  const renameSnapshot = (job: Compaction, fd: number, sync: boolean): void =>
+    whenDurable(job, fd, sync, () => {
+      closeSync(fd)
+      job.snapshotFd = undefined
+      renameSync(temporary, path)
+      whenDurable(job, 'directory', sync, () => startNextJournal(job, sync))
+    })
+
+  const startNextJournal = (job: Compaction, sync: boolean): void => {
+    const fd = openSync(nextJournalPath, 'w', 0o600)
+    job.journalFd = fd
+    const header = `${JSON.stringify({ op: 'coverage', epoch: job.epoch, snapshotHash: job.hash })}\n`
+    writeFileSync(fd, header + job.carry.map((entry) => entry.record).join(''))
+    job.copied = job.carry.length
+    whenDurable(job, fd, sync, () => replaceJournal(job, fd, sync))
+  }
+
+  const replaceJournal = (job: Compaction, fd: number, sync: boolean): void => {
+    const tail = job.carry.slice(job.copied)
+    if (tail.length > 0) {
+      appendFileSync(fd, tail.map((entry) => entry.record).join(''))
+      // A promised record must stay durable across the switch; ACKs may ride the next group commit.
+      if (tail.some((entry) => entry.durable)) fsyncSync(fd)
+    }
+    const unsyncedTail = tail.length > 0 && !tail.some((entry) => entry.durable)
     if (journalFd !== undefined) {
       closeSync(journalFd)
+      // If the rename fails, the next append reopens the old journal by name.
       journalFd = undefined
+      journalGeneration += 1
     }
-    rmSync(journalPath, { force: true })
-    fsyncPath(dir)
-    journalFd = openSync(journalPath, 'a', 0o600)
-    appendFileSync(
-      journalFd,
-      `${JSON.stringify({ op: 'coverage', epoch: typingEpoch, snapshotHash: hash })}\n`,
-    )
-    fsyncSync(journalFd)
-    fsyncPath(dir)
-    journalRecords = 0
+    renameSync(nextJournalPath, journalPath)
+    journalFd = fd
+    journalGeneration += 1
+    compactRetryAt = 0
+    writtenRecords = job.carry.length
+    syncedRecords = unsyncedTail ? job.copied : writtenRecords
+    journalRecords = job.carry.length
+    job.journalFd = undefined
+    compaction = undefined
+    directoryPending = true
+    const generation = journalGeneration
+    if (sync) {
+      fsyncPath(dir)
+      directoryPending = false
+    } else {
+      background(
+        (done) => {
+          fsyncPathAsync(dir).then(() => done(), done)
+        },
+        (error) => {
+          if (error) log.warn('runtime event outbox directory fsync failed', { err: error })
+          else if (generation === journalGeneration) directoryPending = false
+        },
+      )
+    }
+    scheduleSync()
   }
 
-  const append = (record: string): void => {
-    if (journalFd === undefined) journalFd = openSync(journalPath, 'a', 0o600)
+  /** Give up on a background compaction. The old journal is still authoritative. */
+  const abandon = (job: Compaction, error: unknown): void => {
+    log.warn('runtime event outbox compaction failed', { err: error })
+    job.ticket += 1
+    for (const fd of [job.snapshotFd, job.journalFd]) {
+      if (fd === undefined) continue
+      try {
+        closeSync(fd)
+      } catch {
+        /* already closed */
+      }
+    }
+    if (job.journalFd !== undefined) rmSync(nextJournalPath, { force: true })
+    job.snapshotFd = undefined
+    job.journalFd = undefined
+    if (compaction === job) compaction = undefined
+    compactRetryAt = journalRecords + COMPACT_AFTER_RECORDS
+  }
+
+  /** Run a compaction to completion on this thread: boot, close(), or an explicit drain. */
+  const finishCompaction = (job: Compaction): void => {
+    const { snapshotFd, journalFd: nextFd } = job
+    if (snapshotFd !== undefined) renameSnapshot(job, snapshotFd, true)
+    else if (nextFd !== undefined)
+      whenDurable(job, nextFd, true, () => replaceJournal(job, nextFd, true))
+    else whenDurable(job, 'directory', true, () => startNextJournal(job, true))
+  }
+
+  const compact = (): void => finishCompaction(beginCompaction())
+
+  /**
+   * Append one record. A promised record is durable before this returns; an
+   * ACK (`durable: false`) is durable after the next group commit.
+   */
+  const append = (record: string, durable = true): void => {
+    if (journalFd === undefined) {
+      journalFd = openSync(journalPath, 'a', 0o600)
+      journalGeneration += 1
+      writtenRecords = 0
+      syncedRecords = 0
+    }
     appendFileSync(journalFd, record)
-    fsyncSync(journalFd)
+    writtenRecords += 1
     journalRecords += 1
+    compaction?.carry.push({ record, durable })
+    if (!durable) {
+      scheduleSync()
+      return
+    }
+    fsyncSync(journalFd)
+    syncedRecords = writtenRecords
+    if (directoryPending) {
+      fsyncPath(dir)
+      directoryPending = false
+    }
   }
 
   /**
    * Compact when the journal has outgrown the snapshot it sits on, and take the
    * free one whenever the backlog drains: an empty pending set makes the
    * snapshot write trivial, so a healthy daemon compacts constantly and cheaply
-   * and a backlogged one is never asked to.
+   * and a backlogged one is never asked to. Either way it runs in the background.
    */
   const maybeCompact = (): void => {
+    if (compaction || journalRecords < compactRetryAt) return
     if (
       journalRecords >= COMPACT_AFTER_RECORDS ||
       (events.size === 0 && typing.size === 0 && journalRecords > 0)
     ) {
-      compact()
+      try {
+        const job = beginCompaction()
+        renameSnapshot(job, job.snapshotFd, false)
+      } catch (error) {
+        // beginCompaction() registers the job before its first write can fail.
+        if (compaction) abandon(compaction, error)
+        else {
+          log.warn('runtime event outbox compaction failed', { err: error })
+          compactRetryAt = journalRecords + COMPACT_AFTER_RECORDS
+        }
+      }
     }
   }
 
@@ -527,15 +774,13 @@ export function createRuntimeEventOutbox(dir: string): RuntimeEventOutbox {
         return
       }
       append(`${JSON.stringify({ op: 'add', event })}\n`)
-      const next = new Map(events)
-      next.set(event.deliveryId, event)
-      events = next
+      events.set(event.deliveryId, event)
       track(event)
       maybeCompact()
     },
     acknowledge(deliveryId) {
       if (!events.has(deliveryId)) return false
-      append(`${JSON.stringify({ op: 'ack', deliveryId })}\n`)
+      append(`${JSON.stringify({ op: 'ack', deliveryId })}\n`, false)
       retire(deliveryId)
       maybeCompact()
       return true
@@ -544,10 +789,27 @@ export function createRuntimeEventOutbox(dir: string): RuntimeEventOutbox {
       return events.size
     },
     pending: () => [...events.values()],
+    settled() {
+      if (inFlight === 0 && !compaction && syncedRecords >= writtenRecords) return Promise.resolve()
+      return new Promise((resolve) => idleWaiters.push(resolve))
+    },
     close() {
+      if (compaction) {
+        const job = compaction
+        try {
+          finishCompaction(job)
+        } catch (error) {
+          abandon(job, error)
+        }
+      }
       if (journalFd === undefined) return
+      if (syncedRecords < writtenRecords) fsyncSync(journalFd)
       closeSync(journalFd)
       journalFd = undefined
+      journalGeneration += 1
+      writtenRecords = 0
+      syncedRecords = 0
+      settle()
     },
   }
 }

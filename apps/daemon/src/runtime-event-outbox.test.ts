@@ -5,8 +5,8 @@ import type { SessionId } from '@podium/model'
 import { CausalEnvelope, type RuntimeEventMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
-  type DurableRuntimeEvent,
   createRuntimeEventOutbox,
+  type DurableRuntimeEvent,
   prepareRuntimeEventDelivery,
 } from './runtime-event-outbox'
 
@@ -98,7 +98,7 @@ describe('coarse runtime event outbox', () => {
     outbox.close()
   })
 
-  it('compacts once the backlog drains, so the journal cannot grow without bound', () => {
+  it('compacts once the backlog drains, so the journal cannot grow without bound', async () => {
     const dir = makeDir()
     const outbox = createRuntimeEventOutbox(dir)
     const journal = join(dir, 'runtime-event-outbox.log')
@@ -109,6 +109,7 @@ describe('coarse runtime event outbox', () => {
     for (let i = 0; i < 8; i += 1) expect(outbox.acknowledge(`delivery-${i}`)).toBe(true)
 
     // Draining to empty is the cheapest moment to fold the journal away.
+    await outbox.settled()
     expect(
       readFileSync(journal, 'utf8')
         .trim()
@@ -148,8 +149,10 @@ describe('coarse runtime event outbox', () => {
     expect(outbox.pendingCount).toBe(1)
     expect(outbox.pending().map((e) => e.deliveryId)).toEqual(['legacy-1'])
     expect(outbox.acknowledge('legacy-1')).toBe(true)
-    expect(createRuntimeEventOutbox(dir).pending()).toEqual([])
     outbox.close()
+    const reopened = createRuntimeEventOutbox(dir)
+    expect(reopened.pending()).toEqual([])
+    reopened.close()
   })
 
   it('refuses a delivery id reused for different content', () => {
@@ -160,10 +163,11 @@ describe('coarse runtime event outbox', () => {
     outbox.close()
   })
 
-  it('keeps the snapshot readable after compaction', () => {
+  it('keeps the snapshot readable after compaction', async () => {
     const dir = makeDir()
     const outbox = createRuntimeEventOutbox(dir)
     for (let i = 0; i < 600; i += 1) outbox.enqueue(event(`delivery-${i}`, i))
+    await outbox.settled()
 
     // Past COMPACT_AFTER_RECORDS the snapshot must carry the set, not the journal.
     const snapshot = readFileSync(join(dir, 'runtime-event-outbox.json'), 'utf8')
@@ -173,6 +177,106 @@ describe('coarse runtime event outbox', () => {
     expect(reopened.pending()).toHaveLength(600)
     reopened.close()
     outbox.close()
+  })
+})
+
+describe('off-thread acknowledgement commit and compaction (POD-7438)', () => {
+  const snapshotOf = (dir: string) => readFileSync(join(dir, 'runtime-event-outbox.json'), 'utf8')
+  const journalOf = (dir: string) =>
+    readFileSync(join(dir, 'runtime-event-outbox.log'), 'utf8')
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line))
+
+  /**
+   * A reconnect replay acknowledges its whole backlog in one burst. The ACK
+   * records must reach the journal in order before acknowledge() returns (a
+   * process kill keeps them), but neither their fsync nor the compaction they
+   * trigger may run on the caller's thread. Asserted on file bytes: the
+   * snapshot cannot change before the event loop has turned.
+   */
+  it('journals each ACK at once and folds the burst into the snapshot in the background', async () => {
+    const dir = makeDir()
+    const outbox = createRuntimeEventOutbox(dir)
+    for (let i = 0; i < 700; i += 1) outbox.enqueue(event(`delivery-${i}`, i))
+    await outbox.settled()
+    const before = snapshotOf(dir)
+
+    for (let i = 0; i < 600; i += 1) expect(outbox.acknowledge(`delivery-${i}`)).toBe(true)
+    expect(outbox.pendingCount).toBe(100)
+    expect(snapshotOf(dir)).toBe(before)
+    expect(journalOf(dir).filter((record) => record.op === 'ack')).toHaveLength(600)
+
+    await outbox.settled()
+    expect(JSON.parse(snapshotOf(dir)).events.length).toBeGreaterThanOrEqual(100)
+    const reopened = createRuntimeEventOutbox(dir)
+    expect(reopened.pending().map((entry) => entry.deliveryId)).toEqual(
+      Array.from({ length: 100 }, (_, i) => `delivery-${600 + i}`),
+    )
+    reopened.close()
+    outbox.close()
+  })
+
+  it('carries records appended during a background compaction into the next journal', async () => {
+    const dir = makeDir()
+    const outbox = createRuntimeEventOutbox(dir)
+    const sessionId = event('unused').sessionId
+    // The 512th record starts a compaction; everything after it is appended while it runs.
+    for (let i = 0; i < 600; i += 1) outbox.enqueue(event(`delivery-${i}`, i))
+    outbox.deliveryJournal(sessionId).store('witness')
+    expect(outbox.acknowledge('delivery-599')).toBe(true)
+    await outbox.settled()
+
+    const snapshot = JSON.parse(snapshotOf(dir))
+    const [header, ...records] = journalOf(dir)
+    expect(header).toMatchObject({ op: 'coverage', epoch: snapshot.typingEpoch })
+    expect(snapshot.events.length + records.filter((record) => record.op === 'add').length).toBe(
+      600,
+    )
+    expect(records.at(-1)).toEqual({ op: 'ack', deliveryId: 'delivery-599' })
+    outbox.close()
+
+    // A trusted coverage header is what keeps the stored-only no-write proof.
+    const reopened = createRuntimeEventOutbox(dir)
+    expect(reopened.pendingCount).toBe(599)
+    expect(reopened.deliveryJournal(sessionId).read('witness')).toEqual({ typingStarted: false })
+    reopened.close()
+  })
+
+  it('finishes a running compaction on close, keeping the coverage proof', () => {
+    const dir = makeDir()
+    const outbox = createRuntimeEventOutbox(dir)
+    const sessionId = event('unused').sessionId
+    for (let i = 0; i < 520; i += 1) outbox.enqueue(event(`delivery-${i}`, i))
+    outbox.deliveryJournal(sessionId).store('witness')
+    // Same tick: no thread-pool result has come back, so close() must finish every step.
+    outbox.close()
+
+    expect(journalOf(dir)[0]).toMatchObject({
+      op: 'coverage',
+      epoch: JSON.parse(snapshotOf(dir)).typingEpoch,
+    })
+    const reopened = createRuntimeEventOutbox(dir)
+    expect(reopened.pendingCount).toBe(520)
+    expect(reopened.deliveryJournal(sessionId).read('witness')).toEqual({ typingStarted: false })
+    reopened.close()
+  })
+
+  it('discards a next journal that an interrupted compaction never installed', () => {
+    const dir = makeDir()
+    const outbox = createRuntimeEventOutbox(dir)
+    outbox.enqueue(event('delivery-1'))
+    outbox.close()
+    const next = join(dir, 'runtime-event-outbox.log.next')
+    writeFileSync(
+      next,
+      '{"op":"coverage","epoch":"interrupted"}\n{"op":"ack","deliveryId":"delivery-1"}\n',
+    )
+
+    const reopened = createRuntimeEventOutbox(dir)
+    expect(reopened.pending().map((entry) => entry.deliveryId)).toEqual(['delivery-1'])
+    expect(statSync(next, { throwIfNoEntry: false })).toBeUndefined()
+    reopened.close()
   })
 })
 
@@ -277,14 +381,12 @@ describe('delivery typing state in the runtime-event journal (POD-5556)', () => 
     const dir = makeDir()
     const first = createRuntimeEventOutbox(dir)
     first.deliveryJournal(sessionId).start('row-1')
-    first
-      .deliveryJournal(sessionId)
-      .record({
-        t: 'delivery',
-        rowId: 'row-1',
-        outcome: 'delivered',
-        transcriptItem: { id: 'entry' },
-      })
+    first.deliveryJournal(sessionId).record({
+      t: 'delivery',
+      rowId: 'row-1',
+      outcome: 'delivered',
+      transcriptItem: { id: 'entry' },
+    })
     first.close()
     const after = createRuntimeEventOutbox(dir)
     expect(after.pending()).toEqual([])
@@ -348,14 +450,12 @@ describe('delivery typing state in the runtime-event journal (POD-5556)', () => 
       },
     }
     first.enqueue(unconfirmed)
-    first
-      .deliveryJournal(sessionId)
-      .record({
-        t: 'delivery',
-        rowId: 'row-1',
-        outcome: 'delivered',
-        transcriptItem: { id: 'entry' },
-      })
+    first.deliveryJournal(sessionId).record({
+      t: 'delivery',
+      rowId: 'row-1',
+      outcome: 'delivered',
+      transcriptItem: { id: 'entry' },
+    })
     first.acknowledge('unknown')
     first.close()
     const after = createRuntimeEventOutbox(dir)
