@@ -693,6 +693,8 @@ export class SessionRegistry {
   readonly daemonLinks: DaemonLinks
 
   readonly recoveryOnly: boolean
+  /** Installation capabilities derived once by the server composition root. */
+  readonly capabilities: ServerCapabilities
   /** See {@link SessionRegistryOptions.memberCredentials}. */
   readonly memberCredentials: MemberCredentials | undefined
   /** Typed in-process event bus — modules subscribe here (issue #13 Phase 2). */
@@ -927,6 +929,7 @@ export class SessionRegistry {
     const recoveryOnly = options.recoveryOnly === true
     const backgroundDisabled = recoveryOnly || options.rehearseBoot === true
     this.recoveryOnly = recoveryOnly
+    this.capabilities = options.capabilities ?? SELF_HOSTED_CAPABILITIES
     this.memberCredentials = options.memberCredentials
     this.now = options.now ?? Date.now
     const portableStateFence = options.portableStateFence ?? new PortableStateFence()
@@ -3476,7 +3479,7 @@ export class SessionRegistry {
       locks,
       issues,
       sessionWorkspace,
-      operatorLocks: (options.capabilities ?? SELF_HOSTED_CAPABILITIES).operatorLocks,
+      operatorLocks: this.capabilities.operatorLocks,
     })
     this.bus.on('session.exited', ({ sessionId }) => locks.releaseForSession(sessionId))
     // THE CONCERTMASTER (POD-7211): the mark on a session, and the curated

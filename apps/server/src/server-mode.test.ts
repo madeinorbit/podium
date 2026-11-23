@@ -19,6 +19,7 @@ describe('serverCapabilities', () => {
       earliestAdminDefault: true,
       operatorLocks: true,
       setupRoutes: true,
+      hostSetup: true,
       devUpdateFeed: true,
       installationNamesWorkspace: true,
     })
@@ -35,6 +36,7 @@ describe('serverCapabilities', () => {
       earliestAdminDefault: true,
       operatorLocks: true,
       setupRoutes: true,
+      hostSetup: true,
       devUpdateFeed: false,
       installationNamesWorkspace: true,
     })

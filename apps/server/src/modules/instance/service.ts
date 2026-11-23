@@ -56,6 +56,44 @@ import { readTelemetryState, shouldAskForConsent } from '@podium/telemetry'
 import { TRPCError } from '@trpc/server'
 import { serverBuildVersion } from '../../build-version'
 import { type MemberCredentials, MemberHasNoAccount } from '../../identity/member-credentials'
+import {
+  HostedModeRefusal,
+  SELF_HOSTED_CAPABILITIES,
+  type ServerCapabilities,
+} from '../../server-mode'
+
+/** Only these layered keys belong to the request's workspace. */
+const WORKSPACE_SETUP_KEYS = [
+  'updateChannel',
+  'transcriptLake',
+  'connectEnabled',
+  'telemetryUsage',
+  'telemetryCrash',
+  'authOpenMode',
+  'telemetryInstallId',
+  'telemetrySince',
+] as const satisfies readonly LayeredKey[]
+type WorkspaceSetupKey = (typeof WORKSPACE_SETUP_KEYS)[number]
+type WorkspaceSettingSource = 'settings' | 'default'
+
+/** Hosted reads deliberately carry no installation identity or host configuration. */
+export interface HostedSetupInfo {
+  transcriptLake: 'on' | 'off'
+  transcriptLakeSource: WorkspaceSettingSource
+}
+
+export interface HostedSetupChannel {
+  channel: FleetUpdateChannel
+  envForced: false
+  channelSource: WorkspaceSettingSource
+  configured: FleetUpdateChannel
+}
+
+export type HostedSetupProvenance = Record<
+  WorkspaceSetupKey,
+  { source: WorkspaceSettingSource; env?: never }
+> &
+  Partial<Record<Exclude<LayeredKey, WorkspaceSetupKey>, never>>
 
 /** The one optional dependency that is genuinely per-request rather than
  *  process-wide: the telemetry emitter, present only when the server was
@@ -67,6 +105,8 @@ export interface InstanceLoginPolicy {
 }
 
 export interface InstanceDeps {
+  /** Installation capabilities; omitted only by standalone self-hosted fixtures. */
+  readonly capabilities?: ServerCapabilities | undefined
   /** Whether this server owns an install. Omitted only in standalone service fixtures. */
   readonly hostMachine?: HostMachine
   readonly onSettingsChanged?:
@@ -190,6 +230,23 @@ export class InstanceService {
 
   // ---- setup ----
 
+  private get hostSetup(): boolean {
+    return (this.deps.capabilities ?? SELF_HOSTED_CAPABILITIES).hostSetup
+  }
+
+  private requireHostSetup(): void {
+    if (!this.hostSetup) {
+      throw new HostedModeRefusal('host-setup')
+    }
+  }
+
+  /** Resolve workspace preferences without consulting the shared host's file or environment. */
+  private workspaceSetting<K extends WorkspaceSetupKey>(key: K) {
+    const resolved = resolveSetting(key, {}, {}, this.deps.settings?.layeredSettings())
+    const source: WorkspaceSettingSource = resolved.source === 'settings' ? 'settings' : 'default'
+    return { value: resolved.value, source }
+  }
+
   /**
    * Current deployment identity, for Settings → Access.
    *
@@ -198,6 +255,13 @@ export class InstanceService {
    * offering a write the environment overrides.
    */
   async info() {
+    if (!this.hostSetup) {
+      const transcriptLake = this.workspaceSetting('transcriptLake')
+      return {
+        transcriptLake: transcriptLake.value,
+        transcriptLakeSource: transcriptLake.source,
+      } satisfies HostedSetupInfo
+    }
     const c = loadConfig()
     const mode = resolveSetting('mode', c)
     const publicUrl = resolveSetting('publicUrl', c)
@@ -261,6 +325,15 @@ export class InstanceService {
    * instead of offering a mutation that cannot take effect.
    */
   channel() {
+    if (!this.hostSetup) {
+      const resolved = this.workspaceSetting('updateChannel')
+      return {
+        channel: resolved.value,
+        envForced: false,
+        channelSource: resolved.source,
+        configured: resolved.value,
+      } satisfies HostedSetupChannel
+    }
     const config = loadConfig()
     const resolved =
       this.deps.settings?.resolve('updateChannel') ?? resolveSetting('updateChannel', config)
@@ -298,7 +371,15 @@ export class InstanceService {
    * NAMES, NEVER VALUES: it reports the variable a key reads and which layer
    * won, not what any of them contain.
    */
-  provenance(): Record<LayeredKey, { source: SettingSource; env?: string }> {
+  provenance():
+    | HostedSetupProvenance
+    | Record<LayeredKey, { source: SettingSource; env?: string }> {
+    if (!this.hostSetup) {
+      const out = {} as HostedSetupProvenance
+      for (const key of WORKSPACE_SETUP_KEYS)
+        out[key] = { source: this.workspaceSetting(key).source }
+      return out
+    }
     const config = loadConfig()
     const out = {} as Record<LayeredKey, { source: SettingSource; env?: string }>
     for (const key of LAYERED_KEYS) {
@@ -359,6 +440,7 @@ export class InstanceService {
      */
     confirmUrlChange?: boolean | undefined
   }) {
+    this.requireHostSetup()
     // The deployment owns these when it set them, and a refusal that names the
     // variable beats a write that is overridden on the next read.
     this.assertNotForced('publicUrl', 'public URL')
@@ -421,6 +503,7 @@ export class InstanceService {
    *  silent server yields `undefined`, which means "the UI is the server", the
    *  behaviour every self-hosted install already has. */
   async join(code: string) {
+    this.requireHostSetup()
     this.assertNotForced('mode', 'mode')
     const token = code.trim()
     const [uiUrl, identity] = await Promise.all([
@@ -442,6 +525,7 @@ export class InstanceService {
     mode: 'all-in-one' | 'client' | 'server'
     serverUrl?: string | undefined
   }) {
+    this.requireHostSetup()
     this.assertNotForced('mode', 'mode')
     const serverUrl = input.mode === 'client' ? input.serverUrl : undefined
     const [uiUrl, identity] = serverUrl
@@ -458,7 +542,7 @@ export class InstanceService {
     // Refusing beats writing a value the environment overrides: a silent no-op
     // would read as success in the UI and leave the fleet elsewhere. The
     // sentence is unchanged; only the rule behind it moved (PDM-26).
-    this.assertNotForced('updateChannel', 'channel', 'the fleet default')
+    if (this.hostSetup) this.assertNotForced('updateChannel', 'channel', 'the fleet default')
     await this.updateDeployment({ updateChannel: channel })
     // A machine with no pin of its own resolves against this value, so its
     // projected channel and target are stale the moment it changes. AWAIT the
@@ -494,6 +578,7 @@ export class InstanceService {
    *    watching a screen that will never change.
    */
   async activate() {
+    this.requireHostSetup()
     const readiness = this.deps.readiness?.()
     if (!readiness) {
       throw new TRPCError({

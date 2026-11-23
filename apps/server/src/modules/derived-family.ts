@@ -67,6 +67,7 @@ import type { Capability } from '../issue-authz'
 import { type PrivateResourceAccess, privateResourceAccess } from '../private-resources'
 import type { RegistryModules, SessionRegistry } from '../relay'
 import type { RepoRegistry } from '../repo-registry'
+import type { ServerCapabilities } from '../server-mode'
 import type { UsersRepository } from '../store/users'
 import { type Context, mods, t } from '../trpc'
 import { sessionStatePrincipalFor } from './sessions/session-state/registry'
@@ -93,6 +94,8 @@ import { sessionStatePrincipalFor } from './sessions/session-state/registry'
 export interface FamilyState {
   readonly modules: RegistryModules
   readonly repos: RepoRegistry
+  /** Server installation capabilities, distinct from the caller's authority. */
+  readonly capabilities?: ServerCapabilities | undefined
   /**
    * The opt-in telemetry emitter, present only when the server was
    * assembled with one. On the bundle for the same reason as `repos`: exactly one
@@ -467,6 +470,7 @@ export const privateResourceAccessFor = (ctx: Context): PrivateResourceAccess =>
 export const familyState = (ctx: Context): FamilyState => ({
   modules: mods(ctx),
   repos: ctx.repos,
+  capabilities: ctx.registry.capabilities,
   telemetry: ctx.telemetry,
   store: ctx.registry.sessionStore,
   ...(ctx.users ? { users: ctx.users } : {}),

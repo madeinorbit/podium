@@ -1,7 +1,7 @@
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { firstAdminMemberId, type ServerReadiness } from '@podium/model'
+import { asWorkspaceId, firstAdminMemberId, type ServerReadiness } from '@podium/model'
 import { LAYERED_KEYS, loadConfig, saveConfig } from '@podium/runtime/config'
 import { encodeJoin } from '@podium/runtime/join'
 import { readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
@@ -15,6 +15,7 @@ import { SuperagentService } from './modules/superagent'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
+import { HostedModeRefusal, type ServerMode, serverCapabilities } from './server-mode'
 import { createServerReadiness } from './server-readiness'
 import { OPERATOR } from './test-support/capabilities'
 import { openTestStore } from './test-support/open-test-store'
@@ -62,17 +63,28 @@ afterAll(async () => {
   for (const registry of opened.splice(0)) await registry.dispose()
 })
 
-async function makeHarness() {
+async function makeHarness(
+  options: {
+    mode?: ServerMode
+    readiness?: () => ServerReadiness
+    requestCoordinatorRestart?: () => void | Promise<void>
+  } = {},
+) {
   installSetupParent()
-  const store = await openTestStore(':memory:', readOrCreateLocalMachineId())
+  const capabilities = serverCapabilities({ mode: options.mode })
+  const store = await openTestStore(
+    ':memory:',
+    capabilities.hostMachine ? readOrCreateLocalMachineId() : null,
+  )
   const { credentials } = await openTestIdentity(store)
   const registry = await SessionRegistry.create(store, undefined, {
     instanceId: 'default',
     installationId: 'setup-test-installation',
     memberCredentials: credentials,
+    capabilities,
   })
   opened.push(registry)
-  registry.gateway.attachDaemon(registry.sessionStore.hostMachine!.id, () => {})
+  if (store.hostMachine) registry.gateway.attachDaemon(store.hostMachine.id, () => {})
   const repos = new RepoRegistry(registry, registry.sessionStore)
   const superagent = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
   const users = registry.sessionStore.users
@@ -88,6 +100,10 @@ async function makeHarness() {
       users,
       capability: OPERATOR,
       principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }),
+      ...(options.readiness ? { readiness: options.readiness } : {}),
+      ...(options.requestCoordinatorRestart
+        ? { requestCoordinatorRestart: options.requestCoordinatorRestart }
+        : {}),
     }),
   }
 }
@@ -457,6 +473,147 @@ describe('setup tRPC', () => {
     expect(loadConfig().updateChannel).toBeUndefined()
     expect((await harness!.settings.getSettings()).deployment.updateChannel).toBe('edge')
   })
+
+  describe('hosted workspace admin', () => {
+    const restart = vi.fn()
+
+    beforeEach(async () => {
+      restart.mockClear()
+      harness = await makeHarness({
+        mode: 'hosted',
+        readiness: () => pendingOn(['mode']),
+        requestCoordinatorRestart: restart,
+      })
+      expect(harness.registry.sessionStore.hostMachine).toBeNull()
+      saveConfig({
+        mode: 'server',
+        publicUrl: 'https://host.example.com',
+        appUrl: 'https://app.example.com',
+        serverUrl: 'wss://upstream.example.com',
+        allowedOrigins: ['https://app.example.com'],
+        networkOption: 'cloudflare-tunnel',
+        updateChannel: 'dev',
+        updateScope: 'all',
+        transcriptLake: 'on',
+      })
+      vi.mocked(globalThis.fetch).mockClear()
+    })
+    afterEach(() => vi.unstubAllEnvs())
+
+    async function expectHostRefusal(run: () => Promise<unknown>) {
+      const path = join(dir, 'config.json')
+      const before = readFileSync(path, 'utf8')
+      const attempt = run()
+      await expect(attempt).rejects.toBeInstanceOf(HostedModeRefusal)
+      await expect(attempt).rejects.toMatchObject({
+        code: 'PRECONDITION_FAILED',
+        feature: 'host-setup',
+      })
+      expect(readFileSync(path, 'utf8')).toBe(before)
+      expect(globalThis.fetch).not.toHaveBeenCalled()
+      expect(restart).not.toHaveBeenCalled()
+      expect(await adminHasPassword()).toBe(false)
+    }
+
+    it('refuses setup.complete before writing configuration or credentials', async () => {
+      await expectHostRefusal(() =>
+        harness!.caller.setup.complete({
+          publicUrl: 'https://replacement.example.com',
+          password: 'workspace-password',
+          confirmUrlChange: true,
+        }),
+      )
+    })
+
+    it('refuses setup.join before probing or enrolling the host', async () => {
+      const code = encodeJoin({ v: 1, serverUrl: 'wss://remote.example.com', pairCode: 'P1' })
+      await expectHostRefusal(() => harness!.caller.setup.join({ code }))
+    })
+
+    it('refuses setup.connect before probing or repointing the host', async () => {
+      await expectHostRefusal(() =>
+        harness!.caller.setup.connect({
+          mode: 'client',
+          serverUrl: 'https://remote.example.com',
+        }),
+      )
+    })
+
+    it('refuses setup.activate even when a restart is available and pending', async () => {
+      await expectHostRefusal(() => harness!.caller.setup.activate())
+    })
+
+    it('returns only workspace transcript preferences from setup.info', async () => {
+      const settings = await harness!.settings.getSettings()
+      await harness!.settings.setSettings({
+        ...settings,
+        transcripts: { ...settings.transcripts, mirror: false },
+      })
+      vi.stubEnv('PODIUM_TRANSCRIPT_LAKE', 'on')
+      expect(await harness!.caller.setup.info()).toEqual({
+        transcriptLake: 'off',
+        transcriptLakeSource: 'settings',
+      })
+    })
+
+    it('returns only the workspace fleet channel from setup.channel', async () => {
+      await harness!.settings.updateDeployment({ updateChannel: 'edge' })
+      vi.stubEnv('PODIUM_UPDATE_CHANNEL', 'dev')
+      expect(await harness!.caller.setup.channel()).toEqual({
+        channel: 'edge',
+        envForced: false,
+        channelSource: 'settings',
+        configured: 'edge',
+      })
+    })
+
+    it('returns only workspace keys and provenance from setup.provenance', async () => {
+      await harness!.settings.updateDeployment({ updateChannel: 'edge' })
+      vi.stubEnv('PODIUM_UPDATE_CHANNEL', 'dev')
+      vi.stubEnv('PODIUM_AGENT_HOME', '/host/agent-home')
+      vi.stubEnv('PODIUM_TELEMETRY', 'off')
+      expect(await harness!.caller.setup.provenance()).toEqual({
+        updateChannel: { source: 'settings' },
+        transcriptLake: { source: 'default' },
+        connectEnabled: { source: 'default' },
+        telemetryUsage: { source: 'default' },
+        telemetryCrash: { source: 'default' },
+        authOpenMode: { source: 'default' },
+        telemetryInstallId: { source: 'default' },
+        telemetrySince: { source: 'default' },
+      })
+    })
+
+    it('keeps setup.setChannel within its workspace and leaves host config intact', async () => {
+      const store = harness!.registry.sessionStore
+      const otherWorkspace = asWorkspaceId('ws_other')
+      await store.database.provisionWorkspace(otherWorkspace)
+      const other = await store.database.workspace(otherWorkspace)
+      const beforeOther = await other.settings.getSettings()
+      const beforeConfig = readFileSync(join(dir, 'config.json'), 'utf8')
+      const refresh = vi
+        .spyOn(harness!.registry.modules.updates, 'refreshTarget')
+        .mockResolvedValue(true)
+      vi.stubEnv('PODIUM_UPDATE_CHANNEL', 'dev')
+      expect(await harness!.caller.setup.setChannel({ channel: 'edge' })).toEqual({
+        channel: 'edge',
+        envForced: false,
+        channelSource: 'settings',
+        configured: 'edge',
+      })
+      expect((await harness!.settings.getSettings()).deployment.updateChannel).toBe('edge')
+      expect(await other.settings.getSettings()).toEqual(beforeOther)
+      expect(readFileSync(join(dir, 'config.json'), 'utf8')).toBe(beforeConfig)
+      expect(refresh).toHaveBeenCalledExactlyOnceWith('edge')
+    })
+
+    it('keeps the static setup.options and setup.commandFor helpers available', async () => {
+      expect(await harness!.caller.setup.options()).not.toHaveLength(0)
+      expect(
+        await harness!.caller.setup.commandFor({ option: 'tailscale-funnel', port: 18787 }),
+      ).toContain('tailscale')
+    })
+  })
 })
 
 /**
@@ -724,7 +881,7 @@ describe('instance provenance', () => {
     const provenance = new InstanceService({}).provenance()
     for (const key of LAYERED_KEYS) {
       expect(provenance[key]).toBeDefined()
-      expect(['env', 'file', 'default']).toContain(provenance[key].source)
+      expect(['env', 'file', 'default']).toContain(provenance[key]?.source)
     }
   })
 

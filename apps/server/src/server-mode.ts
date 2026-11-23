@@ -58,6 +58,8 @@ export interface ServerCapabilities {
   readonly operatorLocks: boolean
   /** The first-run setup routes under `/setup/*`. */
   readonly setupRoutes: boolean
+  /** Reconfiguring or restarting the server's own installation through `setup.*`. */
+  readonly hostSetup: boolean
   /** Publishing development releases from this server's source checkout. */
   readonly devUpdateFeed: boolean
   /**
@@ -87,6 +89,7 @@ export function serverCapabilities(
       earliestAdminDefault: false,
       operatorLocks: false,
       setupRoutes: false,
+      hostSetup: false,
       devUpdateFeed: false,
       installationNamesWorkspace: false,
     }
@@ -101,6 +104,7 @@ export function serverCapabilities(
     earliestAdminDefault: true,
     operatorLocks: true,
     setupRoutes: true,
+    hostSetup: true,
     devUpdateFeed: hostMachine,
     installationNamesWorkspace: true,
   }
@@ -110,10 +114,11 @@ export function serverCapabilities(
 export const SELF_HOSTED_CAPABILITIES: ServerCapabilities = serverCapabilities()
 
 /** A feature the hosted mode turns off, as a refusal names it. */
-export type HostOnlyFeature = 'operator-lock'
+export type HostOnlyFeature = 'operator-lock' | 'host-setup'
 
 const HOST_ONLY_FEATURE_TEXT: Record<HostOnlyFeature, string> = {
   'operator-lock': 'Holding a lock without an agent session',
+  'host-setup': "Configuring the server's own installation",
 }
 
 /**

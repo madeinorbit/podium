@@ -20,6 +20,7 @@ import { type InstanceAccountStore, InstanceService } from './service'
  * `users` is the ONE member FamilyState gained; the caller was always there.
  */
 const instanceService = (state: {
+  capabilities?: import('../../server-mode').ServerCapabilities | undefined
   telemetry?: { emitter: { buildUsageReport: () => unknown } } | undefined
   users?: InstanceAccountStore | undefined
   credentials?: import('../../identity/member-credentials').MemberCredentials | undefined
@@ -51,6 +52,7 @@ const instanceService = (state: {
     | undefined
 }) =>
   new InstanceService({
+    capabilities: state.capabilities,
     emitter: state.telemetry?.emitter as never,
     settings: state.store?.settings,
     hostMachine: state.store?.hostMachine,
