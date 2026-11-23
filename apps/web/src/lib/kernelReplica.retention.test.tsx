@@ -1,6 +1,6 @@
 import { asClientPrincipal } from '@podium/client-core/principal'
 import type { IssueViewModel } from '@podium/client-core/replica'
-import { pinRowId } from '@podium/model'
+import { pinRowId, SlimIssueProjection } from '@podium/model'
 import { asUserId, ISSUE_STAGES, issueUserStateRowId } from '@podium/model/browser'
 import { CLIENT_WIRE_VERSION, wireSchemaDigest } from '@podium/protocol'
 import { IndexedDbSyncStore } from '@podium/sync/adapters/indexeddb'
@@ -153,6 +153,13 @@ describe('web legacy issue retention', () => {
       }),
     ]
     const fixture = poolFixtureStore({ issues: wires })
+    // Legacy fixture projections paint body fields that the feed does not carry.
+    fixture.replica.applySnapshot(
+      'issueProjections',
+      fixture.issueProjections.map((row) =>
+        SlimIssueProjection.parse(JSON.parse(JSON.stringify(row))),
+      ),
+    )
     const records = [
       ...wires.map((wire) => ({
         entity: 'issue',
