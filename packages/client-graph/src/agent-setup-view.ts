@@ -246,7 +246,9 @@ export class AgentSetupItem {
   /** Why the last install did not leave a usable copy; undefined when it did. */
   @lazy get failure(): string | undefined {
     if (this.usable || this.installing) return undefined
-    if (this.lastAction === 'install') {
+    // A cancelled install (here or from another client) is not a failure: the row
+    // goes back to Not installed.
+    if (this.lastAction === 'install' && this.answer.answer?.outcome !== 'cancelled') {
       const asked = this.answer.error ?? this.answer.answer?.error
       if (asked) return asked
     }

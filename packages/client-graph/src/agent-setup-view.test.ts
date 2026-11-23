@@ -370,6 +370,19 @@ describe('agent setup selection and installs', () => {
     expect(item('cursor').failure).toBe('machine went away')
   })
 
+  it('a cancelled install, from here or another client, goes back to not installed', async () => {
+    const { actions, item } = setup()
+    item('cursor').install()
+    actions[0]?.reply.resolve({
+      ok: false,
+      outcome: 'cancelled',
+      error: 'The install was cancelled.',
+    } as HarnessActionResult)
+    await settle()
+    expect(item('cursor').failure).toBeUndefined()
+    expect(item('cursor').status).toBe('not-installed')
+  })
+
   it('does not install where Podium can’t, or while the machine is offline', () => {
     const { item, actions, machine } = setup()
     item('antigravity').install()
