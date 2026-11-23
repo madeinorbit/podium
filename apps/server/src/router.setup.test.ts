@@ -611,7 +611,7 @@ describe('setup tRPC', () => {
       expect(await harness!.caller.setup.options()).not.toHaveLength(0)
       expect(
         await harness!.caller.setup.commandFor({ option: 'tailscale-funnel', port: 18787 }),
-      ).toContain('tailscale')
+      ).toMatchObject({ command: 'tailscale funnel 18787' })
     })
   })
 })
