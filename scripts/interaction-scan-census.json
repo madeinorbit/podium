@@ -3687,7 +3687,7 @@
       "file": "apps/web/src/features/issues/IssueContextMenu.tsx",
       "holder": "IssueContextMenu/IssueContextMenu",
       "rule": "loop:for-of",
-      "tokens": "580e24b73bf058abcb63838f40c6506d191ec1f628eaf06cb7d82b8c62dd62d2",
+      "tokens": "c424071cfc357d9d7b97a90f928d92d29d5abd20449d542db7213b907e9b03c5",
       "gate": [
         "exit:then:76f123297670b5a163440e69aeda15a69e75e517f0b03f56f0c40859ebf71a7d",
         "exit:then:c6f4dae444f8a54d4e095bf0f49d5e62cda06c9f73521f138f21e11eadb25806",
@@ -3697,7 +3697,7 @@
         "74939a3eaddeadbf09729ab74f28fc77ff64abb85673264cf8712fcd89438a1f",
         "d44a1ea01b2ea5ec0d010d732e5249393508b9cbd02c73b52b237cd8777f6de7"
       ],
-      "fingerprint": "927c398815ebe1f968d577c782944c561a8bf7f2d22cafd09f56b38d521ef02d",
+      "fingerprint": "6481cdaaef6906dbf6de5e10cd9c596e7cc7e95082edc22457321043c7e8c4ea",
       "count": 1,
       "classification": "visible output",
       "owner": "POD-5672",
@@ -4676,9 +4676,9 @@
         "exit:then:5d2f098af2a49949ea47cd1995ace016f9748b9b92eebaf4f7d6775c60d5e819"
       ],
       "origin": [
-        "ba80130ae4b89291f65e9c2e5e7d3ad799158ce8e2e96f8b61969c2969017668"
+        "f9921069ca9dfe99208efd70348333ce741d117715521952ab25c2d5f82131b4"
       ],
-      "fingerprint": "f67e97f3eed1160393a5a9e3fb2212d9df77731d8d34070d62357f1af20451d6",
+      "fingerprint": "87bf37406273423f92c6f52f7dd1fdb797ac22d656711b41e71c5ec3271288bb",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -4696,9 +4696,9 @@
         "exit:then:5d2f098af2a49949ea47cd1995ace016f9748b9b92eebaf4f7d6775c60d5e819"
       ],
       "origin": [
-        "ba80130ae4b89291f65e9c2e5e7d3ad799158ce8e2e96f8b61969c2969017668"
+        "f9921069ca9dfe99208efd70348333ce741d117715521952ab25c2d5f82131b4"
       ],
-      "fingerprint": "a135749bdfdf7f19e6a184bf3b593a2e60f406103a6d9dc6ae3e24dcbdfe83bc",
+      "fingerprint": "9897efdb73d921e281d617db5e7165b64e06448206cc810b21e19e3fd480fef3",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -4716,9 +4716,9 @@
         "exit:then:5d2f098af2a49949ea47cd1995ace016f9748b9b92eebaf4f7d6775c60d5e819"
       ],
       "origin": [
-        "ba80130ae4b89291f65e9c2e5e7d3ad799158ce8e2e96f8b61969c2969017668"
+        "f9921069ca9dfe99208efd70348333ce741d117715521952ab25c2d5f82131b4"
       ],
-      "fingerprint": "dc49621db15aefb40a351bd9d62b750fbed6369732b4de2bef801409860a2207",
+      "fingerprint": "30c93bfe566bca41d871e06b26b066c80a64fb501061526b1740d1ea00199cb0",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -4736,9 +4736,9 @@
         "exit:then:5d2f098af2a49949ea47cd1995ace016f9748b9b92eebaf4f7d6775c60d5e819"
       ],
       "origin": [
-        "ba80130ae4b89291f65e9c2e5e7d3ad799158ce8e2e96f8b61969c2969017668"
+        "f9921069ca9dfe99208efd70348333ce741d117715521952ab25c2d5f82131b4"
       ],
-      "fingerprint": "12c6cfdf1a07f3617846cdafd923c7cd288862a21503a66a665eb19f438fd376",
+      "fingerprint": "bc5e6ffbddc6201a66b2135bc57083014faa22120594fe9d274c4ed2e3368a5f",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -4756,9 +4756,9 @@
         "exit:then:5d2f098af2a49949ea47cd1995ace016f9748b9b92eebaf4f7d6775c60d5e819"
       ],
       "origin": [
-        "ba80130ae4b89291f65e9c2e5e7d3ad799158ce8e2e96f8b61969c2969017668"
+        "f9921069ca9dfe99208efd70348333ce741d117715521952ab25c2d5f82131b4"
       ],
-      "fingerprint": "7bb5bd775a1dcbc69c6dd6d2c318f5a68cf12a7e36655fb93ce0b025c55cb21c",
+      "fingerprint": "82bbeb0106f4febe64e56cf88dcf515d397765d196d161999364db9e24b7e4b1",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -4776,9 +4776,9 @@
         "exit:then:5d2f098af2a49949ea47cd1995ace016f9748b9b92eebaf4f7d6775c60d5e819"
       ],
       "origin": [
-        "ba80130ae4b89291f65e9c2e5e7d3ad799158ce8e2e96f8b61969c2969017668"
+        "f9921069ca9dfe99208efd70348333ce741d117715521952ab25c2d5f82131b4"
       ],
-      "fingerprint": "643e891a136b629851e7e07e734b12314c3c57a41fe9fdcf86484f388fdcc935",
+      "fingerprint": "868b536006a218be44ef569c1c712d7353a84d4bae2deb329a34da1d1a557c4c",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -4796,9 +4796,9 @@
         "exit:then:5d2f098af2a49949ea47cd1995ace016f9748b9b92eebaf4f7d6775c60d5e819"
       ],
       "origin": [
-        "ba80130ae4b89291f65e9c2e5e7d3ad799158ce8e2e96f8b61969c2969017668"
+        "f9921069ca9dfe99208efd70348333ce741d117715521952ab25c2d5f82131b4"
       ],
-      "fingerprint": "4add39f769a7efa13f42ce4c528d5d7c4a1665b1d534464656ec5c92f0716326",
+      "fingerprint": "869c76344691763f65d843c7812acc416e7dbdf5abd9aba469dc6f5b269e6666",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -4816,9 +4816,9 @@
         "exit:then:5d2f098af2a49949ea47cd1995ace016f9748b9b92eebaf4f7d6775c60d5e819"
       ],
       "origin": [
-        "ba80130ae4b89291f65e9c2e5e7d3ad799158ce8e2e96f8b61969c2969017668"
+        "f9921069ca9dfe99208efd70348333ce741d117715521952ab25c2d5f82131b4"
       ],
-      "fingerprint": "00a1fc383f85181cc2202c8a6db926ccd451da81a8d1784929c3c89f3e9581ae",
+      "fingerprint": "675989739b4da27f551c68e592c88dbd6459db9a68d971ca669109a8cbff4cb1",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -4836,9 +4836,9 @@
         "exit:then:5d2f098af2a49949ea47cd1995ace016f9748b9b92eebaf4f7d6775c60d5e819"
       ],
       "origin": [
-        "ba80130ae4b89291f65e9c2e5e7d3ad799158ce8e2e96f8b61969c2969017668"
+        "f9921069ca9dfe99208efd70348333ce741d117715521952ab25c2d5f82131b4"
       ],
-      "fingerprint": "5056b76319f9991a3c98aa0dd1329d09d3a1a40564c1afd5e9216a0ac48d42b4",
+      "fingerprint": "ded7c9ae42905b9c1b2b176b79963573cf173b882a2937e747ae5b0dd4e54502",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -4856,9 +4856,9 @@
         "exit:then:5d2f098af2a49949ea47cd1995ace016f9748b9b92eebaf4f7d6775c60d5e819"
       ],
       "origin": [
-        "ba80130ae4b89291f65e9c2e5e7d3ad799158ce8e2e96f8b61969c2969017668"
+        "f9921069ca9dfe99208efd70348333ce741d117715521952ab25c2d5f82131b4"
       ],
-      "fingerprint": "706cc2199ba7ddf417bd3a7702ed2357f79338fa78477bd6159733c8d066a8c2",
+      "fingerprint": "f40aceff3ab7bb059ba28db0f340ffc4665b8a8a14ef268a5ade55a2379e5427",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -4876,9 +4876,9 @@
         "exit:then:5d2f098af2a49949ea47cd1995ace016f9748b9b92eebaf4f7d6775c60d5e819"
       ],
       "origin": [
-        "ba80130ae4b89291f65e9c2e5e7d3ad799158ce8e2e96f8b61969c2969017668"
+        "f9921069ca9dfe99208efd70348333ce741d117715521952ab25c2d5f82131b4"
       ],
-      "fingerprint": "197851b1d65a5a73aab73bb63832b7a8bddc7676c1f55bbcc1cd925b13e1cb55",
+      "fingerprint": "b9b19487c5f9d93c00ef395dccdb5d690833f792fbf8f00f53ca9091c5315d25",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -4896,9 +4896,9 @@
         "exit:then:5d2f098af2a49949ea47cd1995ace016f9748b9b92eebaf4f7d6775c60d5e819"
       ],
       "origin": [
-        "ba80130ae4b89291f65e9c2e5e7d3ad799158ce8e2e96f8b61969c2969017668"
+        "f9921069ca9dfe99208efd70348333ce741d117715521952ab25c2d5f82131b4"
       ],
-      "fingerprint": "89af4905bdcbc61487baa35b3ed468d996bbd96761dfe365b340d3067e0ccca5",
+      "fingerprint": "a70bfddbf3d166b60d90221be78c1cd96dbba12106ab6597a1f1aaeeb1989475",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -5017,14 +5017,14 @@
       "file": "apps/web/src/features/issues/issue-menu-palette.ts",
       "holder": "paletteIssueMenuData",
       "rule": "helper-consumer",
-      "tokens": "2400c07c7df0ef70eb71649f555711685d6dbb1a445aee9c434fc6e14cf43c61",
+      "tokens": "c4ae2b5e69510cdf158a663d454cbc5be640fcddb4c29e017c75a77ece7ecadf",
       "gate": [
         "exit:then:4e83d6ec988459cc6cd5b27d35905c83d45b86939b8786ff127a71af3ee9a302"
       ],
       "origin": [
         "da842288cc961ad8862187641c354f5ed4888e80716779b6bb7195145dcc82e6"
       ],
-      "fingerprint": "61b843e7a2b032751a7ee63ff59fe6ab716117633072beb3583f1974b25093aa",
+      "fingerprint": "706b5b873b892bc76ec943a9270eebba850add2addb1ae1688f381ae5fe40f2f",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -5037,14 +5037,14 @@
       "file": "apps/web/src/features/issues/issue-menu-palette.ts",
       "holder": "paletteIssueMenuData",
       "rule": "reader-summary",
-      "tokens": "5a6a72acbccf02b573cf3e6d72ce7a6c1ecddc8cb90d4c184337f20aade267d8",
+      "tokens": "459cb657efe2fb3801968c989e73c0e17887e6466481ebcbafcf9f763b96e786",
       "gate": [
         "exit:then:4e83d6ec988459cc6cd5b27d35905c83d45b86939b8786ff127a71af3ee9a302"
       ],
       "origin": [
         "da842288cc961ad8862187641c354f5ed4888e80716779b6bb7195145dcc82e6"
       ],
-      "fingerprint": "008fbad5445f912dadeb3f890d66ce9182c3960be951cf435f2e804c5d23f3bd",
+      "fingerprint": "e8df0cf7cdff9200aeff1ce186f2fd736cfa46dcccfd6694bf576c36d0a13fbb",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -31632,7 +31632,7 @@
       "file": "apps/web/src/features/issues/IssueContextMenu.tsx",
       "holder": "IssueContextMenu/IssueContextMenu/menuData",
       "rule": "helper-consumer",
-      "tokens": "98838a96b59670afc93286430a3668c557565bf45a8b8075f41ed294b6d4d6ce",
+      "tokens": "959a06b4006989b03b205cf1e2a611d2b5bf7db64e472736edae8fb0e2812b70",
       "gate": [
         "exit:then:c6f4dae444f8a54d4e095bf0f49d5e62cda06c9f73521f138f21e11eadb25806",
         "exit:then:5d2f098af2a49949ea47cd1995ace016f9748b9b92eebaf4f7d6775c60d5e819"
@@ -31641,7 +31641,7 @@
         "74939a3eaddeadbf09729ab74f28fc77ff64abb85673264cf8712fcd89438a1f",
         "d44a1ea01b2ea5ec0d010d732e5249393508b9cbd02c73b52b237cd8777f6de7"
       ],
-      "fingerprint": "14dab5220228b4f528c817e235c41f5e57e1f1b924c50c2dc5eddcd946f74bee",
+      "fingerprint": "1a80d1feff32040de95388424b17f821502bb8c738bea009bded1a23923f23a5",
       "count": 1,
       "classification": "visible output",
       "owner": "POD-5672",
@@ -31654,7 +31654,7 @@
       "file": "apps/web/src/features/issues/IssueContextMenu.tsx",
       "holder": "IssueContextMenu/IssueContextMenu/menuData",
       "rule": "reader-summary",
-      "tokens": "cfc72f17b5aaeb3cfc3babaf8c76f7bb6d1e3b7264d82bcf34ae04149a31e85a",
+      "tokens": "4da6512cfa4efb33526d682513e476ee816e58e5ca819c88b88d770da61e24f2",
       "gate": [
         "exit:then:c6f4dae444f8a54d4e095bf0f49d5e62cda06c9f73521f138f21e11eadb25806",
         "exit:then:5d2f098af2a49949ea47cd1995ace016f9748b9b92eebaf4f7d6775c60d5e819"
@@ -31663,7 +31663,7 @@
         "74939a3eaddeadbf09729ab74f28fc77ff64abb85673264cf8712fcd89438a1f",
         "d44a1ea01b2ea5ec0d010d732e5249393508b9cbd02c73b52b237cd8777f6de7"
       ],
-      "fingerprint": "e3f6fb3169fb5732a42f68d1228a76485af003be41f76a1bbdb9e45529536019",
+      "fingerprint": "5e6cb4f5cc841e31ad945f435f4e2abffd0130c3d5ef5bc2a9d4829afb631f73",
       "count": 1,
       "classification": "visible output",
       "owner": "POD-5672",
@@ -35981,15 +35981,15 @@
     },
     {
       "file": "apps/web/src/features/issues/IssueAgentSettings.tsx",
-      "holder": "IssueAgentSettings/IssueAgentSettings/agentOptions",
+      "holder": "IssueAgentSettings/IssueAgentSettings/agentFleet",
       "rule": "reader-summary",
-      "tokens": "238c3cb783d61fb5a7c98ea8a177cbf0cf00e233fa363bae2562114aeb281919",
+      "tokens": "e8bb6d320e84f00971e8e897158069dfd4fe118379b1c2c009af63e84ab38504",
       "gate": [],
       "origin": [
         "38ee8e4568daab4926b21807b42ed2fa803a25ca97778f587de71b0d1d05834e",
         "edccbaf426dca942750619e6960d69f0c560ebdaf7c2beb6a07ceb8fdc008aaf"
       ],
-      "fingerprint": "35a63612c12cd20ffd2a47fe7423c2f9b7ddd896d993fe187d34ab60a8a00b3c",
+      "fingerprint": "c1d0629e51b801b95e29cbba3d915ed044751e16a65a9f172adc3c768c5200e5",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-6644",
@@ -40274,6 +40274,44 @@
       "bound": "One Concertmaster session's curated conversation: a device holds a session's entries only while its chat or dock panel reads them (the concertmasterEntry.ofSession collection), and the rows are that session's messages and asks (POD-7211).",
       "reason": "The curated chat and the Needs-you list read the resident concertmasterEntry rows and keep one session's; the table holds only the conversations on screen, so the work follows the shown conversation, not history or other sessions. Paging a very long conversation is a declared follow-up.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/features/issues/IssueContextMenu.tsx",
+      "holder": "IssueAgentSubmenu/fleet",
+      "rule": "reader-summary",
+      "tokens": "dd1d57474487e661c895908ffd25be7970f5d6eadef858314305cdfe56ea4410",
+      "gate": [],
+      "origin": [
+        "38ee8e4568daab4926b21807b42ed2fa803a25ca97778f587de71b0d1d05834e",
+        "edccbaf426dca942750619e6960d69f0c560ebdaf7c2beb6a07ceb8fdc008aaf"
+      ],
+      "fingerprint": "1a03cf27f7ec624d76b54a143fd6f58cb5dca0ba1ca93a8c739ad026593648d2",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-7475",
+      "trigger": "The agent flyout is open, or an existing planned-agent picker reads its options.",
+      "bound": "One instance's machines (my fleet: the machine records with my access row) and the registered repositories derived from its checkout records: tens per instance, never sessions or issues",
+      "reason": "Reuses the existing POD-6644 machine and checkout record source from the prior planned-agent reader. The agent flyout acquires that source only while open; the options-only compatibility helper exposes the same source. No issue or session catalogue is acquired.",
+      "guard": "header-source.test.ts, header-point-questions.test.ts, header-idle-cap.test.ts, settings-demand.test.ts, synced-record-models.test.ts; IssueContextMenu.agent-entry.test.tsx guards deferred demand and setup handback; use-agent-fleet-options.test.tsx covers pinned and unknown-inventory readings."
+    },
+    {
+      "file": "apps/web/src/features/issues/use-agent-fleet-options.ts",
+      "holder": "useAgentFleetOptions",
+      "rule": "reader-summary",
+      "tokens": "e8bb6d320e84f00971e8e897158069dfd4fe118379b1c2c009af63e84ab38504",
+      "gate": [],
+      "origin": [
+        "38ee8e4568daab4926b21807b42ed2fa803a25ca97778f587de71b0d1d05834e",
+        "edccbaf426dca942750619e6960d69f0c560ebdaf7c2beb6a07ceb8fdc008aaf"
+      ],
+      "fingerprint": "983692898936b755427d8bf5256390f8e3af352a2ac53e199052a85fb1d69242",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-7475",
+      "trigger": "The agent flyout is open, or an existing planned-agent picker reads its options.",
+      "bound": "One instance's machines (my fleet: the machine records with my access row) and the registered repositories derived from its checkout records: tens per instance, never sessions or issues",
+      "reason": "Reuses the existing POD-6644 machine and checkout record source from the prior planned-agent reader. The agent flyout acquires that source only while open; the options-only compatibility helper exposes the same source. No issue or session catalogue is acquired.",
+      "guard": "header-source.test.ts, header-point-questions.test.ts, header-idle-cap.test.ts, settings-demand.test.ts, synced-record-models.test.ts; IssueContextMenu.agent-entry.test.tsx guards deferred demand and setup handback; use-agent-fleet-options.test.tsx covers pinned and unknown-inventory readings."
     }
   ]
 }

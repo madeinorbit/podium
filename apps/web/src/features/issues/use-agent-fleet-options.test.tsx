@@ -35,11 +35,11 @@ it('uses the issue’s pinned machine even when another repository host has the 
   fixture.machines = [machine('a', false), machine('b', true)]
   const pinned = renderHook(() => useAgentFleet({ repoPath: '/repo', machineId: 'a' as never }))
     .result.current
-  expect(pinned.options.some((option) => option.value === 'codex')).toBe(false)
+  expect(pinned.options.find((option) => option.value === 'codex')?.status.hidden).toBe(true)
   expect(pinned.options.find((option) => option.value === 'pi')?.status.hint).toBe('signed out')
   expect(pinned.machines.map((host) => host.id)).toEqual(['a'])
   const fleet = renderHook(() => useAgentFleet({ repoPath: '/repo' })).result.current
-  expect(fleet.options.some((option) => option.value === 'codex')).toBe(true)
+  expect(fleet.options.find((option) => option.value === 'codex')?.status.hidden).toBeUndefined()
 })
 
 it('keeps offline and unknown inventory choices visible', () => {
@@ -58,5 +58,5 @@ it('keeps an unknown repository unrefused and can plan a global automation acros
   expect(unknown.machines).toEqual([])
   expect(unknown.setupMachines.map((host) => host.id)).toEqual(['a'])
   const global = renderHook(() => useAgentFleet({}, true)).result.current
-  expect(global.options.some((option) => option.value === 'codex')).toBe(false)
+  expect(global.options.find((option) => option.value === 'codex')?.status.hidden).toBe(true)
 })

@@ -66,7 +66,7 @@ export function useAgentFleet(
     return {
       machines: hosts,
       setupMachines: hosts.length ? hosts : machines,
-      options: options.filter((option) => !option.status.hidden),
+      options,
     }
   }, [repos, machines, repoPath, machineId, allMachines])
 }

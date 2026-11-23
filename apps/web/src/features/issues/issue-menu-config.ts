@@ -82,7 +82,12 @@ export type IssueMenuSubmenu =
  * alone under a rule. The section that is genuinely destructive is the one
  * named for it.
  */
-export type IssueMenuSection = 'main' | 'placement' | 'lifecycle' | 'destructive' | 'danger'
+export type IssueMenuSection =
+  | 'main'
+  | 'placement'
+  | 'lifecycle'
+  | 'destructive'
+  | 'danger'
 
 export interface IssueMenuOption {
   id: string
@@ -474,23 +479,19 @@ export function createIssueMenuData(input: {
     renameEnabled: input.renameEnabled ?? false,
     handoffEnabled: input.handoffEnabled ?? false,
     primaryStart: input.primaryStart ?? false,
-    get labels() {
-      return [
-        ...new Set([
-          ...(input.choiceIssues?.() ?? input.allIssues).flatMap((issue) => issue.labels),
-          ...input.issues.flatMap((issue) => issue.labels),
-        ]),
-      ].sort()
-    },
-    get duplicateTargets() {
-      return (input.choiceIssues?.() ?? input.allIssues)
-        .filter(
-          (issue) =>
-            !issue.deletedAt && issue.repoPath === first.repoPath && !targetIds.has(issue.id),
-        )
-        .sort((a, b) => a.seq - b.seq)
-        .map((issue) => ({ id: issue.id, ref: issueDisplayRef(issue), title: issue.title }))
-    },
+    get labels() { return [
+      ...new Set([
+        ...(input.choiceIssues?.() ?? input.allIssues).flatMap((issue) => issue.labels),
+        ...input.issues.flatMap((issue) => issue.labels),
+      ]),
+    ].sort() },
+    get duplicateTargets() { return (input.choiceIssues?.() ?? input.allIssues)
+      .filter(
+        (issue) =>
+          !issue.deletedAt && issue.repoPath === first.repoPath && !targetIds.has(issue.id),
+      )
+      .sort((a, b) => a.seq - b.seq)
+      .map((issue) => ({ id: issue.id, ref: issueDisplayRef(issue), title: issue.title })) },
     handoff: input.handoff,
   }
 }

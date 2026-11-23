@@ -1,10 +1,32 @@
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { closeSetupAgents, setupAgentsRequest } from '@/features/setup-agents/open-setup-agents'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { makeIssue } from '@/lib/test-issue'
 import { IssueContextMenu } from './IssueContextMenu'
 import { IssuePageWorldContext } from './issue-page/issue-page-data'
+
+const agentFleetRead = vi.hoisted(() =>
+  vi.fn(() => {
+    const machine = {
+      id: 'machine-a',
+      name: 'Workstation',
+      online: true,
+      serviceAssignment: { server: false, agentExecution: true },
+      availability: { daemon: true },
+      inventory: {
+        agents: [
+          { kind: 'claude-code', installed: true, login: { state: 'in' } },
+          { kind: 'codex', installed: true, login: { state: 'out' } },
+          { kind: 'cursor', installed: false, login: { state: 'unknown' } },
+        ],
+      },
+    }
+    return { machines: [machine], setupMachines: [machine], options: [] }
+  }),
+)
+vi.mock('./use-agent-fleet-options', () => ({ useAgentFleet: agentFleetRead }))
 
 vi.mock('@/lib/use-feature', () => ({ useFeature: () => false }))
 
@@ -50,7 +72,11 @@ vi.mock('@/app/store', () => ({
 
 // The menu's Archive and Delete confirms are the app-wide dialog (POD-1077), so
 // it now reads the ConfirmProvider context the real tree supplies from AppShell.
-function open(issue: ReturnType<typeof makeIssue>, primaryStart = false): void {
+function open(
+  issue: ReturnType<typeof makeIssue>,
+  primaryStart = false,
+  surface: 'board' | 'palette' = 'board',
+): void {
   render(
     <ConfirmProvider>
       <IssuePageWorldContext.Provider value={{ issues: [issue], sessions: [] }}>
@@ -60,6 +86,7 @@ function open(issue: ReturnType<typeof makeIssue>, primaryStart = false): void {
           poolInputs={{ sessions: [], repos: [], machines: [] }}
           anchor={{ x: 10, y: 10 }}
           primaryStart={primaryStart}
+          surface={surface}
           onClose={vi.fn()}
           onOpen={vi.fn()}
           onRename={vi.fn()}
@@ -71,6 +98,8 @@ function open(issue: ReturnType<typeof makeIssue>, primaryStart = false): void {
 
 afterEach(() => {
   cleanup()
+  closeSetupAgents()
+  agentFleetRead.mockClear()
   startMutate.mockClear()
   addSessionMutate.mockClear()
   startIssueSession.mockClear()
@@ -97,6 +126,7 @@ describe('IssueContextMenu — the agent entry is off the menu (POD-110 → POD-
       open(issue)
       expect(screen.queryByRole('menuitem', { name: /Run now/ })).toBeNull()
       expect(screen.queryByRole('menuitem', { name: /Assign agent/ })).toBeNull()
+      expect(agentFleetRead).not.toHaveBeenCalled()
     })
   }
 
@@ -108,4 +138,18 @@ describe('IssueContextMenu — the agent entry is off the menu (POD-110 → POD-
     expect(startMutate).not.toHaveBeenCalled()
     expect(addSessionMutate).not.toHaveBeenCalled()
   })
+})
+
+it('reads capability choices only for the opened agent flyout and returns setup to the issue', () => {
+  open(makeIssue(), false, 'palette')
+  expect(agentFleetRead).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Assign agent' }))
+  expect(agentFleetRead).toHaveBeenCalled()
+  expect(screen.queryByRole('menuitem', { name: 'Cursor' })).toBeNull()
+  expect(screen.getByRole('menuitem', { name: 'Codex signed out' })).toBeTruthy()
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Set up agents…' }))
+  expect(setupAgentsRequest()).toMatchObject({ machineId: 'machine-a', origin: 'menu' })
+  expect(startIssueSession).not.toHaveBeenCalled()
+  act(() => setupAgentsRequest()?.onStart?.('codex'))
+  expect(startIssueSession).toHaveBeenCalledExactlyOnceWith({ issueId: 'i', agentKind: 'codex' })
 })
