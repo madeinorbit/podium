@@ -306,7 +306,9 @@ describe('a pending question the transcript does not carry', () => {
       await flush()
       expect(answerMutate).toHaveBeenCalledTimes(1)
       if (authority === 'interaction')
+        // The answer is a session.answer record: (sessionId, answer) (POD-6415).
         expect(answerMutate).toHaveBeenCalledWith(
+          's1',
           expect.objectContaining({ interactionId: 'new-live' }),
         )
       act(() => {
