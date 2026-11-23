@@ -761,7 +761,6 @@ const CASES: Record<string, Case> = {
       cwd: CWD,
       prompt: 'conformance',
       sessionUuid: RESUME,
-      runtimeDir,
       launchPosture: testLaunchPosture(h.context, { runtimeDir }),
     }
     // Cursor allocates its chat first (`create-chat`), then runs pinned to it.
