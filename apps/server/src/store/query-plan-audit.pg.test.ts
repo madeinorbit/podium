@@ -179,6 +179,10 @@ const MIN_MAX_SEEK =
   'one entry; the plan names only the workspace (POD-7024).'
 const ALLOWLIST: ReadonlyMap<string, string> = new Map([
   [
+    'apps/server/src/store/collections.ts:collectionRows [|session.asking#ids#]',
+    'Reads idx_sessions_asking, the partial index containing only sessions that wait for the user. Postgres proves its boolean predicate from the literal asks_user = true and omits that redundant key from Index Cond, leaving workspace_id alone. The asking-shape test below requires this exact index; the read never walks session history (POD-7123).',
+  ],
+  [
     'apps/server/src/store/sessions.ts:anySession',
     'One-row existence probe for setup (POD-7118 from dev/mw): LIMIT 1 stops at the first stored session of the workspace, including tombstones. Reads at most one row regardless of history.',
   ],

@@ -189,12 +189,14 @@ export function askingSatelliteCtes(
   if (table === 'sessions' || !askingNeeded(table, op, setColumns)) return sql``
   const old =
     op === 'u'
-      ? ` UNION select "__capture_o_workspace_id", "__capture_o_session_id" from ${OLD}`
+      ? ` UNION ALL select "__capture_o_workspace_id", "__capture_o_session_id" from ${OLD}`
       : ''
   const targets = `select workspace_id, session_id from ${WRITE}${old}`
   const relation = (name: string) => (name === table ? satelliteImage(table, op) : q(name))
   // The written rows carry the workspace, including when a raw corpus builder has
   // no workspace placeholder to bind. Join on BOTH key columns, never session id alone.
+  // OLD and NEW can name the same session: both compute the identical post-write
+  // value, so UPDATE FROM may pick either, without a sort to de-duplicate keys.
   const from = sql.raw(`"sessions" AS r inner join (${targets}) AS affected
     on r.workspace_id = affected.workspace_id and r.id = affected.session_id`)
   const values = askingSelect(PG_RULE_SQL, from, askingRef('r'), relation)

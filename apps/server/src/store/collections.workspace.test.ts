@@ -157,7 +157,7 @@ describe('the collection fetch reads one workspace (POD-7118)', () => {
         expect(flag?.asks, `${tag} flag`).toBe(expected[tag] ? 1 : 0)
         for (const rule of ['session.asking', 'session.noIssue']) {
           expect(
-            ids(await repos[tag].select(resolveRule(rule), {}, NOW)).includes(id),
+            ids(await repos[tag].select(resolveRule(rule), { recentDays: 7 }, NOW)).includes(id),
             `${tag} ${rule}`,
           ).toBe(expected[tag])
         }

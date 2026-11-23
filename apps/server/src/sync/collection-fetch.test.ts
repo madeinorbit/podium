@@ -49,9 +49,7 @@ import { type CollectionInstance, ISSUE_STUB_FIELDS, type Principal } from '@pod
 import { DEVICE_GRADE_PRINCIPAL } from '@podium/sync'
 import { shapedValue } from '@podium/sync/bootstrap-worker'
 import { fixtureWriteScope } from '@podium/sync/testing'
-import { getTableName, sql } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { sessions } from '../migrations/schema'
 import type { SessionStore } from '../store'
 import { auditedCollectionShapes } from '../store/collections'
 import type { SessionRow } from '../store/types'
@@ -62,7 +60,6 @@ import { bootstrapVisibility } from '../sync-worker/visibility'
 import { ruleDialectOfStore, runCollectionStatement } from '../test-support/collection-statement'
 import { issueRowFixture } from '../test-support/issue-row'
 import { openTestStore, testStoreLocation } from '../test-support/open-test-store'
-import { storeSql } from '../test-support/store-sql'
 import { CollectionRequestError, resolveInstance } from './collection-fetch'
 import { resolveRule, ruleStatement, statementOfKey } from './collection-shapes'
 import { collectionTarget, isCollectionKind } from './collection-sql'
@@ -251,7 +248,15 @@ async function plant(store: SessionStore): Promise<{ owner: UserId }> {
   const machine = asMachineId(store.hostMachine!.id)
   for (const planted of SESSIONS) {
     const who = planted.owner === 'a' ? owner : BOB
-    await store.sessions.upsertSession(fixtureWriteScope(), sessionRow(planted, who, machine))
+    // The malformed state bypasses its schema, while the normal write path still
+    // maintains asks_user on Postgres (SQLite's triggers see every write).
+    const row = sessionRow(planted, who, machine)
+    await store.sessions.upsertSession(fixtureWriteScope(), {
+      ...row,
+      ...(planted.rawAgentState === undefined
+        ? {}
+        : { agentState: JSON.parse(planted.rawAgentState) as AgentRuntimeState }),
+    })
     if (planted.offerAt) {
       await store.sessions.setOffer(fixtureWriteScope(), asSessionId(planted.id), {
         message: 'Ready',
@@ -311,13 +316,6 @@ async function plant(store: SessionStore): Promise<{ owner: UserId }> {
         onBehalfOf: who,
       })
     }
-  }
-  // A saved agent state the record builder drops: it fails the schema.
-  for (const planted of SESSIONS) {
-    if (planted.rawAgentState === undefined) continue
-    await storeSql(store).run(
-      sql`UPDATE ${sql.identifier(getTableName(sessions))} SET ${sql.identifier(sessions.agentStateJson.name)} = ${planted.rawAgentState} WHERE ${sql.identifier(sessions.id.name)} = ${planted.id}`,
-    )
   }
   return { owner }
 }
