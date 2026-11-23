@@ -70,7 +70,7 @@ async function signIn(factory: IDBFactory, syncBoundaryId: string) {
 }
 
 async function signOut(session: Awaited<ReturnType<typeof signIn>>) {
-  await session.assembly.settled()
+  await session.assembly.store.settled()
   await session.transcripts.settled()
   opened.splice(opened.indexOf(session.assembly), 1)
   await session.assembly.dispose()
