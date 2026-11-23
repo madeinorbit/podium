@@ -512,9 +512,6 @@ describe('SuperagentScreen chrome', () => {
   })
 
   it('sends the picked model and effort with the turn', async () => {
-    vi.spyOn(await import('@podium/client-core/react'), 'useModelCatalog').mockReturnValue({
-      'claude-code': [{ value: 'opus', label: 'Opus', efforts: ['low', 'high'] }],
-    })
     const sendTurn = vi.fn(async () => ({ threadId: 'global' }))
     const catalog = vi.fn(async () => ({
       machineId: 'model-test-machine',

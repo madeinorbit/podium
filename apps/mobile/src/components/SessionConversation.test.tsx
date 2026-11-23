@@ -20,6 +20,22 @@ import type { PendingTurn } from './TranscriptList'
 
 afterEach(cleanup)
 
+// Live-menu answers are `session.answer` records (POD-6415). Record what the
+// screen hands the shared answer hook, then let the real hook send it.
+const menuAnswers = vi.hoisted(() => [] as [string, unknown][])
+vi.mock('../lib/answer-session', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../lib/answer-session')>()
+  return {
+    ...actual,
+    useAnswerSession: () => {
+      const send = actual.useAnswerSession()
+      return async (sessionId: Parameters<typeof send>[0], answer: Parameters<typeof send>[1]) => {
+        menuAnswers.push([sessionId, answer])
+        return send(sessionId, answer)
+      }
+    },
+  }
+})
 vi.mock('expo-haptics', () => ({
   ImpactFeedbackStyle: { Light: 'light' },
   NotificationFeedbackType: { Error: 'error' },
@@ -167,12 +183,14 @@ it.each([
   await screen.findByText('New native question?')
   fireEvent.click(screen.getByLabelText('New choice'))
   await waitFor(() =>
-    expect(answer).toHaveBeenCalledWith(
+    expect(menuAnswers).toContainEqual([
+      'resumed',
       expect.objectContaining({
+        via: 'menu',
         interactionId: 'new-interaction',
         choices: [{ optionIndices: [1] }],
       }),
-    ),
+    ]),
   )
 })
 

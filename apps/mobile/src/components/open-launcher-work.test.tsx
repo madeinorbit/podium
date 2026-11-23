@@ -118,10 +118,11 @@ function fixture(scale: number) {
   return { machines, repos, sessions }
 }
 
-it.each([
-  'NewWorkButton',
-  'NewIssueScreen',
-] as const)('meters actual open %s at 1x/4x', async (surface) => {
+// dev/tf: the phone's NewWorkButton is a thin launcher that only pushes the
+// New Task compose sheet; the inline launcher sheet this case drove is gone.
+it.each(['NewIssueScreen'] as const)('meters actual open %s at 1x/4x', async (surface:
+  | 'NewWorkButton'
+  | 'NewIssueScreen') => {
   const samples = []
   for (const scale of [1, 4]) {
     const data = fixture(scale)

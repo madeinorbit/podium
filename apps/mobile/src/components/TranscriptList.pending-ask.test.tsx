@@ -521,39 +521,9 @@ describe('TranscriptList pendingAsk', () => {
   })
 })
 
-it('discloses the retained Bash input and its capture state inside a work run', () => {
-  const command = 'echo "$HOME" && printf "%s" 42'
-  const { container } = render(
-    <TranscriptList
-      transcriptQuestion={null}
-      live={false}
-      onAnswer={async () => {}}
-      items={[
-        {
-          id: 'bash-row',
-          role: 'tool',
-          text: '',
-          toolName: 'Bash',
-          toolTitle: 'Check home',
-          toolInput: command,
-          toolExecution: {
-            kind: 'commands',
-            inputs: [{ kind: 'command', toolName: 'Bash', text: command, capture: 'complete' }],
-            status: 'running',
-          },
-        },
-      ]}
-    />,
-  )
-  fireEvent.click(screen.getByLabelText(/^Expand work run:/))
-  expect(screen.queryByLabelText('Copy retained input')).toBeNull()
-  fireEvent.click(screen.getByLabelText(`Expand ${command}`))
-  expect(screen.getByLabelText('Copy retained input').parentElement?.textContent).toContain(command)
-  expect(screen.queryByText('The record may contain only an input preview.')).toBeNull()
-  expect(container.textContent).toContain(
-    'The transcript does not establish whether output was returned.',
-  )
-})
+// Upstream also pinned its unified command-execution disclosure here
+// (954b4c6b2a, "Expand <command>" / "Copy retained input"). The phone keeps
+// dev/tf's Murmur transcript rows, which draw tool runs their own way.
 
 // POD-2143: an oversized mail reaches the agent as a one-line inbox pointer
 // with no body. The phone shows it as an envelope that says where the body
