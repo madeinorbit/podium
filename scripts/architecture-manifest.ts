@@ -642,6 +642,8 @@ export const MANIFEST: Readonly<Record<string, WorkspaceTags>> = {
       'packages/model',
       'packages/mobx-helpers',
       'packages/protocol',
+      // POD-7454: the side-state guard's collections and read hook (`@podium/sync/side-state`).
+      'packages/sync',
       // POD-5615: pool feed diagnostics report through the logger barrel.
       'packages/logger',
     ],
@@ -814,6 +816,8 @@ export const BROWSER_ENTRYPOINTS: ReadonlyMap<string, string> = new Map([
   ['@podium/sync/replica', 'packages/sync/src/replica/index.ts'],
   ['@podium/sync/outbox', 'packages/sync/src/outbox/index.ts'],
   ['@podium/sync/span', 'packages/sync/src/span.ts'],
+  // The side-state guard's collections and hook (POD-7454): no imports at all.
+  ['@podium/sync/side-state', 'packages/sync/src/replica/side-state.ts'],
   ['@podium/sync/adapters/indexeddb', 'packages/sync/src/adapters/indexeddb/index.ts'],
   ['@podium/sync/adapters/mobile-sqlite', 'packages/sync/src/adapters/mobile-sqlite/index.ts'],
 ])

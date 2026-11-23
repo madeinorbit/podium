@@ -26,6 +26,11 @@
       "types": "./src/outbox/index.ts",
       "import": "./src/outbox/index.ts"
     },
+    "./side-state": {
+      "@podium/source": "./src/replica/side-state.ts",
+      "types": "./src/replica/side-state.ts",
+      "import": "./src/replica/side-state.ts"
+    },
     "./span": {
       "@podium/source": "./src/span.ts",
       "types": "./src/span.ts",
