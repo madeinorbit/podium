@@ -36,6 +36,7 @@
  */
 import { asWorkspaceId, type WorkspaceId } from '@podium/model'
 import type { Context, MiddlewareHandler } from 'hono'
+import { getPath } from 'hono/utils/url'
 import {
   type MemberOfRequest,
   type MemberResolution,
@@ -80,7 +81,13 @@ export function hostedWorkspaceId(named: string | undefined): WorkspaceId {
 export type EntryBinding = 'member' | 'signed-in' | 'credential' | 'unbound'
 
 export interface EntryPoint {
-  readonly transport: 'http' | 'socket'
+  /**
+   * `http` and `socket` rows are matched against requests. A `hook` (code that
+   * sees a request before the edge) and a `unix` socket (a local channel with no
+   * URL) are rows of the table so that it names every way in; nothing matches
+   * them.
+   */
+  readonly transport: 'http' | 'socket' | 'hook' | 'unix'
   /** The path, or the path prefix when it ends in `/` or `*`. */
   readonly path: string
   readonly binding: EntryBinding
@@ -218,6 +225,24 @@ export const WORKSPACE_ENTRY_POINTS: readonly EntryPoint[] = [
     why: "the superagent's tools; the per-thread token was issued by the bound workspace's superagent",
   },
   // Belongs to no workspace.
+  {
+    transport: 'http',
+    path: '/platform/',
+    binding: 'unbound',
+    why: "the hosted edition's platform routes (its identity library, sign-up, workspace creation, billing webhooks): account-wide, authenticated by the edition itself",
+  },
+  {
+    transport: 'hook',
+    path: 'plugin onRequest',
+    binding: 'unbound',
+    why: "a plugin's router hop, which runs before the edge (server.ts native fetch): it may forward a request to the process that serves its workspace; a plugin route that serves data is a Hono route and is bound like any other",
+  },
+  {
+    transport: 'unix',
+    path: 'control socket',
+    binding: 'unbound',
+    why: "the self-hosted user's own unix socket (file permissions are its credential); it acts on the install's one workspace, and a hosted server creates none",
+  },
   { transport: 'http', path: '/health', binding: 'unbound', why: 'process liveness' },
   {
     transport: 'http',
@@ -258,20 +283,53 @@ export const WORKSPACE_ENTRY_POINTS: readonly EntryPoint[] = [
 ]
 
 /**
- * A path no row names. A page load or a static file (the web shell, `/w/<slug>`
- * pages, icons) belongs to no workspace; any other method is bound, and on
- * hosted the edge itself admits only a member of the bound workspace, so a
- * route added without a row fails closed.
+ * The page loads and static files a hosted server serves to anybody: the web
+ * shell, `/w/<slug>` pages, the phone site, and files with a static extension.
  */
-export function fallbackEntry(method: string): EntryPoint {
-  return method === 'GET' || method === 'HEAD'
-    ? { transport: 'http', path: '*', binding: 'unbound', why: 'the web shell and static files' }
-    : {
-        transport: 'http',
-        path: '*',
-        binding: 'member',
-        why: 'any other route (a plugin route, a route added without a row): bound; on hosted the edge itself admits only a member',
-      }
+const STATIC_EXACT = new Set(['/', '/index.html', '/desktop', '/workspace', '/mobile'])
+const STATIC_PREFIXES = ['/w/', '/mobile/', '/assets/']
+const STATIC_EXTENSION =
+  /\.(?:js|mjs|css|svg|png|jpg|jpeg|gif|webp|ico|webmanifest|woff2?|ttf|map|wasm|txt)$/
+
+/** Whether a hosted server may answer this GET path unbound. */
+export function isStaticPath(pathname: string): boolean {
+  return (
+    STATIC_EXACT.has(pathname) ||
+    STATIC_PREFIXES.some((prefix) => pathname.startsWith(prefix)) ||
+    STATIC_EXTENSION.test(pathname)
+  )
+}
+
+/**
+ * A path no row names.
+ *
+ * - Self-hosted: a page load or a static file belongs to no workspace; any
+ *   other method is bound.
+ * - Hosted: only the static paths ({@link isStaticPath}) are unbound. Every
+ *   other request, a GET too, is bound, and the edge itself admits only a
+ *   member of the bound workspace, so a route added without a row fails
+ *   closed.
+ */
+export function fallbackEntry(
+  method: string,
+  mode: ServerMode = 'self-hosted',
+  pathname = '*',
+): EntryPoint {
+  const read = method === 'GET' || method === 'HEAD'
+  if (read && (mode === 'self-hosted' || isStaticPath(pathname))) {
+    return {
+      transport: 'http',
+      path: '*',
+      binding: 'unbound',
+      why: 'the web shell and static files',
+    }
+  }
+  return {
+    transport: 'http',
+    path: '*',
+    binding: 'member',
+    why: 'any other route (a route added without a row): bound; on hosted the edge itself admits only a member',
+  }
 }
 
 const SOCKET_PATHS = new Set(
@@ -285,13 +343,29 @@ function matches(entry: EntryPoint, pathname: string): boolean {
   return pathname === entry.path || pathname.startsWith(`${entry.path}/`)
 }
 
-/** The entry point a request reaches. */
-export function entryPointOf(method: string, pathname: string, upgrade: boolean): EntryPoint {
+/**
+ * The entry point a request reaches, by the path Hono routes: decoded, the
+ * way `c.req.path` is (`hono/utils/url` `getPath`), so `/%66iles/asset` is the
+ * `/files/` row. A plugin's own rows come after the server's, so they cannot
+ * shadow one.
+ */
+export function entryPointOf(
+  method: string,
+  pathname: string,
+  upgrade: boolean,
+  mode: ServerMode = 'self-hosted',
+  pluginRows: readonly EntryPoint[] = [],
+): EntryPoint {
   const transport = upgrade && SOCKET_PATHS.has(pathname) ? 'socket' : 'http'
-  for (const entry of WORKSPACE_ENTRY_POINTS) {
+  for (const entry of [...WORKSPACE_ENTRY_POINTS, ...pluginRows]) {
     if (entry.transport === transport && matches(entry, pathname)) return entry
   }
-  return fallbackEntry(method)
+  return fallbackEntry(method, mode, pathname)
+}
+
+/** The path a request is routed by: Hono's decoded path. */
+export function routedPath(request: Request): string {
+  return getPath(request)
 }
 
 // ---------------------------------------------------------------------------
@@ -383,6 +457,11 @@ export interface WorkspaceEdgeOptions {
    * Absent: plain JSON.
    */
   readonly respond?: (c: Context, refusal: EdgeRefusal) => Response | Promise<Response>
+  /**
+   * The entry points plugins declare for the routes they register
+   * (`PodiumPlugin.entryPoints`). Matched after the server's own rows.
+   */
+  readonly pluginEntryPoints?: readonly EntryPoint[]
 }
 
 export interface WorkspaceEdge {
@@ -402,6 +481,7 @@ export interface WorkspaceEdge {
   readonly signedInGate: MiddlewareHandler
   /** The workspaces this process serves. */
   readonly served: readonly ServedWorkspace[]
+  readonly mode: ServerMode
 }
 
 const bindings = new WeakMap<Request, ServedWorkspace>()
@@ -509,8 +589,13 @@ export function createWorkspaceEdge(options: WorkspaceEdgeOptions): WorkspaceEdg
   const answers = new WeakMap<Request, Promise<EdgeAnswer>>()
 
   const decide = async (request: Request, upgrade: boolean): Promise<EdgeAnswer> => {
-    const url = new URL(request.url)
-    const entry = entryPointOf(request.method, url.pathname, upgrade)
+    const entry = entryPointOf(
+      request.method,
+      routedPath(request),
+      upgrade,
+      mode,
+      options.pluginEntryPoints,
+    )
     // A CORS preflight carries no selector and no credential; the request it
     // asks about is bound when it comes.
     if (entry.binding === 'unbound' || (request.method === 'OPTIONS' && !upgrade)) {
@@ -522,7 +607,7 @@ export function createWorkspaceEdge(options: WorkspaceEdgeOptions): WorkspaceEdg
     // A route nobody listed has no admission step of its own the edge knows
     // of, so on hosted the edge admits only a member: it fails closed. A
     // self-hosted server's plugins keep admitting their own callers.
-    if (mode === 'hosted' && entry.path === '*' && entry.binding === 'member') {
+    if (mode === 'hosted' && entry.path === '*') {
       const member = await found.workspace.memberOfRequest(request)
       if (member.kind !== 'member')
         return { kind: 'refused', entry, refusal: refusalAnswer(member) }
@@ -561,24 +646,25 @@ export function createWorkspaceEdge(options: WorkspaceEdgeOptions): WorkspaceEdg
     return await next()
   }
 
-  return { bind, middleware, signedInGate, served }
+  return { bind, middleware, signedInGate, served, mode }
 }
 
 /**
  * The one member resolver of a server that serves `edge`: a bound request is
- * resolved in its workspace. An unbound request (the HTTPS page check on a page
- * load) is resolved in the one workspace of a server that serves one, and
- * belongs to nobody on a server that serves several.
+ * resolved in its workspace.
+ *
+ * An unbound request belongs to nobody on hosted: it is `unauthenticated`,
+ * whatever it carries. On self-hosted it is resolved in the install's one
+ * workspace (the HTTPS page check on a page load needs that).
  */
-export function boundMemberOfRequest(edge: Pick<WorkspaceEdge, 'served'>): MemberOfRequest {
+export function boundMemberOfRequest(
+  edge: Pick<WorkspaceEdge, 'served' | 'mode'>,
+): MemberOfRequest {
   const [only] = edge.served
-  const single = edge.served.length === 1 ? only : undefined
-  const workspaceOf = (request: Request): ServedWorkspace | undefined =>
-    bindings.get(request) ?? single
-  const factsSource = single ?? only
-  if (!factsSource) throw new Error('a server serves at least one workspace')
+  if (!only) throw new Error('a server serves at least one workspace')
+  const fallback = edge.mode === 'self-hosted' ? only : undefined
   const memberOfRequest = async (request: Request): Promise<MemberResolution> => {
-    const workspace = workspaceOf(request)
+    const workspace = bindings.get(request) ?? fallback
     if (!workspace) return { kind: 'unauthenticated' }
     const resolution = await workspace.memberOfRequest(request)
     // A member is a member OF the workspace it was resolved in.
@@ -586,6 +672,17 @@ export function boundMemberOfRequest(edge: Pick<WorkspaceEdge, 'served'>): Membe
   }
   // The connection facts are the server's, the same in every workspace.
   return Object.assign(memberOfRequest, {
-    factsOf: (request: Request) => factsSource.memberOfRequest.factsOf(request),
+    factsOf: (request: Request) => only.memberOfRequest.factsOf(request),
   })
+}
+
+/**
+ * The URL of a call this server makes to itself for workspace `id`: on hosted
+ * it carries the selector the edge reads (the in-process MCP endpoint).
+ */
+export function selfCallUrl(url: string, mode: ServerMode, id: WorkspaceId): string {
+  if (mode !== 'hosted') return url
+  const parsed = new URL(url)
+  parsed.searchParams.set(WORKSPACE_QUERY, id)
+  return parsed.href
 }

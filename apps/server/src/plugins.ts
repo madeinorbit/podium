@@ -3,6 +3,7 @@ import type { Hono } from 'hono'
 import type { EventBus } from './modules/bus'
 import type { RegistryModules } from './relay'
 import type { ServerRoleConfig } from './roles'
+import type { EntryPoint } from './workspace-edge'
 
 /**
  * The build-time extension seam for the private `cloud` module
@@ -48,7 +49,18 @@ export interface PodiumPluginHooks {
 export interface PodiumPlugin {
   /** Diagnostic name (logs/errors); e.g. 'podium-cloud'. */
   name: string
-  /** Runs before HTTP dispatch and WebSocket negotiation. Return a response to stop dispatch. */
+  /**
+   * Runs before HTTP dispatch and WebSocket negotiation, and before the
+   * workspace edge (workspace-edge.ts, the `plugin onRequest` row). Return a
+   * response to stop dispatch. Meant for a router hop; a route that serves a
+   * workspace's data belongs in `register`, behind the edge.
+   */
   onRequest?(request: Request): Response | undefined | Promise<Response | undefined>
+  /**
+   * How the routes `register` adds are tied to a workspace, as rows of the
+   * edge's entry-point table. Matched after the server's own rows. A route
+   * with no row is bound, and on hosted admits only a member.
+   */
+  entryPoints?: readonly EntryPoint[]
   register(hooks: PodiumPluginHooks): void | Promise<void>
 }

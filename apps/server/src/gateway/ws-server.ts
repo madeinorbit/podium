@@ -85,6 +85,7 @@ export function serveNative<T>(options: NativeServeOptions<T>): NativeServer<T> 
 }
 
 import type { SessionRegistry } from '../relay'
+import { routedPath } from '../workspace-edge'
 import { wireClientSocket } from './client-socket'
 import { userClientPrincipal } from './client-principal'
 import {
@@ -506,7 +507,9 @@ export function attachWebSockets(
     websocket,
     async handleRequest(request, server) {
       const url = new URL(request.url)
-      const pathname = url.pathname
+      // The decoded path, as the workspace edge and Hono read it, so the
+      // socket paths and the edge's rows cannot disagree (POD-7309).
+      const pathname = routedPath(request)
       if (pathname !== '/client' && pathname !== '/daemon' && pathname !== '/machine') return null
 
       const rawVersion = url.searchParams.get('v') ?? url.searchParams.get('pv')

@@ -237,7 +237,7 @@ import {
   createWorkspaceEdge,
   hostedWorkspaceId,
   maybeBoundServedWorkspaceOf,
-  WORKSPACE_QUERY,
+  selfCallUrl,
 } from './workspace-edge'
 
 const log = createLogger('server:http')
@@ -1850,6 +1850,7 @@ export async function startServer(
    */
   const workspaceEdge = createWorkspaceEdge({
     mode: capabilities.mode,
+    pluginEntryPoints: (opts.plugins ?? []).flatMap((plugin) => plugin.entryPoints ?? []),
     served: [
       {
         id: loadedWorkspaceId,
@@ -2469,11 +2470,8 @@ export async function startServer(
     superagent.setIssueTools(issueTools)
     // The harness agent runs on the same host (single-machine), so loopback
     // reaches this MCP route. Now that the port is known, point it there.
-    const mcpEndpoint = new URL(`http://127.0.0.1:${server.port}/mcp`)
-    if (capabilities.mode === 'hosted')
-      mcpEndpoint.searchParams.set(WORKSPACE_QUERY, loadedWorkspaceId)
     await superagent.setMcpEndpoint(
-      mcpEndpoint.href,
+      selfCallUrl(`http://127.0.0.1:${server.port}/mcp`, capabilities.mode, loadedWorkspaceId),
       mcpToken,
       (await superagent.mcpToolSpecs()).map((s) => s.name),
     )
