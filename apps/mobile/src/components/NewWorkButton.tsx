@@ -13,6 +13,7 @@ import {
   groupedCatalogOptions,
   ISSUE_AGENT_KINDS,
   type IssueAgentKind,
+  issueAgentKind,
   issueAgentLabel,
   issueDefaultAgentKind,
   type LaunchPickContext,
@@ -62,11 +63,19 @@ import { StyleSheet, Text, TextInput, View } from 'react-native'
 import { useUiState } from '../client/hooks'
 import { useMobilePoolProjection } from '../client/mobile-pool'
 import type { MobileTrpc } from '../client/trpc'
+import { useAgentSetupPicker } from '../client/use-agent-setup-picker'
 import { useLaunchWorkPicker } from '../client/use-launch-inputs'
 import { usePersistedUiState } from '../hooks/usePersistedUiState'
 import { sessionHref } from '../lib/session-route'
 import { alpha } from '../theme/mix'
 import { color, font, mono, monoLabel, radius, sans, space } from '../theme/theme'
+import {
+  AgentSetupPickerEntry,
+  installingAgentsHint,
+  pickerHarnessStartable,
+  SET_UP_AGENTS,
+} from './AgentSetupPickerEntry'
+import { PhoneAgentSetupSheet } from './AgentSetupSheet'
 import { NativePicker, type NativePickerOption } from './action-sheet-native'
 import { BottomSheet } from './BottomSheet'
 import { Icon } from './Icon'
@@ -213,6 +222,8 @@ const NewWorkLauncher = observer(function NewWorkLauncher({
   const picker = useLaunchWorkPicker()
   const { machines, repos, recentMachine } = usePoolLaunchInputs(picker)
   const [query, setQuery] = useState('')
+  const [settingUp, setSettingUp] = useState(false)
+  const [launcherClosing, setLauncherClosing] = useState(false)
   const {
     modelPick,
     effortPick,
@@ -382,32 +393,34 @@ const NewWorkLauncher = observer(function NewWorkLauncher({
   const effectiveDraft = isShell
     ? restoredDraft
     : (draftForReportedModels(restoredDraft, catalog[pickHarness]) ?? restoredDraft)
+  const explicitHarnessAuto = picked.agentKind !== undefined && picked.model === AUTO
   const effectiveModel = isShell
     ? SHELL_PICK
     : effectiveDraft.model === AUTO
-      ? AUTO
+      ? explicitHarnessAuto
+        ? `${harness}:${AUTO}`
+        : AUTO
       : encodeModelPick(harness, effectiveDraft.model)
   const effectiveEffort = effectiveDraft.effort
+  // Preserve an explicit harness with Auto as well as a concrete model.
+  const nextDraftHarness =
+    effectiveModel === AUTO
+      ? launchAgentKind({
+          picked: undefined,
+          preferred: defaultHarness,
+          candidates: ISSUE_AGENT_KINDS,
+          readiness: readinessOf,
+        })
+      : harness
   useLayoutEffect(() => {
-    if (!draftReady || !context) return
-    // Auto returns to the sheet's default harness. That normalization is part
-    // of this restoration, not another user harness change to restore again.
-    const nextHarness =
-      effectiveModel === AUTO
-        ? launchAgentKind({
-            picked: undefined,
-            preferred: defaultHarness,
-            candidates: ISSUE_AGENT_KINDS,
-            readiness: readinessOf,
-          })
-        : harness
-    previousLaunchContext.current = { ...context, harness: nextHarness }
+    if (!draftReady || !launchContext) return
+    previousLaunchContext.current = { machineId: launchContext, harness: nextDraftHarness }
     if (effectiveModel !== model) setModelPick(effectiveModel)
     if (effectiveEffort !== effort) setEffortPick(effectiveEffort)
   }, [
     draftReady,
-    context?.machineId,
-    harness,
+    launchContext,
+    nextDraftHarness,
     effectiveModel,
     effectiveEffort,
     model,
@@ -450,6 +463,10 @@ const NewWorkLauncher = observer(function NewWorkLauncher({
   }
 
   const applyModel = (value: string) => {
+    if (value === SET_UP_AGENTS) {
+      setLauncherClosing(true)
+      return
+    }
     setModelPick(value)
     setEffortPick(AUTO)
     setQuery('')
@@ -475,24 +492,37 @@ const NewWorkLauncher = observer(function NewWorkLauncher({
 
   // The shell rides at the END of the list: it is the escape hatch, not a peer
   // of the models above it.
-  const modelOptions = useMemo<CatalogOption[]>(
-    () => [
-      ...allConnectorModelOptions(catalog, served),
-      { value: SHELL_PICK, label: 'Shell', group: 'No agent' },
-    ],
-    [catalog, served],
-  )
+  const setupViews = useAgentSetupPicker(targetMachines.map((machine) => machine.id))
+  const modelOptions: CatalogOption[] = [
+    ...allConnectorModelOptions(catalog, served).filter((option) => {
+      const kind = decodeModelPick(option.value).agentKind
+      return !kind || pickerHarnessStartable(setupViews, kind)
+    }),
+    { value: SHELL_PICK, label: 'Shell', group: 'No agent' },
+  ]
+  const setupMachineId = selectedTarget?.machineId ?? machineId
+  const setupHint = installingAgentsHint(setupViews)
+  const nativeModelOptions = [
+    ...modelOptions,
+    {
+      value: SET_UP_AGENTS,
+      label: `Set up agents…${setupHint ? ` · ${setupHint}` : ''}`,
+      disabled: !setupMachineId,
+    },
+  ]
   // Auto names its harness once it is not the default one, so the operator can
   // see that the signed-out default was stepped over rather than guess.
   const autoValue =
     harness === defaultHarness ? 'Auto' : `Auto · ${issueAgentLabel(harness, served)}`
   const modelValue = isShell
     ? 'Shell'
-    : effectiveModel === AUTO
-      ? autoValue
+    : effectiveDraft.model === AUTO
+      ? explicitHarnessAuto
+        ? `Auto · ${issueAgentLabel(harness, served)}`
+        : autoValue
       : allConnectorModelLabel(decoded.agentKind, decoded.model, catalog, served)
   const effortChoices =
-    effectiveModel === AUTO || isShell
+    effectiveDraft.model === AUTO || isShell
       ? []
       : effortOptionsForModel(pickHarness, decoded.model, catalog[pickHarness], served)
   const machineOk = !showMachine || selectedMachine?.availability === 'available'
@@ -522,10 +552,28 @@ const NewWorkLauncher = observer(function NewWorkLauncher({
   }
 
   const canChooseRepo = !onlyOneRepo && visibleRepos.length > 0
+  if (settingUp && setupMachineId)
+    return (
+      <PhoneAgentSetupSheet
+        machineId={setupMachineId}
+        origin="menu"
+        onClose={() => {
+          setSettingUp(false)
+          setLauncherClosing(false)
+          setStep('launch')
+        }}
+        onStart={(kind) => {
+          if (issueAgentKind(kind)) applyModel(`${kind}:${AUTO}`)
+        }}
+      />
+    )
   return (
     <BottomSheet
-      visible
-      onClose={close}
+      visible={!launcherClosing}
+      onClose={() => {
+        if (launcherClosing && setupMachineId) setSettingUp(true)
+        else close()
+      }}
       mode="fit"
       scrollable
       contentStyle={styles.content}
@@ -575,7 +623,7 @@ const NewWorkLauncher = observer(function NewWorkLauncher({
             value={modelValue}
             onPress={() => setStep('model')}
             picker={{
-              options: modelOptions,
+              options: nativeModelOptions,
               selected: effectiveModel,
               onSelect: applyModel,
             }}
@@ -678,6 +726,9 @@ const NewWorkLauncher = observer(function NewWorkLauncher({
           query={query}
           onQuery={setQuery}
           onPick={applyModel}
+          setupHint={setupHint}
+          onSetup={() => setLauncherClosing(true)}
+          setupDisabled={!setupMachineId}
         />
       ) : null}
 
@@ -812,12 +863,18 @@ function ModelStep({
   query,
   onQuery,
   onPick,
+  setupHint,
+  onSetup,
+  setupDisabled,
 }: {
   options: readonly CatalogOption[]
   selected: string
   query: string
   onQuery: (value: string) => void
   onPick: (value: string) => void
+  setupHint?: string
+  onSetup: () => void
+  setupDisabled: boolean
 }) {
   const searchable = options.length > SEARCH_THRESHOLD
   const shown = searchable ? filterCatalogOptions(options, query) : [...options]
@@ -843,6 +900,7 @@ function ModelStep({
       ) : (
         <OptionList groups={groupedCatalogOptions(shown)} selected={selected} onPick={onPick} />
       )}
+      <AgentSetupPickerEntry hint={setupHint} onPress={onSetup} disabled={setupDisabled} />
     </View>
   )
 }

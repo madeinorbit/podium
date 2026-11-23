@@ -55,7 +55,11 @@ vi.mock('./BottomSheet', () => ({
         {head}
         {children}
       </div>
-    ) : null,
+    ) : (
+      <button type="button" onClick={onClose}>
+        Finish launcher dismissal
+      </button>
+    ),
 }))
 vi.mock('expo-router', () => ({
   usePathname: () => '/work',
@@ -78,6 +82,26 @@ vi.mock('@podium/client-core/react', async (original) => ({
 beforeEach(() => {
   catalogFixture.byMachine = { mine: LIVE, remote: LIVE }
 })
+
+vi.mock('./AgentSetupSheet', () => ({
+  PhoneAgentSetupSheet: ({
+    onStart,
+    onClose,
+  }: {
+    onStart: (kind: string) => void
+    onClose: () => void
+  }) => (
+    <button
+      type="button"
+      onClick={() => {
+        onStart('opencode')
+        onClose()
+      }}
+    >
+      Return OpenCode from setup
+    </button>
+  ),
+}))
 
 const { NewWorkButton } = await import('./NewWorkButton')
 
@@ -833,4 +857,28 @@ describe('phone last launched pair', () => {
     await expectPair('Claude Code · Second', 'Auto')
     expect(JSON.parse(runtime.deviceState.get(LAST_LAUNCH_PICK_KEY)!)).toEqual(picks)
   })
+})
+
+it('ends the model picker with setup and returns its selected harness without losing the prompt', async () => {
+  catalogFixture.byMachine.mine = {
+    ...LIVE,
+    codex: [{ value: 'stale-model', label: 'Unavailable model' }],
+  }
+  await renderWithMobileStore(<NewWorkButton />, {
+    repos: [repo('/synthetic/project')],
+    machines: READY,
+  })
+  fireEvent.click(screen.getByLabelText('New work'))
+  fireEvent.change(screen.getByLabelText('First prompt, optional'), {
+    target: { value: 'Keep this prompt' },
+  })
+  fireEvent.click(screen.getByLabelText('Model, Auto'))
+  expect(screen.queryByText('Unavailable model')).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'Set up agents…' }))
+  fireEvent.click(screen.getByText('Finish launcher dismissal'))
+  fireEvent.click(screen.getByText('Return OpenCode from setup'))
+  expect(await screen.findByLabelText('Model, Auto · OpenCode')).toBeTruthy()
+  expect((screen.getByLabelText('First prompt, optional') as HTMLTextAreaElement).value).toBe(
+    'Keep this prompt',
+  )
 })

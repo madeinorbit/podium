@@ -1,10 +1,12 @@
+import { AUTO } from '@podium/client-core/agent-models'
 import { reposToViews } from '@podium/client-core/values'
 import type { GitRepositoryWire, MachineWire } from '@podium/model'
 import { asMachineId } from '@podium/model'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { runInAction } from 'mobx'
 import { useState } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
-import { AUTO } from '@podium/client-core/agent-models'
+import { setupFixture } from '../../harness/agent-setup-fixture'
 import type { LaunchConfiguration } from '../lib/launch-configuration'
 import * as sheets from './ActionSheet'
 import { LaunchConfigurationFields } from './LaunchConfigurationFields'
@@ -19,8 +21,29 @@ vi.mock('../client/use-launch-inputs', () => ({
 }))
 vi.mock('@podium/client-core/react', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@podium/client-core/react')>()),
-  useModelCatalogState: () => ({ catalog: state.catalog, status: Object.keys(state.catalog).length ? 'ready' : 'unavailable' }),
+  useModelCatalogState: () => ({
+    catalog: state.catalog,
+    status: Object.keys(state.catalog).length ? 'ready' : 'unavailable',
+  }),
   useHarnessDescriptors: () => ({ served: undefined }),
+}))
+vi.mock('../client/use-agent-setup-picker', () => ({
+  useAgentSetupPicker: () =>
+    state.machines.map((machine) => {
+      const fixture = setupFixture()
+      runInAction(() => {
+        fixture.machine.inventory = machine.inventory
+          ? {
+              ...machine.inventory,
+              agents: machine.inventory.agents.map((agent) => ({
+                ...agent,
+                login: agent.login ?? { state: 'unknown' as const },
+              })),
+            }
+          : undefined
+      })
+      return fixture.view
+    }),
 }))
 vi.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: 0, left: 0 }),
@@ -121,22 +144,83 @@ it('requests no fallback menu while closed at 1x/4x and builds only the opened p
   }
 })
 
-
 it('offers only Auto and live models, with no Use option in the task launch picker', () => {
   state.catalog = { codex: [{ value: 'gpt-current', label: 'Current', efforts: ['high'] }] }
   const sheet = vi.spyOn(sheets, 'ActionSheet').mockImplementation(() => <></>)
-  render(<LaunchConfigurationFields repoPath="/synthetic" value={{ agentKind: 'codex', modelPick: AUTO, effort: AUTO, machineId: '' }} onChange={vi.fn()} />)
+  render(
+    <LaunchConfigurationFields
+      repoPath="/synthetic"
+      value={{ agentKind: 'codex', modelPick: AUTO, effort: AUTO, machineId: '' }}
+      onChange={vi.fn()}
+    />,
+  )
   fireEvent.click(screen.getByRole('button', { name: 'Model, Auto' }))
-  expect(sheet.mock.lastCall?.[0].actions.map((action) => action.label)).toEqual(['Auto', 'Current'])
-  expect(sheet.mock.lastCall?.[0].actions.some((action) => action.label.startsWith('Use '))).toBe(false)
+  expect(sheet.mock.lastCall?.[0].actions.map((action) => action.label)).toEqual([
+    'Auto',
+    'Current',
+  ])
+  expect(sheet.mock.lastCall?.[0].actions.some((action) => action.label.startsWith('Use '))).toBe(
+    false,
+  )
   expect(screen.queryByRole('textbox')).toBeNull()
 })
 
 it('shows stored effort inert while the concrete model list is unavailable', () => {
   const sheet = vi.spyOn(sheets, 'ActionSheet').mockImplementation(() => <></>)
-  render(<LaunchConfigurationFields repoPath="/synthetic" value={{ agentKind: 'codex', modelPick: 'codex:stored', effort: 'high', machineId: '' }} onChange={vi.fn()} />)
+  render(
+    <LaunchConfigurationFields
+      repoPath="/synthetic"
+      value={{ agentKind: 'codex', modelPick: 'codex:stored', effort: 'high', machineId: '' }}
+      onChange={vi.fn()}
+    />,
+  )
   const pill = screen.getByLabelText('Effort, High')
   expect(pill.getAttribute('role')).not.toBe('button')
   fireEvent.click(pill)
   expect(sheet).not.toHaveBeenCalled()
+})
+
+it('lists startable agents followed by setup with an installing count', () => {
+  state.repos = [{ kind: 'repository', path: '/synthetic', worktrees: [] }]
+  state.machines = [
+    {
+      id: asMachineId('machine'),
+      name: 'Machine',
+      hostname: 'example-machine',
+      lastSeenAt: '2026-11-23T10:00:00Z',
+      online: true,
+      serviceAssignment: { server: false, agentExecution: true },
+      availability: { epoch: 'fixture', server: false, daemon: true, supervisor: true },
+      inventory: {
+        os: 'linux',
+        arch: 'x64',
+        tools: [],
+        agents: [
+          { kind: 'claude-code', installed: true, login: { state: 'in' } },
+          {
+            kind: 'codex',
+            installed: false,
+            login: { state: 'unknown' },
+            install: { managed: { paused: false, installing: {} } },
+          },
+          { kind: 'pi', installed: true, login: { state: 'out' } },
+        ],
+      },
+    } satisfies MachineWire,
+  ]
+  const sheet = vi.spyOn(sheets, 'ActionSheet').mockImplementation(() => <></>)
+  render(
+    <LaunchConfigurationFields
+      repoPath="/synthetic"
+      value={{ agentKind: 'claude-code', modelPick: AUTO, effort: AUTO, machineId: '' }}
+      onChange={vi.fn()}
+    />,
+  )
+  fireEvent.click(screen.getByRole('button', { name: 'Agent, Claude Code' }))
+  expect(sheet.mock.lastCall?.[0].actions.map((action) => action.label)).toEqual([
+    'Claude Code',
+    'Pi',
+    'Set up agents… · 1 installing',
+  ])
+  expect(sheet.mock.lastCall?.[0].actions.at(-1)?.hint).toBe('1 installing')
 })

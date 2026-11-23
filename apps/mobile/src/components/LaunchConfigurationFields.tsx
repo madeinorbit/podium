@@ -1,4 +1,15 @@
-import { observer } from 'mobx-react-lite'
+import {
+  AUTO,
+  agentDescriptors,
+  modelOptions as agentModelOptions,
+  allConnectorModelLabel,
+  decodeModelPick,
+  effortLabel,
+  effortOptionsForModel,
+  encodeModelPick,
+  issueAgentKind,
+  issueAgentLabel,
+} from '@podium/client-core/agent-models'
 import { useHarnessDescriptors, useModelCatalogState } from '@podium/client-core/react'
 import {
   agentCapabilityRejection,
@@ -6,22 +17,12 @@ import {
   type MachineId,
   machinesForRepoOrClone,
 } from '@podium/model'
+import { observer } from 'mobx-react-lite'
 import { useLayoutEffect, useMemo, useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 import type { MobileTrpc } from '../client/trpc'
+import { useAgentSetupPicker } from '../client/use-agent-setup-picker'
 import { useLaunchInputs } from '../client/use-launch-inputs'
-import {
-  AUTO,
-  allConnectorModelLabel,
-  modelOptions as agentModelOptions,
-  encodeModelPick,
-  decodeModelPick,
-  effortOptionsForModel,
-  agentDescriptors,
-  effortLabel,
-  issueAgentKind,
-  issueAgentLabel,
-} from '@podium/client-core/agent-models'
 import {
   autoLaunchMachineOption,
   hasAuthoritativeLaunchCatalog,
@@ -36,6 +37,12 @@ import {
 } from '../lib/launch-configuration'
 import { color, font, mono, radius, sans, space } from '../theme/theme'
 import { ActionSheet } from './ActionSheet'
+import {
+  installingAgentsHint,
+  pickerHarnessStartable,
+  SET_UP_AGENTS,
+} from './AgentSetupPickerEntry'
+import { PhoneAgentSetupSheet } from './AgentSetupSheet'
 import { NativePicker, type NativePickerOption } from './action-sheet-native'
 import { PressableScale } from './PressableScale'
 
@@ -57,9 +64,10 @@ export const LaunchConfigurationFields = observer(function LaunchConfigurationFi
 }) {
   const store = useLaunchInputs(repoPath)
   const [fallback, setFallback] = useState<Picker>(null)
+  const [setupMachineId, setSetupMachineId] = useState<string | null>(null)
+  const [chooseSetupMachine, setChooseSetupMachine] = useState(false)
   const repo = store.repo
-  const machines = (
-    () => (repo ? machinesForRepoOrClone(repo, store.machines) : []))()
+  const machines = (() => (repo ? machinesForRepoOrClone(repo, store.machines) : []))()
   // An unpinned launch is validated by the server's own authority/default
   // catalog. Never substitute the first eligible repo machine: it may expose a
   // different harness or model set than the host that validates the spawn.
@@ -97,7 +105,12 @@ export const LaunchConfigurationFields = observer(function LaunchConfigurationFi
   // Read live machine facts on every render: pool models keep their identity
   // when availability or permission changes. Only the resulting scalar plan
   // is memoized, so publishing it cannot feed back into another parent render.
-  const { configuration, refusal } = normalizeLaunchConfiguration(value, catalog, machineOptions, catalogStatus)
+  const { configuration, refusal } = normalizeLaunchConfiguration(
+    value,
+    catalog,
+    machineOptions,
+    catalogStatus,
+  )
   const { inheritAgent, agentKind, modelPick, effort, machineId } = configuration
   const plan = useMemo<LaunchPlan>(
     () => ({
@@ -129,20 +142,39 @@ export const LaunchConfigurationFields = observer(function LaunchConfigurationFi
           { value: value.machineId, label: 'Unavailable machine', disabled: true },
         ]
       : machineOptions
+  const targetMachines = value.machineId
+    ? machines.filter((machine) => machine.id === value.machineId)
+    : machines
+  const setupMachines = targetMachines.filter((machine) => machine.use !== 'denied')
+  const setupViews = useAgentSetupPicker(targetMachines.map((machine) => machine.id))
+  const setupHint = installingAgentsHint(setupViews)
+  const openSetup = () => {
+    if (setupMachines.length === 1) setSetupMachineId(setupMachines[0]!.id)
+    else setChooseSetupMachine(true)
+  }
   const agentOptions: NativePickerOption[] = [
     ...(allowInheritedAgent ? [{ value: '', label: 'Auto' }] : []),
-    ...agentDescriptors(served).filter((descriptor) => descriptor.kind !== 'shell').map((descriptor) => ({
-      value: descriptor.kind,
-      label: descriptor.label,
-    })),
+    ...agentDescriptors(served).flatMap((descriptor) => {
+      const kind = issueAgentKind(descriptor.kind)
+      return kind && pickerHarnessStartable(setupViews, kind)
+        ? [{ value: descriptor.kind, label: descriptor.label }]
+        : []
+    }),
+    {
+      value: SET_UP_AGENTS,
+      label: `Set up agents…${setupHint ? ` · ${setupHint}` : ''}`,
+      disabled: setupMachines.length === 0,
+    },
   ]
   const liveModels = catalog[effective.agentKind]
   const modelOptions = useMemo<NativePickerOption[]>(() => {
     if (!hasLiveAgentCatalog) return [{ value: AUTO, label: 'Auto' }]
-    return agentModelOptions(effective.agentKind, liveModels, served)
-      .map(({ value: optionValue, label }) => ({
-        value: optionValue === AUTO ? AUTO : encodeModelPick(effective.agentKind, optionValue), label,
-      }))
+    return agentModelOptions(effective.agentKind, liveModels, served).map(
+      ({ value: optionValue, label }) => ({
+        value: optionValue === AUTO ? AUTO : encodeModelPick(effective.agentKind, optionValue),
+        label,
+      }),
+    )
   }, [liveModels, effective.agentKind, hasLiveAgentCatalog, served])
   const decoded = decodeModelPick(effective.modelPick)
   const effortOptions = hasLiveAgentCatalog
@@ -169,6 +201,10 @@ export const LaunchConfigurationFields = observer(function LaunchConfigurationFi
       options: agentOptions,
       valueLabel: effective.inheritAgent ? 'Auto' : issueAgentLabel(effective.agentKind, served),
       select: (selected) => {
+        if (selected === SET_UP_AGENTS) {
+          openSetup()
+          return
+        }
         if (!selected && allowInheritedAgent) {
           onChange(selectInheritedLaunchAgent(value))
           return
@@ -207,38 +243,66 @@ export const LaunchConfigurationFields = observer(function LaunchConfigurationFi
   return (
     <>
       <View style={styles.group}>
-        {rows.map((row) => (
+        {rows.map((row) =>
           row.options.length === 0 ? (
-            <View key={row.key} accessibilityLabel={`${row.label}, ${row.valueLabel}`} style={styles.row}>
+            <View
+              key={row.key}
+              accessibilityLabel={`${row.label}, ${row.valueLabel}`}
+              style={styles.row}
+            >
               <Text style={styles.label}>{row.label}</Text>
               <Text style={styles.value}>{row.valueLabel}</Text>
             </View>
-          ) : <NativePicker
-            key={row.key}
-            label={row.label}
-            options={row.options}
-            selected={row.selected}
-            onSelect={row.select}
-            onOpenFallback={() => setFallback(row.key)}
-          >
-            {(onPress) => (
-              <PressableScale
-                accessibilityRole="button"
-                accessibilityLabel={`${row.label}, ${row.valueLabel}`}
-                accessibilityHint="Opens a picker"
-                onPress={onPress}
-                style={({ pressed }) => [styles.row, pressed && styles.pressed]}
-              >
-                <Text style={styles.label}>{row.label}</Text>
-                <Text style={styles.value} numberOfLines={1}>
-                  {row.valueLabel}
-                </Text>
-                <Text style={styles.chevron}>›</Text>
-              </PressableScale>
-            )}
-          </NativePicker>
-        ))}
+          ) : (
+            <NativePicker
+              key={row.key}
+              label={row.label}
+              options={row.options}
+              selected={row.selected}
+              onSelect={row.select}
+              onOpenFallback={() => setFallback(row.key)}
+            >
+              {(onPress) => (
+                <PressableScale
+                  accessibilityRole="button"
+                  accessibilityLabel={`${row.label}, ${row.valueLabel}`}
+                  accessibilityHint="Opens a picker"
+                  onPress={onPress}
+                  style={({ pressed }) => [styles.row, pressed && styles.pressed]}
+                >
+                  <Text style={styles.label}>{row.label}</Text>
+                  <Text style={styles.value} numberOfLines={1}>
+                    {row.valueLabel}
+                  </Text>
+                  <Text style={styles.chevron}>›</Text>
+                </PressableScale>
+              )}
+            </NativePicker>
+          ),
+        )}
       </View>
+      {setupMachineId ? (
+        <PhoneAgentSetupSheet
+          machineId={setupMachineId}
+          origin="menu"
+          onClose={() => setSetupMachineId(null)}
+          onStart={(harness) => {
+            const kind = issueAgentKind(harness)
+            if (kind) onChange(selectLaunchAgent(selectLaunchMachine(value, setupMachineId), kind))
+          }}
+        />
+      ) : null}
+      {chooseSetupMachine ? (
+        <ActionSheet
+          visible
+          title="Set up agents on"
+          actions={setupMachines.map((machine) => ({
+            label: machine.name,
+            onPress: () => setSetupMachineId(machine.id),
+          }))}
+          onClose={() => setChooseSetupMachine(false)}
+        />
+      ) : null}
       {plan.refusal ? (
         <Text accessibilityLiveRegion="polite" style={styles.refusal}>
           {plan.refusal}
@@ -252,7 +316,8 @@ export const LaunchConfigurationFields = observer(function LaunchConfigurationFi
             title={row.label}
             actions={row.options.map((option) => ({
               label: option.label,
-              selected: option.value === row.selected,
+              selected: option.value === SET_UP_AGENTS ? undefined : option.value === row.selected,
+              ...(option.value === SET_UP_AGENTS && setupHint ? { hint: setupHint } : {}),
               disabled: option.disabled,
               onPress: () => row.select(option.value),
             }))}
