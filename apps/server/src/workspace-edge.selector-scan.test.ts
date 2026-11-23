@@ -72,9 +72,6 @@ describe('no handler reads a workspace from the request (criterion 4, review F5)
 
   it('lets no request input name a workspace, except the listed ones', () => {
     expect(readers(WORKSPACE_INPUT)).toEqual([
-      // Cloud commands still take a client tenantId. POD-7310 deletes it and
-      // reads the tRPC context's boundWorkspace instead.
-      'packages/commands/src/cloud/contracts.ts',
       // The janitor's change-log prune observation. The maintenance service
       // compares it with its own store's workspace and refuses any other
       // (modules/maintenance/service.ts); it never selects a workspace.
