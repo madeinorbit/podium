@@ -202,7 +202,8 @@ async function compare(pool: MobxPool, store: Store, label: string, all: boolean
 // Keep cumulative mutations and every original root/mode comparison. Giving
 // each gate its own test budget prevents a long corpus opening from timing out
 // unrelated gates, and names the scenario if a comparison stops progressing.
-for (const scale of [1, 4] as const) {
+// dev/tf: 4x pass removed (operator, 23 Nov 2026): ~35 min per run on the shared host
+for (const scale of [1] as const) {
   describe(`phone Tasks, Mission and Details at ${scale}x`, () => {
     let ctx: Awaited<ReturnType<typeof startScenarioEngine>>
     let feeds: ReturnType<typeof openFenceFeeds>
