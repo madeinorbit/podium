@@ -458,13 +458,16 @@ function readFileModeMap(ui: Pick<UiState, 'get'>, mapKey: string): Record<strin
   }
 }
 
-/** The saved mode for one file tab, or null when never picked / corrupt. */
+/** The saved mode for one file tab, or null when never picked / corrupt.
+ * A legacy choice is inherited until this machine's tab has its own choice. */
 export function readFilePanelMode(
   ui: Pick<UiState, 'get'>,
   mapKey: string,
   id: string,
+  legacyId?: string,
 ): FilePanelMode | null {
-  const v = readFileModeMap(ui, mapKey)[id]
+  const map = readFileModeMap(ui, mapKey)
+  const v = map[id] ?? (legacyId === undefined ? undefined : map[legacyId])
   return v === 'preview' || v === 'source' || v === 'split' ? v : null
 }
 

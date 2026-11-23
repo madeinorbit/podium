@@ -5,7 +5,7 @@ import {
   readFilePanelMode,
   writeFilePanelMode,
 } from '@podium/client-core/ui-state'
-import { type FileScope, scopeKey } from '@podium/client-core/values'
+import { type FileScope, legacyWorktreeTabId, scopeKey, tabIdFor } from '@podium/client-core/values'
 import { machinePathDirname } from '@podium/model'
 import { Columns2, Eye, Pencil, Save, X } from 'lucide-react'
 import { type JSX, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
@@ -42,7 +42,8 @@ export function HtmlFilePanel({
   const doc = useFileDocument(scope, path)
   const saveFeedbackId = useId()
   const mobile = useIsMobile()
-  const tabId = `file:${scopeKey(scope)}:${path}`
+  const tabId = tabIdFor(scope, path)
+  const legacyTabId = legacyWorktreeTabId(scope, path)
   // The mode map is per-user REPLICATED, so it is SUBSCRIBED rather than seeded
   // (POD-540). Seeding was worse here than elsewhere: the mount effect wrote the
   // fallback straight back into the map, so a stored mode that arrived a moment
@@ -54,8 +55,8 @@ export function HtmlFilePanel({
     // map's parsing stays in client-core and this panel stays a subscriber.
     useCallback(
       (raw: string | null): Mode =>
-        readFilePanelMode({ get: () => raw }, HTML_MODE_MAP_KEY, tabId) ?? 'preview',
-      [tabId],
+        readFilePanelMode({ get: () => raw }, HTML_MODE_MAP_KEY, tabId, legacyTabId) ?? 'preview',
+      [tabId, legacyTabId],
     ),
   )
   const setMode = useCallback(

@@ -8,7 +8,7 @@ import {
   readFilePanelMode,
   writeFilePanelMode,
 } from '@podium/client-core/ui-state'
-import { type FileScope, scopeKey } from '@podium/client-core/values'
+import { type FileScope, legacyWorktreeTabId, scopeKey, tabIdFor } from '@podium/client-core/values'
 import { asSessionId } from '@podium/model/browser'
 import { Columns2, Eye, Flower2, Pencil, Save, X } from 'lucide-react'
 import { type JSX, useCallback, useEffect, useId, useRef, useState } from 'react'
@@ -52,7 +52,8 @@ export function MarkdownFilePanel({
   const mobile = useIsMobile()
   const [calmReading, setCalmReading] = useState(false)
   const closeCalmReading = useCallback(() => setCalmReading(false), [])
-  const tabId = `file:${scopeKey(scope)}:${path}`
+  const tabId = tabIdFor(scope, path)
+  const legacyTabId = legacyWorktreeTabId(scope, path)
   // Per-tab mode is per-user REPLICATED: SUBSCRIBE, never seed. A `useState`
   // initializer read the map before the replica had the row, and the mount
   // effect then wrote that fallback back — so a stored mode arriving a moment
@@ -63,9 +64,9 @@ export function MarkdownFilePanel({
     // map's parsing stays in client-core and this panel stays a subscriber.
     useCallback(
       (raw: string | null): Mode =>
-        readFilePanelMode({ get: () => raw }, MD_MODE_MAP_KEY, tabId) ??
+        readFilePanelMode({ get: () => raw }, MD_MODE_MAP_KEY, tabId, legacyTabId) ??
         (md ? 'preview' : 'source'),
-      [tabId, md],
+      [tabId, legacyTabId, md],
     ),
   )
   const setMode = useCallback(

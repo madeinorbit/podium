@@ -35156,77 +35156,6 @@
       "guard": "packages/client-graph/src/workflow-views.ts reads only these tables through pool.sources.view; the screens read workflowRecords and mySubscriptions."
     },
     {
-      "file": "packages/client-core/src/ui/persistence.ts",
-      "holder": "UiPersistence/load",
-      "rule": "reader-summary",
-      "tokens": "1813e6ff90652a6178e781324f134b1bde4be144c19d1c80a088d5ea2e8b6932",
-      "gate": [
-        "exit:then:8f83a8efcfcfa7ae1e347dbd7fce2aef46ddc2cd31f6f437a774cf442a2c8b4e",
-        "then:e2d04cdf6e731e4358faccbb7b1557578b9d708cfe8dceaaececc33d15c2a43d",
-        "then:43a1d3b06b91b98b7dbbcab76561100d39fe1cc6681d096bb458926c908e5b86",
-        "then:a5db4529d4130bb198091f9b7b598585651ad006ae64a7a89276f5dcda698d05"
-      ],
-      "origin": [
-        "0f5f455188b96cfb878e35bee03027e47d09b789237ef68f323b2d1c67e7319e",
-        "184dfdbc39370c8fb429e0dd8616d356b7bc8b842f22dbd9b6f8bd63275b9b45",
-        "6e6b8a555d711101e60ad388d1b34f6372cffff54b35cbe2df70437dde52155d"
-      ],
-      "fingerprint": "4824c9df5adabcc26b334dc3aa9a6d365700c9997eaef7157fe9638758da349e",
-      "count": 1,
-      "classification": "ingest",
-      "owner": "POD-5797",
-      "trigger": "One principal runtime creation, before the first paint.",
-      "bound": "The one device ui.v1 document and the declared one-time legacy device-key migration; no synced record collection is read.",
-      "reason": "Normalizes saved workspace trees from this device. It neither joins sessions nor imports synced layout rows.",
-      "guard": "UiStore restore, malformed-document and one-time-migration tests in packages/client-core/src/ui/ui-store.test.ts."
-    },
-    {
-      "file": "packages/client-core/src/ui/persistence.ts",
-      "holder": "UiPersistence/load",
-      "rule": "helper-consumer",
-      "tokens": "c5aecbe22b5152f2e3dbf37530779a31d9baab14f84ad8d57028b90e01714eaa",
-      "gate": [
-        "exit:then:8f83a8efcfcfa7ae1e347dbd7fce2aef46ddc2cd31f6f437a774cf442a2c8b4e",
-        "then:e2d04cdf6e731e4358faccbb7b1557578b9d708cfe8dceaaececc33d15c2a43d",
-        "then:43a1d3b06b91b98b7dbbcab76561100d39fe1cc6681d096bb458926c908e5b86",
-        "then:a5db4529d4130bb198091f9b7b598585651ad006ae64a7a89276f5dcda698d05"
-      ],
-      "origin": [
-        "0f5f455188b96cfb878e35bee03027e47d09b789237ef68f323b2d1c67e7319e",
-        "184dfdbc39370c8fb429e0dd8616d356b7bc8b842f22dbd9b6f8bd63275b9b45",
-        "6e6b8a555d711101e60ad388d1b34f6372cffff54b35cbe2df70437dde52155d"
-      ],
-      "fingerprint": "e42c6aa52b747ddfd09dce714369c35aefbee9b503c6e86b12d63c6de2edb02d",
-      "count": 1,
-      "classification": "ingest",
-      "owner": "POD-5797",
-      "trigger": "One principal runtime creation, before the first paint.",
-      "bound": "The one device ui.v1 document and the declared one-time legacy device-key migration; no synced record collection is read.",
-      "reason": "Normalizes saved workspace trees from this device. It neither joins sessions nor imports synced layout rows.",
-      "guard": "UiStore restore, malformed-document and one-time-migration tests in packages/client-core/src/ui/ui-store.test.ts."
-    },
-    {
-      "file": "packages/client-core/src/ui/persistence.ts",
-      "holder": "UiPersistence/restore/workspaces/flatMap:callback",
-      "rule": "reader-summary",
-      "tokens": "cb38cb00485430dbeedffaf6e335fbb97b3636891a8532ee84500e6f4baab774",
-      "gate": [
-        "then:c764cf42f4b8b35ebec08ed805084311acb06e2e67ad37545ab15b73ad81b4ee",
-        "then:a5d29a8080eccc75ad697c23ca06b93a0b5f4b48cc7e11ce1b6461ccf426d84d"
-      ],
-      "origin": [
-        "184dfdbc39370c8fb429e0dd8616d356b7bc8b842f22dbd9b6f8bd63275b9b45"
-      ],
-      "fingerprint": "4b4b206973b37ad0734442eebcb8d58035c37a0bcc50169adeebba4453e17ee7",
-      "count": 1,
-      "classification": "ingest",
-      "owner": "POD-5797",
-      "trigger": "One principal runtime creation, before the first paint.",
-      "bound": "The one device ui.v1 document and the declared one-time legacy device-key migration; no synced record collection is read.",
-      "reason": "Normalizes saved workspace trees from this device. It neither joins sessions nor imports synced layout rows.",
-      "guard": "UiStore restore, malformed-document and one-time-migration tests in packages/client-core/src/ui/ui-store.test.ts."
-    },
-    {
       "file": "packages/client-core/src/values/workspace-layout.ts",
       "holder": "activateTab",
       "rule": "reader-summary",
@@ -40294,6 +40223,635 @@
       "bound": "One Concertmaster session's curated conversation: a device holds a session's entries only while its chat or dock panel reads them (the concertmasterEntry.ofSession collection), and the rows are that session's messages and asks (POD-7211).",
       "reason": "The curated chat and the Needs-you list read the resident concertmasterEntry rows and keep one session's; the table holds only the conversations on screen, so the work follows the shown conversation, not history or other sessions. Paging a very long conversation is a declared follow-up.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-core/src/ui/persistence.ts",
+      "holder": "restoredFileIds",
+      "rule": "loop:for-of",
+      "tokens": "1cef9323431248e4b5add84e632f84b8c0f100e1c863c60d22aae1ceb6365dc3",
+      "gate": [],
+      "origin": [
+        "5b403818918f9edcf53f3845fb47dd6b733ee667b3dda952f1c0fde1f16f6f6b"
+      ],
+      "fingerprint": "e6ec0d3f0ec3334cdfa1ee425a51262601cab592b952ed39c6bc14f415fa2654",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-7261",
+      "trigger": "One principal runtime creation, before the first paint, while restoring device screen state.",
+      "bound": "The one device ui.v1 document or its declared legacy keys: persisted file scopes, saved workspace pane trees and their open tab IDs. No synced entity collection is read.",
+      "reason": "Re-keys stored file identities by their recorded machine and carries the same mapping through panes, preview retirement, URL focus and viewport offsets. Each file adds a constant number of viewport aliases.",
+      "guard": "packages/client-core/src/ui/ui-store.test.ts covers both persisted formats, mismatched IDs, split focus, viewport offsets, URL focus, preview retirement and idempotent restore."
+    },
+    {
+      "file": "packages/client-core/src/ui/persistence.ts",
+      "holder": "UiPersistence/load",
+      "rule": "helper-consumer",
+      "tokens": "f6f9a43ce760bb9b147766360802eb8ebab56811fd6bb469cfc2d1e9b509b2d5",
+      "gate": [
+        "exit:then:8f83a8efcfcfa7ae1e347dbd7fce2aef46ddc2cd31f6f437a774cf442a2c8b4e",
+        "then:e2d04cdf6e731e4358faccbb7b1557578b9d708cfe8dceaaececc33d15c2a43d",
+        "then:43a1d3b06b91b98b7dbbcab76561100d39fe1cc6681d096bb458926c908e5b86",
+        "then:a5db4529d4130bb198091f9b7b598585651ad006ae64a7a89276f5dcda698d05"
+      ],
+      "origin": [
+        "0f5f455188b96cfb878e35bee03027e47d09b789237ef68f323b2d1c67e7319e",
+        "184dfdbc39370c8fb429e0dd8616d356b7bc8b842f22dbd9b6f8bd63275b9b45",
+        "6e6b8a555d711101e60ad388d1b34f6372cffff54b35cbe2df70437dde52155d"
+      ],
+      "fingerprint": "526b1e2fff6048e689c524eb871358fe5e075a6adbef0984da71037c078f2274",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-7261",
+      "trigger": "One principal runtime creation, before the first paint, while restoring device screen state.",
+      "bound": "The one device ui.v1 document or its declared legacy keys: persisted file scopes, saved workspace pane trees and their open tab IDs. No synced entity collection is read.",
+      "reason": "Re-keys stored file identities by their recorded machine and carries the same mapping through panes, preview retirement, URL focus and viewport offsets. Each file adds a constant number of viewport aliases.",
+      "guard": "packages/client-core/src/ui/ui-store.test.ts covers both persisted formats, mismatched IDs, split focus, viewport offsets, URL focus, preview retirement and idempotent restore."
+    },
+    {
+      "file": "packages/client-core/src/ui/persistence.ts",
+      "holder": "UiPersistence/load",
+      "rule": "reader-summary",
+      "tokens": "62cbc6f12b008aeec5628a89d9a25713a6e6a6133bbaecbe96758331946ae06e",
+      "gate": [
+        "exit:then:8f83a8efcfcfa7ae1e347dbd7fce2aef46ddc2cd31f6f437a774cf442a2c8b4e",
+        "then:e2d04cdf6e731e4358faccbb7b1557578b9d708cfe8dceaaececc33d15c2a43d",
+        "then:43a1d3b06b91b98b7dbbcab76561100d39fe1cc6681d096bb458926c908e5b86",
+        "then:a5db4529d4130bb198091f9b7b598585651ad006ae64a7a89276f5dcda698d05"
+      ],
+      "origin": [
+        "0f5f455188b96cfb878e35bee03027e47d09b789237ef68f323b2d1c67e7319e",
+        "184dfdbc39370c8fb429e0dd8616d356b7bc8b842f22dbd9b6f8bd63275b9b45",
+        "6e6b8a555d711101e60ad388d1b34f6372cffff54b35cbe2df70437dde52155d"
+      ],
+      "fingerprint": "ac2d4df6dbc5dc1fa1dec0f309e0af8c412bfb26ca96a369e488b435d5caf421",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-7261",
+      "trigger": "One principal runtime creation, before the first paint, while restoring device screen state.",
+      "bound": "The one device ui.v1 document or its declared legacy keys: persisted file scopes, saved workspace pane trees and their open tab IDs. No synced entity collection is read.",
+      "reason": "Re-keys stored file identities by their recorded machine and carries the same mapping through panes, preview retirement, URL focus and viewport offsets. Each file adds a constant number of viewport aliases.",
+      "guard": "packages/client-core/src/ui/ui-store.test.ts covers both persisted formats, mismatched IDs, split focus, viewport offsets, URL focus, preview retirement and idempotent restore."
+    },
+    {
+      "file": "packages/client-core/src/ui/persistence.ts",
+      "holder": "UiPersistence/restore/workspaces/flatMap:callback",
+      "rule": "spread",
+      "tokens": "283abbcdc34758cf2d8d58d1e017699b57423ea86e5caa9683b8116cad9e0c48",
+      "gate": [
+        "then:743947be9dc4c1bbe8d451924c6eff81472982dbd7b45e0853c0780d9b1ffdbe"
+      ],
+      "origin": [
+        "80f6b2298b4b251d0ce2d92b580d3304871de17a1509cda8fee437abb85031bd"
+      ],
+      "fingerprint": "1374ab0329ccdfd0e5749ee0280f819ae6aedfd87c1bc257832032483fda1d77",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-7261",
+      "trigger": "One principal runtime creation, before the first paint, while restoring device screen state.",
+      "bound": "The one device ui.v1 document or its declared legacy keys: persisted file scopes, saved workspace pane trees and their open tab IDs. No synced entity collection is read.",
+      "reason": "Re-keys stored file identities by their recorded machine and carries the same mapping through panes, preview retirement, URL focus and viewport offsets. Each file adds a constant number of viewport aliases.",
+      "guard": "packages/client-core/src/ui/ui-store.test.ts covers both persisted formats, mismatched IDs, split focus, viewport offsets, URL focus, preview retirement and idempotent restore."
+    },
+    {
+      "file": "packages/client-core/src/ui/persistence.ts",
+      "holder": "UiPersistence/restore/workspaces/flatMap:callback",
+      "rule": "helper-consumer",
+      "tokens": "a7bc179035dda84e82535b3b32aad6547bcdfb11472735f93391ec384d9f0645",
+      "gate": [
+        "then:75ab918065b96bc0ab7b9ecdbc1669fe057255aad714adbd66812d7fcf8e4103",
+        "then:e921fefedc4a280ada2cde7c3a0efff09ec6664de8583469fa665d1c1ba16a54"
+      ],
+      "origin": [
+        "80f6b2298b4b251d0ce2d92b580d3304871de17a1509cda8fee437abb85031bd"
+      ],
+      "fingerprint": "62c240ba641e29877d242856d28112f077b155a51af716d413cc96eadf31bc3f",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-7261",
+      "trigger": "One principal runtime creation, before the first paint, while restoring device screen state.",
+      "bound": "The one device ui.v1 document or its declared legacy keys: persisted file scopes, saved workspace pane trees and their open tab IDs. No synced entity collection is read.",
+      "reason": "Re-keys stored file identities by their recorded machine and carries the same mapping through panes, preview retirement, URL focus and viewport offsets. Each file adds a constant number of viewport aliases.",
+      "guard": "packages/client-core/src/ui/ui-store.test.ts covers both persisted formats, mismatched IDs, split focus, viewport offsets, URL focus, preview retirement and idempotent restore."
+    },
+    {
+      "file": "packages/client-core/src/ui/persistence.ts",
+      "holder": "UiPersistence/restore/workspaces/flatMap:callback",
+      "rule": "helper-consumer",
+      "tokens": "d67168dcf6e92b94a511a9b62c0a98b2187632e34b38e8e88795ad8731ee6421",
+      "gate": [
+        "then:743947be9dc4c1bbe8d451924c6eff81472982dbd7b45e0853c0780d9b1ffdbe"
+      ],
+      "origin": [
+        "80f6b2298b4b251d0ce2d92b580d3304871de17a1509cda8fee437abb85031bd"
+      ],
+      "fingerprint": "6a7abe464ccbd5e2b52029e6b78d4be111b429c2547639b8e3c2e36a7ce8f5c2",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-7261",
+      "trigger": "One principal runtime creation, before the first paint, while restoring device screen state.",
+      "bound": "The one device ui.v1 document or its declared legacy keys: persisted file scopes, saved workspace pane trees and their open tab IDs. No synced entity collection is read.",
+      "reason": "Re-keys stored file identities by their recorded machine and carries the same mapping through panes, preview retirement, URL focus and viewport offsets. Each file adds a constant number of viewport aliases.",
+      "guard": "packages/client-core/src/ui/ui-store.test.ts covers both persisted formats, mismatched IDs, split focus, viewport offsets, URL focus, preview retirement and idempotent restore."
+    },
+    {
+      "file": "packages/client-core/src/ui/persistence.ts",
+      "holder": "UiPersistence/restore/workspaces/flatMap:callback",
+      "rule": "reader-summary",
+      "tokens": "9c81cc140910fb5b446eb5d32efba729972e76885bcafea3e76b6e0e646396f7",
+      "gate": [
+        "then:75ab918065b96bc0ab7b9ecdbc1669fe057255aad714adbd66812d7fcf8e4103",
+        "then:e921fefedc4a280ada2cde7c3a0efff09ec6664de8583469fa665d1c1ba16a54"
+      ],
+      "origin": [
+        "184dfdbc39370c8fb429e0dd8616d356b7bc8b842f22dbd9b6f8bd63275b9b45",
+        "80f6b2298b4b251d0ce2d92b580d3304871de17a1509cda8fee437abb85031bd"
+      ],
+      "fingerprint": "bbff26e2e1da0d8685cd47d8921ebc7371b97205d6399387b0886f923598fa71",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-7261",
+      "trigger": "One principal runtime creation, before the first paint, while restoring device screen state.",
+      "bound": "The one device ui.v1 document or its declared legacy keys: persisted file scopes, saved workspace pane trees and their open tab IDs. No synced entity collection is read.",
+      "reason": "Re-keys stored file identities by their recorded machine and carries the same mapping through panes, preview retirement, URL focus and viewport offsets. Each file adds a constant number of viewport aliases.",
+      "guard": "packages/client-core/src/ui/ui-store.test.ts covers both persisted formats, mismatched IDs, split focus, viewport offsets, URL focus, preview retirement and idempotent restore."
+    },
+    {
+      "file": "packages/client-core/src/ui/persistence.ts",
+      "holder": "UiPersistence/restore/workspaces/flatMap:callback",
+      "rule": "reader-summary",
+      "tokens": "8287fc7e6e224ba76618924fbf0fefeb4a3f80664bbf4386d90b6b4c430f64ff",
+      "gate": [
+        "then:743947be9dc4c1bbe8d451924c6eff81472982dbd7b45e0853c0780d9b1ffdbe"
+      ],
+      "origin": [
+        "80f6b2298b4b251d0ce2d92b580d3304871de17a1509cda8fee437abb85031bd"
+      ],
+      "fingerprint": "f910ad3adbb6412fae2d857c6eb9e85a3f87785f154eaa0e2b7e4d7c4546cc43",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-7261",
+      "trigger": "One principal runtime creation, before the first paint, while restoring device screen state.",
+      "bound": "The one device ui.v1 document or its declared legacy keys: persisted file scopes, saved workspace pane trees and their open tab IDs. No synced entity collection is read.",
+      "reason": "Re-keys stored file identities by their recorded machine and carries the same mapping through panes, preview retirement, URL focus and viewport offsets. Each file adds a constant number of viewport aliases.",
+      "guard": "packages/client-core/src/ui/ui-store.test.ts covers both persisted formats, mismatched IDs, split focus, viewport offsets, URL focus, preview retirement and idempotent restore."
+    },
+    {
+      "file": "packages/client-core/src/ui/persistence.ts",
+      "holder": "UiPersistence/restore/workspaces/flatMap:callback/panes/map:callback/tabs",
+      "rule": "consume:map",
+      "tokens": "6876ee19c63b3773b0828b7235527a7143ed829296b8fb2e147ee52d5ef98f10",
+      "gate": [
+        "then:743947be9dc4c1bbe8d451924c6eff81472982dbd7b45e0853c0780d9b1ffdbe"
+      ],
+      "origin": [
+        "80f6b2298b4b251d0ce2d92b580d3304871de17a1509cda8fee437abb85031bd"
+      ],
+      "fingerprint": "efc9b782c56924c1126ab76723a108eba0f5b193c274d10c67e58ab7cab9c66a",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-7261",
+      "trigger": "One principal runtime creation, before the first paint, while restoring device screen state.",
+      "bound": "The one device ui.v1 document or its declared legacy keys: persisted file scopes, saved workspace pane trees and their open tab IDs. No synced entity collection is read.",
+      "reason": "Re-keys stored file identities by their recorded machine and carries the same mapping through panes, preview retirement, URL focus and viewport offsets. Each file adds a constant number of viewport aliases.",
+      "guard": "packages/client-core/src/ui/ui-store.test.ts covers both persisted formats, mismatched IDs, split focus, viewport offsets, URL focus, preview retirement and idempotent restore."
+    },
+    {
+      "file": "packages/client-core/src/values/workspace-layout.ts",
+      "holder": "closeTab",
+      "rule": "reader-summary",
+      "tokens": "0c7107c08586017019e2b5301897a0f6111d85f6d58832cf6e226b41e376d777",
+      "gate": [
+        "exit:then:995a6193c4ed7335acbf5f2b3ec57b9b3bbfbd543ad0d2850e98727a0623a8f0",
+        "then:298b4ab0a1ef130eed1f10554684f8e37f3ebedde19bb47aa723774159cba3ef"
+      ],
+      "origin": [
+        "184dfdbc39370c8fb429e0dd8616d356b7bc8b842f22dbd9b6f8bd63275b9b45",
+        "80f6b2298b4b251d0ce2d92b580d3304871de17a1509cda8fee437abb85031bd"
+      ],
+      "fingerprint": "a270fe68f744386b7695645f3de67ffb4626237a59365560524ed3edc17168e1",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-7261",
+      "trigger": "Normalize one saved workspace and retire its preview during device restoration; pure helpers also serve an explicit edit of one named workspace.",
+      "bound": "Only the supplied workspace pane tree and its operator-opened tab IDs. The new origin is a remapped saved layout, not a session or issue catalogue.",
+      "reason": "Existing pure layout reducers consume one caller-selected value. Machine-ID migration introduces a new saved-layout origin without adding any live-record enumeration.",
+      "guard": "packages/client-core/src/values/workspace-layout.test.ts and packages/client-core/src/ui/ui-store.test.ts cover layout invariants, split focus and preview retirement after remapping."
+    },
+    {
+      "file": "packages/client-core/src/values/workspace-layout.ts",
+      "holder": "closeTab",
+      "rule": "helper-consumer",
+      "tokens": "b286fc2b4d5ccc0d11ddda6ba10c82ff8ef019dec28ac7df9b2b085131fd027d",
+      "gate": [
+        "exit:then:995a6193c4ed7335acbf5f2b3ec57b9b3bbfbd543ad0d2850e98727a0623a8f0",
+        "then:298b4ab0a1ef130eed1f10554684f8e37f3ebedde19bb47aa723774159cba3ef"
+      ],
+      "origin": [
+        "184dfdbc39370c8fb429e0dd8616d356b7bc8b842f22dbd9b6f8bd63275b9b45",
+        "80f6b2298b4b251d0ce2d92b580d3304871de17a1509cda8fee437abb85031bd"
+      ],
+      "fingerprint": "f0bf4de2b7629d4842f33adb7210fad16ce56de77f9ee529e7b41260bda43453",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-7261",
+      "trigger": "Normalize one saved workspace and retire its preview during device restoration; pure helpers also serve an explicit edit of one named workspace.",
+      "bound": "Only the supplied workspace pane tree and its operator-opened tab IDs. The new origin is a remapped saved layout, not a session or issue catalogue.",
+      "reason": "Existing pure layout reducers consume one caller-selected value. Machine-ID migration introduces a new saved-layout origin without adding any live-record enumeration.",
+      "guard": "packages/client-core/src/values/workspace-layout.test.ts and packages/client-core/src/ui/ui-store.test.ts cover layout invariants, split focus and preview retirement after remapping."
+    },
+    {
+      "file": "packages/client-core/src/values/workspace-layout.ts",
+      "holder": "closeTab/next",
+      "rule": "helper-consumer",
+      "tokens": "48821c5908d9da7f9384367e9cb6d74cdeedf5b3d924fc5e78e15c81289cb466",
+      "gate": [
+        "exit:then:995a6193c4ed7335acbf5f2b3ec57b9b3bbfbd543ad0d2850e98727a0623a8f0"
+      ],
+      "origin": [
+        "184dfdbc39370c8fb429e0dd8616d356b7bc8b842f22dbd9b6f8bd63275b9b45",
+        "80f6b2298b4b251d0ce2d92b580d3304871de17a1509cda8fee437abb85031bd"
+      ],
+      "fingerprint": "20bee6a3958c375bd7d7cf9c195b1f8f591a6cf54c9c31f1754fada67d38cc98",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-7261",
+      "trigger": "Normalize one saved workspace and retire its preview during device restoration; pure helpers also serve an explicit edit of one named workspace.",
+      "bound": "Only the supplied workspace pane tree and its operator-opened tab IDs. The new origin is a remapped saved layout, not a session or issue catalogue.",
+      "reason": "Existing pure layout reducers consume one caller-selected value. Machine-ID migration introduces a new saved-layout origin without adding any live-record enumeration.",
+      "guard": "packages/client-core/src/values/workspace-layout.test.ts and packages/client-core/src/ui/ui-store.test.ts cover layout invariants, split focus and preview retirement after remapping."
+    },
+    {
+      "file": "packages/client-core/src/values/workspace-layout.ts",
+      "holder": "closeTab/next",
+      "rule": "reader-summary",
+      "tokens": "faad0b6a1bdf65af9769f376f07d911429b96cbceb46966929f2a3f6296089bb",
+      "gate": [
+        "exit:then:995a6193c4ed7335acbf5f2b3ec57b9b3bbfbd543ad0d2850e98727a0623a8f0"
+      ],
+      "origin": [
+        "184dfdbc39370c8fb429e0dd8616d356b7bc8b842f22dbd9b6f8bd63275b9b45",
+        "80f6b2298b4b251d0ce2d92b580d3304871de17a1509cda8fee437abb85031bd"
+      ],
+      "fingerprint": "e9478d82c0546abb869a0c43b3aaaef516428b9323b08fc6b0952cb267757683",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-7261",
+      "trigger": "Normalize one saved workspace and retire its preview during device restoration; pure helpers also serve an explicit edit of one named workspace.",
+      "bound": "Only the supplied workspace pane tree and its operator-opened tab IDs. The new origin is a remapped saved layout, not a session or issue catalogue.",
+      "reason": "Existing pure layout reducers consume one caller-selected value. Machine-ID migration introduces a new saved-layout origin without adding any live-record enumeration.",
+      "guard": "packages/client-core/src/values/workspace-layout.test.ts and packages/client-core/src/ui/ui-store.test.ts cover layout invariants, split focus and preview retirement after remapping."
+    },
+    {
+      "file": "packages/client-core/src/values/workspace-layout.ts",
+      "holder": "closeTab/pane",
+      "rule": "helper-consumer",
+      "tokens": "0790dd1a5698473c099431bd0a3578cdab97466d63f385f4d77218aefada0d41",
+      "gate": [],
+      "origin": [
+        "80f6b2298b4b251d0ce2d92b580d3304871de17a1509cda8fee437abb85031bd"
+      ],
+      "fingerprint": "28aea306fde07e92ce428c384a0f05b2d4bc5ed910f0cb542364e23d74577715",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-7261",
+      "trigger": "Normalize one saved workspace and retire its preview during device restoration; pure helpers also serve an explicit edit of one named workspace.",
+      "bound": "Only the supplied workspace pane tree and its operator-opened tab IDs. The new origin is a remapped saved layout, not a session or issue catalogue.",
+      "reason": "Existing pure layout reducers consume one caller-selected value. Machine-ID migration introduces a new saved-layout origin without adding any live-record enumeration.",
+      "guard": "packages/client-core/src/values/workspace-layout.test.ts and packages/client-core/src/ui/ui-store.test.ts cover layout invariants, split focus and preview retirement after remapping."
+    },
+    {
+      "file": "packages/client-core/src/values/workspace-layout.ts",
+      "holder": "dropPane/order",
+      "rule": "helper-consumer",
+      "tokens": "d8e3cc9d2df5e24e4459c75fcec80a5f0fd42d9edfa7d60e4b5fefe9c7c2597c",
+      "gate": [],
+      "origin": [
+        "80f6b2298b4b251d0ce2d92b580d3304871de17a1509cda8fee437abb85031bd"
+      ],
+      "fingerprint": "4e1841b75fc41cf71b19ef74f78ebf41f8dc1f7ff588809a9ff17056bd185196",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-7261",
+      "trigger": "Normalize one saved workspace and retire its preview during device restoration; pure helpers also serve an explicit edit of one named workspace.",
+      "bound": "Only the supplied workspace pane tree and its operator-opened tab IDs. The new origin is a remapped saved layout, not a session or issue catalogue.",
+      "reason": "Existing pure layout reducers consume one caller-selected value. Machine-ID migration introduces a new saved-layout origin without adding any live-record enumeration.",
+      "guard": "packages/client-core/src/values/workspace-layout.test.ts and packages/client-core/src/ui/ui-store.test.ts cover layout invariants, split focus and preview retirement after remapping."
+    },
+    {
+      "file": "packages/client-core/src/values/workspace-layout.ts",
+      "holder": "dropPane/order",
+      "rule": "reader-summary",
+      "tokens": "27447ef075a9afa6e6de67b598c08cda41b662ec6d9ef9d9f7bd1d7f6586278c",
+      "gate": [],
+      "origin": [
+        "80f6b2298b4b251d0ce2d92b580d3304871de17a1509cda8fee437abb85031bd"
+      ],
+      "fingerprint": "f5037cf949512bd9521782b80d518f401b90798d67ca2504e3f96f3c09f38de4",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-7261",
+      "trigger": "Normalize one saved workspace and retire its preview during device restoration; pure helpers also serve an explicit edit of one named workspace.",
+      "bound": "Only the supplied workspace pane tree and its operator-opened tab IDs. The new origin is a remapped saved layout, not a session or issue catalogue.",
+      "reason": "Existing pure layout reducers consume one caller-selected value. Machine-ID migration introduces a new saved-layout origin without adding any live-record enumeration.",
+      "guard": "packages/client-core/src/values/workspace-layout.test.ts and packages/client-core/src/ui/ui-store.test.ts cover layout invariants, split focus and preview retirement after remapping."
+    },
+    {
+      "file": "packages/client-core/src/values/workspace-layout.ts",
+      "holder": "dropPane/remaining",
+      "rule": "helper-consumer",
+      "tokens": "d82462e070be3e29431e1f7eb9eaa818196dcbde3b1d2a00dc01bcb1a19e8d91",
+      "gate": [
+        "exit:then:5270ee8bef435b36063b8da305b2c7f9b59c507dc47ac81e07b26c810c5a8d0c",
+        "exit:then:0a4a505fde19626c9f969717976dc56f1996ba14cf2a41f2bef3f26fdd2c685a"
+      ],
+      "origin": [
+        "80f6b2298b4b251d0ce2d92b580d3304871de17a1509cda8fee437abb85031bd"
+      ],
+      "fingerprint": "59dee58574d46c46618b96cd7e1387ddb94a17cf9bdcc5f3588f089ec903a49a",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-7261",
+      "trigger": "Normalize one saved workspace and retire its preview during device restoration; pure helpers also serve an explicit edit of one named workspace.",
+      "bound": "Only the supplied workspace pane tree and its operator-opened tab IDs. The new origin is a remapped saved layout, not a session or issue catalogue.",
+      "reason": "Existing pure layout reducers consume one caller-selected value. Machine-ID migration introduces a new saved-layout origin without adding any live-record enumeration.",
+      "guard": "packages/client-core/src/values/workspace-layout.test.ts and packages/client-core/src/ui/ui-store.test.ts cover layout invariants, split focus and preview retirement after remapping."
+    },
+    {
+      "file": "packages/client-core/src/values/workspace-layout.ts",
+      "holder": "dropPane/remaining",
+      "rule": "reader-summary",
+      "tokens": "e259c792a466055c941ed9226c99f771328c0c781b0bbcc68ab0ea3d01d7bb85",
+      "gate": [
+        "exit:then:5270ee8bef435b36063b8da305b2c7f9b59c507dc47ac81e07b26c810c5a8d0c",
+        "exit:then:0a4a505fde19626c9f969717976dc56f1996ba14cf2a41f2bef3f26fdd2c685a"
+      ],
+      "origin": [
+        "80f6b2298b4b251d0ce2d92b580d3304871de17a1509cda8fee437abb85031bd"
+      ],
+      "fingerprint": "db5ecaff953c492f2d3e692b265528530a2d0a98895c2eae4ac2da0185c2f0ed",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-7261",
+      "trigger": "Normalize one saved workspace and retire its preview during device restoration; pure helpers also serve an explicit edit of one named workspace.",
+      "bound": "Only the supplied workspace pane tree and its operator-opened tab IDs. The new origin is a remapped saved layout, not a session or issue catalogue.",
+      "reason": "Existing pure layout reducers consume one caller-selected value. Machine-ID migration introduces a new saved-layout origin without adding any live-record enumeration.",
+      "guard": "packages/client-core/src/values/workspace-layout.test.ts and packages/client-core/src/ui/ui-store.test.ts cover layout invariants, split focus and preview retirement after remapping."
+    },
+    {
+      "file": "packages/client-core/src/values/workspace-layout.ts",
+      "holder": "dropPane/root",
+      "rule": "reader-summary",
+      "tokens": "3484b90a6a4712b71e4ee7eb3c2fa40afec7436801f7f65354c3ea1714e4471c",
+      "gate": [
+        "exit:then:0a4a505fde19626c9f969717976dc56f1996ba14cf2a41f2bef3f26fdd2c685a"
+      ],
+      "origin": [
+        "80f6b2298b4b251d0ce2d92b580d3304871de17a1509cda8fee437abb85031bd"
+      ],
+      "fingerprint": "6f5dccea08d25fdb0b8370f66c1904037c31b86d2ecdacbd818e24c8c1d10271",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-7261",
+      "trigger": "Normalize one saved workspace and retire its preview during device restoration; pure helpers also serve an explicit edit of one named workspace.",
+      "bound": "Only the supplied workspace pane tree and its operator-opened tab IDs. The new origin is a remapped saved layout, not a session or issue catalogue.",
+      "reason": "Existing pure layout reducers consume one caller-selected value. Machine-ID migration introduces a new saved-layout origin without adding any live-record enumeration.",
+      "guard": "packages/client-core/src/values/workspace-layout.test.ts and packages/client-core/src/ui/ui-store.test.ts cover layout invariants, split focus and preview retirement after remapping."
+    },
+    {
+      "file": "packages/client-core/src/values/workspace-layout.ts",
+      "holder": "dropPane/root",
+      "rule": "helper-consumer",
+      "tokens": "805c8adcafa22688991201bc22e22619c21b1e9e39f508e94e19bfb18a0d4f1c",
+      "gate": [
+        "exit:then:0a4a505fde19626c9f969717976dc56f1996ba14cf2a41f2bef3f26fdd2c685a"
+      ],
+      "origin": [
+        "80f6b2298b4b251d0ce2d92b580d3304871de17a1509cda8fee437abb85031bd"
+      ],
+      "fingerprint": "bb9640003f9fb6dc2d4751e16c7a144cb789cb38a110cdb25c2d09f84bf2a499",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-7261",
+      "trigger": "Normalize one saved workspace and retire its preview during device restoration; pure helpers also serve an explicit edit of one named workspace.",
+      "bound": "Only the supplied workspace pane tree and its operator-opened tab IDs. The new origin is a remapped saved layout, not a session or issue catalogue.",
+      "reason": "Existing pure layout reducers consume one caller-selected value. Machine-ID migration introduces a new saved-layout origin without adding any live-record enumeration.",
+      "guard": "packages/client-core/src/values/workspace-layout.test.ts and packages/client-core/src/ui/ui-store.test.ts cover layout invariants, split focus and preview retirement after remapping."
+    },
+    {
+      "file": "packages/client-core/src/values/workspace-layout.ts",
+      "holder": "normalizeNode",
+      "rule": "reader-summary",
+      "tokens": "c78843d9903107c6317d12c4a1e7b29c5d47fe7cbb552616bd0c19eec03619bb",
+      "gate": [
+        "exit:then:2fca865eb00c7848fd3452b05b4b5b17bf5a704f922ea537950d1edf61fbff26",
+        "then:208628ecba2e87bafd93402f09401aa6a857db807dc086233eaff477caa2d76d",
+        "then:8ee6c075dfc1f6ef54bfb480a5bce243712c5ec812f6b37ce5fa147c1f51bcb7"
+      ],
+      "origin": [
+        "80f6b2298b4b251d0ce2d92b580d3304871de17a1509cda8fee437abb85031bd"
+      ],
+      "fingerprint": "fc7d151c396f343729a03444adace3d160423ec63c125f2f59cec56c444107c7",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-7261",
+      "trigger": "Normalize one saved workspace and retire its preview during device restoration; pure helpers also serve an explicit edit of one named workspace.",
+      "bound": "Only the supplied workspace pane tree and its operator-opened tab IDs. The new origin is a remapped saved layout, not a session or issue catalogue.",
+      "reason": "Existing pure layout reducers consume one caller-selected value. Machine-ID migration introduces a new saved-layout origin without adding any live-record enumeration.",
+      "guard": "packages/client-core/src/values/workspace-layout.test.ts and packages/client-core/src/ui/ui-store.test.ts cover layout invariants, split focus and preview retirement after remapping."
+    },
+    {
+      "file": "packages/client-core/src/values/workspace-layout.ts",
+      "holder": "normalizeWorkspace/leaves",
+      "rule": "helper-consumer",
+      "tokens": "d82462e070be3e29431e1f7eb9eaa818196dcbde3b1d2a00dc01bcb1a19e8d91",
+      "gate": [
+        "exit:then:79d72a87106b553ddf8b89e3b8067f97b5a25d1ccdaf399cc29bbe6eab388a1e",
+        "exit:then:c875e650238f35c5216e9abefe1fcdd92e4086ae7ac910ba5c857eca2a9b875d",
+        "exit:then:2fca865eb00c7848fd3452b05b4b5b17bf5a704f922ea537950d1edf61fbff26"
+      ],
+      "origin": [
+        "80f6b2298b4b251d0ce2d92b580d3304871de17a1509cda8fee437abb85031bd"
+      ],
+      "fingerprint": "dc8e9472b63c020cebc0f42c5ba2a95e8eeb2cc49380d2b3ef80724640d9638f",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-7261",
+      "trigger": "Normalize one saved workspace and retire its preview during device restoration; pure helpers also serve an explicit edit of one named workspace.",
+      "bound": "Only the supplied workspace pane tree and its operator-opened tab IDs. The new origin is a remapped saved layout, not a session or issue catalogue.",
+      "reason": "Existing pure layout reducers consume one caller-selected value. Machine-ID migration introduces a new saved-layout origin without adding any live-record enumeration.",
+      "guard": "packages/client-core/src/values/workspace-layout.test.ts and packages/client-core/src/ui/ui-store.test.ts cover layout invariants, split focus and preview retirement after remapping."
+    },
+    {
+      "file": "packages/client-core/src/values/workspace-layout.ts",
+      "holder": "normalizeWorkspace/leaves",
+      "rule": "reader-summary",
+      "tokens": "e259c792a466055c941ed9226c99f771328c0c781b0bbcc68ab0ea3d01d7bb85",
+      "gate": [
+        "exit:then:79d72a87106b553ddf8b89e3b8067f97b5a25d1ccdaf399cc29bbe6eab388a1e",
+        "exit:then:c875e650238f35c5216e9abefe1fcdd92e4086ae7ac910ba5c857eca2a9b875d",
+        "exit:then:2fca865eb00c7848fd3452b05b4b5b17bf5a704f922ea537950d1edf61fbff26"
+      ],
+      "origin": [
+        "80f6b2298b4b251d0ce2d92b580d3304871de17a1509cda8fee437abb85031bd"
+      ],
+      "fingerprint": "ede971e21ca7b0554c37fc40d7a34166f4a868a8b8efff84d18d96e96dc73f06",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-7261",
+      "trigger": "Normalize one saved workspace and retire its preview during device restoration; pure helpers also serve an explicit edit of one named workspace.",
+      "bound": "Only the supplied workspace pane tree and its operator-opened tab IDs. The new origin is a remapped saved layout, not a session or issue catalogue.",
+      "reason": "Existing pure layout reducers consume one caller-selected value. Machine-ID migration introduces a new saved-layout origin without adding any live-record enumeration.",
+      "guard": "packages/client-core/src/values/workspace-layout.test.ts and packages/client-core/src/ui/ui-store.test.ts cover layout invariants, split focus and preview retirement after remapping."
+    },
+    {
+      "file": "packages/client-core/src/values/workspace-layout.ts",
+      "holder": "normalizeWorkspace/root",
+      "rule": "reader-summary",
+      "tokens": "ee1c5c5d3613626cb7172e1c652b53f0cd9fa6c0a9f91294541fa7102502baa2",
+      "gate": [
+        "exit:then:c875e650238f35c5216e9abefe1fcdd92e4086ae7ac910ba5c857eca2a9b875d",
+        "exit:then:2fca865eb00c7848fd3452b05b4b5b17bf5a704f922ea537950d1edf61fbff26"
+      ],
+      "origin": [
+        "80f6b2298b4b251d0ce2d92b580d3304871de17a1509cda8fee437abb85031bd"
+      ],
+      "fingerprint": "0dbebc62a07ee9f06b6d541455334fcfab31a05cf3b1f56142d62d0dc3d99b22",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-7261",
+      "trigger": "Normalize one saved workspace and retire its preview during device restoration; pure helpers also serve an explicit edit of one named workspace.",
+      "bound": "Only the supplied workspace pane tree and its operator-opened tab IDs. The new origin is a remapped saved layout, not a session or issue catalogue.",
+      "reason": "Existing pure layout reducers consume one caller-selected value. Machine-ID migration introduces a new saved-layout origin without adding any live-record enumeration.",
+      "guard": "packages/client-core/src/values/workspace-layout.test.ts and packages/client-core/src/ui/ui-store.test.ts cover layout invariants, split focus and preview retirement after remapping."
+    },
+    {
+      "file": "packages/client-core/src/values/workspace-layout.ts",
+      "holder": "normalizeWorkspace/root",
+      "rule": "helper-consumer",
+      "tokens": "2ae7ba1f9ed0e5db4b9feab2c40c061f96e297e6be526122266bfae4d45c085f",
+      "gate": [
+        "exit:then:c875e650238f35c5216e9abefe1fcdd92e4086ae7ac910ba5c857eca2a9b875d",
+        "exit:then:2fca865eb00c7848fd3452b05b4b5b17bf5a704f922ea537950d1edf61fbff26"
+      ],
+      "origin": [
+        "80f6b2298b4b251d0ce2d92b580d3304871de17a1509cda8fee437abb85031bd"
+      ],
+      "fingerprint": "e7d6fb1df64b772483c49d9c728bcd730c666fbf6daba002e9143a1625603389",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-7261",
+      "trigger": "Normalize one saved workspace and retire its preview during device restoration; pure helpers also serve an explicit edit of one named workspace.",
+      "bound": "Only the supplied workspace pane tree and its operator-opened tab IDs. The new origin is a remapped saved layout, not a session or issue catalogue.",
+      "reason": "Existing pure layout reducers consume one caller-selected value. Machine-ID migration introduces a new saved-layout origin without adding any live-record enumeration.",
+      "guard": "packages/client-core/src/values/workspace-layout.test.ts and packages/client-core/src/ui/ui-store.test.ts cover layout invariants, split focus and preview retirement after remapping."
+    },
+    {
+      "file": "packages/client-core/src/values/workspace-layout.ts",
+      "holder": "orderedPanes",
+      "rule": "helper-consumer",
+      "tokens": "d8e3cc9d2df5e24e4459c75fcec80a5f0fd42d9edfa7d60e4b5fefe9c7c2597c",
+      "gate": [],
+      "origin": [
+        "80f6b2298b4b251d0ce2d92b580d3304871de17a1509cda8fee437abb85031bd"
+      ],
+      "fingerprint": "22a45568d56a8a25c5e482f4149c1813619d00d0aef07082ae9bac7c43d24631",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-7261",
+      "trigger": "Normalize one saved workspace and retire its preview during device restoration; pure helpers also serve an explicit edit of one named workspace.",
+      "bound": "Only the supplied workspace pane tree and its operator-opened tab IDs. The new origin is a remapped saved layout, not a session or issue catalogue.",
+      "reason": "Existing pure layout reducers consume one caller-selected value. Machine-ID migration introduces a new saved-layout origin without adding any live-record enumeration.",
+      "guard": "packages/client-core/src/values/workspace-layout.test.ts and packages/client-core/src/ui/ui-store.test.ts cover layout invariants, split focus and preview retirement after remapping."
+    },
+    {
+      "file": "packages/client-core/src/values/workspace-layout.ts",
+      "holder": "orderedPanes",
+      "rule": "reader-summary",
+      "tokens": "27447ef075a9afa6e6de67b598c08cda41b662ec6d9ef9d9f7bd1d7f6586278c",
+      "gate": [],
+      "origin": [
+        "80f6b2298b4b251d0ce2d92b580d3304871de17a1509cda8fee437abb85031bd"
+      ],
+      "fingerprint": "c6d2be42278e34b83ce363df87a35e7e50e8371ec4e82b915b630895dda41de6",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-7261",
+      "trigger": "Normalize one saved workspace and retire its preview during device restoration; pure helpers also serve an explicit edit of one named workspace.",
+      "bound": "Only the supplied workspace pane tree and its operator-opened tab IDs. The new origin is a remapped saved layout, not a session or issue catalogue.",
+      "reason": "Existing pure layout reducers consume one caller-selected value. Machine-ID migration introduces a new saved-layout origin without adding any live-record enumeration.",
+      "guard": "packages/client-core/src/values/workspace-layout.test.ts and packages/client-core/src/ui/ui-store.test.ts cover layout invariants, split focus and preview retirement after remapping."
+    },
+    {
+      "file": "packages/client-core/src/values/workspace-layout.ts",
+      "holder": "orderedPanes",
+      "rule": "consume:flatMap",
+      "tokens": "d9b309239cbd2cfb9921fae273ee7558b755927c506518857cc482d4ca114696",
+      "gate": [],
+      "origin": [
+        "80f6b2298b4b251d0ce2d92b580d3304871de17a1509cda8fee437abb85031bd"
+      ],
+      "fingerprint": "c8ac23a17b985f682bbc812b97bff9230948b3f915f9fd07b81aee194f016c9e",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-7261",
+      "trigger": "Normalize one saved workspace and retire its preview during device restoration; pure helpers also serve an explicit edit of one named workspace.",
+      "bound": "Only the supplied workspace pane tree and its operator-opened tab IDs. The new origin is a remapped saved layout, not a session or issue catalogue.",
+      "reason": "Existing pure layout reducers consume one caller-selected value. Machine-ID migration introduces a new saved-layout origin without adding any live-record enumeration.",
+      "guard": "packages/client-core/src/values/workspace-layout.test.ts and packages/client-core/src/ui/ui-store.test.ts cover layout invariants, split focus and preview retirement after remapping."
+    },
+    {
+      "file": "packages/client-core/src/values/workspace-layout.ts",
+      "holder": "paneOfTab",
+      "rule": "consume:find",
+      "tokens": "4d071817a03c8df2f982ccb6d8f0175151acd4bd6738d7f9ec57418611215e8e",
+      "gate": [],
+      "origin": [
+        "80f6b2298b4b251d0ce2d92b580d3304871de17a1509cda8fee437abb85031bd"
+      ],
+      "fingerprint": "0c00470569002a8d22b68bd8a558356fa23568b73622c96f433a93a8d9917cd6",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-7261",
+      "trigger": "Normalize one saved workspace and retire its preview during device restoration; pure helpers also serve an explicit edit of one named workspace.",
+      "bound": "Only the supplied workspace pane tree and its operator-opened tab IDs. The new origin is a remapped saved layout, not a session or issue catalogue.",
+      "reason": "Existing pure layout reducers consume one caller-selected value. Machine-ID migration introduces a new saved-layout origin without adding any live-record enumeration.",
+      "guard": "packages/client-core/src/values/workspace-layout.test.ts and packages/client-core/src/ui/ui-store.test.ts cover layout invariants, split focus and preview retirement after remapping."
+    },
+    {
+      "file": "packages/client-core/src/values/workspace-layout.ts",
+      "holder": "paneOfTab",
+      "rule": "helper-consumer",
+      "tokens": "38e42c0180fe088d14d2e08bc9fae38dce97956109117b08505cd6e0308b157c",
+      "gate": [],
+      "origin": [
+        "80f6b2298b4b251d0ce2d92b580d3304871de17a1509cda8fee437abb85031bd"
+      ],
+      "fingerprint": "785e0f4dd1441ea8238306121101c750543cbe5b74d0cc41eec692f6e03fc6f9",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-7261",
+      "trigger": "Normalize one saved workspace and retire its preview during device restoration; pure helpers also serve an explicit edit of one named workspace.",
+      "bound": "Only the supplied workspace pane tree and its operator-opened tab IDs. The new origin is a remapped saved layout, not a session or issue catalogue.",
+      "reason": "Existing pure layout reducers consume one caller-selected value. Machine-ID migration introduces a new saved-layout origin without adding any live-record enumeration.",
+      "guard": "packages/client-core/src/values/workspace-layout.test.ts and packages/client-core/src/ui/ui-store.test.ts cover layout invariants, split focus and preview retirement after remapping."
+    },
+    {
+      "file": "packages/client-core/src/values/workspace-layout.ts",
+      "holder": "paneOfTab",
+      "rule": "reader-summary",
+      "tokens": "4892cccc34ad16cf4bddc9e3f2814293bb56ceba9b3e0f96a334fbb69d0d5dbb",
+      "gate": [],
+      "origin": [
+        "80f6b2298b4b251d0ce2d92b580d3304871de17a1509cda8fee437abb85031bd"
+      ],
+      "fingerprint": "dbbdeabac29e2dedec318c0f987b679dd5420b9e961b6c4d5544e0fb3752f3f2",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-7261",
+      "trigger": "Normalize one saved workspace and retire its preview during device restoration; pure helpers also serve an explicit edit of one named workspace.",
+      "bound": "Only the supplied workspace pane tree and its operator-opened tab IDs. The new origin is a remapped saved layout, not a session or issue catalogue.",
+      "reason": "Existing pure layout reducers consume one caller-selected value. Machine-ID migration introduces a new saved-layout origin without adding any live-record enumeration.",
+      "guard": "packages/client-core/src/values/workspace-layout.test.ts and packages/client-core/src/ui/ui-store.test.ts cover layout invariants, split focus and preview retirement after remapping."
     }
   ]
 }

@@ -14,7 +14,7 @@ import type { FileScope } from '@podium/client-core/values'
 import { MobxPool } from '@podium/client-graph'
 import { omitGone } from '@podium/client-graph/lookup'
 import { attachPreferenceSource } from '@podium/client-graph/preference-source'
-import { asArtifactId, asIssueId, asSessionId, asUserId } from '@podium/model'
+import { asArtifactId, asIssueId, asMachineId, asSessionId, asUserId } from '@podium/model'
 import { act, cleanup, fireEvent, render, waitFor, within } from '@testing-library/react'
 import { observable, runInAction } from 'mobx'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -237,9 +237,10 @@ it('mounts actual file and Git surfaces with zero legacy derivations and adopts 
 
 it('keeps scoped read and write ownership, base hashes, and immutable artifact documents', async () => {
   const fixture = createFileViewerFixture()
-  const scopes: [FileScope, FileScope, FileScope] = [
+  const scopes: [FileScope, FileScope, FileScope, FileScope] = [
     { kind: 'session', sessionId: asSessionId('synthetic-session-0') },
     VIEWER_SCOPE,
+    { kind: 'worktree', root: '/synthetic/project', machineId: asMachineId('host-two') },
     { kind: 'artifact', issueId: asIssueId('synthetic-0'), artifactId: asArtifactId('snapshot') },
   ]
   function Document({ scope }: { scope: FileScope }) {
@@ -259,10 +260,12 @@ it('keeps scoped read and write ownership, base hashes, and immutable artifact d
       </>
     )
   }
+  // Keep the runtime alive while the same document component changes scope.
+  const config = { httpOrigin: 'http://offline.invalid', wsClientUrl: 'ws://offline.invalid' }
   const tree = (scope: FileScope) => (
     <StoreProvider
       principal={asClientPrincipal(asUserId('file-writer'))}
-      config={{ httpOrigin: 'http://offline.invalid', wsClientUrl: 'ws://offline.invalid' }}
+      config={config}
       api={fixture.api}
       networkEnabled={false}
       createReplicaFn={() => fixture.newReplica()}
@@ -276,7 +279,7 @@ it('keeps scoped read and write ownership, base hashes, and immutable artifact d
     if (index) view.rerender(tree(scope))
     await waitFor(() => expect(view.getByText('ready')).toBeTruthy())
     fireEvent.change(view.getByRole('textbox', { name: 'Document' }), {
-      target: { value: 'edited' },
+      target: { value: `edited ${index}` },
     })
     fireEvent.click(view.getByRole('button', { name: 'Save document' }))
     if (scope.kind !== 'artifact') await waitFor(() => expect(view.getByText('Saved')).toBeTruthy())
@@ -287,12 +290,13 @@ it('keeps scoped read and write ownership, base hashes, and immutable artifact d
           ? { issueId: scope.issueId, artifactId: scope.artifactId }
           : { root: scope.root, machineId: scope.machineId }
     expect(fixture.calls.read.at(-1)).toEqual({ ...routed, path: '/file.txt' })
-    expect(fixture.calls.write).toHaveLength(Math.min(index + 1, 2))
+    expect(fixture.calls.read).toHaveLength(index + 1)
+    expect(fixture.calls.write).toHaveLength(Math.min(index + 1, 3))
     if (scope.kind !== 'artifact')
       expect(fixture.calls.write.at(-1)).toEqual({
         ...routed,
         path: '/file.txt',
-        content: 'edited',
+        content: `edited ${index}`,
         baseHash: 'original',
       })
   }

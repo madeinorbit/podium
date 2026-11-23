@@ -1,4 +1,4 @@
-import type { ArtifactId, IssueId, SessionId, MachineId } from '@podium/model'
+import type { ArtifactId, IssueId, MachineId, SessionId } from '@podium/model'
 export type FileScope =
   | { kind: 'session'; sessionId: SessionId }
   | { kind: 'worktree'; machineId?: MachineId; root: string }
@@ -10,10 +10,16 @@ export type FileScope =
 export function scopeKey(scope: FileScope): string {
   if (scope.kind === 'session') return `s:${scope.sessionId}`
   if (scope.kind === 'artifact') return `a:${scope.issueId}:${scope.artifactId}`
-  return `w:${scope.root}`
+  // Unspecified routing has its own identity; it must never adopt a machine's buffer.
+  return `w:${encodeURIComponent(scope.machineId ?? '')}:${scope.root}`
 }
 
 /** A file tab's id: unique per (scope, path). */
 export function tabIdFor(scope: FileScope, path: string): string {
   return `file:${scopeKey(scope)}:${path}`
+}
+
+// LEGACY(remove-after: 2027-05): pre-machine worktree tab IDs for inheriting saved presentation choices.
+export function legacyWorktreeTabId(scope: FileScope, path: string): string | undefined {
+  return scope.kind === 'worktree' ? `file:w:${scope.root}:${path}` : undefined
 }

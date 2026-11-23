@@ -11,8 +11,12 @@ import {
   FLIGHT_DECK_FULL_DISPLAY_KEY,
   FLIGHT_DECK_FULL_EXPANDED_WIDTH_KEY,
   FLIGHT_DECK_FULL_WIDTH_KEY,
+  HTML_MODE_MAP_KEY,
+  JSON_MODE_MAP_KEY,
   type LayoutKeyPort,
+  MD_MODE_MAP_KEY,
   parseRoute,
+  readFilePanelMode,
   readFileScrollPosition,
   readStoredDensity,
   readStoredView,
@@ -20,6 +24,7 @@ import {
   SHELL_DENSITY_KEY,
   UI_STATE_KEYS,
   uiStateRoute,
+  writeFilePanelMode,
   writeFileScrollPosition,
 } from './ui-state'
 
@@ -56,6 +61,28 @@ function replicatedUi(seed: Record<string, unknown> = {}): LayoutKeyPort & {
     subscribe: () => () => {},
   }
 }
+
+describe('machine-specific file modes', () => {
+  it.each([
+    HTML_MODE_MAP_KEY,
+    JSON_MODE_MAP_KEY,
+    MD_MODE_MAP_KEY,
+  ])('inherits an old %s choice until each machine selects its own mode', (mapKey) => {
+    const legacyId = 'file:w:/repo:notes.md'
+    const first = 'file:w:machine-a:/repo:notes.md'
+    const second = 'file:w:machine-b:/repo:notes.md'
+    const ui = memoryUi({ [mapKey]: JSON.stringify({ [legacyId]: 'split' }) })
+    expect(readFilePanelMode(ui, mapKey, first, legacyId)).toBe('split')
+    expect(readFilePanelMode(ui, mapKey, second, legacyId)).toBe('split')
+    expect(Object.keys(JSON.parse(ui.get(mapKey) ?? '{}'))).toEqual([legacyId])
+    writeFilePanelMode(ui, mapKey, first, 'source')
+    expect(readFilePanelMode(ui, mapKey, first, legacyId)).toBe('source')
+    expect(readFilePanelMode(ui, mapKey, second, legacyId)).toBe('split')
+    writeFilePanelMode(ui, mapKey, second, 'preview')
+    expect(readFilePanelMode(ui, mapKey, first, legacyId)).toBe('source')
+    expect(readFilePanelMode(ui, mapKey, second, legacyId)).toBe('preview')
+  })
+})
 
 describe('file reading positions', () => {
   it('routes offsets to this device and keeps preview and source separate', () => {

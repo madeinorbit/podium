@@ -14,9 +14,11 @@ import {
   closeTab,
   deserializeWorkspaces,
   emptyWorkspace,
+  type FileTab,
   normalizeWorkspace,
   openTab,
   splitPane,
+  tabIdFor,
 } from '../values'
 import type { DeviceStorage } from './device-storage'
 import { DEVICE_DRAFT_KEYS, type LegacyDeviceKeys } from './draft-storage'
@@ -97,7 +99,7 @@ export class UiPersistence {
       return
     }
     const old = this.legacy
-    this.restore({
+    const restoredTabId = this.restore({
       version: 1,
       view: readStoredView(old),
       selectedWorktree: old.get(UI_STATE_KEYS.selectedWorktree),
@@ -119,9 +121,14 @@ export class UiPersistence {
             ? (`wt:${this.ui.selectedWorktree}` as const)
             : 'none'
         let ws = emptyWorkspace(key)
-        if (paneA) ws = openTab(ws, paneA, { permanent: true })
+        if (paneA) ws = openTab(ws, restoredTabId(paneA), { permanent: true })
         if (old.get(UI_STATE_KEYS.split) === '1') {
-          ws = splitPane(ws, ws.focusedPaneId, 'row', paneB ? { tabId: paneB } : undefined)
+          ws = splitPane(
+            ws,
+            ws.focusedPaneId,
+            'row',
+            paneB ? { tabId: restoredTabId(paneB) } : undefined,
+          )
         }
         this.ui.patch({ workspaces: { [key]: ws } })
       }
@@ -150,13 +157,16 @@ export class UiPersistence {
       /* Keep the old keys until the new document can be saved. */
     }
   }
-  @action private restore(saved: Record<string, unknown>): void {
+  @action private restore(saved: Record<string, unknown>): (id: string) => string {
     const get = {
       get: (key: string) => {
         const field = Object.entries(UI_STATE_KEYS).find(([, value]) => value === key)?.[0]
         return field ? stringify(saved[field]) : null
       },
     }
+    const fileTabs = readStoredFileTabs(get)
+    const renamedIds = restoredFileIds(fileTabs)
+    const restoredTabId = (id: string): string => renamedIds.get(id) ?? id
     const ui = this.ui
     ui.patch({
       view: readStoredView({ get: () => (typeof saved.view === 'string' ? saved.view : null) }),
@@ -179,12 +189,37 @@ export class UiPersistence {
       focusedPane: nullableString(saved.focusedPane) ?? 'p1',
       workspaces: Object.fromEntries(
         Object.entries(record(saved.workspaces)).flatMap(([key, value]) => {
-          const ws = normalizeWorkspace(value, key)
+          let ws = normalizeWorkspace(value, key)
+          if (ws && renamedIds.size)
+            ws = normalizeWorkspace(
+              {
+                ...ws,
+                panes: Object.fromEntries(
+                  Object.entries(ws.panes).map(([paneId, pane]) => [
+                    paneId,
+                    {
+                      ...pane,
+                      tabs: pane.tabs.map(restoredTabId),
+                      activeTabId: pane.activeTabId ? restoredTabId(pane.activeTabId) : null,
+                    },
+                  ]),
+                ),
+                previewTabId: ws.previewTabId ? restoredTabId(ws.previewTabId) : null,
+              },
+              key,
+            )
           return ws ? [[key, ws.previewTabId ? closeTab(ws, ws.previewTabId) : ws]] : []
         }),
       ),
       dockShells: readStoredDockShells(get),
-      fileTabs: readStoredFileTabs(get),
+      fileTabs: [
+        ...new Map(
+          fileTabs.map((tab) => {
+            const id = restoredTabId(tab.id)
+            return [id, { ...tab, id }]
+          }),
+        ).values(),
+      ],
       recentFiles: readStoredRecentFiles(get),
     })
     for (const [key, value] of Object.entries(record(saved.devicePrefs))) {
@@ -193,7 +228,8 @@ export class UiPersistence {
         if (uiStateRoute(key).home === 'device-local') ui.setDevicePref(key, value)
       } catch {}
     }
-    for (const [id, value] of Object.entries(record(saved.fileScroll))) {
+    for (const [oldId, value] of Object.entries(record(saved.fileScroll))) {
+      const id = restoredTabId(oldId)
       if (typeof value === 'number' && Number.isFinite(value) && value >= 0)
         ui.fileScroll.set(id, value)
       else {
@@ -202,6 +238,10 @@ export class UiPersistence {
           ui.setFileScroll(id, { top: position.top, left: position.left })
       }
     }
+    const route = ui.router.current()
+    if (route.pane && renamedIds.has(route.pane))
+      ui.router.replace({ ...route, pane: restoredTabId(route.pane) })
+    return restoredTabId
   }
 
   start(): void {
@@ -253,6 +293,26 @@ export class UiPersistence {
     void this.flush().catch(() => {})
   }
 }
+
+// LEGACY(remove-after: 2027-05): restore prior worktree IDs and their pane/viewport references from the stored scope.
+function restoredFileIds(tabs: readonly FileTab[]): Map<string, string> {
+  const renamed = new Map<string, string>()
+  for (const tab of tabs) {
+    if (tab.scope.kind !== 'worktree') continue
+    const id = tabIdFor(tab.scope, tab.path)
+    if (tab.id === id) continue
+    renamed.set(tab.id, id)
+    for (const view of ['source', 'preview']) {
+      const before = `${view}:${tab.id}`
+      const after = `${view}:${id}`
+      renamed.set(before, after)
+      for (const axis of ['top', 'left'])
+        renamed.set(JSON.stringify([before, axis]), JSON.stringify([after, axis]))
+    }
+  }
+  return renamed
+}
+
 function parse(value: string | null): unknown {
   try {
     return JSON.parse(value ?? '{}')

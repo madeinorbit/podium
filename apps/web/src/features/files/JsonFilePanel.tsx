@@ -9,7 +9,7 @@ import {
   readFilePanelMode,
   writeFilePanelMode,
 } from '@podium/client-core/ui-state'
-import { type FileScope, scopeKey } from '@podium/client-core/values'
+import { type FileScope, legacyWorktreeTabId, scopeKey, tabIdFor } from '@podium/client-core/values'
 import {
   Braces,
   ChevronsDownUp,
@@ -79,7 +79,8 @@ export function JsonFilePanel({
   const doc = useFileDocument(scope, path)
   const uiState = useDeviceState()
   const saveFeedbackId = useId()
-  const tabId = `file:${scopeKey(scope)}:${path}`
+  const tabId = tabIdFor(scope, path)
+  const legacyTabId = legacyWorktreeTabId(scope, path)
   // Per-tab mode is per-user REPLICATED: SUBSCRIBE, never seed (POD-540). A file
   // family that only has two modes still reads the shared map, so a tab that was
   // last left in `split` by another panel resolves to the nearest thing here.
@@ -87,10 +88,10 @@ export function JsonFilePanel({
     JSON_MODE_MAP_KEY,
     useCallback(
       (raw: string | null): Mode =>
-        readFilePanelMode({ get: () => raw }, JSON_MODE_MAP_KEY, tabId) === 'source'
+        readFilePanelMode({ get: () => raw }, JSON_MODE_MAP_KEY, tabId, legacyTabId) === 'source'
           ? 'source'
           : 'preview',
-      [tabId],
+      [tabId, legacyTabId],
     ),
   )
   const setMode = useCallback(

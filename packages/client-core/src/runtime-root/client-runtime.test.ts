@@ -530,7 +530,7 @@ describe('saved device screen and cold links', () => {
       paneB: 'session-2',
       focus: ws.focusedPaneId,
       split: true,
-      files: ['file-1'],
+      files: ['file:w::/repo:readme.md'],
       dockShells: { '/repo': 'session-2' },
       attached: 'session-1',
       dock: 'session-2',
@@ -899,7 +899,7 @@ describe('artifact file tabs (#441)', () => {
     const st = engine.ui.screen
     expect(st.view).toBe('workspace')
     expect(st.selectedWorktree).toBe('/tmp/known-repo/.worktrees/wt1')
-    expect(st.paneA).toBe('file:w:/tmp/known-repo/.worktrees/wt1:notes.md')
+    expect(st.paneA).toBe('file:w::/tmp/known-repo/.worktrees/wt1:notes.md')
     expect(rw.url()).toContain('/workspace')
     engine.stop()
   })
@@ -1037,15 +1037,15 @@ describe('file-tab issue ownership + recent files (POD-149)', () => {
     preview('a.md')
     let st = engine.ui.screen
     let ws = st.workspaces[engine.ui.workspaceKey()]
-    expect(ws?.previewTabId).toBe('file:w:/tmp/known-repo:a.md')
+    expect(ws?.previewTabId).toBe('file:w::/tmp/known-repo:a.md')
 
     // The glance moves on: one temporary tab, in the same strip slot, and the
     // record of the file nothing is rendering any more goes with it.
     preview('b.md')
     st = engine.ui.screen
     ws = st.workspaces[engine.ui.workspaceKey()]
-    expect(ws?.previewTabId).toBe('file:w:/tmp/known-repo:b.md')
-    expect(ws ? allTabIds(ws) : []).toEqual(['file:w:/tmp/known-repo:b.md'])
+    expect(ws?.previewTabId).toBe('file:w::/tmp/known-repo:b.md')
+    expect(ws ? allTabIds(ws) : []).toEqual(['file:w::/tmp/known-repo:b.md'])
     expect(st.fileTabs.map((t) => t.path)).toEqual(['b.md'])
     // Still reachable from the "+" menu — a glance is not a close.
     expect(st.recentFiles.map((r) => r.path)).toEqual(['b.md', 'a.md'])
@@ -1065,13 +1065,13 @@ describe('file-tab issue ownership + recent files (POD-149)', () => {
     await settle()
     engine.ui.openFileInWorktree({ root: '/tmp/known-repo', path: 'a.md', permanent: false })
     // What `usePreviewPromotion` fires when the operator types into the panel.
-    engine.ui.promoteWorkspaceTab('file:w:/tmp/known-repo:a.md')
+    engine.ui.promoteWorkspaceTab('file:w::/tmp/known-repo:a.md')
     engine.ui.openFileInWorktree({ root: '/tmp/known-repo', path: 'b.md', permanent: false })
     const st = engine.ui.screen
     const ws = st.workspaces[engine.ui.workspaceKey()]
     expect(ws ? allTabIds(ws) : []).toEqual([
-      'file:w:/tmp/known-repo:a.md',
-      'file:w:/tmp/known-repo:b.md',
+      'file:w::/tmp/known-repo:a.md',
+      'file:w::/tmp/known-repo:b.md',
     ])
     expect(st.fileTabs.map((t) => t.path)).toEqual(['a.md', 'b.md'])
     engine.stop()

@@ -1,13 +1,13 @@
-import { asIssueId, asSessionId } from '@podium/model'
+import { asIssueId, asMachineId, asSessionId } from '@podium/model'
 import { autorun, observable, runInAction } from 'mobx'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { PodiumClientApi } from '../api'
-import type { VisibilitySource } from '../runtime-root/connection/visibility'
 import { createAsyncStorageReplicaStorage } from '../replica/async-storage'
 import { memoryStorage, type StorageApi } from '../replica/contract'
+import type { VisibilitySource } from '../runtime-root/connection/visibility'
 import type { SocketHub } from '../socket-transport'
 import { createMemoryRouterWindow, createRouter, UI_STATE_KEYS } from '../ui-state'
-import { allTabIds, emptyWorkspace, focusPane, openTab, splitPane } from '../values'
+import { allTabIds, emptyWorkspace, focusPane, openTab, splitPane, tabIdFor } from '../values'
 import type { DeviceStorage } from './device-storage'
 import { openLegacyDeviceKeys } from './draft-storage'
 import { UiPersistence } from './persistence'
@@ -106,6 +106,142 @@ function savedScreen() {
 }
 
 describe('device UiStore', () => {
+  it('keeps same-path worktree tabs on separate machines and reuses only the matching scope', () => {
+    const { ui } = setup()
+    const scopes = [
+      { kind: 'worktree', root: '/repo', machineId: asMachineId('machine-a') },
+      { kind: 'worktree', root: '/repo', machineId: asMachineId('machine-b') },
+      { kind: 'worktree', root: '/repo' },
+    ] as const
+    const path = 'notes.md'
+    for (const scope of scopes) ui.openFileInWorktree({ ...scope, path })
+    const ids = [
+      tabIdFor(scopes[0], path),
+      tabIdFor(scopes[1], path),
+      tabIdFor(scopes[2], path),
+    ] as const
+    const [firstId, secondId, unscopedId] = ids
+    expect(allTabIds(ui.workspace)).toEqual(ids)
+    expect(ui.fileTabList.map((tab) => tab.scope)).toEqual(scopes)
+    const first = ui.fileTabs.get(firstId)
+    ui.openFileInWorktree({ ...scopes[0], path })
+    expect(ui.fileTabList).toHaveLength(3)
+    expect(ui.fileTabs.get(firstId)).toBe(first)
+    expect(ui.paneA).toBe(firstId)
+    ui.closeFileTab(secondId)
+    expect(allTabIds(ui.workspace)).toEqual([firstId, unscopedId])
+    expect(ui.fileTabs.has(firstId)).toBe(true)
+  })
+
+  it.each([
+    'document',
+    'legacy',
+    'mismatched',
+  ] as const)('migrates %s file IDs with their pane, scroll, and URL references before reopening', async (source) => {
+    const storage = memoryStorage()
+    const scope = { kind: 'worktree', root: '/repo', machineId: asMachineId('machine-a') } as const
+    const path = 'notes.md'
+    const oldId =
+      source === 'mismatched'
+        ? tabIdFor({ ...scope, machineId: asMachineId('machine-b') }, path)
+        : 'file:w:/repo:notes.md'
+    const id = tabIdFor(scope, path)
+    let workspace = openTab(emptyWorkspace('wt:/repo'), s1, { permanent: true })
+    workspace = splitPane(workspace, workspace.focusedPaneId, 'row', { tabId: oldId })
+    workspace = focusPane(workspace, 'p2')
+    const screen = {
+      version: 1,
+      selectedWorktree: '/repo',
+      workspaces: { 'wt:/repo': workspace },
+      fileTabs: [{ id: oldId, scope, path, worktreePath: '/repo' }],
+      fileScroll: {
+        [JSON.stringify([`source:${oldId}`, 'top'])]: 120,
+        [JSON.stringify([`source:${oldId}`, 'left'])]: 8,
+        [`preview:${oldId}`]: { top: 60, left: 0 },
+      },
+    }
+    if (source !== 'legacy') storage.setItem(`${prefix}.ui.v1`, JSON.stringify(screen))
+    else
+      storage.setItem(
+        `${prefix}.uistate.v1`,
+        JSON.stringify({
+          [UI_STATE_KEYS.selectedWorktree]: screen.selectedWorktree,
+          [UI_STATE_KEYS.workspaces]: JSON.stringify({ v: 1, workspaces: screen.workspaces }),
+          [UI_STATE_KEYS.fileTabs]: JSON.stringify(screen.fileTabs),
+          [UI_STATE_KEYS.fileScroll]: JSON.stringify(screen.fileScroll),
+        }),
+      )
+    const win = createMemoryRouterWindow(`/workspace?wt=%2Frepo&pane=${encodeURIComponent(oldId)}`)
+    const { ui, persistence, router } = setup(storage, { win })
+    expect(ui.fileTabs.get(id)?.scope).toEqual(scope)
+    expect(ui.fileTabs.has(oldId)).toBe(false)
+    expect(ui.workspace.panes.p2).toMatchObject({ tabs: [id], activeTabId: id })
+    expect(ui.workspace.focusedPaneId).toBe('p2')
+    expect(ui.getFileScroll(`source:${id}`)).toEqual({ top: 120, left: 8 })
+    expect(ui.getFileScroll(`preview:${id}`)).toEqual({ top: 60, left: 0 })
+    expect(ui.getFileScroll(`source:${oldId}`)).toBeUndefined()
+    expect(router.current().pane).toBe(id)
+    ui.openFileInWorktree({ ...scope, path })
+    expect(ui.fileTabList).toHaveLength(1)
+    ui.openFileInWorktree({ root: '/repo', machineId: asMachineId('machine-b'), path })
+    expect(ui.fileTabList).toHaveLength(2)
+    persistence.start()
+    await persistence.flush()
+    const restored = setup(storage).ui
+    expect(allTabIds(restored.workspace)).toEqual(allTabIds(ui.workspace))
+    expect(restored.getFileScroll(`source:${id}`)).toEqual({ top: 120, left: 8 })
+    expect(restored.fileTabList.map((tab) => tab.scope)).toEqual([
+      scope,
+      { ...scope, machineId: asMachineId('machine-b') },
+    ])
+  })
+
+  it('migrates machine-unspecified file IDs from legacy pane scalars without assigning a machine', () => {
+    const storage = memoryStorage()
+    const scope = { kind: 'worktree', root: '/repo' } as const
+    const oldId = 'file:w:/repo:notes.md'
+    const id = tabIdFor(scope, 'notes.md')
+    storage.setItem(
+      `${prefix}.uistate.v1`,
+      JSON.stringify({
+        [UI_STATE_KEYS.selectedWorktree]: '/repo',
+        [UI_STATE_KEYS.paneA]: oldId,
+        [UI_STATE_KEYS.fileTabs]: JSON.stringify([
+          { id: oldId, scope, path: 'notes.md', worktreePath: '/repo' },
+        ]),
+      }),
+    )
+    const { ui } = setup(storage)
+    expect(ui.paneA).toBe(id)
+    expect(ui.fileTabList).toEqual([{ id, scope, path: 'notes.md', worktreePath: '/repo' }])
+  })
+
+  it('retires a persisted preview after remapping its file ID', () => {
+    const storage = memoryStorage()
+    const oldId = 'file:w:/repo:notes.md'
+    storage.setItem(
+      `${prefix}.ui.v1`,
+      JSON.stringify({
+        version: 1,
+        selectedWorktree: '/repo',
+        workspaces: {
+          'wt:/repo': openTab(emptyWorkspace('wt:/repo'), oldId, { permanent: false }),
+        },
+        fileTabs: [
+          {
+            id: oldId,
+            scope: { kind: 'worktree', root: '/repo', machineId: 'machine-a' },
+            path: 'notes.md',
+            worktreePath: '/repo',
+          },
+        ],
+      }),
+    )
+    const { ui } = setup(storage)
+    expect(allTabIds(ui.workspace)).toEqual([])
+    expect(ui.workspace.previewTabId).toBeNull()
+  })
+
   it('tracks the resolved workspace key when a selected issue changes mission root', () => {
     const { ui } = setup(),
       root = observable.box('root-1')
@@ -175,7 +311,7 @@ describe('device UiStore', () => {
         paneB: ui.paneB,
         split: ui.split,
         files: [...ui.fileTabs.keys()],
-        scroll: ui.getFileScroll('source:file-1'),
+        scroll: ui.getFileScroll('source:file:w::/repo:README.md'),
       }),
     )
     expect(frames).toEqual([
@@ -191,7 +327,7 @@ describe('device UiStore', () => {
         paneA: s1,
         paneB: s2,
         split: true,
-        files: ['file-1'],
+        files: ['file:w::/repo:README.md'],
         scroll: { top: 120, left: 8 },
       },
     ])
