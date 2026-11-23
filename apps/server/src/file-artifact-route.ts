@@ -10,7 +10,8 @@ import type { Context, Hono } from 'hono'
 import { parseByteRange, type ResolvedByteRange, resolveByteRange } from './http-byte-range'
 import type { ArtifactStream } from './modules/issues/artifact-store'
 import { downloadName, rawFileHeaders } from './raw-file-headers'
-import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
+import type { ServerMode } from './server-mode'
+import { boundWorkspaceOf, type ServedWorkspace } from './workspace-edge'
 
 const MAX_RANGE_BYTES = 10 * 1024 * 1024
 
@@ -27,12 +28,15 @@ export interface ArtifactStreamReader {
 /** The artifact store of each workspace this process serves; undefined for any other. */
 export type WorkspaceArtifacts = (workspaceId: WorkspaceId) => ArtifactStreamReader | undefined
 
-/** A self-hosted process serves one workspace, so it has one artifact store. */
-export function selfHostedArtifacts(store: ArtifactStreamReader): WorkspaceArtifacts {
-  return (workspaceId) => (workspaceId === SELF_HOSTED_WORKSPACE_ID ? store : undefined)
+/** A process that loaded one workspace has that workspace's artifact store. */
+export function workspaceArtifacts(
+  loaded: WorkspaceId,
+  store: ArtifactStreamReader,
+): WorkspaceArtifacts {
+  return (workspaceId) => (workspaceId === loaded ? store : undefined)
 }
 
-/** How a request is tied to a workspace: the two seams POD-6960 replaces. */
+/** How a request is tied to a workspace (POD-6963 design 2.7). */
 export interface RequestWorkspaceBinding {
   /** The workspace whose store serves the request. Never derived from the path. */
   readonly bound: (c: Context) => WorkspaceId
@@ -41,36 +45,30 @@ export interface RequestWorkspaceBinding {
 }
 
 /**
- * THE WORKSPACE BOUND TO THIS REQUEST [POD-6963 design 2.7].
+ * THE EDGE'S BINDING (POD-7309): the store is the bound workspace's
+ * (workspace-edge.ts), whatever the path says.
  *
- * The isolation rule, complete today: the route reads only this workspace's
- * store, whatever the path says. A server holds one workspace (self-hosted, and
- * each hosted server behind today's router), so every request is bound to it.
- * POD-6960 replaces this body with the workspace it bound the request to.
+ * On hosted the path segment is a selector the edge already read, so it names
+ * the bound workspace by id or slug, or the request was refused; checking it
+ * again here keeps the route closed on its own. A self-hosted server reads no
+ * selector: the segment is a router's in front of it (today's per-tenant
+ * hosted machines put their page's slug there), so any segment is accepted.
  */
-export function workspaceBoundToRequest(_c: Context): WorkspaceId {
-  return SELF_HOSTED_WORKSPACE_ID
-}
-
-/**
- * WHETHER THE REQUEST MAY NAME THIS WORKSPACE SEGMENT [POD-6963 design 2.7].
- *
- * Accepts every segment today. On a server with one workspace the segment is
- * routing information the outer router has already consumed: hosted clients put
- * their page's slug there and each hosted server's own workspace is `local`, so
- * comparing the two would refuse every prefixed artifact URL. Isolation does not
- * rest on this check, because the store is always the bound workspace's.
- * POD-6960 replaces this body with the real comparison of `segment` against the
- * workspace bound to `c` (by slug or by id, its decision), so a request bound to
- * one workspace that names another is not found.
- */
-export function requestMayNameWorkspace(_c: Context, _segment: string): boolean {
-  return true
-}
-
-export const REQUEST_WORKSPACE_BINDING: RequestWorkspaceBinding = {
-  bound: workspaceBoundToRequest,
-  mayName: requestMayNameWorkspace,
+export function edgeWorkspaceBinding(
+  mode: ServerMode,
+  served: readonly Pick<ServedWorkspace, 'id' | 'slug'>[],
+): RequestWorkspaceBinding {
+  return {
+    bound: (c) => boundWorkspaceOf(c.req.raw),
+    mayName: (c, segment) => {
+      if (mode === 'self-hosted') return true
+      const bound = boundWorkspaceOf(c.req.raw)
+      return served.some(
+        (workspace) =>
+          workspace.id === bound && (segment === workspace.id || segment === workspace.slug),
+      )
+    },
+  }
 }
 
 function decodeSegment(segment: string): string | undefined {
@@ -102,7 +100,7 @@ function discard(body: ReadableStream<Uint8Array>): void {
 export function registerArtifactRoute(
   app: Hono,
   artifactsOf: WorkspaceArtifacts,
-  binding: RequestWorkspaceBinding = REQUEST_WORKSPACE_BINDING,
+  binding: RequestWorkspaceBinding,
 ): void {
   const serve = async (c: Context, relStart: number): Promise<Response> => {
     const issueId = c.req.param('issueId')
@@ -187,8 +185,8 @@ export function registerArtifactRoute(
   // This path form is deliberately a prefix rather than a query parameter:
   // relative URLs inside an opened artifact HTML document retain the workspace
   // identity automatically. The hosted router consumes the same segment before
-  // this local route or authentication can run; `requestMayNameWorkspace`
-  // decides whether this server answers for it.
+  // this local route or authentication can run; `binding.mayName` decides
+  // whether this server answers for it.
   app.get('/files/artifact/workspace/:workspace/:issueId/:artifactId/*', (c) => serve(c, 6))
   app.get('/files/artifact/:issueId/:artifactId/*', (c) => serve(c, 4))
 }

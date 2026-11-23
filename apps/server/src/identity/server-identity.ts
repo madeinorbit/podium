@@ -24,16 +24,12 @@ import {
   type WorkspaceIdentity,
 } from '@podium/identity'
 import { createLogger } from '@podium/logger'
-import { newMemberId } from '@podium/model'
+import { newMemberId, type WorkspaceId } from '@podium/model'
 import { hashPassword, isPasswordHash, verifyPasswordHash } from '@podium/runtime/auth-store'
-import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import type { SessionStore } from '../store'
 import { ensureLocalIdentity } from './ensure-local-identity'
 
 const log = createLogger('server:identity')
-
-/** The workspace id of a self-hosted database: it holds exactly one workspace. */
-export const LOCAL_WORKSPACE_ID = SELF_HOSTED_WORKSPACE_ID
 
 /** One member row of the workspace database, as the seam shows it. */
 export interface ExistingMember {
@@ -113,6 +109,15 @@ export interface ServerIdentity {
 export async function openServerIdentity(
   store: SessionStore,
   opts: {
+    /**
+     * Hosted: the workspace this process loaded. The identity is bound to it,
+     * and a seam that hands back another workspace's half fails the boot.
+     * Absent (self-hosted): the store's own workspace for an identity built
+     * here; a seam's half is bound to whatever workspace its root names, since
+     * its memberships live in the root's database (today's per-tenant hosted
+     * machines run self-hosted over `local` with the cloud's workspace id).
+     */
+    workspaceId?: WorkspaceId
     seam?: IdentitySeam | undefined
     /** A store that cannot be written (transfer recovery): nothing is created or applied. */
     readOnly?: boolean
@@ -120,8 +125,19 @@ export async function openServerIdentity(
     newMemberId?: (() => string) | undefined
   } = {},
 ): Promise<ServerIdentity> {
+  const workspaceId = opts.workspaceId ?? store.workspaceId
+  if (workspaceId !== store.workspaceId) {
+    throw new Error(
+      `the identity of ${workspaceId} cannot be opened on the store of ${store.workspaceId}`,
+    )
+  }
   if (opts.seam) {
     const workspace = await opts.seam(identitySeamDeps(store, { recoveryOnly: opts.readOnly }))
+    if (opts.workspaceId !== undefined && workspace.workspaceId !== opts.workspaceId) {
+      throw new Error(
+        `the identity seam bound workspace ${workspace.workspaceId}, but this server loaded ${workspaceId}`,
+      )
+    }
     // Hosted: the memberships live elsewhere, so the member rows are brought
     // up to date before anything is served (section 11). startServer owns the timer.
     if (!opts.readOnly) await workspace.catchUp()
@@ -155,7 +171,7 @@ export async function openServerIdentity(
     rateLimit: { storage: 'memory' },
     newMemberId: opts.newMemberId ?? newMemberId,
   })
-  const workspace = core.workspace(LOCAL_WORKSPACE_ID, {
+  const workspace = core.workspace(workspaceId, {
     rows: store.users.memberRows,
     sameDatabase: true,
   })

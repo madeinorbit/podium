@@ -8,7 +8,7 @@
  */
 
 import { createLogger } from '@podium/logger'
-import type { ServerReadiness, UserId, UserRole } from '@podium/model'
+import type { ServerReadiness, UserId, UserRole, WorkspaceId } from '@podium/model'
 import { CAP_SYNC_HTTP_V1, fencedMemberOf, memberFenceRefuses, WireVersionOffer, negotiateVersion, CLIENT_WIRE_VERSION, MIN_CLIENT_WIRE_VERSION, DAEMON_WIRE_VERSION, MIN_DAEMON_WIRE_VERSION, SIGN_IN_ENDED_CLOSE } from '@podium/protocol'
 import { measureTask } from '@podium/runtime/task-attribution'
 
@@ -134,7 +134,19 @@ export interface WsClientRefusal {
   refused: { status: 400 | 401 | 403; body: { error: string } }
 }
 
+/** The upgrade's workspace, or the edge's refusal (workspace-edge.ts). */
+export type WsWorkspaceBinding =
+  | { workspaceId: WorkspaceId }
+  | { refused: { status: 400 | 401 | 403 | 404; body: { error: string; message?: string } } }
+
 export interface WsAuthOptions {
+  /**
+   * THE WORKSPACE EDGE FOR SOCKETS (POD-7309): every upgrade of /client,
+   * /daemon and /machine is bound to one workspace before anything else reads
+   * it. A socket bound to a workspace other than this registry's is refused:
+   * its machine rows, members and sessions are another workspace's.
+   */
+  bindWorkspace?: (request: Request) => Promise<WsWorkspaceBinding>
   readinessForClient?: () => ServerReadiness
   authorizeClient?: (request: Request) => boolean
   userForClient?: (request: Request) => UserId | undefined
@@ -244,6 +256,8 @@ export interface WsTransportDeps {
 interface SocketData {
   kind: 'client' | 'daemon' | 'machine'
   url: string
+  /** The workspace the upgrade was bound to; the registry's own. */
+  workspaceId?: WorkspaceId
   /** How a daemon's request reached the server (credential management §8). */
   link?: DaemonLinkFacts
   userId?: UserId
@@ -527,6 +541,27 @@ export function attachWebSockets(
         })
       }
 
+      // Bound before the credential is read: a daemon's handshake is checked
+      // against this registry's machine rows, a client's member against its
+      // memberships, so the registry must be the bound workspace's.
+      let workspaceId: WorkspaceId | undefined
+      if (auth.bindWorkspace) {
+        const binding = await auth.bindWorkspace(request)
+        if ('refused' in binding) {
+          return new Response(JSON.stringify(binding.refused.body), {
+            status: binding.refused.status,
+            headers: { connection: 'close', 'content-type': 'application/json' },
+          })
+        }
+        if (binding.workspaceId !== registry.sessionStore.workspaceId) {
+          return new Response(JSON.stringify({ error: 'workspace_not_served' }), {
+            status: 404,
+            headers: { connection: 'close', 'content-type': 'application/json' },
+          })
+        }
+        workspaceId = binding.workspaceId
+      }
+
       let data: SocketData
       if (pathname === '/client') {
         const readiness = auth.readinessForClient?.()
@@ -563,6 +598,7 @@ export function attachWebSockets(
         data = {
           kind: 'client',
           url: request.url,
+          ...(workspaceId ? { workspaceId } : {}),
           userId,
           userRole,
           ...(resolved?.maintain ? { maintain: resolved.maintain } : {}),
@@ -587,6 +623,7 @@ export function attachWebSockets(
         data = {
           kind: pathname === '/machine' ? 'machine' : 'daemon',
           url: request.url,
+          ...(workspaceId ? { workspaceId } : {}),
           ...(link !== undefined ? { link } : {}),
         }
       }

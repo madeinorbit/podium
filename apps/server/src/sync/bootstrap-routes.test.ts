@@ -9,6 +9,7 @@ import { podiumCors as cors } from '../http-cors'
 import { memberResolution, stubMemberOfRequest } from '../test-support/test-identity'
 import { SyncWorkerError, type BootstrapJob, type SyncMetaSummary } from '../sync-worker/worker-client'
 import type { BootstrapCompletion } from '../sync-worker/worker-client'
+import { bindRequestsTo, boundWorkspaceForTests } from '../test-support/workspace-binding'
 import { registerSyncRoutes, type SyncRouteDeps } from './routes'
 
 function deferred<T>() {
@@ -60,8 +61,10 @@ function fixture() {
     authority: { captureHead: async () => 7, changesRange: async function* () {} },
     serving: { identity: async () => ({ feedId: 'trusted-feed', epoch: 'trusted-epoch' }), retentionFloor: async () => 1 },
     worker: () => ({ bootstrap }),
+    workspaceOf: boundWorkspaceForTests,
   }
   const app = new Hono()
+  bindRequestsTo(app)
   app.use('/sync/*', cors())
   app.use('/sync/*', async (c, next) => ready ? next() : c.body(null, 503))
   app.use('/sync/*', clientAuthGuard({

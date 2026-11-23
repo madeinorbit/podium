@@ -11,7 +11,7 @@ import {
   type Principal,
 } from '@podium/protocol'
 import { z } from 'zod'
-import { workspaceBoundToRequest } from '../file-artifact-route'
+import type { WorkspaceId } from '@podium/model'
 import { CollectionRequestError, resolveInstance } from './collection-fetch'
 import { UnavailableCollectionError } from './collection-shapes'
 import type { Hono } from 'hono'
@@ -19,6 +19,11 @@ import { negotiateContentCoding, syncResponseHeaders, syncRefusal, observeSyncTr
 
 export interface SyncRouteDeps extends SyncDeltaPorts {
   principal(request: Request): Promise<Principal | undefined>
+  /**
+   * The workspace the request is bound to (workspace-edge.ts `boundWorkspaceOf`),
+   * never one the request names (POD-7118, POD-7309).
+   */
+  workspaceOf(request: Request): WorkspaceId
   pageRows?: number
   worker?: () => Pick<SyncWorkerClient, 'bootstrap'> & Partial<Pick<SyncWorkerClient, 'delta' | 'collections'>> | undefined
 }
@@ -127,7 +132,7 @@ export function registerSyncRoutes(app: Hono, deps: SyncRouteDeps): void {
           feedId,
           epoch,
           encoding: coding,
-          workspaceId: workspaceBoundToRequest(c),
+          workspaceId: deps.workspaceOf(c.req.raw),
           ...(clientType.value && { clientType: clientType.value }),
           ...(view.value.length > 0 && { view: view.value }),
         },
@@ -198,7 +203,7 @@ export function registerSyncRoutes(app: Hono, deps: SyncRouteDeps): void {
           feedId,
           epoch,
           encoding: coding,
-          workspaceId: workspaceBoundToRequest(c),
+          workspaceId: deps.workspaceOf(c.req.raw),
           from: query.data.from,
           to: query.data.to,
           pageRows: deps.pageRows ?? 500,
@@ -272,7 +277,7 @@ export function registerSyncRoutes(app: Hono, deps: SyncRouteDeps): void {
           encoding: coding,
           // The workspace the request is bound to, never one the body names
           // (POD-7118): the worker's reads are all that workspace's.
-          workspaceId: workspaceBoundToRequest(c),
+          workspaceId: deps.workspaceOf(c.req.raw),
           instances: instances.value,
           ...(clientType.value && { clientType: clientType.value }),
         },

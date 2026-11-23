@@ -27,6 +27,7 @@ const { openTestStore } = await import('../test-support/open-test-store')
 const { testStoreRecords } = await import('../test-support/record-writer')
 const { SyncWorkerClient } = await import('../sync-worker/worker-client')
 const { registerSyncRoutes } = await import('./routes')
+const { bindRequestsTo, boundWorkspaceForTests } = await import('../test-support/workspace-binding')
 
 interface TestServer {
   port: number
@@ -148,7 +149,9 @@ async function fixture() {
   }
   const app = new Hono()
   app.get('/health', (c) => c.json({ ok: true }))
+  bindRequestsTo(app, store.workspaceId)
   registerSyncRoutes(app, {
+    workspaceOf: boundWorkspaceForTests,
     authority,
     worker: () => worker,
     principal: async () => principal,

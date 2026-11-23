@@ -1,5 +1,5 @@
 import { createLogger, describeError, type Logger } from '@podium/logger'
-import { credentialRefusalCode, type ServerReadiness } from '@podium/model'
+import { credentialRefusalCode, type ServerReadiness, type WorkspaceId } from '@podium/model'
 import type { MobileWebIdentity, ReleaseProposal, UpdateTarget } from '@podium/protocol'
 import type { LoopAccountingHandle } from '@podium/runtime/loop-accounting'
 import { attribute } from '@podium/runtime/loop-accounting'
@@ -45,7 +45,14 @@ const log = createLogger('server:trpc')
 export interface Context {
   registry: SessionRegistry
   repos: RepoRegistry
-  /** Stable hosted workspace identity for pre-auth join URLs; absent on self-hosted. */
+  /**
+   * The workspace the edge bound this request to (workspace-edge.ts); the
+   * registry above is its. Absent only for callers that are not requests (the
+   * in-process MCP surface, tests); a procedure never reads a workspace from
+   * its input.
+   */
+  boundWorkspace?: WorkspaceId
+  /** The workspace selector a joining machine sends (pre-auth join URLs); absent on plain self-hosted. */
   workspaceId?: string
   superagent: SuperagentService
   cloud?: CloudRuntimeProvider

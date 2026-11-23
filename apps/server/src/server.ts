@@ -96,7 +96,11 @@ import { captureServerBuildVersion, serverBuildSourceDigest } from './build-vers
 import { createCloudRuntimeProviderFromEnv } from './cloud-runtime'
 import { userCommandPrincipal } from './command-principal'
 import { controlSocketHandler } from './control-socket'
-import { registerArtifactRoute, selfHostedArtifacts } from './file-artifact-route'
+import {
+  edgeWorkspaceBinding,
+  registerArtifactRoute,
+  workspaceArtifacts,
+} from './file-artifact-route'
 import { registerAssetRoute } from './file-asset-route'
 import { createServerFileStorage } from './file-storage'
 import { adoptStagedFirstAdminPassword, applyEnvFirstAdminPassword } from './first-admin-password'
@@ -227,6 +231,14 @@ import {
   servedWebSourceDigest,
 } from './web-bundle-stamp'
 import { registerWellKnownRoute } from './well-known-route'
+import {
+  boundMemberOfRequest,
+  boundWorkspaceOf,
+  createWorkspaceEdge,
+  hostedWorkspaceId,
+  maybeBoundServedWorkspaceOf,
+  WORKSPACE_QUERY,
+} from './workspace-edge'
 
 const log = createLogger('server:http')
 // Separate namespaces so an operator can turn the loop profiler up
@@ -622,8 +634,16 @@ export async function startServer(
     role?: Partial<ServerRoleConfig>
     /** Build-time extensions (the cloud seam — plugins.ts). OSS ships none. */
     plugins?: PodiumPlugin[]
-    /** Stable hosted workspace identity carried by pairing commands. */
+    /**
+     * THE WORKSPACE THIS PROCESS LOADS. Hosted: required; the store, the files
+     * and the identity open this id, and a request is bound to it at the edge
+     * (workspace-edge.ts). Self-hosted: a label a router in front of the
+     * server may route by (pairing commands carry it); the store holds
+     * `local`.
+     */
     workspaceId?: string
+    /** Hosted: the loaded workspace's slug, which a request's selector may name. */
+    workspaceSlug?: string
     /**
      * THE IDENTITY SEAM (docs/design/people-and-sign-in.md, section 3). Absent,
      * which is every self-hosted server: the server builds the identity core on
@@ -715,6 +735,11 @@ export async function startServer(
   // WHAT THIS SERVER MAY DO, derived once from its mode (server-mode.ts). Every
   // host-only shortcut below asks this object, never the options it came from.
   const capabilities = serverCapabilities({ mode: opts.mode, hostMachine: opts.hostMachine })
+  // The one workspace this process loads (POD-7309): `local` on self-hosted,
+  // the one the hosted root names otherwise. A request is bound to it at the
+  // edge, and a request that names another one is refused there.
+  const loadedWorkspaceId =
+    capabilities.mode === 'hosted' ? hostedWorkspaceId(opts.workspaceId) : SELF_HOSTED_WORKSPACE_ID
   const hostMachine: HostMachine = capabilities.hostMachine
     ? { id: asMachineId(readOrCreateLocalMachineId()) }
     : null
@@ -747,11 +772,11 @@ export async function startServer(
   const databaseLocation = storeLocation(process.env, config)
   const database = await StoreDatabase.open(databaseLocation, hostMachine, {
     queryOnly: recoveryOnly,
-    bootWorkspace: SELF_HOSTED_WORKSPACE_ID,
+    bootWorkspace: loadedWorkspaceId,
     migrateAtBoot: storeMigratesAtBoot(),
     wakeUp: storeWakeUpOptions(),
   })
-  const store = await database.workspace(SELF_HOSTED_WORKSPACE_ID)
+  const store = await database.workspace(loadedWorkspaceId)
   // Artifacts stored before the blob store under names that are not key segments move to
   // their encoded keys, once, before anything serves them (POD-7054).
   if (!recoveryOnly && fileStorage.backend === 'local') {
@@ -764,7 +789,7 @@ export async function startServer(
       fence: portableStateFence,
     })
   }
-  const workspaceFiles = fileStorage.storage.forWorkspace(SELF_HOSTED_WORKSPACE_ID)
+  const workspaceFiles = fileStorage.storage.forWorkspace(loadedWorkspaceId)
   // Legacy reads remain available while the background pass splits the lake.
   // Mirror writes join the same per-file conversion before touching its parts.
   const lakeConversionAbort = new AbortController()
@@ -773,7 +798,7 @@ export async function startServer(
         stateDir: stateDir(),
         rows: store.conversations.mirror,
         blobs: workspaceFiles,
-        workspaceId: SELF_HOSTED_WORKSPACE_ID,
+        workspaceId: loadedWorkspaceId,
         log,
         fence: portableStateFence,
         signal: lakeConversionAbort.signal,
@@ -888,7 +913,7 @@ export async function startServer(
       ? {
           transcriptLake: {
             blobs: workspaceFiles,
-            workspaceId: SELF_HOSTED_WORKSPACE_ID,
+            workspaceId: loadedWorkspaceId,
             lake: convertingLake,
           },
         }
@@ -949,6 +974,7 @@ export async function startServer(
   // a change-log commit, and the registry is what wires it (POD-6920); before
   // it, the store captures the write with nothing to drain it and refuses it.
   const identity = await openServerIdentity(store, {
+    ...(capabilities.mode === 'hosted' ? { workspaceId: loadedWorkspaceId } : {}),
     seam: opts.identity,
     readOnly: recoveryOnly,
     newMemberId: opts.newMemberIdForTests,
@@ -1620,12 +1646,19 @@ export async function startServer(
    * mode's "local request" clause read the raw upgrade, found no stamp, and
    * refused every `/client` socket; a client-supplied stamp would have passed).
    */
+  // One observed request per native request, so the edge's binding of it is
+  // what every later step of the same request reads (workspace-edge.ts).
+  const observedRequests = new WeakMap<Request, Request>()
   const observedRequest = (request: Request): Request => {
+    const seen = observedRequests.get(request)
+    if (seen) return seen
     const headers = new Headers(request.headers)
     const peerAddress = requestPeerAddresses.get(request)
     if (peerAddress) headers.set('x-podium-peer-address', peerAddress)
     else headers.delete('x-podium-peer-address')
-    return new Request(request, { headers })
+    const observed = new Request(request, { headers })
+    observedRequests.set(request, observed)
+    return observed
   }
   const configuredReadiness = createServerReadiness({
     bootConfig: config,
@@ -1671,6 +1704,9 @@ export async function startServer(
     })
   }
 
+  // Every route below runs behind the workspace edge (POD-7309); `/health`
+  // above is unbound, and so is every route the entry-point table says is.
+  app.use('*', async (c, next) => await workspaceEdge.middleware(c, next))
   // The reachability answer for Podium Connect (PDM-51). After transfer recovery guards, before auth and CORS, so setup can
   // check reachability without exposing a retired or recovering server.
   registerWellKnownRoute(app, {
@@ -1799,13 +1835,39 @@ export async function startServer(
    * The request must be the one the HTTP app sees (`observedRequest`): its
    * `x-podium-peer-address` is the peer the native server reported.
    */
-  const memberOfRequest = createMemberOfRequest({
+  const loadedMemberOfRequest = createMemberOfRequest({
     identity: identity.workspace,
     users: store.users,
     trustedProxyHops,
     hostMachine,
     publicUrl: claimedPublicUrl,
   })
+  /**
+   * THE WORKSPACE EDGE (POD-7309, workspace-edge.ts). Every request and socket
+   * upgrade is bound to a workspace this process loaded before any handler
+   * runs; a request naming another is refused there. The process loads one
+   * workspace until the stateless Core lands, so the edge serves exactly it.
+   */
+  const workspaceEdge = createWorkspaceEdge({
+    mode: capabilities.mode,
+    served: [
+      {
+        id: loadedWorkspaceId,
+        slug: capabilities.mode === 'hosted' ? opts.workspaceSlug?.trim() || null : null,
+        memberOfRequest: loadedMemberOfRequest,
+      },
+    ],
+    // A refusal carries the CORS answer of the route it refused, so a
+    // cross-origin client (the desktop shell) can read it.
+    respond: async (c, refusal) => {
+      await cors()(c, async () => {
+        c.res = c.json(refusal.body, refusal.status)
+      })
+      return c.res
+    },
+  })
+  // Resolves a request in the workspace it is bound to.
+  const memberOfRequest = boundMemberOfRequest(workspaceEdge)
   // SIGN-INS FROM BEFORE SHARED SIGN-IN (POD-6751): only on a server that
   // built its own identity core, and not on a store that cannot be written.
   // The period is fixed here, after the migrations and the local identity
@@ -1867,15 +1929,16 @@ export async function startServer(
   // same-origin in the supported network topologies; the password store gates it.
   app.use('/auth/*', cors())
   app.use('/auth/*', authReadinessBoundary(readiness))
+  // The people routes refuse a signed-in non-member of the bound workspace.
+  app.use('/auth/*', workspaceEdge.signedInGate)
   let revokeConnectedDeviceSignIn: (credentialId: string) => void = () => {}
   registerAuthRoute(app, {
     publicUrl: claimedPublicUrl,
     syncBoundaryId: replicaBoundaryOf({
       installationNamesWorkspace: capabilities.installationNamesWorkspace,
       installationBoundary: opts.workspaceId ?? installation.installationId,
-      // The process serves the one workspace it loaded; request binding
-      // (POD-7309) replaces this with the request's bound workspace.
-      workspaceOf: () => opts.workspaceId,
+      // The request's bound workspace (POD-7309).
+      workspaceOf: (request) => maybeBoundServedWorkspaceOf(request)?.id,
     }),
     identity: identity.workspace,
     // One resolver for every human-client transport; the status route reports
@@ -1985,7 +2048,11 @@ export async function startServer(
       )) !== undefined,
   })
   // Permanent artifact snapshots (#441) — server-local, no daemon hop.
-  registerArtifactRoute(app, selfHostedArtifacts(registry.modules.issueArtifacts))
+  registerArtifactRoute(
+    app,
+    workspaceArtifacts(loadedWorkspaceId, registry.modules.issueArtifacts),
+    edgeWorkspaceBinding(capabilities.mode, workspaceEdge.served),
+  )
   // In-process MCP server exposing the superagent's orchestrator tools to a
   // harness-backed superagent (Claude via --mcp-config). Token-gated.
   // One `podium` MCP surface composes the superagent's tools (first, so they win
@@ -2014,6 +2081,7 @@ export async function startServer(
   app.use('/sync/*', guard)
   registerSyncRoutes(app, {
     ...registry.syncDelta,
+    workspaceOf: boundWorkspaceOf,
     worker: () => syncWorker,
     principal: async (request) => syncFeedPrincipal(await principalOfRequest(request)),
   })
@@ -2057,10 +2125,24 @@ export async function startServer(
             ? userCommandPrincipal(asUserId(bootstrapAccount.id), bootstrapAccount.role)
             : undefined)
         if (principal === undefined) throw new Error('authenticated account is unavailable')
+        // The workspace the edge bound this request to; the registry is its.
+        const boundWorkspace = boundWorkspaceOf(hono.req.raw)
+        if (boundWorkspace !== store.workspaceId) {
+          throw new Error(
+            `request bound to ${boundWorkspace} reached the registry of ${store.workspaceId}`,
+          )
+        }
         return {
           registry,
           repos,
-          ...(opts.workspaceId ? { workspaceId: opts.workspaceId } : {}),
+          boundWorkspace,
+          // The selector a joining machine sends: the hosted workspace's id, or
+          // the self-hosted label an outer router routes by.
+          ...(capabilities.mode === 'hosted'
+            ? { workspaceId: boundWorkspace }
+            : opts.workspaceId
+              ? { workspaceId: opts.workspaceId }
+              : {}),
           superagent,
           cloud,
           principal,
@@ -2237,6 +2319,16 @@ export async function startServer(
       registry,
       {
         readinessForClient: readiness,
+        // THE WORKSPACE EDGE FOR SOCKETS (POD-7309): /client, /daemon and
+        // /machine are bound like any request, on the same observed request
+        // the member is resolved from below.
+        bindWorkspace: async (request) => {
+          const answer = await workspaceEdge.bind(observedRequest(request), true)
+          if (answer.kind === 'refused') return { refused: answer.refusal }
+          if (answer.kind !== 'bound')
+            return { refused: { status: 404, body: { error: 'not_found' } } }
+          return { workspaceId: answer.workspace.id }
+        },
         principalForClient: async (request) => {
           // The upgrade is judged as the HTTP app would see it: the peer address
           // is the one the native server reported, never one the client sent.
@@ -2377,8 +2469,11 @@ export async function startServer(
     superagent.setIssueTools(issueTools)
     // The harness agent runs on the same host (single-machine), so loopback
     // reaches this MCP route. Now that the port is known, point it there.
+    const mcpEndpoint = new URL(`http://127.0.0.1:${server.port}/mcp`)
+    if (capabilities.mode === 'hosted')
+      mcpEndpoint.searchParams.set(WORKSPACE_QUERY, loadedWorkspaceId)
     await superagent.setMcpEndpoint(
-      `http://127.0.0.1:${server.port}/mcp`,
+      mcpEndpoint.href,
       mcpToken,
       (await superagent.mcpToolSpecs()).map((s) => s.name),
     )

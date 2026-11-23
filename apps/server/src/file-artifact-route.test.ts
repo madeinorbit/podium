@@ -14,14 +14,24 @@ import { Hono } from 'hono'
 import { describe, expect, it } from 'vitest'
 import {
   type ArtifactStreamReader,
+  edgeWorkspaceBinding,
   registerArtifactRoute,
-  requestMayNameWorkspace,
-  selfHostedArtifacts,
   type WorkspaceArtifacts,
-  workspaceBoundToRequest,
+  workspaceArtifacts,
 } from './file-artifact-route'
 import { IssueArtifactStore } from './modules/issues/artifact-store'
 import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
+import { bindRequestsTo } from './test-support/workspace-binding'
+
+/** A self-hosted server's route: every request bound to its one workspace by the edge. */
+function selfHostedRoute(app: Hono, store: ArtifactStreamReader): void {
+  bindRequestsTo(app, SELF_HOSTED_WORKSPACE_ID)
+  registerArtifactRoute(
+    app,
+    workspaceArtifacts(SELF_HOSTED_WORKSPACE_ID, store),
+    edgeWorkspaceBinding('self-hosted', [{ id: SELF_HOSTED_WORKSPACE_ID, slug: null }]),
+  )
+}
 
 const storeOver = (files: BlobStore): IssueArtifactStore =>
   // Only reads run here: the upload rows and the daemon are never reached.
@@ -37,7 +47,7 @@ async function selfHostedApp(members: Record<string, string | Uint8Array>): Prom
   const files = new MemoryBlobStorage().forWorkspace(SELF_HOSTED_WORKSPACE_ID)
   for (const [rel, bytes] of Object.entries(members)) await put(files, rel, bytes)
   const app = new Hono()
-  registerArtifactRoute(app, selfHostedArtifacts(storeOver(files)))
+  selfHostedRoute(app, storeOver(files))
   return app
 }
 
@@ -86,7 +96,7 @@ describe('GET /files/artifact/:issueId/:artifactId/*', () => {
       }),
     }
     const app = new Hono()
-    registerArtifactRoute(app, selfHostedArtifacts(reader))
+    selfHostedRoute(app, reader)
     const res = await app.request(url('log.txt'))
     expect(res.status).toBe(200)
     const body = res.body?.getReader()
@@ -111,7 +121,7 @@ describe('GET /files/artifact/:issueId/:artifactId/*', () => {
       },
     }
     const app = new Hono()
-    registerArtifactRoute(app, selfHostedArtifacts(counting))
+    selfHostedRoute(app, counting)
     const res = await app.request(url('video.mp4'), ranged('bytes=3-5'))
     expect(res.status).toBe(206)
     expect(res.headers.get('content-range')).toBe('bytes 3-5/10')
@@ -144,15 +154,12 @@ describe('GET /files/artifact/:issueId/:artifactId/*', () => {
     await put(files, 'video.mp4', '0123456789')
     const store = storeOver(files)
     const app = new Hono()
-    registerArtifactRoute(
-      app,
-      selfHostedArtifacts({
-        readStream: (i, a, rel, range) => {
-          reads.push(range)
-          return store.readStream(i, a, rel, range)
-        },
-      }),
-    )
+    selfHostedRoute(app, {
+      readStream: (i, a, rel, range) => {
+        reads.push(range)
+        return store.readStream(i, a, rel, range)
+      },
+    })
     const res = await app.request(url('video.mp4'), ranged('bytes=-4'))
     expect(res.status).toBe(206)
     expect(res.headers.get('content-range')).toBe('bytes 6-9/10')
@@ -270,10 +277,26 @@ describe('the workspace bound to the request (POD-6963 design 2.7)', () => {
     }
   })
 
-  it('binds every request to the self-hosted workspace and accepts every segment today', () => {
-    const c = {} as never
-    expect(workspaceBoundToRequest(c)).toBe(SELF_HOSTED_WORKSPACE_ID)
-    expect(requestMayNameWorkspace(c, 'second')).toBe(true)
+  it('on hosted, answers only a segment that names the bound workspace by id or slug', async () => {
+    const artifactsOf = await twoWorkspaces()
+    const app = new Hono()
+    bindRequestsTo(app, A, 'acme')
+    registerArtifactRoute(
+      app,
+      artifactsOf,
+      edgeWorkspaceBinding('hosted', [
+        { id: A, slug: 'acme' },
+        { id: B, slug: 'other' },
+      ]),
+    )
+    for (const segment of [A, 'acme']) {
+      const own = await app.request(prefixed(segment))
+      expect(own.status).toBe(200)
+      expect(await own.text()).toBe(`BYTES OF ${A}`)
+    }
+    for (const segment of [B, 'other', 'second']) {
+      expect((await app.request(prefixed(segment))).status).toBe(404)
+    }
   })
 
   it('does not find a request bound to A that names B, and reads A when it names A', async () => {
@@ -306,9 +329,9 @@ describe('the workspace bound to the request (POD-6963 design 2.7)', () => {
     expect((await app.request(prefixed(A))).status).toBe(404)
   })
 
-  it('gives the self-hosted resolver no store for any other workspace', () => {
+  it("gives a process's resolver no store for a workspace it did not load", () => {
     const store = storeOver(new MemoryBlobStorage().forWorkspace(SELF_HOSTED_WORKSPACE_ID))
-    const artifactsOf = selfHostedArtifacts(store)
+    const artifactsOf = workspaceArtifacts(SELF_HOSTED_WORKSPACE_ID, store)
     expect(artifactsOf(SELF_HOSTED_WORKSPACE_ID)).toBe(store)
     expect(artifactsOf(B)).toBeUndefined()
   })

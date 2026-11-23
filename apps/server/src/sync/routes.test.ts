@@ -3,6 +3,7 @@ import { Hono } from 'hono'
 import { describe, expect, it, vi } from 'vitest'
 import { DEVICE_GRADE_PRINCIPAL } from '@podium/sync'
 import { SyncWorkerError, type SyncWorkerClient } from '../sync-worker/worker-client'
+import { bindRequestsTo, boundWorkspaceForTests } from '../test-support/workspace-binding'
 import { registerSyncRoutes, type SyncRouteDeps } from './routes'
 
 function fixture() {
@@ -22,8 +23,10 @@ function fixture() {
     serving: { identity: async () => ({ feedId: 'f', epoch: 'e' }), retentionFloor: forbidden },
     worker: () => ({ bootstrap: () => { throw new Error('wrong producer') }, delta, collections }),
     pageRows: 3,
+    workspaceOf: boundWorkspaceForTests,
   }
   const app = new Hono()
+  bindRequestsTo(app)
   registerSyncRoutes(app, deps)
   const request = (query = 'feedId=f&epoch=e&from=0', coding = 'identity') =>
     app.request(`/sync/delta?${query}`, { headers: { 'accept-encoding': coding } })
