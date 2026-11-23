@@ -182,7 +182,8 @@ export function NetworkStep(props: NetworkStepProps): ReactNode {
       optional(() => trpc.setup.info.query()),
       optional(() => trpc.auth.status.query()),
     ]).then(([info, status]) => {
-      if (live) setInitial(networkStepInitialState(info, status))
+      if (live)
+        setInitial(networkStepInitialState(info && 'publicUrl' in info ? info : null, status))
     })
     return () => {
       live = false

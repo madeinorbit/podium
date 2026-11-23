@@ -78,11 +78,13 @@ type WorkspaceSettingSource = 'settings' | 'default'
 
 /** Hosted reads deliberately carry no installation identity or host configuration. */
 export interface HostedSetupInfo {
+  scope: 'workspace'
   transcriptLake: 'on' | 'off'
   transcriptLakeSource: WorkspaceSettingSource
 }
 
 export interface HostedSetupChannel {
+  scope: 'workspace'
   channel: FleetUpdateChannel
   envForced: false
   channelSource: WorkspaceSettingSource
@@ -258,6 +260,7 @@ export class InstanceService {
     if (!this.hostSetup) {
       const transcriptLake = this.workspaceSetting('transcriptLake')
       return {
+        scope: 'workspace',
         transcriptLake: transcriptLake.value,
         transcriptLakeSource: transcriptLake.source,
       } satisfies HostedSetupInfo
@@ -328,6 +331,7 @@ export class InstanceService {
     if (!this.hostSetup) {
       const resolved = this.workspaceSetting('updateChannel')
       return {
+        scope: 'workspace',
         channel: resolved.value,
         envForced: false,
         channelSource: resolved.source,

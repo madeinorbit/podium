@@ -97,7 +97,7 @@ const AccessPage = observer(function AccessPage() {
         )}
       </Section>
     )
-  if (network.answer.mode === 'daemon' || network.answer.mode === 'client')
+  if (network.hostInfo?.mode === 'daemon' || network.hostInfo?.mode === 'client')
     return <NetworkSection view={network} />
   return <HostAccess network={network} />
 })

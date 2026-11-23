@@ -939,6 +939,28 @@ describe('UpdatesSection', () => {
  * operator to wonder why the fleet moves and the server never does.
  */
 describe('a deployment that owns the server binary', () => {
+  it('treats a hosted workspace channel as fleet-only without host update metadata', async () => {
+    trpc.setup.channel.query.mockResolvedValue({
+      scope: 'workspace',
+      channel: 'stable',
+      envForced: false,
+      channelSource: 'default',
+      configured: 'stable',
+    })
+    trpc.setup.info.query.mockResolvedValue({
+      scope: 'workspace',
+      transcriptLake: 'on',
+      transcriptLakeSource: 'default',
+    })
+    trpc.updates.fleet.query.mockResolvedValue(emptyFleet)
+    quietHistory()
+
+    render(<UpdatesSection />)
+
+    expect(await screen.findByText(/Server updates are managed by this deployment/)).toBeTruthy()
+    expect(screen.getByText('Update channel')).toBeTruthy()
+  })
+
   it('says server updates are the deployment’s, and machines still follow the feed', async () => {
     trpc.setup.channel.query.mockResolvedValue({
       channel: 'stable',

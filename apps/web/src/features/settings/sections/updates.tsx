@@ -138,7 +138,7 @@ export const UpdatesSection = observer(function UpdatesSection(): JSX.Element {
         setChannel(c.channel)
         setEnvForced(c.envForced)
         setChannelSource(c.channelSource)
-        setUpdateScope(c.updateScope ?? 'all')
+        setUpdateScope('scope' in c ? 'fleet-only' : (c.updateScope ?? 'all'))
       })
       .catch((e) => {
         if (!cancelled) setChannelError(e instanceof Error ? e.message : String(e))
@@ -153,7 +153,7 @@ export const UpdatesSection = observer(function UpdatesSection(): JSX.Element {
     trpc.setup.info
       .query()
       .then((info) => {
-        if (!cancelled) setVersionInfo({ appVersion: info.appVersion })
+        if (!cancelled) setVersionInfo('appVersion' in info ? { appVersion: info.appVersion } : {})
       })
       .catch((e) => {
         if (!cancelled) setInfoError(e instanceof Error ? e.message : String(e))
@@ -205,7 +205,10 @@ export const UpdatesSection = observer(function UpdatesSection(): JSX.Element {
       // Keep the shell's native fallback on this server's channel. Dev points at
       // this server's public shell manifest; the signed artifact itself remains on GitHub.
       try {
-        await persistNativeDesktopUpdateChannel(result.channel, result.desktopUpdateEndpoint)
+        await persistNativeDesktopUpdateChannel(
+          result.channel,
+          'desktopUpdateEndpoint' in result ? result.desktopUpdateEndpoint : undefined,
+        )
       } catch (e) {
         setChannelError(e instanceof Error ? e.message : String(e))
       }

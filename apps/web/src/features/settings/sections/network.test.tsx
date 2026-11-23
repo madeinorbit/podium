@@ -3,7 +3,7 @@ import { CHECK_ERROR_SENTENCES, type CheckResult } from '@podium/runtime/connect
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Trpc } from '@/app/trpc'
-import { type NetworkInfo, NetworkSettingsView } from '../network-view'
+import { type HostNetworkInfo, NetworkSettingsView } from '../network-view'
 import { resetForcedSettingCache } from '../use-forced-setting'
 import { AdvancedNetworkRows, NetworkSection } from './network'
 
@@ -31,7 +31,7 @@ async function network(overrides: Record<string, unknown> = {}) {
     allowedOrigins: [],
     stableLink: null,
     ...overrides,
-  } as unknown as NetworkInfo
+  } as unknown as HostNetworkInfo
   fixture.trpc = {
     setup: {
       info: { query: vi.fn().mockResolvedValue(info) },
@@ -53,6 +53,25 @@ async function network(overrides: Record<string, unknown> = {}) {
 }
 
 describe('Access address', () => {
+  it('shows no host setup controls or installation details for a hosted workspace', async () => {
+    const view = await network()
+    vi.mocked(fixture.trpc.setup.info.query).mockResolvedValue({
+      scope: 'workspace',
+      transcriptLake: 'on',
+      transcriptLakeSource: 'default',
+    })
+    await view.refresh()
+    const { container } = render(
+      <>
+        <NetworkSection view={view} />
+        <AdvancedNetworkRows view={view} />
+      </>,
+    )
+    expect(container.childElementCount).toBe(0)
+    expect(fixture.openTakeover).not.toHaveBeenCalled()
+    view.close()
+  })
+
   it.each([
     { ok: false, error: 'INVALID_URL', detail: 'must be on port 443' },
     { ok: false, error: 'PORT_UNSUPPORTED', detail: 'port is outside the probe allowlist' },

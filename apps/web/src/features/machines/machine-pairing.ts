@@ -128,7 +128,7 @@ export function useMachinePairing({
     pairingCode,
     joinCommand,
     setupInfo,
-    publicUrl: setupInfo?.publicUrl ?? null,
+    publicUrl: setupInfo && 'publicUrl' in setupInfo ? setupInfo.publicUrl : null,
     error,
     loading,
     podiumManaged,

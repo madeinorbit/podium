@@ -551,6 +551,7 @@ describe('setup tRPC', () => {
       })
       vi.stubEnv('PODIUM_TRANSCRIPT_LAKE', 'on')
       expect(await harness!.caller.setup.info()).toEqual({
+        scope: 'workspace',
         transcriptLake: 'off',
         transcriptLakeSource: 'settings',
       })
@@ -560,6 +561,7 @@ describe('setup tRPC', () => {
       await harness!.settings.updateDeployment({ updateChannel: 'edge' })
       vi.stubEnv('PODIUM_UPDATE_CHANNEL', 'dev')
       expect(await harness!.caller.setup.channel()).toEqual({
+        scope: 'workspace',
         channel: 'edge',
         envForced: false,
         channelSource: 'settings',
@@ -596,6 +598,7 @@ describe('setup tRPC', () => {
         .mockResolvedValue(true)
       vi.stubEnv('PODIUM_UPDATE_CHANNEL', 'dev')
       expect(await harness!.caller.setup.setChannel({ channel: 'edge' })).toEqual({
+        scope: 'workspace',
         channel: 'edge',
         envForced: false,
         channelSource: 'settings',

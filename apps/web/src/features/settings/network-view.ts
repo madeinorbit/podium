@@ -3,6 +3,7 @@ import { lazy } from '@podium/mobx-helpers'
 import type { Trpc } from '@/app/trpc'
 
 export type NetworkInfo = Awaited<ReturnType<Trpc['setup']['info']['query']>>
+export type HostNetworkInfo = Extract<NetworkInfo, { publicUrl: unknown }>
 export class NetworkSettingsView extends RequestAnswer<NetworkInfo> {
   constructor(private readonly trpc: Pick<Trpc, 'setup'>) {
     super()
@@ -33,8 +34,13 @@ export class NetworkSettingsView extends RequestAnswer<NetworkInfo> {
     super.close()
   }
 
+  @lazy get hostInfo(): HostNetworkInfo | undefined {
+    const info = this.answer
+    return info && 'publicUrl' in info ? info : undefined
+  }
+
   @lazy get tunnelHealthLabel(): string {
-    const health = this.answer?.tunnelHealth
+    const health = this.hostInfo?.tunnelHealth
     if (!health) return 'Waiting for a tunnel report.'
     if (health.state === 'working') return 'Working'
     if (health.state === 'starting' || health.state === 'restarting') return 'Restarting'

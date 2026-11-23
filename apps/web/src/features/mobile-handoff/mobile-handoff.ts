@@ -128,8 +128,12 @@ export function useMobileHandoffUrl(
         // SERVES the page, and the public URL would only bounce the phone here
         // anyway (PDM-34).
         const configured =
-          (typeof info.appUrl === 'string' && info.appUrl !== '' ? info.appUrl : '') ||
-          (typeof info.publicUrl === 'string' && info.publicUrl !== '' ? info.publicUrl : '')
+          ('appUrl' in info && typeof info.appUrl === 'string' && info.appUrl !== ''
+            ? info.appUrl
+            : '') ||
+          ('publicUrl' in info && typeof info.publicUrl === 'string' && info.publicUrl !== ''
+            ? info.publicUrl
+            : '')
         const destinationOrigin = configured !== '' ? configured : httpOrigin
         const url = mobileHandoffUrl(destinationOrigin, instanceId, sessionId)
         if (!url) return

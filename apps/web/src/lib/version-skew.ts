@@ -13,7 +13,8 @@ export function useServerAppVersion(trpc: import('@/app/trpc').Trpc): string | n
     const load = async () => {
       try {
         const info = await trpc.setup.info.query()
-        if (!cancelled && typeof info.appVersion === 'string') setVersion(info.appVersion)
+        if (!cancelled && 'appVersion' in info && typeof info.appVersion === 'string')
+          setVersion(info.appVersion)
       } catch {
         // Version is decorative — a failed probe just means no badge.
       }

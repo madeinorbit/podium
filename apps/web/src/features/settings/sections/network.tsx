@@ -28,7 +28,7 @@ export const NetworkSection = observer(function NetworkSection({
   const forced = useForcedSetting('publicUrl')
   const [lastCheck, setLastCheck] = useState<NetworkCheck | null>(null)
   const [checking, setChecking] = useState(false)
-  const info = view.answer
+  const info = view.hostInfo
   if (!info) return null
   if (info.mode === 'daemon' || info.mode === 'client') {
     return (
@@ -160,7 +160,7 @@ export const AdvancedNetworkRows = observer(function AdvancedNetworkRows({
 }) {
   const app = useForcedSetting('appUrl')
   const origins = useForcedSetting('allowedOrigins')
-  const info = view.answer
+  const info = view.hostInfo
   if (!info) return null
   return (
     <>
