@@ -5,7 +5,8 @@
  * reaching the agent, and the conversation as synced records.
  */
 
-import { INSTANCE_PREFERENCES_ROW_ID, type SessionId } from '@podium/model'
+import { asThreadId, INSTANCE_PREFERENCES_ROW_ID, type SessionId } from '@podium/model'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { disposeOracles, makeOracle, type Oracle } from '../sessions/oracle-support'
@@ -194,5 +195,48 @@ describe('the concertmaster commands on the entry point', () => {
     })
     expect(offer.outcome).toBe('rejected')
     expect(offer.refusal?.message).toMatch(/podium concertmaster ask/)
+  })
+
+  it("adds the person's message to the conversation once its delivery is confirmed", async () => {
+    const o = await makeOracle()
+    await enable(o)
+    const sessionId = await agent(o)
+    appliedReply(await mark(o, sessionId))
+    const at = new Date().toISOString()
+    await o.store.messages.addMessage(fixtureWriteScope(), {
+      id: 'msg_person_1',
+      threadId: asThreadId('msg_person_1'),
+      inReplyTo: null,
+      fromKind: 'operator',
+      fromSession: null,
+      fromIssue: null,
+      toKind: 'session',
+      toId: sessionId,
+      kind: 'message',
+      urgency: 'fyi',
+      lifecycle: 'wait',
+      body: 'explain the concertmaster thing',
+      expiresAt: null,
+      createdAt: at,
+      deliveryStatus: 'stored',
+      deliveredAt: null,
+      deliveredTo: null,
+      ackedBy: null,
+      hop: 0,
+      clampedFrom: null,
+      remindedAt: null,
+      expectsResponse: false,
+    })
+    // The delivery confirms it the way a running agent's history does.
+    await o.store.messages.markDelivered(fixtureWriteScope(), 'msg_person_1', sessionId, at)
+    await vi.waitFor(
+      async () => {
+        const conversation = (await o.reg.modules.concertmaster?.conversation(sessionId)) ?? []
+        expect(conversation.map((entry) => [entry.kind, entry.body])).toEqual([
+          ['user', 'explain the concertmaster thing'],
+        ])
+      },
+      { timeout: 3000 },
+    )
   })
 })

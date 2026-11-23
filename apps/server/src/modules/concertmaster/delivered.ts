@@ -13,10 +13,17 @@
  * Concertmaster. Nothing here runs inside a delivery's transaction, so nothing
  * here can fail or slow a delivery. With the feature off it does nothing, and
  * reads nothing.
+ *
+ * AT THE ROOT SCOPE. The announcement runs inside the commit's post-commit
+ * drain, and that drain does not wait for this record. Started there, the
+ * record would inherit the drain's scope and query on a lease that has already
+ * been released (`StaleTransactionError` from its second statement on), so it
+ * is dispatched at the root, where it queues like any other caller.
  */
 
 import { createLogger, describeError } from '@podium/logger'
 import { asSessionId, type SessionId } from '@podium/model'
+import { runAtRoot } from '../../publication-scope'
 import type { CommittedRowChange } from '../../store/committed-rows'
 import type { MessageQueueFact } from '../../store/messages'
 
@@ -43,7 +50,9 @@ export class DeliveredMessageWatch {
       if (row.toKind !== 'session' || row.toId === null || row.deliveryStatus !== 'confirmed') {
         continue
       }
-      const run = this.record(asSessionId(row.toId), row.id)
+      const sessionId = asSessionId(row.toId)
+      const messageId = row.id
+      const run = runAtRoot(async () => await this.record(sessionId, messageId))
       this.running.add(run)
       void run.finally(() => this.running.delete(run))
     }
