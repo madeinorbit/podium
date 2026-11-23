@@ -5,6 +5,7 @@ import { isGateOwnedAppLink, nativeMissionHref, redirectSystemPath } from './app
 describe('gate-owned app links', () => {
   it('keeps pairing and sign-in links away from the router in every iOS spelling', () => {
     for (const link of [
+      'podium:///signed-in?code=abc&challenge=def',
       'podium://pair?url=https%3A%2F%2Fpodium.example%2Fmobile%23pair%3Dsecret',
       'podium:///pair?url=https%3A%2F%2Fpodium.example%2Fmobile%23pair%3Dsecret',
       'podium://pair/eyJ2IjoyfQ',
@@ -13,11 +14,9 @@ describe('gate-owned app links', () => {
     ]) {
       expect(isGateOwnedAppLink(link)).toBe(true)
       expect(redirectSystemPath({ path: link, initial: true })).toBe('/')
-      // A running app moves nowhere for a pairing link: a root navigation would
-      // remount the gate and drop the envelope it is opening (POD-6913).
-      expect(redirectSystemPath({ path: link, initial: false })).toBe(
-        link.includes('signed-in') ? '/' : null,
-      )
+      // A running app moves nowhere: a root navigation would remount the gate
+      // and drop the pairing envelope or hosted return it holds (POD-6913).
+      expect(redirectSystemPath({ path: link, initial: false })).toBeNull()
     }
   })
 
