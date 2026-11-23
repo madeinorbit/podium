@@ -6769,15 +6769,25 @@ type Output_settings_telegramSetupPoll = ({
 }) | ({
     status: "expired";
 });
-type Output_setup_channel = {
+type Output_setup_channel = ({
+    channel: FleetUpdateChannel;
+    channelSource: "default" | "settings";
+    configured: FleetUpdateChannel;
+    desktopUpdateEndpoint?: undefined;
+    envForced: false;
+    scope: "workspace";
+    updateScope?: undefined;
+    updateScopeSource?: undefined;
+}) | ({
     channel: FleetUpdateChannel;
     channelSource: SettingSource;
     configured: FleetUpdateChannel;
     desktopUpdateEndpoint: string | undefined;
     envForced: boolean;
+    scope?: undefined;
     updateScope: UpdateScope;
     updateScopeSource: SettingSource;
-};
+});
 type Output_setup_complete = {
     agentExecutionLockout?: boolean | undefined;
     agentHome?: string | undefined;
@@ -6830,7 +6840,7 @@ type Output_setup_complete = {
     updateScope?: "all" | "fleet-only" | undefined;
     workspaceId?: string | undefined;
 };
-type Output_setup_info = {
+type Output_setup_info = ({
     allowedOrigins: string[];
     allowedOriginsSource: SettingSource;
     appUrl: null | string;
@@ -6841,13 +6851,21 @@ type Output_setup_info = {
     networkOption: "cloudflare-tunnel" | "manual" | "tailscale-funnel" | "tailscale-serve" | null;
     publicUrl: null | string;
     publicUrlSource: SettingSource;
+    scope?: undefined;
     serverUrl: null | string;
     stableLink: null | string;
     transcriptLake: TranscriptLakeMode;
     transcriptLakeSource: SettingSource;
     tunnelHealth?: TunnelHealth | null | undefined;
-};
-type Output_setup_provenance = {
+}) | ({
+    scope: "workspace";
+    transcriptLake: TranscriptLakeMode;
+    transcriptLakeSource: "default" | "settings";
+});
+type Output_setup_provenance = (Partial<Record<"agentHome" | "agentRelayPort" | "allowedOrigins" | "appUrl" | "connectBaseUrl" | "connectProbeKeys" | "hookPort" | "mode" | "port" | "publicUrl" | "updateFeed" | "updateFeedPolling" | "updateScope", never>> & Record<"authOpenMode" | "connectEnabled" | "telemetryCrash" | "telemetryInstallId" | "telemetrySince" | "telemetryUsage" | "transcriptLake" | "updateChannel", {
+    env?: never;
+    source: "default" | "settings";
+}>) | ({
     agentHome: {
         env?: string;
         source: SettingSource;
@@ -6932,7 +6950,7 @@ type Output_setup_provenance = {
         env?: string;
         source: SettingSource;
     };
-};
+});
 type Output_telemetry_preview = (null) | ({
     arch: "arm64" | "other" | "x64";
     features: Partial<Record<"issues", boolean>>;

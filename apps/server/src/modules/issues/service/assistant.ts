@@ -60,9 +60,12 @@ export class IssueAssistantDigestModule {
     const sess = await this.store.d.sessionById(sessionId)
     if (!sess) return
     // The live issues whose worktree could contain the session's folder, one
-    // indexed read (POD-6192); the first that does, in repository order.
+    // indexed read (POD-6192); the first on its machine that does, in repository order.
     const row = (await this.store.deps.store.issues.worktreeOwnerCandidates([sess.cwd])).find(
-      (r) => r.worktreePath && isMachinePathWithinRoot(r.worktreePath, sess.cwd),
+      (r) =>
+        r.machineId === sess.machineId &&
+        r.worktreePath &&
+        isMachinePathWithinRoot(r.worktreePath, sess.cwd),
     )
     if (!row) return
     const prev = this.assistantTimers.get(row.id)
