@@ -87,7 +87,7 @@ function rowField<V>(row: MachineHarness, key: 'progress' | 'lastError'): V | un
 }
 
 /** Actions POD-7471 adds; spelled as strings until the protocol enum has them. */
-const CANCEL = 'cancel' as HarnessInstallAction
+const CANCEL = 'cancel-install' as HarnessInstallAction
 
 // ---------------------------------------------------------------------------
 // Groups
@@ -670,6 +670,8 @@ export class AgentSetupDetail {
   @lazy({ equals: compareShallowSections }) get sections(): readonly AgentSetupSection[] {
     const byKey = new Map<AgentSetupSectionKey, HarnessInstallAction[]>()
     for (const next of this.row.actions) {
+      // Cancel belongs to the installing row in the list, not to the harness page.
+      if (next === CANCEL) continue
       const key = SECTION_OF[next] ?? 'install'
       byKey.set(key, [...(byKey.get(key) ?? []), next])
     }

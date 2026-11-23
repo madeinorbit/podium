@@ -388,10 +388,10 @@ describe('agent setup selection and installs', () => {
     item('grok').cancel()
     expect(actions).toEqual([])
     // The install-progress task adds `cancel` to an installing row's actions.
-    Object.defineProperty(item('grok').row, 'actions', { value: ['cancel'] })
+    Object.defineProperty(item('grok').row, 'actions', { value: ['cancel-install'] })
     expect(item('grok').canCancel).toBe(true)
     item('grok').cancel()
-    expect(actions.map((call) => [call.harness, call.action])).toEqual([['grok', 'cancel']])
+    expect(actions.map((call) => [call.harness, call.action])).toEqual([['grok', 'cancel-install']])
   })
 })
 
