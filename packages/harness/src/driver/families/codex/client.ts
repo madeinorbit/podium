@@ -33,8 +33,8 @@
  * bug that a queue would hide.
  */
 
-import { RequestNotSentError } from '../../errors.js'
 import { createLogger } from '@podium/logger'
+import { RequestNotSentError } from '../../errors.js'
 import {
   CODEX_METHODS,
   CODEX_NOTIFICATION_METHODS,
@@ -96,6 +96,8 @@ export interface CodexClientConfig {
   /** Called for every notification arm this driver consumes; unknown arms never
    *  reach it (see `parseCodexNotification`). */
   onNotification(notification: CodexNotification): void
+  /** Opaque native frames before schema narrowing; adapters own context decoding. */
+  onNativePayload?(payload: unknown): void
   /** Called for every server→client request. The handler MUST eventually call
    *  `respond` — an unanswered approval parks the turn with no timeout. */
   onServerRequest(request: CodexServerRequest): void
@@ -217,6 +219,7 @@ export function createCodexClient(config: CodexClientConfig): CodexClient {
       // way it is not fatal to the session and must not kill the read loop.
       return
     }
+    config.onNativePayload?.(raw)
     const frame = CodexFrame.safeParse(raw)
     if (!frame.success) return
 

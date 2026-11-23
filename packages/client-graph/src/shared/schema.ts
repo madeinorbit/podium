@@ -848,6 +848,7 @@ const DECLARED = defineSchema({
       observedEffort: { type: 'string', optional: true, source: meta() },
       requestedModel: { type: 'string', optional: true, source: meta() },
       requestedEffort: { type: 'string', optional: true, source: meta() },
+      driverId: { type: 'string', optional: true, source: meta(), note: 'The actually bound runtime driver; capability lookup joins the machine inventory by harness and this id.' },
       configureFields: { type: 'object', optional: true, source: meta(), note: 'The fields this driver can change mid-session; empty is an answer (none), absent is unknown.' },
       observedMode: { type: 'string', optional: true, source: meta(), note: 'The mode the harness reports it is in (POD-6858).' },
       launchPosture: { type: 'object', optional: true, source: meta(), note: 'The last launch\'s requested mode and unmet requirements (POD-6858).' },

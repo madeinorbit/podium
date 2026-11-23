@@ -464,6 +464,7 @@ export const ChatComposer = observer(function ChatComposer({
         // the row, so they get a real gap rather than the 2px huddle they needed
         // when they were squeezed in beside the field.
         compact ? 'gap-0.5 self-end' : 'gap-2',
+        footRow && 'ml-auto',
       )}
     >
       {/* NOT headless-only (POD-1214). A native session's turn is just as
@@ -931,8 +932,13 @@ export const ChatComposer = observer(function ChatComposer({
               whole width. On the field's row the chip took the words' room, and
               a long model name took most of it. */}
           {footRow && (
-            <div className="mt-1.5 flex min-w-0 items-center gap-2" data-testid="composer-foot">
-              <div className="-ml-2 flex min-w-0 flex-1 items-center">
+            // Give model/effort and their context circle a readable line when
+            // a narrow pane needs the send actions on a second line.
+            <div
+              className="mt-1.5 flex min-w-0 flex-wrap items-center gap-2"
+              data-testid="composer-foot"
+            >
+              <div className="-ml-2 flex min-w-0 flex-[1_1_16rem] items-center">
                 {!replying && modelControl}
               </div>
               {chord}

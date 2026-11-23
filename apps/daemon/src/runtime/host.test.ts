@@ -1,9 +1,9 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { discoveryRoots, type HarnessContext, harnessContext } from '@podium/harness'
 import type { SessionSpec } from '@podium/harness/driver/host'
-import { testSessionTerms } from '@podium/harness/driver/testing'
+import { testHarnessContext, testSessionTerms } from '@podium/harness/driver/testing'
 import { asSessionId } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'
@@ -15,6 +15,42 @@ import { testHarnessSnapshot } from '../test-support/harness-snapshot'
 import { daemonRuntimeHost } from './host'
 
 describe('daemonRuntimeHost', () => {
+  it.each([
+    undefined,
+    'none',
+  ] as const)('passes terminal Pi policy %s through the production installer', async (toolPolicy) => {
+    const root = await mkdtemp(join(tmpdir(), 'terminal-invocation-policy-'))
+    try {
+      const host = daemonRuntimeHost({ settingsDir: root } as DaemonContext, () => {})
+      const context = testHarnessContext({ kind: 'pi', home: root, version: '1.5.0' })
+      const spec: SessionSpec = {
+        harness: 'pi',
+        harnessContext: context,
+        ...testSessionTerms(),
+        toolPolicy,
+        workdir: root,
+        model: {},
+        selection: { auth: 'unknown', platform: 'linux', available: [] },
+        instructions: { supported: false, reason: 'fixture' },
+        mcpServers: { supported: false, reason: 'fixture' },
+        instrumentation: { endpointUrl: 'http://127.0.0.1:1/hooks/invented-pi' },
+      }
+      const wiring = await host.installInstrumentation(asSessionId('invented-pi'), spec)
+      if (toolPolicy) {
+        expect(wiring.args).toEqual([])
+        expect(await readdir(root)).toEqual([])
+      } else {
+        expect(wiring.args[0]).toBe('-e')
+        expect(await readFile(wiring.args[1] ?? '', 'utf8')).toContain(
+          spec.instrumentation?.endpointUrl,
+        )
+        await wiring.cleanup?.()
+        await expect(readFile(wiring.args[1] ?? '')).rejects.toMatchObject({ code: 'ENOENT' })
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
   it('installs hooks and launches from the session context, whatever the inventory says now', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'podium-selected-hooks-'))
     const launch = vi

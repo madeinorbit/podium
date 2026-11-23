@@ -1,4 +1,4 @@
-import type { Inventory } from '@podium/model'
+import { driverContextFor, type Inventory } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { memoryMarkers, SessionAccessStore } from './access'
@@ -32,9 +32,11 @@ vi.mock('../runtime/version-probe', async (importOriginal) => ({
 }))
 
 import {
+  AGENT_MANIFESTS,
   CODEX_VERSION_POLICY,
   GROK_ACP_VERSION_POLICY,
   gateHarnessVersion,
+  HARNESS_KINDS,
   OPENCODE_VERSION_POLICY,
 } from '@podium/harness'
 import {
@@ -46,8 +48,10 @@ import {
 
 import type { DaemonContext } from './context'
 import {
+  driverCapabilityInventory,
   inventoryHandlers,
   reportInventory,
+  runtimeDriverInventory,
   startInventoryRefresh,
   terminalRuntimeDriverInventory,
 } from './inventory'
@@ -61,10 +65,8 @@ const INV: Inventory = {
 const withBaselineDrivers = (inventory: Inventory, homePath = '/home/u'): Inventory => ({
   ...inventory,
   homePath,
-  runtimeDrivers: [
-    ...terminalRuntimeDriverInventory(),
-    { harness: 'claude-code', id: 'claude-sdk', family: 'server' },
-  ],
+  runtimeDrivers: runtimeDriverInventory(inventory),
+  driverCapabilities: driverCapabilityInventory(runtimeDriverInventory(inventory)),
 })
 const HEADLESS_INV: Inventory = {
   ...INV,
@@ -112,6 +114,110 @@ describe('terminalRuntimeDriverInventory', () => {
       { harness: 'pi', id: 'generic-pty', family: 'terminal' },
       { harness: 'antigravity', id: 'generic-pty', family: 'terminal' },
     ])
+  })
+})
+
+describe('machine context inventory', () => {
+  afterEach(() => vi.restoreAllMocks())
+  it('nests support by canonical driver, then harness, without starting a native probe', () => {
+    const capability = { summary: 'passive' as const, detail: 'on-demand' as const }
+    const probe = vi.fn(async () => ({ status: 'available' as const }))
+    vi.spyOn(AGENT_MANIFESTS.codex.runtime.context, 'forDriver').mockImplementation((driver) =>
+      driver === 'generic-pty'
+        ? { supported: true, value: { capability, probe, bind: vi.fn() } }
+        : { supported: false, reason: 'Synthetic driver has no context implementation' },
+    )
+    vi.spyOn(AGENT_MANIFESTS.cursor.runtime.context, 'forDriver').mockReturnValue({
+      supported: false,
+      reason: 'Synthetic harness has no context implementation',
+    })
+    const catalog = driverCapabilityInventory(runtimeDriverInventory(HEADLESS_INV))
+    // Two harnesses on the shared terminal driver keep separate entries.
+    expect(driverContextFor(catalog, 'generic-pty', 'codex')).toEqual({
+      capability,
+      availability: {
+        status: 'unavailable',
+        reason: {
+          code: 'not-probed',
+          message: 'Native context availability requires an attributable session observation',
+        },
+      },
+    })
+    expect(driverContextFor(catalog, 'generic-pty', 'cursor')).toEqual({
+      availability: {
+        status: 'unsupported',
+        reason: {
+          code: 'unsupported-implementation',
+          message: 'Synthetic harness has no context implementation',
+        },
+      },
+    })
+    expect(Object.keys(catalog['generic-pty']?.context ?? {})).toEqual(
+      terminalRuntimeDriverInventory().map((row) => row.harness),
+    )
+    expect(catalog['codex-app-server']?.context).toEqual({
+      codex: {
+        availability: {
+          status: 'unsupported',
+          reason: {
+            code: 'unsupported-implementation',
+            message: 'Synthetic driver has no context implementation',
+          },
+        },
+      },
+    })
+    // The old flat row shape is gone, not kept beside the record.
+    expect(Object.values(catalog).every((record) => Object.keys(record).join() === 'context')).toBe(
+      true,
+    )
+    expect(probe).not.toHaveBeenCalled()
+  })
+
+  it('covers every declared headless mechanism without changing launch inventory bytes', () => {
+    const capability = { summary: 'passive' as const, detail: 'on-demand' as const }
+    const declared = HARNESS_KINDS.filter((harness) => AGENT_MANIFESTS[harness].headless.supported)
+    for (const harness of declared)
+      vi.spyOn(AGENT_MANIFESTS[harness].runtime.context, 'forDriver').mockReturnValue({
+        supported: true,
+        value: { capability, probe: vi.fn(), bind: vi.fn() },
+      })
+    const drivers = runtimeDriverInventory(HEADLESS_INV)
+    const launchBytes = JSON.stringify(drivers)
+    const catalog = driverCapabilityInventory(drivers)
+    expect(declared.length).toBeGreaterThan(1)
+    expect(Object.keys(catalog.headless?.context ?? {})).toEqual(declared)
+    for (const harness of declared)
+      expect(driverContextFor(catalog, 'headless', harness)?.capability).toBe(capability)
+    expect(JSON.stringify(drivers)).toBe(launchBytes)
+    expect(drivers.some((row) => row.id === 'headless')).toBe(false)
+    expect(drivers.every((row) => !Object.hasOwn(row, 'context'))).toBe(true)
+  })
+
+  it('states an admitted headless row once beside the declared ones', () => {
+    const catalog = driverCapabilityInventory([
+      { harness: 'codex', id: 'headless', family: 'server' },
+    ])
+    const declared = HARNESS_KINDS.filter((harness) => AGENT_MANIFESTS[harness].headless.supported)
+    expect(Object.keys(catalog.headless?.context ?? {}).sort()).toEqual(
+      [...new Set(['codex', ...declared])].sort(),
+    )
+  })
+
+  it('canonicalizes inventory driver aliases at the authority boundary', () => {
+    const catalog = driverCapabilityInventory([
+      { harness: 'claude-code', id: 'claude-pty', family: 'terminal' },
+      { harness: 'claude-code', id: 'generic-pty', family: 'terminal' },
+    ])
+    expect(Object.hasOwn(catalog, 'claude-pty')).toBe(false)
+    expect(Object.keys(catalog['generic-pty']?.context ?? {})).toEqual(['claude-code'])
+  })
+
+  it('keeps the Antigravity terminal decline through the same generic entry', () => {
+    const catalog = driverCapabilityInventory(terminalRuntimeDriverInventory())
+    expect(driverContextFor(catalog, 'generic-pty', 'antigravity')).toMatchObject({
+      availability: { status: 'unsupported', reason: { code: 'unsupported-implementation' } },
+    })
+    expect(driverContextFor(catalog, 'generic-pty', 'antigravity')?.capability).toBeUndefined()
   })
 })
 
@@ -226,7 +332,11 @@ describe('daemon inventory reporting (#222)', () => {
     expect(sent[0]).toMatchObject({
       inventory: {
         runtimeDrivers: expect.arrayContaining([
-          { harness: 'opencode', id: 'opencode2-server', family: 'server' },
+          expect.objectContaining({
+            harness: 'opencode',
+            id: 'opencode2-server',
+            family: 'server',
+          }),
         ]),
       },
     })
@@ -258,6 +368,7 @@ describe('daemon inventory reporting (#222)', () => {
             { harness: 'grok', id: 'grok-acp', family: 'server' },
             { harness: 'opencode', id: 'opencode-server', family: 'server' },
           ],
+          driverCapabilities: driverCapabilityInventory(runtimeDriverInventory(HEADLESS_INV)),
         },
         descriptors: expect.any(Array),
       },

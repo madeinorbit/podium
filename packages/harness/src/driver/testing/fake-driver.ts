@@ -32,6 +32,15 @@ import type { AgentRuntimeState, ResumeRef, SessionId, TranscriptItem } from '@p
 import type { ProviderCursor } from '@podium/protocol'
 import { supported, unsupported } from '../../manifest.js'
 import { decideConfigure, noWhitespaceCheck } from '../configure.js'
+import type { ContextObservation } from '../context.js'
+import {
+  CONTEXT_MAX_ROWS,
+  ContextDetailResult,
+  ContextObservationSchema,
+  ContextSummary,
+  invalidateContextSummary,
+  sameContextSample,
+} from '../context.js'
 import { DriverRefusalError } from '../errors.js'
 import { createRuntimeEventStream } from '../events.js'
 import type {
@@ -227,6 +236,16 @@ export interface FakeDriverOptions {
  * genuine permission prompt; W5 posts a real `permission.updated`).
  */
 export interface FakeControl {
+  /** Publish normalized synthetic telemetry, with no harness-specific consumer. */
+  contextObservation(
+    sessionId: SessionId,
+    summary: ContextSummary,
+    detail?: ContextDetailResult,
+  ): void
+  invalidateContext(
+    sessionId: SessionId,
+    cause: import('@podium/model').ContextInvalidationCause,
+  ): void
   /** Open a blocking ask, as a provider would. `spec` is the kind paired with
    *  its OWN payload (POD-2020 made that pairing typed); pass a bare kind and
    *  the fake fills in {@link defaultAskFor}'s minimal payload for it. */
@@ -359,6 +378,8 @@ interface SessionCore {
   connectSecret: string | null
   watchers: Map<WatchLevel, number>
   usage: UsageSnapshot
+  context: ContextObservation | undefined
+  contextDetail: ContextDetailResult | undefined
   interruptRequested: boolean
   /** Bumped on every simulated supervisor restart. A handle minted before the
    *  bump is stale and refuses — see `restartSupervisor`. */
@@ -543,6 +564,7 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
      */
     configure: supported({ fields: ['model', 'effort'], effective: 'next-turn' }),
     usage: supported({ perTurn: true }),
+    context: supported({ summary: 'passive-and-explicit', detail: 'on-demand' }),
     openUrl: supported({ intents: ['login', 'link'] }),
     title: supported({ source: 'synthetic' }),
     accentColor: supported(true),
@@ -762,6 +784,7 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
           observerGeneration: core.observerGeneration,
           turnEpoch: core.turnEpoch,
           interactions: [...core.interactions.values()],
+          context: core.context,
           at: stamp(),
         }
       },
@@ -1155,6 +1178,87 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
       async usage() {
         return core.usage
       },
+      context: {
+        async summary(options) {
+          assertLive()
+          if (options.signal?.aborted)
+            return {
+              status: 'cancelled',
+              reason: { code: 'cancelled', message: 'Context summary read was cancelled' },
+            }
+          if (
+            !Number.isInteger(options.timeoutMs) ||
+            options.timeoutMs <= 0 ||
+            options.timeoutMs > 60_000
+          )
+            return {
+              status: 'refused',
+              reason: {
+                code: 'invalid-request',
+                message: 'Context read needs a bounded positive timeout',
+              },
+            }
+          const observation = core.context ?? {
+            at: stamp(),
+            provenance: 'live' as const,
+            cursor: cursorAt(core, core.seq),
+            observerGeneration: core.observerGeneration,
+            turnEpoch: core.turnEpoch,
+            context: {
+              version: 1 as const,
+              status: 'pending' as const,
+              revision: {
+                bindingVersion: core.binding.bindingVersion,
+                observerGeneration: core.observerGeneration,
+                turnEpoch: core.turnEpoch,
+                contextRevision: 0,
+              },
+              reason: { code: 'waiting', message: 'No synthetic context sample has arrived' },
+            },
+          }
+          return { status: 'observation', observation }
+        },
+        async detail(request) {
+          assertLive()
+          const decline = (
+            status: 'cancelled' | 'refused' | 'superseded' | 'unsupported',
+            message: string,
+          ): ContextDetailResult => ({
+            version: 1,
+            sample: request.sample,
+            status,
+            reason: { code: status, message },
+          })
+          if (request.signal?.aborted)
+            return decline('cancelled', 'Context detail read was cancelled')
+          if (
+            !Number.isInteger(request.maxRows) ||
+            request.maxRows < 1 ||
+            request.maxRows > CONTEXT_MAX_ROWS ||
+            !Number.isInteger(request.timeoutMs) ||
+            request.timeoutMs <= 0 ||
+            request.timeoutMs > 60_000
+          )
+            return decline('refused', 'Context detail read exceeds its request bounds')
+          const summary = core.context?.context
+          if (
+            !summary ||
+            (summary.status !== 'available' && summary.status !== 'stale') ||
+            !sameContextSample(summary.sample, request.sample)
+          )
+            return decline('superseded', 'The requested summary sample is no longer current')
+          const detail = core.contextDetail
+          if (!detail || !sameContextSample(detail.sample, request.sample))
+            return decline('unsupported', 'This synthetic sample contains no detail')
+          if (
+            detail.status === 'available' &&
+            detail.composition &&
+            detail.composition.rows.length > request.maxRows
+          )
+            return decline('refused', 'Composition exceeds the requested row bound')
+          return detail
+        },
+      },
     }
 
     return handle
@@ -1201,6 +1305,8 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
       connectSecret: requiresConnectSecret ? `secret-${sessionId}` : null,
       watchers: new Map(),
       usage: {},
+      context: undefined,
+      contextDetail: undefined,
       interruptRequested: false,
       handleGeneration: 0,
       nextId: 1,
@@ -1214,6 +1320,24 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
     if (resume) core.items = [...(CONVERSATIONS.get(resume.value) ?? [])]
     SURVIVORS.set(processKey, core)
     push(core, { t: 'state', change: { kind: 'session_started' } })
+    core.context = ContextObservationSchema.parse({
+      at: stamp(),
+      provenance: 'live',
+      cursor: cursorAt(core, core.seq),
+      observerGeneration: core.observerGeneration,
+      turnEpoch: core.turnEpoch,
+      context: {
+        version: 1,
+        status: 'pending',
+        revision: {
+          bindingVersion: core.binding.bindingVersion,
+          observerGeneration: core.observerGeneration,
+          turnEpoch: core.turnEpoch,
+          contextRevision: 0,
+        },
+        reason: { code: 'waiting', message: 'No synthetic context sample has arrived' },
+      },
+    })
     core.state = { ...core.state, phase: 'idle', since: stamp() }
     return core
   }
@@ -1275,6 +1399,44 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
         verdict: core.interruptRequested ? 'interrupted' : 'done',
       })
       core.interruptRequested = false
+    },
+    invalidateContext(sessionId, cause) {
+      const core = coreFor(sessionId)
+      const previous = core.context?.context
+      const contextRevision =
+        previous?.status === 'available' || previous?.status === 'stale'
+          ? previous.sample.contextRevision
+          : previous?.status === 'pending' || previous?.status === 'unavailable'
+            ? previous.revision.contextRevision
+            : 0
+      const revision = {
+        bindingVersion: core.binding.bindingVersion,
+        observerGeneration: core.observerGeneration,
+        turnEpoch: core.turnEpoch,
+        contextRevision: contextRevision + 1,
+      }
+      this.contextObservation(sessionId, invalidateContextSummary(previous, cause, revision))
+    },
+    contextObservation(sessionId, summary, detail) {
+      const core = coreFor(sessionId)
+      const normalized = ContextSummary.parse(summary)
+      const observation = ContextObservationSchema.parse({
+        at: normalized.status === 'available' ? normalized.sample.at : stamp(),
+        provenance: 'live',
+        cursor: cursorAt(core, core.seq + 1),
+        observerGeneration: core.observerGeneration,
+        turnEpoch: core.turnEpoch,
+        context: normalized,
+      })
+      core.seq += 1
+      core.context = observation
+      core.contextDetail = detail ? ContextDetailResult.parse(detail) : undefined
+      const { context, ...causal } = observation
+      core.log.push({
+        seq: core.seq,
+        event: { ...causal, t: 'metadata', change: { kind: 'context-observation', context } },
+      })
+      for (const wake of [...core.wakers]) wake()
     },
     processEvent(sessionId, ev) {
       const core = coreFor(sessionId)
@@ -1409,6 +1571,7 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
       core.alive = true
       core.binding = { ...core.binding, bindingVersion: core.binding.bindingVersion + 1 }
       core.observerGeneration += 1
+      control.invalidateContext(core.sessionId, 'resume')
       push(core, {
         t: 'process',
         ev: { ev: 'adopted', bindingVersion: core.binding.bindingVersion },

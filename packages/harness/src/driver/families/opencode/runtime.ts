@@ -1,6 +1,9 @@
 import { createHash, randomUUID } from 'node:crypto'
 import type { OpencodeExecutionBatches } from '../../../adapters/opencode/transcript.js'
+import type { ContextReadOptions } from '../../../context-types.js'
+import { RuntimeContextRelay } from '../../context-relay.js'
 import { withDeliveryQueue } from '../../delivery-queue.js'
+import type { CausalEnvelope } from '../../events.js'
 
 /**
  * THE opencode SERVER DRIVER (POD-1761 W5 — the epic's goal; spec §2, §3, §6).
@@ -630,11 +633,42 @@ export function createOpencodeRuntime(
 
   // -- the event stream -----------------------------------------------------
 
+  const contextRelays = new WeakMap<DriverSession, RuntimeContextRelay>()
+  function contextFor(session: DriverSession): RuntimeContextRelay {
+    let relay = contextRelays.get(session)
+    if (!relay) {
+      relay = new RuntimeContextRelay({
+        binding: () => session.binding,
+        causal: () => ({
+          at: iso(),
+          provenance: 'live',
+          cursor: cursorFor(session, session.seq + 1),
+          observerGeneration: session.observerGeneration,
+          turnEpoch: session.turnEpoch,
+        }),
+        probe: {
+          request: (operation, options) => {
+            const client = session.client as OpencodeClient & {
+              readJson?(path: string, options: ContextReadOptions): Promise<unknown>
+            }
+            if (!client.readJson)
+              return Promise.reject(new Error('Native read port is unavailable'))
+            return client.readJson(operation as string, options)
+          },
+        },
+        emit: (event) => emit(session, event, event.at, event.provenance, event),
+      })
+      contextRelays.set(session, relay)
+    }
+    return relay
+  }
+
   function emit(
     session: DriverSession,
     body: RuntimeEventBody,
     at: string,
     provenance: ObservationProvenance = 'live',
+    causal?: CausalEnvelope,
   ): void {
     if (session.disposed) return
     session.seq += 1
@@ -643,12 +677,16 @@ export function createOpencodeRuntime(
       turnEpoch: session.turnEpoch,
       fencedTurnEpoch: session.fencedTurnEpoch,
     })
-    const event = stampRuntimeEvent(body, at, provenance, {
-      cursor: cursorFor(session, session.seq),
-      observerGeneration: session.observerGeneration,
-      turnEpoch: session.turnEpoch,
-    })
+    const event = {
+      ...stampRuntimeEvent(body, at, provenance, {
+        cursor: cursorFor(session, session.seq),
+        observerGeneration: session.observerGeneration,
+        turnEpoch: session.turnEpoch,
+      }),
+      ...causal,
+    }
     session.log.push({ seq: session.seq, event })
+    contextFor(session).event(event)
     if (session.log.length > OPENCODE_EVENT_LOG_LIMIT) {
       session.log.splice(0, session.log.length - OPENCODE_EVENT_LOG_LIMIT)
     }
@@ -1497,7 +1535,12 @@ export function createOpencodeRuntime(
     void (async () => {
       while (!session.disposed && !session.stream.signal.aborted) {
         try {
-          for await (const event of session.client.events(session.stream.signal)) {
+          for await (const event of (
+            session.client.events as (
+              signal: AbortSignal,
+              onContextPayload?: (payload: unknown) => void,
+            ) => AsyncIterable<OpencodeEvent>
+          )(session.stream.signal, (payload) => contextFor(session).observe(payload))) {
             if (session.disposed) return
             ingest(session, event)
           }
@@ -1508,6 +1551,7 @@ export function createOpencodeRuntime(
           // nothing is emitted here.
         }
         if (session.disposed || session.stream.signal.aborted) return
+        contextFor(session).lost()
         await sleep(RECONNECT_DELAY_MS)
         /**
          * DID THE SERVER ACTUALLY DIE, OR WAS THE BOX BUSY? (POD-2114)
@@ -1625,7 +1669,12 @@ export function createOpencodeRuntime(
         persist(session)
         const validate = async (): Promise<void> => {
           if (input.id === undefined) return
-          const messages = await session.client.messages(session.opencodeSessionId)
+          const messages = await session.client
+            .messages(session.opencodeSessionId)
+            .then((payload) => {
+              contextFor(session).observe(payload)
+              return payload
+            })
           const recorded = messages.find((message) => message.info.id === ids.messageID)
           if (recorded) {
             const part = recorded.parts.find(
@@ -1884,6 +1933,7 @@ export function createOpencodeRuntime(
    * parked in the queue against a caller holding a `queued` receipt.
    */
   function endSession(session: DriverSession): void {
+    contextFor(session).dispose()
     session.disposed = true
     clearTimeout(session.promptRecordPoll)
     for (const waiter of session.promptRecords) {
@@ -2028,6 +2078,9 @@ export function createOpencodeRuntime(
     })
 
     const handle: AgentSessionHandle = {
+      get context() {
+        return contextFor(session).reader
+      },
       get binding() {
         return session.binding
       },
@@ -2080,19 +2133,26 @@ export function createOpencodeRuntime(
 
       // ---- identity ----
       async snapshot(): Promise<SessionSnapshot> {
+        const context = await contextFor(session).replay()
         return {
           binding: session.binding,
           state: session.state,
           cursor: cursorFor(session, session.seq),
           observerGeneration: session.observerGeneration,
           turnEpoch: session.turnEpoch,
+          context,
           interactions: [...session.interactions.values()],
           at: iso(),
         }
       },
 
       async export(): Promise<SessionArchive> {
-        const messages = await session.client.messages(session.opencodeSessionId)
+        const messages = await session.client
+          .messages(session.opencodeSessionId)
+          .then((payload) => {
+            contextFor(session).observe(payload)
+            return payload
+          })
         const resume: ResumeRef = session.binding.resume ?? {
           kind: 'opencode-session',
           value: session.opencodeSessionId,
@@ -2768,7 +2828,10 @@ export function createOpencodeRuntime(
   /** Read the session's live truth once, at bind time. */
   async function hydrate(session: DriverSession): Promise<void> {
     try {
-      const messages = await session.client.messages(session.opencodeSessionId)
+      const messages = await session.client.messages(session.opencodeSessionId).then((payload) => {
+        contextFor(session).observe(payload)
+        return payload
+      })
       for (const message of messages) session.messages.set(message.info.id, message.info)
       const last = messages[messages.length - 1]
       // An assistant message with no completion time is a turn still running.

@@ -8,6 +8,7 @@
  * generic (`observer.ts`) and names no harness.
  */
 import type { TranscriptItem } from '@podium/model'
+import type { CausalEnvelope } from '@podium/protocol/daemon'
 import {
   type AgentStateEvent,
   type AgentStateProvider,
@@ -81,6 +82,10 @@ export function observeOpencodeState(opts: {
   /** Stable Podium row identity; used to select a session-owned store. */
   podiumSessionId?: string
   resumeValue?: string
+  /** Separately attested identity from the current invocation's owned native
+   * launch/stream binding. A persisted resume hint or host generation cannot
+   * supply this proof. Missing proof keeps Store context publication closed. */
+  contextOwnedSessionId?: string
   homeDir: string
   /** Explicit store path for tests/embedders that already selected one. */
   databasePath?: string
@@ -98,6 +103,10 @@ export function observeOpencodeState(opts: {
   /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
   onSession?: (sessionId: string) => void
   onModel?: (model: string, effort?: string) => void
+  /** Current host binding identity. Native source time/cursor are stamped
+   * below; missing host identity must not be replaced with invented defaults. */
+  contextIdentity?: () => Pick<CausalEnvelope, 'observerGeneration' | 'turnEpoch'> | undefined
+  onContextPayload?: (payload: unknown, causal: CausalEnvelope) => void
   onEvents: (events: AgentStateEvent[]) => void
   onTranscriptItems?: (items: TranscriptItem[], reset: boolean) => void
 }): OpencodeStateObserver {
@@ -115,6 +124,7 @@ export function observeOpencodeState(opts: {
     opts.startedAtMs !== undefined ? opts.startedAtMs - FRESH_SESSION_MARGIN_MS : undefined
   let stopped = false
   let attached: OpencodeSessionRow | undefined
+  let contextSessionId: string | undefined
   let lastPartTime = 0
   let lastPartId: string | undefined
   let lastCompacting: number | null | undefined
@@ -125,6 +135,22 @@ export function observeOpencodeState(opts: {
   const completedAbortedMessageIds = new Set<string>()
   const emittedInterruptMarkerIds = new Set<string>()
   let turnAwaitingTerminal = false
+  let contextSegment: string | undefined
+  let contextPublished = false
+  let pendingContext:
+    | {
+        payload: { session: OpencodeSessionRow; rows: OpencodeMessagePartRow[] }
+        causal: Omit<CausalEnvelope, 'observerGeneration' | 'turnEpoch'>
+      }
+    | undefined
+  const emitContext = (): void => {
+    if (!pendingContext || pendingContext.payload.session.id !== contextSessionId) return
+    const identity = opts.contextIdentity?.()
+    if (!identity || !opts.onContextPayload) return
+    opts.onContextPayload(pendingContext.payload, { ...pendingContext.causal, ...identity })
+    pendingContext = undefined
+    contextPublished = true
+  }
 
   // A single opencode DB handle reused across every ~700ms poll tick (was opened
   // and closed per tick, per call). A `readOnly` SQLite handle re-reads the latest
@@ -178,9 +204,15 @@ export function observeOpencodeState(opts: {
   // skip on uncertainty, so a fresh read always runs.
   let lastPollMtimeMs: number | undefined
 
-  const attach = (session: OpencodeSessionRow): void => {
+  const attach = (session: OpencodeSessionRow, exactRequestedSession: boolean): void => {
     if (attached?.id === session.id) return
     attached = session
+    // A store path, cwd/time match or later host generation does not prove
+    // the candidate is this invocation's primary native session. Only the
+    // requested native ID's exact lookup, paired with independent invocation
+    // ownership, can admit this Store context source.
+    contextSessionId =
+      exactRequestedSession && session.id === opts.contextOwnedSessionId ? session.id : undefined
     lastPartTime = 0
     lastPartId = undefined
     lastCompacting = session.timeCompacting
@@ -190,6 +222,9 @@ export function observeOpencodeState(opts: {
     completedAbortedMessageIds.clear()
     emittedInterruptMarkerIds.clear()
     turnAwaitingTerminal = false
+    contextSegment = undefined
+    contextPublished = false
+    pendingContext = undefined
     // Force the next poll tick to read regardless of the mtime gate, so a freshly
     // attached session isn't skipped on a coincidentally-equal mtime.
     lastPollMtimeMs = undefined
@@ -228,7 +263,7 @@ export function observeOpencodeState(opts: {
         return
       }
       const session = candidates[0]
-      if (session && !stopped) attach(session)
+      if (session && !stopped) attach(session, false)
     } catch {
       dropDb()
     }
@@ -268,6 +303,7 @@ export function observeOpencodeState(opts: {
       const rows = firstTranscript
         ? rt.loadOpencodeTranscriptTail(handle, attached.id)
         : rt.loadOpencodeMessageParts(handle, attached.id, lastPartTime, lastPartId)
+      const contextBootstrap = firstTranscript
       if (rows.length > 0) {
         let resetForAbortedMessage = false
         const last = rows.at(-1)
@@ -337,6 +373,32 @@ export function observeOpencodeState(opts: {
         firstTranscript = false
       }
       if (events.length > 0) opts.onEvents(events)
+      if (contextSessionId === session.id && opts.contextIdentity && opts.onContextPayload) {
+        const at = rows.reduce(
+          (latest, row) => Math.max(latest, row.timeUpdated),
+          session.timeUpdated,
+        )
+        const segmentId = `opencode:${session.id}:${lastPartId ?? 'session'}`
+        pendingContext = {
+          payload: {
+            session,
+            rows: pendingContext ? [...pendingContext.payload.rows, ...rows].slice(-8000) : rows,
+          },
+          causal: {
+            at: new Date(at).toISOString(),
+            provenance: contextBootstrap || !contextPublished ? 'bootstrap' : 'live',
+            cursor: {
+              segmentId,
+              ...(contextSegment && contextSegment !== segmentId
+                ? { predecessorSegmentId: contextSegment }
+                : {}),
+              components: { session: session.timeUpdated, part: lastPartTime },
+            },
+          },
+        }
+        contextSegment = segmentId
+        emitContext()
+      }
     } catch {
       dropDb()
     }
@@ -358,6 +420,10 @@ export function observeOpencodeState(opts: {
   // the provider step-finish or abort row closes it. Idle sessions keep the gate.
   const pollOnce = async (): Promise<void> => {
     if (stopped || !attached) return
+    // Binding can arrive after the first Store read while the DB is idle.
+    // Deliver that bounded pending payload on the existing cadence, retaining
+    // its native time/cursor, without another query or a synthetic measurement.
+    emitContext()
     const rt = await maybeLoadBundle()
     if (!rt || stopped || !attached) return
     const mtimeMs = rt.opencodeDbMtimeMs(opts.homeDir, databasePathFor(rt))
@@ -387,8 +453,8 @@ export function observeOpencodeState(opts: {
       if (!handle) return
       try {
         const session = rt.getOpencodeSession(handle, opts.resumeValue ?? '')
-        if (session && !stopped) {
-          attach(session)
+        if (session && session.id === opts.resumeValue && !stopped) {
+          attach(session, true)
           return
         }
       } catch {
@@ -412,6 +478,7 @@ export function observeOpencodeState(opts: {
     },
     stop() {
       stopped = true
+      pendingContext = undefined
       stopDiscovery?.()
       stopPolling()
       dropDb()

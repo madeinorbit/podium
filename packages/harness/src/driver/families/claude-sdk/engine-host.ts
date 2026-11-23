@@ -30,6 +30,7 @@
 import { readFile } from 'node:fs/promises'
 import { createLogger } from '@podium/logger'
 import type { HarnessAgent, SessionId } from '@podium/model'
+import type { ContextReadOptions } from '../../../context-types.js'
 import { harnessRoots } from '../../../harness-context.js'
 import type { HarnessContext } from '../../../harness-context-types.js'
 import { agentTermsFor, type LaunchFolders, launchPosture } from '../../../launch-terms.js'
@@ -353,6 +354,13 @@ export interface ClaudeEngineHost {
    *  read back, never a store this family holds. */
   bindings: EngineBindingRecords<ClaudeEngineJournalEntry>
   startTurn(input: StartTurnInput): ClaudeSdkTurnHandle
+  /** Native operations/readers never create or adopt an engine. */
+  requestNative?(
+    sessionId: SessionId,
+    operation: unknown,
+    options: ContextReadOptions,
+  ): Promise<unknown>
+  observeNative?(sessionId: SessionId, listener: (raw: unknown) => void): () => void
   /**
    * THE CONTEXT A SESSION RUNS UNDER WHEN NO SPEC IS IN HAND (POD-6546): a
    * session adopted from its journal, whose later turns spawn the engine. The
@@ -382,6 +390,7 @@ export function createClaudeEngineHost(deps: ClaudeEngineHostDeps): ClaudeEngine
    *  the next generation re-attaches by label through `ensureEngine`, which
    *  adopts a live host instead of spawning beside it. */
   const engines = new Map<SessionId, HeldEngine>()
+  const nativeListeners = new Map<SessionId, Set<(raw: unknown) => void>>()
 
   const records = bindingRecordsOf(deps.engines)
   const adapterFor = (sessionId: SessionId): EngineProcessOwner =>
@@ -560,6 +569,15 @@ export function createClaudeEngineHost(deps: ClaudeEngineHostDeps): ClaudeEngine
       ...(spec.contextPrompt ? { contextPrompt: spec.contextPrompt } : {}),
       ...(claudeSessionId ? { sessionId: claudeSessionId } : {}),
       ...(boundary ? { boundaryContext: boundary.respond } : {}),
+      onNativePayload: (raw) => {
+        for (const listener of nativeListeners.get(sessionId) ?? []) {
+          try {
+            listener(raw)
+          } catch {
+            /* Observation must not affect delivery. */
+          }
+        }
+      },
     })
     return held.client.ready
   }
@@ -710,6 +728,25 @@ export function createClaudeEngineHost(deps: ClaudeEngineHostDeps): ClaudeEngine
 
   return {
     bindings: records,
+    requestNative(sessionId, operation, options) {
+      const held = engines.get(sessionId)
+      if (!held || held.exit !== undefined)
+        return Promise.reject(new Error('No running Claude engine owns this native read'))
+      return held.client.request(operation, options)
+    },
+    observeNative(sessionId, listener) {
+      let listeners = nativeListeners.get(sessionId)
+      if (!listeners) {
+        listeners = new Set()
+        nativeListeners.set(sessionId, listeners)
+      }
+      listeners.add(listener)
+      return () => {
+        listeners.delete(listener)
+        if (!listeners.size && nativeListeners.get(sessionId) === listeners)
+          nativeListeners.delete(sessionId)
+      }
+    },
 
     harnessContextFor: (sessionId) => deps.harnessContextFor(sessionId),
     podiumGrantsFor: (sessionId) => deps.podiumGrantsFor(sessionId),
@@ -764,6 +801,7 @@ export function createClaudeEngineHost(deps: ClaudeEngineHostDeps): ClaudeEngine
     },
 
     releaseEngines() {
+      nativeListeners.clear()
       // Daemon shutdown/dispose: drop every hold WITHOUT ending the engines
       // — the host owns them now, and the journals stay so the next
       // generation adopts the survivors.

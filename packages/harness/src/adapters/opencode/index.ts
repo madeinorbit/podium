@@ -14,6 +14,7 @@ import {
 import { harnessVersionFloor, OPENCODE_VERSION_POLICY } from '../../version-policy.js'
 import { detectOpencodeLogin } from './auth.js'
 import { opencodeCatalog } from './catalog.js'
+import { opencodeContext } from './context.js'
 import { opencodeCredentials } from './credentials.js'
 import { opencodeDescriptor } from './descriptor.js'
 import { createOpencodeConversationProvider } from './discovery.js'
@@ -213,6 +214,7 @@ export const opencodeManifest: AgentManifest = {
   // OpenAPI 3.1 + SSE — and the intended host for background executors on
   // non-Claude/non-Codex models.
   runtime: {
+    context: opencodeContext,
     server: supported({
       driverId: 'opencode-server',
       kind: 'http-sse',
@@ -402,10 +404,21 @@ export const opencodeManifest: AgentManifest = {
       ...(input.statTick ? { statTick: input.statTick } : {}),
       ...(input.loadOpencodeSource ? { loadSource: input.loadOpencodeSource } : {}),
       ...(input.resumeValue ? { resumeValue: input.resumeValue } : {}),
+      // This spawn-only input is paired with launch()'s --session argument.
+      // Adoption/headless hints have no such proof and keep context withheld.
+      ...(input.startedAtMs !== undefined && input.resumeValue
+        ? { contextOwnedSessionId: input.resumeValue }
+        : {}),
       homeDir: input.account.home,
       ...(input.startedAtMs !== undefined ? { startedAtMs: input.startedAtMs } : {}),
       onSession: (opencodeSessionId) => host.onResumeValue(opencodeSessionId),
       onModel: (model, effort) => host.onModel?.(model, effort),
+      ...(host.contextIdentity && host.onContextPayload
+        ? {
+            contextIdentity: host.contextIdentity.bind(host),
+            onContextPayload: host.onContextPayload.bind(host),
+          }
+        : {}),
       onEvents: (events) => host.onStateEvents(withStateChannel(events, 'poll')),
       onTranscriptItems: (items, reset) => host.onTranscriptItems(items, reset),
     })

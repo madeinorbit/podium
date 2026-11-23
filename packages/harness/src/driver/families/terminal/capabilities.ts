@@ -64,6 +64,9 @@ export interface TerminalCapabilityInput {
  */
 export function terminalCapabilities(input: TerminalCapabilityInput): DriverCapabilities {
   return {
+    context: unsupported(
+      'Normalized context observations require the adapter context strategy to be wired for this harness and driver',
+    ),
     instrumentation: input.instrumentationRequired ? 'required' : 'none',
     // ---- CORE ----
     send: {

@@ -49,10 +49,16 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { delimiter, isAbsolute, join, relative, sep } from 'node:path'
-import { asAccountId, asSessionId, type BuiltinHarnessKind } from '@podium/model'
+import {
+  asAccountId,
+  asSessionId,
+  type BuiltinHarnessKind,
+  ContextAvailability,
+} from '@podium/model'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { fixtureManifest } from './adapters/fixture/index.js'
 import { type BoundCommand, harnessCommand } from './bound-command.js'
+import { ContextObservationSchema } from './driver/context.js'
 import {
   allocationInvocation,
   composeHeadlessInvocation,
@@ -78,6 +84,7 @@ import { agentLaunchTerms } from './launch-terms.js'
 import {
   type AgentManifest,
   credentialFileReader,
+  DRIVER_IDS,
   declaredValue,
   type HarnessCheckPorts,
   type HarnessInstall,
@@ -366,7 +373,8 @@ function harnessOn(world: World, kind: Kind): Harness {
   }
   const snapshot = {
     executables: new Map([
-      [kind, { kind, path: selected, version: 'codex-cli 0.162.0', generation: 1 }],
+      // The recording binary proves isolation, not native version compatibility.
+      [kind, { kind, path: selected, generation: 1 }],
     ]),
     commandEnvironment: {
       env: machineEnv,
@@ -590,11 +598,66 @@ const NEEDS_MODEL = new Map<string, string>([
   ],
 ])
 
+const CONTEXT_CASES: Record<string, Case> = Object.fromEntries(
+  DRIVER_IDS.map((driver) => [
+    `runtime.context.${driver}`,
+    async (h: Harness) => {
+      const declaration = h.manifest.runtime.context.forDriver(driver)
+      if (!declaration.supported) {
+        expect(declaration.reason.trim().length).toBeGreaterThan(0)
+        return
+      }
+      const lifetime = new AbortController()
+      const port = {
+        request: async (_operation: unknown, _options: unknown): Promise<unknown> => undefined,
+      }
+      try {
+        ContextAvailability.parse(
+          await declaration.value.probe({ timeoutMs: 50, signal: lifetime.signal }, port),
+        )
+        const session = declaration.value.bind({
+          harness: h.kind,
+          driver,
+          nativeSessionId: RESUME,
+          revision: { bindingVersion: 1, observerGeneration: 1, turnEpoch: 0, contextRevision: 1 },
+          probe: port,
+          signal: lifetime.signal,
+          publish: (observation) => {
+            ContextObservationSchema.parse(observation)
+          },
+        })
+        const observation = session.observe(undefined, {
+          at: '2026-11-21T12:00:00.000Z',
+          provenance: 'bootstrap',
+          cursor: { segmentId: 'invented-context-source', components: { seq: 1 } },
+          observerGeneration: 1,
+          turnEpoch: 0,
+        })
+        if (observation) ContextObservationSchema.parse(observation)
+        lifetime.abort()
+        await session
+          .summary({ timeoutMs: 50, signal: lifetime.signal })
+          .catch((error: unknown) => {
+            if (!(error instanceof Error) || error.name !== 'AbortError') throw error
+          })
+      } finally {
+        lifetime.abort()
+      }
+    },
+  ]),
+)
+
+function invocationDirectory(h: Harness): string {
+  const dir = join(h.world.root, `runtime-${h.kind}`)
+  mkdirSync(dir, { recursive: true })
+  return dir
+}
+
 const CASES: Record<string, Case> = {
+  ...CONTEXT_CASES,
   // --- not Declared, but every harness has them ----------------------------
   launch: (h) => {
-    const runtimeDir = join(h.world.root, `runtime-${h.kind}`)
-    mkdirSync(runtimeDir, { recursive: true })
+    const runtimeDir = invocationDirectory(h)
     const command = agentLaunchCommand(h.kind as BuiltinHarnessKind, {
       cwd: CWD,
       harnessContext: h.context,
@@ -680,12 +743,17 @@ const CASES: Record<string, Case> = {
   },
   exec: (h) => {
     const exec = declaredValue(h.manifest.exec)!
-    const argv = exec({ prompt: 'conformance', systemPrompt: 'system' })
+    const argv = exec({
+      prompt: 'conformance',
+      systemPrompt: 'system',
+      runtimeDir: invocationDirectory(h),
+    })
     const { stdin, ...command } = harnessCommand(h.context, argv, termsFor(h, 'turn'))
     h.spawn(command, { ...(stdin !== undefined ? { stdin } : {}) })
   },
   headless: (h) => {
     if (h.kind === 'fixture') return // the fixture's headless runs through buildExec below
+    const runtimeDir = invocationDirectory(h)
     const spec: HeadlessTurnSpec = {
       agent: h.kind as BuiltinHarnessKind,
       accountId: asAccountId(`native:${h.kind}:poisoned`),
@@ -693,7 +761,7 @@ const CASES: Record<string, Case> = {
       cwd: CWD,
       prompt: 'conformance',
       sessionUuid: RESUME,
-      launchPosture: testLaunchPosture(h.context),
+      launchPosture: testLaunchPosture(h.context, { runtimeDir }),
     }
     // Cursor allocates its chat first (`create-chat`), then runs pinned to it.
     const allocated = needsAllocation(spec) ? RESUME : undefined
@@ -711,7 +779,12 @@ const CASES: Record<string, Case> = {
     const buildExec = declaredValue(declaredValue(h.manifest.headless)!.buildExec)!
     const { stdin, ...command } = harnessCommand(
       h.context,
-      buildExec({ prompt: 'conformance', sessionId: RESUME, resumeValue: RESUME }),
+      buildExec({
+        prompt: 'conformance',
+        sessionId: RESUME,
+        resumeValue: RESUME,
+        runtimeDir: invocationDirectory(h),
+      }),
       termsFor(h, 'turn'),
     )
     h.spawn(command, { ...(stdin !== undefined ? { stdin } : {}) })
@@ -898,7 +971,13 @@ const CASES: Record<string, Case> = {
 }
 
 /** Required of every harness, Declared or not. */
-const ALWAYS = ['launch', 'roots', 'discovery', 'inventory.detectLogin'] as const
+const ALWAYS = [
+  'launch',
+  'roots',
+  'discovery',
+  'inventory.detectLogin',
+  ...Object.keys(CONTEXT_CASES),
+] as const
 
 // ---------------------------------------------------------------------------
 // The run
@@ -964,10 +1043,12 @@ describe('the poisoned machine (POD-6536)', () => {
     describe(kind, () => {
       const manifest = manifestOf(kind)
       const supported = [
-        ...ALWAYS,
-        ...sectionStatusesOf(manifest)
-          .filter((row) => row.supported)
-          .map((row) => row.section),
+        ...new Set([
+          ...ALWAYS,
+          ...sectionStatusesOf(manifest)
+            .filter((row) => row.supported)
+            .map((row) => row.section),
+        ]),
       ]
 
       it('has a conformance case for every supported section', () => {

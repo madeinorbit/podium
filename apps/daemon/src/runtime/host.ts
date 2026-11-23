@@ -42,6 +42,7 @@ import { sourceForRead } from '../control/transcripts'
 import { transcriptForExport } from '../handoff-package'
 import { reportHarnessProbe } from '../harness-version-reporting'
 import { recordInstrumentationHookFile } from '../home-edit-service'
+import { sessionRuntimeDir } from '../session-posture'
 import { stageRuntimeAttachment } from './attachment-staging'
 import { driverTiming } from './driver-timing'
 import type { ClientTerminalKind, OpencodeClientTerminals } from './opencode-attach'
@@ -108,7 +109,7 @@ export function daemonRuntimeHost(
         harness: spec.harness,
         spec,
         sections: terminalInstrumentationSectionsFor(spec.harness),
-        settingsDir: ctx.settingsDir,
+        settingsDir: sessionRuntimeDir(ctx.settingsDir, sessionId),
         reportVersionProbe: (harness, output) => reportHarnessProbe(harness, output),
         // Hooks at launch in a Podium home need Codex's trust (§10).
         ...(ctx.codexHookTrust

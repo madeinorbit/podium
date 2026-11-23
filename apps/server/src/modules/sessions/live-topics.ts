@@ -81,6 +81,7 @@ export function conditionOf(session: Session): SessionConditionPayload {
   return {
     busy: terminal.busy,
     requestsGated: terminal.requestsGated,
+    ...(session.contextObservation ? { context: session.contextObservation.context } : {}),
     ...(terminal.lastInputAtMs > 0
       ? { lastInputAt: new Date(terminal.lastInputAtMs).toISOString() }
       : {}),

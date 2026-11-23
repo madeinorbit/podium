@@ -1,6 +1,9 @@
 import { homedir } from 'node:os'
 import {
+  type AcceptedDriverId,
   buildServedDescriptors,
+  canonicalDriverId,
+  contextCapabilityFor,
   declaredValue,
   gateHarnessVersion,
   HARNESS_KINDS,
@@ -15,7 +18,7 @@ import {
   probeAllModels,
 } from '@podium/harness'
 import { createLogger } from '@podium/logger'
-import { asMachineId, type Inventory } from '@podium/model'
+import { asMachineId, type DriverCapabilitiesWire, HarnessId, type Inventory } from '@podium/model'
 import type { BuiltinHarnessKind } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import {
@@ -124,6 +127,57 @@ export function runtimeDriverInventory(
   ]
 }
 
+/** Context has one machine source independent of launch-selection membership:
+ * the context part of each driver's record in `driverCapabilities`, keyed by
+ * canonical driver id, then by harness. Explicit-only headless mechanisms come
+ * from the same manifests, without making them additional launcher options for
+ * current or older clients. */
+export function driverCapabilityInventory(
+  drivers: NonNullable<Inventory['runtimeDrivers']>,
+): NonNullable<Inventory['driverCapabilities']> {
+  const mechanisms = [
+    ...drivers.map((driver) => ({
+      harness: driver.harness,
+      driverId: canonicalDriverId(driver.id),
+    })),
+    ...HARNESS_KINDS.flatMap((harness) =>
+      manifestFor(harness)?.headless.supported ? [{ harness, driverId: 'headless' }] : [],
+    ),
+  ]
+  const catalog: NonNullable<Inventory['driverCapabilities']> = {}
+  for (const { harness, driverId } of mechanisms) {
+    const record = Object.hasOwn(catalog, driverId) ? catalog[driverId] : undefined
+    const context: DriverCapabilitiesWire['context'] = record?.context ?? {}
+    const key = HarnessId.parse(harness)
+    // An alias and its canonical id, or an admitted and a declared headless
+    // row, are one mechanism: the first statement stands.
+    if (Object.hasOwn(context, key)) continue
+    // Every key came from a manifest or the admitted inventory, not a client.
+    const declared = contextCapabilityFor(harness, driverId as AcceptedDriverId)
+    context[key] = declared.supported
+      ? {
+          capability: declared.value,
+          // Inventory has no native session transport. Do not start a
+          // harness to probe it, or confuse implementation with a sample.
+          availability: {
+            status: 'unavailable',
+            reason: {
+              code: 'not-probed',
+              message: 'Native context availability requires an attributable session observation',
+            },
+          },
+        }
+      : {
+          availability: {
+            status: 'unsupported',
+            reason: { code: 'unsupported-implementation', message: declared.reason },
+          },
+        }
+    catalog[driverId] = record ?? { context }
+  }
+  return catalog
+}
+
 const inventoryProbeTimes = new WeakMap<Inventory, string>()
 
 function reportHarnessInventory(send: DaemonContext['send'], inventory: Inventory): void {
@@ -202,6 +256,7 @@ export async function reportInventory(
       }
       if (!ctx.harnessRuntime.isCurrent(snapshot)) return
       const inventory = ctx.harnessInstalls?.inventory(snapshot.inventory) ?? snapshot.inventory
+      const runtimeDrivers = runtimeDriverInventory(snapshot.inventory, drivableAlternatives)
       ctx.send({
         type: 'inventoryReport',
         machineId: asMachineId(ctx.machineId),
@@ -215,7 +270,8 @@ export async function reportInventory(
               })
             : inventory),
           homePath: snapshot.commandEnvironment.machineHome,
-          runtimeDrivers: runtimeDriverInventory(snapshot.inventory, drivableAlternatives),
+          runtimeDrivers,
+          driverCapabilities: driverCapabilityInventory(runtimeDrivers),
         },
         // Served descriptors (POD-4475): adapter DATA plus this machine's
         // availability, so clients render harnesses they never shipped.
@@ -288,6 +344,7 @@ export async function reportInventory(
     // The brand is asserted, not validated: this id is the daemon's OWN, read
     // from its state file at boot and carried through `DaemonContext.machineId`
     // and the inventory build, neither of which is a wire boundary.
+    const runtimeDrivers = runtimeDriverInventory(inventory)
     ctx.send({
       type: 'inventoryReport',
       machineId: asMachineId(machineId),
@@ -299,7 +356,8 @@ export async function reportInventory(
             })
           : inventory),
         homePath: ctx.homeDir ?? homedir(),
-        runtimeDrivers: runtimeDriverInventory(inventory),
+        runtimeDrivers,
+        driverCapabilities: driverCapabilityInventory(runtimeDrivers),
       },
       // Served descriptors (POD-4475): see the harnessRuntime path above.
       descriptors: buildServedDescriptors(inventory),

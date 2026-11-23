@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto'
 import { asMachineId } from '@podium/model'
+import { CAP_CONTEXT_OBSERVATION_V1, CAP_CONTEXT_READ_V1 } from '@podium/protocol/daemon'
 import { verifyWithMachineKey } from '@podium/runtime/machine-credential'
 /**
  * THE GATEWAY'S HANDSHAKE COMPOSITION ROOT — where `wsServer` meets the shared
@@ -121,6 +122,8 @@ const createResolvedDaemonAcceptor = (deps: ResolvedDaemonAcceptorDeps): Handsha
       mint: gatewayCapabilityMinter,
     }),
     supportedCaps: [
+      CAP_CONTEXT_OBSERVATION_V1,
+      CAP_CONTEXT_READ_V1,
       CAP_TERMINAL_OUTPUT_BINARY_V1,
       CAP_TERMINAL_PICTURE_V1,
       CAP_TERMINAL_INPUT_BINARY_V1,

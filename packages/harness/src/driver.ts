@@ -32,6 +32,36 @@ export type {
   SessionSnapshot,
 } from './driver/binding.js'
 export type { SessionHealth, UsageSnapshot } from './driver/capabilities.js'
+export type { ContextObservation } from './driver/context.js'
+export {
+  CONTEXT_MAX_DEPTH,
+  CONTEXT_MAX_ROWS,
+  ContextAvailability,
+  ContextCapability,
+  ContextCapacity,
+  ContextCompactionPolicy,
+  ContextComposition,
+  ContextCompositionRow,
+  ContextDetail,
+  ContextDetailRequestSchema,
+  ContextDetailResult,
+  ContextInvalidation,
+  ContextInvalidationCause,
+  ContextLastRequest,
+  ContextModelIdentity,
+  ContextObservationSchema,
+  ContextOccupancy,
+  ContextQuantity,
+  ContextReason,
+  ContextRevision,
+  ContextSampleIdentity,
+  ContextSummary,
+  ContextSummaryReadResultSchema,
+  ContextSummaryRequestSchema,
+  contextUsagePercentOf,
+  invalidateContextSummary,
+  sameContextSample,
+} from './driver/context.js'
 export type {
   ExitClassification,
   FailureDisposition,
@@ -46,6 +76,11 @@ export type {
   WatchLevel,
 } from './driver/events.js'
 export type { AcceptedDriverId, DriverFamily, DriverId } from './driver/families.js'
+// ---- The headless receipt facts --------------------------------------------
+// The server verifies headless delivery receipts against these without ever
+// holding a driver (previously the one barrel import outside the metadata
+// surface; the dissolve folds it into the contract entry).
+export { canonicalHeadlessContractFacts } from './driver/headless-turn.js'
 export type {
   ElicitationAnswer,
   ElicitationAsk,
@@ -111,9 +146,3 @@ export type {
   TurnReceipt,
 } from './driver/turns.js'
 export { attachmentKindFor } from './driver/turns.js'
-
-// ---- The headless receipt facts --------------------------------------------
-// The server verifies headless delivery receipts against these without ever
-// holding a driver (previously the one barrel import outside the metadata
-// surface; the dissolve folds it into the contract entry).
-export { canonicalHeadlessContractFacts } from './driver/headless-turn.js'

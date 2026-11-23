@@ -2272,6 +2272,28 @@ type Input_sessions_answerAskUserQuestion = {
     sessionId: string;
     skip?: true | undefined;
 };
+type Input_sessions_contextRead = {
+    read: {
+        intent: "breakdown";
+        maxRows: number;
+        sample: Readonly<{
+            at: string;
+            bindingVersion: number;
+            contextRevision: number;
+            id: string;
+            nativeSampleId?: string | undefined;
+            nativeSessionId?: string | undefined;
+            observerGeneration: number;
+            turnEpoch: number;
+            turnRevision?: string | undefined;
+        }>;
+        timeoutMs: number;
+    } | {
+        intent: "summary";
+        timeoutMs: number;
+    };
+    sessionId: string;
+};
 type Input_sessions_create = {
     agentKind?: "antigravity" | "claude-code" | "codex" | "cursor" | "grok" | "opencode" | "pi" | "shell" | undefined;
     attachments?: undefined | {
@@ -5934,6 +5956,29 @@ type Output_machines_applyUpdate = {
                 version?: string | undefined;
             }[];
             arch: "arm64" | "x64";
+            driverCapabilities?: Record<string, {
+                context: Partial<Record<string & z.BRAND<"HarnessId">, {
+                    availability: {
+                        reason: {
+                            code: string;
+                            message: string;
+                        };
+                        status: "unavailable";
+                    } | {
+                        reason: {
+                            code: string;
+                            message: string;
+                        };
+                        status: "unsupported";
+                    } | {
+                        status: "available";
+                    };
+                    capability?: undefined | {
+                        detail: "none" | "on-demand";
+                        summary: "explicit" | "passive" | "passive-and-explicit";
+                    };
+                }>>;
+            }> | undefined;
             homePath?: string | undefined;
             os: "darwin" | "linux" | "win32";
             podiumVersion?: string | undefined;
@@ -6126,6 +6171,29 @@ type Output_machines_uninstall = {
                 version?: string | undefined;
             }[];
             arch: "arm64" | "x64";
+            driverCapabilities?: Record<string, {
+                context: Partial<Record<string & z.BRAND<"HarnessId">, {
+                    availability: {
+                        reason: {
+                            code: string;
+                            message: string;
+                        };
+                        status: "unavailable";
+                    } | {
+                        reason: {
+                            code: string;
+                            message: string;
+                        };
+                        status: "unsupported";
+                    } | {
+                        status: "available";
+                    };
+                    capability?: undefined | {
+                        detail: "none" | "on-demand";
+                        summary: "explicit" | "passive" | "passive-and-explicit";
+                    };
+                }>>;
+            }> | undefined;
             homePath?: string | undefined;
             os: "darwin" | "linux" | "win32";
             podiumVersion?: string | undefined;
@@ -6248,6 +6316,393 @@ type Output_sessions_configure = ({
 }) | ({
     effective: "immediate" | "next-turn";
     ok: true;
+});
+type Output_sessions_contextRead = ({
+    intent: "breakdown";
+    result: {
+        composition?: undefined | {
+            coverage: "complete" | "partial" | "unknown";
+            rows: readonly {
+                attribution: "category" | "item" | "unattributed";
+                category: string;
+                childrenCoverage?: "complete" | "partial" | "unknown" | undefined;
+                id: string;
+                kind: "deferred" | "excluded" | "free" | "reserve" | "used";
+                label: string;
+                parentId?: string | undefined;
+                tokens?: undefined | {
+                    accuracy: "estimated" | "reported";
+                    source: string;
+                    value: number;
+                };
+            }[];
+            truncated: boolean;
+            usedTokens?: undefined | {
+                accuracy: "estimated" | "reported";
+                source: string;
+                value: number;
+            };
+        };
+        lastRequest?: undefined | {
+            cacheRead?: undefined | {
+                accuracy: "estimated" | "reported";
+                source: string;
+                value: number;
+            };
+            cacheWrite?: undefined | {
+                accuracy: "estimated" | "reported";
+                source: string;
+                value: number;
+            };
+            input?: undefined | {
+                accuracy: "estimated" | "reported";
+                source: string;
+                value: number;
+            };
+            model?: undefined | {
+                modelId?: string | undefined;
+                providerId?: string | undefined;
+            };
+            output?: undefined | {
+                accuracy: "estimated" | "reported";
+                source: string;
+                value: number;
+            };
+            reasoning?: undefined | {
+                accuracy: "estimated" | "reported";
+                source: string;
+                value: number;
+            };
+            requestId?: string | undefined;
+        };
+        sample: Readonly<{
+            at: string;
+            bindingVersion: number;
+            contextRevision: number;
+            id: string;
+            nativeSampleId?: string | undefined;
+            nativeSessionId?: string | undefined;
+            observerGeneration: number;
+            turnEpoch: number;
+            turnRevision?: string | undefined;
+        }>;
+        status: "available";
+        version: 1;
+    } | {
+        reason: {
+            code: string;
+            message: string;
+        };
+        sample: Readonly<{
+            at: string;
+            bindingVersion: number;
+            contextRevision: number;
+            id: string;
+            nativeSampleId?: string | undefined;
+            nativeSessionId?: string | undefined;
+            observerGeneration: number;
+            turnEpoch: number;
+            turnRevision?: string | undefined;
+        }>;
+        status: "cancelled" | "refused" | "superseded" | "unavailable" | "unsupported";
+        version: 1;
+    };
+}) | ({
+    intent: "summary";
+    result: {
+        observation: {
+            at: string;
+            context: {
+                compaction?: undefined | {
+                    enabled?: boolean | undefined;
+                    reserveTokens?: undefined | {
+                        accuracy: "estimated" | "reported";
+                        source: string;
+                        value: number;
+                    };
+                    source: string;
+                    thresholdPercent?: undefined | {
+                        accuracy: "estimated" | "reported";
+                        source: string;
+                        value: number;
+                    };
+                    thresholdTokens?: undefined | {
+                        accuracy: "estimated" | "reported";
+                        source: string;
+                        value: number;
+                    };
+                };
+                effectiveCapacity?: undefined | {
+                    accuracy: "estimated" | "reported";
+                    basis: "configured" | "fallback" | "model-metadata" | "native";
+                    source: string;
+                    value: number;
+                };
+                invalidation?: undefined | {
+                    cause: "binding-changed" | "compaction" | "fork" | "model-changed" | "reset" | "resume" | "rewind";
+                    previousSample?: Readonly<{
+                        at: string;
+                        bindingVersion: number;
+                        contextRevision: number;
+                        id: string;
+                        nativeSampleId?: string | undefined;
+                        nativeSessionId?: string | undefined;
+                        observerGeneration: number;
+                        turnEpoch: number;
+                        turnRevision?: string | undefined;
+                    }> | undefined;
+                };
+                model?: undefined | {
+                    modelId?: string | undefined;
+                    providerId?: string | undefined;
+                };
+                modelCapacity?: undefined | {
+                    accuracy: "estimated" | "reported";
+                    basis: "configured" | "fallback" | "model-metadata" | "native";
+                    source: string;
+                    value: number;
+                };
+                reason: {
+                    code: string;
+                    message: string;
+                };
+                revision: {
+                    bindingVersion: number;
+                    contextRevision: number;
+                    observerGeneration: number;
+                    turnEpoch: number;
+                };
+                status: "pending";
+                version: 1;
+            } | {
+                compaction?: undefined | {
+                    enabled?: boolean | undefined;
+                    reserveTokens?: undefined | {
+                        accuracy: "estimated" | "reported";
+                        source: string;
+                        value: number;
+                    };
+                    source: string;
+                    thresholdPercent?: undefined | {
+                        accuracy: "estimated" | "reported";
+                        source: string;
+                        value: number;
+                    };
+                    thresholdTokens?: undefined | {
+                        accuracy: "estimated" | "reported";
+                        source: string;
+                        value: number;
+                    };
+                };
+                effectiveCapacity?: undefined | {
+                    accuracy: "estimated" | "reported";
+                    basis: "configured" | "fallback" | "model-metadata" | "native";
+                    source: string;
+                    value: number;
+                };
+                invalidation?: undefined | {
+                    cause: "binding-changed" | "compaction" | "fork" | "model-changed" | "reset" | "resume" | "rewind";
+                    previousSample?: Readonly<{
+                        at: string;
+                        bindingVersion: number;
+                        contextRevision: number;
+                        id: string;
+                        nativeSampleId?: string | undefined;
+                        nativeSessionId?: string | undefined;
+                        observerGeneration: number;
+                        turnEpoch: number;
+                        turnRevision?: string | undefined;
+                    }> | undefined;
+                };
+                model?: undefined | {
+                    modelId?: string | undefined;
+                    providerId?: string | undefined;
+                };
+                modelCapacity?: undefined | {
+                    accuracy: "estimated" | "reported";
+                    basis: "configured" | "fallback" | "model-metadata" | "native";
+                    source: string;
+                    value: number;
+                };
+                reason: {
+                    code: string;
+                    message: string;
+                };
+                revision: {
+                    bindingVersion: number;
+                    contextRevision: number;
+                    observerGeneration: number;
+                    turnEpoch: number;
+                };
+                status: "unavailable";
+                version: 1;
+            } | {
+                compaction?: undefined | {
+                    enabled?: boolean | undefined;
+                    reserveTokens?: undefined | {
+                        accuracy: "estimated" | "reported";
+                        source: string;
+                        value: number;
+                    };
+                    source: string;
+                    thresholdPercent?: undefined | {
+                        accuracy: "estimated" | "reported";
+                        source: string;
+                        value: number;
+                    };
+                    thresholdTokens?: undefined | {
+                        accuracy: "estimated" | "reported";
+                        source: string;
+                        value: number;
+                    };
+                };
+                effectiveCapacity?: undefined | {
+                    accuracy: "estimated" | "reported";
+                    basis: "configured" | "fallback" | "model-metadata" | "native";
+                    source: string;
+                    value: number;
+                };
+                model?: undefined | {
+                    modelId?: string | undefined;
+                    providerId?: string | undefined;
+                };
+                modelCapacity?: undefined | {
+                    accuracy: "estimated" | "reported";
+                    basis: "configured" | "fallback" | "model-metadata" | "native";
+                    source: string;
+                    value: number;
+                };
+                occupancy: {
+                    basis: "current-context" | "last-request" | "native-estimate";
+                    percent?: undefined | {
+                        accuracy: "estimated" | "reported";
+                        source: string;
+                        value: number;
+                    };
+                    remainingTokens?: undefined | {
+                        accuracy: "estimated" | "reported";
+                        source: string;
+                        value: number;
+                    };
+                    usedTokens?: undefined | {
+                        accuracy: "estimated" | "reported";
+                        source: string;
+                        value: number;
+                    };
+                };
+                reason: {
+                    code: string;
+                    message: string;
+                };
+                sample: Readonly<{
+                    at: string;
+                    bindingVersion: number;
+                    contextRevision: number;
+                    id: string;
+                    nativeSampleId?: string | undefined;
+                    nativeSessionId?: string | undefined;
+                    observerGeneration: number;
+                    turnEpoch: number;
+                    turnRevision?: string | undefined;
+                }>;
+                status: "stale";
+                version: 1;
+            } | {
+                compaction?: undefined | {
+                    enabled?: boolean | undefined;
+                    reserveTokens?: undefined | {
+                        accuracy: "estimated" | "reported";
+                        source: string;
+                        value: number;
+                    };
+                    source: string;
+                    thresholdPercent?: undefined | {
+                        accuracy: "estimated" | "reported";
+                        source: string;
+                        value: number;
+                    };
+                    thresholdTokens?: undefined | {
+                        accuracy: "estimated" | "reported";
+                        source: string;
+                        value: number;
+                    };
+                };
+                effectiveCapacity?: undefined | {
+                    accuracy: "estimated" | "reported";
+                    basis: "configured" | "fallback" | "model-metadata" | "native";
+                    source: string;
+                    value: number;
+                };
+                model?: undefined | {
+                    modelId?: string | undefined;
+                    providerId?: string | undefined;
+                };
+                modelCapacity?: undefined | {
+                    accuracy: "estimated" | "reported";
+                    basis: "configured" | "fallback" | "model-metadata" | "native";
+                    source: string;
+                    value: number;
+                };
+                occupancy: {
+                    basis: "current-context" | "last-request" | "native-estimate";
+                    percent?: undefined | {
+                        accuracy: "estimated" | "reported";
+                        source: string;
+                        value: number;
+                    };
+                    remainingTokens?: undefined | {
+                        accuracy: "estimated" | "reported";
+                        source: string;
+                        value: number;
+                    };
+                    usedTokens?: undefined | {
+                        accuracy: "estimated" | "reported";
+                        source: string;
+                        value: number;
+                    };
+                };
+                sample: Readonly<{
+                    at: string;
+                    bindingVersion: number;
+                    contextRevision: number;
+                    id: string;
+                    nativeSampleId?: string | undefined;
+                    nativeSessionId?: string | undefined;
+                    observerGeneration: number;
+                    turnEpoch: number;
+                    turnRevision?: string | undefined;
+                }>;
+                status: "available";
+                version: 1;
+            } | {
+                reason: {
+                    code: string;
+                    message: string;
+                };
+                status: "unsupported";
+                version: 1;
+            };
+            cursor: {
+                components: Record<string, number>;
+                device?: string | undefined;
+                inode?: string | undefined;
+                integrity?: string | undefined;
+                pathHint?: string | undefined;
+                predecessorSegmentId?: string | undefined;
+                segmentId: string;
+            };
+            observerGeneration: number;
+            provenance: "bootstrap" | "live" | "replay";
+            turnEpoch: number;
+        };
+        status: "observation";
+    } | {
+        reason: {
+            code: string;
+            message: string;
+        };
+        status: "cancelled" | "refused";
+    };
 });
 type Output_sessions_interrupt = ({
     ok: boolean;
@@ -8623,6 +9078,11 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
                 sessionId: string;
             };
             output: Output_sessions_configure;
+            meta: unknown;
+        }>;
+        "contextRead": TRPC.TRPCQueryProcedure<{
+            input: Input_sessions_contextRead;
+            output: Output_sessions_contextRead;
             meta: unknown;
         }>;
         "continue": TRPC.TRPCMutationProcedure<{

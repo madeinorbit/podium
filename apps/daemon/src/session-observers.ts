@@ -45,7 +45,7 @@ import { type AgentKind, CLAUDE_CODE_HARNESS_KIND, type SessionId } from '@podiu
 import type { DurableAttachment, ScreenReader } from '@podium/process/screen'
 import type { AgentObservation, ObservationInputOrigin } from '@podium/protocol'
 import { ObservationProvider, SessionObservationCheckpointV1 } from '@podium/protocol'
-import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
+import type { CausalEnvelope, ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import { createGitCapture } from './git-capture'
 import { countTail, timeTask } from './loop-attribution'
 import type { SessionBinding } from './session-binding'
@@ -85,6 +85,12 @@ export interface SessionObserverInit {
 }
 
 export interface SessionObserversDeps {
+  contextIdentity?(
+    sessionId: SessionId,
+  ): Pick<CausalEnvelope, 'observerGeneration' | 'turnEpoch'> | undefined
+  onContextPayload?(sessionId: SessionId, payload: unknown, causal: CausalEnvelope): void
+  onContextReset?(sessionId: SessionId): void
+  onContextLost?(sessionId: SessionId): void
   /** The sole durable SessionBinding transition surface. */
   sessionBinding?: SessionBinding
   send(msg: DaemonMessage): void
@@ -235,6 +241,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     SessionId,
     {
       adapter: HarnessAdapter
+      contextLifetime: { active: boolean }
       observation: HarnessObservation
       /** The account the session runs under (POD-6536): hook translation
        *  reads its folders, never the daemon's HOME. */
@@ -1363,85 +1370,108 @@ export function createSessionObservers(deps: SessionObserversDeps) {
           recordToItems.endsTurn ? { endsTurn: recordToItems.endsTurn } : {},
         )
       : recordToItems
-    tails.set(
-      sessionId,
-      tailTranscript(
-        path,
-        (items, meta) => {
-          if (items.length === 0 && !meta.reset) return
-          // Claude writes its interrupt record and fires no hook (POD-4633).
-          if (items.some((item) => item.event === 'interrupt')) {
-            enqueueClaudeInterruptProbe(sessionId)
-          }
-          countTail()
-          // The per-batch delta publish (encode + ws send + dirty-mark) is
-          // synchronous loop work — timed so a chatty transcript shows up in
-          // the stall attribution.
-          timeTask(`tailBatch(${items.length})`, () => {
-            send({
-              type: 'transcriptDelta',
-              sessionId,
-              items,
-              ...(meta.tail ? { tail: meta.tail } : {}),
-              ...(meta.reset ? { reset: true } : {}),
-            })
-            // The tail fired because this transcript file was appended to — mark it
-            // dirty so the worker re-summarizes JUST it (coalesced, ~1s) and keeps the
-            // search index near-real-time, instead of waiting for the periodic scan.
-            deps.onTranscriptDirty(path)
+    const contextTracker = trackers.get(sessionId)
+    const contextGeneration = contextTracker?.observerGeneration
+    let contextDriverGeneration = deps.contextIdentity?.(sessionId)?.observerGeneration
+    let contextTail: TranscriptTailer | undefined
+    const ownsContextTail = () => {
+      const identity = deps.contextIdentity?.(sessionId)
+      contextDriverGeneration ??= identity?.observerGeneration
+      return (
+        tails.get(sessionId) === contextTail &&
+        identity !== undefined &&
+        identity.observerGeneration === contextDriverGeneration &&
+        trackers.get(sessionId) === contextTracker &&
+        contextTracker?.observerGeneration === contextGeneration &&
+        nativeSessionIds.get(sessionId) === resumeValue
+      )
+    }
+    contextTail = tailTranscript(
+      path,
+      (items, meta) => {
+        if (items.length === 0 && !meta.reset) return
+        // Claude writes its interrupt record and fires no hook (POD-4633).
+        if (items.some((item) => item.event === 'interrupt')) {
+          enqueueClaudeInterruptProbe(sessionId)
+        }
+        countTail()
+        // The per-batch delta publish (encode + ws send + dirty-mark) is
+        // synchronous loop work — timed so a chatty transcript shows up in
+        // the stall attribution.
+        timeTask(`tailBatch(${items.length})`, () => {
+          send({
+            type: 'transcriptDelta',
+            sessionId,
+            items,
+            ...(meta.tail ? { tail: meta.tail } : {}),
+            ...(meta.reset ? { reset: true } : {}),
           })
+          // The tail fired because this transcript file was appended to — mark it
+          // dirty so the worker re-summarizes JUST it (coalesced, ~1s) and keeps the
+          // search index near-real-time, instead of waiting for the periodic scan.
+          deps.onTranscriptDirty(path)
+        })
+      },
+      {
+        resumeValue,
+        onReset: () => {
+          if (ownsContextTail()) deps.onContextReset?.(sessionId)
         },
-        {
-          resumeValue,
-          recordToItems: liveRecordToItems,
-          statTick,
-          ...(recordColor ? { recordColor } : {}),
-          onColor: (color, at) =>
-            send({ type: 'agentColor', sessionId, color, ...(at ? { at } : {}) }),
-          // As do the observed model + effort (assistant `message.model` / `effort`).
-          onModel: (model, effort, at) =>
-            send({
-              type: 'agentModel',
-              sessionId,
-              model,
-              source: 'transcript',
-              ...(at ? { at } : {}),
-              ...(effort ? { effort } : {}),
-            }),
-          recordRuntime: transcriptRuntimeReaderFor(agentKind) ?? (() => ({})),
-          onContextUsage: (percent, at) =>
-            send({ type: 'agentContext', sessionId, percent, ...(at ? { at } : {}) }),
-          // The mode the harness reports it is in (POD-6858 Task 11).
-          onMode: (mode, at) =>
-            send({
-              type: 'agentMode',
-              sessionId,
-              mode,
-              source: 'transcript',
-              ...(at ? { at } : {}),
-            }),
-          ...(deps.tailSeedGate ? { seedGate: deps.tailSeedGate } : {}),
-          initialWindowBytes: TAIL_SEED_WINDOW_BYTES,
-          maxInitialItems: TAIL_SEED_MAX_ITEMS,
-          onStatus: (event) => {
-            if (event.kind === 'first-emission') {
-              log.info('transcript tail first emission', {
-                sessionId,
-                path: event.path,
-                items: event.items,
-                reset: event.reset,
-              })
-              return
-            }
-            log.warn('transcript tail read failed', {
+        onRecord: (payload, source) => {
+          const identity = deps.contextIdentity?.(sessionId)
+          if (!source.at || !identity || !ownsContextTail()) return
+          deps.onContextPayload?.(sessionId, payload, { ...source, at: source.at, ...identity })
+        },
+        recordToItems: liveRecordToItems,
+        statTick,
+        ...(recordColor ? { recordColor } : {}),
+        onColor: (color, at) =>
+          send({ type: 'agentColor', sessionId, color, ...(at ? { at } : {}) }),
+        // As do the observed model + effort (assistant `message.model` / `effort`).
+        onModel: (model, effort, at) =>
+          send({
+            type: 'agentModel',
+            sessionId,
+            model,
+            source: 'transcript',
+            ...(at ? { at } : {}),
+            ...(effort ? { effort } : {}),
+          }),
+        recordRuntime: transcriptRuntimeReaderFor(agentKind) ?? (() => ({})),
+        onContextUsage: (percent, at) =>
+          send({ type: 'agentContext', sessionId, percent, ...(at ? { at } : {}) }),
+        // The mode the harness reports it is in (POD-6858 Task 11).
+        onMode: (mode, at) =>
+          send({
+            type: 'agentMode',
+            sessionId,
+            mode,
+            source: 'transcript',
+            ...(at ? { at } : {}),
+          }),
+        ...(deps.tailSeedGate ? { seedGate: deps.tailSeedGate } : {}),
+        initialWindowBytes: TAIL_SEED_WINDOW_BYTES,
+        maxInitialItems: TAIL_SEED_MAX_ITEMS,
+        onStatus: (event) => {
+          if (event.kind === 'first-emission') {
+            log.info('transcript tail first emission', {
               sessionId,
               path: event.path,
-              error: event.error,
+              items: event.items,
+              reset: event.reset,
             })
-          },
+            return
+          }
+          if (ownsContextTail()) deps.onContextLost?.(sessionId)
+          log.warn('transcript tail read failed', {
+            sessionId,
+            path: event.path,
+            error: event.error,
+          })
         },
-      ),
+      },
     )
+    tails.set(sessionId, contextTail)
   }
   const stopTranscriptTail = (sessionId: SessionId): void => {
     tails.get(sessionId)?.stop()
@@ -1522,8 +1552,19 @@ export function createSessionObservers(deps: SessionObserversDeps) {
 
   // The daemon services an adapter's observation drives, closed over one
   // session. Every per-agent difference is behind these five callbacks.
-  const hostFor = (sessionId: SessionId, adapter: HarnessAdapter): HarnessObserverHost => {
+  const hostFor = (
+    sessionId: SessionId,
+    adapter: HarnessAdapter,
+    lifetime: { active: boolean },
+  ): HarnessObserverHost => {
     const tracker = trackers.get(sessionId)
+    let generation = deps.contextIdentity?.(sessionId)?.observerGeneration
+    const contextIdentity = () => {
+      if (!lifetime.active || (tracker && trackers.get(sessionId) !== tracker)) return undefined
+      const current = deps.contextIdentity?.(sessionId)
+      generation ??= current?.observerGeneration
+      return current?.observerGeneration === generation ? current : undefined
+    }
     return {
       tailFile: (path) =>
         ensureTranscriptTail(
@@ -1566,6 +1607,12 @@ export function createSessionObservers(deps: SessionObserversDeps) {
         if (trackers.get(sessionId) === tracker) applyAgentStateEvents(sessionId, events)
       },
       onObservation: (observation) => emitObservation(sessionId, observation),
+      contextIdentity,
+      onContextPayload: (payload, causal) => {
+        const current = contextIdentity()
+        if (!current || current.observerGeneration !== causal.observerGeneration) return
+        deps.onContextPayload?.(sessionId, payload, causal)
+      },
       onLiveObservationCycle: (cursor) => emitLiveConfirmation(sessionId, cursor),
       onExactProviderRebind: (rebind) => sendProviderRebind(sessionId, rebind),
       onTranscriptItems: (items, reset) => {
@@ -1594,7 +1641,9 @@ export function createSessionObservers(deps: SessionObserversDeps) {
   }
 
   const stopObservation = (sessionId: SessionId): void => {
-    observations.get(sessionId)?.observation.stop()
+    const current = observations.get(sessionId)
+    if (current) current.contextLifetime.active = false
+    current?.observation.stop()
     observations.delete(sessionId)
     nativeSessionIds.delete(sessionId)
   }
@@ -1612,13 +1661,15 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     // another harness's conventions as this session's status.
     const observe = declaredValue(adapter.observer)
     if (!observe) return
+    const contextLifetime = { active: true }
     observations.set(sessionId, {
       adapter,
+      contextLifetime,
       account: input.account,
       observation: observeWithCodexProcessLease(
         adapter.kind,
         input,
-        (ownedInput) => observe(ownedInput, hostFor(sessionId, adapter)),
+        (ownedInput) => observe(ownedInput, hostFor(sessionId, adapter, contextLifetime)),
         session,
       ),
     })
@@ -2012,7 +2063,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
 
   /** Stand up the per-kind transcript observation for a headless session — the
    *  same setup initSessionObservers does on reattach, minus the PTY and state
-   *  tracker (headless sessions have no hook channel; observations that emit
+   *  tracker (observations that emit
    *  state events no-op without a tracker). No discovery floor: the harness
    *  session id is always known here, so observers pin rather than discover. */
   const bindHeadlessSession = (
@@ -2020,6 +2071,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     agentKind: AgentKind,
     cwd: string,
     resumeValue: string,
+    invocation?: Pick<HarnessObserveInput, 'harnessContext' | 'startedAtMs'>,
   ): void => {
     const adapter = adapterForKind(agentKind)
     if (!adapter) throw new Error(`agent kind ${agentKind} has no headless transcript binding`)
@@ -2032,7 +2084,8 @@ export function createSessionObservers(deps: SessionObserversDeps) {
         import('@podium/harness').then((m) => ({ stampOpencodeItems: m.stampOpencodeItems })),
       podiumSessionId: sessionId,
       resumeValue,
-      account: accountFor(agentKind),
+      account: invocation?.harnessContext ?? accountFor(agentKind),
+      ...invocation,
       ...(deps.transcriptRoot ? { transcriptRoot: deps.transcriptRoot } : {}),
     })
   }

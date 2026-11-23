@@ -1070,10 +1070,18 @@ export class SessionDaemonLifecycle {
         }
         let result: import('./runtime-event-gate').RuntimeEventGateResult | undefined
         const identityLease =
-          msg.event.t === 'binding'
+          msg.event.t === 'binding' ||
+          (msg.event.t === 'metadata' && msg.event.change.kind === 'context-observation')
             ? await this.store.observationCheckpoints.get(msg.sessionId)
             : null
         if (
+          msg.event.t === 'metadata' &&
+          msg.event.change.kind === 'context-observation' &&
+          msg.event.change.source &&
+          msg.event.change.source.observerGeneration !== msg.event.observerGeneration
+        ) {
+          result = { kind: 'rejected', reason: 'stale-observer-generation' }
+        } else if (
           msg.event.t === 'binding' &&
           identityLease &&
           (identityLease.observationGeneration !== msg.event.observerGeneration ||
@@ -1081,7 +1089,49 @@ export class SessionDaemonLifecycle {
         ) {
           result = { kind: 'rejected', reason: 'stale-observer-generation' }
         } else if (owner?.machineId === machineId) {
-          if (runtimeEvents) {
+          if (msg.event.t === 'metadata' && msg.event.change.kind === 'context-observation') {
+            const value = msg.event.change.context
+            const identity =
+              value.status === 'available' || value.status === 'stale'
+                ? value.sample
+                : value.status === 'pending' || value.status === 'unavailable'
+                  ? value.revision
+                  : undefined
+            let admitted: boolean
+            const liveSession = this.sessions.get(msg.sessionId)
+            if (identityLease) {
+              admitted =
+                identityLease.observationGeneration === msg.event.observerGeneration &&
+                (!identity || identity.bindingVersion === identityLease.bindingVersion)
+            } else if (
+              !liveSession ||
+              !liveSession.hasBoundDriver ||
+              harnessObservationProvider(liveSession.agentKind)
+            ) {
+              admitted = false
+            } else {
+              // Keep the original frame in the daemon's existing retry outbox
+              // until the bounded snapshot request establishes its scope.
+              if (identity && liveSession.contextBootstrapPending()) break
+              // This scope is established by verified cached driver snapshots,
+              // and retired by admitted lifecycle changes, never by telemetry.
+              admitted = Boolean(
+                identity &&
+                  liveSession.contextAdmissionMatches(
+                    identity.bindingVersion,
+                    msg.event.observerGeneration,
+                  ),
+              )
+            }
+            if (!admitted) {
+              result = { kind: 'rejected', reason: 'stale-observer-generation' }
+            } else if (owner.status === 'live' || owner.status === 'starting') {
+              // Context is live telemetry. Admit through the existing lease, then
+              // fold directly; never append it to event rows or checkpoints.
+              await this.daemonProjection.runtimeEvent(msg.sessionId, msg.event)
+              result = { kind: 'duplicate' }
+            } else result = { kind: 'rejected', reason: 'session-not-running' }
+          } else if (runtimeEvents) {
             const completion: Promise<import('./runtime-event-gate').RuntimeEventGateResult> =
               runtimeEvents.record(machineId, msg)
             result = await completion

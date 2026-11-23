@@ -39,6 +39,8 @@ import {
   type PeerHelloRejected,
 } from '@podium/protocol'
 import {
+  CAP_CONTEXT_OBSERVATION_V1,
+  CAP_CONTEXT_READ_V1,
   CAP_DELIVERY_ACCEPTED,
   CAP_DELIVERY_NOT_IN_CONVERSATION,
   type DaemonMessage,
@@ -551,6 +553,14 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
   }
 
   const sendRuntimeEvent = (event: DurableRuntimeEvent): void => {
+    if (
+      event.event.t === 'metadata' &&
+      event.event.change.kind === 'context-observation' &&
+      !acceptedCaps.has(CAP_CONTEXT_OBSERVATION_V1)
+    ) {
+      deps.runtimeEventOutbox.acknowledge(event.deliveryId)
+      return
+    }
     sendConnected(event)
     runtimeEventSentAtTick.set(event.deliveryId, runtimeEventRetryTick)
   }
@@ -1118,6 +1128,8 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
       ...(bindingSessionIds === undefined ? {} : { bindingSessionIds }),
       credential: selected,
       caps: [
+        CAP_CONTEXT_OBSERVATION_V1,
+        CAP_CONTEXT_READ_V1,
         ...deliveryCaps(deps.build).filter(
           (cap) => reportUpdateIdentity || cap !== 'update.delivery.feed',
         ),
@@ -1516,6 +1528,16 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
       }
     },
     send(msg) {
+      if (
+        state === 'connected' &&
+        msg.type === 'runtimeEvent' &&
+        msg.event.t === 'metadata' &&
+        msg.event.change.kind === 'context-observation' &&
+        !acceptedCaps.has(CAP_CONTEXT_OBSERVATION_V1)
+      ) {
+        if (msg.deliveryId) deps.runtimeEventOutbox.acknowledge(msg.deliveryId)
+        return
+      }
       // AN `accepted` A SERVER CANNOT READ IS NOT SENT (POD-4886): it would
       // refuse the whole frame. Such a server hears nothing for the hold, as
       // before; the settlement that follows reaches it as ever. Live-only, so

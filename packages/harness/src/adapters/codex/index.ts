@@ -24,6 +24,8 @@ import { CODEX_VERSION_POLICY, harnessVersionFloor } from '../../version-policy.
 import { readFreshnessFromAuthContents, readIdentityFromAuthContents } from './auth-identity.js'
 import { codexCatalog } from './catalog.js'
 import { codexComposer } from './composer.js'
+import { codexContext } from './context.js'
+import { codexInvocationPublisher } from './context-invocation.js'
 import { codexConversationFile } from './conversation-file.js'
 import { CodexCredentialAbsenceGrace } from './credential-absence-grace.js'
 import { codexCredentials } from './credentials.js'
@@ -434,6 +436,7 @@ export const codexManifest: AgentManifest = {
   // ChatGPT subscription auth works headless (`~/.codex/auth.json` serves `exec`
   // and `app-server` alike), so there is no auth mode that forces the terminal.
   runtime: {
+    context: codexContext,
     server: supported({
       driverId: 'codex-app-server',
       kind: 'jsonrpc',
@@ -607,6 +610,8 @@ export const codexManifest: AgentManifest = {
     let stopped = false
     let observationLease = input.observationLease
     let boundThread = observationLease?.providerSessionId ?? input.resumeValue
+    let invocationSession = boundThread
+    const publishInvocation = codexInvocationPublisher(input, host)
     /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
     let pendingRebind: { rebindId: string; providerSessionId: string; lastSentAt: number } | null =
       null
@@ -621,7 +626,9 @@ export const codexManifest: AgentManifest = {
       confidence: 'exact' | 'heuristic' | undefined,
     ): void => {
       boundThread = providerSessionId
+      invocationSession = confidence === 'heuristic' ? undefined : providerSessionId
       host.onResumeValue(providerSessionId, confidence)
+      if (!stopped && invocationSession) publishInvocation(invocationSession)
       host.tailFile(path)
     }
     const requestExactRebind = (
@@ -707,7 +714,10 @@ export const codexManifest: AgentManifest = {
         // Codex's OSC terminal title is just the cwd basename (suppressed by
         // the daemon); the observer derives a real title from the thread instead.
         onTitle: (title) => host.onTitle(title),
-        onEvents: (events) => host.onStateEvents(withStateChannel(events, 'poll')),
+        onEvents: (events) => {
+          if (!stopped && invocationSession) publishInvocation(invocationSession)
+          host.onStateEvents(withStateChannel(events, 'poll'))
+        },
       })
     }
     // A resume/reattach passes the session's known codex-thread id so the

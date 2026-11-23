@@ -12,6 +12,7 @@ const mockedObserver = vi.hoisted(() => ({
     opts: {
       resumeValue?: string
       onSession?: (id: string, path: string, confidence?: 'exact' | 'heuristic') => void
+      onEvents?: (events: never[]) => void
     }
     stop: ReturnType<typeof vi.fn>
   }>,
@@ -33,7 +34,8 @@ vi.mock('./state-provider.js', async (importOriginal) => {
   }
 })
 
-import { testAccount } from '../../driver/testing/harness-context.js'
+import { testAccount, testHarnessContext } from '../../driver/testing/harness-context.js'
+import { CODEX_INVOCATION } from './context-invocation.js'
 import { codexManifest } from './index.js'
 
 function lease(providerSessionId: string | null): HarnessObservationLease {
@@ -79,12 +81,15 @@ function ack(
   }
 }
 
-function start(initialLease: HarnessObservationLease) {
-  const observerHost = host()
+function codexObserverFactory() {
   if (!codexManifest.observer.supported)
     throw new Error(`codex declares observer unsupported: ${codexManifest.observer.reason}`)
-  const observerFactory = codexManifest.observer.value
-  const observation = observerFactory(
+  return codexManifest.observer.value
+}
+
+function start(initialLease: HarnessObservationLease) {
+  const observerHost = host()
+  const observation = codexObserverFactory()(
     {
       cwd: '/repo',
       podiumSessionId: asSessionId('podium-1'),
@@ -198,6 +203,63 @@ describe('codex login environment', () => {
       })
     } finally {
       rmSync(root, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('Codex observer invocation metadata', () => {
+  beforeEach(() => {
+    mockedObserver.starts.length = 0
+  })
+
+  it('publishes the pinned fresh-spawn version through the existing opaque context port', () => {
+    const observerHost = host()
+    observerHost.contextIdentity = () => ({ observerGeneration: 5, turnEpoch: 1 })
+    observerHost.onContextPayload = vi.fn()
+    const input = {
+      cwd: '/repo',
+      account: testAccount('codex', '/home/podium-test'),
+      resumeValue: 'thread-a',
+      observationLease: lease('thread-a'),
+      startedAtMs: Date.parse('2026-11-21T12:00:00.000Z'),
+      harnessContext: testHarnessContext({ kind: 'codex', version: 'codex-cli 0.169.0' }),
+    }
+    const observation = codexObserverFactory()(input, observerHost)
+    try {
+      firstStart().opts.onSession?.('thread-a', '/rollout/a.jsonl', 'exact')
+      expect(observerHost.onContextPayload).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: CODEX_INVOCATION,
+          nativeSessionId: 'thread-a',
+          version: '0.169.0',
+        }),
+        expect.objectContaining({ observerGeneration: 5, turnEpoch: 1, provenance: 'live' }),
+      )
+    } finally {
+      observation.stop()
+    }
+  })
+
+  it('does not associate a fresh invocation version with a heuristic session', () => {
+    const observerHost = host()
+    observerHost.contextIdentity = () => ({ observerGeneration: 5, turnEpoch: 1 })
+    observerHost.onContextPayload = vi.fn()
+    const observation = codexObserverFactory()(
+      {
+        cwd: '/repo',
+        account: testAccount('codex', '/home/podium-test'),
+        resumeValue: 'thread-a',
+        startedAtMs: Date.parse('2026-11-21T12:00:00.000Z'),
+        harnessContext: testHarnessContext({ kind: 'codex', version: 'codex-cli 0.169.0' }),
+      },
+      observerHost,
+    )
+    try {
+      firstStart().opts.onSession?.('thread-a', '/rollout/a.jsonl', 'heuristic')
+      firstStart().opts.onEvents?.([])
+      expect(observerHost.onContextPayload).not.toHaveBeenCalled()
+    } finally {
+      observation.stop()
     }
   })
 })

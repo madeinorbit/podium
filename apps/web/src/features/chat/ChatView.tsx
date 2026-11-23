@@ -33,8 +33,7 @@ import { ImageLightbox } from './ImageLightbox'
 import { IssueChipLiveness } from './IssueChipLiveness'
 import { PinnedBrief } from './PinnedBrief'
 import { useQuotes } from './QuoteTokens'
-import { SessionModelChip } from './SessionModelChip'
-import { SessionModeChip } from './SessionPosture'
+import { SessionComposerControls } from './SessionComposerControls'
 import { TranscriptSearchBar } from './TranscriptSearchBar'
 import { type ChatSurface, useChatLayout } from './use-chat-layout'
 import { useConversation, type WebConversation } from './use-conversation'
@@ -252,12 +251,7 @@ export const ScopedChatComposer = observer(function ScopedChatComposer({
             }
           : {
               posture: chat.view.session,
-              modelControl: (
-                <span className="flex min-w-0 items-center">
-                  <SessionModelChip session={chat.view.session} />
-                  <SessionModeChip session={chat.view.session} />
-                </span>
-              ),
+              modelControl: <SessionComposerControls session={chat.view.session} active={active} />,
             })}
       />
     </>

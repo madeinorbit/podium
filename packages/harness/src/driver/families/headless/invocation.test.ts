@@ -6,16 +6,106 @@
 import { asAccountId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { harnessInstallation } from '../../../harness-context.js'
-import { testTurnPosture } from '../../testing/harness-context.js'
+import { testHarnessContext, testTurnPosture } from '../../testing/harness-context.js'
 import {
   assertHeadlessToolPolicy,
   buildHeadlessExec,
   composeHeadlessInvocation,
+  headlessInstallation,
 } from './invocation.js'
 import { testHarnessSnapshot } from './test-support.js'
 
 const snapshot = testHarnessSnapshot()
 const POSTURE = testTurnPosture()
+
+describe('fresh invocation installation witness', () => {
+  it.each([
+    '/selected/codex',
+    '/unobserved/codex',
+  ])('uses only the exact selected executable snapshot: %s', (selected) => {
+    const creation = testHarnessContext({
+      kind: 'codex',
+      executable: selected,
+      version: 'codex-cli 0.169.0',
+      generation: 1,
+    })
+    const current = {
+      ...testHarnessSnapshot({}, 2),
+      executables: new Map([
+        [
+          'codex' as const,
+          {
+            kind: 'codex' as const,
+            path: '/selected/codex',
+            version: 'codex-cli 0.170.0',
+            generation: 2,
+          },
+        ],
+      ]),
+    }
+    const installation = headlessInstallation({ agent: 'codex', harnessContext: creation }, current)
+    expect(installation).toEqual({
+      kind: 'codex',
+      executable: selected,
+      version: selected === '/selected/codex' ? 'codex-cli 0.170.0' : '',
+      generation: 2,
+      provenance: 'external',
+    })
+    expect(creation.installation.version).toBe('codex-cli 0.169.0')
+    expect(
+      headlessInstallation(
+        { agent: 'codex', harnessContext: creation, executablePath: '/explicit/unobserved' },
+        current,
+      ),
+    ).toMatchObject({ executable: '/explicit/unobserved', version: '' })
+  })
+
+  it('keeps the selected managed release witness distinct from the external default', () => {
+    const creation = testHarnessContext({
+      kind: 'codex',
+      executable: '/managed/codex',
+      version: 'codex-cli 0.168.0',
+    })
+    const current = {
+      ...testHarnessSnapshot({}, 3),
+      executables: new Map([
+        [
+          'codex' as const,
+          {
+            kind: 'codex' as const,
+            path: '/external/codex',
+            version: 'codex-cli 0.170.0',
+            generation: 3,
+          },
+        ],
+      ]),
+      managed: new Map([
+        [
+          'codex' as const,
+          {
+            kind: 'codex' as const,
+            path: '/managed/codex',
+            version: 'codex-cli 0.169.0',
+            generation: 3,
+            release: 7,
+            vendorUpdated: true,
+          },
+        ],
+      ]),
+    }
+
+    expect(headlessInstallation({ agent: 'codex', harnessContext: creation }, current)).toEqual({
+      kind: 'codex',
+      executable: '/managed/codex',
+      version: 'codex-cli 0.169.0',
+      generation: 3,
+      provenance: 'managed',
+      release: 7,
+      vendorUpdated: true,
+    })
+    expect(creation.installation.version).toBe('codex-cli 0.168.0')
+  })
+})
 
 /**
  * What Codex's posture section puts right after `exec` on a turn under the

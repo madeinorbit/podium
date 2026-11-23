@@ -21,6 +21,7 @@ import {
 } from '../../manifest.js'
 import { GROK_ACP_VERSION_POLICY, harnessVersionFloor } from '../../version-policy.js'
 import { grokCatalog } from './catalog.js'
+import { grokContext } from './context.js'
 import { grokCredentials, hasValidGrokCredential } from './credentials.js'
 import { grokDescriptor } from './descriptor.js'
 import { createGrokConversationProvider } from './discovery.js'
@@ -218,6 +219,7 @@ export const grokManifest: AgentManifest = {
   }),
 
   runtime: {
+    context: grokContext,
     server: supported({
       driverId: 'grok-acp',
       kind: 'jsonrpc',

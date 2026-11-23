@@ -815,6 +815,26 @@ export async function createDaemonHostRuntime(args: {
     onTranscriptDirty: (path) => discoveryLoop.markConversationDirty(path),
     cwdTracker: sessionCwdTracker,
     onState: (observation) => terminalRuntime?.observeState(observation),
+    contextIdentity: (sessionId) =>
+      terminalRuntime?.has(sessionId)
+        ? terminalRuntime.contextIdentity(sessionId)
+        : headlessRuntime?.contextIdentity(sessionId),
+    onContextPayload: (sessionId, payload, causal) => {
+      if (terminalRuntime?.has(sessionId))
+        terminalRuntime.observeContextPayload(sessionId, payload, causal)
+      else if (headlessRuntime?.handleFor(sessionId)?.binding.driver === 'headless')
+        headlessRuntime.observeContextPayload(sessionId, payload, causal)
+    },
+    onContextLost: (sessionId) => {
+      if (terminalRuntime?.has(sessionId)) terminalRuntime.loseContext(sessionId)
+      else if (headlessRuntime?.handleFor(sessionId)?.binding.driver === 'headless')
+        headlessRuntime.loseContext(sessionId)
+    },
+    onContextReset: (sessionId) => {
+      if (terminalRuntime?.has(sessionId)) terminalRuntime.invalidateContext(sessionId)
+      else if (headlessRuntime?.handleFor(sessionId)?.binding.driver === 'headless')
+        headlessRuntime.invalidateContext(sessionId)
+    },
     onAuthSignal: (sessionId) => requestAuthRefresh(sessionId),
     sharedScreenFor: (sessionId) =>
       daemonCtx ? terminalScreenFor(daemonCtx, sessionId).model : undefined,
@@ -1788,6 +1808,15 @@ export async function createDaemonHostRuntime(args: {
     {
       send,
       stageAttachment,
+      instrumentation: {
+        settingsDir: ctx.settingsDir,
+        endpointFor: (sessionId, callbackId) =>
+          `${ingest.endpointFor(sessionId)}?invocation=${encodeURIComponent(callbackId)}`,
+        listen: (sessionId, callbackId, receive) =>
+          ingest.register(sessionId, receive, callbackId).dispose,
+      },
+      turnHarnessContext: ({ sessionId, agent, snapshot }) =>
+        driverHarnessContextFrom(ctx, snapshot, agent as BuiltinHarnessKind, undefined, sessionId),
       snapshot: () =>
         harnessRuntime
           ? harnessRuntime.current()
@@ -1804,18 +1833,21 @@ export async function createDaemonHostRuntime(args: {
         specEnv,
         credentialEnv,
         snapshot,
+        harnessContext,
         execEnv,
         envOverlay,
       }) => {
         const { env, strip } = headlessTurnChildEnv({
           // In the session's home when its credential names one (§10).
-          context: driverHarnessContextFrom(
-            ctx,
-            snapshot,
-            agent as BuiltinHarnessKind,
-            undefined,
-            sessionId,
-          ),
+          context:
+            harnessContext ??
+            driverHarnessContextFrom(
+              ctx,
+              snapshot,
+              agent as BuiltinHarnessKind,
+              undefined,
+              sessionId,
+            ),
           ...(credentialEnv ? { credentialEnv } : {}),
           ...(specEnv ? { instanceEnv: specEnv } : {}),
           ...(execEnv ? { execEnv } : {}),
@@ -1888,8 +1920,8 @@ export async function createDaemonHostRuntime(args: {
         )
       },
       durableLabel: (sessionId) => ctx.durableLabelFor(sessionId),
-      bindHeadlessSession: (sessionId, agentKind, cwd, resumeValue) =>
-        ctx.observers.bindHeadlessSession(sessionId, agentKind, cwd, resumeValue),
+      bindHeadlessSession: (sessionId, agentKind, cwd, resumeValue, invocation) =>
+        ctx.observers.bindHeadlessSession(sessionId, agentKind, cwd, resumeValue, invocation),
       readHistory: async (session, range) => {
         const segmentId = `history:${session.sessionId}:${session.resume?.value ?? ''}`
         if (range.from && (range.from.segmentId !== segmentId || !range.from.pathHint)) {

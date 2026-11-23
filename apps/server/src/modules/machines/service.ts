@@ -62,7 +62,12 @@ import {
   unknownUpdateSpace,
   wireSchemaDigest,
 } from '@podium/protocol'
-import { type ControlMessage, carriesAccess, type DaemonMessage } from '@podium/protocol/daemon'
+import {
+  CAP_CONTEXT_READ_V1,
+  type ControlMessage,
+  carriesAccess,
+  type DaemonMessage,
+} from '@podium/protocol/daemon'
 import { stateDir } from '@podium/runtime/config'
 import { loadSupervisorState } from '@podium/runtime/machine-supervisor'
 import { requestParentEnrollment } from '@podium/runtime/parent-control'
@@ -1174,6 +1179,13 @@ export class MachinesService {
    *  machine is briefly offline (flushed in order on its next attach). */
   readonly toMachine = (machineId: MachineId, msg: ControlMessage): void => {
     if (this.revokedMachines.has(machineId)) return
+    // One-off context reads/cancellations belong to the currently connected
+    // peer. Never queue a native probe for a later opening or older peer.
+    if (
+      (msg.type === 'runtimeContextReadRequest' || msg.type === 'runtimeContextReadCancel') &&
+      (!this.daemons.has(machineId) || !this.daemonSupports(machineId, CAP_CONTEXT_READ_V1))
+    )
+      throw new RefusedSendError('Context read transport is disconnected or unsupported')
     // A LOGIN FILE CROSSES ONLY A SAFE LINK AND IS NEVER QUEUED (credential
     // management §8; POD-6906 S2). The install carries the file; the export asks
     // the daemon to send it back over the same link. Both are judged at the send,

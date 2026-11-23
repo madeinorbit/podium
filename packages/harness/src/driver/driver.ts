@@ -12,6 +12,7 @@ import type {
   SessionHealth,
   UsageSnapshot,
 } from './capabilities.js'
+import type { ContextReader } from './context.js'
 import type { TurnEvent } from './errors.js'
 import type { EventStreamStart, RuntimeEvent, WatchLevel } from './events.js'
 import type { DriverFamily, DriverId } from './families.js'
@@ -70,6 +71,9 @@ export interface AgentSessionHandle {
   /** Provider-facing hidden context boundary. Absent means unsupported; never
    * emulate it with send(). Drivers own startup/resume and compaction rearming. */
   readonly boundaryContext?: BoundaryContextOperation
+  /** Absent only when capabilities.context explicitly declines. Summary is
+   * coarse and cheap; detail is bounded, cancellable and names its sample. */
+  readonly context?: ContextReader
 
   // ---- Turns and control (CORE) ----
   send(input: TurnInput, options: SendOptions): Promise<TurnReceipt>

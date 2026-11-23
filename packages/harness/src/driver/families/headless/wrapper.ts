@@ -59,6 +59,9 @@ export interface TurnMarker {
   createdAt: number
   /** UNBRANDED BY DECISION: a provider/harness-native session id. */
   pinnedSessionId?: string
+  /** Mechanism-owned resources, retained across local detach. No capabilities
+   * or current-inventory version claims are reconstructed from this marker. */
+  instrumentation?: { callbackId: string; file?: string }
 }
 
 /** The exact identity a replay must match: session, turn, digest and account. */
@@ -79,22 +82,42 @@ export function encodeTurnMarker(marker: TurnMarker): string {
     marker.identityHash,
     String(marker.createdAt),
     marker.pinnedSessionId ?? '-',
+    ...(marker.instrumentation
+      ? [Buffer.from(JSON.stringify(marker.instrumentation)).toString('base64url')]
+      : []),
   ].join(' ')
 }
 
 export function parseTurnMarker(line: string): TurnMarker | undefined {
   const parts = line.trim().split(' ')
-  if (parts[0] !== TURN_MARKER_PREFIX || parts[1] !== 'v1' || parts.length !== 6) return undefined
+  if (parts[0] !== TURN_MARKER_PREFIX || parts[1] !== 'v1' || ![6, 7].includes(parts.length))
+    return undefined
   const phase = parts[2]
   if (phase !== 'alloc' && phase !== 'turn') return undefined
   const createdAt = Number(parts[4])
   if (!Number.isFinite(createdAt)) return undefined
   const pinned = parts[5]
+  let instrumentation: TurnMarker['instrumentation']
+  if (parts[6]) {
+    try {
+      const value = JSON.parse(Buffer.from(parts[6], 'base64url').toString('utf8'))
+      if (
+        typeof value.callbackId !== 'string' ||
+        !value.callbackId ||
+        (value.file !== undefined && typeof value.file !== 'string')
+      )
+        return undefined
+      instrumentation = value
+    } catch {
+      return undefined
+    }
+  }
   return {
     phase,
     identityHash: parts[3] as string,
     createdAt,
     ...(pinned && pinned !== '-' ? { pinnedSessionId: pinned } : {}),
+    ...(instrumentation ? { instrumentation } : {}),
   }
 }
 

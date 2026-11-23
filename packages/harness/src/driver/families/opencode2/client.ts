@@ -83,6 +83,16 @@ export function createOpencode2Client(config: OpencodeClientConfig): OpencodeCli
 
   return {
     baseUrl: config.baseUrl,
+    async readJson(path, options) {
+      if (!path.startsWith('/') || path.startsWith('//'))
+        throw new Error('Expected relative GET path')
+      const signal = options.signal
+        ? AbortSignal.any([options.signal, AbortSignal.timeout(options.timeoutMs)])
+        : AbortSignal.timeout(options.timeoutMs)
+      signal.throwIfAborted()
+      const response = await request('GET', path, undefined, signal, true)
+      return response.json()
+    },
     async health() {
       try {
         await request('GET', '/api/health')
@@ -342,8 +352,8 @@ export function createOpencode2Client(config: OpencodeClientConfig): OpencodeCli
         `/api/session/${encodeURIComponent(sid())}/form/${encodeURIComponent(requestId)}/cancel`,
       )
     },
-    events(signal) {
-      return events(request, signal, remember)
+    events(signal, onContextPayload) {
+      return events(request, signal, remember, onContextPayload)
     },
   }
 }
@@ -423,6 +433,7 @@ async function* events(
   ) => Promise<Response>,
   signal: AbortSignal,
   remember: (sessionID: string, messageID: string, admitted: boolean) => void,
+  onContextPayload?: (payload: unknown) => void,
 ): AsyncIterable<OpencodeEvent> {
   const response = await request('GET', '/api/event', undefined, signal, true)
   const reader = response.body?.getReader()
@@ -452,6 +463,8 @@ async function* events(
         } catch {
           continue
         }
+        onContextPayload?.(raw)
+        if (!raw || typeof raw !== 'object') continue
         const data = raw.data ?? {}
         const eventID = raw.id ?? `opencode2-${crypto.randomUUID()}`
         const sessionID = typeof data.sessionID === 'string' ? data.sessionID : undefined

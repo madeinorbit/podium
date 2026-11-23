@@ -4,12 +4,19 @@ import { SessionPostureSchema } from './posture'
 export { NativeBindingReceipt } from './native-binding'
 
 import {
+  CONTEXT_MAX_ROWS,
+  ContextCausalIdentity,
+  ContextDetailResult,
+  ContextReason,
+  ContextSampleIdentity,
+  ContextSummary,
   DriverFamilyWire,
   HarnessRef,
   NOT_IN_CONVERSATION_CAUSES,
   type NotInConversationCause,
   ResumeRef,
   SessionIdField,
+  sameContextSample,
   TranscriptItem,
   TranscriptItemRef,
 } from '@podium/model'
@@ -313,10 +320,151 @@ export const CausalEnvelope = z.object({
   at: z.string().datetime(),
   provenance: ObservationProvenance,
   cursor: ProviderCursor,
-  observerGeneration: z.number().int().positive(),
-  turnEpoch: z.number().int().nonnegative(),
+  observerGeneration: ContextCausalIdentity.shape.observerGeneration,
+  turnEpoch: ContextCausalIdentity.shape.turnEpoch,
 })
 export type CausalEnvelope = z.infer<typeof CausalEnvelope>
+
+/** Additive, versioned context vocabulary for delivery wiring. Only negotiate
+ * this capability when clear observations and snapshot replay are both wired.
+ * An older peer's absent field means unavailable, never a measured zero.
+ * New frames/event arms must be capability gated; don't send them to old peers.
+ */
+export const CAP_CONTEXT_OBSERVATION_V1 = 'context.observation.v1'
+/** Explicit cheap summary / potentially token-counting breakdown reads, with
+ * cancellation. Observation support alone does not promise these frames. */
+export const CAP_CONTEXT_READ_V1 = 'context.read.v1'
+function refineContextCausality(
+  value: CausalEnvelope,
+  context: ContextSummary,
+  ctx: z.RefinementCtx,
+): void {
+  const revision =
+    context.status === 'available'
+      ? context.sample
+      : context.status === 'pending' || context.status === 'unavailable'
+        ? context.revision
+        : undefined
+  if (
+    revision &&
+    (revision.observerGeneration !== value.observerGeneration ||
+      revision.turnEpoch !== value.turnEpoch)
+  ) {
+    ctx.addIssue({ code: 'custom', message: 'Context revision must match its causal envelope' })
+  }
+}
+export const ContextObservation = CausalEnvelope.extend({ context: ContextSummary }).superRefine(
+  (value, ctx) => refineContextCausality(value, value.context, ctx),
+)
+export type ContextObservation = z.infer<typeof ContextObservation>
+/** Signal is local-only and is never serialized. Transport deadlines may be
+ * shorter. Summary is explicit/coalesced and must not imply a full native read.
+ */
+export const ContextSummaryRequest = z.object({ timeoutMs: z.number().int().min(1).max(60_000) })
+export const ContextDetailRequest = ContextSummaryRequest.extend({
+  sample: ContextSampleIdentity,
+  maxRows: z.number().int().min(1).max(CONTEXT_MAX_ROWS),
+})
+export type ContextDetailRequest = z.infer<typeof ContextDetailRequest>
+export const ContextSummaryReadResult = z.union([
+  z.object({ status: z.literal('observation'), observation: ContextObservation }),
+  z.object({ status: z.enum(['cancelled', 'refused']), reason: ContextReason }),
+])
+export { ContextDetailResult }
+
+/** One generic read; no native operation or payload crosses this boundary. */
+export const ContextReadRequest = z.discriminatedUnion('intent', [
+  ContextSummaryRequest.extend({ intent: z.literal('summary') }),
+  ContextDetailRequest.extend({ intent: z.literal('breakdown') }),
+])
+export type ContextReadRequest = z.infer<typeof ContextReadRequest>
+export const ContextReadResult = z.discriminatedUnion('intent', [
+  z.object({ intent: z.literal('summary'), result: ContextSummaryReadResult }),
+  z.object({ intent: z.literal('breakdown'), result: ContextDetailResult }),
+])
+export type ContextReadResult = z.infer<typeof ContextReadResult>
+export const CONTEXT_READ_MAX_BYTES = 256 * 1024
+
+/** Failure answers describe this request, never a replacement session fact. */
+export function contextReadFailure(
+  read: ContextReadRequest,
+  status: 'cancelled' | 'refused' | 'superseded' | 'unavailable' | 'unsupported',
+  code: string,
+  message: string,
+): ContextReadResult {
+  const reason = { code, message }
+  return read.intent === 'breakdown'
+    ? { intent: 'breakdown', result: { version: 1, sample: read.sample, status, reason } }
+    : { intent: 'summary', result: { status: status === 'cancelled' ? status : 'refused', reason } }
+}
+
+/** Admit normalized answers only. Native payload validation stays in adapters.
+ * Check size before walking the schema; never truncate accounting into a lie. */
+export function admitContextReadResult(
+  read: ContextReadRequest,
+  input: unknown,
+): ContextReadResult {
+  const refuse = () =>
+    contextReadFailure(
+      read,
+      'refused',
+      'invalid-response',
+      'Context answer exceeds its bounds or does not match the request',
+    )
+  try {
+    const json = JSON.stringify(input)
+    if (json === undefined || json.length > CONTEXT_READ_MAX_BYTES) return refuse()
+    let bytes = 0
+    for (const char of json) {
+      const cp = char.codePointAt(0) ?? 0
+      bytes += cp < 0x80 ? 1 : cp < 0x800 ? 2 : cp < 0x10000 ? 3 : 4
+      if (bytes > CONTEXT_READ_MAX_BYTES) return refuse()
+    }
+    const parsed = ContextReadResult.safeParse(input)
+    if (!parsed.success || parsed.data.intent !== read.intent) return refuse()
+    const answer = parsed.data
+    if (read.intent === 'breakdown' && answer.intent === 'breakdown') {
+      if (!sameContextSample(read.sample, answer.result.sample))
+        return contextReadFailure(
+          read,
+          'superseded',
+          'superseded',
+          'The requested context sample changed',
+        )
+      if (
+        answer.result.status === 'available' &&
+        (answer.result.composition?.rows.length ?? 0) > read.maxRows
+      )
+        return refuse()
+    }
+    return answer
+  } catch {
+    return refuse()
+  }
+}
+export const SessionContextReadInput = z.object({
+  sessionId: z.string().min(1).max(256).pipe(SessionIdField),
+  read: ContextReadRequest,
+})
+export type SessionContextReadInput = z.infer<typeof SessionContextReadInput>
+
+export const RuntimeContextReadRequestMessage = SessionContextReadInput.extend({
+  type: z.literal('runtimeContextReadRequest'),
+  requestId: z.string().min(1).max(256),
+})
+export type RuntimeContextReadRequestMessage = z.infer<typeof RuntimeContextReadRequestMessage>
+export const RuntimeContextReadCancelMessage = z.object({
+  type: z.literal('runtimeContextReadCancel'),
+  requestId: z.string().min(1).max(256),
+  sessionId: SessionContextReadInput.shape.sessionId,
+})
+export const RuntimeContextReadResultMessage = z.object({
+  type: z.literal('runtimeContextReadResult'),
+  requestId: z.string().min(1).max(256),
+  sessionId: SessionContextReadInput.shape.sessionId,
+  result: ContextReadResult,
+})
+export type RuntimeContextReadResultMessage = z.infer<typeof RuntimeContextReadResultMessage>
 
 export const TranscriptItemDelta = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('complete'), item: TranscriptItem }),
@@ -374,16 +522,61 @@ export const SessionMetadataChange = z.discriminatedUnion('kind', [
   }),
   z.object({ kind: z.literal('color'), source: z.literal('transcript'), color: z.string() }),
   z.object({ kind: z.literal('context'), source: z.literal('transcript'), percent: z.number() }),
+  z.object({
+    kind: z.literal('context-observation'),
+    context: ContextSummary,
+    /** The native observation envelope when the runtime stream cursor differs.
+     * Omission means the event envelope itself is the observation source. */
+    source: CausalEnvelope.optional(),
+  }),
 ])
 export type SessionMetadataChange = z.infer<typeof SessionMetadataChange>
-export const SessionMetadataObservation = z.intersection(
-  CausalEnvelope,
-  z.object({
-    t: z.literal('metadata'),
-    change: SessionMetadataChange,
-  }),
-)
+
+function refineMetadataContext(
+  value: CausalEnvelope & { change: SessionMetadataChange },
+  ctx: z.RefinementCtx,
+): void {
+  if (value.change.kind !== 'context-observation') return
+  const source = value.change.source ?? value
+  if (source.observerGeneration !== value.observerGeneration) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['change', 'source'],
+      message: 'Context source must belong to the admitted observer generation',
+    })
+    return
+  }
+  refineContextCausality(source, value.change.context, ctx)
+}
+
+export const SessionMetadataObservation = z
+  .intersection(
+    CausalEnvelope,
+    z.object({
+      t: z.literal('metadata'),
+      change: SessionMetadataChange,
+    }),
+  )
+  .superRefine(refineMetadataContext)
 export type SessionMetadataObservation = z.infer<typeof SessionMetadataObservation>
+
+/** Retain native event time/cursor while a runtime stream advances separately. */
+export function contextObservationFromMetadata(
+  event: SessionMetadataObservation,
+): ContextObservation | undefined {
+  if (event.change.kind !== 'context-observation') return undefined
+  const parsed = SessionMetadataObservation.safeParse(event)
+  if (!parsed.success || parsed.data.change.kind !== 'context-observation') return undefined
+  const source = parsed.data.change.source ?? parsed.data
+  return {
+    at: source.at,
+    provenance: source.provenance,
+    cursor: source.cursor,
+    observerGeneration: source.observerGeneration,
+    turnEpoch: source.turnEpoch,
+    context: parsed.data.change.context,
+  }
+}
 
 /**
  * WHY A `failed` DELIVERY FAILED, when the daemon can say (POD-4775).
@@ -512,7 +705,11 @@ export const RuntimeEventBody = z.discriminatedUnion('t', [
 ])
 export type RuntimeEventBody = z.infer<typeof RuntimeEventBody>
 
-export const RuntimeEvent = z.intersection(CausalEnvelope, RuntimeEventBody)
+export const RuntimeEvent = z
+  .intersection(CausalEnvelope, RuntimeEventBody)
+  .superRefine((value, ctx) => {
+    if (value.t === 'metadata') refineMetadataContext(value, ctx)
+  })
 export type RuntimeEvent = z.infer<typeof RuntimeEvent>
 
 /**
@@ -895,6 +1092,7 @@ export const SessionSnapshot = z.object({
   interactions: z.array(PendingInteraction).readonly(),
   title: z.string().optional(),
   metadata: z.array(SessionMetadataObservation).readonly().optional(),
+  context: ContextObservation.optional(),
   at: z.string().datetime(),
 })
 export type SessionSnapshot = z.infer<typeof SessionSnapshot>
@@ -1033,6 +1231,8 @@ export const RuntimeCommandMessage = z.discriminatedUnion('type', [
   // while one inserted mid-list re-indexes the ones after it.
   RuntimeConfigureRequestMessage,
   RuntimeDurableSendRequestMessage,
+  RuntimeContextReadRequestMessage,
+  RuntimeContextReadCancelMessage,
 ])
 export type RuntimeCommandMessage = z.infer<typeof RuntimeCommandMessage>
 
@@ -1255,6 +1455,7 @@ export const RuntimeDaemonMessage = z.discriminatedUnion('type', [
   // APPENDED for the same reason as the command union's last arm: the golden
   // corpus samples by index, so the end is the one position that costs nothing.
   RuntimeConfigureResultMessage,
+  RuntimeContextReadResultMessage,
 ])
 export type RuntimeDaemonMessage = z.infer<typeof RuntimeDaemonMessage>
 
@@ -1297,6 +1498,9 @@ export const RUNTIME_FRAME_TYPES = [
   'runtimeHistoryResult',
   'runtimeEvent',
   'runtimeFineEvent',
+  'runtimeContextReadRequest',
+  'runtimeContextReadCancel',
+  'runtimeContextReadResult',
 ] as const satisfies readonly RuntimeMessage['type'][]
 
 /** Frames in the union that {@link RUNTIME_FRAME_TYPES} forgot. `never` when the

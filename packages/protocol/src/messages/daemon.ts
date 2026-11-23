@@ -72,6 +72,7 @@ import { OauthLoopbackCallbackMessage, OauthLoopbackResultMessage } from './oaut
 import {
   RuntimeAnswerResultMessage,
   RuntimeConfigureResultMessage,
+  RuntimeContextReadResultMessage,
   RuntimeEventMessage,
   RuntimeFineEventMessage,
   RuntimeHistoryResultMessage,
@@ -323,6 +324,7 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   /** Reply to `machineUninstallRequest` (managed installs §12 item 14),
    *  appended at the END for index stability. */
   MachineUninstallResultMessage,
+  RuntimeContextReadResultMessage,
   /** Reply to `harnessCancelInstallRequest` (POD-7471), appended at the END for index stability. */
   HarnessCancelInstallResultMessage,
 ])

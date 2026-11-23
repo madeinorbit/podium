@@ -5,6 +5,7 @@
  * representation checks intentionally remain on the package root only.
  */
 
+export * from './context'
 export * from './credentials/refusals'
 export * from './entities/agent'
 export * from './entities/agent-profile'

@@ -1,4 +1,11 @@
+import { contextUsagePercentOf } from '@podium/model'
+import {
+  createContextPayloadBuffer,
+  initializeContextPayload,
+  RuntimeContextRelay,
+} from '../../context-relay.js'
 import { withDeliveryQueue } from '../../delivery-queue.js'
+import type { CausalEnvelope } from '../../events.js'
 
 /**
  * THE codex app-server DRIVER (POD-1761 W6; spec §2, §3, §5, §6).
@@ -582,6 +589,7 @@ interface CodexSink {
  *  re-pointing the handlers is what `wire()` does, and a client without its box
  *  can never be attached to a session. */
 interface CodexConnection {
+  contextPayloads: ReturnType<typeof createContextPayloadBuffer>
   client: CodexClient
   sink: CodexSink
 }
@@ -697,11 +705,38 @@ export function createCodexRuntime(
 
   // -- the event stream -----------------------------------------------------
 
+  const contextRelays = new WeakMap<DriverSession, RuntimeContextRelay>()
+  function contextFor(session: DriverSession): RuntimeContextRelay {
+    let relay = contextRelays.get(session)
+    if (!relay) {
+      relay = new RuntimeContextRelay({
+        binding: () => session.binding,
+        causal: () => ({
+          at: iso(),
+          provenance: 'live',
+          cursor: cursorFor(session, session.seq + 1),
+          observerGeneration: session.observerGeneration,
+          turnEpoch: session.turnEpoch,
+        }),
+        probe: {
+          request: (operation) => {
+            const rpc = operation as { method: string; params?: unknown }
+            return session.client.call(rpc.method, rpc.params)
+          },
+        },
+        emit: (event) => emit(session, event, event.at, event.provenance, event),
+      })
+      contextRelays.set(session, relay)
+    }
+    return relay
+  }
+
   function emit(
     session: DriverSession,
     body: RuntimeEventBody,
     at: string,
     provenance: ObservationProvenance = 'live',
+    causal?: CausalEnvelope,
   ): void {
     if (session.disposed) return
     session.seq += 1
@@ -709,12 +744,16 @@ export function createCodexRuntime(
       seq: session.seq,
       turnEpoch: session.turnEpoch,
     })
-    const event = stampRuntimeEvent(body, at, provenance, {
-      cursor: cursorFor(session, session.seq),
-      observerGeneration: session.observerGeneration,
-      turnEpoch: session.turnEpoch,
-    })
+    const event = {
+      ...stampRuntimeEvent(body, at, provenance, {
+        cursor: cursorFor(session, session.seq),
+        observerGeneration: session.observerGeneration,
+        turnEpoch: session.turnEpoch,
+      }),
+      ...causal,
+    }
     session.log.push({ seq: session.seq, event })
+    contextFor(session).event(event)
     if (session.log.length > CODEX_EVENT_LOG_LIMIT) {
       session.log.splice(0, session.log.length - CODEX_EVENT_LOG_LIMIT)
     }
@@ -809,17 +848,9 @@ export function createCodexRuntime(
       }
       case 'thread/tokenUsage/updated': {
         const total = note.params.tokenUsage.total
-        const window = note.params.tokenUsage.modelContextWindow
         session.usage = {
           ...(total?.inputTokens !== undefined ? { inputTokens: total.inputTokens } : {}),
           ...(total?.outputTokens !== undefined ? { outputTokens: total.outputTokens } : {}),
-          // THE ONE DRIVER THAT CAN REPORT THIS WITHOUT A SECOND LOOKUP: Codex
-          // sends the model's context window alongside the count, so the
-          // percentage is a division rather than a guess about which model is
-          // loaded.
-          ...(window && total?.totalTokens !== undefined
-            ? { contextUsedPercent: Math.min(100, (total.totalTokens / window) * 100) }
-            : {}),
         }
         break
       }
@@ -1817,6 +1848,7 @@ export function createCodexRuntime(
     for (const entry of checking) {
       entry.onUnrecorded?.('the Codex session ended before it recorded the message')
     }
+    contextFor(session).dispose()
     session.disposed = true
     abandonQueue(session, 'teardown')
     /**
@@ -1954,6 +1986,9 @@ export function createCodexRuntime(
     })
 
     const handle: AgentSessionHandle = {
+      get context() {
+        return contextFor(session).reader
+      },
       get binding() {
         return session.binding
       },
@@ -2009,12 +2044,14 @@ export function createCodexRuntime(
 
       // ---- identity ----
       async snapshot(): Promise<SessionSnapshot> {
+        const context = await contextFor(session).replay()
         return {
           binding: session.binding,
           state: session.state,
           cursor: cursorFor(session, session.seq),
           observerGeneration: session.observerGeneration,
           turnEpoch: session.turnEpoch,
+          context,
           interactions: [...session.asks.values()].map((ask) => ask.interaction),
           // The thread name the driver folds (POD-3992): snapshot carries it
           // so the declared `title` capability has a verb behind it, and it
@@ -2593,13 +2630,14 @@ export function createCodexRuntime(
         // FROM THE STREAM, NOT A POLL. Codex pushes `thread/tokenUsage/updated`
         // unprompted, so the freshest answer is the one already folded — and an
         // RPC here would be a second source for a number we are given.
-        return (
-          session.usage ??
-          {
-            // Not a zero-filled snapshot: a session that has not run a turn has
-            // no usage, and reporting zeros would read as "this turn was free".
-          }
-        )
+        return {
+          ...session.usage,
+          ...(contextUsagePercentOf(contextFor(session).snapshot()?.context) !== undefined
+            ? { contextUsedPercent: contextUsagePercentOf(contextFor(session).snapshot()?.context) }
+            : {}),
+          // Not a zero-filled snapshot: a session that has not run a turn has
+          // no usage, and reporting zeros would read as "this turn was free".
+        }
       },
     }
 
@@ -2683,10 +2721,12 @@ export function createCodexRuntime(
      * box, and `wire()` fills the box once the session is real.
      */
     const sink: CodexSink = {}
+    const contextPayloads = createContextPayloadBuffer(() => iso())
     const client = make({
       sessionId,
       transport: endpoint.transport,
       onNotification: (note) => sink.note?.(note),
+      onNativePayload: (payload) => contextPayloads.push(payload),
       onServerRequest: (request) => {
         if (sink.request) {
           sink.request(request)
@@ -2700,35 +2740,37 @@ export function createCodexRuntime(
       onClose: () => sink.closed?.(),
     })
     try {
-      await client.handshake({
-        // OpenAI attributes a ChatGPT plan's use to the app named at
-        // registration, so the name is that one (credential management §11).
-        clientInfo: { name: CHATGPT_APP_NAME, title: 'Podium', version: '1' },
-        capabilities: {
-          // Codex gates newer methods behind this; the driver reads only shapes it
-          // pinned, so opting in costs nothing and keeps the surface uniform.
-          experimentalApi: true,
-          requestAttestation: false,
-          /**
-           * MUTED FOR THE CONNECTION'S LIFE, AND THAT IS WHY THE WATCH LEVEL IS
-           * NOT HERE (POD-2745). This list is sent once, at the handshake, so
-           * anything on it can only be un-muted by making a new connection —
-           * and a new connection abandons an in-flight turn and any outstanding
-           * approval. A watch level changes whenever a viewer opens or closes a
-           * chat, so it cannot ride a knob that cannot change with it; the
-           * driver gates fragments on `watchers.fine` instead, in the ingest arm
-           * below, before a fragment costs a `seq`, an emit or a journal write.
-           *
-           * So what is left on this list is only what the driver never reads at
-           * ANY level — reasoning and plan fragments, which have no ingest arm.
-           * Nothing the coarse observation plane needs is on it, `turn/completed`
-           * and `item/completed` above all, since a fence that was opted out of
-           * is a session that never goes idle.
-           */
-          optOutNotificationMethods: [...DELTA_NOTIFICATIONS],
-        },
-      })
-      return { client, sink }
+      await client.handshake(
+        initializeContextPayload('codex', 'codex-app-server', {
+          // OpenAI attributes a ChatGPT plan's use to the app named at
+          // registration, so the name is that one (credential management §11).
+          clientInfo: { name: CHATGPT_APP_NAME, title: 'Podium', version: '1' },
+          capabilities: {
+            // Codex gates newer methods behind this; the driver reads only shapes it
+            // pinned, so opting in costs nothing and keeps the surface uniform.
+            experimentalApi: true,
+            requestAttestation: false,
+            /**
+             * MUTED FOR THE CONNECTION'S LIFE, AND THAT IS WHY THE WATCH LEVEL IS
+             * NOT HERE (POD-2745). This list is sent once, at the handshake, so
+             * anything on it can only be un-muted by making a new connection —
+             * and a new connection abandons an in-flight turn and any outstanding
+             * approval. A watch level changes whenever a viewer opens or closes a
+             * chat, so it cannot ride a knob that cannot change with it; the
+             * driver gates fragments on `watchers.fine` instead, in the ingest arm
+             * below, before a fragment costs a `seq`, an emit or a journal write.
+             *
+             * So what is left on this list is only what the driver never reads at
+             * ANY level — reasoning and plan fragments, which have no ingest arm.
+             * Nothing the coarse observation plane needs is on it, `turn/completed`
+             * and `item/completed` above all, since a fence that was opted out of
+             * is a session that never goes idle.
+             */
+            optOutNotificationMethods: [...DELTA_NOTIFICATIONS],
+          },
+        }) as Parameters<CodexClient['handshake']>[0],
+      )
+      return { client, sink, contextPayloads }
     } catch (err) {
       client.close()
       throw err
@@ -2737,6 +2779,14 @@ export function createCodexRuntime(
 
   /** Point a connection's callbacks at a live session. */
   function wire(session: DriverSession, connection: CodexConnection): void {
+    connection.contextPayloads.bind((payload, source) =>
+      contextFor(session).observe(payload, {
+        ...source,
+        cursor: cursorFor(session, session.seq + 1),
+        observerGeneration: session.observerGeneration,
+        turnEpoch: session.turnEpoch,
+      }),
+    )
     connection.sink.note = (note) => ingest(session, note)
     connection.sink.request = (request) => onServerRequest(session, request)
     connection.sink.closed = () => {

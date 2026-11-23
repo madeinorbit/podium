@@ -23,6 +23,7 @@ import { claudeTranscriptClassifierRules } from '../../manifests/claude-code-cla
 import { classifyClaudeLoginStatus } from '../../manifests/claude-login-status.js'
 import { createTranscriptClassifier } from '../../observer.js'
 import { claudeCodeCatalog } from './catalog.js'
+import { claudeContext } from './context.js'
 import { claudeConversationFile } from './conversation-file.js'
 import { claudeCredentials } from './credentials.js'
 import { claudeCodeDescriptor } from './descriptor.js'
@@ -290,6 +291,7 @@ export const claudeCodeManifest: AgentManifest = {
   // explicitly requested. On unknown/logged-out auth, the interactive PTY
   // remains the total fallback.
   runtime: {
+    context: claudeContext,
     server: unsupported(
       'Claude Code ships no server mode — the Agent SDK is in-process and `claude -p` is one-shot',
     ),

@@ -41,6 +41,7 @@ export * from './authz/issue-authz'
 export * from './authz/issue-execution'
 // The one clock representation and its edge adapters (POD-299); the totality guard.
 export * from './clock'
+export * from './context'
 // Credential types and what each consumer accepts (credential management spec §5).
 export * from './credentials'
 // Pure derivations over entity shapes.

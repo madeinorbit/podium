@@ -1782,6 +1782,1161 @@
       "encoded": "{\"entryId\":\"entryId\",\"sessionId\":\"sessionId\",\"kind\":\"kind\",\"body\":\"body\",\"createdAt\":\"createdAt\",\"artifacts\":[\"artifacts[0]\"],\"senderUserId\":\"senderUserId\",\"attachments\":[{\"id\":\"attachments[0].id\",\"filename\":\"attachments[0].filename\",\"mediaType\":\"attachments[0].mediaType\",\"kind\":\"image\"}],\"number\":1,\"askKind\":\"askKind\",\"detail\":\"detail\",\"options\":[\"options[0]\"],\"status\":\"status\",\"answer\":\"answer\",\"settledAt\":\"settledAt\",\"settledBy\":\"settledBy\"}"
     },
     {
+      "schema": "ContextAvailability",
+      "variant": "minimal",
+      "wire": {
+        "status": "available"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"status\":\"available\"}"
+    },
+    {
+      "schema": "ContextAvailability",
+      "variant": "full/arm0",
+      "wire": {
+        "status": "available"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"status\":\"available\"}"
+    },
+    {
+      "schema": "ContextAvailability",
+      "variant": "full/arm1",
+      "wire": {
+        "status": "unavailable",
+        "reason": {
+          "code": "reason.code",
+          "message": "reason.message"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"status\":\"unavailable\",\"reason\":{\"code\":\"reason.code\",\"message\":\"reason.message\"}}"
+    },
+    {
+      "schema": "ContextAvailability",
+      "variant": "full/arm2",
+      "wire": {
+        "status": "unsupported",
+        "reason": {
+          "code": "reason.code",
+          "message": "reason.message"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"status\":\"unsupported\",\"reason\":{\"code\":\"reason.code\",\"message\":\"reason.message\"}}"
+    },
+    {
+      "schema": "ContextCapability",
+      "variant": "minimal",
+      "wire": {
+        "summary": "passive",
+        "detail": "on-demand"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"summary\":\"passive\",\"detail\":\"on-demand\"}"
+    },
+    {
+      "schema": "ContextCapability",
+      "variant": "full",
+      "wire": {
+        "summary": "passive",
+        "detail": "on-demand"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"summary\":\"passive\",\"detail\":\"on-demand\"}"
+    },
+    {
+      "schema": "ContextCapacity",
+      "variant": "minimal",
+      "wire": {
+        "value": 1,
+        "accuracy": "reported",
+        "source": "source",
+        "basis": "native"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"value\":1,\"accuracy\":\"reported\",\"source\":\"source\",\"basis\":\"native\"}"
+    },
+    {
+      "schema": "ContextCapacity",
+      "variant": "full",
+      "wire": {
+        "value": 1,
+        "accuracy": "reported",
+        "source": "source",
+        "basis": "native"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"value\":1,\"accuracy\":\"reported\",\"source\":\"source\",\"basis\":\"native\"}"
+    },
+    {
+      "schema": "ContextCausalIdentity",
+      "variant": "minimal",
+      "wire": {
+        "observerGeneration": 1,
+        "turnEpoch": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"observerGeneration\":1,\"turnEpoch\":1}"
+    },
+    {
+      "schema": "ContextCausalIdentity",
+      "variant": "full",
+      "wire": {
+        "observerGeneration": 1,
+        "turnEpoch": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"observerGeneration\":1,\"turnEpoch\":1}"
+    },
+    {
+      "schema": "ContextCompactionPolicy",
+      "variant": "minimal",
+      "wire": {
+        "source": "source"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"source\":\"source\"}"
+    },
+    {
+      "schema": "ContextCompactionPolicy",
+      "variant": "full",
+      "wire": {
+        "source": "source",
+        "enabled": true,
+        "thresholdTokens": {
+          "value": 1,
+          "accuracy": "reported",
+          "source": "thresholdTokens.source"
+        },
+        "thresholdPercent": {
+          "value": 1,
+          "accuracy": "reported",
+          "source": "thresholdPercent.source"
+        },
+        "reserveTokens": {
+          "value": 1,
+          "accuracy": "reported",
+          "source": "reserveTokens.source"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"source\":\"source\",\"enabled\":true,\"thresholdTokens\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"thresholdTokens.source\"},\"thresholdPercent\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"thresholdPercent.source\"},\"reserveTokens\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"reserveTokens.source\"}}"
+    },
+    {
+      "schema": "ContextComposition",
+      "variant": "minimal",
+      "wire": {
+        "coverage": "partial",
+        "rows": [],
+        "truncated": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"coverage\":\"partial\",\"rows\":[],\"truncated\":true}"
+    },
+    {
+      "schema": "ContextComposition",
+      "variant": "full",
+      "wire": {
+        "coverage": "partial",
+        "usedTokens": {
+          "value": 1,
+          "accuracy": "reported",
+          "source": "usedTokens.source"
+        },
+        "rows": [
+          {
+            "id": "rows[0].id-parent",
+            "label": "rows[0].label",
+            "category": "rows[0].category",
+            "kind": "used",
+            "attribution": "category",
+            "tokens": {
+              "value": 1,
+              "accuracy": "reported",
+              "source": "rows[0].tokens.source"
+            },
+            "childrenCoverage": "complete"
+          },
+          {
+            "id": "rows[0].id",
+            "parentId": "rows[0].id-parent",
+            "label": "rows[0].label",
+            "category": "rows[0].category",
+            "kind": "used",
+            "attribution": "category",
+            "tokens": {
+              "value": 1,
+              "accuracy": "reported",
+              "source": "rows[0].tokens.source"
+            },
+            "childrenCoverage": "complete"
+          }
+        ],
+        "truncated": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"coverage\":\"partial\",\"usedTokens\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"usedTokens.source\"},\"rows\":[{\"id\":\"rows[0].id-parent\",\"label\":\"rows[0].label\",\"category\":\"rows[0].category\",\"kind\":\"used\",\"attribution\":\"category\",\"tokens\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"rows[0].tokens.source\"},\"childrenCoverage\":\"complete\"},{\"id\":\"rows[0].id\",\"parentId\":\"rows[0].id-parent\",\"label\":\"rows[0].label\",\"category\":\"rows[0].category\",\"kind\":\"used\",\"attribution\":\"category\",\"tokens\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"rows[0].tokens.source\"},\"childrenCoverage\":\"complete\"}],\"truncated\":true}"
+    },
+    {
+      "schema": "ContextCompositionRow",
+      "variant": "minimal",
+      "wire": {
+        "id": "id",
+        "label": "label",
+        "category": "category",
+        "kind": "used",
+        "attribution": "category"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"label\":\"label\",\"category\":\"category\",\"kind\":\"used\",\"attribution\":\"category\"}"
+    },
+    {
+      "schema": "ContextCompositionRow",
+      "variant": "full",
+      "wire": {
+        "id": "id",
+        "parentId": "parentId",
+        "label": "label",
+        "category": "category",
+        "kind": "used",
+        "attribution": "category",
+        "tokens": {
+          "value": 1,
+          "accuracy": "reported",
+          "source": "tokens.source"
+        },
+        "childrenCoverage": "complete"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"parentId\":\"parentId\",\"label\":\"label\",\"category\":\"category\",\"kind\":\"used\",\"attribution\":\"category\",\"tokens\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"tokens.source\"},\"childrenCoverage\":\"complete\"}"
+    },
+    {
+      "schema": "ContextDetail",
+      "variant": "minimal",
+      "wire": {
+        "version": 1,
+        "sample": {
+          "observerGeneration": 1,
+          "turnEpoch": 1,
+          "bindingVersion": 1,
+          "contextRevision": 1,
+          "id": "sample.id",
+          "at": "2026-01-02T03:04:05.000Z"
+        },
+        "status": "available",
+        "lastRequest": {
+          "input": {
+            "value": 0,
+            "accuracy": "reported",
+            "source": "synthetic request"
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"version\":1,\"sample\":{\"observerGeneration\":1,\"turnEpoch\":1,\"bindingVersion\":1,\"contextRevision\":1,\"id\":\"sample.id\",\"at\":\"2026-01-02T03:04:05.000Z\"},\"status\":\"available\",\"lastRequest\":{\"input\":{\"value\":0,\"accuracy\":\"reported\",\"source\":\"synthetic request\"}}}"
+    },
+    {
+      "schema": "ContextDetail",
+      "variant": "full",
+      "wire": {
+        "version": 1,
+        "sample": {
+          "observerGeneration": 1,
+          "turnEpoch": 1,
+          "bindingVersion": 1,
+          "contextRevision": 1,
+          "id": "sample.id",
+          "at": "2026-01-02T03:04:05.000Z",
+          "turnRevision": "sample.turnRevision",
+          "nativeSessionId": "sample.nativeSessionId",
+          "nativeSampleId": "sample.nativeSampleId"
+        },
+        "status": "available",
+        "lastRequest": {
+          "requestId": "lastRequest.requestId",
+          "model": {
+            "modelId": "lastRequest.model.modelId",
+            "providerId": "lastRequest.model.providerId"
+          },
+          "input": {
+            "value": 2,
+            "accuracy": "reported",
+            "source": "lastRequest.input.source"
+          },
+          "output": {
+            "value": 1,
+            "accuracy": "reported",
+            "source": "lastRequest.output.source"
+          },
+          "cacheRead": {
+            "value": 1,
+            "accuracy": "reported",
+            "source": "lastRequest.cacheRead.source"
+          },
+          "cacheWrite": {
+            "value": 1,
+            "accuracy": "reported",
+            "source": "lastRequest.cacheWrite.source"
+          },
+          "reasoning": {
+            "value": 1,
+            "accuracy": "reported",
+            "source": "lastRequest.reasoning.source"
+          }
+        },
+        "composition": {
+          "coverage": "partial",
+          "usedTokens": {
+            "value": 1,
+            "accuracy": "reported",
+            "source": "composition.usedTokens.source"
+          },
+          "rows": [
+            {
+              "id": "composition.rows[0].id-parent",
+              "label": "composition.rows[0].label",
+              "category": "composition.rows[0].category",
+              "kind": "used",
+              "attribution": "category",
+              "tokens": {
+                "value": 1,
+                "accuracy": "reported",
+                "source": "composition.rows[0].tokens.source"
+              },
+              "childrenCoverage": "complete"
+            },
+            {
+              "id": "composition.rows[0].id",
+              "parentId": "composition.rows[0].id-parent",
+              "label": "composition.rows[0].label",
+              "category": "composition.rows[0].category",
+              "kind": "used",
+              "attribution": "category",
+              "tokens": {
+                "value": 1,
+                "accuracy": "reported",
+                "source": "composition.rows[0].tokens.source"
+              },
+              "childrenCoverage": "complete"
+            }
+          ],
+          "truncated": true
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"version\":1,\"sample\":{\"observerGeneration\":1,\"turnEpoch\":1,\"bindingVersion\":1,\"contextRevision\":1,\"id\":\"sample.id\",\"at\":\"2026-01-02T03:04:05.000Z\",\"turnRevision\":\"sample.turnRevision\",\"nativeSessionId\":\"sample.nativeSessionId\",\"nativeSampleId\":\"sample.nativeSampleId\"},\"status\":\"available\",\"lastRequest\":{\"requestId\":\"lastRequest.requestId\",\"model\":{\"modelId\":\"lastRequest.model.modelId\",\"providerId\":\"lastRequest.model.providerId\"},\"input\":{\"value\":2,\"accuracy\":\"reported\",\"source\":\"lastRequest.input.source\"},\"output\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"lastRequest.output.source\"},\"cacheRead\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"lastRequest.cacheRead.source\"},\"cacheWrite\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"lastRequest.cacheWrite.source\"},\"reasoning\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"lastRequest.reasoning.source\"}},\"composition\":{\"coverage\":\"partial\",\"usedTokens\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"composition.usedTokens.source\"},\"rows\":[{\"id\":\"composition.rows[0].id-parent\",\"label\":\"composition.rows[0].label\",\"category\":\"composition.rows[0].category\",\"kind\":\"used\",\"attribution\":\"category\",\"tokens\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"composition.rows[0].tokens.source\"},\"childrenCoverage\":\"complete\"},{\"id\":\"composition.rows[0].id\",\"parentId\":\"composition.rows[0].id-parent\",\"label\":\"composition.rows[0].label\",\"category\":\"composition.rows[0].category\",\"kind\":\"used\",\"attribution\":\"category\",\"tokens\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"composition.rows[0].tokens.source\"},\"childrenCoverage\":\"complete\"}],\"truncated\":true}}"
+    },
+    {
+      "schema": "ContextDetailResult",
+      "variant": "minimal",
+      "wire": {
+        "version": 1,
+        "sample": {
+          "observerGeneration": 1,
+          "turnEpoch": 1,
+          "bindingVersion": 1,
+          "contextRevision": 1,
+          "id": "sample.id",
+          "at": "2026-01-02T03:04:05.000Z"
+        },
+        "status": "available",
+        "lastRequest": {
+          "input": {
+            "value": 0,
+            "accuracy": "reported",
+            "source": "synthetic request"
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"version\":1,\"sample\":{\"observerGeneration\":1,\"turnEpoch\":1,\"bindingVersion\":1,\"contextRevision\":1,\"id\":\"sample.id\",\"at\":\"2026-01-02T03:04:05.000Z\"},\"status\":\"available\",\"lastRequest\":{\"input\":{\"value\":0,\"accuracy\":\"reported\",\"source\":\"synthetic request\"}}}"
+    },
+    {
+      "schema": "ContextDetailResult",
+      "variant": "full/arm0",
+      "wire": {
+        "version": 1,
+        "sample": {
+          "observerGeneration": 1,
+          "turnEpoch": 1,
+          "bindingVersion": 1,
+          "contextRevision": 1,
+          "id": "sample.id",
+          "at": "2026-01-02T03:04:05.000Z",
+          "turnRevision": "sample.turnRevision",
+          "nativeSessionId": "sample.nativeSessionId",
+          "nativeSampleId": "sample.nativeSampleId"
+        },
+        "status": "available",
+        "lastRequest": {
+          "requestId": "lastRequest.requestId",
+          "model": {
+            "modelId": "lastRequest.model.modelId",
+            "providerId": "lastRequest.model.providerId"
+          },
+          "input": {
+            "value": 2,
+            "accuracy": "reported",
+            "source": "lastRequest.input.source"
+          },
+          "output": {
+            "value": 1,
+            "accuracy": "reported",
+            "source": "lastRequest.output.source"
+          },
+          "cacheRead": {
+            "value": 1,
+            "accuracy": "reported",
+            "source": "lastRequest.cacheRead.source"
+          },
+          "cacheWrite": {
+            "value": 1,
+            "accuracy": "reported",
+            "source": "lastRequest.cacheWrite.source"
+          },
+          "reasoning": {
+            "value": 1,
+            "accuracy": "reported",
+            "source": "lastRequest.reasoning.source"
+          }
+        },
+        "composition": {
+          "coverage": "partial",
+          "usedTokens": {
+            "value": 1,
+            "accuracy": "reported",
+            "source": "composition.usedTokens.source"
+          },
+          "rows": [
+            {
+              "id": "composition.rows[0].id-parent",
+              "label": "composition.rows[0].label",
+              "category": "composition.rows[0].category",
+              "kind": "used",
+              "attribution": "category",
+              "tokens": {
+                "value": 1,
+                "accuracy": "reported",
+                "source": "composition.rows[0].tokens.source"
+              },
+              "childrenCoverage": "complete"
+            },
+            {
+              "id": "composition.rows[0].id",
+              "parentId": "composition.rows[0].id-parent",
+              "label": "composition.rows[0].label",
+              "category": "composition.rows[0].category",
+              "kind": "used",
+              "attribution": "category",
+              "tokens": {
+                "value": 1,
+                "accuracy": "reported",
+                "source": "composition.rows[0].tokens.source"
+              },
+              "childrenCoverage": "complete"
+            }
+          ],
+          "truncated": true
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"version\":1,\"sample\":{\"observerGeneration\":1,\"turnEpoch\":1,\"bindingVersion\":1,\"contextRevision\":1,\"id\":\"sample.id\",\"at\":\"2026-01-02T03:04:05.000Z\",\"turnRevision\":\"sample.turnRevision\",\"nativeSessionId\":\"sample.nativeSessionId\",\"nativeSampleId\":\"sample.nativeSampleId\"},\"status\":\"available\",\"lastRequest\":{\"requestId\":\"lastRequest.requestId\",\"model\":{\"modelId\":\"lastRequest.model.modelId\",\"providerId\":\"lastRequest.model.providerId\"},\"input\":{\"value\":2,\"accuracy\":\"reported\",\"source\":\"lastRequest.input.source\"},\"output\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"lastRequest.output.source\"},\"cacheRead\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"lastRequest.cacheRead.source\"},\"cacheWrite\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"lastRequest.cacheWrite.source\"},\"reasoning\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"lastRequest.reasoning.source\"}},\"composition\":{\"coverage\":\"partial\",\"usedTokens\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"composition.usedTokens.source\"},\"rows\":[{\"id\":\"composition.rows[0].id-parent\",\"label\":\"composition.rows[0].label\",\"category\":\"composition.rows[0].category\",\"kind\":\"used\",\"attribution\":\"category\",\"tokens\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"composition.rows[0].tokens.source\"},\"childrenCoverage\":\"complete\"},{\"id\":\"composition.rows[0].id\",\"parentId\":\"composition.rows[0].id-parent\",\"label\":\"composition.rows[0].label\",\"category\":\"composition.rows[0].category\",\"kind\":\"used\",\"attribution\":\"category\",\"tokens\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"composition.rows[0].tokens.source\"},\"childrenCoverage\":\"complete\"}],\"truncated\":true}}"
+    },
+    {
+      "schema": "ContextDetailResult",
+      "variant": "full/arm1",
+      "wire": {
+        "version": 1,
+        "sample": {
+          "observerGeneration": 2,
+          "turnEpoch": 2,
+          "bindingVersion": 2,
+          "contextRevision": 2,
+          "id": "sample.id",
+          "at": "2026-01-02T03:04:05.000Z",
+          "turnRevision": "sample.turnRevision",
+          "nativeSessionId": "sample.nativeSessionId",
+          "nativeSampleId": "sample.nativeSampleId"
+        },
+        "status": "refused",
+        "reason": {
+          "code": "reason.code",
+          "message": "reason.message"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"version\":1,\"sample\":{\"observerGeneration\":2,\"turnEpoch\":2,\"bindingVersion\":2,\"contextRevision\":2,\"id\":\"sample.id\",\"at\":\"2026-01-02T03:04:05.000Z\",\"turnRevision\":\"sample.turnRevision\",\"nativeSessionId\":\"sample.nativeSessionId\",\"nativeSampleId\":\"sample.nativeSampleId\"},\"status\":\"refused\",\"reason\":{\"code\":\"reason.code\",\"message\":\"reason.message\"}}"
+    },
+    {
+      "schema": "ContextInvalidation",
+      "variant": "minimal",
+      "wire": {
+        "cause": "model-changed"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"cause\":\"model-changed\"}"
+    },
+    {
+      "schema": "ContextInvalidation",
+      "variant": "full",
+      "wire": {
+        "cause": "model-changed",
+        "previousSample": {
+          "observerGeneration": 1,
+          "turnEpoch": 1,
+          "bindingVersion": 1,
+          "contextRevision": 1,
+          "id": "previousSample.id",
+          "at": "2026-01-02T03:04:05.000Z",
+          "turnRevision": "previousSample.turnRevision",
+          "nativeSessionId": "previousSample.nativeSessionId",
+          "nativeSampleId": "previousSample.nativeSampleId"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"cause\":\"model-changed\",\"previousSample\":{\"observerGeneration\":1,\"turnEpoch\":1,\"bindingVersion\":1,\"contextRevision\":1,\"id\":\"previousSample.id\",\"at\":\"2026-01-02T03:04:05.000Z\",\"turnRevision\":\"previousSample.turnRevision\",\"nativeSessionId\":\"previousSample.nativeSessionId\",\"nativeSampleId\":\"previousSample.nativeSampleId\"}}"
+    },
+    {
+      "schema": "ContextInvalidationCause",
+      "variant": "minimal",
+      "wire": "model-changed",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"model-changed\""
+    },
+    {
+      "schema": "ContextInvalidationCause",
+      "variant": "full",
+      "wire": "model-changed",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"model-changed\""
+    },
+    {
+      "schema": "ContextLastRequest",
+      "variant": "minimal",
+      "wire": {
+        "input": {
+          "value": 0,
+          "accuracy": "reported",
+          "source": "synthetic request"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"input\":{\"value\":0,\"accuracy\":\"reported\",\"source\":\"synthetic request\"}}"
+    },
+    {
+      "schema": "ContextLastRequest",
+      "variant": "full",
+      "wire": {
+        "requestId": "requestId",
+        "model": {
+          "modelId": "model.modelId",
+          "providerId": "model.providerId"
+        },
+        "input": {
+          "value": 2,
+          "accuracy": "reported",
+          "source": "input.source"
+        },
+        "output": {
+          "value": 1,
+          "accuracy": "reported",
+          "source": "output.source"
+        },
+        "cacheRead": {
+          "value": 1,
+          "accuracy": "reported",
+          "source": "cacheRead.source"
+        },
+        "cacheWrite": {
+          "value": 1,
+          "accuracy": "reported",
+          "source": "cacheWrite.source"
+        },
+        "reasoning": {
+          "value": 1,
+          "accuracy": "reported",
+          "source": "reasoning.source"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"requestId\":\"requestId\",\"model\":{\"modelId\":\"model.modelId\",\"providerId\":\"model.providerId\"},\"input\":{\"value\":2,\"accuracy\":\"reported\",\"source\":\"input.source\"},\"output\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"output.source\"},\"cacheRead\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"cacheRead.source\"},\"cacheWrite\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"cacheWrite.source\"},\"reasoning\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"reasoning.source\"}}"
+    },
+    {
+      "schema": "ContextModelIdentity",
+      "variant": "minimal",
+      "wire": {
+        "modelId": "synthetic-model"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"modelId\":\"synthetic-model\"}"
+    },
+    {
+      "schema": "ContextModelIdentity",
+      "variant": "full",
+      "wire": {
+        "modelId": "modelId",
+        "providerId": "providerId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"modelId\":\"modelId\",\"providerId\":\"providerId\"}"
+    },
+    {
+      "schema": "ContextOccupancy",
+      "variant": "minimal",
+      "wire": {
+        "basis": "current-context",
+        "usedTokens": {
+          "value": 0,
+          "accuracy": "reported",
+          "source": "synthetic measurement"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"basis\":\"current-context\",\"usedTokens\":{\"value\":0,\"accuracy\":\"reported\",\"source\":\"synthetic measurement\"}}"
+    },
+    {
+      "schema": "ContextOccupancy",
+      "variant": "full",
+      "wire": {
+        "basis": "current-context",
+        "usedTokens": {
+          "value": 1,
+          "accuracy": "reported",
+          "source": "usedTokens.source"
+        },
+        "remainingTokens": {
+          "value": 1,
+          "accuracy": "reported",
+          "source": "remainingTokens.source"
+        },
+        "percent": {
+          "value": 1,
+          "accuracy": "reported",
+          "source": "percent.source"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"basis\":\"current-context\",\"usedTokens\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"usedTokens.source\"},\"remainingTokens\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"remainingTokens.source\"},\"percent\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"percent.source\"}}"
+    },
+    {
+      "schema": "ContextQuantity",
+      "variant": "minimal",
+      "wire": {
+        "value": 1,
+        "accuracy": "reported",
+        "source": "source"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"value\":1,\"accuracy\":\"reported\",\"source\":\"source\"}"
+    },
+    {
+      "schema": "ContextQuantity",
+      "variant": "full",
+      "wire": {
+        "value": 1,
+        "accuracy": "reported",
+        "source": "source"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"value\":1,\"accuracy\":\"reported\",\"source\":\"source\"}"
+    },
+    {
+      "schema": "ContextReason",
+      "variant": "minimal",
+      "wire": {
+        "code": "code",
+        "message": "message"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"code\":\"code\",\"message\":\"message\"}"
+    },
+    {
+      "schema": "ContextReason",
+      "variant": "full",
+      "wire": {
+        "code": "code",
+        "message": "message"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"code\":\"code\",\"message\":\"message\"}"
+    },
+    {
+      "schema": "ContextRevision",
+      "variant": "minimal",
+      "wire": {
+        "observerGeneration": 1,
+        "turnEpoch": 1,
+        "bindingVersion": 1,
+        "contextRevision": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"observerGeneration\":1,\"turnEpoch\":1,\"bindingVersion\":1,\"contextRevision\":1}"
+    },
+    {
+      "schema": "ContextRevision",
+      "variant": "full",
+      "wire": {
+        "observerGeneration": 1,
+        "turnEpoch": 1,
+        "bindingVersion": 1,
+        "contextRevision": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"observerGeneration\":1,\"turnEpoch\":1,\"bindingVersion\":1,\"contextRevision\":1}"
+    },
+    {
+      "schema": "ContextSampleIdentity",
+      "variant": "minimal",
+      "wire": {
+        "observerGeneration": 1,
+        "turnEpoch": 1,
+        "bindingVersion": 1,
+        "contextRevision": 1,
+        "id": "id",
+        "at": "2026-01-02T03:04:05.000Z"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"observerGeneration\":1,\"turnEpoch\":1,\"bindingVersion\":1,\"contextRevision\":1,\"id\":\"id\",\"at\":\"2026-01-02T03:04:05.000Z\"}"
+    },
+    {
+      "schema": "ContextSampleIdentity",
+      "variant": "full",
+      "wire": {
+        "observerGeneration": 1,
+        "turnEpoch": 1,
+        "bindingVersion": 1,
+        "contextRevision": 1,
+        "id": "id",
+        "at": "2026-01-02T03:04:05.000Z",
+        "turnRevision": "turnRevision",
+        "nativeSessionId": "nativeSessionId",
+        "nativeSampleId": "nativeSampleId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"observerGeneration\":1,\"turnEpoch\":1,\"bindingVersion\":1,\"contextRevision\":1,\"id\":\"id\",\"at\":\"2026-01-02T03:04:05.000Z\",\"turnRevision\":\"turnRevision\",\"nativeSessionId\":\"nativeSessionId\",\"nativeSampleId\":\"nativeSampleId\"}"
+    },
+    {
+      "schema": "ContextSummary",
+      "variant": "minimal",
+      "wire": {
+        "sample": {
+          "observerGeneration": 1,
+          "turnEpoch": 1,
+          "bindingVersion": 1,
+          "contextRevision": 1,
+          "id": "sample.id",
+          "at": "2026-01-02T03:04:05.000Z"
+        },
+        "occupancy": {
+          "basis": "current-context",
+          "usedTokens": {
+            "value": 0,
+            "accuracy": "reported",
+            "source": "synthetic measurement"
+          }
+        },
+        "version": 1,
+        "status": "available"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"sample\":{\"observerGeneration\":1,\"turnEpoch\":1,\"bindingVersion\":1,\"contextRevision\":1,\"id\":\"sample.id\",\"at\":\"2026-01-02T03:04:05.000Z\"},\"occupancy\":{\"basis\":\"current-context\",\"usedTokens\":{\"value\":0,\"accuracy\":\"reported\",\"source\":\"synthetic measurement\"}},\"version\":1,\"status\":\"available\"}"
+    },
+    {
+      "schema": "ContextSummary",
+      "variant": "full/arm0",
+      "wire": {
+        "sample": {
+          "observerGeneration": 1,
+          "turnEpoch": 1,
+          "bindingVersion": 1,
+          "contextRevision": 1,
+          "id": "sample.id",
+          "at": "2026-01-02T03:04:05.000Z",
+          "turnRevision": "sample.turnRevision",
+          "nativeSessionId": "sample.nativeSessionId",
+          "nativeSampleId": "sample.nativeSampleId"
+        },
+        "model": {
+          "modelId": "model.modelId",
+          "providerId": "model.providerId"
+        },
+        "occupancy": {
+          "basis": "current-context",
+          "usedTokens": {
+            "value": 1,
+            "accuracy": "reported",
+            "source": "occupancy.usedTokens.source"
+          },
+          "remainingTokens": {
+            "value": 1,
+            "accuracy": "reported",
+            "source": "occupancy.remainingTokens.source"
+          },
+          "percent": {
+            "value": 1,
+            "accuracy": "reported",
+            "source": "occupancy.percent.source"
+          }
+        },
+        "effectiveCapacity": {
+          "value": 1,
+          "accuracy": "reported",
+          "source": "effectiveCapacity.source",
+          "basis": "native"
+        },
+        "modelCapacity": {
+          "value": 1,
+          "accuracy": "reported",
+          "source": "modelCapacity.source",
+          "basis": "native"
+        },
+        "compaction": {
+          "source": "compaction.source",
+          "enabled": true,
+          "thresholdTokens": {
+            "value": 1,
+            "accuracy": "reported",
+            "source": "compaction.thresholdTokens.source"
+          },
+          "thresholdPercent": {
+            "value": 1,
+            "accuracy": "reported",
+            "source": "compaction.thresholdPercent.source"
+          },
+          "reserveTokens": {
+            "value": 1,
+            "accuracy": "reported",
+            "source": "compaction.reserveTokens.source"
+          }
+        },
+        "version": 1,
+        "status": "available"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"sample\":{\"observerGeneration\":1,\"turnEpoch\":1,\"bindingVersion\":1,\"contextRevision\":1,\"id\":\"sample.id\",\"at\":\"2026-01-02T03:04:05.000Z\",\"turnRevision\":\"sample.turnRevision\",\"nativeSessionId\":\"sample.nativeSessionId\",\"nativeSampleId\":\"sample.nativeSampleId\"},\"model\":{\"modelId\":\"model.modelId\",\"providerId\":\"model.providerId\"},\"occupancy\":{\"basis\":\"current-context\",\"usedTokens\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"occupancy.usedTokens.source\"},\"remainingTokens\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"occupancy.remainingTokens.source\"},\"percent\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"occupancy.percent.source\"}},\"effectiveCapacity\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"effectiveCapacity.source\",\"basis\":\"native\"},\"modelCapacity\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"modelCapacity.source\",\"basis\":\"native\"},\"compaction\":{\"source\":\"compaction.source\",\"enabled\":true,\"thresholdTokens\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"compaction.thresholdTokens.source\"},\"thresholdPercent\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"compaction.thresholdPercent.source\"},\"reserveTokens\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"compaction.reserveTokens.source\"}},\"version\":1,\"status\":\"available\"}"
+    },
+    {
+      "schema": "ContextSummary",
+      "variant": "full/arm1",
+      "wire": {
+        "sample": {
+          "observerGeneration": 2,
+          "turnEpoch": 2,
+          "bindingVersion": 2,
+          "contextRevision": 2,
+          "id": "sample.id",
+          "at": "2026-01-02T03:04:05.000Z",
+          "turnRevision": "sample.turnRevision",
+          "nativeSessionId": "sample.nativeSessionId",
+          "nativeSampleId": "sample.nativeSampleId"
+        },
+        "model": {
+          "modelId": "model.modelId",
+          "providerId": "model.providerId"
+        },
+        "occupancy": {
+          "basis": "last-request",
+          "usedTokens": {
+            "value": 2,
+            "accuracy": "estimated",
+            "source": "occupancy.usedTokens.source"
+          },
+          "remainingTokens": {
+            "value": 2,
+            "accuracy": "estimated",
+            "source": "occupancy.remainingTokens.source"
+          },
+          "percent": {
+            "value": 2,
+            "accuracy": "estimated",
+            "source": "occupancy.percent.source"
+          }
+        },
+        "effectiveCapacity": {
+          "value": 2,
+          "accuracy": "estimated",
+          "source": "effectiveCapacity.source",
+          "basis": "configured"
+        },
+        "modelCapacity": {
+          "value": 2,
+          "accuracy": "estimated",
+          "source": "modelCapacity.source",
+          "basis": "configured"
+        },
+        "compaction": {
+          "source": "compaction.source",
+          "enabled": false,
+          "thresholdTokens": {
+            "value": 2,
+            "accuracy": "estimated",
+            "source": "compaction.thresholdTokens.source"
+          },
+          "thresholdPercent": {
+            "value": 2,
+            "accuracy": "estimated",
+            "source": "compaction.thresholdPercent.source"
+          },
+          "reserveTokens": {
+            "value": 2,
+            "accuracy": "estimated",
+            "source": "compaction.reserveTokens.source"
+          }
+        },
+        "version": 1,
+        "status": "stale",
+        "reason": {
+          "code": "reason.code",
+          "message": "reason.message"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"sample\":{\"observerGeneration\":2,\"turnEpoch\":2,\"bindingVersion\":2,\"contextRevision\":2,\"id\":\"sample.id\",\"at\":\"2026-01-02T03:04:05.000Z\",\"turnRevision\":\"sample.turnRevision\",\"nativeSessionId\":\"sample.nativeSessionId\",\"nativeSampleId\":\"sample.nativeSampleId\"},\"model\":{\"modelId\":\"model.modelId\",\"providerId\":\"model.providerId\"},\"occupancy\":{\"basis\":\"last-request\",\"usedTokens\":{\"value\":2,\"accuracy\":\"estimated\",\"source\":\"occupancy.usedTokens.source\"},\"remainingTokens\":{\"value\":2,\"accuracy\":\"estimated\",\"source\":\"occupancy.remainingTokens.source\"},\"percent\":{\"value\":2,\"accuracy\":\"estimated\",\"source\":\"occupancy.percent.source\"}},\"effectiveCapacity\":{\"value\":2,\"accuracy\":\"estimated\",\"source\":\"effectiveCapacity.source\",\"basis\":\"configured\"},\"modelCapacity\":{\"value\":2,\"accuracy\":\"estimated\",\"source\":\"modelCapacity.source\",\"basis\":\"configured\"},\"compaction\":{\"source\":\"compaction.source\",\"enabled\":false,\"thresholdTokens\":{\"value\":2,\"accuracy\":\"estimated\",\"source\":\"compaction.thresholdTokens.source\"},\"thresholdPercent\":{\"value\":2,\"accuracy\":\"estimated\",\"source\":\"compaction.thresholdPercent.source\"},\"reserveTokens\":{\"value\":2,\"accuracy\":\"estimated\",\"source\":\"compaction.reserveTokens.source\"}},\"version\":1,\"status\":\"stale\",\"reason\":{\"code\":\"reason.code\",\"message\":\"reason.message\"}}"
+    },
+    {
+      "schema": "ContextSummary",
+      "variant": "full/arm2",
+      "wire": {
+        "model": {
+          "modelId": "model.modelId",
+          "providerId": "model.providerId"
+        },
+        "effectiveCapacity": {
+          "value": 3,
+          "accuracy": "estimated",
+          "source": "effectiveCapacity.source",
+          "basis": "model-metadata"
+        },
+        "modelCapacity": {
+          "value": 3,
+          "accuracy": "estimated",
+          "source": "modelCapacity.source",
+          "basis": "model-metadata"
+        },
+        "compaction": {
+          "source": "compaction.source",
+          "enabled": true,
+          "thresholdTokens": {
+            "value": 3,
+            "accuracy": "estimated",
+            "source": "compaction.thresholdTokens.source"
+          },
+          "thresholdPercent": {
+            "value": 3,
+            "accuracy": "estimated",
+            "source": "compaction.thresholdPercent.source"
+          },
+          "reserveTokens": {
+            "value": 3,
+            "accuracy": "estimated",
+            "source": "compaction.reserveTokens.source"
+          }
+        },
+        "version": 1,
+        "status": "pending",
+        "revision": {
+          "observerGeneration": 3,
+          "turnEpoch": 3,
+          "bindingVersion": 3,
+          "contextRevision": 3
+        },
+        "reason": {
+          "code": "reason.code",
+          "message": "reason.message"
+        },
+        "invalidation": {
+          "cause": "reset",
+          "previousSample": {
+            "observerGeneration": 3,
+            "turnEpoch": 3,
+            "bindingVersion": 3,
+            "contextRevision": 3,
+            "id": "invalidation.previousSample.id",
+            "at": "2026-01-02T03:04:05.000Z",
+            "turnRevision": "invalidation.previousSample.turnRevision",
+            "nativeSessionId": "invalidation.previousSample.nativeSessionId",
+            "nativeSampleId": "invalidation.previousSample.nativeSampleId"
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"model\":{\"modelId\":\"model.modelId\",\"providerId\":\"model.providerId\"},\"effectiveCapacity\":{\"value\":3,\"accuracy\":\"estimated\",\"source\":\"effectiveCapacity.source\",\"basis\":\"model-metadata\"},\"modelCapacity\":{\"value\":3,\"accuracy\":\"estimated\",\"source\":\"modelCapacity.source\",\"basis\":\"model-metadata\"},\"compaction\":{\"source\":\"compaction.source\",\"enabled\":true,\"thresholdTokens\":{\"value\":3,\"accuracy\":\"estimated\",\"source\":\"compaction.thresholdTokens.source\"},\"thresholdPercent\":{\"value\":3,\"accuracy\":\"estimated\",\"source\":\"compaction.thresholdPercent.source\"},\"reserveTokens\":{\"value\":3,\"accuracy\":\"estimated\",\"source\":\"compaction.reserveTokens.source\"}},\"version\":1,\"status\":\"pending\",\"revision\":{\"observerGeneration\":3,\"turnEpoch\":3,\"bindingVersion\":3,\"contextRevision\":3},\"reason\":{\"code\":\"reason.code\",\"message\":\"reason.message\"},\"invalidation\":{\"cause\":\"reset\",\"previousSample\":{\"observerGeneration\":3,\"turnEpoch\":3,\"bindingVersion\":3,\"contextRevision\":3,\"id\":\"invalidation.previousSample.id\",\"at\":\"2026-01-02T03:04:05.000Z\",\"turnRevision\":\"invalidation.previousSample.turnRevision\",\"nativeSessionId\":\"invalidation.previousSample.nativeSessionId\",\"nativeSampleId\":\"invalidation.previousSample.nativeSampleId\"}}}"
+    },
+    {
+      "schema": "ContextSummary",
+      "variant": "full/arm3",
+      "wire": {
+        "model": {
+          "modelId": "model.modelId",
+          "providerId": "model.providerId"
+        },
+        "effectiveCapacity": {
+          "value": 4,
+          "accuracy": "estimated",
+          "source": "effectiveCapacity.source",
+          "basis": "fallback"
+        },
+        "modelCapacity": {
+          "value": 4,
+          "accuracy": "estimated",
+          "source": "modelCapacity.source",
+          "basis": "fallback"
+        },
+        "compaction": {
+          "source": "compaction.source",
+          "enabled": false,
+          "thresholdTokens": {
+            "value": 4,
+            "accuracy": "estimated",
+            "source": "compaction.thresholdTokens.source"
+          },
+          "thresholdPercent": {
+            "value": 4,
+            "accuracy": "estimated",
+            "source": "compaction.thresholdPercent.source"
+          },
+          "reserveTokens": {
+            "value": 4,
+            "accuracy": "estimated",
+            "source": "compaction.reserveTokens.source"
+          }
+        },
+        "version": 1,
+        "status": "unavailable",
+        "revision": {
+          "observerGeneration": 4,
+          "turnEpoch": 4,
+          "bindingVersion": 4,
+          "contextRevision": 4
+        },
+        "reason": {
+          "code": "reason.code",
+          "message": "reason.message"
+        },
+        "invalidation": {
+          "cause": "rewind",
+          "previousSample": {
+            "observerGeneration": 4,
+            "turnEpoch": 4,
+            "bindingVersion": 4,
+            "contextRevision": 4,
+            "id": "invalidation.previousSample.id",
+            "at": "2026-01-02T03:04:05.000Z",
+            "turnRevision": "invalidation.previousSample.turnRevision",
+            "nativeSessionId": "invalidation.previousSample.nativeSessionId",
+            "nativeSampleId": "invalidation.previousSample.nativeSampleId"
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"model\":{\"modelId\":\"model.modelId\",\"providerId\":\"model.providerId\"},\"effectiveCapacity\":{\"value\":4,\"accuracy\":\"estimated\",\"source\":\"effectiveCapacity.source\",\"basis\":\"fallback\"},\"modelCapacity\":{\"value\":4,\"accuracy\":\"estimated\",\"source\":\"modelCapacity.source\",\"basis\":\"fallback\"},\"compaction\":{\"source\":\"compaction.source\",\"enabled\":false,\"thresholdTokens\":{\"value\":4,\"accuracy\":\"estimated\",\"source\":\"compaction.thresholdTokens.source\"},\"thresholdPercent\":{\"value\":4,\"accuracy\":\"estimated\",\"source\":\"compaction.thresholdPercent.source\"},\"reserveTokens\":{\"value\":4,\"accuracy\":\"estimated\",\"source\":\"compaction.reserveTokens.source\"}},\"version\":1,\"status\":\"unavailable\",\"revision\":{\"observerGeneration\":4,\"turnEpoch\":4,\"bindingVersion\":4,\"contextRevision\":4},\"reason\":{\"code\":\"reason.code\",\"message\":\"reason.message\"},\"invalidation\":{\"cause\":\"rewind\",\"previousSample\":{\"observerGeneration\":4,\"turnEpoch\":4,\"bindingVersion\":4,\"contextRevision\":4,\"id\":\"invalidation.previousSample.id\",\"at\":\"2026-01-02T03:04:05.000Z\",\"turnRevision\":\"invalidation.previousSample.turnRevision\",\"nativeSessionId\":\"invalidation.previousSample.nativeSessionId\",\"nativeSampleId\":\"invalidation.previousSample.nativeSampleId\"}}}"
+    },
+    {
+      "schema": "ContextSummary",
+      "variant": "full/arm4",
+      "wire": {
+        "version": 1,
+        "status": "unsupported",
+        "reason": {
+          "code": "reason.code",
+          "message": "reason.message"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"version\":1,\"status\":\"unsupported\",\"reason\":{\"code\":\"reason.code\",\"message\":\"reason.message\"}}"
+    },
+    {
       "schema": "ConversationDiagnosticWire",
       "variant": "minimal",
       "wire": {
@@ -2880,6 +4035,160 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"cycles\":[[\"cycles[0][0]\"]],\"danglingDeps\":[{\"from\":\"danglingDeps[0].from\",\"to\":\"danglingDeps[0].to\",\"type\":\"danglingDeps[0].type\"}],\"staleCount\":1}"
+    },
+    {
+      "schema": "DriverCapabilitiesWire",
+      "variant": "minimal",
+      "wire": {
+        "context": {}
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"context\":{}}"
+    },
+    {
+      "schema": "DriverCapabilitiesWire",
+      "variant": "full/arm0",
+      "wire": {
+        "context": {
+          "context.key": {
+            "capability": {
+              "summary": "passive",
+              "detail": "on-demand"
+            },
+            "availability": {
+              "status": "available"
+            }
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"context\":{\"context.key\":{\"capability\":{\"summary\":\"passive\",\"detail\":\"on-demand\"},\"availability\":{\"status\":\"available\"}}}}"
+    },
+    {
+      "schema": "DriverCapabilitiesWire",
+      "variant": "full/arm1",
+      "wire": {
+        "context": {
+          "context.key": {
+            "capability": {
+              "summary": "explicit",
+              "detail": "none"
+            },
+            "availability": {
+              "status": "unavailable",
+              "reason": {
+                "code": "context.context.key.availability.reason.code",
+                "message": "context.context.key.availability.reason.message"
+              }
+            }
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"context\":{\"context.key\":{\"capability\":{\"summary\":\"explicit\",\"detail\":\"none\"},\"availability\":{\"status\":\"unavailable\",\"reason\":{\"code\":\"context.context.key.availability.reason.code\",\"message\":\"context.context.key.availability.reason.message\"}}}}}"
+    },
+    {
+      "schema": "DriverCapabilitiesWire",
+      "variant": "full/arm2",
+      "wire": {
+        "context": {
+          "context.key": {
+            "capability": {
+              "summary": "passive-and-explicit",
+              "detail": "none"
+            },
+            "availability": {
+              "status": "unsupported",
+              "reason": {
+                "code": "context.context.key.availability.reason.code",
+                "message": "context.context.key.availability.reason.message"
+              }
+            }
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"context\":{\"context.key\":{\"capability\":{\"summary\":\"passive-and-explicit\",\"detail\":\"none\"},\"availability\":{\"status\":\"unsupported\",\"reason\":{\"code\":\"context.context.key.availability.reason.code\",\"message\":\"context.context.key.availability.reason.message\"}}}}}"
+    },
+    {
+      "schema": "DriverContextWire",
+      "variant": "minimal",
+      "wire": {
+        "availability": {
+          "status": "available"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"availability\":{\"status\":\"available\"}}"
+    },
+    {
+      "schema": "DriverContextWire",
+      "variant": "full/arm0",
+      "wire": {
+        "capability": {
+          "summary": "passive",
+          "detail": "on-demand"
+        },
+        "availability": {
+          "status": "available"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"capability\":{\"summary\":\"passive\",\"detail\":\"on-demand\"},\"availability\":{\"status\":\"available\"}}"
+    },
+    {
+      "schema": "DriverContextWire",
+      "variant": "full/arm1",
+      "wire": {
+        "capability": {
+          "summary": "explicit",
+          "detail": "none"
+        },
+        "availability": {
+          "status": "unavailable",
+          "reason": {
+            "code": "availability.reason.code",
+            "message": "availability.reason.message"
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"capability\":{\"summary\":\"explicit\",\"detail\":\"none\"},\"availability\":{\"status\":\"unavailable\",\"reason\":{\"code\":\"availability.reason.code\",\"message\":\"availability.reason.message\"}}}"
+    },
+    {
+      "schema": "DriverContextWire",
+      "variant": "full/arm2",
+      "wire": {
+        "capability": {
+          "summary": "passive-and-explicit",
+          "detail": "none"
+        },
+        "availability": {
+          "status": "unsupported",
+          "reason": {
+            "code": "availability.reason.code",
+            "message": "availability.reason.message"
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"capability\":{\"summary\":\"passive-and-explicit\",\"detail\":\"none\"},\"availability\":{\"status\":\"unsupported\",\"reason\":{\"code\":\"availability.reason.code\",\"message\":\"availability.reason.message\"}}}"
     },
     {
       "schema": "DriverFamilyWire",
@@ -4626,7 +5935,7 @@
     },
     {
       "schema": "Inventory",
-      "variant": "full",
+      "variant": "full/arm0",
       "wire": {
         "os": "linux",
         "arch": "x64",
@@ -4728,6 +6037,21 @@
             "family": "server"
           }
         ],
+        "driverCapabilities": {
+          "driverCapabilities.key": {
+            "context": {
+              "driverCapabilities.driverCapabilities.key.context.key": {
+                "capability": {
+                  "summary": "passive",
+                  "detail": "on-demand"
+                },
+                "availability": {
+                  "status": "available"
+                }
+              }
+            }
+          }
+        },
         "tools": [
           {
             "name": "tools[0].name",
@@ -4744,7 +6068,289 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"os\":\"linux\",\"arch\":\"x64\",\"podiumVersion\":\"podiumVersion\",\"homePath\":\"homePath\",\"agents\":[{\"kind\":\"claude-code\",\"installed\":true,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":1},\"version\":\"agents[0].version\",\"path\":\"agents[0].path\",\"login\":{\"state\":\"in\",\"account\":\"agents[0].login.account\",\"identity\":{\"fingerprint\":\"agents[0].login.identity.fingerprint\",\"email\":\"agents[0].login.identity.email\",\"providerAccountId\":\"agents[0].login.identity.providerAccountId\"},\"freshness\":1},\"logins\":[{\"homeId\":\"agents[0].logins[0].homeId\",\"state\":\"in\",\"identity\":{\"fingerprint\":\"agents[0].logins[0].identity.fingerprint\",\"email\":\"agents[0].logins[0].identity.email\",\"providerAccountId\":\"agents[0].logins[0].identity.providerAccountId\"},\"freshness\":1}],\"install\":{\"external\":{\"path\":\"agents[0].install.external.path\",\"version\":\"agents[0].install.external.version\"},\"managed\":{\"active\":{\"path\":\"agents[0].install.managed.active.path\",\"version\":\"agents[0].install.managed.active.version\",\"release\":1},\"currentFailed\":{\"release\":1,\"version\":\"agents[0].install.managed.currentFailed.version\"},\"previousVersion\":\"agents[0].install.managed.previousVersion\",\"latest\":\"agents[0].install.managed.latest\",\"lastCheckAt\":\"agents[0].install.managed.lastCheckAt\",\"installing\":{\"version\":\"agents[0].install.managed.installing.version\",\"progress\":{\"phase\":\"download\",\"receivedBytes\":1,\"totalBytes\":1}},\"removingAt\":\"agents[0].install.managed.removingAt\",\"paused\":true,\"vendorUpdated\":true,\"lastError\":{\"at\":\"agents[0].install.managed.lastError.at\",\"message\":\"agents[0].install.managed.lastError.message\",\"version\":\"agents[0].install.managed.lastError.version\"},\"failingSince\":\"agents[0].install.managed.failingSince\"},\"ledgerRebuilt\":{\"at\":\"agents[0].install.ledgerRebuilt.at\",\"reason\":\"missing\"}},\"missingPrerequisites\":[{\"executable\":\"agents[0].missingPrerequisites[0].executable\",\"package\":\"agents[0].missingPrerequisites[0].package\",\"neededFor\":\"passed-in-credential\",\"message\":\"agents[0].missingPrerequisites[0].message\"}],\"management\":{\"installable\":true,\"reason\":\"agents[0].management.reason\",\"homeVariable\":\"agents[0].management.homeVariable\",\"updateNotice\":\"agents[0].management.updateNotice\"}}],\"runtimeDrivers\":[{\"harness\":\"claude-code\",\"id\":\"runtimeDrivers[0].id\",\"family\":\"server\"}],\"tools\":[{\"name\":\"tools[0].name\",\"installed\":true,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":1},\"version\":\"tools[0].version\",\"path\":\"tools[0].path\"}]}"
+      "encoded": "{\"os\":\"linux\",\"arch\":\"x64\",\"podiumVersion\":\"podiumVersion\",\"homePath\":\"homePath\",\"agents\":[{\"kind\":\"claude-code\",\"installed\":true,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":1},\"version\":\"agents[0].version\",\"path\":\"agents[0].path\",\"login\":{\"state\":\"in\",\"account\":\"agents[0].login.account\",\"identity\":{\"fingerprint\":\"agents[0].login.identity.fingerprint\",\"email\":\"agents[0].login.identity.email\",\"providerAccountId\":\"agents[0].login.identity.providerAccountId\"},\"freshness\":1},\"logins\":[{\"homeId\":\"agents[0].logins[0].homeId\",\"state\":\"in\",\"identity\":{\"fingerprint\":\"agents[0].logins[0].identity.fingerprint\",\"email\":\"agents[0].logins[0].identity.email\",\"providerAccountId\":\"agents[0].logins[0].identity.providerAccountId\"},\"freshness\":1}],\"install\":{\"external\":{\"path\":\"agents[0].install.external.path\",\"version\":\"agents[0].install.external.version\"},\"managed\":{\"active\":{\"path\":\"agents[0].install.managed.active.path\",\"version\":\"agents[0].install.managed.active.version\",\"release\":1},\"currentFailed\":{\"release\":1,\"version\":\"agents[0].install.managed.currentFailed.version\"},\"previousVersion\":\"agents[0].install.managed.previousVersion\",\"latest\":\"agents[0].install.managed.latest\",\"lastCheckAt\":\"agents[0].install.managed.lastCheckAt\",\"installing\":{\"version\":\"agents[0].install.managed.installing.version\",\"progress\":{\"phase\":\"download\",\"receivedBytes\":1,\"totalBytes\":1}},\"removingAt\":\"agents[0].install.managed.removingAt\",\"paused\":true,\"vendorUpdated\":true,\"lastError\":{\"at\":\"agents[0].install.managed.lastError.at\",\"message\":\"agents[0].install.managed.lastError.message\",\"version\":\"agents[0].install.managed.lastError.version\"},\"failingSince\":\"agents[0].install.managed.failingSince\"},\"ledgerRebuilt\":{\"at\":\"agents[0].install.ledgerRebuilt.at\",\"reason\":\"missing\"}},\"missingPrerequisites\":[{\"executable\":\"agents[0].missingPrerequisites[0].executable\",\"package\":\"agents[0].missingPrerequisites[0].package\",\"neededFor\":\"passed-in-credential\",\"message\":\"agents[0].missingPrerequisites[0].message\"}],\"management\":{\"installable\":true,\"reason\":\"agents[0].management.reason\",\"homeVariable\":\"agents[0].management.homeVariable\",\"updateNotice\":\"agents[0].management.updateNotice\"}}],\"runtimeDrivers\":[{\"harness\":\"claude-code\",\"id\":\"runtimeDrivers[0].id\",\"family\":\"server\"}],\"driverCapabilities\":{\"driverCapabilities.key\":{\"context\":{\"driverCapabilities.driverCapabilities.key.context.key\":{\"capability\":{\"summary\":\"passive\",\"detail\":\"on-demand\"},\"availability\":{\"status\":\"available\"}}}}},\"tools\":[{\"name\":\"tools[0].name\",\"installed\":true,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":1},\"version\":\"tools[0].version\",\"path\":\"tools[0].path\"}]}"
+    },
+    {
+      "schema": "Inventory",
+      "variant": "full/arm1",
+      "wire": {
+        "os": "darwin",
+        "arch": "arm64",
+        "podiumVersion": "podiumVersion",
+        "homePath": "homePath",
+        "agents": [
+          {
+            "kind": "codex",
+            "installed": false,
+            "probeError": {
+              "reason": "timed-out",
+              "timeoutMs": 2
+            },
+            "version": "agents[0].version",
+            "path": "agents[0].path",
+            "login": {
+              "state": "out",
+              "account": "agents[0].login.account",
+              "identity": {
+                "fingerprint": "agents[0].login.identity.fingerprint",
+                "email": "agents[0].login.identity.email",
+                "providerAccountId": "agents[0].login.identity.providerAccountId"
+              },
+              "freshness": 2
+            },
+            "logins": [
+              {
+                "homeId": "agents[0].logins[0].homeId",
+                "state": "out",
+                "identity": {
+                  "fingerprint": "agents[0].logins[0].identity.fingerprint",
+                  "email": "agents[0].logins[0].identity.email",
+                  "providerAccountId": "agents[0].logins[0].identity.providerAccountId"
+                },
+                "freshness": 2
+              }
+            ],
+            "install": {
+              "external": {
+                "path": "agents[0].install.external.path",
+                "version": "agents[0].install.external.version"
+              },
+              "managed": {
+                "active": {
+                  "path": "agents[0].install.managed.active.path",
+                  "version": "agents[0].install.managed.active.version",
+                  "release": 2
+                },
+                "currentFailed": {
+                  "release": 2,
+                  "version": "agents[0].install.managed.currentFailed.version"
+                },
+                "previousVersion": "agents[0].install.managed.previousVersion",
+                "latest": "agents[0].install.managed.latest",
+                "lastCheckAt": "agents[0].install.managed.lastCheckAt",
+                "installing": {
+                  "version": "agents[0].install.managed.installing.version",
+                  "progress": {
+                    "phase": "verify",
+                    "receivedBytes": 2,
+                    "totalBytes": 2
+                  }
+                },
+                "removingAt": "agents[0].install.managed.removingAt",
+                "paused": false,
+                "vendorUpdated": false,
+                "lastError": {
+                  "at": "agents[0].install.managed.lastError.at",
+                  "message": "agents[0].install.managed.lastError.message",
+                  "version": "agents[0].install.managed.lastError.version"
+                },
+                "failingSince": "agents[0].install.managed.failingSince"
+              },
+              "ledgerRebuilt": {
+                "at": "agents[0].install.ledgerRebuilt.at",
+                "reason": "damaged"
+              }
+            },
+            "missingPrerequisites": [
+              {
+                "executable": "agents[0].missingPrerequisites[0].executable",
+                "package": "agents[0].missingPrerequisites[0].package",
+                "neededFor": "passed-in-credential",
+                "message": "agents[0].missingPrerequisites[0].message"
+              }
+            ],
+            "management": {
+              "installable": false,
+              "reason": "agents[0].management.reason",
+              "homeVariable": "agents[0].management.homeVariable",
+              "updateNotice": "agents[0].management.updateNotice"
+            }
+          }
+        ],
+        "runtimeDrivers": [
+          {
+            "harness": "codex",
+            "id": "runtimeDrivers[0].id",
+            "family": "terminal"
+          }
+        ],
+        "driverCapabilities": {
+          "driverCapabilities.key": {
+            "context": {
+              "driverCapabilities.driverCapabilities.key.context.key": {
+                "capability": {
+                  "summary": "explicit",
+                  "detail": "none"
+                },
+                "availability": {
+                  "status": "unavailable",
+                  "reason": {
+                    "code": "driverCapabilities.driverCapabilities.key.context.driverCapabilities.driverCapabilities.key.context.key.availability.reason.code",
+                    "message": "driverCapabilities.driverCapabilities.key.context.driverCapabilities.driverCapabilities.key.context.key.availability.reason.message"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "tools": [
+          {
+            "name": "tools[0].name",
+            "installed": false,
+            "probeError": {
+              "reason": "timed-out",
+              "timeoutMs": 2
+            },
+            "version": "tools[0].version",
+            "path": "tools[0].path"
+          }
+        ]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"os\":\"darwin\",\"arch\":\"arm64\",\"podiumVersion\":\"podiumVersion\",\"homePath\":\"homePath\",\"agents\":[{\"kind\":\"codex\",\"installed\":false,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":2},\"version\":\"agents[0].version\",\"path\":\"agents[0].path\",\"login\":{\"state\":\"out\",\"account\":\"agents[0].login.account\",\"identity\":{\"fingerprint\":\"agents[0].login.identity.fingerprint\",\"email\":\"agents[0].login.identity.email\",\"providerAccountId\":\"agents[0].login.identity.providerAccountId\"},\"freshness\":2},\"logins\":[{\"homeId\":\"agents[0].logins[0].homeId\",\"state\":\"out\",\"identity\":{\"fingerprint\":\"agents[0].logins[0].identity.fingerprint\",\"email\":\"agents[0].logins[0].identity.email\",\"providerAccountId\":\"agents[0].logins[0].identity.providerAccountId\"},\"freshness\":2}],\"install\":{\"external\":{\"path\":\"agents[0].install.external.path\",\"version\":\"agents[0].install.external.version\"},\"managed\":{\"active\":{\"path\":\"agents[0].install.managed.active.path\",\"version\":\"agents[0].install.managed.active.version\",\"release\":2},\"currentFailed\":{\"release\":2,\"version\":\"agents[0].install.managed.currentFailed.version\"},\"previousVersion\":\"agents[0].install.managed.previousVersion\",\"latest\":\"agents[0].install.managed.latest\",\"lastCheckAt\":\"agents[0].install.managed.lastCheckAt\",\"installing\":{\"version\":\"agents[0].install.managed.installing.version\",\"progress\":{\"phase\":\"verify\",\"receivedBytes\":2,\"totalBytes\":2}},\"removingAt\":\"agents[0].install.managed.removingAt\",\"paused\":false,\"vendorUpdated\":false,\"lastError\":{\"at\":\"agents[0].install.managed.lastError.at\",\"message\":\"agents[0].install.managed.lastError.message\",\"version\":\"agents[0].install.managed.lastError.version\"},\"failingSince\":\"agents[0].install.managed.failingSince\"},\"ledgerRebuilt\":{\"at\":\"agents[0].install.ledgerRebuilt.at\",\"reason\":\"damaged\"}},\"missingPrerequisites\":[{\"executable\":\"agents[0].missingPrerequisites[0].executable\",\"package\":\"agents[0].missingPrerequisites[0].package\",\"neededFor\":\"passed-in-credential\",\"message\":\"agents[0].missingPrerequisites[0].message\"}],\"management\":{\"installable\":false,\"reason\":\"agents[0].management.reason\",\"homeVariable\":\"agents[0].management.homeVariable\",\"updateNotice\":\"agents[0].management.updateNotice\"}}],\"runtimeDrivers\":[{\"harness\":\"codex\",\"id\":\"runtimeDrivers[0].id\",\"family\":\"terminal\"}],\"driverCapabilities\":{\"driverCapabilities.key\":{\"context\":{\"driverCapabilities.driverCapabilities.key.context.key\":{\"capability\":{\"summary\":\"explicit\",\"detail\":\"none\"},\"availability\":{\"status\":\"unavailable\",\"reason\":{\"code\":\"driverCapabilities.driverCapabilities.key.context.driverCapabilities.driverCapabilities.key.context.key.availability.reason.code\",\"message\":\"driverCapabilities.driverCapabilities.key.context.driverCapabilities.driverCapabilities.key.context.key.availability.reason.message\"}}}}}},\"tools\":[{\"name\":\"tools[0].name\",\"installed\":false,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":2},\"version\":\"tools[0].version\",\"path\":\"tools[0].path\"}]}"
+    },
+    {
+      "schema": "Inventory",
+      "variant": "full/arm2",
+      "wire": {
+        "os": "win32",
+        "arch": "arm64",
+        "podiumVersion": "podiumVersion",
+        "homePath": "homePath",
+        "agents": [
+          {
+            "kind": "grok",
+            "installed": true,
+            "probeError": {
+              "reason": "timed-out",
+              "timeoutMs": 3
+            },
+            "version": "agents[0].version",
+            "path": "agents[0].path",
+            "login": {
+              "state": "unknown",
+              "account": "agents[0].login.account",
+              "identity": {
+                "fingerprint": "agents[0].login.identity.fingerprint",
+                "email": "agents[0].login.identity.email",
+                "providerAccountId": "agents[0].login.identity.providerAccountId"
+              },
+              "freshness": 3
+            },
+            "logins": [
+              {
+                "homeId": "agents[0].logins[0].homeId",
+                "state": "unknown",
+                "identity": {
+                  "fingerprint": "agents[0].logins[0].identity.fingerprint",
+                  "email": "agents[0].logins[0].identity.email",
+                  "providerAccountId": "agents[0].logins[0].identity.providerAccountId"
+                },
+                "freshness": 3
+              }
+            ],
+            "install": {
+              "external": {
+                "path": "agents[0].install.external.path",
+                "version": "agents[0].install.external.version"
+              },
+              "managed": {
+                "active": {
+                  "path": "agents[0].install.managed.active.path",
+                  "version": "agents[0].install.managed.active.version",
+                  "release": 3
+                },
+                "currentFailed": {
+                  "release": 3,
+                  "version": "agents[0].install.managed.currentFailed.version"
+                },
+                "previousVersion": "agents[0].install.managed.previousVersion",
+                "latest": "agents[0].install.managed.latest",
+                "lastCheckAt": "agents[0].install.managed.lastCheckAt",
+                "installing": {
+                  "version": "agents[0].install.managed.installing.version",
+                  "progress": {
+                    "phase": "setup",
+                    "receivedBytes": 3,
+                    "totalBytes": 3
+                  }
+                },
+                "removingAt": "agents[0].install.managed.removingAt",
+                "paused": true,
+                "vendorUpdated": true,
+                "lastError": {
+                  "at": "agents[0].install.managed.lastError.at",
+                  "message": "agents[0].install.managed.lastError.message",
+                  "version": "agents[0].install.managed.lastError.version"
+                },
+                "failingSince": "agents[0].install.managed.failingSince"
+              },
+              "ledgerRebuilt": {
+                "at": "agents[0].install.ledgerRebuilt.at",
+                "reason": "damaged"
+              }
+            },
+            "missingPrerequisites": [
+              {
+                "executable": "agents[0].missingPrerequisites[0].executable",
+                "package": "agents[0].missingPrerequisites[0].package",
+                "neededFor": "passed-in-credential",
+                "message": "agents[0].missingPrerequisites[0].message"
+              }
+            ],
+            "management": {
+              "installable": true,
+              "reason": "agents[0].management.reason",
+              "homeVariable": "agents[0].management.homeVariable",
+              "updateNotice": "agents[0].management.updateNotice"
+            }
+          }
+        ],
+        "runtimeDrivers": [
+          {
+            "harness": "grok",
+            "id": "runtimeDrivers[0].id",
+            "family": "server"
+          }
+        ],
+        "driverCapabilities": {
+          "driverCapabilities.key": {
+            "context": {
+              "driverCapabilities.driverCapabilities.key.context.key": {
+                "capability": {
+                  "summary": "passive-and-explicit",
+                  "detail": "none"
+                },
+                "availability": {
+                  "status": "unsupported",
+                  "reason": {
+                    "code": "driverCapabilities.driverCapabilities.key.context.driverCapabilities.driverCapabilities.key.context.key.availability.reason.code",
+                    "message": "driverCapabilities.driverCapabilities.key.context.driverCapabilities.driverCapabilities.key.context.key.availability.reason.message"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "tools": [
+          {
+            "name": "tools[0].name",
+            "installed": true,
+            "probeError": {
+              "reason": "timed-out",
+              "timeoutMs": 3
+            },
+            "version": "tools[0].version",
+            "path": "tools[0].path"
+          }
+        ]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"os\":\"win32\",\"arch\":\"arm64\",\"podiumVersion\":\"podiumVersion\",\"homePath\":\"homePath\",\"agents\":[{\"kind\":\"grok\",\"installed\":true,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":3},\"version\":\"agents[0].version\",\"path\":\"agents[0].path\",\"login\":{\"state\":\"unknown\",\"account\":\"agents[0].login.account\",\"identity\":{\"fingerprint\":\"agents[0].login.identity.fingerprint\",\"email\":\"agents[0].login.identity.email\",\"providerAccountId\":\"agents[0].login.identity.providerAccountId\"},\"freshness\":3},\"logins\":[{\"homeId\":\"agents[0].logins[0].homeId\",\"state\":\"unknown\",\"identity\":{\"fingerprint\":\"agents[0].logins[0].identity.fingerprint\",\"email\":\"agents[0].logins[0].identity.email\",\"providerAccountId\":\"agents[0].logins[0].identity.providerAccountId\"},\"freshness\":3}],\"install\":{\"external\":{\"path\":\"agents[0].install.external.path\",\"version\":\"agents[0].install.external.version\"},\"managed\":{\"active\":{\"path\":\"agents[0].install.managed.active.path\",\"version\":\"agents[0].install.managed.active.version\",\"release\":3},\"currentFailed\":{\"release\":3,\"version\":\"agents[0].install.managed.currentFailed.version\"},\"previousVersion\":\"agents[0].install.managed.previousVersion\",\"latest\":\"agents[0].install.managed.latest\",\"lastCheckAt\":\"agents[0].install.managed.lastCheckAt\",\"installing\":{\"version\":\"agents[0].install.managed.installing.version\",\"progress\":{\"phase\":\"setup\",\"receivedBytes\":3,\"totalBytes\":3}},\"removingAt\":\"agents[0].install.managed.removingAt\",\"paused\":true,\"vendorUpdated\":true,\"lastError\":{\"at\":\"agents[0].install.managed.lastError.at\",\"message\":\"agents[0].install.managed.lastError.message\",\"version\":\"agents[0].install.managed.lastError.version\"},\"failingSince\":\"agents[0].install.managed.failingSince\"},\"ledgerRebuilt\":{\"at\":\"agents[0].install.ledgerRebuilt.at\",\"reason\":\"damaged\"}},\"missingPrerequisites\":[{\"executable\":\"agents[0].missingPrerequisites[0].executable\",\"package\":\"agents[0].missingPrerequisites[0].package\",\"neededFor\":\"passed-in-credential\",\"message\":\"agents[0].missingPrerequisites[0].message\"}],\"management\":{\"installable\":true,\"reason\":\"agents[0].management.reason\",\"homeVariable\":\"agents[0].management.homeVariable\",\"updateNotice\":\"agents[0].management.updateNotice\"}}],\"runtimeDrivers\":[{\"harness\":\"grok\",\"id\":\"runtimeDrivers[0].id\",\"family\":\"server\"}],\"driverCapabilities\":{\"driverCapabilities.key\":{\"context\":{\"driverCapabilities.driverCapabilities.key.context.key\":{\"capability\":{\"summary\":\"passive-and-explicit\",\"detail\":\"none\"},\"availability\":{\"status\":\"unsupported\",\"reason\":{\"code\":\"driverCapabilities.driverCapabilities.key.context.driverCapabilities.driverCapabilities.key.context.key.availability.reason.code\",\"message\":\"driverCapabilities.driverCapabilities.key.context.driverCapabilities.driverCapabilities.key.context.key.availability.reason.message\"}}}}}},\"tools\":[{\"name\":\"tools[0].name\",\"installed\":true,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":3},\"version\":\"tools[0].version\",\"path\":\"tools[0].path\"}]}"
     },
     {
       "schema": "InviteId",
@@ -8154,7 +9760,7 @@
     },
     {
       "schema": "MachineAccessWire",
-      "variant": "full",
+      "variant": "full/arm0",
       "wire": {
         "userId": "userId",
         "machineId": "machineId",
@@ -8316,6 +9922,21 @@
               "family": "server"
             }
           ],
+          "driverCapabilities": {
+            "inventory.driverCapabilities.key": {
+              "context": {
+                "inventory.driverCapabilities.inventory.driverCapabilities.key.context.key": {
+                  "capability": {
+                    "summary": "passive",
+                    "detail": "on-demand"
+                  },
+                  "availability": {
+                    "status": "available"
+                  }
+                }
+              }
+            }
+          },
           "tools": [
             {
               "name": "inventory.tools[0].name",
@@ -8333,7 +9954,411 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"userId\":\"userId\",\"machineId\":\"machineId\",\"use\":\"granted\",\"owned\":true,\"transferable\":true,\"unowned\":true,\"adoptable\":true,\"supersedable\":true,\"checkoutReach\":\"all\",\"grants\":[{\"grantee\":\"grants[0].grantee\",\"verb\":\"see\",\"grantedAt\":\"grants[0].grantedAt\",\"grantedBy\":\"grants[0].grantedBy\"}],\"hostname\":\"hostname\",\"revokedAt\":\"revokedAt\",\"supersededBy\":\"supersededBy\",\"podiumManaged\":true,\"hostsServer\":true,\"serverMoveSupported\":true,\"services\":{\"server\":{\"policy\":\"enabled\",\"state\":\"starting\",\"reason\":\"services.server.reason\"},\"agentExecution\":{\"policy\":\"enabled\",\"state\":\"starting\",\"reason\":\"services.agentExecution.reason\"},\"agentExecutionLockout\":true,\"crashOwner\":\"services.crashOwner\",\"topology\":{\"persistence\":\"systemd\",\"legacyUnits\":[\"services.topology.legacyUnits[0]\"],\"parentUnit\":\"active\"}},\"serviceAssignment\":{\"server\":true,\"agentExecution\":true},\"components\":[\"daemon\"],\"deliveryCaps\":[\"deliveryCaps[0]\"],\"wireSchemaDigest\":\"wireSchemaDigest\",\"buildReportedAt\":\"buildReportedAt\",\"harnessVersions\":[{\"harness\":\"harnessVersions[0].harness\",\"version\":\"harnessVersions[0].version\",\"firstSeen\":\"harnessVersions[0].firstSeen\",\"verifiedThrough\":\"harnessVersions[0].verifiedThrough\",\"unverified\":true}],\"inventory\":{\"os\":\"linux\",\"arch\":\"x64\",\"podiumVersion\":\"inventory.podiumVersion\",\"homePath\":\"inventory.homePath\",\"agents\":[{\"kind\":\"claude-code\",\"installed\":true,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":1},\"version\":\"inventory.agents[0].version\",\"path\":\"inventory.agents[0].path\",\"login\":{\"state\":\"in\",\"account\":\"inventory.agents[0].login.account\",\"identity\":{\"fingerprint\":\"inventory.agents[0].login.identity.fingerprint\",\"email\":\"inventory.agents[0].login.identity.email\",\"providerAccountId\":\"inventory.agents[0].login.identity.providerAccountId\"},\"freshness\":1},\"logins\":[{\"homeId\":\"inventory.agents[0].logins[0].homeId\",\"state\":\"in\",\"identity\":{\"fingerprint\":\"inventory.agents[0].logins[0].identity.fingerprint\",\"email\":\"inventory.agents[0].logins[0].identity.email\",\"providerAccountId\":\"inventory.agents[0].logins[0].identity.providerAccountId\"},\"freshness\":1}],\"install\":{\"external\":{\"path\":\"inventory.agents[0].install.external.path\",\"version\":\"inventory.agents[0].install.external.version\"},\"managed\":{\"active\":{\"path\":\"inventory.agents[0].install.managed.active.path\",\"version\":\"inventory.agents[0].install.managed.active.version\",\"release\":1},\"currentFailed\":{\"release\":1,\"version\":\"inventory.agents[0].install.managed.currentFailed.version\"},\"previousVersion\":\"inventory.agents[0].install.managed.previousVersion\",\"latest\":\"inventory.agents[0].install.managed.latest\",\"lastCheckAt\":\"inventory.agents[0].install.managed.lastCheckAt\",\"installing\":{\"version\":\"inventory.agents[0].install.managed.installing.version\",\"progress\":{\"phase\":\"download\",\"receivedBytes\":1,\"totalBytes\":1}},\"removingAt\":\"inventory.agents[0].install.managed.removingAt\",\"paused\":true,\"vendorUpdated\":true,\"lastError\":{\"at\":\"inventory.agents[0].install.managed.lastError.at\",\"message\":\"inventory.agents[0].install.managed.lastError.message\",\"version\":\"inventory.agents[0].install.managed.lastError.version\"},\"failingSince\":\"inventory.agents[0].install.managed.failingSince\"},\"ledgerRebuilt\":{\"at\":\"inventory.agents[0].install.ledgerRebuilt.at\",\"reason\":\"missing\"}},\"missingPrerequisites\":[{\"executable\":\"inventory.agents[0].missingPrerequisites[0].executable\",\"package\":\"inventory.agents[0].missingPrerequisites[0].package\",\"neededFor\":\"passed-in-credential\",\"message\":\"inventory.agents[0].missingPrerequisites[0].message\"}],\"management\":{\"installable\":true,\"reason\":\"inventory.agents[0].management.reason\",\"homeVariable\":\"inventory.agents[0].management.homeVariable\",\"updateNotice\":\"inventory.agents[0].management.updateNotice\"}}],\"runtimeDrivers\":[{\"harness\":\"claude-code\",\"id\":\"inventory.runtimeDrivers[0].id\",\"family\":\"server\"}],\"tools\":[{\"name\":\"inventory.tools[0].name\",\"installed\":true,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":1},\"version\":\"inventory.tools[0].version\",\"path\":\"inventory.tools[0].path\"}]}}"
+      "encoded": "{\"userId\":\"userId\",\"machineId\":\"machineId\",\"use\":\"granted\",\"owned\":true,\"transferable\":true,\"unowned\":true,\"adoptable\":true,\"supersedable\":true,\"checkoutReach\":\"all\",\"grants\":[{\"grantee\":\"grants[0].grantee\",\"verb\":\"see\",\"grantedAt\":\"grants[0].grantedAt\",\"grantedBy\":\"grants[0].grantedBy\"}],\"hostname\":\"hostname\",\"revokedAt\":\"revokedAt\",\"supersededBy\":\"supersededBy\",\"podiumManaged\":true,\"hostsServer\":true,\"serverMoveSupported\":true,\"services\":{\"server\":{\"policy\":\"enabled\",\"state\":\"starting\",\"reason\":\"services.server.reason\"},\"agentExecution\":{\"policy\":\"enabled\",\"state\":\"starting\",\"reason\":\"services.agentExecution.reason\"},\"agentExecutionLockout\":true,\"crashOwner\":\"services.crashOwner\",\"topology\":{\"persistence\":\"systemd\",\"legacyUnits\":[\"services.topology.legacyUnits[0]\"],\"parentUnit\":\"active\"}},\"serviceAssignment\":{\"server\":true,\"agentExecution\":true},\"components\":[\"daemon\"],\"deliveryCaps\":[\"deliveryCaps[0]\"],\"wireSchemaDigest\":\"wireSchemaDigest\",\"buildReportedAt\":\"buildReportedAt\",\"harnessVersions\":[{\"harness\":\"harnessVersions[0].harness\",\"version\":\"harnessVersions[0].version\",\"firstSeen\":\"harnessVersions[0].firstSeen\",\"verifiedThrough\":\"harnessVersions[0].verifiedThrough\",\"unverified\":true}],\"inventory\":{\"os\":\"linux\",\"arch\":\"x64\",\"podiumVersion\":\"inventory.podiumVersion\",\"homePath\":\"inventory.homePath\",\"agents\":[{\"kind\":\"claude-code\",\"installed\":true,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":1},\"version\":\"inventory.agents[0].version\",\"path\":\"inventory.agents[0].path\",\"login\":{\"state\":\"in\",\"account\":\"inventory.agents[0].login.account\",\"identity\":{\"fingerprint\":\"inventory.agents[0].login.identity.fingerprint\",\"email\":\"inventory.agents[0].login.identity.email\",\"providerAccountId\":\"inventory.agents[0].login.identity.providerAccountId\"},\"freshness\":1},\"logins\":[{\"homeId\":\"inventory.agents[0].logins[0].homeId\",\"state\":\"in\",\"identity\":{\"fingerprint\":\"inventory.agents[0].logins[0].identity.fingerprint\",\"email\":\"inventory.agents[0].logins[0].identity.email\",\"providerAccountId\":\"inventory.agents[0].logins[0].identity.providerAccountId\"},\"freshness\":1}],\"install\":{\"external\":{\"path\":\"inventory.agents[0].install.external.path\",\"version\":\"inventory.agents[0].install.external.version\"},\"managed\":{\"active\":{\"path\":\"inventory.agents[0].install.managed.active.path\",\"version\":\"inventory.agents[0].install.managed.active.version\",\"release\":1},\"currentFailed\":{\"release\":1,\"version\":\"inventory.agents[0].install.managed.currentFailed.version\"},\"previousVersion\":\"inventory.agents[0].install.managed.previousVersion\",\"latest\":\"inventory.agents[0].install.managed.latest\",\"lastCheckAt\":\"inventory.agents[0].install.managed.lastCheckAt\",\"installing\":{\"version\":\"inventory.agents[0].install.managed.installing.version\",\"progress\":{\"phase\":\"download\",\"receivedBytes\":1,\"totalBytes\":1}},\"removingAt\":\"inventory.agents[0].install.managed.removingAt\",\"paused\":true,\"vendorUpdated\":true,\"lastError\":{\"at\":\"inventory.agents[0].install.managed.lastError.at\",\"message\":\"inventory.agents[0].install.managed.lastError.message\",\"version\":\"inventory.agents[0].install.managed.lastError.version\"},\"failingSince\":\"inventory.agents[0].install.managed.failingSince\"},\"ledgerRebuilt\":{\"at\":\"inventory.agents[0].install.ledgerRebuilt.at\",\"reason\":\"missing\"}},\"missingPrerequisites\":[{\"executable\":\"inventory.agents[0].missingPrerequisites[0].executable\",\"package\":\"inventory.agents[0].missingPrerequisites[0].package\",\"neededFor\":\"passed-in-credential\",\"message\":\"inventory.agents[0].missingPrerequisites[0].message\"}],\"management\":{\"installable\":true,\"reason\":\"inventory.agents[0].management.reason\",\"homeVariable\":\"inventory.agents[0].management.homeVariable\",\"updateNotice\":\"inventory.agents[0].management.updateNotice\"}}],\"runtimeDrivers\":[{\"harness\":\"claude-code\",\"id\":\"inventory.runtimeDrivers[0].id\",\"family\":\"server\"}],\"driverCapabilities\":{\"inventory.driverCapabilities.key\":{\"context\":{\"inventory.driverCapabilities.inventory.driverCapabilities.key.context.key\":{\"capability\":{\"summary\":\"passive\",\"detail\":\"on-demand\"},\"availability\":{\"status\":\"available\"}}}}},\"tools\":[{\"name\":\"inventory.tools[0].name\",\"installed\":true,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":1},\"version\":\"inventory.tools[0].version\",\"path\":\"inventory.tools[0].path\"}]}}"
+    },
+    {
+      "schema": "MachineAccessWire",
+      "variant": "full/arm1",
+      "wire": {
+        "userId": "userId",
+        "machineId": "machineId",
+        "use": "denied",
+        "owned": false,
+        "transferable": false,
+        "unowned": false,
+        "adoptable": false,
+        "supersedable": false,
+        "checkoutReach": "roots",
+        "grants": [
+          {
+            "grantee": "grants[0].grantee",
+            "verb": "use",
+            "grantedAt": "grants[0].grantedAt",
+            "grantedBy": "grants[0].grantedBy"
+          }
+        ],
+        "hostname": "hostname",
+        "revokedAt": "revokedAt",
+        "supersededBy": "supersededBy",
+        "podiumManaged": false,
+        "hostsServer": false,
+        "serverMoveSupported": false,
+        "services": {
+          "server": {
+            "policy": "disabled",
+            "state": "available",
+            "reason": "services.server.reason"
+          },
+          "agentExecution": {
+            "policy": "disabled",
+            "state": "available",
+            "reason": "services.agentExecution.reason"
+          },
+          "agentExecutionLockout": false,
+          "crashOwner": "services.crashOwner",
+          "topology": {
+            "persistence": "detached",
+            "legacyUnits": ["services.topology.legacyUnits[0]"],
+            "parentUnit": "inactive"
+          }
+        },
+        "serviceAssignment": {
+          "server": false,
+          "agentExecution": false
+        },
+        "components": ["server"],
+        "deliveryCaps": ["deliveryCaps[0]"],
+        "wireSchemaDigest": "wireSchemaDigest",
+        "buildReportedAt": "buildReportedAt",
+        "harnessVersions": [
+          {
+            "harness": "harnessVersions[0].harness",
+            "version": "harnessVersions[0].version",
+            "firstSeen": "harnessVersions[0].firstSeen",
+            "verifiedThrough": "harnessVersions[0].verifiedThrough",
+            "unverified": false
+          }
+        ],
+        "inventory": {
+          "os": "darwin",
+          "arch": "arm64",
+          "podiumVersion": "inventory.podiumVersion",
+          "homePath": "inventory.homePath",
+          "agents": [
+            {
+              "kind": "codex",
+              "installed": false,
+              "probeError": {
+                "reason": "timed-out",
+                "timeoutMs": 2
+              },
+              "version": "inventory.agents[0].version",
+              "path": "inventory.agents[0].path",
+              "login": {
+                "state": "out",
+                "account": "inventory.agents[0].login.account",
+                "identity": {
+                  "fingerprint": "inventory.agents[0].login.identity.fingerprint",
+                  "email": "inventory.agents[0].login.identity.email",
+                  "providerAccountId": "inventory.agents[0].login.identity.providerAccountId"
+                },
+                "freshness": 2
+              },
+              "logins": [
+                {
+                  "homeId": "inventory.agents[0].logins[0].homeId",
+                  "state": "out",
+                  "identity": {
+                    "fingerprint": "inventory.agents[0].logins[0].identity.fingerprint",
+                    "email": "inventory.agents[0].logins[0].identity.email",
+                    "providerAccountId": "inventory.agents[0].logins[0].identity.providerAccountId"
+                  },
+                  "freshness": 2
+                }
+              ],
+              "install": {
+                "external": {
+                  "path": "inventory.agents[0].install.external.path",
+                  "version": "inventory.agents[0].install.external.version"
+                },
+                "managed": {
+                  "active": {
+                    "path": "inventory.agents[0].install.managed.active.path",
+                    "version": "inventory.agents[0].install.managed.active.version",
+                    "release": 2
+                  },
+                  "currentFailed": {
+                    "release": 2,
+                    "version": "inventory.agents[0].install.managed.currentFailed.version"
+                  },
+                  "previousVersion": "inventory.agents[0].install.managed.previousVersion",
+                  "latest": "inventory.agents[0].install.managed.latest",
+                  "lastCheckAt": "inventory.agents[0].install.managed.lastCheckAt",
+                  "installing": {
+                    "version": "inventory.agents[0].install.managed.installing.version",
+                    "progress": {
+                      "phase": "verify",
+                      "receivedBytes": 2,
+                      "totalBytes": 2
+                    }
+                  },
+                  "removingAt": "inventory.agents[0].install.managed.removingAt",
+                  "paused": false,
+                  "vendorUpdated": false,
+                  "lastError": {
+                    "at": "inventory.agents[0].install.managed.lastError.at",
+                    "message": "inventory.agents[0].install.managed.lastError.message",
+                    "version": "inventory.agents[0].install.managed.lastError.version"
+                  },
+                  "failingSince": "inventory.agents[0].install.managed.failingSince"
+                },
+                "ledgerRebuilt": {
+                  "at": "inventory.agents[0].install.ledgerRebuilt.at",
+                  "reason": "damaged"
+                }
+              },
+              "missingPrerequisites": [
+                {
+                  "executable": "inventory.agents[0].missingPrerequisites[0].executable",
+                  "package": "inventory.agents[0].missingPrerequisites[0].package",
+                  "neededFor": "passed-in-credential",
+                  "message": "inventory.agents[0].missingPrerequisites[0].message"
+                }
+              ],
+              "management": {
+                "installable": false,
+                "reason": "inventory.agents[0].management.reason",
+                "homeVariable": "inventory.agents[0].management.homeVariable",
+                "updateNotice": "inventory.agents[0].management.updateNotice"
+              }
+            }
+          ],
+          "runtimeDrivers": [
+            {
+              "harness": "codex",
+              "id": "inventory.runtimeDrivers[0].id",
+              "family": "terminal"
+            }
+          ],
+          "driverCapabilities": {
+            "inventory.driverCapabilities.key": {
+              "context": {
+                "inventory.driverCapabilities.inventory.driverCapabilities.key.context.key": {
+                  "capability": {
+                    "summary": "explicit",
+                    "detail": "none"
+                  },
+                  "availability": {
+                    "status": "unavailable",
+                    "reason": {
+                      "code": "inventory.driverCapabilities.inventory.driverCapabilities.key.context.inventory.driverCapabilities.inventory.driverCapabilities.key.context.key.availability.reason.code",
+                      "message": "inventory.driverCapabilities.inventory.driverCapabilities.key.context.inventory.driverCapabilities.inventory.driverCapabilities.key.context.key.availability.reason.message"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "tools": [
+            {
+              "name": "inventory.tools[0].name",
+              "installed": false,
+              "probeError": {
+                "reason": "timed-out",
+                "timeoutMs": 2
+              },
+              "version": "inventory.tools[0].version",
+              "path": "inventory.tools[0].path"
+            }
+          ]
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"userId\":\"userId\",\"machineId\":\"machineId\",\"use\":\"denied\",\"owned\":false,\"transferable\":false,\"unowned\":false,\"adoptable\":false,\"supersedable\":false,\"checkoutReach\":\"roots\",\"grants\":[{\"grantee\":\"grants[0].grantee\",\"verb\":\"use\",\"grantedAt\":\"grants[0].grantedAt\",\"grantedBy\":\"grants[0].grantedBy\"}],\"hostname\":\"hostname\",\"revokedAt\":\"revokedAt\",\"supersededBy\":\"supersededBy\",\"podiumManaged\":false,\"hostsServer\":false,\"serverMoveSupported\":false,\"services\":{\"server\":{\"policy\":\"disabled\",\"state\":\"available\",\"reason\":\"services.server.reason\"},\"agentExecution\":{\"policy\":\"disabled\",\"state\":\"available\",\"reason\":\"services.agentExecution.reason\"},\"agentExecutionLockout\":false,\"crashOwner\":\"services.crashOwner\",\"topology\":{\"persistence\":\"detached\",\"legacyUnits\":[\"services.topology.legacyUnits[0]\"],\"parentUnit\":\"inactive\"}},\"serviceAssignment\":{\"server\":false,\"agentExecution\":false},\"components\":[\"server\"],\"deliveryCaps\":[\"deliveryCaps[0]\"],\"wireSchemaDigest\":\"wireSchemaDigest\",\"buildReportedAt\":\"buildReportedAt\",\"harnessVersions\":[{\"harness\":\"harnessVersions[0].harness\",\"version\":\"harnessVersions[0].version\",\"firstSeen\":\"harnessVersions[0].firstSeen\",\"verifiedThrough\":\"harnessVersions[0].verifiedThrough\",\"unverified\":false}],\"inventory\":{\"os\":\"darwin\",\"arch\":\"arm64\",\"podiumVersion\":\"inventory.podiumVersion\",\"homePath\":\"inventory.homePath\",\"agents\":[{\"kind\":\"codex\",\"installed\":false,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":2},\"version\":\"inventory.agents[0].version\",\"path\":\"inventory.agents[0].path\",\"login\":{\"state\":\"out\",\"account\":\"inventory.agents[0].login.account\",\"identity\":{\"fingerprint\":\"inventory.agents[0].login.identity.fingerprint\",\"email\":\"inventory.agents[0].login.identity.email\",\"providerAccountId\":\"inventory.agents[0].login.identity.providerAccountId\"},\"freshness\":2},\"logins\":[{\"homeId\":\"inventory.agents[0].logins[0].homeId\",\"state\":\"out\",\"identity\":{\"fingerprint\":\"inventory.agents[0].logins[0].identity.fingerprint\",\"email\":\"inventory.agents[0].logins[0].identity.email\",\"providerAccountId\":\"inventory.agents[0].logins[0].identity.providerAccountId\"},\"freshness\":2}],\"install\":{\"external\":{\"path\":\"inventory.agents[0].install.external.path\",\"version\":\"inventory.agents[0].install.external.version\"},\"managed\":{\"active\":{\"path\":\"inventory.agents[0].install.managed.active.path\",\"version\":\"inventory.agents[0].install.managed.active.version\",\"release\":2},\"currentFailed\":{\"release\":2,\"version\":\"inventory.agents[0].install.managed.currentFailed.version\"},\"previousVersion\":\"inventory.agents[0].install.managed.previousVersion\",\"latest\":\"inventory.agents[0].install.managed.latest\",\"lastCheckAt\":\"inventory.agents[0].install.managed.lastCheckAt\",\"installing\":{\"version\":\"inventory.agents[0].install.managed.installing.version\",\"progress\":{\"phase\":\"verify\",\"receivedBytes\":2,\"totalBytes\":2}},\"removingAt\":\"inventory.agents[0].install.managed.removingAt\",\"paused\":false,\"vendorUpdated\":false,\"lastError\":{\"at\":\"inventory.agents[0].install.managed.lastError.at\",\"message\":\"inventory.agents[0].install.managed.lastError.message\",\"version\":\"inventory.agents[0].install.managed.lastError.version\"},\"failingSince\":\"inventory.agents[0].install.managed.failingSince\"},\"ledgerRebuilt\":{\"at\":\"inventory.agents[0].install.ledgerRebuilt.at\",\"reason\":\"damaged\"}},\"missingPrerequisites\":[{\"executable\":\"inventory.agents[0].missingPrerequisites[0].executable\",\"package\":\"inventory.agents[0].missingPrerequisites[0].package\",\"neededFor\":\"passed-in-credential\",\"message\":\"inventory.agents[0].missingPrerequisites[0].message\"}],\"management\":{\"installable\":false,\"reason\":\"inventory.agents[0].management.reason\",\"homeVariable\":\"inventory.agents[0].management.homeVariable\",\"updateNotice\":\"inventory.agents[0].management.updateNotice\"}}],\"runtimeDrivers\":[{\"harness\":\"codex\",\"id\":\"inventory.runtimeDrivers[0].id\",\"family\":\"terminal\"}],\"driverCapabilities\":{\"inventory.driverCapabilities.key\":{\"context\":{\"inventory.driverCapabilities.inventory.driverCapabilities.key.context.key\":{\"capability\":{\"summary\":\"explicit\",\"detail\":\"none\"},\"availability\":{\"status\":\"unavailable\",\"reason\":{\"code\":\"inventory.driverCapabilities.inventory.driverCapabilities.key.context.inventory.driverCapabilities.inventory.driverCapabilities.key.context.key.availability.reason.code\",\"message\":\"inventory.driverCapabilities.inventory.driverCapabilities.key.context.inventory.driverCapabilities.inventory.driverCapabilities.key.context.key.availability.reason.message\"}}}}}},\"tools\":[{\"name\":\"inventory.tools[0].name\",\"installed\":false,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":2},\"version\":\"inventory.tools[0].version\",\"path\":\"inventory.tools[0].path\"}]}}"
+    },
+    {
+      "schema": "MachineAccessWire",
+      "variant": "full/arm2",
+      "wire": {
+        "userId": "userId",
+        "machineId": "machineId",
+        "use": "denied",
+        "owned": true,
+        "transferable": true,
+        "unowned": true,
+        "adoptable": true,
+        "supersedable": true,
+        "checkoutReach": "none",
+        "grants": [
+          {
+            "grantee": "grants[0].grantee",
+            "verb": "manage",
+            "grantedAt": "grants[0].grantedAt",
+            "grantedBy": "grants[0].grantedBy"
+          }
+        ],
+        "hostname": "hostname",
+        "revokedAt": "revokedAt",
+        "supersededBy": "supersededBy",
+        "podiumManaged": true,
+        "hostsServer": true,
+        "serverMoveSupported": true,
+        "services": {
+          "server": {
+            "policy": "disabled",
+            "state": "refused",
+            "reason": "services.server.reason"
+          },
+          "agentExecution": {
+            "policy": "disabled",
+            "state": "refused",
+            "reason": "services.agentExecution.reason"
+          },
+          "agentExecutionLockout": true,
+          "crashOwner": "services.crashOwner",
+          "topology": {
+            "persistence": "unmanaged",
+            "legacyUnits": ["services.topology.legacyUnits[0]"],
+            "parentUnit": "absent"
+          }
+        },
+        "serviceAssignment": {
+          "server": true,
+          "agentExecution": true
+        },
+        "components": ["server"],
+        "deliveryCaps": ["deliveryCaps[0]"],
+        "wireSchemaDigest": "wireSchemaDigest",
+        "buildReportedAt": "buildReportedAt",
+        "harnessVersions": [
+          {
+            "harness": "harnessVersions[0].harness",
+            "version": "harnessVersions[0].version",
+            "firstSeen": "harnessVersions[0].firstSeen",
+            "verifiedThrough": "harnessVersions[0].verifiedThrough",
+            "unverified": true
+          }
+        ],
+        "inventory": {
+          "os": "win32",
+          "arch": "arm64",
+          "podiumVersion": "inventory.podiumVersion",
+          "homePath": "inventory.homePath",
+          "agents": [
+            {
+              "kind": "grok",
+              "installed": true,
+              "probeError": {
+                "reason": "timed-out",
+                "timeoutMs": 3
+              },
+              "version": "inventory.agents[0].version",
+              "path": "inventory.agents[0].path",
+              "login": {
+                "state": "unknown",
+                "account": "inventory.agents[0].login.account",
+                "identity": {
+                  "fingerprint": "inventory.agents[0].login.identity.fingerprint",
+                  "email": "inventory.agents[0].login.identity.email",
+                  "providerAccountId": "inventory.agents[0].login.identity.providerAccountId"
+                },
+                "freshness": 3
+              },
+              "logins": [
+                {
+                  "homeId": "inventory.agents[0].logins[0].homeId",
+                  "state": "unknown",
+                  "identity": {
+                    "fingerprint": "inventory.agents[0].logins[0].identity.fingerprint",
+                    "email": "inventory.agents[0].logins[0].identity.email",
+                    "providerAccountId": "inventory.agents[0].logins[0].identity.providerAccountId"
+                  },
+                  "freshness": 3
+                }
+              ],
+              "install": {
+                "external": {
+                  "path": "inventory.agents[0].install.external.path",
+                  "version": "inventory.agents[0].install.external.version"
+                },
+                "managed": {
+                  "active": {
+                    "path": "inventory.agents[0].install.managed.active.path",
+                    "version": "inventory.agents[0].install.managed.active.version",
+                    "release": 3
+                  },
+                  "currentFailed": {
+                    "release": 3,
+                    "version": "inventory.agents[0].install.managed.currentFailed.version"
+                  },
+                  "previousVersion": "inventory.agents[0].install.managed.previousVersion",
+                  "latest": "inventory.agents[0].install.managed.latest",
+                  "lastCheckAt": "inventory.agents[0].install.managed.lastCheckAt",
+                  "installing": {
+                    "version": "inventory.agents[0].install.managed.installing.version",
+                    "progress": {
+                      "phase": "setup",
+                      "receivedBytes": 3,
+                      "totalBytes": 3
+                    }
+                  },
+                  "removingAt": "inventory.agents[0].install.managed.removingAt",
+                  "paused": true,
+                  "vendorUpdated": true,
+                  "lastError": {
+                    "at": "inventory.agents[0].install.managed.lastError.at",
+                    "message": "inventory.agents[0].install.managed.lastError.message",
+                    "version": "inventory.agents[0].install.managed.lastError.version"
+                  },
+                  "failingSince": "inventory.agents[0].install.managed.failingSince"
+                },
+                "ledgerRebuilt": {
+                  "at": "inventory.agents[0].install.ledgerRebuilt.at",
+                  "reason": "damaged"
+                }
+              },
+              "missingPrerequisites": [
+                {
+                  "executable": "inventory.agents[0].missingPrerequisites[0].executable",
+                  "package": "inventory.agents[0].missingPrerequisites[0].package",
+                  "neededFor": "passed-in-credential",
+                  "message": "inventory.agents[0].missingPrerequisites[0].message"
+                }
+              ],
+              "management": {
+                "installable": true,
+                "reason": "inventory.agents[0].management.reason",
+                "homeVariable": "inventory.agents[0].management.homeVariable",
+                "updateNotice": "inventory.agents[0].management.updateNotice"
+              }
+            }
+          ],
+          "runtimeDrivers": [
+            {
+              "harness": "grok",
+              "id": "inventory.runtimeDrivers[0].id",
+              "family": "server"
+            }
+          ],
+          "driverCapabilities": {
+            "inventory.driverCapabilities.key": {
+              "context": {
+                "inventory.driverCapabilities.inventory.driverCapabilities.key.context.key": {
+                  "capability": {
+                    "summary": "passive-and-explicit",
+                    "detail": "none"
+                  },
+                  "availability": {
+                    "status": "unsupported",
+                    "reason": {
+                      "code": "inventory.driverCapabilities.inventory.driverCapabilities.key.context.inventory.driverCapabilities.inventory.driverCapabilities.key.context.key.availability.reason.code",
+                      "message": "inventory.driverCapabilities.inventory.driverCapabilities.key.context.inventory.driverCapabilities.inventory.driverCapabilities.key.context.key.availability.reason.message"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "tools": [
+            {
+              "name": "inventory.tools[0].name",
+              "installed": true,
+              "probeError": {
+                "reason": "timed-out",
+                "timeoutMs": 3
+              },
+              "version": "inventory.tools[0].version",
+              "path": "inventory.tools[0].path"
+            }
+          ]
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"userId\":\"userId\",\"machineId\":\"machineId\",\"use\":\"denied\",\"owned\":true,\"transferable\":true,\"unowned\":true,\"adoptable\":true,\"supersedable\":true,\"checkoutReach\":\"none\",\"grants\":[{\"grantee\":\"grants[0].grantee\",\"verb\":\"manage\",\"grantedAt\":\"grants[0].grantedAt\",\"grantedBy\":\"grants[0].grantedBy\"}],\"hostname\":\"hostname\",\"revokedAt\":\"revokedAt\",\"supersededBy\":\"supersededBy\",\"podiumManaged\":true,\"hostsServer\":true,\"serverMoveSupported\":true,\"services\":{\"server\":{\"policy\":\"disabled\",\"state\":\"refused\",\"reason\":\"services.server.reason\"},\"agentExecution\":{\"policy\":\"disabled\",\"state\":\"refused\",\"reason\":\"services.agentExecution.reason\"},\"agentExecutionLockout\":true,\"crashOwner\":\"services.crashOwner\",\"topology\":{\"persistence\":\"unmanaged\",\"legacyUnits\":[\"services.topology.legacyUnits[0]\"],\"parentUnit\":\"absent\"}},\"serviceAssignment\":{\"server\":true,\"agentExecution\":true},\"components\":[\"server\"],\"deliveryCaps\":[\"deliveryCaps[0]\"],\"wireSchemaDigest\":\"wireSchemaDigest\",\"buildReportedAt\":\"buildReportedAt\",\"harnessVersions\":[{\"harness\":\"harnessVersions[0].harness\",\"version\":\"harnessVersions[0].version\",\"firstSeen\":\"harnessVersions[0].firstSeen\",\"verifiedThrough\":\"harnessVersions[0].verifiedThrough\",\"unverified\":true}],\"inventory\":{\"os\":\"win32\",\"arch\":\"arm64\",\"podiumVersion\":\"inventory.podiumVersion\",\"homePath\":\"inventory.homePath\",\"agents\":[{\"kind\":\"grok\",\"installed\":true,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":3},\"version\":\"inventory.agents[0].version\",\"path\":\"inventory.agents[0].path\",\"login\":{\"state\":\"unknown\",\"account\":\"inventory.agents[0].login.account\",\"identity\":{\"fingerprint\":\"inventory.agents[0].login.identity.fingerprint\",\"email\":\"inventory.agents[0].login.identity.email\",\"providerAccountId\":\"inventory.agents[0].login.identity.providerAccountId\"},\"freshness\":3},\"logins\":[{\"homeId\":\"inventory.agents[0].logins[0].homeId\",\"state\":\"unknown\",\"identity\":{\"fingerprint\":\"inventory.agents[0].logins[0].identity.fingerprint\",\"email\":\"inventory.agents[0].logins[0].identity.email\",\"providerAccountId\":\"inventory.agents[0].logins[0].identity.providerAccountId\"},\"freshness\":3}],\"install\":{\"external\":{\"path\":\"inventory.agents[0].install.external.path\",\"version\":\"inventory.agents[0].install.external.version\"},\"managed\":{\"active\":{\"path\":\"inventory.agents[0].install.managed.active.path\",\"version\":\"inventory.agents[0].install.managed.active.version\",\"release\":3},\"currentFailed\":{\"release\":3,\"version\":\"inventory.agents[0].install.managed.currentFailed.version\"},\"previousVersion\":\"inventory.agents[0].install.managed.previousVersion\",\"latest\":\"inventory.agents[0].install.managed.latest\",\"lastCheckAt\":\"inventory.agents[0].install.managed.lastCheckAt\",\"installing\":{\"version\":\"inventory.agents[0].install.managed.installing.version\",\"progress\":{\"phase\":\"setup\",\"receivedBytes\":3,\"totalBytes\":3}},\"removingAt\":\"inventory.agents[0].install.managed.removingAt\",\"paused\":true,\"vendorUpdated\":true,\"lastError\":{\"at\":\"inventory.agents[0].install.managed.lastError.at\",\"message\":\"inventory.agents[0].install.managed.lastError.message\",\"version\":\"inventory.agents[0].install.managed.lastError.version\"},\"failingSince\":\"inventory.agents[0].install.managed.failingSince\"},\"ledgerRebuilt\":{\"at\":\"inventory.agents[0].install.ledgerRebuilt.at\",\"reason\":\"damaged\"}},\"missingPrerequisites\":[{\"executable\":\"inventory.agents[0].missingPrerequisites[0].executable\",\"package\":\"inventory.agents[0].missingPrerequisites[0].package\",\"neededFor\":\"passed-in-credential\",\"message\":\"inventory.agents[0].missingPrerequisites[0].message\"}],\"management\":{\"installable\":true,\"reason\":\"inventory.agents[0].management.reason\",\"homeVariable\":\"inventory.agents[0].management.homeVariable\",\"updateNotice\":\"inventory.agents[0].management.updateNotice\"}}],\"runtimeDrivers\":[{\"harness\":\"grok\",\"id\":\"inventory.runtimeDrivers[0].id\",\"family\":\"server\"}],\"driverCapabilities\":{\"inventory.driverCapabilities.key\":{\"context\":{\"inventory.driverCapabilities.inventory.driverCapabilities.key.context.key\":{\"capability\":{\"summary\":\"passive-and-explicit\",\"detail\":\"none\"},\"availability\":{\"status\":\"unsupported\",\"reason\":{\"code\":\"inventory.driverCapabilities.inventory.driverCapabilities.key.context.inventory.driverCapabilities.inventory.driverCapabilities.key.context.key.availability.reason.code\",\"message\":\"inventory.driverCapabilities.inventory.driverCapabilities.key.context.inventory.driverCapabilities.inventory.driverCapabilities.key.context.key.availability.reason.message\"}}}}}},\"tools\":[{\"name\":\"inventory.tools[0].name\",\"installed\":true,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":3},\"version\":\"inventory.tools[0].version\",\"path\":\"inventory.tools[0].path\"}]}}"
     },
     {
       "schema": "MachineComponent",
@@ -8769,7 +10794,7 @@
     },
     {
       "schema": "MachineWire",
-      "variant": "full",
+      "variant": "full/arm0",
       "wire": {
         "revokedAt": "revokedAt",
         "supersededBy": "supersededBy",
@@ -8934,6 +10959,21 @@
               "family": "server"
             }
           ],
+          "driverCapabilities": {
+            "inventory.driverCapabilities.key": {
+              "context": {
+                "inventory.driverCapabilities.inventory.driverCapabilities.key.context.key": {
+                  "capability": {
+                    "summary": "passive",
+                    "detail": "on-demand"
+                  },
+                  "availability": {
+                    "status": "available"
+                  }
+                }
+              }
+            }
+          },
           "tools": [
             {
               "name": "inventory.tools[0].name",
@@ -8965,7 +11005,445 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"revokedAt\":\"revokedAt\",\"supersededBy\":\"supersededBy\",\"supersedable\":true,\"daemonReadiness\":{\"state\":\"attached\",\"reason\":\"daemonReadiness.reason\",\"quarantinedBindings\":1},\"harnessVersions\":[{\"harness\":\"harnessVersions[0].harness\",\"version\":\"harnessVersions[0].version\",\"firstSeen\":\"harnessVersions[0].firstSeen\",\"lastSeen\":\"harnessVersions[0].lastSeen\",\"verifiedThrough\":\"harnessVersions[0].verifiedThrough\",\"unverified\":true}],\"id\":\"id\",\"name\":\"name\",\"hostname\":\"hostname\",\"online\":true,\"lastSeenAt\":\"lastSeenAt\",\"presenceSource\":\"supervisor\",\"services\":{\"server\":{\"policy\":\"enabled\",\"state\":\"starting\",\"reason\":\"services.server.reason\",\"observedAt\":\"services.server.observedAt\"},\"agentExecution\":{\"policy\":\"enabled\",\"state\":\"starting\",\"reason\":\"services.agentExecution.reason\",\"observedAt\":\"services.agentExecution.observedAt\"},\"agentExecutionLockout\":true,\"crashOwner\":\"services.crashOwner\",\"topology\":{\"persistence\":\"systemd\",\"legacyUnits\":[\"services.topology.legacyUnits[0]\"],\"parentUnit\":\"active\"}},\"serviceAssignment\":{\"server\":true,\"agentExecution\":true},\"availability\":{\"epoch\":\"availability.epoch\",\"server\":true,\"daemon\":true,\"supervisor\":true},\"use\":\"granted\",\"owned\":true,\"transferable\":true,\"unowned\":true,\"adoptable\":true,\"podiumManaged\":true,\"components\":[\"daemon\"],\"inventory\":{\"os\":\"linux\",\"arch\":\"x64\",\"podiumVersion\":\"inventory.podiumVersion\",\"homePath\":\"inventory.homePath\",\"agents\":[{\"kind\":\"claude-code\",\"installed\":true,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":1},\"version\":\"inventory.agents[0].version\",\"path\":\"inventory.agents[0].path\",\"login\":{\"state\":\"in\",\"account\":\"inventory.agents[0].login.account\",\"identity\":{\"fingerprint\":\"inventory.agents[0].login.identity.fingerprint\",\"email\":\"inventory.agents[0].login.identity.email\",\"providerAccountId\":\"inventory.agents[0].login.identity.providerAccountId\"},\"freshness\":1},\"logins\":[{\"homeId\":\"inventory.agents[0].logins[0].homeId\",\"state\":\"in\",\"identity\":{\"fingerprint\":\"inventory.agents[0].logins[0].identity.fingerprint\",\"email\":\"inventory.agents[0].logins[0].identity.email\",\"providerAccountId\":\"inventory.agents[0].logins[0].identity.providerAccountId\"},\"freshness\":1}],\"install\":{\"external\":{\"path\":\"inventory.agents[0].install.external.path\",\"version\":\"inventory.agents[0].install.external.version\"},\"managed\":{\"active\":{\"path\":\"inventory.agents[0].install.managed.active.path\",\"version\":\"inventory.agents[0].install.managed.active.version\",\"release\":1},\"currentFailed\":{\"release\":1,\"version\":\"inventory.agents[0].install.managed.currentFailed.version\"},\"previousVersion\":\"inventory.agents[0].install.managed.previousVersion\",\"latest\":\"inventory.agents[0].install.managed.latest\",\"lastCheckAt\":\"inventory.agents[0].install.managed.lastCheckAt\",\"installing\":{\"version\":\"inventory.agents[0].install.managed.installing.version\",\"progress\":{\"phase\":\"download\",\"receivedBytes\":1,\"totalBytes\":1}},\"removingAt\":\"inventory.agents[0].install.managed.removingAt\",\"paused\":true,\"vendorUpdated\":true,\"lastError\":{\"at\":\"inventory.agents[0].install.managed.lastError.at\",\"message\":\"inventory.agents[0].install.managed.lastError.message\",\"version\":\"inventory.agents[0].install.managed.lastError.version\"},\"failingSince\":\"inventory.agents[0].install.managed.failingSince\"},\"ledgerRebuilt\":{\"at\":\"inventory.agents[0].install.ledgerRebuilt.at\",\"reason\":\"missing\"}},\"missingPrerequisites\":[{\"executable\":\"inventory.agents[0].missingPrerequisites[0].executable\",\"package\":\"inventory.agents[0].missingPrerequisites[0].package\",\"neededFor\":\"passed-in-credential\",\"message\":\"inventory.agents[0].missingPrerequisites[0].message\"}],\"management\":{\"installable\":true,\"reason\":\"inventory.agents[0].management.reason\",\"homeVariable\":\"inventory.agents[0].management.homeVariable\",\"updateNotice\":\"inventory.agents[0].management.updateNotice\"}}],\"runtimeDrivers\":[{\"harness\":\"claude-code\",\"id\":\"inventory.runtimeDrivers[0].id\",\"family\":\"server\"}],\"tools\":[{\"name\":\"inventory.tools[0].name\",\"installed\":true,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":1},\"version\":\"inventory.tools[0].version\",\"path\":\"inventory.tools[0].path\"}]},\"updateChannel\":\"dev\",\"updateChannelOverride\":\"dev\",\"appVersion\":\"appVersion\",\"wireSchemaDigest\":\"wireSchemaDigest\",\"installKind\":\"installKind\",\"deliveryCaps\":[\"deliveryCaps[0]\"],\"serverMoveEligibility\":{\"eligible\":true,\"reason\":\"current-server\"},\"buildReportedAt\":\"buildReportedAt\",\"versionState\":\"unreported\",\"targetVersion\":\"targetVersion\",\"targetUnavailableReason\":\"targetUnavailableReason\"}"
+      "encoded": "{\"revokedAt\":\"revokedAt\",\"supersededBy\":\"supersededBy\",\"supersedable\":true,\"daemonReadiness\":{\"state\":\"attached\",\"reason\":\"daemonReadiness.reason\",\"quarantinedBindings\":1},\"harnessVersions\":[{\"harness\":\"harnessVersions[0].harness\",\"version\":\"harnessVersions[0].version\",\"firstSeen\":\"harnessVersions[0].firstSeen\",\"lastSeen\":\"harnessVersions[0].lastSeen\",\"verifiedThrough\":\"harnessVersions[0].verifiedThrough\",\"unverified\":true}],\"id\":\"id\",\"name\":\"name\",\"hostname\":\"hostname\",\"online\":true,\"lastSeenAt\":\"lastSeenAt\",\"presenceSource\":\"supervisor\",\"services\":{\"server\":{\"policy\":\"enabled\",\"state\":\"starting\",\"reason\":\"services.server.reason\",\"observedAt\":\"services.server.observedAt\"},\"agentExecution\":{\"policy\":\"enabled\",\"state\":\"starting\",\"reason\":\"services.agentExecution.reason\",\"observedAt\":\"services.agentExecution.observedAt\"},\"agentExecutionLockout\":true,\"crashOwner\":\"services.crashOwner\",\"topology\":{\"persistence\":\"systemd\",\"legacyUnits\":[\"services.topology.legacyUnits[0]\"],\"parentUnit\":\"active\"}},\"serviceAssignment\":{\"server\":true,\"agentExecution\":true},\"availability\":{\"epoch\":\"availability.epoch\",\"server\":true,\"daemon\":true,\"supervisor\":true},\"use\":\"granted\",\"owned\":true,\"transferable\":true,\"unowned\":true,\"adoptable\":true,\"podiumManaged\":true,\"components\":[\"daemon\"],\"inventory\":{\"os\":\"linux\",\"arch\":\"x64\",\"podiumVersion\":\"inventory.podiumVersion\",\"homePath\":\"inventory.homePath\",\"agents\":[{\"kind\":\"claude-code\",\"installed\":true,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":1},\"version\":\"inventory.agents[0].version\",\"path\":\"inventory.agents[0].path\",\"login\":{\"state\":\"in\",\"account\":\"inventory.agents[0].login.account\",\"identity\":{\"fingerprint\":\"inventory.agents[0].login.identity.fingerprint\",\"email\":\"inventory.agents[0].login.identity.email\",\"providerAccountId\":\"inventory.agents[0].login.identity.providerAccountId\"},\"freshness\":1},\"logins\":[{\"homeId\":\"inventory.agents[0].logins[0].homeId\",\"state\":\"in\",\"identity\":{\"fingerprint\":\"inventory.agents[0].logins[0].identity.fingerprint\",\"email\":\"inventory.agents[0].logins[0].identity.email\",\"providerAccountId\":\"inventory.agents[0].logins[0].identity.providerAccountId\"},\"freshness\":1}],\"install\":{\"external\":{\"path\":\"inventory.agents[0].install.external.path\",\"version\":\"inventory.agents[0].install.external.version\"},\"managed\":{\"active\":{\"path\":\"inventory.agents[0].install.managed.active.path\",\"version\":\"inventory.agents[0].install.managed.active.version\",\"release\":1},\"currentFailed\":{\"release\":1,\"version\":\"inventory.agents[0].install.managed.currentFailed.version\"},\"previousVersion\":\"inventory.agents[0].install.managed.previousVersion\",\"latest\":\"inventory.agents[0].install.managed.latest\",\"lastCheckAt\":\"inventory.agents[0].install.managed.lastCheckAt\",\"installing\":{\"version\":\"inventory.agents[0].install.managed.installing.version\",\"progress\":{\"phase\":\"download\",\"receivedBytes\":1,\"totalBytes\":1}},\"removingAt\":\"inventory.agents[0].install.managed.removingAt\",\"paused\":true,\"vendorUpdated\":true,\"lastError\":{\"at\":\"inventory.agents[0].install.managed.lastError.at\",\"message\":\"inventory.agents[0].install.managed.lastError.message\",\"version\":\"inventory.agents[0].install.managed.lastError.version\"},\"failingSince\":\"inventory.agents[0].install.managed.failingSince\"},\"ledgerRebuilt\":{\"at\":\"inventory.agents[0].install.ledgerRebuilt.at\",\"reason\":\"missing\"}},\"missingPrerequisites\":[{\"executable\":\"inventory.agents[0].missingPrerequisites[0].executable\",\"package\":\"inventory.agents[0].missingPrerequisites[0].package\",\"neededFor\":\"passed-in-credential\",\"message\":\"inventory.agents[0].missingPrerequisites[0].message\"}],\"management\":{\"installable\":true,\"reason\":\"inventory.agents[0].management.reason\",\"homeVariable\":\"inventory.agents[0].management.homeVariable\",\"updateNotice\":\"inventory.agents[0].management.updateNotice\"}}],\"runtimeDrivers\":[{\"harness\":\"claude-code\",\"id\":\"inventory.runtimeDrivers[0].id\",\"family\":\"server\"}],\"driverCapabilities\":{\"inventory.driverCapabilities.key\":{\"context\":{\"inventory.driverCapabilities.inventory.driverCapabilities.key.context.key\":{\"capability\":{\"summary\":\"passive\",\"detail\":\"on-demand\"},\"availability\":{\"status\":\"available\"}}}}},\"tools\":[{\"name\":\"inventory.tools[0].name\",\"installed\":true,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":1},\"version\":\"inventory.tools[0].version\",\"path\":\"inventory.tools[0].path\"}]},\"updateChannel\":\"dev\",\"updateChannelOverride\":\"dev\",\"appVersion\":\"appVersion\",\"wireSchemaDigest\":\"wireSchemaDigest\",\"installKind\":\"installKind\",\"deliveryCaps\":[\"deliveryCaps[0]\"],\"serverMoveEligibility\":{\"eligible\":true,\"reason\":\"current-server\"},\"buildReportedAt\":\"buildReportedAt\",\"versionState\":\"unreported\",\"targetVersion\":\"targetVersion\",\"targetUnavailableReason\":\"targetUnavailableReason\"}"
+    },
+    {
+      "schema": "MachineWire",
+      "variant": "full/arm1",
+      "wire": {
+        "revokedAt": "revokedAt",
+        "supersededBy": "supersededBy",
+        "supersedable": false,
+        "daemonReadiness": {
+          "state": "recovering",
+          "reason": "daemonReadiness.reason",
+          "quarantinedBindings": 2
+        },
+        "harnessVersions": [
+          {
+            "harness": "harnessVersions[0].harness",
+            "version": "harnessVersions[0].version",
+            "firstSeen": "harnessVersions[0].firstSeen",
+            "lastSeen": "harnessVersions[0].lastSeen",
+            "verifiedThrough": "harnessVersions[0].verifiedThrough",
+            "unverified": false
+          }
+        ],
+        "id": "id",
+        "name": "name",
+        "hostname": "hostname",
+        "online": false,
+        "lastSeenAt": "lastSeenAt",
+        "presenceSource": "legacy-daemon",
+        "services": {
+          "server": {
+            "policy": "disabled",
+            "state": "available",
+            "reason": "services.server.reason",
+            "observedAt": "services.server.observedAt"
+          },
+          "agentExecution": {
+            "policy": "disabled",
+            "state": "available",
+            "reason": "services.agentExecution.reason",
+            "observedAt": "services.agentExecution.observedAt"
+          },
+          "agentExecutionLockout": false,
+          "crashOwner": "services.crashOwner",
+          "topology": {
+            "persistence": "detached",
+            "legacyUnits": ["services.topology.legacyUnits[0]"],
+            "parentUnit": "inactive"
+          }
+        },
+        "serviceAssignment": {
+          "server": false,
+          "agentExecution": false
+        },
+        "availability": {
+          "epoch": "availability.epoch",
+          "server": false,
+          "daemon": false,
+          "supervisor": false
+        },
+        "use": "denied",
+        "owned": false,
+        "transferable": false,
+        "unowned": false,
+        "adoptable": false,
+        "podiumManaged": false,
+        "components": ["server"],
+        "inventory": {
+          "os": "darwin",
+          "arch": "arm64",
+          "podiumVersion": "inventory.podiumVersion",
+          "homePath": "inventory.homePath",
+          "agents": [
+            {
+              "kind": "codex",
+              "installed": false,
+              "probeError": {
+                "reason": "timed-out",
+                "timeoutMs": 2
+              },
+              "version": "inventory.agents[0].version",
+              "path": "inventory.agents[0].path",
+              "login": {
+                "state": "out",
+                "account": "inventory.agents[0].login.account",
+                "identity": {
+                  "fingerprint": "inventory.agents[0].login.identity.fingerprint",
+                  "email": "inventory.agents[0].login.identity.email",
+                  "providerAccountId": "inventory.agents[0].login.identity.providerAccountId"
+                },
+                "freshness": 2
+              },
+              "logins": [
+                {
+                  "homeId": "inventory.agents[0].logins[0].homeId",
+                  "state": "out",
+                  "identity": {
+                    "fingerprint": "inventory.agents[0].logins[0].identity.fingerprint",
+                    "email": "inventory.agents[0].logins[0].identity.email",
+                    "providerAccountId": "inventory.agents[0].logins[0].identity.providerAccountId"
+                  },
+                  "freshness": 2
+                }
+              ],
+              "install": {
+                "external": {
+                  "path": "inventory.agents[0].install.external.path",
+                  "version": "inventory.agents[0].install.external.version"
+                },
+                "managed": {
+                  "active": {
+                    "path": "inventory.agents[0].install.managed.active.path",
+                    "version": "inventory.agents[0].install.managed.active.version",
+                    "release": 2
+                  },
+                  "currentFailed": {
+                    "release": 2,
+                    "version": "inventory.agents[0].install.managed.currentFailed.version"
+                  },
+                  "previousVersion": "inventory.agents[0].install.managed.previousVersion",
+                  "latest": "inventory.agents[0].install.managed.latest",
+                  "lastCheckAt": "inventory.agents[0].install.managed.lastCheckAt",
+                  "installing": {
+                    "version": "inventory.agents[0].install.managed.installing.version",
+                    "progress": {
+                      "phase": "verify",
+                      "receivedBytes": 2,
+                      "totalBytes": 2
+                    }
+                  },
+                  "removingAt": "inventory.agents[0].install.managed.removingAt",
+                  "paused": false,
+                  "vendorUpdated": false,
+                  "lastError": {
+                    "at": "inventory.agents[0].install.managed.lastError.at",
+                    "message": "inventory.agents[0].install.managed.lastError.message",
+                    "version": "inventory.agents[0].install.managed.lastError.version"
+                  },
+                  "failingSince": "inventory.agents[0].install.managed.failingSince"
+                },
+                "ledgerRebuilt": {
+                  "at": "inventory.agents[0].install.ledgerRebuilt.at",
+                  "reason": "damaged"
+                }
+              },
+              "missingPrerequisites": [
+                {
+                  "executable": "inventory.agents[0].missingPrerequisites[0].executable",
+                  "package": "inventory.agents[0].missingPrerequisites[0].package",
+                  "neededFor": "passed-in-credential",
+                  "message": "inventory.agents[0].missingPrerequisites[0].message"
+                }
+              ],
+              "management": {
+                "installable": false,
+                "reason": "inventory.agents[0].management.reason",
+                "homeVariable": "inventory.agents[0].management.homeVariable",
+                "updateNotice": "inventory.agents[0].management.updateNotice"
+              }
+            }
+          ],
+          "runtimeDrivers": [
+            {
+              "harness": "codex",
+              "id": "inventory.runtimeDrivers[0].id",
+              "family": "terminal"
+            }
+          ],
+          "driverCapabilities": {
+            "inventory.driverCapabilities.key": {
+              "context": {
+                "inventory.driverCapabilities.inventory.driverCapabilities.key.context.key": {
+                  "capability": {
+                    "summary": "explicit",
+                    "detail": "none"
+                  },
+                  "availability": {
+                    "status": "unavailable",
+                    "reason": {
+                      "code": "inventory.driverCapabilities.inventory.driverCapabilities.key.context.inventory.driverCapabilities.inventory.driverCapabilities.key.context.key.availability.reason.code",
+                      "message": "inventory.driverCapabilities.inventory.driverCapabilities.key.context.inventory.driverCapabilities.inventory.driverCapabilities.key.context.key.availability.reason.message"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "tools": [
+            {
+              "name": "inventory.tools[0].name",
+              "installed": false,
+              "probeError": {
+                "reason": "timed-out",
+                "timeoutMs": 2
+              },
+              "version": "inventory.tools[0].version",
+              "path": "inventory.tools[0].path"
+            }
+          ]
+        },
+        "updateChannel": "edge",
+        "updateChannelOverride": "edge",
+        "appVersion": "appVersion",
+        "wireSchemaDigest": "wireSchemaDigest",
+        "installKind": "installKind",
+        "deliveryCaps": ["deliveryCaps[0]"],
+        "serverMoveEligibility": {
+          "eligible": false,
+          "reason": "offline"
+        },
+        "buildReportedAt": "buildReportedAt",
+        "versionState": "current",
+        "targetVersion": "targetVersion",
+        "targetUnavailableReason": "targetUnavailableReason"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"revokedAt\":\"revokedAt\",\"supersededBy\":\"supersededBy\",\"supersedable\":false,\"daemonReadiness\":{\"state\":\"recovering\",\"reason\":\"daemonReadiness.reason\",\"quarantinedBindings\":2},\"harnessVersions\":[{\"harness\":\"harnessVersions[0].harness\",\"version\":\"harnessVersions[0].version\",\"firstSeen\":\"harnessVersions[0].firstSeen\",\"lastSeen\":\"harnessVersions[0].lastSeen\",\"verifiedThrough\":\"harnessVersions[0].verifiedThrough\",\"unverified\":false}],\"id\":\"id\",\"name\":\"name\",\"hostname\":\"hostname\",\"online\":false,\"lastSeenAt\":\"lastSeenAt\",\"presenceSource\":\"legacy-daemon\",\"services\":{\"server\":{\"policy\":\"disabled\",\"state\":\"available\",\"reason\":\"services.server.reason\",\"observedAt\":\"services.server.observedAt\"},\"agentExecution\":{\"policy\":\"disabled\",\"state\":\"available\",\"reason\":\"services.agentExecution.reason\",\"observedAt\":\"services.agentExecution.observedAt\"},\"agentExecutionLockout\":false,\"crashOwner\":\"services.crashOwner\",\"topology\":{\"persistence\":\"detached\",\"legacyUnits\":[\"services.topology.legacyUnits[0]\"],\"parentUnit\":\"inactive\"}},\"serviceAssignment\":{\"server\":false,\"agentExecution\":false},\"availability\":{\"epoch\":\"availability.epoch\",\"server\":false,\"daemon\":false,\"supervisor\":false},\"use\":\"denied\",\"owned\":false,\"transferable\":false,\"unowned\":false,\"adoptable\":false,\"podiumManaged\":false,\"components\":[\"server\"],\"inventory\":{\"os\":\"darwin\",\"arch\":\"arm64\",\"podiumVersion\":\"inventory.podiumVersion\",\"homePath\":\"inventory.homePath\",\"agents\":[{\"kind\":\"codex\",\"installed\":false,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":2},\"version\":\"inventory.agents[0].version\",\"path\":\"inventory.agents[0].path\",\"login\":{\"state\":\"out\",\"account\":\"inventory.agents[0].login.account\",\"identity\":{\"fingerprint\":\"inventory.agents[0].login.identity.fingerprint\",\"email\":\"inventory.agents[0].login.identity.email\",\"providerAccountId\":\"inventory.agents[0].login.identity.providerAccountId\"},\"freshness\":2},\"logins\":[{\"homeId\":\"inventory.agents[0].logins[0].homeId\",\"state\":\"out\",\"identity\":{\"fingerprint\":\"inventory.agents[0].logins[0].identity.fingerprint\",\"email\":\"inventory.agents[0].logins[0].identity.email\",\"providerAccountId\":\"inventory.agents[0].logins[0].identity.providerAccountId\"},\"freshness\":2}],\"install\":{\"external\":{\"path\":\"inventory.agents[0].install.external.path\",\"version\":\"inventory.agents[0].install.external.version\"},\"managed\":{\"active\":{\"path\":\"inventory.agents[0].install.managed.active.path\",\"version\":\"inventory.agents[0].install.managed.active.version\",\"release\":2},\"currentFailed\":{\"release\":2,\"version\":\"inventory.agents[0].install.managed.currentFailed.version\"},\"previousVersion\":\"inventory.agents[0].install.managed.previousVersion\",\"latest\":\"inventory.agents[0].install.managed.latest\",\"lastCheckAt\":\"inventory.agents[0].install.managed.lastCheckAt\",\"installing\":{\"version\":\"inventory.agents[0].install.managed.installing.version\",\"progress\":{\"phase\":\"verify\",\"receivedBytes\":2,\"totalBytes\":2}},\"removingAt\":\"inventory.agents[0].install.managed.removingAt\",\"paused\":false,\"vendorUpdated\":false,\"lastError\":{\"at\":\"inventory.agents[0].install.managed.lastError.at\",\"message\":\"inventory.agents[0].install.managed.lastError.message\",\"version\":\"inventory.agents[0].install.managed.lastError.version\"},\"failingSince\":\"inventory.agents[0].install.managed.failingSince\"},\"ledgerRebuilt\":{\"at\":\"inventory.agents[0].install.ledgerRebuilt.at\",\"reason\":\"damaged\"}},\"missingPrerequisites\":[{\"executable\":\"inventory.agents[0].missingPrerequisites[0].executable\",\"package\":\"inventory.agents[0].missingPrerequisites[0].package\",\"neededFor\":\"passed-in-credential\",\"message\":\"inventory.agents[0].missingPrerequisites[0].message\"}],\"management\":{\"installable\":false,\"reason\":\"inventory.agents[0].management.reason\",\"homeVariable\":\"inventory.agents[0].management.homeVariable\",\"updateNotice\":\"inventory.agents[0].management.updateNotice\"}}],\"runtimeDrivers\":[{\"harness\":\"codex\",\"id\":\"inventory.runtimeDrivers[0].id\",\"family\":\"terminal\"}],\"driverCapabilities\":{\"inventory.driverCapabilities.key\":{\"context\":{\"inventory.driverCapabilities.inventory.driverCapabilities.key.context.key\":{\"capability\":{\"summary\":\"explicit\",\"detail\":\"none\"},\"availability\":{\"status\":\"unavailable\",\"reason\":{\"code\":\"inventory.driverCapabilities.inventory.driverCapabilities.key.context.inventory.driverCapabilities.inventory.driverCapabilities.key.context.key.availability.reason.code\",\"message\":\"inventory.driverCapabilities.inventory.driverCapabilities.key.context.inventory.driverCapabilities.inventory.driverCapabilities.key.context.key.availability.reason.message\"}}}}}},\"tools\":[{\"name\":\"inventory.tools[0].name\",\"installed\":false,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":2},\"version\":\"inventory.tools[0].version\",\"path\":\"inventory.tools[0].path\"}]},\"updateChannel\":\"edge\",\"updateChannelOverride\":\"edge\",\"appVersion\":\"appVersion\",\"wireSchemaDigest\":\"wireSchemaDigest\",\"installKind\":\"installKind\",\"deliveryCaps\":[\"deliveryCaps[0]\"],\"serverMoveEligibility\":{\"eligible\":false,\"reason\":\"offline\"},\"buildReportedAt\":\"buildReportedAt\",\"versionState\":\"current\",\"targetVersion\":\"targetVersion\",\"targetUnavailableReason\":\"targetUnavailableReason\"}"
+    },
+    {
+      "schema": "MachineWire",
+      "variant": "full/arm2",
+      "wire": {
+        "revokedAt": "revokedAt",
+        "supersededBy": "supersededBy",
+        "supersedable": true,
+        "daemonReadiness": {
+          "state": "ready",
+          "reason": "daemonReadiness.reason",
+          "quarantinedBindings": 3
+        },
+        "harnessVersions": [
+          {
+            "harness": "harnessVersions[0].harness",
+            "version": "harnessVersions[0].version",
+            "firstSeen": "harnessVersions[0].firstSeen",
+            "lastSeen": "harnessVersions[0].lastSeen",
+            "verifiedThrough": "harnessVersions[0].verifiedThrough",
+            "unverified": true
+          }
+        ],
+        "id": "id",
+        "name": "name",
+        "hostname": "hostname",
+        "online": true,
+        "lastSeenAt": "lastSeenAt",
+        "presenceSource": "legacy-daemon",
+        "services": {
+          "server": {
+            "policy": "disabled",
+            "state": "refused",
+            "reason": "services.server.reason",
+            "observedAt": "services.server.observedAt"
+          },
+          "agentExecution": {
+            "policy": "disabled",
+            "state": "refused",
+            "reason": "services.agentExecution.reason",
+            "observedAt": "services.agentExecution.observedAt"
+          },
+          "agentExecutionLockout": true,
+          "crashOwner": "services.crashOwner",
+          "topology": {
+            "persistence": "unmanaged",
+            "legacyUnits": ["services.topology.legacyUnits[0]"],
+            "parentUnit": "absent"
+          }
+        },
+        "serviceAssignment": {
+          "server": true,
+          "agentExecution": true
+        },
+        "availability": {
+          "epoch": "availability.epoch",
+          "server": true,
+          "daemon": true,
+          "supervisor": true
+        },
+        "use": "denied",
+        "owned": true,
+        "transferable": true,
+        "unowned": true,
+        "adoptable": true,
+        "podiumManaged": true,
+        "components": ["server"],
+        "inventory": {
+          "os": "win32",
+          "arch": "arm64",
+          "podiumVersion": "inventory.podiumVersion",
+          "homePath": "inventory.homePath",
+          "agents": [
+            {
+              "kind": "grok",
+              "installed": true,
+              "probeError": {
+                "reason": "timed-out",
+                "timeoutMs": 3
+              },
+              "version": "inventory.agents[0].version",
+              "path": "inventory.agents[0].path",
+              "login": {
+                "state": "unknown",
+                "account": "inventory.agents[0].login.account",
+                "identity": {
+                  "fingerprint": "inventory.agents[0].login.identity.fingerprint",
+                  "email": "inventory.agents[0].login.identity.email",
+                  "providerAccountId": "inventory.agents[0].login.identity.providerAccountId"
+                },
+                "freshness": 3
+              },
+              "logins": [
+                {
+                  "homeId": "inventory.agents[0].logins[0].homeId",
+                  "state": "unknown",
+                  "identity": {
+                    "fingerprint": "inventory.agents[0].logins[0].identity.fingerprint",
+                    "email": "inventory.agents[0].logins[0].identity.email",
+                    "providerAccountId": "inventory.agents[0].logins[0].identity.providerAccountId"
+                  },
+                  "freshness": 3
+                }
+              ],
+              "install": {
+                "external": {
+                  "path": "inventory.agents[0].install.external.path",
+                  "version": "inventory.agents[0].install.external.version"
+                },
+                "managed": {
+                  "active": {
+                    "path": "inventory.agents[0].install.managed.active.path",
+                    "version": "inventory.agents[0].install.managed.active.version",
+                    "release": 3
+                  },
+                  "currentFailed": {
+                    "release": 3,
+                    "version": "inventory.agents[0].install.managed.currentFailed.version"
+                  },
+                  "previousVersion": "inventory.agents[0].install.managed.previousVersion",
+                  "latest": "inventory.agents[0].install.managed.latest",
+                  "lastCheckAt": "inventory.agents[0].install.managed.lastCheckAt",
+                  "installing": {
+                    "version": "inventory.agents[0].install.managed.installing.version",
+                    "progress": {
+                      "phase": "setup",
+                      "receivedBytes": 3,
+                      "totalBytes": 3
+                    }
+                  },
+                  "removingAt": "inventory.agents[0].install.managed.removingAt",
+                  "paused": true,
+                  "vendorUpdated": true,
+                  "lastError": {
+                    "at": "inventory.agents[0].install.managed.lastError.at",
+                    "message": "inventory.agents[0].install.managed.lastError.message",
+                    "version": "inventory.agents[0].install.managed.lastError.version"
+                  },
+                  "failingSince": "inventory.agents[0].install.managed.failingSince"
+                },
+                "ledgerRebuilt": {
+                  "at": "inventory.agents[0].install.ledgerRebuilt.at",
+                  "reason": "damaged"
+                }
+              },
+              "missingPrerequisites": [
+                {
+                  "executable": "inventory.agents[0].missingPrerequisites[0].executable",
+                  "package": "inventory.agents[0].missingPrerequisites[0].package",
+                  "neededFor": "passed-in-credential",
+                  "message": "inventory.agents[0].missingPrerequisites[0].message"
+                }
+              ],
+              "management": {
+                "installable": true,
+                "reason": "inventory.agents[0].management.reason",
+                "homeVariable": "inventory.agents[0].management.homeVariable",
+                "updateNotice": "inventory.agents[0].management.updateNotice"
+              }
+            }
+          ],
+          "runtimeDrivers": [
+            {
+              "harness": "grok",
+              "id": "inventory.runtimeDrivers[0].id",
+              "family": "server"
+            }
+          ],
+          "driverCapabilities": {
+            "inventory.driverCapabilities.key": {
+              "context": {
+                "inventory.driverCapabilities.inventory.driverCapabilities.key.context.key": {
+                  "capability": {
+                    "summary": "passive-and-explicit",
+                    "detail": "none"
+                  },
+                  "availability": {
+                    "status": "unsupported",
+                    "reason": {
+                      "code": "inventory.driverCapabilities.inventory.driverCapabilities.key.context.inventory.driverCapabilities.inventory.driverCapabilities.key.context.key.availability.reason.code",
+                      "message": "inventory.driverCapabilities.inventory.driverCapabilities.key.context.inventory.driverCapabilities.inventory.driverCapabilities.key.context.key.availability.reason.message"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "tools": [
+            {
+              "name": "inventory.tools[0].name",
+              "installed": true,
+              "probeError": {
+                "reason": "timed-out",
+                "timeoutMs": 3
+              },
+              "version": "inventory.tools[0].version",
+              "path": "inventory.tools[0].path"
+            }
+          ]
+        },
+        "updateChannel": "stable",
+        "updateChannelOverride": "stable",
+        "appVersion": "appVersion",
+        "wireSchemaDigest": "wireSchemaDigest",
+        "installKind": "installKind",
+        "deliveryCaps": ["deliveryCaps[0]"],
+        "serverMoveEligibility": {
+          "eligible": true,
+          "reason": "unsupported"
+        },
+        "buildReportedAt": "buildReportedAt",
+        "versionState": "behind",
+        "targetVersion": "targetVersion",
+        "targetUnavailableReason": "targetUnavailableReason"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"revokedAt\":\"revokedAt\",\"supersededBy\":\"supersededBy\",\"supersedable\":true,\"daemonReadiness\":{\"state\":\"ready\",\"reason\":\"daemonReadiness.reason\",\"quarantinedBindings\":3},\"harnessVersions\":[{\"harness\":\"harnessVersions[0].harness\",\"version\":\"harnessVersions[0].version\",\"firstSeen\":\"harnessVersions[0].firstSeen\",\"lastSeen\":\"harnessVersions[0].lastSeen\",\"verifiedThrough\":\"harnessVersions[0].verifiedThrough\",\"unverified\":true}],\"id\":\"id\",\"name\":\"name\",\"hostname\":\"hostname\",\"online\":true,\"lastSeenAt\":\"lastSeenAt\",\"presenceSource\":\"legacy-daemon\",\"services\":{\"server\":{\"policy\":\"disabled\",\"state\":\"refused\",\"reason\":\"services.server.reason\",\"observedAt\":\"services.server.observedAt\"},\"agentExecution\":{\"policy\":\"disabled\",\"state\":\"refused\",\"reason\":\"services.agentExecution.reason\",\"observedAt\":\"services.agentExecution.observedAt\"},\"agentExecutionLockout\":true,\"crashOwner\":\"services.crashOwner\",\"topology\":{\"persistence\":\"unmanaged\",\"legacyUnits\":[\"services.topology.legacyUnits[0]\"],\"parentUnit\":\"absent\"}},\"serviceAssignment\":{\"server\":true,\"agentExecution\":true},\"availability\":{\"epoch\":\"availability.epoch\",\"server\":true,\"daemon\":true,\"supervisor\":true},\"use\":\"denied\",\"owned\":true,\"transferable\":true,\"unowned\":true,\"adoptable\":true,\"podiumManaged\":true,\"components\":[\"server\"],\"inventory\":{\"os\":\"win32\",\"arch\":\"arm64\",\"podiumVersion\":\"inventory.podiumVersion\",\"homePath\":\"inventory.homePath\",\"agents\":[{\"kind\":\"grok\",\"installed\":true,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":3},\"version\":\"inventory.agents[0].version\",\"path\":\"inventory.agents[0].path\",\"login\":{\"state\":\"unknown\",\"account\":\"inventory.agents[0].login.account\",\"identity\":{\"fingerprint\":\"inventory.agents[0].login.identity.fingerprint\",\"email\":\"inventory.agents[0].login.identity.email\",\"providerAccountId\":\"inventory.agents[0].login.identity.providerAccountId\"},\"freshness\":3},\"logins\":[{\"homeId\":\"inventory.agents[0].logins[0].homeId\",\"state\":\"unknown\",\"identity\":{\"fingerprint\":\"inventory.agents[0].logins[0].identity.fingerprint\",\"email\":\"inventory.agents[0].logins[0].identity.email\",\"providerAccountId\":\"inventory.agents[0].logins[0].identity.providerAccountId\"},\"freshness\":3}],\"install\":{\"external\":{\"path\":\"inventory.agents[0].install.external.path\",\"version\":\"inventory.agents[0].install.external.version\"},\"managed\":{\"active\":{\"path\":\"inventory.agents[0].install.managed.active.path\",\"version\":\"inventory.agents[0].install.managed.active.version\",\"release\":3},\"currentFailed\":{\"release\":3,\"version\":\"inventory.agents[0].install.managed.currentFailed.version\"},\"previousVersion\":\"inventory.agents[0].install.managed.previousVersion\",\"latest\":\"inventory.agents[0].install.managed.latest\",\"lastCheckAt\":\"inventory.agents[0].install.managed.lastCheckAt\",\"installing\":{\"version\":\"inventory.agents[0].install.managed.installing.version\",\"progress\":{\"phase\":\"setup\",\"receivedBytes\":3,\"totalBytes\":3}},\"removingAt\":\"inventory.agents[0].install.managed.removingAt\",\"paused\":true,\"vendorUpdated\":true,\"lastError\":{\"at\":\"inventory.agents[0].install.managed.lastError.at\",\"message\":\"inventory.agents[0].install.managed.lastError.message\",\"version\":\"inventory.agents[0].install.managed.lastError.version\"},\"failingSince\":\"inventory.agents[0].install.managed.failingSince\"},\"ledgerRebuilt\":{\"at\":\"inventory.agents[0].install.ledgerRebuilt.at\",\"reason\":\"damaged\"}},\"missingPrerequisites\":[{\"executable\":\"inventory.agents[0].missingPrerequisites[0].executable\",\"package\":\"inventory.agents[0].missingPrerequisites[0].package\",\"neededFor\":\"passed-in-credential\",\"message\":\"inventory.agents[0].missingPrerequisites[0].message\"}],\"management\":{\"installable\":true,\"reason\":\"inventory.agents[0].management.reason\",\"homeVariable\":\"inventory.agents[0].management.homeVariable\",\"updateNotice\":\"inventory.agents[0].management.updateNotice\"}}],\"runtimeDrivers\":[{\"harness\":\"grok\",\"id\":\"inventory.runtimeDrivers[0].id\",\"family\":\"server\"}],\"driverCapabilities\":{\"inventory.driverCapabilities.key\":{\"context\":{\"inventory.driverCapabilities.inventory.driverCapabilities.key.context.key\":{\"capability\":{\"summary\":\"passive-and-explicit\",\"detail\":\"none\"},\"availability\":{\"status\":\"unsupported\",\"reason\":{\"code\":\"inventory.driverCapabilities.inventory.driverCapabilities.key.context.inventory.driverCapabilities.inventory.driverCapabilities.key.context.key.availability.reason.code\",\"message\":\"inventory.driverCapabilities.inventory.driverCapabilities.key.context.inventory.driverCapabilities.inventory.driverCapabilities.key.context.key.availability.reason.message\"}}}}}},\"tools\":[{\"name\":\"inventory.tools[0].name\",\"installed\":true,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":3},\"version\":\"inventory.tools[0].version\",\"path\":\"inventory.tools[0].path\"}]},\"updateChannel\":\"stable\",\"updateChannelOverride\":\"stable\",\"appVersion\":\"appVersion\",\"wireSchemaDigest\":\"wireSchemaDigest\",\"installKind\":\"installKind\",\"deliveryCaps\":[\"deliveryCaps[0]\"],\"serverMoveEligibility\":{\"eligible\":true,\"reason\":\"unsupported\"},\"buildReportedAt\":\"buildReportedAt\",\"versionState\":\"behind\",\"targetVersion\":\"targetVersion\",\"targetUnavailableReason\":\"targetUnavailableReason\"}"
     },
     {
       "schema": "MemberId",
@@ -12132,17 +14610,344 @@
     },
     {
       "schema": "SessionConditionLive",
-      "variant": "full",
+      "variant": "full/arm0",
       "wire": {
         "busy": true,
         "requestsGated": 1,
         "lastInputAt": "lastInputAt",
+        "context": {
+          "sample": {
+            "observerGeneration": 1,
+            "turnEpoch": 1,
+            "bindingVersion": 1,
+            "contextRevision": 1,
+            "id": "context.sample.id",
+            "at": "2026-01-02T03:04:05.000Z",
+            "turnRevision": "context.sample.turnRevision",
+            "nativeSessionId": "context.sample.nativeSessionId",
+            "nativeSampleId": "context.sample.nativeSampleId"
+          },
+          "model": {
+            "modelId": "context.model.modelId",
+            "providerId": "context.model.providerId"
+          },
+          "occupancy": {
+            "basis": "current-context",
+            "usedTokens": {
+              "value": 1,
+              "accuracy": "reported",
+              "source": "context.occupancy.usedTokens.source"
+            },
+            "remainingTokens": {
+              "value": 1,
+              "accuracy": "reported",
+              "source": "context.occupancy.remainingTokens.source"
+            },
+            "percent": {
+              "value": 1,
+              "accuracy": "reported",
+              "source": "context.occupancy.percent.source"
+            }
+          },
+          "effectiveCapacity": {
+            "value": 1,
+            "accuracy": "reported",
+            "source": "context.effectiveCapacity.source",
+            "basis": "native"
+          },
+          "modelCapacity": {
+            "value": 1,
+            "accuracy": "reported",
+            "source": "context.modelCapacity.source",
+            "basis": "native"
+          },
+          "compaction": {
+            "source": "context.compaction.source",
+            "enabled": true,
+            "thresholdTokens": {
+              "value": 1,
+              "accuracy": "reported",
+              "source": "context.compaction.thresholdTokens.source"
+            },
+            "thresholdPercent": {
+              "value": 1,
+              "accuracy": "reported",
+              "source": "context.compaction.thresholdPercent.source"
+            },
+            "reserveTokens": {
+              "value": 1,
+              "accuracy": "reported",
+              "source": "context.compaction.reserveTokens.source"
+            }
+          },
+          "version": 1,
+          "status": "available"
+        },
         "contextUsagePercent": 1
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"busy\":true,\"requestsGated\":1,\"lastInputAt\":\"lastInputAt\",\"contextUsagePercent\":1}"
+      "encoded": "{\"busy\":true,\"requestsGated\":1,\"lastInputAt\":\"lastInputAt\",\"context\":{\"sample\":{\"observerGeneration\":1,\"turnEpoch\":1,\"bindingVersion\":1,\"contextRevision\":1,\"id\":\"context.sample.id\",\"at\":\"2026-01-02T03:04:05.000Z\",\"turnRevision\":\"context.sample.turnRevision\",\"nativeSessionId\":\"context.sample.nativeSessionId\",\"nativeSampleId\":\"context.sample.nativeSampleId\"},\"model\":{\"modelId\":\"context.model.modelId\",\"providerId\":\"context.model.providerId\"},\"occupancy\":{\"basis\":\"current-context\",\"usedTokens\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"context.occupancy.usedTokens.source\"},\"remainingTokens\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"context.occupancy.remainingTokens.source\"},\"percent\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"context.occupancy.percent.source\"}},\"effectiveCapacity\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"context.effectiveCapacity.source\",\"basis\":\"native\"},\"modelCapacity\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"context.modelCapacity.source\",\"basis\":\"native\"},\"compaction\":{\"source\":\"context.compaction.source\",\"enabled\":true,\"thresholdTokens\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"context.compaction.thresholdTokens.source\"},\"thresholdPercent\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"context.compaction.thresholdPercent.source\"},\"reserveTokens\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"context.compaction.reserveTokens.source\"}},\"version\":1,\"status\":\"available\"},\"contextUsagePercent\":1}"
+    },
+    {
+      "schema": "SessionConditionLive",
+      "variant": "full/arm1",
+      "wire": {
+        "busy": false,
+        "requestsGated": 2,
+        "lastInputAt": "lastInputAt",
+        "context": {
+          "sample": {
+            "observerGeneration": 2,
+            "turnEpoch": 2,
+            "bindingVersion": 2,
+            "contextRevision": 2,
+            "id": "context.sample.id",
+            "at": "2026-01-02T03:04:05.000Z",
+            "turnRevision": "context.sample.turnRevision",
+            "nativeSessionId": "context.sample.nativeSessionId",
+            "nativeSampleId": "context.sample.nativeSampleId"
+          },
+          "model": {
+            "modelId": "context.model.modelId",
+            "providerId": "context.model.providerId"
+          },
+          "occupancy": {
+            "basis": "last-request",
+            "usedTokens": {
+              "value": 2,
+              "accuracy": "estimated",
+              "source": "context.occupancy.usedTokens.source"
+            },
+            "remainingTokens": {
+              "value": 2,
+              "accuracy": "estimated",
+              "source": "context.occupancy.remainingTokens.source"
+            },
+            "percent": {
+              "value": 2,
+              "accuracy": "estimated",
+              "source": "context.occupancy.percent.source"
+            }
+          },
+          "effectiveCapacity": {
+            "value": 2,
+            "accuracy": "estimated",
+            "source": "context.effectiveCapacity.source",
+            "basis": "configured"
+          },
+          "modelCapacity": {
+            "value": 2,
+            "accuracy": "estimated",
+            "source": "context.modelCapacity.source",
+            "basis": "configured"
+          },
+          "compaction": {
+            "source": "context.compaction.source",
+            "enabled": false,
+            "thresholdTokens": {
+              "value": 2,
+              "accuracy": "estimated",
+              "source": "context.compaction.thresholdTokens.source"
+            },
+            "thresholdPercent": {
+              "value": 2,
+              "accuracy": "estimated",
+              "source": "context.compaction.thresholdPercent.source"
+            },
+            "reserveTokens": {
+              "value": 2,
+              "accuracy": "estimated",
+              "source": "context.compaction.reserveTokens.source"
+            }
+          },
+          "version": 1,
+          "status": "stale",
+          "reason": {
+            "code": "context.reason.code",
+            "message": "context.reason.message"
+          }
+        },
+        "contextUsagePercent": 2
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"busy\":false,\"requestsGated\":2,\"lastInputAt\":\"lastInputAt\",\"context\":{\"sample\":{\"observerGeneration\":2,\"turnEpoch\":2,\"bindingVersion\":2,\"contextRevision\":2,\"id\":\"context.sample.id\",\"at\":\"2026-01-02T03:04:05.000Z\",\"turnRevision\":\"context.sample.turnRevision\",\"nativeSessionId\":\"context.sample.nativeSessionId\",\"nativeSampleId\":\"context.sample.nativeSampleId\"},\"model\":{\"modelId\":\"context.model.modelId\",\"providerId\":\"context.model.providerId\"},\"occupancy\":{\"basis\":\"last-request\",\"usedTokens\":{\"value\":2,\"accuracy\":\"estimated\",\"source\":\"context.occupancy.usedTokens.source\"},\"remainingTokens\":{\"value\":2,\"accuracy\":\"estimated\",\"source\":\"context.occupancy.remainingTokens.source\"},\"percent\":{\"value\":2,\"accuracy\":\"estimated\",\"source\":\"context.occupancy.percent.source\"}},\"effectiveCapacity\":{\"value\":2,\"accuracy\":\"estimated\",\"source\":\"context.effectiveCapacity.source\",\"basis\":\"configured\"},\"modelCapacity\":{\"value\":2,\"accuracy\":\"estimated\",\"source\":\"context.modelCapacity.source\",\"basis\":\"configured\"},\"compaction\":{\"source\":\"context.compaction.source\",\"enabled\":false,\"thresholdTokens\":{\"value\":2,\"accuracy\":\"estimated\",\"source\":\"context.compaction.thresholdTokens.source\"},\"thresholdPercent\":{\"value\":2,\"accuracy\":\"estimated\",\"source\":\"context.compaction.thresholdPercent.source\"},\"reserveTokens\":{\"value\":2,\"accuracy\":\"estimated\",\"source\":\"context.compaction.reserveTokens.source\"}},\"version\":1,\"status\":\"stale\",\"reason\":{\"code\":\"context.reason.code\",\"message\":\"context.reason.message\"}},\"contextUsagePercent\":2}"
+    },
+    {
+      "schema": "SessionConditionLive",
+      "variant": "full/arm2",
+      "wire": {
+        "busy": true,
+        "requestsGated": 3,
+        "lastInputAt": "lastInputAt",
+        "context": {
+          "model": {
+            "modelId": "context.model.modelId",
+            "providerId": "context.model.providerId"
+          },
+          "effectiveCapacity": {
+            "value": 3,
+            "accuracy": "estimated",
+            "source": "context.effectiveCapacity.source",
+            "basis": "model-metadata"
+          },
+          "modelCapacity": {
+            "value": 3,
+            "accuracy": "estimated",
+            "source": "context.modelCapacity.source",
+            "basis": "model-metadata"
+          },
+          "compaction": {
+            "source": "context.compaction.source",
+            "enabled": true,
+            "thresholdTokens": {
+              "value": 3,
+              "accuracy": "estimated",
+              "source": "context.compaction.thresholdTokens.source"
+            },
+            "thresholdPercent": {
+              "value": 3,
+              "accuracy": "estimated",
+              "source": "context.compaction.thresholdPercent.source"
+            },
+            "reserveTokens": {
+              "value": 3,
+              "accuracy": "estimated",
+              "source": "context.compaction.reserveTokens.source"
+            }
+          },
+          "version": 1,
+          "status": "pending",
+          "revision": {
+            "observerGeneration": 3,
+            "turnEpoch": 3,
+            "bindingVersion": 3,
+            "contextRevision": 3
+          },
+          "reason": {
+            "code": "context.reason.code",
+            "message": "context.reason.message"
+          },
+          "invalidation": {
+            "cause": "reset",
+            "previousSample": {
+              "observerGeneration": 3,
+              "turnEpoch": 3,
+              "bindingVersion": 3,
+              "contextRevision": 3,
+              "id": "context.invalidation.previousSample.id",
+              "at": "2026-01-02T03:04:05.000Z",
+              "turnRevision": "context.invalidation.previousSample.turnRevision",
+              "nativeSessionId": "context.invalidation.previousSample.nativeSessionId",
+              "nativeSampleId": "context.invalidation.previousSample.nativeSampleId"
+            }
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"busy\":true,\"requestsGated\":3,\"lastInputAt\":\"lastInputAt\",\"context\":{\"model\":{\"modelId\":\"context.model.modelId\",\"providerId\":\"context.model.providerId\"},\"effectiveCapacity\":{\"value\":3,\"accuracy\":\"estimated\",\"source\":\"context.effectiveCapacity.source\",\"basis\":\"model-metadata\"},\"modelCapacity\":{\"value\":3,\"accuracy\":\"estimated\",\"source\":\"context.modelCapacity.source\",\"basis\":\"model-metadata\"},\"compaction\":{\"source\":\"context.compaction.source\",\"enabled\":true,\"thresholdTokens\":{\"value\":3,\"accuracy\":\"estimated\",\"source\":\"context.compaction.thresholdTokens.source\"},\"thresholdPercent\":{\"value\":3,\"accuracy\":\"estimated\",\"source\":\"context.compaction.thresholdPercent.source\"},\"reserveTokens\":{\"value\":3,\"accuracy\":\"estimated\",\"source\":\"context.compaction.reserveTokens.source\"}},\"version\":1,\"status\":\"pending\",\"revision\":{\"observerGeneration\":3,\"turnEpoch\":3,\"bindingVersion\":3,\"contextRevision\":3},\"reason\":{\"code\":\"context.reason.code\",\"message\":\"context.reason.message\"},\"invalidation\":{\"cause\":\"reset\",\"previousSample\":{\"observerGeneration\":3,\"turnEpoch\":3,\"bindingVersion\":3,\"contextRevision\":3,\"id\":\"context.invalidation.previousSample.id\",\"at\":\"2026-01-02T03:04:05.000Z\",\"turnRevision\":\"context.invalidation.previousSample.turnRevision\",\"nativeSessionId\":\"context.invalidation.previousSample.nativeSessionId\",\"nativeSampleId\":\"context.invalidation.previousSample.nativeSampleId\"}}}}"
+    },
+    {
+      "schema": "SessionConditionLive",
+      "variant": "full/arm3",
+      "wire": {
+        "busy": false,
+        "requestsGated": 4,
+        "lastInputAt": "lastInputAt",
+        "context": {
+          "model": {
+            "modelId": "context.model.modelId",
+            "providerId": "context.model.providerId"
+          },
+          "effectiveCapacity": {
+            "value": 4,
+            "accuracy": "estimated",
+            "source": "context.effectiveCapacity.source",
+            "basis": "fallback"
+          },
+          "modelCapacity": {
+            "value": 4,
+            "accuracy": "estimated",
+            "source": "context.modelCapacity.source",
+            "basis": "fallback"
+          },
+          "compaction": {
+            "source": "context.compaction.source",
+            "enabled": false,
+            "thresholdTokens": {
+              "value": 4,
+              "accuracy": "estimated",
+              "source": "context.compaction.thresholdTokens.source"
+            },
+            "thresholdPercent": {
+              "value": 4,
+              "accuracy": "estimated",
+              "source": "context.compaction.thresholdPercent.source"
+            },
+            "reserveTokens": {
+              "value": 4,
+              "accuracy": "estimated",
+              "source": "context.compaction.reserveTokens.source"
+            }
+          },
+          "version": 1,
+          "status": "unavailable",
+          "revision": {
+            "observerGeneration": 4,
+            "turnEpoch": 4,
+            "bindingVersion": 4,
+            "contextRevision": 4
+          },
+          "reason": {
+            "code": "context.reason.code",
+            "message": "context.reason.message"
+          },
+          "invalidation": {
+            "cause": "rewind",
+            "previousSample": {
+              "observerGeneration": 4,
+              "turnEpoch": 4,
+              "bindingVersion": 4,
+              "contextRevision": 4,
+              "id": "context.invalidation.previousSample.id",
+              "at": "2026-01-02T03:04:05.000Z",
+              "turnRevision": "context.invalidation.previousSample.turnRevision",
+              "nativeSessionId": "context.invalidation.previousSample.nativeSessionId",
+              "nativeSampleId": "context.invalidation.previousSample.nativeSampleId"
+            }
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"busy\":false,\"requestsGated\":4,\"lastInputAt\":\"lastInputAt\",\"context\":{\"model\":{\"modelId\":\"context.model.modelId\",\"providerId\":\"context.model.providerId\"},\"effectiveCapacity\":{\"value\":4,\"accuracy\":\"estimated\",\"source\":\"context.effectiveCapacity.source\",\"basis\":\"fallback\"},\"modelCapacity\":{\"value\":4,\"accuracy\":\"estimated\",\"source\":\"context.modelCapacity.source\",\"basis\":\"fallback\"},\"compaction\":{\"source\":\"context.compaction.source\",\"enabled\":false,\"thresholdTokens\":{\"value\":4,\"accuracy\":\"estimated\",\"source\":\"context.compaction.thresholdTokens.source\"},\"thresholdPercent\":{\"value\":4,\"accuracy\":\"estimated\",\"source\":\"context.compaction.thresholdPercent.source\"},\"reserveTokens\":{\"value\":4,\"accuracy\":\"estimated\",\"source\":\"context.compaction.reserveTokens.source\"}},\"version\":1,\"status\":\"unavailable\",\"revision\":{\"observerGeneration\":4,\"turnEpoch\":4,\"bindingVersion\":4,\"contextRevision\":4},\"reason\":{\"code\":\"context.reason.code\",\"message\":\"context.reason.message\"},\"invalidation\":{\"cause\":\"rewind\",\"previousSample\":{\"observerGeneration\":4,\"turnEpoch\":4,\"bindingVersion\":4,\"contextRevision\":4,\"id\":\"context.invalidation.previousSample.id\",\"at\":\"2026-01-02T03:04:05.000Z\",\"turnRevision\":\"context.invalidation.previousSample.turnRevision\",\"nativeSessionId\":\"context.invalidation.previousSample.nativeSessionId\",\"nativeSampleId\":\"context.invalidation.previousSample.nativeSampleId\"}}}}"
+    },
+    {
+      "schema": "SessionConditionLive",
+      "variant": "full/arm4",
+      "wire": {
+        "busy": true,
+        "requestsGated": 5,
+        "lastInputAt": "lastInputAt",
+        "context": {
+          "version": 1,
+          "status": "unsupported",
+          "reason": {
+            "code": "context.reason.code",
+            "message": "context.reason.message"
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"busy\":true,\"requestsGated\":5,\"lastInputAt\":\"lastInputAt\",\"context\":{\"version\":1,\"status\":\"unsupported\",\"reason\":{\"code\":\"context.reason.code\",\"message\":\"context.reason.message\"}}}"
     },
     {
       "schema": "SessionCostWire",
