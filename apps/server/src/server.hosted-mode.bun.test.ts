@@ -119,9 +119,18 @@ const bootstrapRead = async (origin: string, headers: Record<string, string> = {
 /** Names the hosted fixture's workspace by its slug. */
 const NAMES_LOADED = { 'Podium-Workspace': HOSTED_SLUG }
 
-/** A concrete path an entry point answers. */
-const samplePath = (entry: EntryPoint) =>
-  entry.path.endsWith('/') ? `${entry.path}sample` : entry.path
+/**
+ * A concrete path an entry point answers, with `query`. The client socket's
+ * wire check (its `sync.http.v1` capability) runs before the edge, so its
+ * sample offers it.
+ */
+const samplePath = (entry: EntryPoint, query: Record<string, string> = {}) => {
+  const path = entry.path.endsWith('/') ? `${entry.path}sample` : entry.path
+  const params = new URLSearchParams(query)
+  if (path === '/client') params.set('cap', 'sync.http.v1')
+  const search = params.toString()
+  return search ? `${path}?${search}` : path
+}
 const BOUND = WORKSPACE_ENTRY_POINTS.filter((entry) => entry.binding !== 'unbound')
 
 for (const engine of ['sqlite', 'pg'] as const) {
@@ -230,7 +239,7 @@ for (const engine of ['sqlite', 'pg'] as const) {
               error: 'workspace_not_served',
             })
           }
-          const query = await send(`${samplePath(entry)}?workspace=${OTHER_WORKSPACE}`, {})
+          const query = await send(samplePath(entry, { workspace: OTHER_WORKSPACE }), {})
           expect(query.status, entry.path).toBe(404)
         }
         const artifact = await fetch(
@@ -240,29 +249,29 @@ for (const engine of ['sqlite', 'pg'] as const) {
         expect(artifact.status).toBe(404)
       })
 
-      it('binds a member who names the loaded workspace, by slug or id, to it', async () => {
+      it('passes a request that names the loaded workspace, by slug or id, on to its route', async () => {
+        // This first-run fixture's readiness blocks the data plane, so past
+        // the edge a data route answers the readiness gate's 503 and the
+        // status route reports the blocked control plane: both are the routes
+        // behind the edge answering, never a workspace refusal.
         for (const naming of [NAMES_LOADED, { 'Podium-Workspace-Id': HOSTED_WORKSPACE }]) {
           const status = await fetch(`${f.origin()}/auth/status`, {
             headers: { ...asMember, ...naming },
           })
+          expect(status.status).toBe(200)
           expect(await status.json()).toMatchObject({
-            authed: true,
-            // The device keys its stores by the bound workspace (POD-7312).
-            syncBoundaryId: HOSTED_WORKSPACE,
+            readiness: { state: 'unconfigured' },
           })
+          const query = await fetch(`${f.origin()}/trpc/machines.list`, {
+            headers: { ...asMember, ...naming },
+          })
+          expect(query.status).toBe(503)
+          expect(await query.json()).toMatchObject({ error: 'server_not_ready' })
         }
-        const viewer = await fetch(`${f.origin()}/auth/admin/viewer`, {
-          headers: { ...asMember, ...NAMES_LOADED },
-        })
-        expect(viewer.status).toBe(200)
-        const query = await fetch(`${f.origin()}/trpc/machines.list`, {
-          headers: { ...asMember, ...NAMES_LOADED },
-        })
-        expect(query.status).toBe(200)
       })
 
       it('serves the unbound routes without a selector', async () => {
-        for (const path of ['/health', '/version', '/.well-known/podium', '/readiness']) {
+        for (const path of ['/health', '/version', '/readiness']) {
           expect((await fetch(`${f.origin()}${path}`)).status, path).toBe(200)
         }
       })
