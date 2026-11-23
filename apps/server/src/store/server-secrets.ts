@@ -324,10 +324,12 @@ export class ServerSecretsRepository {
   async liveGrantKeys(opts: { mint?: () => string }): Promise<string | undefined> {
     const row = await liveGrantKeysValue(this.db).get()
     if (row || !opts.mint) return row?.value
-    const mint = opts.mint
+    // Minted before the transaction: the span runs statements only. A ring another
+    // process stored first wins, and this one is dropped unused.
+    const value = opts.mint()
     return await this.createOrJoinTransaction(async () => {
       await insertLiveGrantKeysIfAbsent(this.db).run({
-        value: mint(),
+        value,
         updatedAt: new Date().toISOString(),
       })
       const minted = await liveGrantKeysValue(this.db).get()
