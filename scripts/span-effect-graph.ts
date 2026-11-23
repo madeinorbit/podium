@@ -1052,6 +1052,36 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
     kind: 'contained',
     why: 'the capture form names one column of the old or new row as an SQL expression string; a pure computation, no statement runs',
   },
+  // POD-7123: the shared asking derivation and its Postgres write form only
+  // construct SQL. These callbacks never execute a statement or publish an effect.
+  'apps/server/src/migrations/session-asks-user.ts#AskingRowRef.AskingRowRef': {
+    kind: 'contained',
+    why: 'the asking derivation names a proposed or stored row column as an SQL expression string; a pure computation, no statement runs',
+  },
+  'apps/server/src/migrations/session-asks-user.ts#AskingRelation.AskingRelation': {
+    kind: 'contained',
+    why: 'the asking derivation renders a table name or its post-write SQL relation; a pure computation, no statement runs',
+  },
+  'apps/server/src/sync/asking-pg.ts#ConflictSet.replace': {
+    kind: 'contained',
+    why: 'rebuilds the Drizzle upsert SET syntax tree with the derived boolean assignment while retaining parameter encoders; no statement runs and rollback leaves no outside effect',
+  },
+  'packages/sync/src/collections/rule-sql.ts#RuleSqlDialect.jsonTextPath': {
+    kind: 'contained',
+    why: 'renders the dialect-specific SQL expression for a JSON text path; a pure computation, no statement runs',
+  },
+  'packages/sync/src/collections/rule-sql.ts#RuleSqlDialect.jsonObject': {
+    kind: 'contained',
+    why: 'renders the dialect-specific SQL expression that admits a JSON object; a pure computation, no statement runs',
+  },
+  'packages/sync/src/collections/rule-sql.ts#RuleSqlDialect.jsonObjectMember': {
+    kind: 'contained',
+    why: 'renders the dialect-specific SQL expression that admits an object member; a pure computation, no statement runs',
+  },
+  'packages/sync/src/collections/rule-sql.ts#RuleSqlDialect.bool': {
+    kind: 'contained',
+    why: 'returns the dialect boolean literal value as a boolean or zero/one; a pure computation with no I/O or publication',
+  },
   // POD-6986: the shipping guards (store/append-only.ts), which captureWrite applies when it
   // renders a write's Postgres form. Each builds SQL; none runs a statement.
   'apps/server/src/store/append-only.ts#WriteGuardForm.where': {

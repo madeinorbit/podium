@@ -69,12 +69,12 @@ function sessionValue(
  * those assignments without rendering/reparsing SQL or losing parameter encoders.
  * Refuse an unknown AST shape, so a Drizzle upgrade cannot silently skip maintenance.
  */
-function conflictSet(builder: PgWriteBuilder):
-  | {
-      readonly set: Record<string, unknown>
-      readonly replace: (set: Record<string, unknown>) => SQL
-    }
-  | undefined {
+interface ConflictSet {
+  readonly set: Record<string, unknown>
+  readonly replace: (set: Record<string, unknown>) => SQL
+}
+
+function conflictSet(builder: PgWriteBuilder): ConflictSet | undefined {
   const conflict = builder.config.onConflict
   if (conflict === undefined) return undefined
   const chunks = conflict.queryChunks

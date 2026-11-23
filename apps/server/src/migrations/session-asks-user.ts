@@ -57,7 +57,14 @@ export function askingNeeded(
 }
 
 const q = (name: string) => `"${name}"`
-export const askingRef = (alias: string) => (column: string) => `${alias}.${q(column)}`
+
+/** Pure SQL renderers; neither executes the expression it names. */
+export type AskingRowRef = (column: string) => string
+export type AskingRelation = (table: string) => string
+export const askingRef =
+  (alias: string): AskingRowRef =>
+  (column) =>
+    `${alias}.${q(column)}`
 
 /**
  * The migration's view, over a session relation and its three satellite relations.
@@ -69,8 +76,8 @@ export const askingRef = (alias: string) => (column: string) => `${alias}.${q(co
 export function askingSelect(
   d: RuleSqlDialect,
   from: SQL,
-  row: (column: string) => string = askingRef('r'),
-  relation: (table: string) => string = q,
+  row: AskingRowRef = askingRef('r'),
+  relation: AskingRelation = q,
 ): SQL {
   const same = (alias: string) =>
     `${alias}.workspace_id = ${row('workspace_id')} AND ${alias}.session_id = ${row('id')}`
