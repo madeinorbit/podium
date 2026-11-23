@@ -583,9 +583,9 @@ export class ConversationRegistryRepository {
    * statements per bounded batch [POD-6227]: one read of the ids already known
    * per 500, file refreshes per 500, then at most one write each for parents
    * adopted, identities and segments created. The result is what calling
-   * `ensure` for each entry in order gives: a native id offered twice is created once, and its later
-   * offers act on the existing row (the first parent wins, the last path and
-   * size offered win).
+   * `ensure` for each entry in order gives: a native id offered twice is
+   * created once, and its later offers act on the existing row (the first
+   * parent wins, the last path and size offered win).
    */
   async ensureMany(
     machineId: MachineId,

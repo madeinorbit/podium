@@ -6,7 +6,8 @@
  * Compare the pre-fix refresh SQL with the production ensureMany refresh in
  * the same process and database. Report only the refresh statements' driver
  * wall time: the candidate's id lookups and offer folding are outside that
- * counter. Each sample re-offers all 11,347 segments twice, as in the report.
+ * counter. Each sample re-offers all 11,347 segments twice. The report gives
+ * that table size and two calls, but does not give their per-call offer counts.
  * Setup, verification and update-probe reads are outside the measured window.
  */
 import '../../test-hermetic-env'
