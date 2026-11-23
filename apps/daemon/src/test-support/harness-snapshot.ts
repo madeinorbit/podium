@@ -8,6 +8,7 @@ const defaults: Record<BuiltinHarnessKind, string> = {
   opencode: '/opt/opencode',
   cursor: '/opt/cursor-agent',
   pi: '/opt/pi',
+  antigravity: '/opt/agy',
 }
 
 export function testHarnessSnapshot(

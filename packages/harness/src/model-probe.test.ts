@@ -285,7 +285,7 @@ describe('probe (injected exec — no shelling out)', () => {
     expect(models).toEqual([])
   })
 
-  it('probeAllModels fans out over all six agents, keyed by agent kind', async () => {
+  it('probeAllModels fans out over the registered agents, keyed by agent kind', async () => {
     const byAgent = await probeAllModels({
       exec: async (argv) => {
         if (argv[0] === 'grok') return GROK
@@ -293,6 +293,7 @@ describe('probe (injected exec — no shelling out)', () => {
         if (argv[0] === 'opencode') return OPENCODE
         if (argv[0] === 'codex') return CODEX
         if (argv[0] === 'pi') return PI
+        if (argv[0] === 'agy') return 'Gemini 3.1 Pro (Low)'
         return ''
       },
       claude: {
@@ -301,6 +302,7 @@ describe('probe (injected exec — no shelling out)', () => {
       },
     })
     expect(Object.keys(byAgent).sort()).toEqual([
+      'antigravity',
       'claude-code',
       'codex',
       'cursor',
@@ -318,6 +320,7 @@ describe('probe (injected exec — no shelling out)', () => {
     ])
     expect(byAgent['claude-code']?.[0]?.value).toBe('claude-sonnet-5')
     expect(byAgent.codex?.length).toBe(2)
+    expect(byAgent.antigravity?.[0]?.value).toBe('Gemini 3.1 Pro (Low)')
   })
 
   it('omits claude-code when the OAuth call yields nothing so the cache can retain it', async () => {

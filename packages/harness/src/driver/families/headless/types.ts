@@ -18,6 +18,9 @@ export interface HeadlessTurnSpec {
   requestDigest: string
   model?: string
   effort?: string
+  /** Non-secret selectors for native provider flags; credential values stay
+   * in the child-environment closure, outside this replayable spec. */
+  credentialVariables?: readonly string[]
   cwd: string
   prompt: string
   contextPrompt?: string

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { manifestFor } from '../packages/harness/src/registry'
 import {
   HARNESS_VERSION_POLICIES,
   parseHarnessVersion,
@@ -17,18 +18,23 @@ function newer(verifiedThrough: string): string {
 describe('harness fixture freshness lint', () => {
   it.each(policies)('warns once for newer %s and succeeds', async (name, policy) => {
     const installed = newer(policy.verifiedThrough)
+    const executable = manifestFor(name)?.inventory.executable.names[0] ?? name
     const probe = vi.fn((command: string) => ({
-      ok: command === name,
+      ok: command === executable,
       output: `${command} ${installed}`,
     }))
     const warn = vi.fn()
     expect(await lintHarnessVersions(probe, warn)).toBe(0)
     expect(probe.mock.calls.map(([command]) => command).sort()).toEqual(
-      policies.map(([command]) => command).sort(),
+      policies.map(([kind]) => manifestFor(kind)?.inventory.executable.names[0] ?? kind).sort(),
     )
-    expect(probe).toHaveBeenCalledWith(name, AGENT_VERSION_PROBE_TIMEOUT_MS)
+    expect(probe).toHaveBeenCalledWith(executable, AGENT_VERSION_PROBE_TIMEOUT_MS)
+    const location =
+      name === 'antigravity'
+        ? `packages/harness/src/adapters/${name}`
+        : `packages/harness/src/driver/families/${name === 'grok' ? 'grok-acp' : name}/__fixtures__`
     expect(warn).toHaveBeenCalledExactlyOnceWith(
-      `WARNING: ${name} ${installed} installed, verified through ${policy.verifiedThrough} - re-record fixtures in packages/harness/src/driver/families/${name === 'grok' ? 'grok-acp' : name}/__fixtures__ when convenient${name === 'codex' ? ' (codex app-server generate-ts --out DIR)' : ''}`,
+      `WARNING: ${name} ${installed} installed, verified through ${policy.verifiedThrough} - re-record fixtures in ${location} when convenient${name === 'codex' ? ' (codex app-server generate-ts --out DIR)' : ''}`,
     )
   })
 
@@ -39,7 +45,10 @@ describe('harness fixture freshness lint', () => {
     const warn = vi.fn()
     expect(
       await lintHarnessVersions((command) => {
-        const policy = HARNESS_VERSION_POLICIES[command as keyof typeof HARNESS_VERSION_POLICIES]
+        const policy = policies.find(
+          ([kind]) => manifestFor(kind)?.inventory.executable.names[0] === command,
+        )?.[1]
+        if (!policy) throw new Error(`No policy for ${command}`)
         const version = parseHarnessVersion(policy.verifiedThrough)
         if (!version) throw new Error('Policy version must parse')
         const older = `${version.major}.${version.minor}.${version.patch - 1}`

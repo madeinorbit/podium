@@ -67,7 +67,7 @@ export function buildHeadlessExec(
   }
   return harnessCommand(
     { installation },
-    buildExec(opts),
+    buildExec({ ...opts, runtimeDir: posture.runtimeDir }),
     agentLaunchTerms(manifest, 'turn', posture, opts.toolPolicy),
   )
 }
@@ -207,6 +207,7 @@ export function composeHeadlessInvocation(
     }
   }
   const common: HeadlessExecOptions = {
+    ...(spec.credentialVariables ? { credentialVariables: spec.credentialVariables } : {}),
     prompt: spec.prompt,
     ...(spec.model ? { model: spec.model } : {}),
     ...(spec.effort ? { effort: spec.effort } : {}),

@@ -9,14 +9,14 @@ import { promisify } from 'node:util'
 import { createLogger } from '@podium/logger'
 import type { AgentInventory, Inventory, MachineId, ToolInventory } from '@podium/model'
 import {
-  createCommandEnvironment,
   type CommandEnvironment,
+  createCommandEnvironment,
 } from '@podium/runtime/command-environment'
 import {
   type AgentManifest,
   declaredValue,
-  type LoginCommandResult,
   type HarnessLogin,
+  type LoginCommandResult,
 } from '../manifest.js'
 import { AGENT_MANIFESTS, harnessLoginReadEnv } from '../registry.js'
 import { AGENT_VERSION_PROBE_TIMEOUT_MS } from '../version-probe.js'
@@ -126,7 +126,7 @@ async function probeAgent(
   const identityReader = declaredValue(manifest.inventory.loginIdentity)
   let identity: ReturnType<NonNullable<typeof identityReader>> | undefined
   try {
-    identity = identityReader?.(credentialHome, credentialEnv)
+    identity = detected.identity ?? identityReader?.(credentialHome, credentialEnv)
   } catch {
     // Login identity is best-effort metadata.
   }
@@ -167,11 +167,16 @@ async function probeAgent(
       let login = fallbackLogin
       if (commandProbe) {
         try {
+          const selection = manifest.environment.command?.({
+            home: credentialHome,
+            env: credentialEnv,
+            roots: manifest.roots(credentialHome, credentialEnv),
+          })
           const decision = commandProbe.classify(
             await loginExec(
-              [candidate, ...commandProbe.args],
+              [candidate, ...(selection?.args ?? []), ...commandProbe.args],
               commandProbe.timeoutMs,
-              credentialEnv,
+              { ...credentialEnv, ...selection?.env },
             ),
           )
           login =

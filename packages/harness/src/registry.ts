@@ -5,12 +5,20 @@ import {
   isBuiltinHarnessKind,
   type ObservationProvider,
 } from '@podium/protocol'
+import { antigravityManifest } from './adapters/antigravity/index.js'
 import { claudeCodeManifest } from './adapters/claude-code/index.js'
 import { codexManifest } from './adapters/codex/index.js'
 import { cursorManifest } from './adapters/cursor/index.js'
 import { grokManifest } from './adapters/grok/index.js'
 import { opencodeManifest } from './adapters/opencode/index.js'
 import { piManifest } from './adapters/pi/index.js'
+
+export {
+  antigravityHomeSharing,
+  createAntigravityStreamReducer,
+  prepareAntigravityHomeLaunch,
+} from './adapters/antigravity/index.js'
+
 import type { AgentStateProvider } from './agent-state/types.js'
 import {
   type AcceptedDriverId,
@@ -64,6 +72,7 @@ export const AGENT_MANIFESTS: Record<BuiltinHarnessKind, AgentManifest> = {
   opencode: opencodeManifest,
   cursor: cursorManifest,
   pi: piManifest,
+  antigravity: antigravityManifest,
 }
 
 /**
@@ -659,6 +668,7 @@ export function harnessInstanceHomeEnv(
  */
 export function harnessHomeVariable(kind: AgentKind | string): string | undefined {
   const manifest = manifestFor(kind)
+  if (manifest?.environment.managedHomeVariable) return manifest.environment.managedHomeVariable
   const credentials = manifest ? declaredValue(manifest.credentials) : undefined
   return credentials?.files.find((file) => file.propagatable && file.homeEnvVar)?.homeEnvVar
 }
@@ -713,7 +723,14 @@ export function harnessLoginReadEnv<Value extends string | undefined>(
   for (const [key, value] of Object.entries(machineEnv)) {
     if (!stripped.has(key)) env[key] = value
   }
-  return { ...env, HOME: credentialHome, ...harnessInstanceHomeEnv(kind, credentialHome) }
+  return {
+    ...env,
+    HOME: credentialHome,
+    ...harnessInstanceHomeEnv(kind, credentialHome),
+    ...(!isMachineHome(credentialHome, machineEnv.HOME)
+      ? manifest?.environment.namedAccountEnv?.(credentialHome)
+      : {}),
+  }
 }
 
 /**

@@ -30,7 +30,7 @@ function withProgram<const T extends { type: string }>(choice: T) {
   return { ...choice, program: descriptor.label }
 }
 
-/** The two subscriptions a person signs in to in an agent program. */
+/** Subscriptions a person signs in to in an agent program. */
 export const SUBSCRIPTION_KINDS = [
   withProgram({
     type: 'anthropic.claude-login',
@@ -41,6 +41,11 @@ export const SUBSCRIPTION_KINDS = [
     type: 'openai.chatgpt-login',
     title: 'ChatGPT subscription',
     hint: 'In the terminal, open the link Codex shows and enter the one-time code it prints. If ChatGPT asks you to allow device codes, turn that on under Settings › Security first, then enter the code.',
+  }),
+  withProgram({
+    type: 'google.antigravity-login',
+    title: 'Google AI subscription',
+    hint: 'Open the Google sign-in link in the terminal and sign in with your Google AI account. Paste the authorization code back into the terminal. Free, Pro, Ultra, and eligible enterprise accounts use Antigravity’s native sign-in.',
   }),
 ] as const
 

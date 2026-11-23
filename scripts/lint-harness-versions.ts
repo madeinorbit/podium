@@ -1,4 +1,5 @@
 import { execVersionProbe, type VersionProbeOutput } from '../apps/daemon/src/runtime/version-probe'
+import { manifestFor } from '../packages/harness/src/registry'
 import {
   gateHarnessVersion,
   HARNESS_VERSION_POLICIES,
@@ -14,7 +15,7 @@ function definedEnv(env: NodeJS.ProcessEnv): Record<string, string> {
   return out
 }
 
-const fixtureDirectories: Record<Harness, string> = {
+const fixtureDirectories: Partial<Record<Harness, string>> = {
   codex: 'codex',
   opencode: 'opencode',
   grok: 'grok-acp',
@@ -33,14 +34,18 @@ export async function lintHarnessVersions(
   await Promise.all(
     Object.entries(HARNESS_VERSION_POLICIES).map(async ([name, policy]) => {
       try {
-        const result = await probe(name, AGENT_VERSION_PROBE_TIMEOUT_MS)
+        const executable = manifestFor(name)?.inventory.executable.names[0] ?? name
+        const result = await probe(executable, AGENT_VERSION_PROBE_TIMEOUT_MS)
         if (!result.ok || gateHarnessVersion(policy, result.output) !== 'unverified') return
         const version = parseHarnessVersion(result.output)
         if (!version) return
         const directory = fixtureDirectories[name as Harness]
+        const location = directory
+          ? `packages/harness/src/driver/families/${directory}/__fixtures__`
+          : `packages/harness/src/adapters/${name}`
         const command = name === 'codex' ? ' (codex app-server generate-ts --out DIR)' : ''
         warn(
-          `WARNING: ${name} ${version.major}.${version.minor}.${version.patch} installed, verified through ${policy.verifiedThrough} - re-record fixtures in packages/harness/src/driver/families/${directory}/__fixtures__ when convenient${command}`,
+          `WARNING: ${name} ${version.major}.${version.minor}.${version.patch} installed, verified through ${policy.verifiedThrough} - re-record fixtures in ${location} when convenient${command}`,
         )
       } catch {
         // Missing binaries, timed-out probes and other inconclusive results are silent.

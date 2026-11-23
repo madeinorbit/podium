@@ -19,7 +19,13 @@
 
 import { existsSync, lstatSync, symlinkSync } from 'node:fs'
 import { join } from 'node:path'
-import { claudeHomeSharing, codexHomeSharing, prepareClaudeHomeLaunch } from '@podium/harness'
+import {
+  antigravityHomeSharing,
+  claudeHomeSharing,
+  codexHomeSharing,
+  prepareAntigravityHomeLaunch,
+  prepareClaudeHomeLaunch,
+} from '@podium/harness'
 import type { HomeHarness } from '@podium/protocol'
 import type { HarnessHome } from './registry'
 
@@ -27,6 +33,7 @@ import type { HarnessHome } from './registry'
 export const SHARED_ENTRIES = {
   [claudeHomeSharing[0]]: claudeHomeSharing[1],
   [codexHomeSharing[0]]: codexHomeSharing[1],
+  [antigravityHomeSharing[0]]: antigravityHomeSharing[1],
 } satisfies Readonly<Record<HomeHarness, readonly string[]>>
 
 /**
@@ -63,6 +70,7 @@ export interface HomeLaunchInput {
 export function prepareHomeLaunch(home: HarnessHome, input: HomeLaunchInput): void {
   linkShared(home, input.defaultDir)
   prepareClaudeHomeLaunch(home, input)
+  prepareAntigravityHomeLaunch(home, input)
 }
 
 function occupied(path: string): boolean {

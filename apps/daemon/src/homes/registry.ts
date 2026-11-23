@@ -19,6 +19,7 @@
 import { existsSync, lstatSync, readdirSync } from 'node:fs'
 import { chmod, mkdir, rm } from 'node:fs/promises'
 import { join } from 'node:path'
+import { harnessHomeVariable, manifestFor } from '@podium/harness'
 import {
   DEFAULT_HOME_ID,
   HOME_HARNESSES,
@@ -173,6 +174,12 @@ export function homeDiscoveryRoots(
   homes: readonly HarnessHome[],
 ): Partial<Record<HomeHarness, string[]>> {
   const roots: Partial<Record<HomeHarness, string[]>> = {}
-  for (const home of homes) roots[home.harness] = [...(roots[home.harness] ?? []), home.dir]
+  for (const home of homes) {
+    const variable = harnessHomeVariable(home.harness)
+    const root = variable
+      ? manifestFor(home.harness)?.roots(home.dir, { [variable]: home.dir }).state
+      : home.dir
+    if (root) roots[home.harness] = [...(roots[home.harness] ?? []), root]
+  }
   return roots
 }

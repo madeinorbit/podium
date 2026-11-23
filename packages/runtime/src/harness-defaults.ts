@@ -91,6 +91,8 @@ export const SUPERAGENT_HARNESS_DEFAULTS: Readonly<Record<HarnessAgent, HarnessR
   opencode: { model: 'auto', effort: 'auto' },
   cursor: { model: 'auto', effort: 'auto' },
   pi: { model: 'auto', effort: 'auto' },
+  // Google accounts have different catalogs; let the selected account choose.
+  antigravity: { model: 'auto', effort: 'auto' },
 }
 
 /**

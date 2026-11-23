@@ -205,6 +205,7 @@ export async function executeBufferedHarnessTurn(
     // The argv first: an unknown or exec-less harness refuses here, naming
     // itself, before any context is built for it.
     const exec = buildHarnessExec(msg.agent, {
+      runtimeDir,
       prompt: msg.prompt,
       ...(msg.model ? { model: msg.model } : {}),
       ...(msg.effort ? { effort: msg.effort } : {}),

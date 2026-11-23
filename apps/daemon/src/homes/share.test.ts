@@ -44,6 +44,7 @@ describe('linkShared', () => {
     expect(SHARED_ENTRIES).toEqual({
       'claude-code': ['settings.json', 'CLAUDE.md', 'skills', 'agents', 'commands', 'plugins'],
       codex: ['config.toml', 'AGENTS.md', 'skills'],
+      antigravity: [],
     })
   })
 
