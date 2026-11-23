@@ -16,9 +16,18 @@ import type { ReplicaAddressedBatch, ReplicaKind } from '@podium/client-core/rep
 import type { OutboxOutcome } from '@podium/client-core/runtime-root'
 import { fixtureRoot } from '@podium/client-core/test-support/command-hooks'
 import { LayoutAccess } from '@podium/client-core/ui'
-import { asUserId, layoutRowId } from '@podium/model'
+import {
+  asUserId,
+  layoutRowId,
+  pinRowId,
+  readPositionRowId,
+  tabOrderRowId,
+  userPreferencesRowId,
+} from '@podium/model'
 import { autorun } from 'mobx'
 import { describe, expect, it } from 'vitest'
+import { LOADING } from '../loading'
+import { isGone, requireHere } from '../lookup'
 import { createRuntimeWorklistPool, type WorklistRuntime } from '../runtime-pool'
 import type { PoolTransactions } from './transactions'
 
@@ -91,8 +100,33 @@ function runtime() {
   const answer = (outcome: OutboxOutcome) => {
     for (const listener of [...outcomeListeners]) listener(outcome)
   }
+  function feedRecord(
+    kind: Choice['kind'],
+    replicaKind: ReplicaKind,
+    id: string,
+    value: Row | typeof GONE,
+  ) {
+    let table = rows.get(replicaKind)
+    if (table === undefined) {
+      table = new Map()
+      rows.set(replicaKind, table)
+    }
+    if (value === GONE) {
+      table.delete(id)
+      exits.set(`${kind}:${id}`, 'removed')
+    } else {
+      table.set(id, value)
+      exits.delete(`${kind}:${id}`)
+    }
+    const batch: ReplicaAddressedBatch = { type: 'update', rows: [{ kind: replicaKind, id }] }
+    for (const listener of [...addressed]) listener(batch)
+  }
   return {
     layout,
+    records,
+    pool: handle.pool,
+    transactions: handle.transactions,
+    feedRecord,
     /** The server applied the oldest queued write; its feed row is not here yet. */
     apply() {
       const entry = queue[0]!
@@ -110,19 +144,12 @@ function runtime() {
     },
     /** The feed carries the layout row (or its removal), as the kernel applies it. */
     feed(value: unknown | typeof GONE) {
-      const table = rows.get('userLayouts')!
-      if (value === GONE) {
-        table.delete(ROW)
-        exits.set(`userLayout:${ROW}`, 'removed')
-      } else {
-        table.set(ROW, { userId: USER, key: KEY, value })
-        exits.delete(`userLayout:${ROW}`)
-      }
-      const batch: ReplicaAddressedBatch = {
-        type: 'update',
-        rows: [{ kind: 'userLayouts', id: ROW }],
-      }
-      for (const listener of [...addressed]) listener(batch)
+      feedRecord(
+        'userLayout',
+        'userLayouts',
+        ROW,
+        value === GONE ? GONE : { userId: USER, key: KEY, value },
+      )
     },
     /** The replica's confirmation retired every awaiting entry. */
     confirm() {
@@ -250,6 +277,154 @@ describe('a cleared layout choice made again (POD-7422)', () => {
       rt.feed(true)
       await settled()
       expect(shown.now()).toBe(true)
+    } finally {
+      shown.stop()
+      rt.dispose()
+    }
+  })
+})
+
+interface Choice {
+  kind: 'userLayout' | 'pin' | 'tabOrder' | 'userPreferences' | 'userReadPosition'
+  replica: 'userLayouts' | 'pins' | 'tabOrders' | 'userPreferences' | 'userReadPositions'
+  id: string
+  row: Row
+  read(row: Row): unknown
+  expected: unknown
+  choose(rt: ReturnType<typeof runtime>): unknown
+}
+
+const PIN = pinRowId(asUserId(USER), 'issue', 'i-1')
+const TABS = tabOrderRowId(asUserId(USER), '/project')
+const PREFS = userPreferencesRowId(asUserId(USER))
+const POSITION = readPositionRowId(asUserId(USER), 'issueEvents')
+const choices: readonly Choice[] = [
+  {
+    kind: 'userLayout',
+    replica: 'userLayouts',
+    id: ROW,
+    row: { userId: USER, key: KEY, value: true },
+    read: (row) => row.value,
+    expected: true,
+    choose: (rt) => rt.layout.set(KEY, true),
+  },
+  {
+    kind: 'pin',
+    replica: 'pins',
+    id: PIN,
+    row: { userId: USER, kind: 'issue', entityId: 'i-1', pinnedAt: '2026-11-01T00:00:00Z' },
+    read: (row) => row.entityId,
+    expected: 'i-1',
+    choose: (rt) =>
+      rt.records.create('pin', PIN, { userId: asUserId(USER), kind: 'issue', entityId: 'i-1' }),
+  },
+  {
+    kind: 'tabOrder',
+    replica: 'tabOrders',
+    id: TABS,
+    row: { userId: USER, entityId: '/project', sessionIds: ['s-2', 's-1'] },
+    read: (row) => row.sessionIds,
+    expected: ['s-2', 's-1'],
+    choose: (rt) => rt.records.edit({ kind: 'tabOrder', id: TABS }, { sessionIds: ['s-2', 's-1'] }),
+  },
+  {
+    kind: 'userPreferences',
+    replica: 'userPreferences',
+    id: PREFS,
+    row: { userId: USER, 'sidebar.repoSort': 'alphabetical' },
+    read: (row) => (row.sidebar as { repoSort: string }).repoSort,
+    expected: 'alphabetical',
+    choose: (rt) =>
+      rt.records.edit(
+        { kind: 'userPreferences', id: PREFS },
+        { 'sidebar.repoSort': 'alphabetical' },
+      ),
+  },
+  {
+    kind: 'userReadPosition',
+    replica: 'userReadPositions',
+    id: POSITION,
+    row: { userId: USER, streamId: 'issueEvents', lastEventId: 42, seenAt: null },
+    read: (row) => row.lastEventId,
+    expected: 42,
+    choose: (rt) =>
+      rt.records.edit(
+        { kind: 'userReadPosition', id: POSITION },
+        { lastEventId: 42, seenAt: null },
+      ),
+  },
+]
+
+describe.each(choices)('$kind readmission through the runtime pool', (choice) => {
+  function observe(rt: ReturnType<typeof runtime>) {
+    const seen: unknown[] = []
+    const stop = autorun(() => {
+      const row = rt.pool.row(choice.kind, choice.id)
+      seen.push(row === LOADING ? LOADING : isGone(row) ? row.reason : choice.read(row))
+    })
+    return { seen, stop, now: () => seen.at(-1) }
+  }
+
+  async function remove(rt: ReturnType<typeof runtime>) {
+    rt.feedRecord(choice.kind, choice.replica, choice.id, choice.row)
+    await settled()
+    rt.feedRecord(choice.kind, choice.replica, choice.id, GONE)
+    await settled()
+  }
+
+  it('recreates immediately, holds its paint, then keeps equal truth through retirement', async () => {
+    const rt = runtime()
+    const shown = observe(rt)
+    try {
+      await remove(rt)
+      expect(shown.now()).toBe('removed')
+      const writing = choice.choose(rt)
+      // The paint is synchronous, before the enqueue promise resolves.
+      expect(shown.now()).toEqual(choice.expected)
+      await writing
+      await settled()
+      const painted = requireHere(rt.pool.row(choice.kind, choice.id))
+      const sinceRecreate = shown.seen.length
+      rt.apply()
+      await settled()
+      expect(shown.now()).toEqual(choice.expected)
+      expect(rt.transactions.pending.byRow(choice.replica).has(choice.id)).toBe(true)
+      // Pin time is chosen at the press; preferences travel flat on the wire.
+      const confirmation =
+        choice.kind === 'pin' ? { ...choice.row, pinnedAt: painted.pinnedAt } : choice.row
+      rt.feedRecord(choice.kind, choice.replica, choice.id, confirmation)
+      await settled()
+      expect(requireHere(rt.pool.row(choice.kind, choice.id))).toBe(painted)
+      expect(shown.now()).toEqual(choice.expected)
+      rt.confirm()
+      await settled()
+      expect(rt.transactions.pending.byRow(choice.replica).has(choice.id)).toBe(false)
+      expect(shown.now()).toEqual(choice.expected)
+      expect(
+        shown.seen.slice(sinceRecreate).every((value) => value !== 'removed' && value !== LOADING),
+      ).toBe(true)
+      // Retirement really released the paint: a later external removal wins.
+      rt.feedRecord(choice.kind, choice.replica, choice.id, GONE)
+      await settled()
+      expect(shown.now()).toBe('removed')
+    } finally {
+      shown.stop()
+      rt.dispose()
+    }
+  })
+
+  it('returns to removed when recreation is refused', async () => {
+    const rt = runtime()
+    const shown = observe(rt)
+    try {
+      await remove(rt)
+      expect(shown.now()).toBe('removed')
+      await choice.choose(rt)
+      await settled()
+      expect(shown.now()).toEqual(choice.expected)
+      rt.refuse()
+      await settled()
+      expect(shown.now()).toBe('removed')
     } finally {
       shown.stop()
       rt.dispose()

@@ -92,6 +92,59 @@ it('answers registered roots and the ordered fallback without projecting reposit
   }
 })
 
+it('tracks an absent registered root through arrival, removal and replacement', () => {
+  const f = fixture([lane('/first')])
+  const registered: boolean[] = []
+  const roots: (string | null)[] = []
+  const stopRegistered = autorun(() =>
+    registered.push(f.provider.registeredWorktree!('/late') === true),
+  )
+  const stopRoot = autorun(() => roots.push(f.provider.worktreeForCwd!('/late/src') ?? null))
+  try {
+    expect(registered).toEqual([false])
+    expect(roots).toEqual([null])
+    // Keep the first-worktree fallback unchanged: it cannot supply the missing dependency.
+    f.publish({ type: 'update', rows: [lane('/late', 1)] })
+    expect(registered).toEqual([false, true])
+    expect(roots).toEqual([null, '/late'])
+    f.publish({ type: 'update', rows: [{ kind: 'worktree', id: '/late', value: undefined }] })
+    expect(registered).toEqual([false, true, false])
+    expect(roots).toEqual([null, '/late', null])
+    f.publish({ type: 'replace', rows: [lane('/first'), lane('/late', 1)] })
+    expect(registered.at(-1)).toBe(true)
+    expect(roots.at(-1)).toBe('/late')
+    f.publish({ type: 'replace', rows: [lane('/first')] })
+    expect(registered.at(-1)).toBe(false)
+    expect(roots.at(-1)).toBeNull()
+  } finally {
+    stopRegistered()
+    stopRoot()
+    f.pool.dispose()
+  }
+})
+
+it('tracks a Windows root by canonical path without waking unrelated registrations', () => {
+  const root = String.raw`C:\Src\Project`
+  const f = fixture([lane('/first')])
+  const paths: (string | undefined)[] = []
+  const stop = autorun(() => paths.push(f.pool.queries.registeredWorktreePath('c:/src/project')))
+  try {
+    expect(paths).toEqual([undefined])
+    f.publish({ type: 'update', rows: [lane(root, 1)] })
+    expect(paths).toEqual([undefined, root])
+    f.publish({ type: 'update', rows: [lane('/other', 2), lane(root, 3)] })
+    expect(paths).toEqual([undefined, root])
+    f.publish({
+      type: 'update',
+      rows: [{ kind: 'worktree', id: root, value: undefined }, lane('c:/src/project', 1)],
+    })
+    expect(paths).toEqual([undefined, root, 'c:/src/project'])
+  } finally {
+    stop()
+    f.pool.dispose()
+  }
+})
+
 it('keeps the loading port addressed before the pool import resolves', () => {
   const state = {
     navigation: loadingNavigationProvider,
