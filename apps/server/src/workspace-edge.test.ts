@@ -203,7 +203,7 @@ describe('hosted edge, two workspaces in one database', () => {
     const hono = new Hono()
     hono.use('*', edge.middleware)
     const guard = clientAuthGuard({ memberOfRequest, renew: async () => new Headers() })
-    for (const prefix of ['/trpc/*', '/sync/*', '/files/*']) hono.use(prefix, guard)
+    for (const prefix of ['/trpc/*', '/sync/*', '/live/*', '/files/*']) hono.use(prefix, guard)
     hono.use('/auth/*', edge.signedInGate)
     // A route nobody listed is bound and members only, by the same guard.
     hono.use('/some/*', guard)
