@@ -4,14 +4,15 @@
  * Through the composed server: `issues.action` / `issues.integrate` create an
  * effect record, the registered executor runs it after the commit, and the
  * command answers `{ ok, output, issue }` as before. The git work itself is the
- * unchanged `GitWorkflow` (covered by `issues.test.ts`); here it is stubbed on
- * the composed workflow object, so these tests are about the record, its status
- * and the answer.
+ * `GitWorkflow` (covered by `issues.test.ts`); record lifecycle tests stub it,
+ * while routing tests run it through the composed daemon RPC.
  */
 
-import { type IssueId, mintDeviceId } from '@podium/model'
+import { asMachineId, firstAdminMemberId, type IssueId, mintDeviceId } from '@podium/model'
+import type { ControlMessage } from '@podium/protocol/daemon'
 import { fixtureCommitWriter, fixtureWriteScope } from '@podium/sync/testing'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { attachDaemonWithInventory } from '../../test-support/daemon-inventory'
 import { EffectsRunner } from '../effects/runner'
 import { disposeOracles, makeOracle, type Oracle } from '../sessions/oracle-support'
 import { changeRows } from '../sync-write/outbox-test-support'
@@ -41,6 +42,90 @@ async function effectsOn(o: Oracle, issueId: string) {
   )
   return await Promise.all([...ids].map(async (id) => await o.store.effects.get(id)))
 }
+
+describe('issue git actions stay on the pinned machine', () => {
+  const repoPath = '/p'
+  const worktreePath = '/p/.worktrees/pinned'
+  const branch = 'issue/pinned'
+  const sha = 'abcdef0123456789abcdef0123456789abcdef0123'
+  const prUrl = 'https://github.com/example/project/pull/42'
+
+  async function pinnedIssue() {
+    const { o, id } = await withIssue()
+    const machineId = asMachineId('mach_pinned_git')
+    await o.store.machines.upsertMachine({
+      id: machineId,
+      name: 'Pinned machine',
+      hostname: 'pinned-machine',
+      tokenHash: 'pinned-token',
+      ownerUserId: firstAdminMemberId(),
+      assignment: { server: false, agentExecution: true },
+    })
+    await o.store.repos.addRepo(repoPath, machineId)
+    const requests: Extract<ControlMessage, { type: 'repoOpRequest' }>[] = []
+    await attachDaemonWithInventory(o.reg, machineId, (msg) => {
+      if (msg.type !== 'repoOpRequest') return
+      requests.push(msg)
+      const output =
+        msg.op === 'status'
+          ? `## ${msg.cwd === repoPath ? 'main' : branch}\n`
+          : msg.op === 'revParseVerify'
+            ? `${sha}\n`
+            : msg.op === 'prCreate'
+              ? prUrl
+              : msg.op === 'worktreeList'
+                ? `worktree ${repoPath}\0HEAD ${sha}\0branch refs/heads/main\0\0worktree ${worktreePath}\0HEAD ${sha}\0branch refs/heads/${branch}\0\0`
+                : ''
+      void o.reg.gateway.routeDaemonFrame(machineId, {
+        type: 'repoOpResult',
+        requestId: msg.requestId,
+        ok: msg.op !== 'isMergedInto',
+        output,
+      })
+    })
+    await o.reg.issues.crud.update(o.reg.issues.reports.store.serverWriter, id, {
+      machineId,
+      worktreePath,
+      branch,
+      parentBranch: 'main',
+    })
+    // Both online machines reported /p. Path-only routing would pick the other one.
+    expect(await o.reg.modules.machines.resolveMachine(undefined, repoPath)).toBe(o.machineId)
+    o.daemon.length = 0
+    requests.length = 0
+    return { o, id, requests }
+  }
+
+  it.each([
+    'rebase',
+    'pr',
+    'merge',
+  ] as const)('%s routes every git request to the issue machine when repo paths collide', async (kind) => {
+    const { o, id, requests } = await pinnedIssue()
+    const reply = await o.call.issues.action({ id, kind })
+    await o.reg.modules.effects?.runner.idle()
+
+    expect(reply.ok).toBe(true)
+    expect(o.daemon.filter((msg) => msg.type === 'repoOpRequest')).toEqual([])
+    const expected =
+      kind === 'rebase'
+        ? [{ op: 'rebase', cwd: worktreePath, args: { parentBranch: 'main' } }]
+        : kind === 'pr'
+          ? [{ op: 'prCreate', cwd: worktreePath, args: { branch, parentBranch: 'main' } }]
+          : [
+              { op: 'isMergedInto', cwd: repoPath, args: { branch, parentBranch: 'main' } },
+              { op: 'rebase', cwd: worktreePath, args: { parentBranch: 'main' } },
+              { op: 'status', cwd: repoPath },
+              { op: 'revParseVerify', cwd: repoPath, args: { ref: branch } },
+              { op: 'mergeFfOnly', cwd: repoPath, args: { branch } },
+            ]
+    expect(requests.slice(0, expected.length)).toMatchObject(expected)
+    const [record] = await effectsOn(o, id)
+    expect(record).toMatchObject({ kind: ISSUE_GIT_EFFECT_KIND[kind], status: 'succeeded' })
+    if (kind === 'pr') expect(reply.issue.prUrl).toBe(prUrl)
+    if (kind === 'merge') expect(reply.issue.landedSha).toBe(sha)
+  })
+})
 
 describe('issues.action merge runs as an effect record', () => {
   it('answers as before, and the record shows its stages and its outcome', async () => {

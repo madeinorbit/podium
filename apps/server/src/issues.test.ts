@@ -3211,9 +3211,12 @@ describe('IssueService.action', () => {
     const { svc, deps, id } = await started()
     const r = await svc.gitWorkflow.action(id, 'rebase')
     expect(r.ok).toBe(true)
-    expect(deps.repoOp).toHaveBeenCalledWith('rebase', '/r/.worktrees/issue-1-x', {
-      parentBranch: 'main',
-    })
+    expect(deps.repoOp).toHaveBeenCalledWith(
+      'rebase',
+      '/r/.worktrees/issue-1-x',
+      { parentBranch: 'main' },
+      TEST_MACHINE_ID,
+    )
   })
 
   it('pr captures the PR url from output', async () => {
@@ -3236,7 +3239,12 @@ describe('IssueService.action', () => {
     await svc.gitWorkflow.action(id, 'merge')
     // revParseVerify reads the tip we are about to land, for the POD-1085 stamp.
     expect(calls).toEqual(['rebase', 'status', 'revParseVerify', 'mergeFfOnly'])
-    expect(deps.repoOp).toHaveBeenCalledWith('mergeFfOnly', '/r', { branch: 'issue/1-x' })
+    expect(deps.repoOp).toHaveBeenCalledWith(
+      'mergeFfOnly',
+      '/r',
+      { branch: 'issue/1-x' },
+      TEST_MACHINE_ID,
+    )
   })
 
   // POD-1085, asserted through the wire rather than the row: what the sidebar

@@ -925,6 +925,7 @@ export class IssueGitWorkflowModule {
     const worktreePath = planned.worktreePath
     const branch = planned.branch
     const { parentBranch, repoPath } = planned
+    // Keep the same machine for every git step; repo paths can match on other machines.
     const machineId = planned.machineId ?? undefined
     /** The issue as COMMITTED right now, for the report. A read wants no draft. */
     const issueNow = async (): Promise<IssueProjection> =>
@@ -932,12 +933,17 @@ export class IssueGitWorkflowModule {
     const gw = (await this.store.d.getSettings()).gitWorkflow
     if (kind === 'rebase') {
       await stage('rebasing')
-      const r = await this.store.d.repoOp('rebase', worktreePath, { parentBranch })
+      const r = await this.store.d.repoOp('rebase', worktreePath, { parentBranch }, machineId)
       return { ...r, issue: await issueNow() }
     }
     if (kind === 'pr') {
       await stage('creating')
-      const r = await this.store.d.repoOp('prCreate', worktreePath, { branch, parentBranch })
+      const r = await this.store.d.repoOp(
+        'prCreate',
+        worktreePath,
+        { branch, parentBranch },
+        machineId,
+      )
       const row = await this.store.draftOrThrow(id)
       if (r.ok) {
         const url = r.output.match(/https?:\/\/\S+/)?.[0]
@@ -948,7 +954,7 @@ export class IssueGitWorkflowModule {
     // merge
     if (gw.autoRebaseBeforeMerge) {
       await stage('rebasing')
-      const rb = await this.store.d.repoOp('rebase', worktreePath, { parentBranch })
+      const rb = await this.store.d.repoOp('rebase', worktreePath, { parentBranch }, machineId)
       if (!rb.ok) return { ...rb, issue: await issueNow() }
     }
     // mergeFfOnly runs on the repo root (parent-branch checkout), NOT the worktree.
@@ -958,7 +964,7 @@ export class IssueGitWorkflowModule {
     // crash-loop the backend. Instead, GUARD: only merge if the root is already on the
     // parent branch; otherwise fail clearly without merging.
     await stage('checking')
-    const st = await this.store.d.repoOp('status', repoPath)
+    const st = await this.store.d.repoOp('status', repoPath, undefined, machineId)
     const current = this.parseCurrentBranch(st.output)
     if (current !== parentBranch) {
       return {
@@ -976,7 +982,7 @@ export class IssueGitWorkflowModule {
       .repoOp('revParseVerify', repoPath, { ref: branch }, machineId)
       .catch(() => ({ ok: false, output: '' }))
     await stage('merging')
-    const r = await this.store.d.repoOp('mergeFfOnly', repoPath, { branch })
+    const r = await this.store.d.repoOp('mergeFfOnly', repoPath, { branch }, machineId)
     if (r.ok) {
       await stage('closing')
       const sha = tip.ok && tip.output.trim() !== '' ? tip.output.trim() : undefined
