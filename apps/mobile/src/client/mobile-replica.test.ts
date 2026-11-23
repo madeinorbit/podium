@@ -11,8 +11,14 @@ import {
   type Replica,
   type StorageApi,
 } from '@podium/client-core/replica'
-import type { LegacyIdentityEvidence } from '@podium/client-core/replica-assembly'
+import {
+  classifyAuthStatus,
+  type LegacyIdentityEvidence,
+  type TranscriptDatabases,
+} from '@podium/client-core/replica-assembly'
 import type { CreateEngineOutbox, EngineOutbox } from '@podium/client-core/runtime-root'
+import { openSqliteTranscriptBackend } from '@podium/client-core/transcript-store'
+import { openLegacyDeviceKeys } from '@podium/client-core/ui'
 import { asMutationId, asSessionId, IssueProjection } from '@podium/model'
 import type { SqlDatabaseLike } from '@podium/sync/adapters/mobile-sqlite'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -232,6 +238,8 @@ async function open(args: {
     complete(): Promise<void>
   }[]
   flushStorage?: () => Promise<void>
+  /** Chat history databases; omitted, the assembly opens none. */
+  transcripts?: TranscriptDatabases
 }) {
   const degradations: string[] = []
   let snapshot: ReturnType<typeof bootstrapFrame> | undefined
@@ -291,6 +299,7 @@ async function open(args: {
       ? { pendingPrincipalCleanups: args.pendingPrincipalCleanups }
       : {}),
     ...(args.flushStorage !== undefined ? { flushStorage: args.flushStorage } : {}),
+    ...(args.transcripts !== undefined ? { transcripts: args.transcripts } : {}),
     evidence: args.evidence ?? SINGLE_ACCOUNT,
     httpSync: args.httpSync ?? fixtureHttp,
     onDegraded: (message) => degradations.push(message),
@@ -1039,4 +1048,119 @@ it('reopens the same boundary/member queue after re-pairing and keeps member att
   resumed.dispose()
   await paired.erase()
   expect(durableOutbox(file)).toEqual([])
+})
+
+/**
+ * ONE PHONE, TWO WORKSPACES (POD-7312; POD-6954 design 4.2). A person signs in
+ * to workspace A, leaves a record, a draft, an unsent write and a chat history,
+ * then signs in to workspace B on the same phone. Nothing of A may be visible
+ * in B, and B's queue may send nothing of A's. The SAME member id is used in
+ * both on purpose: only the boundary the server reports for each workspace
+ * keeps them apart (apps/server/src/identity/replica-boundary.ts). The stores
+ * are the phone's own: one SQLite replica file (records, cursor, outbox), the
+ * AsyncStorage bridge (drafts, screen state) and one SQLite chat history file
+ * per principal. The switch back to A is the counterfactual.
+ */
+describe('phone: signing in to workspace A, then B, on one device', () => {
+  const MEMBER = 'member-1'
+  const DRAFT_KEY = 'podium.drafts.v1'
+  const principalOf = (syncBoundaryId: string): string => {
+    const decision = classifyAuthStatus({ memberId: MEMBER, syncBoundaryId })
+    if (!('principal' in decision)) throw new Error('status names no principal')
+    return decision.principal
+  }
+  /** One SQLite chat history file per principal, as the native module keeps them. */
+  function chatHistoryFiles(directory: string): TranscriptDatabases & { opened: string[] } {
+    const fileOf = (principal: string) =>
+      join(directory, `podium-transcripts-${encodeURIComponent(principal)}.db`)
+    const opened: string[] = []
+    return {
+      opened,
+      open: async (principal) => {
+        opened.push(principal)
+        return openSqliteTranscriptBackend({
+          open: () => openSqlite(fileOf(principal)),
+          deleteDatabase: () => rmSync(fileOf(principal), { force: true }),
+        })
+      },
+      erase: async (principal) => rmSync(fileOf(principal), { force: true }),
+    }
+  }
+  function recordingApi() {
+    const sent: unknown[] = []
+    const api = {
+      sync: { submit: { mutate: async (input: unknown) => void sent.push(input) } },
+    } as unknown as PodiumClientApi
+    return { api, sent }
+  }
+  const notices = { error: () => {}, info: () => {} } as unknown as NoticeSink
+
+  it('shows and sends nothing of A in B, and finds all of A again on the way back', async () => {
+    const file = freshDatabaseFile()
+    const device = deviceStorage({})
+    const transcripts = chatHistoryFiles(join(file, '..'))
+    const signIn = async (boundary: string) => {
+      const principal = principalOf(boundary)
+      return await open({ file, storage: device, principal, clientPrincipal: MEMBER, transcripts })
+    }
+    const signOut = async (session: Awaited<ReturnType<typeof signIn>>) => {
+      await session.settled()
+      await session.dispose()
+    }
+
+    // WORKSPACE A: a record, a draft, an unsent write, a chat history.
+    const a = await signIn('ws-a')
+    seedIssue(a.store, a.principal, { id: 'issue-a', title: 'A private work' })
+    openLegacyDeviceKeys(a.replica.deviceStorage()).set(DRAFT_KEY, '{"s1":"A draft"}')
+    const queueA = engineOutbox(a)
+    await queueA.enqueue('dismissOffer', {
+      sessionId: asSessionId('s1'),
+      offerCreatedAt: '2026-11-23T00:00:00.000Z',
+    })
+    queueA.dispose()
+    a.replica.transcripts!.write(asSessionId('s1'), () => [
+      { id: 'a1', role: 'user', text: 'A chat' },
+    ])
+    expect(a.replica.rows('issueProjections').map((row) => row.id)).toEqual(['issue-a'])
+    await signOut(a)
+
+    // WORKSPACE B, same member id, same phone.
+    const b = await signIn('ws-b')
+    expect(b.principal).not.toBe(a.principal)
+    expect(b.replica.rows('issueProjections')).toEqual([])
+    expect(b.replica.getCursor()).toBeNull()
+    expect((await b.replica.hydrate()).issueProjections).toEqual([])
+    expect(durableEntityCount(file, b.principal)).toBe(0)
+    expect(openLegacyDeviceKeys(b.replica.deviceStorage()).get(DRAFT_KEY)).toBeNull()
+    expect(await b.replica.transcripts!.load(asSessionId('s1'), 50)).toBeUndefined()
+    // B's queue, online, holds nothing of A's and sends nothing.
+    const sentInB = recordingApi()
+    const queueB = b.createOutboxFn({
+      api: sentInB.api,
+      replica: b.replica,
+      notices,
+      isOnline: () => true,
+    })
+    queueB.attach()
+    expect(queueB.pending()).toEqual([])
+    expect(queueB.deadLetters()).toEqual([])
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(sentInB.sent).toEqual([])
+    queueB.dispose()
+    expect(transcripts.opened).toEqual([a.principal, b.principal])
+    await signOut(b)
+
+    // THE COUNTERFACTUAL: back in A, everything is where A left it.
+    const again = await signIn('ws-a')
+    expect(again.replica.rows('issueProjections').map((row) => row.id)).toEqual(['issue-a'])
+    expect(again.replica.getCursor()).toBe(1)
+    expect(openLegacyDeviceKeys(again.replica.deviceStorage()).get(DRAFT_KEY)).toBe(
+      '{"s1":"A draft"}',
+    )
+    expect((await again.replica.transcripts!.load(asSessionId('s1'), 50))?.items).toHaveLength(1)
+    const queueAgain = engineOutbox(again)
+    expect(queueAgain.pending()).toHaveLength(1)
+    queueAgain.dispose()
+    await signOut(again)
+  })
 })
