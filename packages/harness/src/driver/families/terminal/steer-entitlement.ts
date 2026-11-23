@@ -10,7 +10,12 @@
  * `fake-harness` is the corpus's own
  * synthetic TUI, which models no mid-turn queue.
  */
-export const NO_NATIVE_STEER_TERMINAL_HARNESSES = ['cursor', 'pi', 'antigravity', 'fake-harness'] as const
+export const NO_NATIVE_STEER_TERMINAL_HARNESSES = [
+  'cursor',
+  'pi',
+  'antigravity',
+  'fake-harness',
+] as const
 
 /** A measured terminal entitlement, not a default for another TUI. */
 export function terminalMayDeclineNativeSteer(harness: string): boolean {

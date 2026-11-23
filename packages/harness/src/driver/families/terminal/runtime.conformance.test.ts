@@ -744,7 +744,15 @@ function makeWorld(options: WorldOptions): {
  * cursor/pi: separate instrumentation profiles with bracketed first turns;
  * antigravity: confirmed-turn readiness and native transcript correlation.
  * Every shape runs the same ordinary AND adversarial contract properties. */
-const SHIPPED_ARMS = ['claude-code', 'codex', 'grok', 'opencode', 'cursor', 'pi', 'antigravity'] as const
+const SHIPPED_ARMS = [
+  'claude-code',
+  'codex',
+  'grok',
+  'opencode',
+  'cursor',
+  'pi',
+  'antigravity',
+] as const
 /** Cursor, Pi and Antigravity have no measured raw-text echo tolerance here.
  * The generic corpus sends raw text, so give each its own shipped
  * profile with a synthetic exact-text tolerance. Preserve their independent
