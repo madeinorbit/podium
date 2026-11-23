@@ -211,7 +211,7 @@ import { closeServerFast } from './shutdown'
 import { createSignInCarryOver, type SignInCarryOver } from './sign-in-carry-over'
 import { registerSignInRoutes } from './sign-in-routes'
 import { registerDesktopWebStatic, registerMobileRouting, registerWebStatic } from './static-web'
-import { StoreDatabase, storeLocation, storeMigratesAtBoot } from './store'
+import { StoreDatabase, storeLocation, storeMigratesAtBoot, storeWakeUpOptions } from './store'
 import { syncFeedPrincipal } from './sync/route-support'
 import { registerSyncRoutes } from './sync/routes'
 import type { SyncWorkerClient } from './sync-worker/worker-client'
@@ -749,6 +749,7 @@ export async function startServer(
     queryOnly: recoveryOnly,
     bootWorkspace: SELF_HOSTED_WORKSPACE_ID,
     migrateAtBoot: storeMigratesAtBoot(),
+    wakeUp: storeWakeUpOptions(),
   })
   const store = await database.workspace(SELF_HOSTED_WORKSPACE_ID)
   // Artifacts stored before the blob store under names that are not key segments move to

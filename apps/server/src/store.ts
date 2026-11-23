@@ -102,6 +102,7 @@ import {
   workspaceContext,
 } from './store/executor/executor'
 import {
+  fleetDb,
   type GlobalQueries,
   type LegacyWorkspaceQueries,
   legacyWorkspaceQueries,
@@ -159,7 +160,14 @@ import { TranscriptCostsRepository } from './store/transcript-costs'
 import { UserDockShellRepository, UserLayoutRepository } from './store/user-layout'
 import { UserReadPositionRepository } from './store/user-read-position'
 import { UsersRepository } from './store/users'
+import { feedHeadsOf } from './store/wake-up-reads'
 import { WorkflowsRepository } from './store/workflows'
+import {
+  inProcessWakeUpTransport,
+  WakeUpHub,
+  wakeUpPollMsFromEnvironment,
+} from './store/workspace-wake-up'
+import { pgWakeUpTransport } from './store/workspace-wake-up-pg'
 import { storeEngineFor } from './store-database'
 
 const log = createLogger('server:store')
@@ -216,6 +224,36 @@ export function storeLocation(
   return url
 }
 
+/**
+ * The environment variable naming a DIRECT connection to the store's Postgres database, for
+ * the one connection per process that listens for workspace wake-ups (POD-7292). Set it when
+ * {@link DATABASE_URL_ENV} is a transaction pooler's port: a pooler cannot carry `LISTEN`.
+ * Unset, the listener uses the store's URL. The environment only, like the store's URL.
+ */
+export const DATABASE_DIRECT_URL_ENV = 'PODIUM_DATABASE_DIRECT_URL'
+
+/** The store's wake-up settings from the environment (POD-7292). */
+export function storeWakeUpOptions(
+  env: Record<string, string | undefined> = process.env,
+): StoreWakeUpOptions {
+  const directUrl = env[DATABASE_DIRECT_URL_ENV]?.trim()
+  if (directUrl && storeEngineFor(directUrl) !== 'pg') {
+    throw new Error(`${DATABASE_DIRECT_URL_ENV} must be a postgres:// or postgresql:// URL`)
+  }
+  return {
+    pollIntervalMs: wakeUpPollMsFromEnvironment(env),
+    ...(directUrl ? { directUrl } : {}),
+  }
+}
+
+/** How a database's workspace wake-ups run (`store/workspace-wake-up.ts`). */
+export interface StoreWakeUpOptions {
+  /** POSTGRES ONLY: where the listener connects; the store's location when absent. */
+  readonly directUrl?: string
+  /** The poll period; `DEFAULT_WAKE_UP_POLL_MS` when absent, `0` for none. */
+  readonly pollIntervalMs?: number
+}
+
 /** Whether {@link DATABASE_MIGRATE_AT_BOOT_ENV} asks a Postgres store to migrate at boot. */
 export function storeMigratesAtBoot(
   env: Record<string, string | undefined> = process.env,
@@ -258,6 +296,8 @@ export type StoreDatabaseOptions = SnapshotVerifierDeps & {
    * store opens a small one: a test file may hold many stores at once.
    */
   poolSize?: number
+  /** The workspace wake-ups' listener and poll ({@link storeWakeUpOptions}). */
+  wakeUp?: StoreWakeUpOptions
 }
 
 /**
@@ -397,7 +437,7 @@ export class StoreDatabase {
     try {
       if (lifecycle.applied.length > 0)
         log.info('applied migrations', { applied: lifecycle.applied })
-      const store = new StoreDatabase(location, hostMachine, lifecycle, {
+      const store = new StoreDatabase(location, hostMachine, lifecycle, options.wakeUp ?? {}, {
         vaultKeyPath:
           options.vaultKeyFile ?? resolveVaultKeyPath(process.env, resolveInstanceId(process.env)),
         queryOnly: options.queryOnly === true,
@@ -442,6 +482,7 @@ export class StoreDatabase {
     hostMachine: HostMachine,
     /** The engine's lifecycle steps, and the executor every repository runs on. */
     private readonly lifecycle: StoreLifecycle,
+    wakeUp: StoreWakeUpOptions,
     /**
      * How each workspace's store opens its vault (credential management design §7):
      * the installation's outside key file, whether this boot may write, and the
@@ -457,7 +498,27 @@ export class StoreDatabase {
     this.executor = lifecycle.executor
     this.db = lifecycle.connection
     this.queries = lifecycle.executor.queries
+    // THE WAKE-UP TRANSPORT IS CHOSEN HERE, BY ENGINE (POD-7292, design 4.2): one process
+    // on SQLite, so an in-process event; Postgres may be many processes, so LISTEN/NOTIFY.
+    // The poll under both reads every subscribed workspace's feed head in one statement.
+    const fleet = fleetDb(this.queries)
+    this.wakeUps = new WakeUpHub({
+      transport:
+        storeEngineFor(location) === 'pg'
+          ? pgWakeUpTransport({ listenUrl: wakeUp.directUrl ?? location, notifyUrl: location })
+          : inProcessWakeUpTransport(),
+      readHeads: async (ids) => await feedHeadsOf(fleet, ids),
+      ...(wakeUp.pollIntervalMs === undefined ? {} : { pollIntervalMs: wakeUp.pollIntervalMs }),
+    })
   }
+
+  /**
+   * "Tell me when workspace W has new log rows" (POD-7292, design 4.2): one per database,
+   * so one per process. Every change-log append of every workspace publishes after its
+   * commit ({@link SessionStore}); a server process subscribes for the workspaces it has
+   * sockets for.
+   */
+  readonly wakeUps: WakeUpHub
 
   /**
    * WHAT EVERY REPOSITORY IS BOUND TO [POD-3254, spec §3.1]: the executor's
@@ -974,6 +1035,9 @@ export class StoreDatabase {
       if (result.status === 'fulfilled') await result.value.events.settleGroupedAppends()
     }
     const verifierClosed = this.lifecycle.closeSnapshots()
+    const wakeUpsClosed = this.wakeUps.close().catch((error: unknown) => {
+      log.warn('closing the workspace wake-ups failed', { err: error })
+    })
     await this.executor.close(async () => {
       try {
         await persist?.()
@@ -981,6 +1045,7 @@ export class StoreDatabase {
         await verifierClosed
       }
     })
+    await wakeUpsClosed
   }
 }
 
@@ -1184,6 +1249,10 @@ export class SessionStore {
     // structurally (POD-3338, spec §6 rule 20). It is bound to this workspace:
     // its feed, change log and kind generations are this workspace's.
     this.sync = new SyncRepository(this.queries, syncServerTables, workspaceId)
+    // Every append to this workspace's log wakes the processes serving it, AFTER the commit:
+    // a post-commit effect, never a statement of the write (POD-7292, design 4.2).
+    this.sync.onAppended = () =>
+      database.effect(() => database.wakeUps.publish(workspaceId), 'workspace wake-up')
     this.identityUpgrade = new IdentityUpgradeRepository(this.queries, {
       legacyStorage: database.legacyIdentityStorage,
     })

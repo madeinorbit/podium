@@ -1175,6 +1175,10 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
     kind: 'opaque',
     why: 'The injected queue-write wrapper compares its dependent session records in the source commit; its callback body is supplied and analysed at the call site.',
   },
+  'packages/sync/src/adapters/sqlite/sync-repository.ts#SyncRepository.onAppended': {
+    kind: 'contained',
+    why: "The change-log append's wake-up hook (POD-7292): the server's only installation registers a post-commit effect (`StoreDatabase.effect`) that publishes the workspace wake-up, so nothing leaves the process until the outermost commit, and a rolled-back append publishes nothing.",
+  },
   'packages/sync/src/adapters/sqlite/sync-repository.ts#SyncRepository.write': {
     kind: 'opaque',
     why: 'The source queue write passed through writeQueue and sessionRecordWrite; its body is supplied and analysed at the call site.',

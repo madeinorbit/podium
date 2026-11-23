@@ -738,6 +738,15 @@ export class SyncRepository {
    */
   sessionRecordWrite?: <T>(write: () => Promise<T>) => Promise<T>
 
+  /**
+   * Rows were appended to this workspace's change log. Runs once per append, after its
+   * statements: before the enclosing transaction commits when the append joined one, after
+   * the append's own commit otherwise. So the hook defers anything external to the commit
+   * (the server registers a post-commit effect that publishes the workspace wake-up,
+   * POD-7292). Installed by composition.
+   */
+  onAppended?: () => void
+
   private async writeQueue<T>(write: () => Promise<T>): Promise<T> {
     return this.sessionRecordWrite ? await this.sessionRecordWrite(write) : await write()
   }
@@ -845,6 +854,7 @@ export class SyncRepository {
       }
       for (let i = 0; i < rows.length; i++) seqs.push(first + i)
     })
+    this.onAppended?.()
     return seqs
   }
 

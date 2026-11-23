@@ -75,10 +75,31 @@ export const LIST_WORKSPACES_WITH_FEED: CrossWorkspaceAllowlistEntry = Object.fr
   issue: 'POD-7021',
 })
 
+/**
+ * The wake-up poll (POD-7292, POD-6954 design 4.2): the feed heads of the workspaces this
+ * process has subscribers for, in one statement per poll tick. A process serves many
+ * workspaces; one read per workspace per tick would make the safety net's cost grow with
+ * them. It reads ids and heads only, and whatever a woken subscriber then reads, it reads
+ * from its own workspace.
+ */
+export const WAKE_UP_FEED_HEADS: CrossWorkspaceAllowlistEntry = Object.freeze({
+  use: 'read',
+  file: 'apps/server/src/store/wake-up-reads.ts',
+  name: 'readFeedHeads',
+  reason:
+    'The workspace wake-up poll reads the feed heads of the workspaces a process has ' +
+    'subscribers for, in ONE batched statement per tick instead of one per workspace, so a ' +
+    'lost wake-up signal is healed without the poll growing with the workspaces served. Ids ' +
+    'and heads only; nothing is written through this read.',
+  index: 'sync_feed primary key (workspace_id)',
+  issue: 'POD-7292',
+})
+
 /** Every entry, in the order they were added. */
 export const CROSS_WORKSPACE_ALLOWLIST: readonly CrossWorkspaceAllowlistEntry[] = Object.freeze([
   PROVISION_WORKSPACE_FEED,
   LIST_WORKSPACES_WITH_FEED,
+  WAKE_UP_FEED_HEADS,
 ])
 
 /** The entry for a definition keyed `file:name`, if it has one. */
