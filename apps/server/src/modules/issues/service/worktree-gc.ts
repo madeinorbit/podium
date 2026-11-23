@@ -33,7 +33,7 @@ export class IssueWorktreeGcModule {
 
   /**
    * Give a finished issue's disk back without force and only when no live
-   * session occupies the path. The branch is always retained.
+   * session occupies the path on its machine. The branch is always retained.
    */
   async releaseWorktreeIfIdle(
     id: string,
@@ -42,7 +42,18 @@ export class IssueWorktreeGcModule {
     const row = await this.store.rowOrThrow(id)
     const worktreePath = row.worktreePath
     if (!worktreePath) return { freed: false }
-    const stillUsing = liveSessionsUsingWorktree(worktreePath, this.store.d.runningSessionFacts())
+    let machineId: MachineId
+    try {
+      machineId = await this.store.resolveWorktreeMachine(row.machineId, row.repoPath)
+    } catch (error) {
+      if (!isIssueRefusal(error)) throw error
+      return await this.refuseRelease(row, worktreePath, error.message)
+    }
+    const stillUsing = liveSessionsUsingWorktree(
+      worktreePath,
+      this.store.d.runningSessionFacts(),
+      machineId,
+    )
     if (stillUsing.length > 0) {
       return await this.refuseRelease(
         row,
@@ -157,7 +168,10 @@ export class IssueWorktreeGcModule {
     const candidates = resolvedRows
       .filter(({ row }) => this.isCandidate(row, nowMs, afterDays))
       .filter((entry) => machineId === undefined || entry.machineId === machineId)
-      .filter(({ row }) => liveSessionsUsingWorktree(row.worktreePath, live).length === 0)
+      .filter(
+        ({ row, machineId: resolvedMachineId }) =>
+          liveSessionsUsingWorktree(row.worktreePath, live, resolvedMachineId).length === 0,
+      )
       .sort(
         (a, b) =>
           (a.row.closedAt ?? '').localeCompare(b.row.closedAt ?? '') ||
@@ -233,8 +247,17 @@ export class IssueWorktreeGcModule {
     if ((row.closedAt ?? null) !== observed.closedAt) return { outcome: 'precondition' as const }
     if (row.deletedAt || !this.store.isClosed(row)) return { outcome: 'precondition' as const }
     if (!this.isCandidate(row, nowMs, policy.afterDays)) return { outcome: 'not-due' as const }
+    let machineId: MachineId
+    try {
+      machineId = await this.store.resolveWorktreeMachine(row.machineId, row.repoPath)
+    } catch (error) {
+      if (!isIssueRefusal(error)) throw error
+      const result = await this.refuseRelease(row, observed.worktreePath, error.message)
+      return { outcome: 'refused' as const, reason: result.reason }
+    }
     if (
-      liveSessionsUsingWorktree(row.worktreePath, this.store.d.runningSessionFacts()).length > 0
+      liveSessionsUsingWorktree(row.worktreePath, this.store.d.runningSessionFacts(), machineId)
+        .length > 0
     ) {
       return { outcome: 'precondition' as const }
     }

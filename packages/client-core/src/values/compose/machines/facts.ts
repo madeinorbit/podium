@@ -373,9 +373,19 @@ export function residentSessionsOnMachine(
   )
 }
 
+export interface OccupiedWorktreeRoot {
+  machineId: MachineId | null
+  cwd: string
+}
+
+/** Encode one machine and cwd without confusing path characters with separators. */
+export function occupiedRootKey(root: { machineId?: MachineId | null; cwd: string }): string {
+  return JSON.stringify([root.machineId ?? null, root.cwd])
+}
+
 /**
  * The ONLY thing {@link listReclaimableWorktreesClient} reads out of the
- * sessions slice: where live agents are currently standing. Returned as a
+ * sessions slice: the machine and cwd where live agents are standing. Returned as a
  * stable string so a React memo can depend on the occupancy rather than on the
  * sessions array identity — that array is replaced on every token count, phase
  * flip and title edit (many per second under load), none of which can move a
@@ -386,13 +396,18 @@ export function residentSessionsOnMachine(
  */
 export function residentWorktreeKey(sessions: readonly SessionView[]): string {
   const cwds: string[] = []
-  for (const s of sessions) if (RESIDENT_STATUSES.has(s.status)) cwds.push(s.cwd)
+  for (const s of sessions) if (RESIDENT_STATUSES.has(s.status)) cwds.push(occupiedRootKey(s))
   return cwds.sort().join('\n')
 }
 
-/** Split a {@link residentWorktreeKey} back into the paths it encodes. */
-export function occupiedRootsFromKey(key: string): string[] {
-  return key === '' ? [] : key.split('\n')
+/** Split a {@link residentWorktreeKey} back into the machine/cwd pairs it encodes. */
+export function occupiedRootsFromKey(key: string): OccupiedWorktreeRoot[] {
+  return key === ''
+    ? []
+    : key.split('\n').map((root) => {
+        const [machineId, cwd] = JSON.parse(root) as [MachineId | null, string]
+        return { machineId, cwd }
+      })
 }
 
 export interface HostAgentsView {
@@ -501,10 +516,10 @@ const DAY_MS = 24 * 60 * 60 * 1000
  * rather than as the sessions array, so a caller can memoise on the small
  * stable key instead of on a slice that churns many times a second.
  *
- * MACHINE-AGNOSTIC, exactly like the server's `listReclaimableWorktrees`. Each
- * result carries its own `machineId` (null when the row records none); placing
- * them onto host chips is {@link placeReclaimable}'s single job, so the header
- * and the panels cannot disagree about it.
+ * Like the server's `listReclaimableWorktrees`, this lists candidates across
+ * machines but checks occupancy on each worktree's machine. Missing machine
+ * identities retain the conservative path-only guard. Placing results onto
+ * host chips is {@link placeReclaimable}'s single job.
  */
 export function listReclaimableWorktreesClient(args: {
   issues: readonly {
@@ -517,8 +532,8 @@ export function listReclaimableWorktreesClient(args: {
     worktreePath?: string | null
     machineId?: MachineId | null
   }[]
-  /** Working directories of resident sessions — see {@link residentWorktreeKey}. */
-  occupiedRoots: readonly string[]
+  /** Machine and cwd of resident sessions — see {@link residentWorktreeKey}. */
+  occupiedRoots: readonly OccupiedWorktreeRoot[]
   afterDays: number
   nowMs?: number
 }): ReclaimableWorktree[] {
@@ -530,8 +545,10 @@ export function listReclaimableWorktreesClient(args: {
       if (!isIssueClosed(row)) return false
       const closedMs = Date.parse(row.closedAt ?? '')
       if (!Number.isFinite(closedMs) || closedMs > cutoff) return false
-      const occupied = args.occupiedRoots.some((cwd) =>
-        isMachinePathWithinRoot(row.worktreePath as string, cwd),
+      const occupied = args.occupiedRoots.some(
+        ({ machineId, cwd }) =>
+          (row.machineId == null || machineId === null || row.machineId === machineId) &&
+          isMachinePathWithinRoot(row.worktreePath as string, cwd),
       )
       return !occupied
     })

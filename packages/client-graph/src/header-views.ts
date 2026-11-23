@@ -1,6 +1,6 @@
 import { lastValue } from '@podium/client-core/live'
 import type { SessionView } from '@podium/client-core/session-values'
-import { reposToViews } from '@podium/client-core/values'
+import { occupiedRootKey, reposToViews } from '@podium/client-core/values'
 import { keyedComputed } from '@podium/mobx-helpers'
 import type { HostMetricsWire, MachineId, MachineQuotaWire } from '@podium/model/browser'
 import { machinePathKey } from '@podium/model/browser'
@@ -174,7 +174,7 @@ function createHeaderViews(pool: MobxPool) {
           if (pool.tables.session.has(id)) {
             const session = here(pool.model('session', id))
             const member = session ? headerModel(pool).session(session).headerHost : null
-            return member ? [member.cwd] : []
+            return member ? [occupiedRootKey(member)] : []
           }
           const summary = omitGone(pool.row('session', id)) as
             | SessionView
@@ -192,7 +192,7 @@ function createHeaderViews(pool: MobxPool) {
                     : null
                 })
               : null
-          return member ? [member.cwd] : []
+          return member ? [occupiedRootKey(member)] : []
         })
         .sort()
         .join('\n'),

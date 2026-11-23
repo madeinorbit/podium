@@ -1,8 +1,9 @@
 import type { SessionMeta } from '@podium/model'
-import { asSessionId } from '@podium/model'
+import { asMachineId, asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   isMemberCwd,
+  liveSessionsUsingWorktree,
   selectMailNudgeSession,
   sessionsForIssue,
   slugifyBranch,
@@ -46,6 +47,57 @@ describe('membership', () => {
   it('filters sessions for non-wire lifecycle consumers', () => {
     const all = [sess('/r/wt', 'working'), sess('/r/wt/pkg', 'idle'), sess('/r/wt'), sess('/other')]
     expect(sessionsForIssue('/r/wt', all)).toHaveLength(3)
+  })
+})
+
+describe('liveSessionsUsingWorktree', () => {
+  it.each([
+    ['/repo/wt', '/repo/wt/src', '/repo/wt-other'],
+    [String.raw`C:\repo\wt`, 'c:/REPO/wt/src', String.raw`C:\repo\wt-other`],
+    [String.raw`\\nas\share\wt`, String.raw`\\NAS\SHARE/wt/src`, String.raw`\\nas\share\wt-other`],
+  ])('scopes path containment to the worktree machine for %s', (root, child, sibling) => {
+    const machineId = asMachineId('m1')
+    const resident = (
+      id: string,
+      over: Partial<{
+        machineId: typeof machineId
+        cwd: string
+        status: SessionMeta['status']
+        archived: boolean
+      }> = {},
+    ) => ({
+      sessionId: asSessionId(id),
+      machineId,
+      cwd: child,
+      status: 'live' as SessionMeta['status'],
+      archived: false,
+      ...over,
+    })
+    const live = resident('live')
+    const starting = resident('starting', { status: 'starting' })
+    const archived = resident('archived', { archived: true })
+    const foreign = resident('foreign', { machineId: asMachineId('m2') })
+    const sessions = [
+      live,
+      starting,
+      archived,
+      foreign,
+      resident('sibling', { cwd: sibling }),
+      resident('hibernated', { status: 'hibernated' }),
+      resident('exited', { status: 'exited' }),
+    ]
+    expect(liveSessionsUsingWorktree(root, sessions, machineId)).toEqual([live, starting, archived])
+    expect(liveSessionsUsingWorktree(root, sessions, machineId, live.sessionId)).toEqual([
+      starting,
+      archived,
+    ])
+    expect(liveSessionsUsingWorktree(root, sessions, null)).toEqual([
+      live,
+      starting,
+      archived,
+      foreign,
+    ])
+    expect(liveSessionsUsingWorktree(null, sessions, machineId)).toEqual([])
   })
 })
 

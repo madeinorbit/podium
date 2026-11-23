@@ -4,6 +4,7 @@ import {
   type IssueSessionSummary,
   type IssueStage,
   isMachinePathWithinRoot,
+  type MachineId,
   type SessionId,
   type SessionMeta,
 } from '@podium/model'
@@ -67,16 +68,23 @@ export function isIssueMember(
 }
 
 /**
- * Live/starting/reconnecting sessions whose cwd sits inside `worktreePath`
- * (any issue attachment). Used by stop free-guards: sessionsForIssue
+ * Live/starting sessions on the worktree's machine whose cwd sits inside
+ * `worktreePath` (any issue attachment). An unresolved machine retains the
+ * conservative path-only guard. Used by stop free-guards: sessionsForIssue
  * excludes sessions with a different explicit issueId even when they share the
  * path — freeing under those would delete a worktree still in use.
  */
 export function liveSessionsUsingWorktree<
-  T extends { sessionId: SessionId; status: SessionMeta['status']; cwd: string },
+  T extends {
+    sessionId: SessionId
+    status: SessionMeta['status']
+    cwd: string
+    machineId: MachineId
+  },
 >(
   worktreePath: string | null,
   sessions: readonly T[],
+  machineId: MachineId | null | undefined,
   exceptSessionId?: SessionId,
 ): T[] {
   if (!worktreePath) return []
@@ -84,6 +92,7 @@ export function liveSessionsUsingWorktree<
     (s) =>
       s.sessionId !== exceptSessionId &&
       (s.status === 'live' || s.status === 'starting') &&
+      (machineId == null || s.machineId === machineId) &&
       isMemberCwd(worktreePath, s.cwd),
   )
 }

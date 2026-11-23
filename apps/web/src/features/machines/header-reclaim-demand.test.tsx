@@ -23,7 +23,7 @@ const MACHINE = asMachineId('m1')
 const stamp = (at: number) => new Date(at).toISOString()
 let pool: MobxPool
 let rows: RowRecord[]
-let occupied: string[]
+let occupied: Parameters<typeof listReclaimableWorktreesClient>[0]['occupiedRoots']
 let now: number
 
 const lifecycle = {
@@ -182,7 +182,7 @@ function changeTitle() {
   pool.apply({ type: 'update', rows: [rows[0]!] })
 }
 function changeOccupancy() {
-  occupied = ['/repo/trees/1/src']
+  occupied = [{ machineId: MACHINE, cwd: '/repo/trees/1/src' }]
   pool.apply({
     type: 'update',
     rows: [

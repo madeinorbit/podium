@@ -15481,76 +15481,76 @@
       "file": "packages/client-core/src/values/compose/machines/facts.ts",
       "holder": "listReclaimableWorktreesClient",
       "rule": "consume:filter",
-      "tokens": "6c388594f504c20b1cd7d5b357b12a543f2268bd90c157379bda9fcb73949d9b",
+      "tokens": "b1b41828da8153b4fa1adff2a3db25587387d813ac91c65768333925e66f90d9",
       "gate": [],
       "origin": [
-        "1e682e9fbf2ec5e465f0d35e85483f108e051306c444e279718e9ebc00e4cdf0"
+        "b77606b7f70fdf88b0596e1192e55e3aaa4210a1d7e202cf5baf26883f60178e"
       ],
-      "fingerprint": "04b6fe5dce0fd18757e62603bfc3268d84cfee57640c0593af42950e7f9c5601",
+      "fingerprint": "071e139c980b2a94691b1ead713ceaba41fdf7f012625a294b08137bf6857399",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of listReclaimableWorktreesClient",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7264 adds machine identity to occupancy without changing input collections, demand, or multiplicity. Predecessor: 04b6fe5dce0fd18757e62603bfc3268d84cfee57640c0593af42950e7f9c5601.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
       "file": "packages/client-core/src/values/compose/machines/facts.ts",
       "holder": "listReclaimableWorktreesClient",
       "rule": "consume:map",
-      "tokens": "c46b882f58283b7fc08c07d8739fd0272385b4b510a4d230ba4282f32a26c63d",
+      "tokens": "ad07eec17e2debb1afbb7d3479fe0ab0aee0f730e4b5245f51bceef77c92ed4e",
       "gate": [],
       "origin": [
-        "1e682e9fbf2ec5e465f0d35e85483f108e051306c444e279718e9ebc00e4cdf0"
+        "b77606b7f70fdf88b0596e1192e55e3aaa4210a1d7e202cf5baf26883f60178e"
       ],
-      "fingerprint": "dfe89d067fa43fe950fd2ce013b178dea098753954e6920ce03083e692b64031",
+      "fingerprint": "1079320e6fec8cc0a1e4e3ceed3d58e27425697d5f6548811d2987e97b373964",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of listReclaimableWorktreesClient",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7264 adds machine identity to occupancy without changing input collections, demand, or multiplicity. Predecessor: dfe89d067fa43fe950fd2ce013b178dea098753954e6920ce03083e692b64031.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
       "file": "packages/client-core/src/values/compose/machines/facts.ts",
       "holder": "listReclaimableWorktreesClient",
       "rule": "consume:sort",
-      "tokens": "06bc3d6b586d1a6c7f474e4d607c1d4690028b64bdf4875bc599098d242a4690",
+      "tokens": "b334e86054dfc41f9afaf319c554af432eb7f5d639c0f426bb40a22b6f1cdff5",
       "gate": [],
       "origin": [
-        "1e682e9fbf2ec5e465f0d35e85483f108e051306c444e279718e9ebc00e4cdf0"
+        "b77606b7f70fdf88b0596e1192e55e3aaa4210a1d7e202cf5baf26883f60178e"
       ],
-      "fingerprint": "ffb16a4ca5e6b0128ee55fa4b827f3ee4b1d3b34547ce42ab0b20cabb60a4182",
+      "fingerprint": "ba3b5de3cf70810eba776e19edc4f630697042a4a425ea0399041ca213e4fcb6",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of listReclaimableWorktreesClient",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:sort carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "consume:sort carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7264 adds machine identity to occupancy without changing input collections, demand, or multiplicity. Predecessor: ffb16a4ca5e6b0128ee55fa4b827f3ee4b1d3b34547ce42ab0b20cabb60a4182.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
       "file": "packages/client-core/src/values/compose/machines/facts.ts",
       "holder": "listReclaimableWorktreesClient/filter:callback/occupied",
       "rule": "consume:some",
-      "tokens": "cf239a4c1e725417e68bf13f3be3de71554d4c7280fa8cdce2db9d876db0b68c",
+      "tokens": "cd32ed75416f6197d6ae7ecf1ffa0e23e369a3ac292446fe01b472f9b6d048dd",
       "gate": [
         "exit:then:f8db986907984f7a15c8449425a1de807b692a60ce8031325beecfd0f9dd8afb",
         "exit:then:df9d83ae4dc99aba684a998ccd846210b66775392db8ebee09752069cfe69230",
         "exit:then:2ac5a7da0bd33fc6a50bcc7eab9fc82818a2fd6f22b532092625b0122b12167d"
       ],
       "origin": [
-        "1e682e9fbf2ec5e465f0d35e85483f108e051306c444e279718e9ebc00e4cdf0"
+        "b77606b7f70fdf88b0596e1192e55e3aaa4210a1d7e202cf5baf26883f60178e"
       ],
-      "fingerprint": "820e84492d5de7d798702b0e7b327d2cea22aff7412f5c28d10b7fd56c4cc6e9",
+      "fingerprint": "19078a8c5adafd7f3546859522b7054dec8865d782668de0e713bd2537000790",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of listReclaimableWorktreesClient/filter:callback/occupied",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:some carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "consume:some carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7264 adds machine identity to occupancy without changing input collections, demand, or multiplicity. Predecessor: 820e84492d5de7d798702b0e7b327d2cea22aff7412f5c28d10b7fd56c4cc6e9.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -15833,18 +15833,18 @@
       "file": "packages/client-core/src/values/compose/machines/facts.ts",
       "holder": "residentWorktreeKey",
       "rule": "loop:for-of",
-      "tokens": "dacdbde540cc70ebe39fe73db82bd9c621eda6fe301099fa5956935443fc6350",
+      "tokens": "77a23871f1d953d8cb007f16bf9bd5ccb06c291b377e45f726452c7392b67cec",
       "gate": [],
       "origin": [
         "b2d904e4a13f99681071a16da48ed42a6010f6d1b95548034073c2c9379a391d"
       ],
-      "fingerprint": "f66c17b1878f4803d5fea9952a9c68e6e7291c8e02f08dcb42b7033f5111d536",
+      "fingerprint": "a30eb28d064d98f1b4c75524f74e7aa7a48238813093a74bb7857af0ab22fc1a",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of residentWorktreeKey",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7264 adds machine identity to occupancy without changing input collections, demand, or multiplicity. Predecessor: f66c17b1878f4803d5fea9952a9c68e6e7291c8e02f08dcb42b7033f5111d536.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -33121,54 +33121,54 @@
       "file": "packages/client-graph/src/header-views.ts",
       "holder": "createHeaderViews/occupancyKey",
       "rule": "reader-summary",
-      "tokens": "3e1d71c034cf4e304cacedd7691b3ef9a36614d520954586b9d2b0d52b3bec83",
+      "tokens": "b1712bad24f8cd0a5c0a615dc2ad3fe857fd5705c6fd3a127eaf7bb38433438e",
       "gate": [],
       "origin": [
         "b62af815f9048d102aca17f2695d460f40e618bcc845d7a0d3bc1c8b90140c10"
       ],
-      "fingerprint": "9fa5889f59b5691b15e959c6c110f875e6d8597e8e16a0677520d3fa2d558908",
+      "fingerprint": "6f66952b9bbfee00b7e6b6ac2ec949f8ed2fc630151ed31512ae92ba665e0fac",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of createHeaderViews/occupancyKey",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Owner/caller transferred by POD-5767 without widening the collection path. Predecessor: 6b110bc4f82afa2d3e4c72a2ef5d59768225f1e3d19bc6e11c8b6f38f962dbc8 (POD-6646: a session's reconnecting is now derived from its machine's LiveStore condition, so the retired status left these session-status checks; collection demand is unchanged).",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Owner/caller transferred by POD-5767 without widening the collection path. Predecessor: 6b110bc4f82afa2d3e4c72a2ef5d59768225f1e3d19bc6e11c8b6f38f962dbc8 (POD-6646: a session's reconnecting is now derived from its machine's LiveStore condition, so the retired status left these session-status checks; collection demand is unchanged). POD-7264 adds machine identity to occupancy without changing input collections, demand, or multiplicity. Predecessor: 9fa5889f59b5691b15e959c6c110f875e6d8597e8e16a0677520d3fa2d558908.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
       "file": "packages/client-graph/src/header-views.ts",
       "holder": "createHeaderViews/occupancyKey/memo:callback",
       "rule": "consume:sort",
-      "tokens": "fee39793ad7b3642637d635ba20f98918d0c144f3f95b6229163f88eb9981086",
+      "tokens": "17c1358f542f7d84727f8b72c512ed2ad213bbfacb244071c64aa86a41294245",
       "gate": [],
       "origin": [
         "b62af815f9048d102aca17f2695d460f40e618bcc845d7a0d3bc1c8b90140c10"
       ],
-      "fingerprint": "c29a69ce5d77ce403da2d567da1c633aa73befe94f169f303bcf055bd4fc6c01",
+      "fingerprint": "ac3f6a6cef9640ba72361f8deffda8f4a396ea099423d202ff2755b5cfb99d91",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of createHeaderViews/occupancyKey/memo:callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:sort carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Owner/caller transferred by POD-5767 without widening the collection path. Predecessor: 340b304810d71790912a7b6389b85be4f9906a763499dea4ad5ac41ac30211bc (POD-6646: a session's reconnecting is now derived from its machine's LiveStore condition, so the retired status left these session-status checks; collection demand is unchanged).",
+      "reason": "consume:sort carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Owner/caller transferred by POD-5767 without widening the collection path. Predecessor: 340b304810d71790912a7b6389b85be4f9906a763499dea4ad5ac41ac30211bc (POD-6646: a session's reconnecting is now derived from its machine's LiveStore condition, so the retired status left these session-status checks; collection demand is unchanged). POD-7264 adds machine identity to occupancy without changing input collections, demand, or multiplicity. Predecessor: c29a69ce5d77ce403da2d567da1c633aa73befe94f169f303bcf055bd4fc6c01.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
       "file": "packages/client-graph/src/header-views.ts",
       "holder": "createHeaderViews/occupancyKey/memo:callback",
       "rule": "consume:flatMap",
-      "tokens": "db14e794257bad6a1caaae70c06c18f909256753f97431961d30fe69f6be1dce",
+      "tokens": "0430e96748cbf2e45a1f1586b431c6c22d78ad63d2fbdc9c506f27b6af365899",
       "gate": [],
       "origin": [
         "b62af815f9048d102aca17f2695d460f40e618bcc845d7a0d3bc1c8b90140c10"
       ],
-      "fingerprint": "7e2d6396fe91606cf498eee1d69f6476cb3d07246a27e2888f4fe4de278bdd30",
+      "fingerprint": "e4257816e50b8cad49706d0b34a338ff60df1c5130d9cbbc3f34a5bc6f20bd51",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of createHeaderViews/occupancyKey/memo:callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:flatMap carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Owner/caller transferred by POD-5767 without widening the collection path. Predecessor: 65fe0a3dde5cfd385e58b7bbe8163fcfb53be50cc815fb01d9389c65659bc784 (POD-6646: a session's reconnecting is now derived from its machine's LiveStore condition, so the retired status left these session-status checks; collection demand is unchanged).",
+      "reason": "consume:flatMap carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Owner/caller transferred by POD-5767 without widening the collection path. Predecessor: 65fe0a3dde5cfd385e58b7bbe8163fcfb53be50cc815fb01d9389c65659bc784 (POD-6646: a session's reconnecting is now derived from its machine's LiveStore condition, so the retired status left these session-status checks; collection demand is unchanged). POD-7264 adds machine identity to occupancy without changing input collections, demand, or multiplicity. Predecessor: 7e2d6396fe91606cf498eee1d69f6476cb3d07246a27e2888f4fe4de278bdd30.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {

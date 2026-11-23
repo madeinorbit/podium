@@ -230,6 +230,52 @@ describe('listReclaimableWorktreesClient', () => {
     })
     expect(list.map((c) => c.issueId)).toEqual(['old'])
   })
+
+  it.each([
+    'live',
+    'starting',
+  ] as const)('keeps a shared path reclaimable on the machine without a %s session', (status) => {
+    const issues = ['m1', 'm2'].map((machine) => ({
+      id: machine,
+      title: machine,
+      stage: 'done',
+      closedAt: new Date(now - 20 * day).toISOString(),
+      worktreePath: '/r/.worktrees/shared',
+      machineId: asMachineId(machine),
+    }))
+    const sessions = [session({ sessionId: 's', cwd: '/r/.worktrees/shared/src', status })]
+    const list = listReclaimableWorktreesClient({
+      issues,
+      occupiedRoots: occupiedRootsFromKey(residentWorktreeKey(sessions)),
+      afterDays: 14,
+      nowMs: now,
+    })
+    expect(list.map((candidate) => candidate.issueId)).toEqual(['m2'])
+  })
+
+  it('retains a conservative path guard when either machine identity is missing', () => {
+    const issue = {
+      id: 'old',
+      title: 'Old done',
+      stage: 'done',
+      closedAt: new Date(now - 20 * day).toISOString(),
+      worktreePath: '/r/.worktrees/shared',
+      machineId: asMachineId('m1'),
+    }
+    for (const [issueMachine, sessionMachine] of [
+      [asMachineId('m1'), null],
+      [null, asMachineId('m2')],
+    ] as const) {
+      expect(
+        listReclaimableWorktreesClient({
+          issues: [{ ...issue, machineId: issueMachine }],
+          occupiedRoots: [{ machineId: sessionMachine, cwd: `${issue.worktreePath}/src` }],
+          afterDays: 14,
+          nowMs: now,
+        }),
+      ).toEqual([])
+    }
+  })
 })
 
 /**
@@ -333,6 +379,12 @@ describe('residentWorktreeKey', () => {
     ).toBe(empty)
   })
 
+  it('changes when a resident session moves to another machine at the same path', () => {
+    const before = [session({ sessionId: 's', machineId: asMachineId('m1') })]
+    const after = [session({ sessionId: 's', machineId: asMachineId('m2') })]
+    expect(residentWorktreeKey(after)).not.toBe(residentWorktreeKey(before))
+  })
+
   it('round-trips through occupiedRootsFromKey, including the empty case', () => {
     expect(occupiedRootsFromKey(residentWorktreeKey([]))).toEqual([])
     expect(
@@ -342,7 +394,23 @@ describe('residentWorktreeKey', () => {
           session({ sessionId: 'a', cwd: '/r/.worktrees/a', status: 'starting' }),
         ]),
       ),
-    ).toEqual(['/r/.worktrees/a', '/r/.worktrees/b'])
+    ).toEqual([
+      { machineId: asMachineId('m1'), cwd: '/r/.worktrees/a' },
+      { machineId: asMachineId('m1'), cwd: '/r/.worktrees/b' },
+    ])
+  })
+
+  it('round-trips machine identities and paths containing newlines and backslashes', () => {
+    const sessions = [
+      session({ sessionId: 'a', machineId: asMachineId('m1'), cwd: '/repo/line\nbreak' }),
+      session({ sessionId: 'b', machineId: asMachineId('m2'), cwd: String.raw`C:\repo\tree` }),
+      session({ sessionId: 'c', machineId: undefined, cwd: '/unknown' }),
+    ]
+    expect(occupiedRootsFromKey(residentWorktreeKey(sessions))).toEqual(
+      expect.arrayContaining(
+        sessions.map(({ machineId, cwd }) => ({ machineId: machineId ?? null, cwd })),
+      ),
+    )
   })
 })
 

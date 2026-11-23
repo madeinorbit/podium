@@ -121,6 +121,7 @@ function streamedMember(member: { bytes: Buffer; contentType: string } | undefin
 const sess = (cwd: string, phase = 'working'): SessionMeta =>
   ({
     sessionId: cwd,
+    machineId: TEST_MACHINE_ID,
     agentKind: 'claude-code',
     title: 't',
     cwd,
@@ -8794,6 +8795,83 @@ describe('worktree GC sweep for closed work (POD-564)', () => {
     ).toEqual({ outcome: 'refused', reason: 'no machine for this worktree: /r' })
     expect(ops).not.toHaveBeenCalled()
     expect((await h.svc.reports.get(unresolved))?.worktreePath).toBe(row.worktreePath)
+  })
+
+  it.each([
+    'inventory',
+    'release',
+    'propose',
+    'auto',
+  ] as const)('%s checks shared-path occupancy only on the worktree machine', async (operation) => {
+    const sessions: SessionMeta[] = []
+    const h = await gcHarness(
+      { mode: operation === 'auto' ? 'auto' : 'propose', afterDays: 14 },
+      sessions,
+    )
+    const remote = asMachineId('gc-shared-path-remote')
+    const path = '/r/.worktrees/shared'
+    await seedRows(h.store, async () => await h.store.repos.addRepo('/r', remote))
+    const occupied = await closedIssueWithCheckout(h, {
+      title: 'Occupied machine',
+      path,
+      machineId: TEST_MACHINE_ID,
+    })
+    const idle = await closedIssueWithCheckout(h, {
+      title: 'Idle machine',
+      path,
+      machineId: remote,
+    })
+    // An unattached resident still physically occupies the tree.
+    sessions.push({ ...sess(`${path}/src`), machineId: TEST_MACHINE_ID })
+    h.deps.repoOp = vi.fn(async (op) => ({
+      ok: true,
+      output:
+        op === 'worktreeList'
+          ? gitWorktreeList([
+              { path: '/r', branch: 'main' },
+              { path, branch: 'issue/shared' },
+            ])
+          : op === 'status'
+            ? '## issue/shared\n'
+            : '',
+    }))
+
+    if (operation === 'inventory') {
+      const inventory = await h.svc.gitWorkflow.listReclaimableWorktrees(DUE)
+      expect(inventory.candidates).toEqual([
+        expect.objectContaining({ issueId: idle, machineId: remote, present: true }),
+      ])
+    } else if (operation === 'release') {
+      expect(
+        await h.svc.gitWorkflow.releaseWorktreeIfIdle(occupied, systemPrincipal('expiry')),
+      ).toMatchObject({ freed: false, reason: expect.stringContaining('live session') })
+      expect(
+        await h.svc.gitWorkflow.releaseWorktreeIfIdle(idle, systemPrincipal('expiry')),
+      ).toEqual({ freed: true })
+    } else {
+      expect(
+        await h.svc.gitWorkflow.tryWorktreeGcObserved(
+          await observationFor(h, occupied, operation),
+          DUE,
+          systemPrincipal('expiry'),
+        ),
+      ).toEqual({ outcome: 'precondition' })
+      expect(
+        await h.svc.gitWorkflow.tryWorktreeGcObserved(
+          await observationFor(h, idle, operation),
+          DUE,
+          systemPrincipal('expiry'),
+        ),
+      ).toEqual({ outcome: operation === 'auto' ? 'freed' : 'proposed' })
+    }
+
+    expect((await h.svc.reports.get(occupied))?.worktreePath).toBe(path)
+    const removes = vi.mocked(h.deps.repoOp).mock.calls.filter(([op]) => op === 'worktreeRemove')
+    expect(removes).toEqual(
+      operation === 'release' || operation === 'auto'
+        ? [['worktreeRemove', '/r', { path }, remote]]
+        : [],
+    )
   })
 
   it('reports a git worktree that no issue row claims as an orphan', async () => {

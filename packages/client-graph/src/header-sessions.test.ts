@@ -4,7 +4,7 @@ import { headerEntities } from './header-entities'
 import { headerView } from './header-views'
 import { liveFixture } from './live-fixture'
 import type { SessionView } from '@podium/client-core/session-values'
-import { createHostSessionAggregatesSelector } from '@podium/client-core/values'
+import { createHostSessionAggregatesSelector, occupiedRootsFromKey } from '@podium/client-core/values'
 import {
   CONFIRMED_AGENT_ACTIVITY_MAX_AGE_MS,
   isAgentConfirmedComputing,
@@ -128,6 +128,30 @@ function fixture(coldCount = 0, options: { offDevice?: boolean } = {}) {
     },
   }
 }
+
+it('refreshes machine-scoped occupancy when a resident moves at the same path', () => {
+  const f = fixture()
+  let key = ''
+  const stop = autorun(() => {
+    key = headerView(f.pool).occupancyKey()
+  })
+  try {
+    const before = key
+    runInAction(() => f.change('resident-0', { machineId: HOSTS[1] }))
+    expect(key).not.toBe(before)
+    expect(occupiedRootsFromKey(key)).toContainEqual({
+      machineId: HOSTS[1],
+      cwd: '/synthetic/header',
+    })
+    expect(occupiedRootsFromKey(key)).toContainEqual({
+      machineId: HOSTS[0],
+      cwd: '/synthetic/header',
+    })
+  } finally {
+    stop()
+    f.dispose()
+  }
+})
 
 function visits(pool: MobxPool) {
   const ids: string[] = []

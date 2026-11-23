@@ -468,6 +468,7 @@ export function registerIssueWorkEffects(deps: IssueWorkEffectDeps): void {
     const stillUsing = liveSessionsUsingWorktree(
       worktree,
       modules.sessions.runningSessionFacts(),
+      current?.machineId,
       self,
     )
     if (stillUsing.length > 0) {
@@ -515,6 +516,7 @@ export function registerIssueWorkEffects(deps: IssueWorkEffectDeps): void {
       const running = liveSessionsUsingWorktree(
         issue.worktreePath ?? null,
         modules.sessions.runningSessionFacts(),
+        issue.machineId,
       )
       return issue.worktreePath == null && running.length === 0
         ? { status: 'succeeded', result: { ok: true, stopped: [], worktreeFreed: true } }

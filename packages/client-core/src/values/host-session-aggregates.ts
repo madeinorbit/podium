@@ -1,6 +1,7 @@
 import type { SessionView } from '../session-values'
 import type { MachineId} from '@podium/model'
 import { recordSliceDerivation } from '../perf/store-stats'
+import { occupiedRootKey } from './compose/machines/facts'
 
 type Material = Pick<SessionView, 'machineId' | 'status' | 'cwd'> & {
   archived: boolean
@@ -20,7 +21,7 @@ function build(material: readonly Material[]) {
   for (const s of material) {
     if (s.status !== 'live' && s.status !== 'starting') continue
     // Occupancy intentionally includes archived and unattributed residents.
-    cwds.push(s.cwd)
+    cwds.push(occupiedRootKey(s))
     if (!s.machineId || s.archived) continue
     let aggregate = machines.get(s.machineId)
     if (!aggregate) { aggregate = empty(); machines.set(s.machineId, aggregate) }

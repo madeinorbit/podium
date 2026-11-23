@@ -457,6 +457,7 @@ export class SessionTeardown {
       const stillUsing = liveSessionsUsingWorktree(
         worktreePath,
         this.ports.runningSessionFacts(),
+        issue?.machineId,
         input.sessionId,
       )
       if (stillUsing.length === 0) {
@@ -671,7 +672,11 @@ export class SessionTeardown {
     const current = await this.ports.issueAccess.getMeta(input.issueId)
     const wt = current?.worktreePath ?? null
     if (wt) {
-      const stillUsing = liveSessionsUsingWorktree(wt, this.ports.runningSessionFacts())
+      const stillUsing = liveSessionsUsingWorktree(
+        wt,
+        this.ports.runningSessionFacts(),
+        current?.machineId,
+      )
       if (stillUsing.length === 0) {
         const freed = await issues.freeWorktreeKeepBranch(input.issueId, principal, {
           force: input.force === true,
