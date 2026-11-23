@@ -22,6 +22,7 @@ import {
   registerAuthRoute,
 } from './auth-route'
 import { clientRelocations } from './client-relocation'
+import { replicaBoundaryOf } from './identity/replica-boundary'
 import { createPortableSnapshot } from './modules/server-transfer/snapshot'
 import { authReadinessBoundary } from './readiness-boundary'
 import type { SessionStore } from './store'
@@ -856,5 +857,61 @@ describe('cacheability of the status answer', () => {
     const anonymous = await get(app, '/auth/status')
     expect(await anonymous.json()).toMatchObject({ authed: false })
     expect(anonymous.headers.get('cache-control')).toBe('no-store')
+  })
+})
+
+/**
+ * WHOSE DEVICE STORES A SIGN-IN OPENS (POD-7312). A device keys its replica,
+ * unsent writes, drafts and chat history by the boundary and member these
+ * routes report. One member id can exist in two workspaces, so the boundary
+ * alone keeps them apart, and it is read per request. The request binding of
+ * POD-7309 is stood in for by a test header.
+ */
+describe('the sync boundary names the request workspace (POD-7312)', () => {
+  const BOUND = 'x-test-bound-workspace'
+  const local = 'http://127.0.0.1:18787'
+  const hosted = replicaBoundaryOf({
+    installationNamesWorkspace: false,
+    installationBoundary: 'installation-1',
+    workspaceOf: (request) => request.headers.get(BOUND) ?? undefined,
+  })
+  const status = async (app: App, workspace?: string) =>
+    await (
+      await app.request(`${local}/auth/status`, {
+        headers: {
+          'x-podium-peer-address': '127.0.0.1',
+          ...(workspace ? { [BOUND]: workspace } : {}),
+        },
+      })
+    ).json()
+
+  test('one member in two workspaces gets two boundaries; a request bound to none gets none', async () => {
+    const app = makeApp({ syncBoundaryId: hosted })
+    const a = await status(app, 'ws-a')
+    const b = await status(app, 'ws-b')
+    expect(a).toMatchObject({ authed: true, memberId: admin, syncBoundaryId: 'ws-a' })
+    expect(b).toMatchObject({ authed: true, memberId: admin, syncBoundaryId: 'ws-b' })
+    // The installation's id is shared by every workspace it serves: never a fallback.
+    const unbound = await status(app)
+    expect(unbound).toMatchObject({ authed: true, memberId: admin })
+    expect(unbound).not.toHaveProperty('syncBoundaryId')
+  })
+
+  test('a sign-in reports the boundary of the workspace it signed in to', async () => {
+    await identity.credentials.setPassword(admin, PASSWORD)
+    const app = makeApp({ syncBoundaryId: hosted })
+    const res = await post(app, '/auth/login', { password: PASSWORD }, { [BOUND]: 'ws-b' })
+    expect(await res.json()).toMatchObject({ ok: true, memberId: admin, syncBoundaryId: 'ws-b' })
+  })
+
+  test('self-hosted keeps the boundary its devices already key by', async () => {
+    const selfHosted = replicaBoundaryOf({
+      installationNamesWorkspace: true,
+      installationBoundary: 'installation-1',
+      workspaceOf: () => 'local',
+    })
+    const app = makeApp({ syncBoundaryId: selfHosted })
+    expect(await status(app)).toMatchObject({ syncBoundaryId: 'installation-1' })
+    expect(await status(app, 'ws-b')).toMatchObject({ syncBoundaryId: 'installation-1' })
   })
 })

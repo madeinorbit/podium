@@ -20,6 +20,7 @@ describe('serverCapabilities', () => {
       operatorLocks: true,
       setupRoutes: true,
       devUpdateFeed: true,
+      installationNamesWorkspace: true,
     })
     expect(serverCapabilities({ mode: 'self-hosted' })).toEqual(serverCapabilities())
   })
@@ -35,6 +36,7 @@ describe('serverCapabilities', () => {
       operatorLocks: true,
       setupRoutes: true,
       devUpdateFeed: false,
+      installationNamesWorkspace: true,
     })
   })
 

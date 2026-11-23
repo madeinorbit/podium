@@ -123,6 +123,7 @@ import {
   type MembershipCatchUpScheduler,
   startMembershipCatchUp,
 } from './identity/membership-catch-up'
+import { replicaBoundaryOf } from './identity/replica-boundary'
 import {
   type IdentitySeam,
   openServerIdentity,
@@ -1868,7 +1869,13 @@ export async function startServer(
   let revokeConnectedDeviceSignIn: (credentialId: string) => void = () => {}
   registerAuthRoute(app, {
     publicUrl: claimedPublicUrl,
-    syncBoundaryId: () => opts.workspaceId ?? installation.installationId,
+    syncBoundaryId: replicaBoundaryOf({
+      installationNamesWorkspace: capabilities.installationNamesWorkspace,
+      installationBoundary: opts.workspaceId ?? installation.installationId,
+      // The process serves the one workspace it loaded; request binding
+      // (POD-7309) replaces this with the request's bound workspace.
+      workspaceOf: () => opts.workspaceId,
+    }),
     identity: identity.workspace,
     // One resolver for every human-client transport; the status route reports
     // its result and holds no policy of its own.

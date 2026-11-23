@@ -69,8 +69,12 @@ function memberFenceRefusal(c: Context): Response {
 }
 
 export interface AuthRouteOptions {
-  /** Installation id for self-hosted, workspace id for hosted. */
-  syncBoundaryId?: () => string
+  /**
+   * The key half that keeps a device's stores for this request's workspace
+   * apart from every other workspace's (identity/replica-boundary.ts). Read per
+   * request: one server may serve many workspaces.
+   */
+  syncBoundaryId?: (request: Request) => string | undefined
   identity: WorkspaceIdentity
   /** The one resolver every human-client transport uses. */
   memberOfRequest: MemberOfRequest
@@ -193,7 +197,7 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions): void {
         ? {
             userId: member.memberId,
             memberId: member.memberId,
-            syncBoundaryId: opts.syncBoundaryId?.(),
+            syncBoundaryId: opts.syncBoundaryId?.(c.req.raw),
           }
         : {}),
       // What this edition offers. It holds no secret and is the same for every caller.
@@ -355,7 +359,7 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions): void {
       return c.json({
         ok: true as const,
         delivery: 'native' as const,
-        syncBoundaryId: opts.syncBoundaryId?.(),
+        syncBoundaryId: opts.syncBoundaryId?.(c.req.raw),
         memberId: userId,
         token: outcome.bearer,
         userId,
@@ -363,7 +367,12 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions): void {
       })
     }
     appendCookies(c, outcome.headers)
-    return c.json({ ok: true, userId, memberId: userId, syncBoundaryId: opts.syncBoundaryId?.() })
+    return c.json({
+      ok: true,
+      userId,
+      memberId: userId,
+      syncBoundaryId: opts.syncBoundaryId?.(c.req.raw),
+    })
   })
 
   app.post('/auth/logout', async (c) => {

@@ -60,6 +60,12 @@ export interface ServerCapabilities {
   readonly setupRoutes: boolean
   /** Publishing development releases from this server's source checkout. */
   readonly devUpdateFeed: boolean
+  /**
+   * The installation holds exactly one workspace, so the installation's id can
+   * name that workspace to devices (identity/replica-boundary.ts). A hosted
+   * installation holds many, and only the request's bound workspace names one.
+   */
+  readonly installationNamesWorkspace: boolean
 }
 
 /**
@@ -82,6 +88,7 @@ export function serverCapabilities(
       operatorLocks: false,
       setupRoutes: false,
       devUpdateFeed: false,
+      installationNamesWorkspace: false,
     }
   }
   const hostMachine = input.hostMachine !== false
@@ -95,6 +102,7 @@ export function serverCapabilities(
     operatorLocks: true,
     setupRoutes: true,
     devUpdateFeed: hostMachine,
+    installationNamesWorkspace: true,
   }
 }
 
