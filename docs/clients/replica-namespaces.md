@@ -15,18 +15,26 @@ origins remain physically isolated: this is logical identity, not storage contin
 The namespace-format upgrade cold-starts the tuple once. It does not copy the
 old member-only web namespace or profile-based mobile namespace, including queued
 commands. Subsequent starts reuse the tuple's data. Old queued commands remain
-inactive and disappear when their old namespace is removed; this is the accepted
-beta migration behavior, to revisit before multi-member use.
+inactive; retention preserves their namespaces while work is pending. Revisit
+the migration before multi-member use.
 
-POD-401 retention is unchanged: sign-out erases only the acting namespace, at most
-three namespaces are retained, and inactive namespaces expire after 30 days.
+Sign-out explicitly erases only the acting namespace. Automatic retention targets
+three namespaces and expires inactive namespaces after 30 days, but both rules
+apply only when the durable outbox is empty and there are no unsent drafts.
+Pending work can keep any number of namespaces, on web and phone. Unreadable
+authored storage is retained too. Confirmed composer drafts are reloadable;
+dirty drafts, including empty clears and older drafts without a dirty flag, are not.
+
 Data is not encrypted at rest. When quota prevents recording the new namespace,
-the existing policy evicts inactive namespaces and retries. No eager eviction is
-added by the tuple upgrade.
+retention reclaims only clean inactive caches and retries. Automatic cleanup never
+deletes transactional outbox rows or the settings homes containing drafts and
+legacy outboxes: another writer can add work after the clean check. Explicit
+sign-out and profile removal still erase those homes.
 
 | Acceptance case | What remains |
 | --- | --- |
-| Web: full localStorage under old namespace | Boot evicts inactive namespaces only as needed for the marker, using existing quota recovery; evicted transactional regions are also erased. |
-| Sign-out of successor with room for both namespaces | Successor cache and outbox are erased. Old cache, side data and queued work remain inactive until normal retention removes them. |
+| Web: full localStorage under old namespace | Boot reclaims clean inactive caches as needed for the marker. Unsent work never gives way for quota. |
+| Sign-out of successor with room for both namespaces | Successor cache and outbox are erased. Old cache, side data and queued work remain; automatic retention cannot remove pending work. |
+| Five workspaces with pending writes or drafts | All five retain their data and replay their own work on return. Phone tests rehydrate the AsyncStorage bridge between workspace switches. |
 | Offline startup after upgrade | Web uses exactly one retained tuple marker; legacy markers cannot supply a missing boundary. Multiple tuples are ambiguous and fail closed. Mobile requires a profile with both server-confirmed fields. |
 | Legacy mobile profile removal | Existing cleanup intents still erase their original profile-based namespace. New intents record the server tuple when it is available. |
