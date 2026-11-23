@@ -1,5 +1,5 @@
+// LEGACY(remove-after: 2026-12): the old harness row, kept only for onboarding's FirstTaskActivation until it moves onto the Set up agents panel; removing it drops that last import.
 import { relativeTime } from '@podium/client-core/focus'
-import type { MachineModel } from '@podium/client-graph'
 import {
   HarnessInstallAnswer,
   type HarnessInstallClient,
@@ -10,28 +10,6 @@ import type { HarnessInstallAction } from '@podium/protocol'
 import { useEffect, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { useAgeNow } from '@/lib/clock-hooks'
-
-export const MachineHarnesses = observer(function MachineHarnesses({
-  machine,
-  client,
-}: {
-  machine: MachineModel
-  client: HarnessInstallClient
-}) {
-  return (
-    <section aria-label="Harnesses" className="mt-6">
-      <h3 className="text-sm font-medium">Harnesses</h3>
-      <p className="settings-prose mt-1 mb-3">
-        Each row shows who installed the harness and who handles its updates.
-      </p>
-      <div className="divide-y divide-border rounded-lg border border-border px-4">
-        {machine.harnessInstalls.map((row) => (
-          <MachineHarnessRow key={row.kind} row={row} client={client} />
-        ))}
-      </div>
-    </section>
-  )
-})
 
 const CheckedAt = ({ at }: { at: string }) => {
   const now = useAgeNow(at)
