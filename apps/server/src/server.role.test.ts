@@ -187,6 +187,8 @@ describe('startServer with the hub role disabled (node shape)', () => {
       // 508b1c6c7 (POD-3965) added explicit machine supersession, hub-gated.
       'machines.supersede',
       'machines.transferOwnership',
+      // fa99f0ec12 (managed installs) added the uninstall command, hub-gated.
+      'machines.uninstall',
       'machines.unshare',
     ])
     // Non-vacuity: the filter must actually be filtering. If every contract were
