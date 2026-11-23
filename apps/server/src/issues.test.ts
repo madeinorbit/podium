@@ -39,6 +39,7 @@ import { MODEL_CATALOG_VERSION } from './model-catalog'
 import { complete } from './modules/inference/complete'
 import { PendingUploadStore } from './modules/issues/pending-uploads'
 import { type IssueDeps, IssueService } from './modules/issues/service'
+import { IssueAssistantDigestModule } from './modules/issues/service/assistant'
 import { ARTIFACT_READ_CAP_BYTES } from './modules/issues/service/crud'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
 import { sameWorktreePath } from './modules/issues/service/worktree-safety'
@@ -3694,6 +3695,67 @@ describe('IssueService assistant', () => {
       })
     return { svc: await IssueService.create(deps), deps }
   }
+
+  it.each([
+    TEST_MACHINE_ID,
+    asMachineId('assistant-remote'),
+  ])('activity on %s refreshes its own issue when machines share a worktree path', async (activeMachine) => {
+    const { svc, deps } = await harnessWithLlm('{"activityNotes":"digest","blockedBy":[]}')
+    const store = deps.store
+    const repoPath = '/shared/repo'
+    const worktreePath = `${repoPath}/.worktrees/shared`
+    const machines = [TEST_MACHINE_ID, asMachineId('assistant-remote')]
+    await seedRows(store, async () => {
+      for (const machineId of machines) {
+        await store.machines.upsertMachine({
+          id: machineId,
+          name: machineId,
+          hostname: machineId,
+          tokenHash: 'test',
+          ownerUserId: firstAdminMemberId(),
+          assignment: { server: false, agentExecution: true },
+        })
+        await store.repos.addRepo(repoPath, machineId, 'https://example.com/team/repo.git')
+      }
+    })
+    const writer = svc.reports.store.serverWriter
+    const issues = []
+    for (const machineId of machines) {
+      const issue = await svc.crud.create(writer, {
+        repoPath,
+        title: `Checkout on ${machineId}`,
+        startNow: false,
+        machineId,
+      })
+      issues.push(await svc.crud.update(writer, issue.id, { worktreePath }))
+    }
+    const owner = issues.find((issue) => issue.machineId === activeMachine)!
+    const session = {
+      ...sess(`${worktreePath}/src`),
+      sessionId: asSessionId(`assistant-activity-${activeMachine}`),
+      machineId: activeMachine,
+    }
+    deps.sessionById = vi.fn(async () => session)
+    const candidates = vi.spyOn(store.issues, 'worktreeOwnerCandidates')
+    const refresh = vi
+      .spyOn(IssueAssistantDigestModule.prototype, 'refreshAssistant')
+      .mockResolvedValue(owner)
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      await svc.gitWorkflow.onSessionActivity(session.sessionId)
+
+      expect(candidates).toHaveBeenCalledExactlyOnceWith([session.cwd])
+      await vi.advanceTimersByTimeAsync(119_999)
+      expect(refresh).not.toHaveBeenCalled()
+      await vi.advanceTimersByTimeAsync(1)
+      expect(refresh).toHaveBeenCalledExactlyOnceWith(owner.id)
+    } finally {
+      vi.clearAllTimers()
+      vi.useRealTimers()
+      refresh.mockRestore()
+      candidates.mockRestore()
+    }
+  })
 
   it('refreshAssistant writes activity notes + suggestion and broadcasts', async () => {
     const { svc } = await harnessWithLlm(
