@@ -15,6 +15,7 @@
     "harness/interaction-idle-proof.ts",
     "harness/conversation-stream-ab.ts",
     "harness/conversation-render-meter.ts",
-    "harness/sidebar-fold-proof.ts"
+    "harness/sidebar-fold-proof.ts",
+    "harness/sidebar-entry.tsx"
   ]
 }

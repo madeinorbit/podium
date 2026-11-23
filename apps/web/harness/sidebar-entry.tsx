@@ -4,13 +4,14 @@
  *  ?newtask=1 opens the real New task dialog, whose Create with Start work now
  *  queues an `issue.start` that stays pending here (POD-6421). */
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { StoreProvider } from '@podium/client-core/react'
+import { StoreProvider, useCommands } from '@podium/client-core/react'
+import { loadRecordDeclarations } from '@podium/client-core/records'
 import { setClockWakeSource } from '@podium/mobx-helpers'
 import { asUserId } from '@podium/model/browser'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { OperatorFocusProvider } from '@/app/operator-focus'
-import { attachWorklistPool } from '@/app/store-worklist-pool'
+import { attachWorklistPool, useWorklistPool } from '@/app/store-worklist-pool'
 import { ToolbarSlotProvider, ToolbarSlotTarget } from '@/app/ToolbarSlot'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { IssuesView } from '@/features/issues/IssuesView'
@@ -25,6 +26,7 @@ import '@/index.css'
 import '@/styles.css'
 
 const params = new URLSearchParams(location.search)
+const fresh = params.get('fresh')
 const synthetic = params.has('foldBench')
   ? createSidebarFoldFixture()
   : createSidebarFixture(Number(params.get('rows') ?? 24))
@@ -47,6 +49,28 @@ document.documentElement.classList.toggle('dark', (params.get('mode') ?? 'dark')
 if (params.get('density'))
   document.documentElement.dataset.density = params.get('density') as string
 
+/** The creating device's queued row before any server answer (POD-6400). */
+function FreshTask({ title }: { title: string }) {
+  const pool = useWorklistPool()
+  const records = useCommands().records
+  useEffect(() => {
+    if (!pool) return
+    let cancelled = false
+    // The pool has attached its writer; declarations must load before newId.
+    void loadRecordDeclarations().then(() => {
+      if (cancelled) return
+      return records.create('issueProjection', records.newId('issueProjection'), {
+        title,
+        repoPath: '/synthetic/project',
+      })
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [pool, records, title])
+  return null
+}
+
 /** The real dialog, closed by its own Create the way the shell closes it. */
 function NewTask() {
   const [open, setOpen] = useState(true)
@@ -64,30 +88,13 @@ createRoot(document.getElementById('root') as HTMLElement).render(
       throw new Error(message)
     }}
     attachRuntime={(owner) => {
-      const detach = attachWorklistPool(owner, (error) => {
+      return attachWorklistPool(owner, (error) => {
         throw error
       })
-      // ?fresh=<title>: create an issue through the real generic create. The
-      // network is off, so it stays queued: the row as the creating device
-      // shows it before the server answers (POD-6400).
-      const fresh = params.get('fresh')
-      if (fresh) {
-        const records = owner.access.records
-        const id = records.newId('issueProjection')
-        // The pool attaches its write log after this returns; retry until it has.
-        const create = (left: number) =>
-          records
-            .create('issueProjection', id, { title: fresh, repoPath: '/synthetic/project' })
-            .catch((error: unknown) => {
-              if (left === 0) throw error
-              setTimeout(() => void create(left - 1), 50)
-            })
-        setTimeout(() => void create(40), 0)
-      }
-      return detach
     }}
   >
     <ConfirmProvider>
+      {fresh && <FreshTask title={fresh} />}
       <div className="desktop-shell-row" style={{ height: '100dvh' }} data-testid="sidebar-harness">
         <ResizableAside>
           <SidebarUnified />
