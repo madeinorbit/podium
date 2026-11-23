@@ -246,7 +246,7 @@ export const TABLE_MANIFEST = {
     origin: 'schema',
     idgen: 'natural',
     reason:
-      "install secrets only (INSTALL_SECRET_KEYS: installation key, update signing keys, identity signing secret); a workspace's own secrets moved to workspace_secrets (POD-7013)",
+      "install secrets only (INSTALL_SECRET_KEYS: installation key, update signing keys, identity signing secret, live grant keys); a workspace's own secrets moved to workspace_secrets (POD-7013)",
     hard: true,
   },
   session_drafts: workspace('natural', 'per session'),
@@ -647,6 +647,8 @@ export const INSTALL_SECRET_KEYS: readonly KeyPattern[] = [
   { key: 'updates.signingKey' },
   { key: 'updates.signingKeyAnchor' },
   { key: 'identity.signingSecret' },
+  // The self-hosted live grant key ring (POD-7311); hosted reads its ring from configuration.
+  { key: 'liveGrants.signingKeys' },
 ]
 
 /** THE WORKSPACE SECRETS, now in `workspace_secrets`; moved as {@link WORKSPACE_META_KEYS}. */

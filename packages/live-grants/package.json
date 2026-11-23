@@ -1,0 +1,31 @@
+{
+  "name": "@podium/live-grants",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Short-lived signed grants for the live channel (POD-6954 design 4.5): the format, Ed25519 signing by Core and verification by the room and the daemon with a public key ring. A client grant names the sessions, machines, roots and logins a member may watch or use; a daemon grant names its machine. No database and no network in the verifier. Depends only on @podium/model; never apps/*.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "@podium/source": "./src/index.ts",
+      "types": "./src/index.ts",
+      "import": "./src/index.ts"
+    },
+    "./key-file": {
+      "@podium/source": "./src/key-file.ts",
+      "types": "./src/key-file.ts",
+      "import": "./src/key-file.ts"
+    }
+  },
+  "scripts": {
+    "typecheck": "bun ../../scripts/typecheck-project.ts",
+    "test": "bun ../../scripts/validation-admission.ts focused --label @podium/live-grants:test -- bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.config.ts --passWithNoTests"
+  },
+  "dependencies": {
+    "@podium/model": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "vitest": "5.0.0-beta.6"
+  }
+}

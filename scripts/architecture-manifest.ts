@@ -522,6 +522,14 @@ export const MANIFEST: Readonly<Record<string, WorkspaceTags>> = {
     features: ['blob-store'],
     deps: ['packages/model'],
   },
+  // Short-lived signed grants for the live channel (POD-7311, POD-6954 design 4.5):
+  // Core signs, the room and the daemon verify with a public key ring. No database.
+  'packages/live-grants': {
+    layer: 1,
+    platform: 'node-only',
+    features: ['live-grants'],
+    deps: ['packages/model'],
+  },
   // The PTY kernel split out of agent-bridge (POD-396, ADR 8 D4): backends,
   // the durable host (the vendored Rust podium-host; the abduco attach client for
   // sessions older releases started), byte framing, OSC scan,

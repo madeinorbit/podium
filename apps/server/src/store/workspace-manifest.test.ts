@@ -20,7 +20,7 @@ import { openTestStore } from '../test-support/open-test-store'
 import { testStoreEngine } from '../test-support/pg-test-database'
 import { type StoreSql, storeSql } from '../test-support/store-sql'
 import { LEGACY_WORKTREE_MIGRATION } from './issues'
-import { IDENTITY_SIGNING_SECRET_KEY } from './server-secrets'
+import { IDENTITY_SIGNING_SECRET_KEY, LIVE_GRANT_KEYS_SECRET_KEY } from './server-secrets'
 import { CARRY_OVER_ENDS_AT_KEY } from './sign-in-carry-over'
 import {
   classifyTable,
@@ -386,7 +386,11 @@ describe('workspace table manifest', () => {
     for (const key of installMeta) expect(keyIn(INSTALL_META_KEYS, key), key).toBe(true)
     for (const key of [RETIRED_MEMBER_MAPPING, CARRY_OVER_ENDS_AT_KEY, 'settings'])
       expect(keyIn(WORKSPACE_META_KEYS, key), key).toBe(true)
-    for (const key of [INSTALLATION_PRIVATE_KEY, IDENTITY_SIGNING_SECRET_KEY])
+    for (const key of [
+      INSTALLATION_PRIVATE_KEY,
+      IDENTITY_SIGNING_SECRET_KEY,
+      LIVE_GRANT_KEYS_SECRET_KEY,
+    ])
       expect(keyIn(INSTALL_SECRET_KEYS, key), key).toBe(true)
     for (const key of [...SERVER_SECRET_KEYS, FINGERPRINT_SECRET_KEY])
       expect(keyIn(WORKSPACE_SECRET_KEYS, key), key).toBe(true)

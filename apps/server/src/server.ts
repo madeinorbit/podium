@@ -150,6 +150,8 @@ import { registerMobilePairingRoutes } from './mobile-pairing-route'
 import { connectClient } from './modules/connect/client'
 import { ConnectPublisher } from './modules/connect/publisher'
 import { connectScanThroughEffect } from './modules/fleet/discovery-effects'
+import { LIVE_GRANT_KEYS_FILE_ENV, liveGrantKeySource } from './modules/live-grants/keys'
+import { registerLiveGrantRoutes } from './modules/live-grants/route'
 import { registerMaintenanceRoute } from './modules/maintenance/route'
 import { MaintenanceService } from './modules/maintenance/service'
 import { directSessionPort, MessagingService } from './modules/messaging'
@@ -2129,6 +2131,28 @@ export async function startServer(
     workspaceOf: boundWorkspaceOf,
     worker: () => syncWorker,
     principal: async (request) => syncFeedPrincipal(await principalOfRequest(request)),
+  })
+  // Live grants (POD-7311): a member's signed pass for what a screen shows on
+  // the live channel. Admitted like /sync/*; the keys come from configuration on
+  // hosted and from the install's secrets on self-hosted.
+  app.use('/live/*', cors())
+  app.use('/live/*', boundary)
+  app.use('/live/*', guard)
+  registerLiveGrantRoutes(app, {
+    member: async (request) => {
+      const resolution = await memberOfRequest(request)
+      return resolution.kind === 'member'
+        ? { principal: resolution.principal, role: resolution.role }
+        : undefined
+    },
+    workspaceOf: boundWorkspaceOf,
+    storeWorkspace: store.workspaceId,
+    sources: { sessions: store.sessions, machines: registry.modules.machines, repos: store.repos },
+    keys: liveGrantKeySource({
+      file: process.env[LIVE_GRANT_KEYS_FILE_ENV],
+      hosted: capabilities.mode === 'hosted',
+      secrets: store.secrets,
+    }),
   })
   /**
    * The host-local first-run bootstrap, which acts as the earliest admin

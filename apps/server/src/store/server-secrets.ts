@@ -64,6 +64,9 @@ import { inWorkspace, param, prepared, preparedGlobal, WORKSPACE } from './execu
 /** Internal key of the sign-in signing secret; not a settings secret. */
 export const IDENTITY_SIGNING_SECRET_KEY = 'identity.signingSecret'
 
+/** Internal key of the self-hosted live grant key ring (POD-7311); not a settings secret. */
+export const LIVE_GRANT_KEYS_SECRET_KEY = 'liveGrants.signingKeys'
+
 const log = createLogger('server:secrets')
 
 /**
@@ -194,6 +197,28 @@ const insertIdentitySecret = preparedGlobal((db, t) =>
     .prepare(),
 )
 
+/** The self-hosted live grant key ring, one per install (POD-7311). */
+const liveGrantKeysValue = preparedGlobal((db, t) =>
+  db
+    .select({ value: t.serverSecrets.value })
+    .from(t.serverSecrets)
+    .where(eq(t.serverSecrets.key, LIVE_GRANT_KEYS_SECRET_KEY))
+    .prepare(),
+)
+
+/** Minted once: a second process that mints at the same time keeps the first row. */
+const insertLiveGrantKeysIfAbsent = preparedGlobal((db, t) =>
+  db
+    .insert(t.serverSecrets)
+    .values({
+      key: LIVE_GRANT_KEYS_SECRET_KEY,
+      value: sql.placeholder('value'),
+      updatedAt: sql.placeholder('updatedAt'),
+    })
+    .onConflictDoNothing({ target: t.serverSecrets.key })
+    .prepare(),
+)
+
 // Both tables call the column `value`; explicit aliases keep the executor's
 // named-row adapter from collapsing them before Drizzle decodes the result.
 const installationRow = preparedGlobal((db, t) =>
@@ -286,6 +311,28 @@ export class ServerSecretsRepository {
       const value = randomBytes(32).toString('base64url')
       await insertIdentitySecret(this.db).run({ value, updatedAt: new Date().toISOString() })
       return value
+    })
+  }
+
+  /**
+   * The self-hosted install's live grant key ring, as key-file JSON with the
+   * private halves (POD-7311): read, or minted with `mint` on the first call.
+   * In the database, like the identity signing secret, so it moves with the
+   * install. A hosted server never calls this: its ring comes from
+   * configuration (POD-6954 design 4.5).
+   */
+  async liveGrantKeys(opts: { mint?: () => string }): Promise<string | undefined> {
+    const row = await liveGrantKeysValue(this.db).get()
+    if (row || !opts.mint) return row?.value
+    const mint = opts.mint
+    return await this.createOrJoinTransaction(async () => {
+      await insertLiveGrantKeysIfAbsent(this.db).run({
+        value: mint(),
+        updatedAt: new Date().toISOString(),
+      })
+      const minted = await liveGrantKeysValue(this.db).get()
+      if (!minted) throw new Error('the live grant key ring is missing from the database')
+      return minted.value
     })
   }
 

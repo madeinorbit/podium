@@ -167,6 +167,7 @@
         "@podium/identity": "workspace:*",
         "@podium/issue-client": "workspace:*",
         "@podium/janitor": "workspace:*",
+        "@podium/live-grants": "workspace:*",
         "@podium/logger": "workspace:*",
         "@podium/model": "workspace:*",
         "@podium/protocol": "workspace:*",
@@ -446,6 +447,17 @@
         "@podium/runtime": "workspace:*",
       },
       "devDependencies": {
+        "vitest": "5.0.0-beta.6",
+      },
+    },
+    "packages/live-grants": {
+      "name": "@podium/live-grants",
+      "version": "0.0.0",
+      "dependencies": {
+        "@podium/model": "workspace:*",
+      },
+      "devDependencies": {
+        "@types/node": "^24.0.0",
         "vitest": "5.0.0-beta.6",
       },
     },
@@ -1573,6 +1585,8 @@
     "@podium/janitor": ["@podium/janitor@workspace:packages/janitor"],
 
     "@podium/keyecho": ["@podium/keyecho@workspace:tests/keyecho"],
+
+    "@podium/live-grants": ["@podium/live-grants@workspace:packages/live-grants"],
 
     "@podium/logger": ["@podium/logger@workspace:packages/logger"],
 
@@ -3886,6 +3900,8 @@
 
     "@podium/client-graph/@types/node": ["@types/node@24.13.3", "", { "dependencies": { "undici-types": "~7.18.0" } }, "sha512-Dh8vAsV36ig5wa9OX4pXvMc9D3Veibfw2wix0CUwYODLD8nkj9UsLjASr49nPg+2eKzxhBV+v7L8pXvT4e639Q=="],
 
+    "@podium/live-grants/@types/node": ["@types/node@24.13.3", "", { "dependencies": { "undici-types": "~7.18.0" } }, "sha512-Dh8vAsV36ig5wa9OX4pXvMc9D3Veibfw2wix0CUwYODLD8nkj9UsLjASr49nPg+2eKzxhBV+v7L8pXvT4e639Q=="],
+
     "@podium/mobile/react": ["react@19.2.3", "", {}, "sha512-Ku/hhYbVjOQnXDZFv2+RibmLFGwFdeeKHFcOTlrt7xplBnya5OGn/hIRDsqDiSUcfORsDC7MPxwork8jBwsIWA=="],
 
     "@podium/mobile/react-dom": ["react-dom@19.2.3", "", { "dependencies": { "scheduler": "^0.27.0" }, "peerDependencies": { "react": "^19.2.3" } }, "sha512-yELu4WmLPw5Mr/lmeEpox5rw3RETacE++JgHqQzd2dg+YbJuat3jH4ingc+WPZhxaoFzdv9y33G+F7Nl5O0GBg=="],
@@ -4311,6 +4327,8 @@
     "@podium/client-core/@types/node/undici-types": ["undici-types@7.18.2", "", {}, "sha512-AsuCzffGHJybSaRrmr5eHr81mwJU3kjw6M+uprWvCXiNeN9SOGwQ3Jn8jb8m3Z6izVgknn1R0FTCEAP2QrLY/w=="],
 
     "@podium/client-graph/@types/node/undici-types": ["undici-types@7.18.2", "", {}, "sha512-AsuCzffGHJybSaRrmr5eHr81mwJU3kjw6M+uprWvCXiNeN9SOGwQ3Jn8jb8m3Z6izVgknn1R0FTCEAP2QrLY/w=="],
+
+    "@podium/live-grants/@types/node/undici-types": ["undici-types@7.18.2", "", {}, "sha512-AsuCzffGHJybSaRrmr5eHr81mwJU3kjw6M+uprWvCXiNeN9SOGwQ3Jn8jb8m3Z6izVgknn1R0FTCEAP2QrLY/w=="],
 
     "@podium/terminal-client-react/@types/node/undici-types": ["undici-types@7.18.2", "", {}, "sha512-AsuCzffGHJybSaRrmr5eHr81mwJU3kjw6M+uprWvCXiNeN9SOGwQ3Jn8jb8m3Z6izVgknn1R0FTCEAP2QrLY/w=="],
 

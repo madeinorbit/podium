@@ -17,6 +17,7 @@
     "@podium/identity": "workspace:*",
     "@podium/issue-client": "workspace:*",
     "@podium/janitor": "workspace:*",
+    "@podium/live-grants": "workspace:*",
     "@podium/model": "workspace:*",
     "@podium/protocol": "workspace:*",
     "@podium/runtime": "workspace:*",
