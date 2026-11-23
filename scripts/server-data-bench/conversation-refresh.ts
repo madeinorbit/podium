@@ -16,7 +16,10 @@ import { asMachineId } from '@podium/model'
 import { eq, sql } from 'drizzle-orm'
 import { SELF_HOSTED_WORKSPACE_ID } from '../../apps/server/src/self-hosted-workspace'
 import { dialectOf } from '../../apps/server/src/store/executor/dialect-prepared'
-import { probeStatements } from '../../apps/server/src/store/executor/statement-probe'
+import {
+  probeStatements,
+  type StatementProbeHolder,
+} from '../../apps/server/src/store/executor/statement-probe'
 import {
   inWorkspace,
   param,
@@ -104,7 +107,7 @@ try {
       for (const arm of arms) {
         let refreshSqlMs = 0
         let statements = 0
-        const detach = probeStatements(store, (observation) => {
+        const detach = probeStatements(store as unknown as StatementProbeHolder, (observation) => {
           if (!/\bupdate "conversation_segments"/.test(observation.sql)) return
           assert.equal(observation.failed, false)
           refreshSqlMs += observation.durationMs

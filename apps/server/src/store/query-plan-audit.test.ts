@@ -1777,7 +1777,8 @@ describe('POD-7034 — every statement under the operator statistics', () => {
     sqlText: string,
     columns: ReadonlySet<string> = mostlyNull(),
   ): string[] => {
-    const tables = (schemaTables ??= tablesOf(database))
+    schemaTables ??= tablesOf(database)
+    const tables = schemaTables
     return plan.filter((detail) => {
       const search = /^SEARCH (\S+)(?: AS \S+)? USING (?:COVERING )?INDEX \S+ \(([^)]*)\)/.exec(
         detail,
