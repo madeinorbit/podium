@@ -20,7 +20,7 @@ The `descriptor` and `catalog` Adapter sections (spec §4.1/§4.5) are NOT rows 
 | `instrumentation` | supported | supported | supported | declined | declined | supported | supported |
 | `observer` | supported | supported | supported | supported | supported | supported | supported |
 | `transcript` | supported | supported | supported | supported | supported | supported | supported |
-| `composer` | supported | supported | declined | declined | declined | declined | declined |
+| `composer` | declined | supported | declined | declined | declined | declined | declined |
 | `handoffTranscript` | supported | supported | declined | declined | declined | declined | declined |
 | `conversationFile` | supported | supported | declined | declined | declined | supported | declined |
 | `classifyBrowserOpen` | supported | supported | declined | declined | declined | declined | supported |
@@ -51,8 +51,9 @@ The `descriptor` and `catalog` Adapter sections (spec §4.1/§4.5) are NOT rows 
 | `runtime.server.versionRange` | declined | supported | supported | supported | declined | declined | declined |
 | `runtime.server.clientTerminal` | declined | supported | supported | supported | declined | declined | declined |
 
-## claude-code — supported 29/38
+## claude-code — supported 28/38
 
+- `composer`: claude-code needs no composer readiness heuristic
 - `runtime.server`: Claude Code ships no server mode — the Agent SDK is in-process and `claude -p` is one-shot
 - `runtime.context.codex-app-server`: This Claude driver has no verified native context observation mechanism
 - `runtime.context.opencode-server`: This Claude driver has no verified native context observation mechanism
@@ -79,7 +80,7 @@ The `descriptor` and `catalog` Adapter sections (spec §4.1/§4.5) are NOT rows 
 
 ## grok — supported 24/40
 
-- `composer`: grok has no composer scrape rules yet
+- `composer`: grok needs no composer readiness heuristic
 - `handoffTranscript`: cross-machine handoff is not supported for grok sessions
 - `conversationFile`: grok declares no conversation file to move between its homes
 - `classifyBrowserOpen`: no catalogued grok login/link domains yet — the daemon generic redirect_uri heuristic decides (POD-738)
@@ -102,7 +103,7 @@ The `descriptor` and `catalog` Adapter sections (spec §4.1/§4.5) are NOT rows 
 - `usage`: OpenCode exposes no vendor quota endpoint and stores transcripts in SQLite — no harvest layout to declare yet
 - `install`: OpenCode is distributed through npm, brew, and its own standalone installer — no single vendor install script to run
 - `instrumentation`: opencode posts no hook payloads; observation is poll-only over its event stream and store
-- `composer`: opencode has no composer scrape rules; sessions drive through its server protocol
+- `composer`: opencode needs no composer readiness heuristic; sessions drive through its server protocol
 - `handoffTranscript`: cross-machine handoff is not supported for opencode sessions
 - `conversationFile`: opencode declares no conversation file to move between its homes
 - `classifyBrowserOpen`: no catalogued opencode login/link domains yet — the daemon generic redirect_uri heuristic decides (POD-738)
@@ -126,7 +127,7 @@ The `descriptor` and `catalog` Adapter sections (spec §4.1/§4.5) are NOT rows 
 - `usage`: Cursor exposes no declared quota endpoint or transcript harvest layout yet
 - `install`: cursor-agent is distributed through Cursor's own installer (curl https://cursor.com/install | bash)
 - `instrumentation`: Cursor posts no hook payloads; observation is poll-only over its transcript
-- `composer`: Cursor has no composer scrape rules yet
+- `composer`: Cursor needs no composer readiness heuristic
 - `handoffTranscript`: cross-machine handoff is not supported for cursor sessions
 - `conversationFile`: cursor declares no conversation file to move between its homes
 - `classifyBrowserOpen`: no catalogued cursor login/link domains yet — the daemon generic redirect_uri heuristic decides (POD-738)
@@ -152,7 +153,7 @@ The `descriptor` and `catalog` Adapter sections (spec §4.1/§4.5) are NOT rows 
 
 - `usage`: Pi exposes no declared quota endpoint or transcript harvest layout yet
 - `install`: Pi is distributed through npm, its standalone installer, and GitHub releases — no single vendor install script to run
-- `composer`: pi has no composer scrape rules yet
+- `composer`: pi needs no composer readiness heuristic
 - `handoffTranscript`: cross-machine handoff is not supported for pi sessions
 - `classifyBrowserOpen`: no catalogued pi login/link domains yet — the daemon generic redirect_uri heuristic decides
 - `inventory.loginCommand`: Pi signs in through its interactive /login command
