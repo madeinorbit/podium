@@ -1,26 +1,19 @@
-import { useCommands, useRequestClient, useUi } from '@podium/client-core/react'
+import { useCommands, useUi } from '@podium/client-core/react'
 import type { SessionModel } from '@podium/client-graph'
 import type { MachineHarness } from '@podium/client-graph/machine-harness'
-import { sessionCredentialChoices } from '@podium/client-graph/session-credential-facts'
-import type { CredentialId, IssueId, SessionId } from '@podium/model'
+import type { BuiltinHarnessKind, IssueId, SessionId } from '@podium/model'
 import { observer } from 'mobx-react-lite'
-import { useState } from 'react'
 import { useWorklistPool } from '@/app/store-worklist-pool'
 import type { Trpc } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
-import { CredentialMenuItems } from '@/features/credentials/session/CredentialMenuItems'
-import { useOpenCredentials } from '@/features/credentials/session/SessionCredentialNotice'
-import {
-  useHarnessAccepts,
-  useSessionCredentials,
-} from '@/features/credentials/session/use-session-credentials'
+import { openSetupAgents } from '@/features/setup-agents/open-setup-agents'
 
-/** Installation is explicit, followed by a credential for Podium's separate side. */
+/**
+ * A start that failed on the person's too-old install: open Set up agents on
+ * that harness. Nothing installs until the person presses Install there; its
+ * "Start <harness> session" hands back here and starts the same launch again
+ * (on the person's default credential for the harness, else its own sign-in).
+ */
 export const InstallCurrentHarness = observer(function InstallCurrentHarness({
   sessionId,
   firstPrompt,
@@ -45,102 +38,41 @@ const InstallCurrentHarnessControl = observer(function InstallCurrentHarnessCont
   row: MachineHarness
   firstPrompt?: string
 }) {
-  const sessionId = session.sessionId
-  const client = useRequestClient<Trpc>()
   const commands = useCommands<Trpc>()
   const ui = useUi()
-  const openCredentials = useOpenCredentials()
-  const credentials = useSessionCredentials()
-  const accepts = useHarnessAccepts(row?.machine.id)
-  const [installed, setInstalled] = useState(() => !!row.managed?.active)
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const choices = credentials.views
-    ? sessionCredentialChoices({
-        views: credentials.views,
-        accepts: accepts(row.kind),
-        machineId: row.machine.id,
-        custodianOf: credentials.custodianOf,
-      })
-    : []
-  const start = (credentialId: CredentialId | null) => {
-    if (!credentialId || !session.cwd) return
+  const restart = (harness: BuiltinHarnessKind) => {
+    if (!session.cwd) return
+    // The person may set up and start another harness from the panel; the failed
+    // launch's model and effort belong to the harness it named.
+    const same = harness === row.kind
     const input = session.launch?.input as
       | { issueId?: IssueId; model?: string; effort?: string }
       | undefined
     const started = commands.sessions.launch({
       target: { path: session.cwd, repoPath: session.cwd, machineId: row.machine.id },
-      agentKind: row.kind,
+      agentKind: harness,
       ...(input?.issueId ? { issueId: input.issueId } : {}),
-      credentialId,
       ...(firstPrompt ? { firstPrompt } : {}),
-      ...(input?.model ? { model: input.model } : {}),
-      ...(input?.effort ? { effort: input.effort } : {}),
+      ...(same && input?.model ? { model: input.model } : {}),
+      ...(same && input?.effort ? { effort: input.effort } : {}),
     })
-    void commands.sessions.killSession(sessionId)
+    void commands.sessions.killSession(session.sessionId)
     ui.navigateToSession(started.sessionId)
   }
   return (
-    <div className="flex flex-wrap items-center gap-2" aria-live="polite">
-      {!installed ? (
-        <Button
-          size="xs"
-          variant="outline"
-          disabled={busy || !row.canAct || row.inventory?.management?.installable === false}
-          title={row.installReason}
-          onClick={() => {
-            setBusy(true)
-            setError(null)
-            void client.harnessInstalls.action
-              .mutate({ machineId: row.machine.id, harness: row.kind, action: 'install' })
-              .then(
-                (result) => {
-                  if (!result.ok) setError(result.error ?? 'The install failed.')
-                  else {
-                    setInstalled(true)
-                    credentials.reload()
-                  }
-                },
-                (cause: unknown) =>
-                  setError(cause instanceof Error ? cause.message : String(cause)),
-              )
-              .finally(() => setBusy(false))
-          }}
-        >
-          {busy ? 'Installing…' : 'Install a current version for Podium'}
-        </Button>
-      ) : (
-        <>
-          <span className="text-xs text-muted-foreground">
-            Installed for Podium. Choose a credential; your own login stays in your folder.
-          </span>
-          <DropdownMenu modal={false}>
-            <DropdownMenuTrigger
-              render={
-                <Button size="xs" variant="outline">
-                  Choose credential and start
-                </Button>
-              }
-            />
-            <DropdownMenuContent>
-              <CredentialMenuItems
-                choices={choices}
-                ownLogin={false}
-                selected={undefined}
-                onSelect={start}
-              />
-            </DropdownMenuContent>
-          </DropdownMenu>
-          <Button size="xs" variant="ghost" onClick={openCredentials}>
-            Add a credential
-          </Button>
-        </>
-      )}
-      {error && (
-        <span role="alert" className="text-xs text-warning">
-          {error}
-        </span>
-      )}
-    </div>
+    <Button
+      size="xs"
+      variant="outline"
+      onClick={() =>
+        openSetupAgents({
+          machineId: row.machine.id,
+          origin: 'menu',
+          focus: row.kind,
+          onStart: restart,
+        })
+      }
+    >
+      {row.managed?.active ? `Start on Podium’s ${row.label}…` : `Set up a current ${row.label}…`}
+    </Button>
   )
 })
