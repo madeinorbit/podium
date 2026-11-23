@@ -29,12 +29,21 @@ async function main() {
   }
   let failed = 0
   for (const plan of plans) {
-    if (plan.runner.kind === 'bun-test') {
-      console.error(`test:file: bun test — ${plan.files.join(' ')}`)
+    if (plan.runner.kind !== 'vitest') {
+      const coreProcesses = plan.runner.kind === 'core-process'
+      const runner = coreProcesses ? 'core-process' : 'bun test'
+      console.error(`test:file: ${runner} — ${plan.files.join(' ')}`)
       const code = await runWithValidationAdmission(
         'focused',
-        ['bun', 'test', '--conditions=@podium/source', ...plan.files, ...args.extra],
-        { cwd: root, label: 'test:file (bun test)', env: process.env },
+        [
+          'bun',
+          'test',
+          '--conditions=@podium/source',
+          ...plan.files,
+          ...args.extra,
+          ...(coreProcesses ? ['--max-concurrency=1'] : []),
+        ],
+        { cwd: root, label: `test:file (${runner})`, env: process.env },
       )
       if (code !== 0) failed++
       continue

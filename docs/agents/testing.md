@@ -183,6 +183,34 @@ diagnostics before attributing it to the change.
 | `bun run test:watch` | Same projects in non-terminating watch mode, one worker | No parent command | Human-requested test-driven iteration only |
 | `bun run test:bun:unit` | Exact file `packages/runtime/test/sqlite.bun.test.ts` using `bun:test` | Full `test`; `test:bun` | Focused runtime SQLite changes |
 
+### Shared Postgres Core processes
+
+Use `apps/server/src/**/*.core-process.bun.test.ts` for behavior that has to survive a Core
+crash, work through any Core endpoint, or run once when multiple workers compete for work.
+This covers job claims and recovery, sync delivery and reconnects, and daemon operations
+and facts. Keep ordinary store and single-process wiring checks in their existing lanes.
+
+```bash
+bun run test:file -- apps/server/src/core-cluster.core-process.bun.test.ts
+```
+
+`test:file` runs these files as their own serial Bun group with one focused validation
+slot (1,000 MB admission charge). Run one cluster at a time and keep the default of two
+Core processes on the shared host. Each Core boots its own HTTP and WebSocket listener,
+store connection pool, sync worker, and background worker. Postgres uses one disposable
+clone per cluster from the [Postgres test harness](#postgres-store-lane). SQLite runs one
+Core over a temporary database file and can restart that Core against the same file.
+
+Import `startCoreTestCluster` from `apps/server/src/test-support/core-test-cluster.ts`.
+Use `client(index)` for authenticated tRPC and `route(index)` for HTTP and WebSocket URLs.
+For raw client requests, use the route's `clientHeaders` for authentication. Connect a daemon
+using the route's daemon socket URL and the test's protocol credentials.
+`kill(index)` sends `SIGKILL` and waits for the child to exit. `start(index)` reopens a killed
+slot on the same database. `setWakeUpsDropped(index, true)` suppresses the current local
+feed wake-up while leaving the fallback timer active, and toggling it back returns the
+number of callbacks dropped. Close the cluster in `finally` so the remaining children are
+stopped before their database is dropped.
+
 ### Server package shards
 
 The generated `apps/server/test-shards.json` is the authoritative file roster. Each shard is

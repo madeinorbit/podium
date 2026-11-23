@@ -202,7 +202,10 @@ export function fileFilters(argv: string[]): string[] {
     .filter
 }
 
-export type FileRunner = { kind: 'vitest'; lane: string } | { kind: 'bun-test' }
+export type FileRunner =
+  | { kind: 'vitest'; lane: string }
+  | { kind: 'bun-test' }
+  | { kind: 'core-process' }
 
 export interface FilePlan {
   runner: FileRunner
@@ -219,9 +222,12 @@ const isTestFile = (path: string) => /\.(test|spec)\.[cm]?[jt]sx?$/.test(path)
  */
 export function runnerFor(path: string): FileRunner | { error: string } {
   if (!isTestFile(path)) return { error: `${path} is not a test file (*.test.* or *.spec.*)` }
-  if (/\.bun\.test\.[cm]?[jt]sx?$/.test(path)) return { kind: 'bun-test' }
   const parts = path.split(sep)
   const [top, second] = parts
+  if (top === 'apps' && second === 'server' && path.endsWith('.core-process.bun.test.ts')) {
+    return { kind: 'core-process' }
+  }
+  if (/\.bun\.test\.[cm]?[jt]sx?$/.test(path)) return { kind: 'bun-test' }
   if (top === 'tests' && second === 'e2e') return { kind: 'vitest', lane: 'e2e' }
   if (
     path === 'scripts/loop-split-load.integration.test.ts' ||
@@ -293,7 +299,7 @@ export function planFiles(files: string[], root: string): { plans: FilePlan[]; e
       errors.push(runner.error)
       continue
     }
-    const key = runner.kind === 'vitest' ? `vitest:${runner.lane}` : 'bun-test'
+    const key = runner.kind === 'vitest' ? `vitest:${runner.lane}` : runner.kind
     const plan = groups.get(key) ?? { runner, files: [] }
     const cwd = runner.kind === 'vitest' ? (LANES[runner.lane] as Lane).cwd : '.'
     plan.files.push(relative(resolve(root, cwd), resolve(root, file)))

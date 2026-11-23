@@ -74,6 +74,18 @@ describe('test lanes', () => {
     })
   })
 
+  it('runs Core process fixtures in a separate Bun group', () => {
+    const core = 'apps/server/src/core-cluster.core-process.bun.test.ts'
+    const worker = 'apps/server/src/sync-worker/worker.bun.test.ts'
+    expect(planFiles([core, worker], root)).toEqual({
+      plans: [
+        { runner: { kind: 'core-process' }, files: [core] },
+        { runner: { kind: 'bun-test' }, files: [worker] },
+      ],
+      errors: [],
+    })
+  })
+
   it('uses the e2e directory only when no caller path filter was given', () => {
     const lane = LANES.e2e
     if (!lane) throw new Error('missing e2e lane')
