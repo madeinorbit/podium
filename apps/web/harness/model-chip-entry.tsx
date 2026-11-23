@@ -15,13 +15,17 @@
  *
  * Store, pool and model catalog are stubs (vite.model-chip.config.ts).
  */
+
+import { RuntimeProvider } from '@podium/client-core/react'
 import { asSessionId } from '@podium/model/browser'
+import { observable } from 'mobx'
 import type { JSX } from 'react'
+import { useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { ThemeProvider } from '@/app/theme'
 import { type ModelChipSession, SessionModelChip } from '@/features/chat/SessionModelChip'
 import { PostureNotices, SessionModeChip } from '@/features/chat/SessionPosture'
-import { setConfigureChange } from './model-chip-pool'
+import { chipSessions, configureChip, setConfigureChange } from './model-chip-pool'
 import '@/index.css'
 import '@/styles.css'
 
@@ -46,7 +50,8 @@ setConfigureChange('pending', {
 })
 
 function Row({ label, id }: { label: string; id: string }): JSX.Element {
-  const chip = running(id)
+  const [chip] = useState(() => observable(running(id)))
+  chipSessions.set(id, chip)
   return (
     <div className="flex items-center gap-4 py-2" data-row={id}>
       <span className="w-20 text-[12px] text-text-faint">{label}</span>
@@ -74,40 +79,110 @@ function ModeRow({ label, observedMode }: { label: string; observedMode?: string
 }
 
 const POSTURE_ONLY = new URLSearchParams(window.location.search).has('posture')
+const MODELS_ONLY = new URLSearchParams(window.location.search).has('models')
+const runtime = { commands: { sessions: { configure: configureChip } } } as never
+
+function HarnessRow({
+  label,
+  id,
+  kind,
+  model,
+}: {
+  label: string
+  id: string
+  kind: string
+  model: string
+}): JSX.Element {
+  const [chip] = useState(() =>
+    observable({
+      ...running(id),
+      agentKind: kind,
+      model,
+      observedModel: model,
+      effort: 'low',
+      configureFields: ['model', 'effort'],
+    } as ModelChipSession),
+  )
+  chipSessions.set(id, chip)
+  return (
+    <div className="flex items-center gap-4 border-b border-border py-4" data-row={id}>
+      <span className="w-32 text-sm text-text-dim">{label}</span>
+      <SessionModelChip session={chip} />
+    </div>
+  )
+}
 
 function Page(): JSX.Element {
   return (
-    <ThemeProvider>
-      <div className="min-h-screen bg-background p-6 text-foreground">
-        {/* `?posture` draws the launch terms alone (POD-6858). */}
-        {!POSTURE_ONLY && <Row label="idle" id="idle" />}
-        {!POSTURE_ONLY && <Row label="pending" id="pending" />}
-        <ModeRow label="requested" />
-        <ModeRow label="observed" observedMode="default" />
-        <div className="mt-4 w-[34rem] rounded-[10px] border border-border p-3" data-row="notices">
-          <PostureNotices
-            session={{
-              agentKind: 'cursor',
-              launchPosture: {
-                requestedMode: null,
-                unmet: [
-                  {
-                    requirement: 'workspace-trust',
-                    reason:
-                      'Cursor keeps interactive folder trust in private state that Podium does not write',
-                  },
-                  {
-                    requirement: 'podium-cli',
-                    reason:
-                      'Cursor takes allow rules only from a settings file shared with every Cursor session, which Podium does not edit',
-                  },
-                ],
-              },
-            }}
-          />
+    <RuntimeProvider runtime={runtime}>
+      <ThemeProvider>
+        <div className="min-h-screen bg-background p-6 text-foreground">
+          {MODELS_ONLY ? (
+            <div className="mx-auto max-w-2xl">
+              <h1 className="mb-2 text-xl">Headless session controls</h1>
+              <p className="mb-6 text-sm text-text-dim">
+                Model and effort apply to the next message in the same conversation.
+              </p>
+              <HarnessRow
+                label="Claude Code"
+                id="claude"
+                kind="claude-code"
+                model="claude-opus-5-5"
+              />
+              <HarnessRow label="Codex" id="codex" kind="codex" model="gpt-5-codex" />
+              <HarnessRow label="Grok" id="grok" kind="grok" model="grok-4.5" />
+              <HarnessRow
+                label="OpenCode 1"
+                id="opencode1"
+                kind="opencode"
+                model="anthropic/claude-sonnet-4"
+              />
+              <HarnessRow
+                label="OpenCode 2"
+                id="opencode2"
+                kind="opencode"
+                model="anthropic/claude-sonnet-4"
+              />
+              <HarnessRow label="Pi" id="pi" kind="pi" model="fake/model-a" />
+              <HarnessRow label="Cursor" id="cursor" kind="cursor" model="sonnet-thinking-low" />
+            </div>
+          ) : (
+            <>
+              {/* `?posture` draws the launch terms alone (POD-6858). */}
+              {!POSTURE_ONLY && <Row label="idle" id="idle" />}
+              {!POSTURE_ONLY && <Row label="pending" id="pending" />}
+              <ModeRow label="requested" />
+              <ModeRow label="observed" observedMode="default" />
+              <div
+                className="mt-4 w-[34rem] rounded-[10px] border border-border p-3"
+                data-row="notices"
+              >
+                <PostureNotices
+                  session={{
+                    agentKind: 'cursor',
+                    launchPosture: {
+                      requestedMode: null,
+                      unmet: [
+                        {
+                          requirement: 'workspace-trust',
+                          reason:
+                            'Cursor keeps interactive folder trust in private state that Podium does not write',
+                        },
+                        {
+                          requirement: 'podium-cli',
+                          reason:
+                            'Cursor takes allow rules only from a settings file shared with every Cursor session, which Podium does not edit',
+                        },
+                      ],
+                    },
+                  }}
+                />
+              </div>
+            </>
+          )}
         </div>
-      </div>
-    </ThemeProvider>
+      </ThemeProvider>
+    </RuntimeProvider>
   )
 }
 

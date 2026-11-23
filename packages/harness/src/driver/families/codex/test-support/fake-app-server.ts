@@ -717,6 +717,21 @@ export function startFakeAppServer(options: FakeAppServerOptions = {}): FakeAppS
       case 'getAuthStatus':
         respond(id, { authMethod: 'chatgpt', authToken: null, requiresOpenaiAuth: true })
         return
+      case 'config/read':
+        respond(id, {
+          config: { model: 'gpt-5-codex', model_reasoning_effort: null },
+          origins: {},
+          layers: null,
+        })
+        return
+      case 'model/list':
+        respond(id, {
+          data: [
+            { model: 'gpt-5-codex', defaultReasoningEffort: 'medium', isDefault: true },
+            { model: 'gpt-5.1-codex-max', defaultReasoningEffort: 'high', isDefault: false },
+          ],
+        })
+        return
       case 'thread/start': {
         const threadId = threadIds[mintedThreads++] ?? `thr-${mintedThreads}`
         server.threadId = threadId

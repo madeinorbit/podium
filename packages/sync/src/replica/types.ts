@@ -188,7 +188,7 @@ export interface BootstrapChunk {
    * `snapshotSeq`.
    */
   readonly complete?: readonly CompleteMarker[]
-  /** The first download's policy (`syncMeta.policy`), on its first chunk. */
+  /** The serving app policy (`syncMeta.policy`), on the answer's first chunk. */
   readonly policy?: CachePolicy
   readonly last: boolean
   /** Transfer header metadata, certified when the last chunk arrives. */

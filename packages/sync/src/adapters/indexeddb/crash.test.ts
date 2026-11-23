@@ -102,7 +102,7 @@ describe('IndexedDB adapter — kill between writes, at every boundary', () => {
       },
     })
 
-  it('commits replaced rows, their tokens and a marker together while keeping authored work', async () => {
+  it('commits replaced rows, their tokens, repair receipt and marker together while keeping authored work', async () => {
     const first = await open()
     const view = first.viewFor(PRINCIPAL)
     const issue = {
@@ -114,7 +114,10 @@ describe('IndexedDB adapter — kill between writes, at every boundary', () => {
     const repo = { entity: 'repo', entityId: 'keep', value: {}, provenance: { seq: 1 } }
     const oldTokens = { issueProjection: 'old', repo: 'unchanged' }
     await first.unitOfWork.transact(async (span) => {
-      view.cache.installSnapshot([issue, repo], CURSOR_1, [], span, { kindTokens: oldTokens })
+      view.cache.installSnapshot([issue, repo], CURSOR_1, [], span, {
+        kindTokens: oldTokens,
+        kindReloadVersion: 0,
+      })
       expect(
         await view.outbox.apply(
           {
@@ -144,6 +147,7 @@ describe('IndexedDB adapter — kill between writes, at every boundary', () => {
             ],
             cursor: CURSOR_2,
             kindTokens: newTokens,
+            kindReloadVersion: 1,
             instances: [mark(CURSOR_2)],
           },
           span,
@@ -152,11 +156,13 @@ describe('IndexedDB adapter — kill between writes, at every boundary', () => {
     factory.denyWriteAt({ at: 2, error: new Error('power loss') })
     await expect(replace(first)).rejects.toThrow('power loss')
     expect(view.cache.readKindTokens()).toEqual(oldTokens)
+    expect(view.cache.readKindReloadVersion()).toBe(0)
     expect(view.cache.readInstances().size).toBe(0)
     const other = await open()
     const otherView = other.viewFor(PRINCIPAL)
     expect(otherView.cache.readCursor()).toEqual(CURSOR_1)
     expect(otherView.cache.readKindTokens()).toEqual(oldTokens)
+    expect(otherView.cache.readKindReloadVersion()).toBe(0)
     expect(otherView.cache.readInstances().size).toBe(0)
     expect(otherView.cache.read(issue.entity, 'old')).toEqual(issue)
     other.close()
@@ -168,6 +174,7 @@ describe('IndexedDB adapter — kill between writes, at every boundary', () => {
       const saved = reopened.viewFor(PRINCIPAL)
       expect(saved.cache.readCursor()).toEqual(CURSOR_2)
       expect(saved.cache.readKindTokens()).toEqual(newTokens)
+      expect(saved.cache.readKindReloadVersion()).toBe(1)
       expect(saved.cache.readInstances().get(SIDEBAR_KEY)?.completeAt).toEqual(CURSOR_2)
       expect(
         saved.cache

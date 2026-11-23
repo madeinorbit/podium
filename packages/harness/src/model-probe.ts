@@ -6,8 +6,13 @@ import { createLogger } from '@podium/logger'
 import { claudeCodeDescriptor } from './adapters/claude-code/descriptor.js'
 import { codexModelProbeArgv, parseCodexModels } from './adapters/codex/model-probe.js'
 import { cursorModelProbeArgv, parseCursorModels } from './adapters/cursor/model-probe.js'
-import { grokModelProbeArgv, parseGrokModels } from './adapters/grok/model-probe.js'
+import {
+  grokModelProbeArgv,
+  grokModelProbeInput,
+  parseGrokModels,
+} from './adapters/grok/model-probe.js'
 import { opencodeModelProbeArgv, parseOpencodeModels } from './adapters/opencode/model-probe.js'
+import { probeOpencode2Models } from './adapters/opencode/model-probe-v2.js'
 import { parsePiModels, piModelProbeArgv } from './adapters/pi/model-probe.js'
 import type { HarnessContext } from './harness-context.js'
 import type { HarnessAccountScope } from './manifest.js'
@@ -17,7 +22,8 @@ const log = createLogger('harness:model-probe')
 
 /**
  * Live model enumeration for every agent:
- *   grok/cursor/opencode → `<cli> models`
+ *   cursor/opencode      → `<cli> models` (OpenCode includes variant metadata)
+ *   grok                 → ACP initialize modelState (no session or prompt)
  *   codex                → `codex debug models` (JSON)
  *   claude               → Anthropic `GET /v1/models`, matching the agent's auth: an
  *                          Anthropic API key if the user runs API-based Claude, else
@@ -47,8 +53,8 @@ export interface ModelChoice {
   label: string
   /** Reasoning-effort levels this specific model supports, when the source reports
    *  them authoritatively (claude `capabilities.effort`, codex `supported_reasoning_levels`).
-   *  `[]` = the model supports no effort (e.g. claude haiku). `undefined` = unknown
-   *  (grok/cursor/opencode don't expose it) → the web falls back to its agent-level list. */
+   *  `[]` = the model supports no effort (e.g. Claude Haiku). `undefined` = unknown;
+   *  the picker offers no effort until a model reports its levels. */
   efforts?: string[]
 }
 
@@ -95,29 +101,33 @@ export type ModelProbeExec = (
   argv: readonly string[],
   timeoutMs: number,
   env?: Readonly<Record<string, string>>,
+  stdin?: string,
 ) => Promise<string>
 
-const defaultExec: ModelProbeExec = async (argv, timeoutMs, env) => {
+const defaultExec: ModelProbeExec = async (argv, timeoutMs, env, stdin) => {
   const [cmd, ...args] = argv
-  const { stdout } = await execFileAsync(cmd as string, args, {
+  const result = execFileAsync(cmd as string, args, {
     timeout: timeoutMs,
     maxBuffer: 16 * 1024 * 1024,
     // Never the daemon's inherited env: the default exec only runs with a
     // context (see probeAgentModels), so this is always the account's.
     env: env ?? {},
   })
+  if (stdin !== undefined) result.child.stdin?.end(stdin)
+  const { stdout } = await result
   return stdout
 }
 
 export interface ProbeOptions {
   exec?: ModelProbeExec
+  opencode2?: typeof probeOpencode2Models
   timeoutMs?: number
   /**
    * The account context per CLI-probed harness (POD-6534): the installation's
    * verified executable runs with the account env. A harness without a
    * context (not installed in this generation) is not probed.
    */
-  contexts?: Partial<Record<ProbeableAgent, HarnessContext>>
+  contexts?: Partial<Record<ProbeableAgent, Pick<HarnessContext, 'installation' | 'env'>>>
 }
 
 /** Enumerate one agent's models. Any failure (CLI absent, not logged in, timeout)
@@ -136,7 +146,21 @@ export async function probeAgentModels(
     context?.installation.executable ?? (opts.exec ? MODEL_PROBES[kind][0] : undefined)
   if (!command) return []
   try {
-    return parseModels(kind, await exec([command, ...args], timeoutMs, context?.env))
+    if (
+      kind === 'opencode' &&
+      /^0\.0\.0-beta-(?:18743|18866)$/.test(context?.installation.version ?? '')
+    ) {
+      return context ? await (opts.opencode2 ?? probeOpencode2Models)(context, timeoutMs) : []
+    }
+    return parseModels(
+      kind,
+      await exec(
+        [command, ...args],
+        timeoutMs,
+        context?.env,
+        ...(kind === 'grok' ? [grokModelProbeInput] : []),
+      ),
+    )
   } catch {
     return []
   }

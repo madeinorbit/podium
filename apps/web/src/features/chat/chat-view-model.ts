@@ -207,7 +207,9 @@ export class ChatViewModel {
       turnRunning: this.conversation.turnRunning,
       compact: this.compact,
     })
-    return this.conversation.ready ? state : { ...state, deliverable: false, sendable: false }
+    return this.conversation.ready && !this.session?.configureChange?.inFlight
+      ? state
+      : { ...state, deliverable: false, sendable: false }
   }
   @lazy({ equals: compareStructural }) get activity() {
     return chatActivityState({

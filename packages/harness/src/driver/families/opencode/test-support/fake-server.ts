@@ -198,6 +198,9 @@ export async function startFakeOpencodeServer(options: {
       json(200, { ok: true })
       return
     }
+    if (path === '/config' && req.method === 'GET') {
+      return Response.json({ model: 'anthropic/claude-sonnet-4' })
+    }
 
     if (path === '/event' && req.method === 'GET') {
       res.writeHead(200, {

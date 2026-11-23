@@ -584,6 +584,9 @@ export const ReattachMessage = z.object({
   durableLabel: z.string(),
   agentKind: AgentKind,
   cwd: z.string(),
+  /** Latest accepted selections for a process-less headless session. */
+  model: z.string().optional(),
+  effort: z.string().optional(),
   /**
    * THE SERVER'S LAST-KNOWN GRID, AND A HINT ONLY (POD-3279).
    *

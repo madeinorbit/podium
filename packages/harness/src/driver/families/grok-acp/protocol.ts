@@ -8,6 +8,7 @@
  * Podium already consumes from `updates.jsonl`.
  */
 import { z } from 'zod'
+import { GrokModelState } from '../../../adapters/grok/model-state.js'
 
 export const GrokAcpRpcId = z.union([z.number(), z.string()])
 export type GrokAcpRpcId = z.infer<typeof GrokAcpRpcId>
@@ -66,6 +67,7 @@ export type GrokAcpPromptResult = z.infer<typeof GrokAcpPromptResult>
 export const GrokAcpSessionResult = z
   .object({
     sessionId: z.string().min(1),
+    models: GrokModelState.optional(),
   })
   .passthrough()
 export type GrokAcpSessionResult = z.infer<typeof GrokAcpSessionResult>
@@ -73,6 +75,7 @@ export type GrokAcpSessionResult = z.infer<typeof GrokAcpSessionResult>
 export const GrokAcpInitializeResult = z
   .object({
     protocolVersion: z.number().optional(),
+    _meta: z.object({ modelState: GrokModelState.optional() }).passthrough().optional(),
     agentCapabilities: z
       .object({
         loadSession: z.boolean().optional(),
@@ -156,6 +159,7 @@ export const GROK_ACP_METHODS = {
   sessionPrompt: 'session/prompt',
   sessionCancel: 'session/cancel',
   sessionSetMode: 'session/set_mode',
+  sessionSetModel: 'session/set_model',
   requestPermission: 'session/request_permission',
   /** Grok's interview tool, asked of the client (RUN 1.0.52, POD-6108). */
   askUserQuestion: '_x.ai/ask_user_question',

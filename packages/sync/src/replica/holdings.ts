@@ -36,7 +36,13 @@ import {
 } from '@podium/model'
 import { instanceKey, listedMarkers } from './cache-state'
 import { type HeldSpec, isListed, keyedShapeOf, keyedShapesOfKind } from './instance-shapes'
-import type { CachePolicy, EntityRecord, InstanceRecord, InstanceSpec } from './types'
+import type {
+  CachePolicy,
+  EntityRecord,
+  InstanceRange,
+  InstanceRecord,
+  InstanceSpec,
+} from './types'
 
 export type { HeldSpec } from './instance-shapes'
 
@@ -119,6 +125,24 @@ function compareSort(a: unknown, b: unknown): number {
   if (a === null || a === undefined) return 1
   if (b === null || b === undefined) return -1
   return (a as string | number) < (b as string | number) ? -1 : 1
+}
+
+/** Whether the fetched page has reached the range the device already held. */
+export function rangeReached(
+  collection: Collection,
+  have: InstanceRange,
+  want: InstanceRange,
+): boolean {
+  if (have.end || collection.page === undefined) return true
+  if (want.end) return false
+  if (want.through === undefined) return true
+  if (have.through === undefined) return false
+  for (let at = 0; at < collection.page.sort.length; at += 1) {
+    const order = compareSort(have.through[at], want.through[at])
+    if (order === 0) continue
+    return collection.page.sort[at]?.direction === 'asc' ? order > 0 : order < 0
+  }
+  return true
 }
 
 /** Whether a record falls inside a paged instance's range (at or above `through`). */
@@ -326,7 +350,12 @@ export function comesWithInstance(
 /** Per kind, the collections that declare comes-with (`collectionComesWithSettled`). */
 const collectionComesWith = new Map<
   string,
-  readonly { readonly id: string; readonly where: Where | undefined; readonly bare: boolean; readonly holderOnly: boolean }[]
+  readonly {
+    readonly id: string
+    readonly where: Where | undefined
+    readonly bare: boolean
+    readonly holderOnly: boolean
+  }[]
 >()
 
 /**
@@ -361,7 +390,10 @@ export function collectionComesWithSettled(
     if (
       collection.bare &&
       collection.where !== undefined &&
-      !matchesWhere(collection.where, (value ?? {}) as Readonly<Record<string, unknown>>, { now, args: {} })
+      !matchesWhere(collection.where, (value ?? {}) as Readonly<Record<string, unknown>>, {
+        now,
+        args: {},
+      })
     )
       continue
     return false

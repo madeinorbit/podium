@@ -40,7 +40,7 @@ export interface CollectionsJob extends Omit<BootstrapJob, 'mode' | 'view'> {
   mode: 'collections'
   instances: readonly CollectionInstance[]
 }
-export interface DeltaJob extends Omit<BootstrapJob, 'mode' | 'clientType' | 'view'> {
+export interface DeltaJob extends Omit<BootstrapJob, 'mode' | 'view'> {
   mode: 'delta'
   from: number
   to?: number

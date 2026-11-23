@@ -119,6 +119,8 @@ describe('the messages repository reads only its own workspace', () => {
       expect(ids(await m.listMessagesFor({ kind: 'operator' }), tag)).toEqual([mid(5)])
       expect(ids(await m.listMessagesFor({ kind: 'issue', id: iss(1) }), tag)).toEqual([mid(1)])
       expect(ids(await m.pendingForSessionProof(sid(1), NOW), tag)).toEqual(own(2, 3))
+      const proofs = await m.pendingForSessionsProof([sid(1), sid(2)], NOW)
+      expect(ids(proofs.get(sid(1)) ?? [], tag)).toEqual(own(2, 3))
       expect(ids(await m.listLedger({ issueId: iss(1), sessionId: sid(1) }), tag)).toEqual(
         own(1, 2, 3, 4),
       )

@@ -4,10 +4,12 @@ import {
   AgentCandidate,
   AgentKind,
   DEFAULT_FLEET_UPDATE_CHANNEL,
+  declaredRules,
   FEED_EVENT_KINDS,
   instancePreferencesRecordOf,
   MAX_AGENT_PROFILE_CANDIDATES,
   RECORDS,
+  type Where,
   WorkflowStep,
   WorkflowStepEvidence,
 } from '@podium/model'
@@ -100,6 +102,18 @@ const schemas = new Map<MetadataEntityKind, z.ZodTypeAny>([
 ])
 const kinds = DATABASE_ONLY_BUILDERS.map(({ kind }) => kind)
 
+// These predicates select persisted collection members, including comes-with
+// rules. Their declaration is shared by the server fetch and the device.
+const collectionRules = new Map<string, Record<string, Where>>()
+for (const { id, of, where } of declaredRules(RECORDS)) {
+  let rules = collectionRules.get(of)
+  if (rules === undefined) {
+    rules = {}
+    collectionRules.set(of, rules)
+  }
+  rules[id] = where
+}
+
 /** Object insertion order is not a policy change. Arrays retain their order. */
 function canonical(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonical)
@@ -117,9 +131,13 @@ function digestFor(kind: MetadataEntityKind, input: unknown = codeInputs[kind]):
   const schema = schemas.get(kind)
   if (!schema) throw new Error(`No wire schema for sync kind ${kind}`)
   const salt = salts[kind] ?? ''
+  const collections = collectionRules.get(kind)
+  const fingerprintInput = collections === undefined ? input : { code: input, collections }
   return schemaDigest(
     schema,
-    input === undefined ? salt : `${salt}\n${JSON.stringify(canonical(input))}`,
+    fingerprintInput === undefined
+      ? salt
+      : `${salt}\n${JSON.stringify(canonical(fingerprintInput))}`,
   )
 }
 const digests = kinds.map((kind) => digestFor(kind))

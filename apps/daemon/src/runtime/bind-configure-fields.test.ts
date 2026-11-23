@@ -17,11 +17,11 @@ import {
   type AgentSessionHandle,
   claudeSdkCapabilities,
   configureFieldsForDriver,
+  emitClaudeBinding,
 } from '@podium/harness/driver/host'
 import type { AgentRuntimeState, SessionId } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it } from 'vitest'
-import { emitClaudeBinding } from '@podium/harness/driver/host'
 
 type BindFrame = Extract<DaemonMessage, { type: 'bind' }>
 
@@ -66,10 +66,7 @@ describe('bind reports driver capabilities', () => {
     // The daemon's driver adapters moved into the harness driver families in
     // 1.5; the bind still states its capabilities from the declaration.
     const source = readFileSync(
-      new URL(
-        `../../../../packages/harness/src/driver/families/${session}`,
-        import.meta.url,
-      ),
+      new URL(`../../../../packages/harness/src/driver/families/${session}`, import.meta.url),
       'utf8',
     )
     expect(source).toContain('attachKinds: [...attachKindsForDriver(handle.binding.driver)]')
@@ -93,13 +90,12 @@ describe('bind reports driver capabilities', () => {
      * The same emitter, a different bound driver, a different answer. This is
      * the property that makes the field worth putting on the wire: a client
      * cannot compute it from `agentKind` (unchanged between these two calls) or
-     * from the driver family (`grok-acp` is `server`, like opencode, and can
-     * change no model).
+     * from the driver family: Grok also publishes its permission-mode control.
      */
     const bind = await bindFrameFor('grok-acp')
 
     expect(bind.configureFields).toEqual([...configureFieldsForDriver('grok-acp')])
-    expect(bind.configureFields).not.toContain('model')
+    expect(bind.configureFields).toEqual(['model', 'effort', 'permissionMode'])
   })
 
   it('reports an EMPTY set for a terminal driver rather than omitting the field', async () => {

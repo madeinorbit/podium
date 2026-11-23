@@ -26,7 +26,6 @@ import { manualMemorySignals, WARM_GRACE_MS } from '../replica/memory'
 import type { CacheMutation, ReplicaCacheStore } from '../replica/ports'
 import { Replica } from '../replica/replica'
 import {
-  type CachePolicy,
   type Cursor,
   type EntityRecord,
   type InstanceRecord,
@@ -756,6 +755,363 @@ export function describeCollectionStore(instantiation: SyncInstantiation): void 
     })
 
     describe('a changed record shape', () => {
+      function deviceServer(): CollectionServer {
+        const server = new CollectionServer()
+        seedWorld(server)
+        server.answerComesWith = true
+        server.policy = {
+          ...WORLD_POLICY,
+          steps: [
+            { step: 'always', collections: ['machine.all', 'machineAccess.all'] },
+            ...WORLD_POLICY.steps,
+          ],
+        }
+        server.kindTokens = {
+          machine: 'v1',
+          machineAccess: 'v1',
+          session: 'v1',
+          sessionUserState: 'v1',
+          issueProjection: 'v1',
+        }
+        for (const id of ['M1', 'M2']) {
+          server.put('machine', id, { id, name: id, loggedOutHarnesses: [] })
+          server.put('machineAccess', `${PRINCIPAL}\n${id}`, {
+            userId: PRINCIPAL,
+            machineId: id,
+            hostname: id,
+            use: { allowed: true },
+            owned: true,
+            serviceAssignment: { agentExecution: true },
+          })
+        }
+        // A sleeping session on a visible task comes with the task, rather
+        // than belonging to session.live. Its own read state comes with it.
+        server.put(SESSION, 'S2', session('S2', { issueId: 'A1', status: 'hibernated' }))
+        for (const id of ['S1', 'S2'])
+          server.put('sessionUserState', `${PRINCIPAL}\n${id}`, {
+            userId: PRINCIPAL,
+            sessionId: id,
+            readAt: RECENTLY,
+          })
+        return server
+      }
+
+      function expectDeviceWhole(cache: ReplicaCacheStore): void {
+        for (const id of ['M1', 'M2']) {
+          expect.soft(cache.read('machine', id)?.value).toMatchObject({ id, name: id })
+          expect.soft(cache.read('machineAccess', `${PRINCIPAL}\n${id}`)?.value).toMatchObject({
+            owned: true,
+            serviceAssignment: { agentExecution: true },
+          })
+        }
+        for (const id of ['S1', 'S2']) {
+          expect.soft(cache.read(SESSION, id)?.value).toMatchObject({ sessionId: id })
+          expect.soft(cache.read('sessionUserState', `${PRINCIPAL}\n${id}`)?.value).toMatchObject({
+            sessionId: id,
+            readAt: RECENTLY,
+          })
+        }
+      }
+
+      it('keeps a populated device whole when machine access and session kind tokens change after the feed advances', async () => {
+        const server = deviceServer()
+        const booted = await boot(instantiation, server)
+        const { cache, replica } = booted
+        expectDeviceWhole(cache)
+        // No machine or session changed: an unrelated feed write makes the
+        // cursor newer than their last stored write before the update arrives.
+        server.put(ISSUE, 'A2', issue('A2', { stage: 'review', parentId: 'A1', title: 'renamed' }))
+        await feed(booted, server)
+        const fetchesBefore = server.fetches.length
+        server.kindTokens = {
+          ...server.kindTokens,
+          machine: 'v1',
+          machineAccess: 'v2',
+          session: 'v2',
+          sessionUserState: 'v2',
+        }
+        replica.observeKindTokens(server.kindTokens)
+        await ticks()
+        await replica.settled()
+        expectDeviceWhole(cache)
+        expect(server.bootstraps).toBe(1)
+        expect(
+          server.fetches
+            .slice(fetchesBefore)
+            .flat()
+            .map((spec) => spec.collection),
+        ).toContain('machineAccess.all')
+        expect(cache.readKindTokens()).toEqual(server.kindTokens)
+        expectMarkersTrue(cache, server)
+        expectIndexTrue(cache, server)
+      })
+
+      it('replaces an old projection at the same feed number, including a companion-only kind change', async () => {
+        const server = deviceServer()
+        const { cache, replica } = await boot(instantiation, server)
+        // Projections saved by the old release. The new server computes new
+        // fields from the same source rows, without writing to the feed.
+        for (const [entity, id] of [
+          ['machineAccess', `${PRINCIPAL}\nM1`],
+          ['sessionUserState', `${PRINCIPAL}\nS2`],
+        ] as const) {
+          const row = cache.read(entity, id) as EntityRecord
+          cache.applyAtomic({
+            operations: [
+              {
+                kind: 'upsert',
+                entity,
+                entityId: id,
+                value: { ...(row.value as object), serviceAssignment: undefined, readAt: null },
+                provenance: row.provenance,
+                asOf: rowAsOf(row),
+                force: true,
+              },
+            ],
+          })
+        }
+        const fetchesBefore = server.fetches.length
+        server.kindTokens = { ...server.kindTokens, sessionUserState: 'v2' }
+        replica.observeKindTokens(server.kindTokens)
+        await replica.settled()
+        expect(cache.read('sessionUserState', `${PRINCIPAL}\nS2`)?.value).toMatchObject({
+          readAt: RECENTLY,
+        })
+        const asked = server.fetches.slice(fetchesBefore).flat()
+        expect(asked.length).toBeGreaterThan(0)
+        expect(asked.every((spec) => spec.collection === 'sessionUserState.ofSession')).toBe(true)
+        server.kindTokens = { ...server.kindTokens, machineAccess: 'v2' }
+        replica.observeKindTokens(server.kindTokens)
+        await replica.settled()
+        expectDeviceWhole(cache)
+        expect(server.bootstraps).toBe(1)
+        expectIndexTrue(cache, server)
+      })
+
+      it('repairs an already damaged saved copy with matching tokens once, without another bootstrap', async () => {
+        const server = deviceServer()
+        const { cache, storage, replica } = await boot(instantiation, server)
+        replica.disconnect()
+        server.kindTokens = {
+          ...server.kindTokens,
+          machine: 'v1',
+          machineAccess: 'v2',
+          session: 'v2',
+          sessionUserState: 'v2',
+        }
+        // The old algorithm saved the new tokens and complete markers after
+        // deleting the rows. Rebuild the kernel over that saved state.
+        cache.applyAtomic({
+          operations: cache
+            .readEntities()
+            .filter((row) => ['machineAccess', SESSION, 'sessionUserState'].includes(row.entity))
+            .map((row) => ({
+              kind: 'remove' as const,
+              entity: row.entity,
+              entityId: row.entityId,
+            })),
+          cursor: cache.readCursor() as Cursor,
+          kindTokens: server.kindTokens,
+          kindReloadVersion: 0,
+        })
+        expect(cache.readKindTokens()).toEqual(server.kindTokens)
+        expect(marked(cache, LIVE)).toBe(true)
+        expect(cache.read('machineAccess', `${PRINCIPAL}\nM1`)).toBeUndefined()
+        const fetchesBefore = server.fetches.length
+        const healed = kernelOver(storage, server)
+        healed.replica.connect()
+        healed.replica.observeKindTokens(server.kindTokens)
+        await healed.replica.settled()
+        expectDeviceWhole(cache)
+        expect(cache.readKindReloadVersion()).toBe(1)
+        const asked = server.fetches
+          .slice(fetchesBefore)
+          .flat()
+          .map((spec) => spec.collection)
+        expect(asked).toContain('machineAccess.all')
+        expect(asked).toContain('session.ofIssue')
+        expect(asked).toContain('machine.all')
+        expect(asked).toContain('issueProjection.sidebar')
+        expectMarkersTrue(cache, server)
+        expectIndexTrue(cache, server)
+        healed.replica.disconnect()
+        const fetchesAfter = server.fetches.length
+        const restarted = kernelOver(storage, server)
+        restarted.replica.connect()
+        restarted.replica.observeKindTokens(server.kindTokens)
+        await restarted.replica.settled()
+        expectDeviceWhole(cache)
+        expect(server.bootstraps).toBe(1)
+        expect(server.fetches).toHaveLength(fetchesAfter)
+      })
+
+      it('does not certify an interrupted repair; the next connection retries it', async () => {
+        const server = deviceServer()
+        const { cache, storage, replica } = await boot(instantiation, server)
+        await replica.load([tree('D2')])
+        await replica.settled()
+        expect(cache.read(ISSUE, 'D2')).toBeDefined()
+        cache.applyAtomic({
+          operations: [],
+          cursor: cache.readCursor() as Cursor,
+          kindReloadVersion: 0,
+        })
+        const collections = server.collections.bind(server)
+        server.collections = async function* (requests) {
+          for await (const chunk of collections(requests)) {
+            yield chunk
+            return // HTTP ended cleanly without its final chunk.
+          }
+        }
+        replica.observeKindTokens(server.kindTokens)
+        await expect(replica.settled()).rejects.toThrow('kind reload ended before the last chunk')
+        expect(cache.readKindReloadVersion()).toBe(0)
+        expectDeviceWhole(cache)
+        expect(marked(cache, tree('D2'))).toBe(true)
+        expect(replica.instanceStale(tree('D2'))).toBe(true)
+        replica.disconnect()
+        server.collections = collections
+        const retry = kernelOver(storage, server)
+        retry.replica.connect()
+        retry.replica.observeKindTokens(server.kindTokens)
+        await retry.replica.settled()
+        expect(cache.readKindReloadVersion()).toBe(1)
+        expectDeviceWhole(cache)
+        expect(cache.read(ISSUE, 'D2')).toBeDefined()
+        expect(retry.replica.instanceStale(tree('D2'))).toBe(false)
+        expect(server.bootstraps).toBe(1)
+        expectIndexTrue(cache, server)
+      })
+
+      it('reconfirms an undamaged older device once and preserves its whole rows and stubs', async () => {
+        const server = deviceServer()
+        const { cache, replica } = await boot(instantiation, server)
+        const before = contents(cache)
+        cache.applyAtomic({
+          operations: [],
+          cursor: cache.readCursor() as Cursor,
+          kindReloadVersion: 0,
+        })
+        replica.observeKindTokens(server.kindTokens)
+        await replica.settled()
+        expect(contents(cache)).toEqual(before)
+        expectDeviceWhole(cache)
+        expect(cache.readKindReloadVersion()).toBe(1)
+        expect(server.bootstraps).toBe(1)
+        expectMarkersTrue(cache, server)
+        expectIndexTrue(cache, server)
+      })
+
+      it('repairs the previously fetched page range, survives a close between pages, and stops before unfetched history', async () => {
+        const server = deviceServer()
+        server.pageRows = 1
+        server.put(ISSUE, 'D3', issue('D3', { stage: 'done', closedReason: 'completed' }))
+        const { cache, storage, replica } = await boot(instantiation, server)
+        const page: InstanceSpec = {
+          collection: 'issueProjection.byStage',
+          args: { stage: 'done' },
+          part: 'main',
+        }
+        await replica.load([page])
+        const first = cache.readInstances().get(instanceKey(page))?.range
+        await replica.load([{ ...page, after: first?.through }])
+        const before = cache.readInstances().get(instanceKey(page))?.range
+        expect(before?.end).toBe(false)
+        expect(partOf(cache, ISSUE, 'D2')).toBe('main')
+        expect(partOf(cache, ISSUE, 'D3')).toBe('stub')
+        cache.applyAtomic({
+          operations: [],
+          cursor: cache.readCursor() as Cursor,
+          kindReloadVersion: 0,
+        })
+        const collections = server.collections.bind(server)
+        server.collections = async function* (requests) {
+          for await (const chunk of collections(requests)) {
+            yield chunk
+            if (chunk.complete?.some((marker) => marker.collection === page.collection)) return
+          }
+        }
+        replica.observeKindTokens(server.kindTokens)
+        await expect(replica.settled()).rejects.toThrow('kind reload ended before the last chunk')
+        expect(cache.readKindReloadVersion()).toBe(0)
+        expect(cache.readInstances().get(instanceKey(page))?.range).toEqual(before)
+        replica.disconnect()
+        server.collections = collections
+        const restarted = kernelOver(storage, server)
+        restarted.replica.connect()
+        restarted.replica.observeKindTokens(server.kindTokens)
+        await restarted.replica.settled()
+        expect(cache.readInstances().get(instanceKey(page))?.range).toEqual(before)
+        expect(partOf(cache, ISSUE, 'D2')).toBe('main')
+        expect(partOf(cache, ISSUE, 'D3')).toBe('stub')
+        expect(cache.readKindReloadVersion()).toBe(1)
+        expect(server.bootstraps).toBe(1)
+      })
+
+      it('keeps a newer feed edit or removal while an older kind reload answer is held', async () => {
+        const server = deviceServer()
+        const { cache, replica } = await boot(instantiation, server)
+        const gate = barrier()
+        server.gate = gate.promise
+        server.kindTokens = {
+          ...server.kindTokens,
+          machine: 'v1',
+          machineAccess: 'v2',
+          session: 'v2',
+          sessionUserState: 'v2',
+        }
+        const fetched = server.fetches.length
+        replica.observeKindTokens(server.kindTokens)
+        await until(() => server.fetches.length > fetched)
+        const before = replica.cursor as Cursor
+        server.put(SESSION, 'S1', session('S1', { issueId: 'A1', name: 'newer' }))
+        server.drop(SESSION, 'S2')
+        server.drop('machineAccess', `${PRINCIPAL}\nM2`, 'evict')
+        await replica.receive(server.frameSince(before.seq))
+        // A second advertisement joins the reload already answering it.
+        replica.observeKindTokens(server.kindTokens)
+        gate.release()
+        await replica.settled()
+        expect(cache.read(SESSION, 'S1')?.value).toMatchObject({ name: 'newer' })
+        expect(cache.readRow(SESSION, 'S2')).toBeUndefined()
+        expect(cache.readRow('machineAccess', `${PRINCIPAL}\nM2`)).toBeUndefined()
+        expect(server.bootstraps).toBe(1)
+        expect(cache.readKindTokens()).toEqual(server.kindTokens)
+      })
+
+      it('reloads a changed companion kind whose holder is only on disk', async () => {
+        const server = new CollectionServer()
+        seedWorld(server)
+        server.answerComesWith = true
+        server.kindTokens = { sessionUserState: 'v1' }
+        const stateId = `${PRINCIPAL}\nS2`
+        server.put('sessionUserState', stateId, {
+          userId: PRINCIPAL,
+          sessionId: 'S2',
+          readAt: RECENTLY,
+        })
+        const { cache, replica } = await boot(instantiation, server)
+        await replica.load([tree('D2')])
+        await replica.settled()
+        await replica.unload(instanceKey(tree('D2')))
+        expect(cache.read(SESSION, 'S2')).toBeUndefined()
+        expect(cache.readDiskIndex().record(keyOf(SESSION, 'S2'))?.level).toBe('main')
+        server.kindTokens = { sessionUserState: 'v2' }
+        const fetched = server.fetches.length
+        replica.observeKindTokens(server.kindTokens)
+        await replica.settled()
+        expect(server.fetches.slice(fetched).flat()).toContainEqual({
+          collection: 'sessionUserState.ofSession',
+          args: { sessionId: 'S2' },
+          part: 'main',
+          via: SESSION,
+        })
+        const rows = await cache.readDiskRows([keyOf('sessionUserState', stateId)])
+        expect(rows[0]?.value).toMatchObject({ readAt: RECENTLY })
+        expect(server.bootstraps).toBe(1)
+        expectMarkersTrue(cache, server)
+      })
+
       it('reloads only the collections of that kind through the fetch, the old rows readable meanwhile', async () => {
         const server = new CollectionServer()
         seedWorld(server)
@@ -772,8 +1128,9 @@ export function describeCollectionStore(instantiation: SyncInstantiation): void 
         const fetchesBefore = server.fetches.length
         replica.observeKindTokens(server.kindTokens)
         await ticks()
-        // Withdrawn while the reload is in flight; the rows stay on screen.
-        expect(marked(cache, SIDEBAR)).toBe(false)
+        // Stale while the reload is in flight; its identity and rows survive
+        // a crash so the next device connection can finish the same reload.
+        expect(replica.instanceStale(SIDEBAR)).toBe(true)
         expect(marked(cache, LIVE)).toBe(true)
         expect(cache.read(ISSUE, 'A2')).toBeDefined()
         gate.release()
@@ -791,6 +1148,405 @@ export function describeCollectionStore(instantiation: SyncInstantiation): void 
         expect(cache.readRow(ISSUE, 'A2')).toBeUndefined()
         for (const spec of [LIVE, SIDEBAR, STUBS]) expect(marked(cache, spec)).toBe(true)
         expectMarkersTrue(cache, server)
+      })
+
+      describe('device reload audit', () => {
+        it('rechecks a new server token advertised while an older bootstrap is still installing', async () => {
+          const server = deviceServer()
+          const generation = server.kindTokens
+          const finish = barrier()
+          const bootstrap = server.bootstrap.bind(server)
+          server.bootstrap = async function* (signal, view) {
+            let first = true
+            for await (const chunk of bootstrap(signal, view)) {
+              yield chunk
+              if (first) await finish.promise
+              first = false
+            }
+          }
+          const { cache, replica } = kernelOver(await instantiation.open(), server)
+          replica.connect()
+          try {
+            await until(() => cache.readKindTokens() !== undefined)
+            expect(cache.readKindTokens()).toEqual(generation)
+            expect(replica.posture).toBe('bootstrapping')
+            server.kindTokens = { ...generation, machineAccess: 'v2' }
+            replica.observeKindTokens(server.kindTokens)
+          } finally {
+            finish.release()
+          }
+          await replica.settled()
+
+          expect(replica.posture).toBe('live')
+          expect(cache.readKindTokens()).toEqual(server.kindTokens)
+        })
+
+        it('installs the restored epoch even when its snapshot sequence is lower', async () => {
+          const before = deviceServer()
+          before.put(ISSUE, 'A1', issue('A1', { title: 'Edited after the backup' }))
+          before.put(ISSUE, 'A9', issue('A9'))
+          const { storage, replica } = await boot(instantiation, before)
+          replica.disconnect()
+
+          const restored = Object.assign(deviceServer(), { epoch: 'restored-epoch' })
+          restored.changesRange = async () => ({
+            kind: 'bootstrap-required',
+            reason: 'feed-identity-mismatch',
+          })
+          expect(restored.head).toBeLessThan(before.head)
+          const opened = await boot(instantiation, restored, storage)
+          expect(opened.cache.readCursor()).toEqual(restored.cursorAt())
+          expect.soft(opened.cache.read(ISSUE, 'A1')?.value).toMatchObject({ title: 'Issue A1' })
+          expect(opened.cache.readRow(ISSUE, 'A9')).toBeUndefined()
+        })
+
+        it('repairs legacy rows left ahead of an already adopted restored epoch', async () => {
+          const before = deviceServer()
+          before.put(ISSUE, 'A1', issue('A1', { title: 'Edited after the backup' }))
+          before.put(ISSUE, 'A9', issue('A9'))
+          const { cache, storage, replica } = await boot(instantiation, before)
+          replica.disconnect()
+
+          const restored = Object.assign(deviceServer(), { epoch: 'restored-epoch' })
+          // The old replica advanced the cursor but left the previous era's rows.
+          cache.applyAtomic({
+            operations: [],
+            cursor: restored.cursorAt(),
+            kindTokens: restored.kindTokens,
+            kindReloadVersion: 1,
+          })
+          const changes = restored.changesRange.bind(restored)
+          restored.changesRange = async (cursor, _signal, onTarget) => {
+            onTarget?.(restored.cursorAt(), restored.kindTokens, restored.policy)
+            return changes(cursor)
+          }
+
+          const reopened = await boot(instantiation, restored, storage)
+          expect(reopened.cache.readCursor()).toEqual(restored.cursorAt())
+          expect(reopened.cache.read(ISSUE, 'A1')?.value).toMatchObject({ title: 'Issue A1' })
+          expect(reopened.cache.readRow(ISSUE, 'A9')).toBeUndefined()
+          expect(reopened.cache.readRetainedKinds()).toBeDefined()
+        })
+
+        it('removes a retired kind on a replacement snapshot at the same feed sequence', async () => {
+          const server = deviceServer()
+          const { cache, replica } = await boot(instantiation, server)
+          const accessId = `${PRINCIPAL}\nM1`
+          expect(cache.read('machineAccess', accessId)).toBeDefined()
+          const retiredAt = server.cursorAt()
+          const tokens = { ...server.kindTokens }
+          delete tokens.machineAccess
+          server.kindTokens = tokens
+          server.policy = {
+            ...server.policy,
+            steps: server.policy.steps.map((step) => ({
+              ...step,
+              collections: step.collections.filter((id) => id !== 'machineAccess.all'),
+            })),
+          }
+          replica.observeKindTokens(server.kindTokens)
+          await replica.settled()
+
+          expect(cache.readCursor()).toEqual(retiredAt)
+          expect(cache.readKindTokens()).toEqual(server.kindTokens)
+          expect(cache.read('machineAccess', accessId)).toBeUndefined()
+        })
+
+        it('abandons an unfinished first download when its saved epoch has changed', async () => {
+          const server = deviceServer()
+          const storage = await instantiation.open()
+          // The first snapshot committed its initial chunk and was closed
+          // before the policy collections received their completion markers.
+          storage.viewFor(PRINCIPAL).cache.applyAtomic({
+            operations: [],
+            cursor: { ...server.cursorAt(), epoch: 'previous-epoch' },
+            kindTokens: server.kindTokens,
+            policy: server.policy,
+            loadingSince: server.head,
+          })
+          server.changesRange = async () => ({
+            kind: 'bootstrap-required',
+            reason: 'feed-identity-mismatch',
+          })
+
+          const { cache, replica } = await boot(instantiation, server, storage)
+          expect.soft(cache.readCursor()).toEqual(server.cursorAt())
+          expect.soft(cache.readLoadingSince()).toBeNull()
+          expect(replica.posture).toBe('live')
+        })
+
+        it('admits notices when an upgrade adds them to the policy of an existing device', async () => {
+          const server = deviceServer()
+          const booted = await boot(instantiation, server)
+          const { cache, replica } = booted
+          server.policy = {
+            ...server.policy,
+            steps: [...server.policy.steps, { step: 'always', collections: ['inboxNotice.all'] }],
+          }
+          // The credential management migration introduced the notice kind
+          // while also bumping the session generation in each workspace.
+          server.kindTokens = { ...server.kindTokens, session: 'v2', inboxNotice: 'v1' }
+          replica.observeKindTokens(server.kindTokens)
+          await replica.settled()
+
+          const notice = {
+            noticeId: 'N1',
+            recipientUserId: PRINCIPAL,
+            kind: 'mention',
+            subjectKind: 'issue',
+            subjectId: 'A1',
+            title: 'Mentioned on an issue',
+            createdAt: RECENTLY,
+          }
+          const noticeId = `${PRINCIPAL}\n${notice.noticeId}`
+          server.put('inboxNotice', noticeId, notice)
+          await feed(booted, server)
+
+          expect(cache.readCursor()).toEqual(server.cursorAt())
+          expect(cache.readKindTokens()).toEqual(server.kindTokens)
+          expect(cache.read('inboxNotice', noticeId)?.value).toEqual(notice)
+        })
+
+        it('still admits sessions for a disk-only tree after an empty companion reload', async () => {
+          const server = new CollectionServer()
+          seedWorld(server)
+          server.drop(SESSION, 'S2')
+          server.answerComesWith = true
+          server.kindTokens = { session: 'v1' }
+          const booted = await boot(instantiation, server)
+          const { cache, replica } = booted
+          const spec = tree('D2')
+          await replica.load([spec])
+          await replica.settled()
+          await replica.unload(instanceKey(spec))
+          expect(replica.isUnloaded(ISSUE, 'D2')).toBe(true)
+          expect(cache.readDiskIndex().record(keyOf(ISSUE, 'D2'))?.cw).toContain(spec.collection)
+
+          server.kindTokens = { session: 'v2' }
+          replica.observeKindTokens(server.kindTokens)
+          await replica.settled()
+          expect(cache.readKindTokens()).toEqual(server.kindTokens)
+          expect(replica.isUnloaded(ISSUE, 'D2')).toBe(true)
+          server.put(SESSION, 'S3', session('S3', { issueId: 'D2', status: 'hibernated' }))
+          await feed(booted, server)
+
+          expect(cache.readCursor()).toEqual(server.cursorAt())
+          const rows = await cache.readDiskRows([keyOf(SESSION, 'S3')])
+          expect(rows.map((row) => row.entityId)).toEqual(['S3'])
+        })
+
+        it('keeps the whole issue from a tree first opened while its kind reload starts', async () => {
+          const server = deviceServer()
+          const { cache, replica } = await boot(instantiation, server)
+          const spec = tree('D2')
+          expect(partOf(cache, ISSUE, 'D2')).toBe('stub')
+          expect(marked(cache, spec)).toBe(false)
+
+          const gate = barrier()
+          server.gate = gate.promise
+          server.kindTokens = { ...server.kindTokens, issueProjection: 'v2' }
+          const fetchesBefore = server.fetches.length
+          const opening = replica.load([spec])
+          try {
+            await until(() => server.fetches.length > fetchesBefore)
+            replica.observeKindTokens(server.kindTokens)
+            await until(() => replica.instanceStale(SIDEBAR))
+          } finally {
+            gate.release()
+          }
+          await opening
+          await replica.settled()
+
+          expect(marked(cache, spec)).toBe(true)
+          expect(cache.readKindTokens()).toEqual(server.kindTokens)
+          expect(partOf(cache, ISSUE, 'D2')).toBe('main')
+        })
+
+        it('reloads the companion kind before certifying its token from a newer answer', async () => {
+          const server = deviceServer()
+          const stateId = `${PRINCIPAL}\nS2`
+          server.put('sessionUserState', stateId, {
+            userId: PRINCIPAL,
+            sessionId: 'S2',
+            readAt: null,
+          })
+          const { cache, replica, storage } = await boot(instantiation, server)
+          expect(cache.read('sessionUserState', stateId)?.value).toMatchObject({ readAt: null })
+          const collections = server.collections.bind(server)
+          server.collections = async function* (requests) {
+            for await (const chunk of collections(requests)) {
+              yield {
+                ...chunk,
+                changes: chunk.changes.map((change) =>
+                  change.entity === 'sessionUserState' && change.entityId === stateId
+                    ? {
+                        ...change,
+                        payload: { userId: PRINCIPAL, sessionId: 'S2', readAt: RECENTLY },
+                      }
+                    : change,
+                ),
+              }
+            }
+          }
+
+          replica.observeKindTokens({ ...server.kindTokens, machineAccess: 'v2' })
+          server.kindTokens = { ...server.kindTokens, machineAccess: 'v2', sessionUserState: 'v2' }
+          replica.observeKindTokens(server.kindTokens)
+          await replica.settled()
+          replica.disconnect()
+
+          const restarted = kernelOver(storage, server)
+          restarted.replica.connect()
+          restarted.replica.observeKindTokens(server.kindTokens)
+          await restarted.replica.settled()
+          expect(restarted.cache.readKindTokens()).toEqual(server.kindTokens)
+          expect(restarted.cache.read('sessionUserState', stateId)?.value).toMatchObject({
+            readAt: RECENTLY,
+          })
+        })
+
+        it('records an updated token for an on-demand kind the device has never held', async () => {
+          const server = deviceServer()
+          server.kindTokens = { ...server.kindTokens, workflowRun: 'v1' }
+          const { cache, replica } = await boot(instantiation, server)
+          const fetchesBefore = server.fetches.length
+          server.kindTokens = { ...server.kindTokens, workflowRun: 'v2' }
+
+          replica.observeKindTokens(server.kindTokens)
+          await replica.settled()
+          replica.observeKindTokens(server.kindTokens)
+          await replica.settled()
+
+          expect(server.bootstraps).toBe(1)
+          expect(server.fetches).toHaveLength(fetchesBefore)
+          expect(cache.readKindTokens()?.workflowRun).toBe('v2')
+        })
+
+        it('restarts the saved range when the server generation changes between reload pages', async () => {
+          const server = deviceServer()
+          server.pageRows = 1
+          server.put(ISSUE, 'D3', issue('D3', { stage: 'done', closedReason: 'completed' }))
+          const { cache, replica } = await boot(instantiation, server)
+          const page: InstanceSpec = {
+            collection: 'issueProjection.byStage',
+            args: { stage: 'done' },
+            part: 'main',
+          }
+          const key = instanceKey(page)
+          await replica.load([page])
+          await replica.load([{ ...page, after: cache.readInstances().get(key)?.range?.through }])
+          const savedRange = cache.readInstances().get(key)?.range
+          expect(savedRange?.end).toBe(false)
+
+          server.kindTokens = { ...server.kindTokens, issueProjection: 'v2' }
+          const collections = server.collections.bind(server)
+          let switched = false
+          server.collections = (requests) => {
+            if (!switched && requests.some((request) => request.after !== undefined)) {
+              switched = true
+              server.kindTokens = { ...server.kindTokens, issueProjection: 'v3' }
+              expect(cache.readKindTokens()?.issueProjection).toBe('v1')
+              expect(cache.readInstances().get(key)?.range).toEqual(savedRange)
+            }
+            const generation = server.kindTokens.issueProjection
+            const answer = collections(requests)
+            return (async function* () {
+              for await (const chunk of answer)
+                yield {
+                  ...chunk,
+                  changes: chunk.changes.map((change) =>
+                    change.entity === ISSUE
+                      ? { ...change, payload: { ...(change.payload as object), title: generation } }
+                      : change,
+                  ),
+                }
+            })()
+          }
+          replica.observeKindTokens(server.kindTokens)
+          await replica.settled()
+
+          expect(switched).toBe(true)
+          expect(cache.readKindTokens()?.issueProjection).toBe('v3')
+          expect(cache.readInstances().get(key)?.range).toEqual(savedRange)
+          expect(cache.read(ISSUE, 'D1')?.value).toMatchObject({ title: 'v3' })
+          expect(cache.read(ISSUE, 'D2')?.value).toMatchObject({ title: 'v3' })
+          expect(partOf(cache, ISSUE, 'D3')).toBe('stub')
+          expect(server.bootstraps).toBe(1)
+        })
+
+        it('reconciles recent membership when the policy changes with the same tokens', async () => {
+          const server = deviceServer()
+          server.policy = {
+            ...server.policy,
+            steps: [...server.policy.steps, { step: 'recent', collections: ['session.recent'] }],
+          }
+          server.put(
+            SESSION,
+            'S10',
+            session('S10', {
+              status: 'ended',
+              lastActiveAt: new Date(WORLD_NOW - 10 * 86_400_000).toISOString(),
+            }),
+          )
+          const { cache, replica, storage } = await boot(instantiation, server)
+          expect(cache.read(SESSION, 'S10')).toBeDefined()
+          replica.disconnect()
+          server.policy = { ...server.policy, recentDays: 7 }
+          const changes = server.changesRange.bind(server)
+          server.changesRange = async (cursor, _signal, onTarget) => {
+            onTarget?.(server.cursorAt(), server.kindTokens, server.policy)
+            return changes(cursor)
+          }
+
+          const reopened = await boot(instantiation, server, storage)
+          expect(reopened.cache.readPolicy()).toEqual(server.policy)
+          expect(reopened.cache.readKindTokens()).toEqual(server.kindTokens)
+          expect(reopened.cache.read(SESSION, 'S10')).toBeUndefined()
+          expect(server.bootstraps).toBe(1)
+        })
+
+        it('replays the saved range after storage refuses the final reload receipt', async () => {
+          const server = deviceServer()
+          server.pageRows = 1
+          server.put(ISSUE, 'D3', issue('D3', { stage: 'done', closedReason: 'completed' }))
+          const { cache, replica, storage } = await boot(instantiation, server)
+          const page: InstanceSpec = {
+            collection: 'issueProjection.byStage',
+            args: { stage: 'done' },
+            part: 'main',
+          }
+          const key = instanceKey(page)
+          await replica.load([page])
+          await replica.load([{ ...page, after: cache.readInstances().get(key)?.range?.through }])
+          const savedRange = cache.readInstances().get(key)?.range
+          expect(savedRange?.end).toBe(false)
+
+          const apply = cache.applyAtomic.bind(cache)
+          cache.applyAtomic = (mutation, span) => {
+            if (mutation.kindTokens?.issueProjection === 'v2') storage.setWritesDenied(true)
+            apply(mutation, span)
+          }
+          server.kindTokens = { ...server.kindTokens, issueProjection: 'v2' }
+          replica.observeKindTokens(server.kindTokens)
+          try {
+            await expect(replica.settled()).rejects.toThrow()
+            expect(cache.readKindTokens()?.issueProjection).toBe('v1')
+            expect(replica.instanceStale(page)).toBe(true)
+            expect(cache.readInstances().get(key)?.range).toEqual(savedRange)
+          } finally {
+            cache.applyAtomic = apply
+            storage.setWritesDenied(false)
+          }
+
+          replica.disconnect()
+          const restarted = kernelOver(storage, server)
+          restarted.replica.connect()
+          restarted.replica.observeKindTokens(server.kindTokens)
+          await restarted.replica.settled()
+          expect(restarted.cache.readKindTokens()?.issueProjection).toBe('v2')
+          expect(restarted.cache.readInstances().get(key)?.range).toEqual(savedRange)
+          expect(restarted.replica.instanceStale(page)).toBe(false)
+        })
       })
     })
 
@@ -1327,6 +2083,40 @@ export function describeCollectionStore(instantiation: SyncInstantiation): void 
         expectOldestTwoGone(booted, server)
         expect(booted.events.some((e) => e.type === 'released' && e.entityId === 'P11')).toBe(true)
         expect(booted.events.some((e) => e.type === 'removed' || e.type === 'evicted')).toBe(false)
+      })
+
+      it('device reload audit does not download a tree disk pruning released during reload setup', async () => {
+        const { server, booted } = await fourTrees(undefined, {
+          seed(server) {
+            server.kindTokens = { issueProjection: 'v1' }
+            server.answerComesWith = true
+            server.put(SESSION, 'S10', session('S10', { issueId: 'P10', status: 'hibernated' }))
+          },
+        })
+        const { cache, replica } = booted
+        expect(replica.isUnloaded(SESSION, 'S10')).toBe(true)
+        const diskRead = barrier()
+        const release = barrier()
+        const read = cache.readDiskRows.bind(cache)
+        cache.readDiskRows = async (keys) => {
+          diskRead.release()
+          await release.promise
+          return await read(keys)
+        }
+        const fetchesBefore = server.fetches.length
+        server.kindTokens = { issueProjection: 'v2' }
+        replica.observeKindTokens(server.kindTokens)
+        let pruned: readonly string[] = []
+        try {
+          await diskRead.promise
+          pruned = (await replica.pruneDisk())?.drop ?? []
+        } finally {
+          release.release()
+        }
+        await replica.settled()
+
+        const requests = server.fetches.slice(fetchesBefore).flat().map(instanceKey)
+        expect(requests.filter((key) => pruned.includes(key))).toEqual([])
       })
 
       it('a prune killed between two slices: after the restart the store and the index agree, and idle moments finish it', async () => {
@@ -2070,6 +2860,32 @@ export function describeCollectionStore(instantiation: SyncInstantiation): void 
         expect(replica.isComplete(tree('A1'))).toBeDefined()
         expectMarkersTrue(cache, server)
         expectIndexTrue(cache, server, 'after the reload')
+      })
+
+      it('reconciles scoped companions when reopening a stale disk-only tree', async () => {
+        const server = new CollectionServer()
+        seedWorld(server)
+        server.answerComesWith = true
+        server.put(SESSION, 'S3', session('S3', { issueId: 'D2', status: 'hibernated' }))
+        const { cache, replica, storage } = await boot(instantiation, server)
+        const spec = tree('D2')
+        await replica.load([spec])
+        await replica.settled()
+        await replica.unload(instanceKey(spec))
+        expect(replica.isUnloaded(SESSION, 'S3')).toBe(true)
+
+        server.drop(SESSION, 'S3', 'evict')
+        await replica.receive({ kind: 'rescope', feedId: server.feedId, epoch: server.epoch })
+        await replica.settled()
+        expect(replica.instanceStale(spec)).toBe(true)
+        expect(cache.readDiskIndex().record(keyOf(SESSION, 'S3'))).toBeDefined()
+
+        replica.disconnect()
+        const reopened = await boot(instantiation, server, storage)
+        await reopened.replica.load([spec])
+        await reopened.replica.settled()
+        expect(reopened.replica.instanceStale(spec)).toBe(false)
+        expect(reopened.cache.readDiskIndex().record(keyOf(SESSION, 'S3'))).toBeUndefined()
       })
 
       it('a stale instance the reload refuses leaves memory and disk', async () => {

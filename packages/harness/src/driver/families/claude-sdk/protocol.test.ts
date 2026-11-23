@@ -207,7 +207,7 @@ describe('the stream-json invocation', () => {
   })
 
   it('passes model, effort, resume and session minting through', () => {
-    const { args } = buildClaudeStreamInvocation(
+    const { args, env } = buildClaudeStreamInvocation(
       {
         ...base,
         model: 'claude-opus-5',
@@ -220,6 +220,10 @@ describe('the stream-json invocation', () => {
     expect(args).toContain('--model')
     expect(args).toContain('claude-opus-5')
     expect(args).toContain('--effort')
+    expect(env.CLAUDE_CODE_EFFORT_LEVEL).toBe('max')
+    expect(
+      buildClaudeStreamInvocation({ ...base, effort: 'auto' }, CLAUDE, TERMS).env,
+    ).not.toHaveProperty('CLAUDE_CODE_EFFORT_LEVEL')
     expect(args.slice(args.indexOf('--resume'), args.indexOf('--resume') + 2)).toEqual([
       '--resume',
       'abc',

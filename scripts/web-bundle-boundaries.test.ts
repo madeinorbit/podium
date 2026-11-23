@@ -6,6 +6,7 @@ describe('browser bundle boundary', () => {
     expect(
       browserHostileSources([
         '../../../../packages/harness/src/browser.ts',
+        '../../../../packages/harness/src/adapters/cursor/model-variants.ts',
         '../../../../packages/harness/src/store/stream-identity.ts',
         '../../../../packages/harness/src/store/cursor-codec.ts',
         '../../../../packages/harness/src/transcript-types.ts',

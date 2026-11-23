@@ -4,8 +4,8 @@ import { applyTheme, readStoredTheme, resolveDark, THEME_MODE_KEY } from './them
 afterEach(() => localStorage.clear())
 
 describe('readStoredTheme', () => {
-  it('defaults to dark when nothing is stored', () => {
-    expect(readStoredTheme()).toEqual({ mode: 'dark' })
+  it('defaults to system when nothing is stored', () => {
+    expect(readStoredTheme()).toEqual({ mode: 'system' })
   })
   it('reads a stored valid mode', () => {
     localStorage.setItem(THEME_MODE_KEY, 'light')
@@ -13,7 +13,7 @@ describe('readStoredTheme', () => {
   })
   it('falls back on an invalid mode', () => {
     localStorage.setItem(THEME_MODE_KEY, 'bogus')
-    expect(readStoredTheme()).toEqual({ mode: 'dark' })
+    expect(readStoredTheme()).toEqual({ mode: 'system' })
   })
 })
 

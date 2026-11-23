@@ -28,8 +28,9 @@ function deferred() {
   return { promise, resolve }
 }
 
-function fixture() {
+function fixture(headless = false) {
   const session = new Session({
+    headless,
     ownerUserId: firstAdminMemberId(),
     delegation: {
       actor: asAgentIdentityId('durable-order'),
@@ -275,7 +276,9 @@ describe('durable session write ordering', () => {
 
 describe('async session port boundaries', () => {
   it('reattach includes the committed fence identity and resolved transcript hint', async () => {
-    const f = fixture()
+    const f = fixture(true)
+    f.session.requestedModel = 'selected-model'
+    f.session.requestedEffort = 'low'
     const plane = new SessionClientPlane({
       terminalProof: {
         fence: async () => {
@@ -294,6 +297,8 @@ describe('async session port boundaries', () => {
     } as unknown as SessionClientPlanePorts)
     expect(await plane.reattachMessageFor(f.session, f.session.machineId)).toMatchObject({
       type: 'reattach',
+      model: 'selected-model',
+      effort: 'low',
       observationGeneration: 7,
       observationBindingVersion: 4,
       observationProviderSessionId: 'provider',

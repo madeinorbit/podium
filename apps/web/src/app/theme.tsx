@@ -32,7 +32,7 @@ export const THEME_BG: Record<'dark' | 'light', string> = {
 export function readStoredTheme(): ThemeState {
   const m = readPreAuthTheme(THEME_MODE_KEY)
   return {
-    mode: m === 'light' || m === 'dark' || m === 'system' ? m : 'dark',
+    mode: m === 'light' || m === 'dark' || m === 'system' ? m : 'system',
   }
 }
 

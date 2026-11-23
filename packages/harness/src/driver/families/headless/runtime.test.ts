@@ -461,6 +461,31 @@ describe('headless driver identity', () => {
     expect(headlessCapabilities('grok').archive).toMatchObject({ supported: false })
   })
 
+  it('accepts Cursor native model variants and validates configuration', async () => {
+    const { runtime } = makeRuntime()
+    try {
+      const { handle } = await createHandle(runtime, 'cursor')
+      const declared = headlessCapabilities('cursor').configure
+      expect(declared).toMatchObject({
+        supported: true,
+        value: { fields: ['model', 'effort', 'permissionMode'] },
+      })
+      expect(
+        await handle.configure({ model: 'claude-opus-thinking-high', effort: 'high' }),
+      ).toEqual({ ok: true })
+      expect(await handle.configure({ effort: 'not an effort' })).toMatchObject({
+        reason: 'invalid_value',
+      })
+      expect(await handle.configure({})).toMatchObject({ reason: 'invalid_value' })
+      expect(await handle.configure({ model: 'not a model' })).toMatchObject({
+        reason: 'invalid_value',
+      })
+      expect(await handle.configure({ model: 'auto' })).toEqual({ ok: true })
+    } finally {
+      runtime.dispose()
+    }
+  })
+
   it('agrees with the contract catalog on configure fields and attach kinds', async () => {
     const { attachKindsForDriver, configureFieldsForDriver } = await import(
       '@podium/harness/driver/host'
@@ -672,6 +697,23 @@ describe('headless dispatch', () => {
       expect(runners.turns[0]?.spec.launchPosture.posture).toEqual({
         mode: { native: 'acceptEdits' },
       })
+    } finally {
+      runtime.dispose()
+    }
+  })
+
+  it('carries an account-defined OpenCode variant through configuration to the next turn', async () => {
+    const { runtime, runners } = makeRuntime()
+    try {
+      const { handle, sessionId } = await createHandle(runtime, 'opencode')
+      expect(await handle.configure({ model: 'test/model', effort: 'deep-thinking' })).toEqual({
+        ok: true,
+      })
+      await handle.send(
+        makeTurn(sessionId, { accountId: 'native:opencode:fp-1' }),
+        { origin: 'system', delivery: 'when-ready' },
+      )
+      expect(runners.turns[0]?.spec).toMatchObject({ model: 'test/model', effort: 'deep-thinking' })
     } finally {
       runtime.dispose()
     }

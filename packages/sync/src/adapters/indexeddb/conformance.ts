@@ -65,6 +65,17 @@ class GatedCache implements ReplicaCacheStore {
   readKindTokens(): KindTokens | undefined {
     return this.inner.readKindTokens()
   }
+  readKindReloadVersion(): number | undefined {
+    return this.inner.readKindReloadVersion()
+  }
+  readRetainedKinds(): readonly string[] | undefined {
+    return this.inner.readRetainedKinds()
+  }
+
+  retainsEntity(entity: string): boolean {
+    return this.inner.retainsEntity?.(entity) ?? true
+  }
+
   readInstances(): ReadonlyMap<string, InstanceRecord> {
     return this.inner.readInstances()
   }

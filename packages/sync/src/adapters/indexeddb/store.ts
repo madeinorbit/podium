@@ -275,6 +275,8 @@ interface SpanDraft {
   readonly ops: IdbOp[]
   /** Re-checked inside the native transaction against durable rows (D4.6). */
   readonly expectations: { principal: string; expectation: OutboxRecordExpectation }[]
+  /** The cache generation each principal's writes were planned against. */
+  readonly cacheGenerations: Map<string, string | undefined>
   touchedCache: boolean
   touchedOutbox: boolean
 }
@@ -294,6 +296,7 @@ const COMMIT_LANES: readonly CommitLane[] = ['cache', 'outbox']
 function scopeOf(draft: SpanDraft): string[] {
   const touched = new Set<string>(draft.ops.map((op) => op.store))
   if (draft.expectations.length > 0) touched.add(OUTBOX_STORE)
+  if (draft.cacheGenerations.size > 0) touched.add(META_STORE)
   return ALL_STORES.filter((store) => touched.has(store))
 }
 
@@ -420,6 +423,9 @@ function mergeDrafts(drafts: readonly SpanDraft[]): SpanDraft {
   for (let d = drafts.length - 1; d >= 0; d -= 1) {
     const draft = drafts[d] as SpanDraft
     merged.touchedCache ||= draft.touchedCache
+    // The first draft's expectation is what the grouped transaction starts at.
+    for (const [principal, generation] of draft.cacheGenerations)
+      merged.cacheGenerations.set(principal, generation)
     for (let i = draft.ops.length - 1; i >= 0; i -= 1) {
       const op = draft.ops[i] as IdbOp
       const identity = opIdentity(op)
@@ -444,6 +450,7 @@ const newDraft = (): SpanDraft => ({
   outbox: new Map(),
   ops: [],
   expectations: [],
+  cacheGenerations: new Map(),
   touchedCache: false,
   touchedOutbox: false,
 })
@@ -521,7 +528,10 @@ class IdbSpan implements OwnedSyncSpan {
  * because a store whose mirror has not been hydrated would answer every read with
  * an empty slice, and an empty slice is indistinguishable from a cold client.
  */
+class CacheGenerationConflict extends Error {}
+
 export class IndexedDbSyncStore {
+  private cacheConflict = false
   private mode: DurabilityMode = 'durable'
   /** Flipped by the corruption injector and by a hydrate that could not decode. */
   private corrupt = false
@@ -570,10 +580,8 @@ export class IndexedDbSyncStore {
   /**
    * Open, migrate and hydrate.
    *
-   * D4.5 — a store that cannot be opened or decoded is CLEARED and the client cold
-   * starts. Boot never wedges and nothing throws past this boundary: a poisoned
-   * store that threw here would take the whole app down, which is strictly worse
-   * than re-bootstrapping from the Authority.
+   * An aborted version-change transaction rolls back with the old version
+   * and outbox intact. The next open can retry it.
    */
   static async open(options: IndexedDbStoreOptions): Promise<IndexedDbSyncStore> {
     const name = options.databaseName ?? REPLICA_DB_NAME
@@ -581,23 +589,15 @@ export class IndexedDbSyncStore {
     try {
       db = await openDatabase(options.factory, name, options.openTimeoutMs, options)
     } catch (error) {
-      // A timeout is not corruption. Deleting the replica because Safari held
-      // the lock would throw away a recoverable store and force a world-sized
-      // bootstrap onto the same UI thread the timeout was meant to protect.
-      if (error instanceof IndexedDbOpenTimeoutError) {
-        const store = new IndexedDbSyncStore(unavailableDatabase(), options)
-        store.degrade('unavailable', 'unavailable', error)
-        return store
-      }
-      // Includes `VersionError` — a store written by a NEWER build than this one.
-      // D5.1 is forward-only, so the only honest move is to drop it and cold start.
-      await deleteDatabase(options.factory, name)
+      // VersionError is the forward-only schema refusal (D5.1). An upgrade
+      // abort or a blocked open leaves an existing database to retry.
+      if ((error as { name?: unknown } | null)?.name !== 'VersionError')
+        return IndexedDbSyncStore.unavailable(options, error)
       try {
+        await deleteDatabase(options.factory, name)
         db = await openDatabase(options.factory, name, options.openTimeoutMs, options)
       } catch (fatal) {
-        const store = new IndexedDbSyncStore(unavailableDatabase(), options)
-        store.degrade('unavailable', 'unavailable', fatal)
-        return store
+        return IndexedDbSyncStore.unavailable(options, fatal)
       }
       options.onDegraded({ mode: 'degraded-memory', cause: 'corrupt', error })
     }
@@ -612,22 +612,17 @@ export class IndexedDbSyncStore {
       // property that can be violated again.
       await store.scrubSecrets()
     } catch (error) {
-      // Decode failure or unreadable region: clear the whole replica DB and proceed
-      // as a cold client (D4.5). The outbox is lost with it, which is why this path
-      // is LOUD rather than silent.
-      if (error instanceof IndexedDbReconnectError) {
-        store.degrade('unavailable', 'unavailable', error)
-        return store
-      }
-      try {
-        await store.clearAll()
-      } catch (fatal) {
-        store.degrade('unavailable', 'unavailable', fatal)
-        return store
-      }
-      options.onDegraded({ mode: 'degraded-memory', cause: 'corrupt', error })
-      store.mode = 'durable'
+      // First open can also rebuild the disk index in normal transactions.
+      // Leave durable rows in place when any of that work fails.
+      store.close()
+      return IndexedDbSyncStore.unavailable(options, error)
     }
+    return store
+  }
+
+  private static unavailable(options: IndexedDbStoreOptions, error: unknown): IndexedDbSyncStore {
+    const store = new IndexedDbSyncStore(unavailableDatabase(), options)
+    store.degrade('unavailable', 'unavailable', error)
     return store
   }
 
@@ -736,6 +731,25 @@ export class IndexedDbSyncStore {
     await this.settled()
     if (this.durability() !== 'durable') return
     await this.hydrate()
+  }
+
+  async refreshAfterCacheConflict(): Promise<boolean> {
+    if (!this.cacheConflict || this.durability() !== 'durable') return false
+    await this.laneTails.cache
+    if (!this.cacheConflict || this.durability() !== 'durable') return false
+    this.cacheConflict = false
+    try {
+      await this.hydrate(false)
+      return true
+    } catch (error) {
+      this.cacheConflict = true
+      throw error
+    }
+  }
+
+  expectCacheGeneration(draft: SpanDraft, principal: string): void {
+    if (!draft.cacheGenerations.has(principal))
+      draft.cacheGenerations.set(principal, this.metaOf(principal).cursor?.cacheGeneration)
   }
 
   /**
@@ -1014,6 +1028,12 @@ export class IndexedDbSyncStore {
       try {
         await this.commitDraft(draft)
       } catch (error) {
+        if (error instanceof CacheGenerationConflict) {
+          if (eager) return // The other tab owns the durable generation.
+          span.discardAll()
+          this.drafts.delete(span)
+          throw error
+        }
         if (isQuotaError(error)) this.degrade('degraded-memory', 'quota', error)
         if (eager) {
           // The mirror already published and later writes may be staged on top of
@@ -1102,6 +1122,7 @@ export class IndexedDbSyncStore {
       try {
         await this.commitDraft(merged)
       } catch (error) {
+        if (error instanceof CacheGenerationConflict) return
         if (isQuotaError(error)) this.degrade('degraded-memory', 'quota', error)
         this.degrade(
           'degraded-memory',
@@ -1138,6 +1159,16 @@ export class IndexedDbSyncStore {
     const tx = await this.transaction(scopeOf(draft), 'readwrite')
     const completion = transactionCompletion(tx)
     try {
+      for (const [principal, expected] of draft.cacheGenerations) {
+        const row = (await requestAsPromise(
+          tx.objectStore(META_STORE).get([principal, CURSOR_META_KEY]),
+        )) as StoredMeta | undefined
+        const generation = (row?.value as ScopedCacheCursor | undefined)?.cacheGeneration
+        if (generation !== expected) {
+          this.cacheConflict = true
+          throw new CacheGenerationConflict('another tab replaced the device cache generation')
+        }
+      }
       if (draft.expectations.length > 0) {
         const outbox = tx.objectStore(OUTBOX_STORE)
         const conflicts: string[] = []
@@ -1238,6 +1269,7 @@ export class IndexedDbSyncStore {
     try {
       this.autocommitEager((draft) => {
         for (const principal of principals) {
+          this.expectCacheGeneration(draft, principal)
           this.indexDraft(draft, principal)
           draft.foldIndex.add(principal)
         }
@@ -1395,12 +1427,15 @@ export class IndexedDbSyncStore {
    * an index (written before version 2, or seeded raw) is rebuilt from its
    * rows once, in one transaction; a crash there repeats the rebuild.
    */
-  private async hydrate(): Promise<void> {
-    const tx = await this.transaction([META_STORE, OUTBOX_STORE, INDEX_STORE], 'readonly')
+  private async hydrate(includeOutbox = true): Promise<void> {
+    const stores = includeOutbox
+      ? [META_STORE, OUTBOX_STORE, INDEX_STORE]
+      : [META_STORE, INDEX_STORE]
+    const tx = await this.transaction(stores, 'readonly')
     const meta = (await requestAsPromise(tx.objectStore(META_STORE).getAll())) as StoredMeta[]
-    const outbox = (await requestAsPromise(
-      tx.objectStore(OUTBOX_STORE).getAll(),
-    )) as StoredOutboxRecord[]
+    const outbox = includeOutbox
+      ? ((await requestAsPromise(tx.objectStore(OUTBOX_STORE).getAll())) as StoredOutboxRecord[])
+      : undefined
     const stored = (await requestAsPromise(
       tx.objectStore(INDEX_STORE).getAll(),
     )) as StoredIndexRow[]
@@ -1432,6 +1467,7 @@ export class IndexedDbSyncStore {
     if (!readable) {
       // POD-7170: a store this build wrote keeps stub-level records in the
       // index only, so its rows cannot rebuild it: start the cache cold.
+      if (outbox === undefined) throw new ReplicaStoreCorruptError()
       if (stubsInIndex) await this.clearCacheRegion(outbox)
       else await this.rebuildIndex()
       return
@@ -1440,8 +1476,10 @@ export class IndexedDbSyncStore {
     this.entities.clear()
     this.metas.clear()
     this.indexes.clear()
-    this.outboxRows.clear()
-    this.nextOrdinal = 0
+    if (includeOutbox) {
+      this.outboxRows.clear()
+      this.nextOrdinal = 0
+    }
     this.decodeMetas(meta)
     // POD-7160: the count of buckets the disk keeps, before its records.
     for (const [principal, count] of counts) this.indexOf(principal).setBucketCount(count)
@@ -1492,7 +1530,7 @@ export class IndexedDbSyncStore {
     }
     for (const principal of new Set([...this.metas.keys(), ...this.indexes.keys()]))
       await this.loadResident(principal, (keys) => this.readStoredRows(principal, keys))
-    this.adoptOutboxRows(outbox)
+    if (outbox !== undefined) this.adoptOutboxRows(outbox)
   }
 
   /** POD-7170: the store keeps stub-level records in their index entries only (its rows hold none). */
@@ -1954,24 +1992,6 @@ export class IndexedDbSyncStore {
     this.options.onSecretsScrubbed?.(report)
   }
 
-  private async clearAll(): Promise<void> {
-    const tx = await this.transaction([...ALL_STORES], 'readwrite')
-    const completion = transactionCompletion(tx)
-    for (const name of ALL_STORES) tx.objectStore(name).clear()
-    // An empty store's index is built: the flag says so.
-    tx.objectStore(INDEX_STORE).put({
-      principal: STORE_PRINCIPAL,
-      key: INDEX_BUILT_META_KEY,
-      v: INDEX_FORMAT,
-    } satisfies StoredIndexRow)
-    await completion
-    this.entities.clear()
-    this.metas.clear()
-    this.indexes.clear()
-    this.outboxRows.clear()
-    this.stubsInIndex = false
-  }
-
   // ── mirror accessors used by the views ───────────────────────────────────
 
   guardReadable(): void {
@@ -2089,6 +2109,24 @@ class IndexedDbCacheStore implements ReplicaCacheStore {
     return this.store.metaOf(this.principal).cursor?.kindTokens
   }
 
+  readKindReloadVersion(): number | undefined {
+    this.store.guardReadable()
+    return this.store.metaOf(this.principal).cursor?.kindReloadVersion
+  }
+
+  refreshAfterCacheConflict(): Promise<boolean> {
+    return this.store.refreshAfterCacheConflict()
+  }
+
+  readRetainedKinds(): readonly string[] | undefined {
+    this.store.guardReadable()
+    return this.store.metaOf(this.principal).cursor?.retainedKinds
+  }
+
+  retainsEntity(entity: string): boolean {
+    return this.store.retainsEntity(entity)
+  }
+
   readInstances(): ReadonlyMap<string, InstanceRecord> {
     this.store.guardReadable()
     return this.store.metaOf(this.principal).instances
@@ -2204,6 +2242,7 @@ class IndexedDbCacheStore implements ReplicaCacheStore {
       // The atomic swap of ADR 2 D6.4: the staged slice REPLACES this principal's
       // rows, the buffered deltas apply on top, and the cursor commits — one
       // transaction, no half-installed replica.
+      this.store.expectCacheGeneration(draft, this.principal)
       this.store.stageDeleteEveryRow(draft, this.principal)
       const next = new ChangedKeyDraft<EntityRecord, RowMirror>(new RowMirror())
       draft.entities.set(this.principal, next)
@@ -2228,7 +2267,7 @@ class IndexedDbCacheStore implements ReplicaCacheStore {
       this.stageMeta(draft, {
         operations: [],
         cursor,
-        ...(versions.kindTokens === undefined ? {} : { kindTokens: versions.kindTokens }),
+        ...versions,
       })
       for (const mutation of buffered) {
         this.applyOperations(draft, next, mutation)
@@ -2249,6 +2288,7 @@ class IndexedDbCacheStore implements ReplicaCacheStore {
     // Reaches entities and the cursor. The outbox object store is not named here,
     // and there is no method on this port through which it could be.
     this.store.autocommitEager((draft) => {
+      this.store.expectCacheGeneration(draft, this.principal)
       this.store.stageDeleteEveryRow(draft, this.principal)
       draft.entities.set(
         this.principal,
@@ -2264,6 +2304,7 @@ class IndexedDbCacheStore implements ReplicaCacheStore {
   }
 
   private stage(draft: SpanDraft, mutation: CacheMutation): void {
+    this.store.expectCacheGeneration(draft, this.principal)
     if (mutation.operations.length > 0) this.applyOperations(draft, this.slice(draft), mutation)
     this.stageMeta(draft, mutation)
     // The disk index after the rows: a marker's members are rows it can see.

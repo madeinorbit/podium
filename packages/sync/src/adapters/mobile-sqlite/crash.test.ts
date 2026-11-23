@@ -121,7 +121,7 @@ describe('mobile SQLite adapter — kill between writes, at every boundary', () 
       },
     })
 
-  it('commits replaced rows, their tokens and a marker together while keeping authored work', async () => {
+  it('commits replaced rows, their tokens, repair receipt and marker together while keeping authored work', async () => {
     const first = await open()
     const view = first.viewFor(PRINCIPAL)
     const issue = {
@@ -133,7 +133,10 @@ describe('mobile SQLite adapter — kill between writes, at every boundary', () 
     const repo = { entity: 'repo', entityId: 'keep', value: {}, provenance: { seq: 1 } }
     const oldTokens = { issueProjection: 'old', repo: 'unchanged' }
     await first.unitOfWork.transact(async (span) => {
-      view.cache.installSnapshot([issue, repo], CURSOR_1, [], span, { kindTokens: oldTokens })
+      view.cache.installSnapshot([issue, repo], CURSOR_1, [], span, {
+        kindTokens: oldTokens,
+        kindReloadVersion: 0,
+      })
       expect(
         await view.outbox.apply(
           {
@@ -163,6 +166,7 @@ describe('mobile SQLite adapter — kill between writes, at every boundary', () 
             ],
             cursor: CURSOR_2,
             kindTokens: newTokens,
+            kindReloadVersion: 1,
             instances: [mark(CURSOR_2)],
           },
           span,
@@ -173,6 +177,7 @@ describe('mobile SQLite adapter — kill between writes, at every boundary', () 
     first.close()
     const retry = await open()
     expect(retry.viewFor(PRINCIPAL).cache.readKindTokens()).toEqual(oldTokens)
+    expect(retry.viewFor(PRINCIPAL).cache.readKindReloadVersion()).toBe(0)
     expect(retry.viewFor(PRINCIPAL).cache.read(issue.entity, 'old')?.value).toEqual(issue.value)
     expect(retry.viewFor(PRINCIPAL).cache.readInstances().size).toBe(0)
     await replace(retry)
@@ -183,6 +188,7 @@ describe('mobile SQLite adapter — kill between writes, at every boundary', () 
       const saved = reopened.viewFor(PRINCIPAL)
       expect(saved.cache.readCursor()).toEqual(CURSOR_2)
       expect(saved.cache.readKindTokens()).toEqual(newTokens)
+      expect(saved.cache.readKindReloadVersion()).toBe(1)
       expect(saved.cache.readInstances().get(SIDEBAR_KEY)?.completeAt).toEqual(CURSOR_2)
       expect(
         saved.cache

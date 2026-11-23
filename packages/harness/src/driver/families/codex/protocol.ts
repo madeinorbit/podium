@@ -76,6 +76,8 @@ export const CODEX_METHODS = {
   initialize: 'initialize',
   initialized: 'initialized',
   getAuthStatus: 'getAuthStatus',
+  configRead: 'config/read',
+  modelList: 'model/list',
   threadStart: 'thread/start',
   threadResume: 'thread/resume',
   threadSetName: 'thread/name/set',

@@ -31,7 +31,7 @@ import {
   SCHEMA_VERSION_TABLE,
 } from './schema'
 import { type DurabilityDegradation, SqliteSyncStore } from './store'
-import { freshDatabaseFile, readDurable, sqliteEngine } from './test-support'
+import { FaultySqlDatabase, freshDatabaseFile, readDurable, sqliteEngine } from './test-support'
 
 const ADA = asUserId('ada')
 const GRACE = asUserId('grace')
@@ -157,6 +157,83 @@ describe('mobile SQLite adapter — store obligations', () => {
     expect(erased.viewFor(ADA).cache.readLoadingSince()).toBeNull()
     expect(erased.viewFor(ADA).cache.readCursor()).toBeNull()
     erased.close()
+  })
+
+  it('device reload audit preserves offline writes after an interrupted version-1 migration', async () => {
+    const store = await open()
+    const queued = record('queued')
+    expect(
+      await store.viewFor(ADA).outbox.apply({
+        put: [queued],
+        expect: [{ mutationId: M, expect: 'absent' }],
+      }),
+    ).toEqual({ ok: true })
+    store.close()
+
+    // This is the layout if the process dies after ADD COLUMN part commits,
+    // before ADD COLUMN as_of and before the version stamp advances.
+    const raw = sqliteEngine.open(file)
+    try {
+      raw.exec(`ALTER TABLE ${ENTITY_TABLE} DROP COLUMN as_of`)
+      raw.exec(`DROP TABLE ${INDEX_TABLE}`)
+      raw.prepare(`UPDATE ${SCHEMA_VERSION_TABLE} SET version = 1 WHERE singleton = 1`).run()
+    } finally {
+      raw.close()
+    }
+
+    const reopened = await open()
+    try {
+      expect(reopened.durability()).toBe('durable')
+      expect(await reopened.viewFor(ADA).outbox.read()).toEqual([queued])
+      expect(degradations).toEqual([])
+    } finally {
+      reopened.close()
+    }
+  })
+
+  it('rolls back schema changes after a refused version stamp and retries with the outbox', async () => {
+    const store = await open()
+    const queued = record('queued')
+    await store.viewFor(ADA).outbox.apply({
+      put: [queued],
+      expect: [{ mutationId: M, expect: 'absent' }],
+    })
+    store.close()
+
+    const raw = sqliteEngine.open(file)
+    raw.exec(`ALTER TABLE ${ENTITY_TABLE} DROP COLUMN as_of`)
+    raw.exec(`DROP TABLE ${INDEX_TABLE}`)
+    raw.prepare(`UPDATE ${SCHEMA_VERSION_TABLE} SET version = 1 WHERE singleton = 1`).run()
+    const faulty = new FaultySqlDatabase(raw)
+    const error = new Error('schema stamp refused')
+    faulty.denyWriteAt({ at: 0, error })
+    const refused = await SqliteSyncStore.open({
+      openDatabase: () => faulty,
+      deleteDatabase: () => {
+        throw new Error('unexpected file deletion')
+      },
+      onDegraded: (degradation) => degradations.push(degradation),
+    })
+    expect(faulty.denials).toBe(1)
+    expect(refused.durability()).toBe('unavailable')
+    expect(degradations).toEqual([{ mode: 'unavailable', cause: 'unavailable', error }])
+    refused.close()
+
+    const checkpoint = sqliteEngine.open(file)
+    try {
+      expect(checkpoint.prepare(`PRAGMA table_info(${ENTITY_TABLE})`).all()).not.toContainEqual(
+        expect.objectContaining({ name: 'as_of' }),
+      )
+    } finally {
+      checkpoint.close()
+    }
+    const recovered = await open()
+    try {
+      expect(recovered.durability()).toBe('durable')
+      expect(await recovered.viewFor(ADA).outbox.read()).toEqual([queued])
+    } finally {
+      recovered.close()
+    }
   })
 
   it('migrates a version-1 file in place: rows read whole, the outbox survives', async () => {

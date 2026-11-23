@@ -37,6 +37,9 @@ import {
 /** A request names a collection, an argument or a holder no declaration has. */
 export class CollectionRequestError extends Error {}
 
+/** A collection or holder rule this release no longer publishes. */
+export class UnavailableCollectionError extends CollectionRequestError {}
+
 /** One declared rule an instance reads: a collection, or a holder's comes-with of it. */
 export interface ResolvedRule {
   readonly collection: Collection
@@ -56,25 +59,22 @@ function comesWithOf(via: string): readonly ComesWith[] {
   if (holder !== undefined) return holder.comesWith ?? []
   const record = recordOf(via)
   if (record !== undefined) return record.comesWith
-  throw new CollectionRequestError(`${via} is neither a collection nor a record type`)
+  throw new UnavailableCollectionError(`${via} is neither a collection nor a record type`)
 }
 
 /** The rule of an instance of `collectionId`, narrowed by `via`'s comes-with when given. */
 export function resolveRule(collectionId: string, via?: string): ResolvedRule {
   const collection = COLLECTIONS.get(collectionId)
   if (collection === undefined)
-    throw new CollectionRequestError(`no collection ${collectionId} is declared`)
+    throw new UnavailableCollectionError(`no collection ${collectionId} is declared`)
   const params = instanceParams(collection)
   if (via === undefined)
     return { collection, kind: collection.of, id: collection.id, where: collection.where, params }
   const entries = comesWithOf(via).filter((entry) => entry.collection === collectionId)
-  if (entries.length !== 1) {
-    throw new CollectionRequestError(
-      entries.length === 0
-        ? `${via} does not come with ${collectionId}`
-        : `${via} comes with ${collectionId} twice`,
-    )
-  }
+  if (entries.length === 0)
+    throw new UnavailableCollectionError(`${via} does not come with ${collectionId}`)
+  if (entries.length !== 1)
+    throw new CollectionRequestError(`${via} comes with ${collectionId} twice`)
   const entry = entries[0]!
   return {
     collection,

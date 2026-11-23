@@ -337,7 +337,7 @@ export const GENERATED_BUNDLED_DESCRIPTORS: HarnessDescriptorWire[] =
       },
       "capabilities": {
         "argvPrompt": false,
-        "effort": false,
+        "effort": true,
         "systemPrompt": false,
         "subagentModel": false
       },
@@ -356,7 +356,16 @@ export const GENERATED_BUNDLED_DESCRIPTORS: HarnessDescriptorWire[] =
             "label": "Claude Opus 4.8 Thinking"
           }
         ],
-        "efforts": [],
+        "efforts": [
+          "minimal",
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max",
+          "ultra",
+          "none"
+        ],
         "liveMerge": "live-wins-when-non-empty"
       },
       "accepts": [],

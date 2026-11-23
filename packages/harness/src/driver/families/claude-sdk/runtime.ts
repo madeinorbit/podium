@@ -186,6 +186,8 @@ export interface ClaudeSdkRuntimeHost {
    *  (POD-6258). Absent: the item is live-only. */
   recordAnnotation?(sessionId: SessionId, annotation: TranscriptAnnotation): Promise<void>
   mintSessionId(): SessionId
+  /** Persist a next-turn selection without mislabelling the surviving engine. */
+  recordModelPolicy?(sessionId: SessionId, policy: ModelPolicy): void
   mintResumeValue(): string
   now(): string
   /** Land an attachment's bytes on the session's machine (POD-6093): the
@@ -1489,6 +1491,7 @@ export function createClaudeSdkRuntime(
           checks: CLAUDE_SDK_CONFIGURE_CHECKS,
         })
         if (!('ok' in decision)) return decision
+        host.recordModelPolicy?.(core.sessionId, decision.policy)
         core.spec = { ...core.spec, model: decision.policy }
         return { ok: true as const }
       },

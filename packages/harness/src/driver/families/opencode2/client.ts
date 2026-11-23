@@ -36,7 +36,10 @@ export function createOpencode2Client(config: OpencodeClientConfig): OpencodeCli
       return
     }
     let ids = pending.get(sessionID)
-    if (!ids) pending.set(sessionID, (ids = new Set()))
+    if (!ids) {
+      ids = new Set()
+      pending.set(sessionID, ids)
+    }
     ids.add(messageID)
   }
   const request = async (
@@ -108,6 +111,14 @@ export function createOpencode2Client(config: OpencodeClientConfig): OpencodeCli
       session = row.id
       return row
     },
+    async defaultModel() {
+      const query = new URLSearchParams({ 'location[directory]': config.directory })
+      const response = await request('GET', `/api/model/default?${query}`)
+      const { data } = (await response.json()) as {
+        data: { providerID: string; id: string } | null
+      }
+      return data ? { providerID: data.providerID, modelID: data.id } : undefined
+    },
     async getSession(sessionId) {
       session = sessionId
       const response = await request('GET', `/api/session/${encodeURIComponent(sessionId)}`)
@@ -115,12 +126,23 @@ export function createOpencode2Client(config: OpencodeClientConfig): OpencodeCli
     },
     async prompt(sessionId, body: OpencodePromptBody): Promise<OpencodePromptAdmission> {
       session = sessionId
-      if (body.model) {
+      const current =
+        !body.model && body.variant !== undefined ? await this.getSession(sessionId) : undefined
+      const model =
+        body.model ??
+        (current?.model
+          ? { providerID: current.model.providerID, modelID: current.model.id }
+          : body.variant
+            ? await this.defaultModel?.()
+            : undefined)
+      if (body.variant && !model)
+        throw new Error('OpenCode has not reported a model to configure effort on')
+      if (model) {
         await request('POST', `/api/session/${encodeURIComponent(sessionId)}/model`, {
           model: {
-            providerID: body.model.providerID,
-            id: body.model.modelID,
-            variant: body.variant,
+            providerID: model.providerID,
+            id: model.modelID,
+            ...(body.variant ? { variant: body.variant } : {}),
           },
         })
       }

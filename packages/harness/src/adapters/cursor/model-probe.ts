@@ -1,4 +1,5 @@
 import type { ModelChoice } from '../../model-probe.js'
+import { cursorVariantEfforts } from './model-variants.js'
 
 /**
  * Cursor's model-probe statement (POD-4737 D3): the probe argv plus the
@@ -22,5 +23,8 @@ export function parseCursorModels(out: string): ModelChoice[] {
     const label = (m[2] ?? '').replace(/\s*\((?:current|default)\)\s*$/i, '').trim()
     models.push({ value, label: label || value })
   }
-  return models
+  return models.map((model) => {
+    const efforts = cursorVariantEfforts(models, model.value)
+    return efforts.length ? { ...model, efforts } : model
+  })
 }

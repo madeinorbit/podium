@@ -31,6 +31,7 @@
 
 import type { SessionId, TranscriptItem } from '@podium/model'
 import { describe, expect, it } from 'vitest'
+import { DriverRefusalError } from '../../errors.js'
 // `assertAttachHonoursOneControlLease` is the assertion, not a copy of it: the
 // refusal worlds below are judged by the same corpus function the run judges its
 // endpoint arm with. Imported from the module rather than the `testing/` barrel
@@ -43,7 +44,9 @@ import {
   testSessionTerms,
 } from '../../testing/harness-context.js'
 import type { ConformanceControl, ConformanceTarget } from '../../testing/index.js'
-import { runConformance } from '../../testing/index.js'
+import { createMemoryDriverSlots, runConformance } from '../../testing/index.js'
+import type { EngineBindingRecords } from '../engine-supervision.js'
+import { threadItemToItems } from './map.js'
 import { CODEX_SERVER_PERMITTED_FAILURES } from './permitted-failures.js'
 import {
   type CodexJournalEntry,
@@ -53,10 +56,6 @@ import {
   createCodexRuntime,
 } from './runtime.js'
 import { type FakeAppServer, startFakeAppServer } from './test-support/fake-app-server.js'
-import { createMemoryDriverSlots } from '../../testing/index.js'
-import type { EngineBindingRecords } from '../engine-supervision.js'
-import { DriverRefusalError } from '../../errors.js'
-import { threadItemToItems } from './map.js'
 
 /**
  * THE ONE HOST FACT THIS FILE VARIES, and it is a fact about the MACHINE rather
@@ -140,7 +139,8 @@ function makeWorld(options: WorldOptions = {}): { target: ConformanceTarget } {
 
   const threadIdForHistory = (input: { resume?: { value?: string }; pathHint?: string }): string =>
     input.resume?.value ??
-    (/rollout-(.+)\.jsonl$/.exec(input.pathHint?.split('/').at(-1) ?? '')?.[1] ?? '')
+    /rollout-(.+)\.jsonl$/.exec(input.pathHint?.split('/').at(-1) ?? '')?.[1] ??
+    ''
 
   const host: CodexRuntimeHost = {
     ...testEngineTerms(),
@@ -510,6 +510,45 @@ const { target } = makeWorld()
  * `attachClient`, so a second whole-corpus pass would re-prove ~90 properties to
  * reach one branch. The suite exports the assertion for exactly this.
  */
+describe('Codex model and effort defaults', () => {
+  it('restores Auto after an explicit pair and after a one-turn override', async () => {
+    const world = makeWorld()
+    const { driver, control } = world.target.createDriver()
+    try {
+      const handle = await driver.create({
+        ...world.target.spec(),
+        model: { model: 'gpt-5.1-codex-max', effort: 'low' },
+      })
+      const send = async (text: string, overrides?: { model: string; effort: string }) => {
+        await handle.send(
+          {
+            text,
+            ...(overrides ? { overrides: { supported: true as const, value: overrides } } : {}),
+          },
+          { origin: 'human', delivery: 'when-ready' },
+        )
+        await control.completeTurn(handle.binding.sessionId)
+        return control.model!.requested(handle.binding.sessionId)
+      }
+      expect(await send('explicit')).toEqual({ model: 'gpt-5.1-codex-max', effort: 'low' })
+      expect(await handle.configure({ effort: 'auto' })).toEqual({ ok: true })
+      expect(await send('model default effort')).toEqual({
+        model: 'gpt-5.1-codex-max',
+        effort: 'high',
+      })
+      expect(await handle.configure({ model: 'auto', effort: 'auto' })).toEqual({ ok: true })
+      expect(await send('defaults')).toEqual({ model: 'gpt-5-codex', effort: 'medium' })
+      expect(await send('one override', { model: 'gpt-5.1-codex-max', effort: 'high' })).toEqual({
+        model: 'gpt-5.1-codex-max',
+        effort: 'high',
+      })
+      expect(await send('back to defaults')).toEqual({ model: 'gpt-5-codex', effort: 'medium' })
+    } finally {
+      world.target.reset()
+    }
+  })
+})
+
 describe('codex-app-server on a host with nowhere to run a terminal', () => {
   it('refuses the attach, typed, and does not walk off with the lease', async () => {
     const world = makeWorld({ hostsClientTerminals: false })

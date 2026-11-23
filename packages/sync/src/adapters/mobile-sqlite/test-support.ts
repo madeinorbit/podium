@@ -53,7 +53,7 @@ export interface SqliteEngine {
 }
 
 interface DatabaseConstructor {
-  new (file: string): SqlDatabaseLike
+  new (file: string): SqlDatabaseLike & { close(throwOnError?: boolean): void }
 }
 
 /**
@@ -80,7 +80,16 @@ export async function resolveSqliteEngine(): Promise<SqliteEngine> {
       }
       return {
         name: specifier,
-        open: (file) => new Database(file),
+        open: (file) => {
+          const db = new Database(file)
+          if (specifier === 'node:sqlite') return db
+          return {
+            prepare: (sql) => db.prepare(sql),
+            exec: (sql) => db.exec(sql),
+            // Finalize outstanding statements so closing releases the writer lock.
+            close: () => db.close(true),
+          }
+        },
       }
     } catch (error) {
       attempts.push(`${specifier}: ${(error as Error).message}`)

@@ -198,6 +198,7 @@ async function* produceRecords(
           fromSeq: job.from,
           minAvailableSeq,
           kindTokens,
+          policy: policyFor(job.clientType),
         }
         const bytes = line(meta)
         onMeta(meta)
@@ -271,7 +272,7 @@ async function* produceRecords(
       seq,
       minAvailableSeq,
       kindTokens,
-      ...(job.mode !== 'collections' && { policy: syncPolicy }),
+      policy: syncPolicy,
       // No `totalRows`: the count is known only once every table is read, and
       // the load streams in one pass.
     }

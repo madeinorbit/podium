@@ -88,6 +88,12 @@ export class SessionClientPlane {
       durableLabel: session.durableLabel,
       agentKind: session.agentKind,
       cwd: session.cwd,
+      ...(session.headless || driverRequest === 'headless'
+        ? {
+            model: session.requestedModel ?? session.model,
+            effort: session.requestedEffort ?? session.effort,
+          }
+        : {}),
       // LAST-KNOWN, AND NAMED AS SUCH (POD-3279). The daemon builds its headless
       // screens against this; it never puts the pty at it, and it never reports
       // it back on `bind`. What this server knows W to be is not evidence about
@@ -206,10 +212,7 @@ export class SessionClientPlane {
    * (POD-390). Entity bootstrap belongs exclusively to FeedServing; this hook
    * replays only session draft state and the machine list.
    */
-  async onClientAttached(
-    principal: ClientPrincipal,
-    client: ClientConn,
-  ): Promise<void> {
+  async onClientAttached(principal: ClientPrincipal, client: ClientConn): Promise<void> {
     await this.ports.clientControl.onAttached(principal, client)
   }
 

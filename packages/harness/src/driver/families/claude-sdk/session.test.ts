@@ -43,7 +43,11 @@ function launchOf({
 }
 
 import type { EngineAttachment } from '../engine-supervision.js'
-import { type ClaudeEngineHost, createClaudeEngineHost } from './engine-host.js'
+import {
+  type ClaudeEngineHost,
+  type ClaudeEngineJournalEntry,
+  createClaudeEngineHost,
+} from './engine-host.js'
 import type { ClaudeSdkTurnHandle } from './runtime.js'
 import {
   type ClaudeSdkSessionDeps,
@@ -498,6 +502,37 @@ describe('Claude SDK daemon host adapter', () => {
         confidence: 'exact',
       })
       runtime.dispose()
+    })
+
+    it('journals a model pick before the next turn while retaining the actual engine settings', async () => {
+      let entry: ClaudeEngineJournalEntry = {
+        sessionId: SESSION_ID,
+        claudeSessionId: RESUME.value,
+        workdir: '/project',
+        process: { key: 'podium-cl-claude-adapter-session' },
+        model: 'opus',
+        effort: 'high',
+        bindingVersion: 1,
+      }
+      const journal = {
+        recorded: () => entry,
+        bound: (next: ClaudeEngineJournalEntry) => {
+          entry = next
+        },
+        released: () => {},
+      }
+      const runtime = sessionWorld([], [], { ...fakeEngine(), bindings: journal })
+      try {
+        const handle = await runtime.adoptFromJournal(SESSION_ID)
+        expect(await handle!.configure({ model: 'sonnet', effort: 'low' })).toEqual({ ok: true })
+        expect(entry).toMatchObject({
+          model: 'sonnet',
+          effort: 'low',
+          engineConfiguration: { model: 'opus', effort: 'high' },
+        })
+      } finally {
+        runtime.dispose()
+      }
     })
 
     it('re-adopts a session this daemon still holds instead of resuming a second core', async () => {
