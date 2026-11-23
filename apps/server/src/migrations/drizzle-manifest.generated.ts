@@ -209,6 +209,7 @@ export const DRIZZLE_MIGRATIONS: DrizzleMigration[] = [
   { name: "20261123165931_remove-draft-sync-engine", sql: "ALTER TABLE `sessions` DROP COLUMN `draft_sync_engine`;" },
   { name: "20261123172520_podium-events-ts", sql: "-- POD-7435: retention's age path reads the oldest events through this index,\n-- oldest first, and stops at its budget. Ids do not follow ts (a historical\n-- transcript replay appends old timestamps under new ids), so the age cutoff\n-- cannot ride the row cap's id range.\nCREATE INDEX `idx_podium_events_ts` ON `podium_events` (`workspace_id`,`ts`,`id`);\n" },
   { name: "20261123173411_issues-started-by", sql: "CREATE INDEX `idx_issues_started_by` ON `issues` (`workspace_id`,`started_by_session`) WHERE \"issues\".\"started_by_session\" IS NOT NULL;" },
+  { name: "20261123222422_reload-session-kinds-after-draft-sync", sql: "-- The published draft_sync_engine field was removed by an already-applied\n-- migration. Reload session-derived records without replaying or editing it.\nINSERT INTO sync_kind (workspace_id, kind, generation)\nSELECT feed.workspace_id, bumped.kind, 1\nFROM sync_feed AS feed, (SELECT 'session' AS kind UNION ALL SELECT 'sessionUserState' UNION ALL SELECT 'message') AS bumped\nWHERE true\nON CONFLICT (workspace_id, kind) DO UPDATE SET generation = sync_kind.generation + 1;\n" },
 ]
 
 /**

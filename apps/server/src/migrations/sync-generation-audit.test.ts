@@ -1,3 +1,4 @@
+import { openDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it } from 'vitest'
 import { serverRecordBuilders } from '../sync/record-builders'
 import { DRIZZLE_MIGRATIONS } from './drizzle-manifest.generated'
@@ -98,6 +99,13 @@ const NO_RECORD_CHANGE: Readonly<Record<string, string>> = {
     'every row of every table equal before and after.',
 }
 
+// Released migrations are immutable. Each exception names a later corrective
+// migration whose bumps must cover the original rewrite; it is not a claim that
+// the original migration changed no published record.
+const LATER_GENERATION_BUMPS: Readonly<Record<string, string>> = {
+  '20261123165931_remove-draft-sync-engine': '20261123222422_reload-session-kinds-after-draft-sync',
+}
+
 function missingBumps(sql: string): string[] {
   const statements = sql.replace(/--[^\n]*/g, '').split(';')
   const rewritten = new Set<string>()
@@ -125,8 +133,33 @@ describe('synced data migration generations', () => {
     expect(foundation).toBeGreaterThan(0)
     for (const migration of DRIZZLE_MIGRATIONS.slice(foundation + 1)) {
       if (NO_RECORD_CHANGE[migration.name]) continue
-      expect(missingBumps(migration.sql), migration.name).toEqual([])
+      const repair = DRIZZLE_MIGRATIONS.find(
+        (candidate) => candidate.name === LATER_GENERATION_BUMPS[migration.name],
+      )
+      expect(missingBumps(`${migration.sql}\n${repair?.sql ?? ''}`), migration.name).toEqual([])
     }
+  })
+
+  it('requires each released rewrite repair to exist later and cover every affected kind', () => {
+    for (const [name, repairName] of Object.entries(LATER_GENERATION_BUMPS)) {
+      const originalIndex = DRIZZLE_MIGRATIONS.findIndex((m) => m.name === name)
+      const repairIndex = DRIZZLE_MIGRATIONS.findIndex((m) => m.name === repairName)
+      expect(originalIndex, name).toBeGreaterThan(foundation)
+      expect(repairIndex, repairName).toBeGreaterThan(originalIndex)
+      expect(NO_RECORD_CHANGE[name], name).toBeUndefined()
+      const originalSql = DRIZZLE_MIGRATIONS[originalIndex]?.sql ?? ''
+      const repairSql = DRIZZLE_MIGRATIONS[repairIndex]?.sql ?? ''
+      expect(missingBumps(originalSql), name).not.toEqual([])
+      expect(missingBumps(`${originalSql}\n${repairSql}`), repairName).toEqual([])
+      expect(
+        missingBumps(`${originalSql}\n${repairSql.replace("'sessionUserState'", "'unused'")}`),
+      ).toContain('sessionUserState')
+    }
+  })
+
+  it('keeps the released draft-sync removal unchanged', () => {
+    const removal = DRIZZLE_MIGRATIONS.find((m) => m.name.endsWith('_remove-draft-sync-engine'))
+    expect(removal?.sql).toBe('ALTER TABLE `sessions` DROP COLUMN `draft_sync_engine`;')
   })
 
   it('lists only migrations that exist and do rewrite a record-bearing table', () => {
@@ -135,6 +168,51 @@ describe('synced data migration generations', () => {
       expect(migration, name).toBeDefined()
       // An entry for a migration the audit would pass anyway is dead weight.
       expect(missingBumps(migration?.sql ?? ''), name).not.toEqual([])
+    }
+  })
+
+  it('the later repair reloads every workspace without replaying the applied draft-sync removal', () => {
+    const removal = DRIZZLE_MIGRATIONS.find((m) => m.name.endsWith('_remove-draft-sync-engine'))
+    const migration = DRIZZLE_MIGRATIONS.find((m) =>
+      m.name.endsWith('_reload-session-kinds-after-draft-sync'),
+    )
+    if (!removal || !migration) throw new Error('draft sync removal or reload migration is missing')
+    const db = openDatabase(':memory:')
+    try {
+      db.exec(`
+        CREATE TABLE sessions (workspace_id TEXT, id TEXT, title TEXT, draft_sync_engine INTEGER);
+        CREATE TABLE sync_feed (workspace_id TEXT PRIMARY KEY);
+        CREATE TABLE sync_kind (
+          workspace_id TEXT, kind TEXT, generation INTEGER,
+          PRIMARY KEY (workspace_id, kind)
+        );
+        INSERT INTO sessions VALUES ('ws_a', 's1', 'kept', 1), ('ws_b', 's1', 'also kept', 0);
+        INSERT INTO sync_feed VALUES ('ws_a'), ('ws_b'), ('ws_empty');
+        INSERT INTO sync_kind VALUES
+          ('ws_a', 'session', 7), ('ws_a', 'message', 3),
+          ('ws_a', 'sessionUserState', 4), ('ws_a', 'pin', 8);
+      `)
+      // The old migration has already run when an installed database upgrades.
+      db.exec(removal.sql)
+      db.exec(migration.sql)
+      expect(db.prepare('SELECT * FROM sessions ORDER BY workspace_id').all()).toEqual([
+        { workspace_id: 'ws_a', id: 's1', title: 'kept' },
+        { workspace_id: 'ws_b', id: 's1', title: 'also kept' },
+      ])
+      expect(db.prepare('SELECT * FROM sync_kind ORDER BY workspace_id, kind').all()).toEqual([
+        { workspace_id: 'ws_a', kind: 'message', generation: 4 },
+        { workspace_id: 'ws_a', kind: 'pin', generation: 8 },
+        { workspace_id: 'ws_a', kind: 'session', generation: 8 },
+        { workspace_id: 'ws_a', kind: 'sessionUserState', generation: 5 },
+        { workspace_id: 'ws_b', kind: 'message', generation: 1 },
+        { workspace_id: 'ws_b', kind: 'session', generation: 1 },
+        { workspace_id: 'ws_b', kind: 'sessionUserState', generation: 1 },
+        { workspace_id: 'ws_empty', kind: 'message', generation: 1 },
+        { workspace_id: 'ws_empty', kind: 'session', generation: 1 },
+        { workspace_id: 'ws_empty', kind: 'sessionUserState', generation: 1 },
+      ])
+    } finally {
+      db.close()
     }
   })
 
