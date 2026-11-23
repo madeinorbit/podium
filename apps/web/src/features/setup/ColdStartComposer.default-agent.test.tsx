@@ -186,6 +186,7 @@ afterEach(() => {
   feature.enabled = false
   pickerFixture.real = false
   store.spawnDraftAgent.mockClear()
+  store.setPanelMode.mockClear()
   updatePersonal.mockClear()
 })
 
@@ -290,25 +291,31 @@ describe('cold-start runtime driver choice', () => {
     )
   })
 
-  it('keeps headed explicit by default and sends an available OpenCode server choice', async () => {
+  it('defaults to headless when the machine reports a headless driver', async () => {
     feature.enabled = true
     state.accountId = 'native:opencode'
     state.installed = ['opencode']
-    state.runtimeDrivers = [{ harness: 'opencode', id: 'opencode-server', family: 'server' }]
+    state.runtimeDrivers = [{ harness: 'opencode', id: 'generic-pty', family: 'terminal' }]
     render(<ColdStartComposer first={false} />)
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'Driver' }).textContent).toContain('Headed'),
     )
-    expect(screen.getByRole('button', { name: 'Driver' }).textContent).not.toContain('contract')
-    fireEvent.click(screen.getByTestId('cold-start-launch'))
-    expect(store.spawnDraftAgent).toHaveBeenLastCalledWith(
-      expect.not.objectContaining({ requestedDriverId: expect.anything() }),
+    publishDrivers([{ harness: 'opencode', id: 'opencode-server', family: 'server' }])
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Driver' }).textContent).toContain(
+        'OpenCode 1 (headless)',
+      ),
     )
-    fireEvent.click(screen.getByRole('button', { name: 'Driver' }))
-    fireEvent.click(await screen.findByRole('menuitem', { name: 'OpenCode 1 (headless)' }))
+    fireEvent.change(screen.getByLabelText('What do you want to work on?'), {
+      target: { value: 'Start a headless task' },
+    })
     fireEvent.click(screen.getByTestId('cold-start-launch'))
     expect(store.spawnDraftAgent).toHaveBeenLastCalledWith(
-      expect.objectContaining({ agentKind: 'opencode', requestedDriverId: 'opencode-server' }),
+      expect.objectContaining({
+        agentKind: 'opencode',
+        requestedDriverId: 'opencode-server',
+        firstPrompt: 'Start a headless task',
+      }),
     )
   })
 
@@ -322,12 +329,10 @@ describe('cold-start runtime driver choice', () => {
     ]
     render(<ColdStartComposer first={false} />)
 
-    // The headed row is the manifest's terminal default: plain "Headed", and
-    // choosing it sends NOTHING — omission already means the terminal driver
-    // (the NewPanelMenu sibling got this right; see its requestedDriverId
-    // comment). There is one headed path now, no second headed spelling.
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'Driver' }).textContent).toContain('Headed'),
+      expect(screen.getByRole('button', { name: 'Driver' }).textContent).toContain(
+        'OpenCode 1 (headless)',
+      ),
     )
     expect(screen.getByRole('button', { name: 'Driver' }).textContent).not.toContain('contract')
     fireEvent.click(screen.getByRole('button', { name: 'Driver' }))
@@ -339,6 +344,7 @@ describe('cold-start runtime driver choice', () => {
     expect(store.spawnDraftAgent).toHaveBeenLastCalledWith(
       expect.not.objectContaining({ requestedDriverId: expect.anything() }),
     )
+    expect(store.setPanelMode).toHaveBeenLastCalledWith(asSessionId('session-new'), 'native')
 
     fireEvent.click(screen.getByRole('button', { name: 'Driver' }))
     fireEvent.click(screen.getByRole('menuitem', { name: 'OpenCode 1 (headless)' }))
@@ -346,6 +352,7 @@ describe('cold-start runtime driver choice', () => {
     expect(store.spawnDraftAgent).toHaveBeenLastCalledWith(
       expect.objectContaining({ agentKind: 'opencode', requestedDriverId: 'opencode-server' }),
     )
+    expect(store.setPanelMode).toHaveBeenLastCalledWith(asSessionId('session-new'), 'chat')
   })
 
   it('refuses a selected driver that disappears from inventory', async () => {
