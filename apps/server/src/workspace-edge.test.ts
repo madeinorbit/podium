@@ -9,17 +9,22 @@
  * `member` routes, the signed-in gate on the people routes.
  */
 
+import { createHash } from 'node:crypto'
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createIdentityCore, type WorkspaceIdentity } from '@podium/identity'
 import { asUserId, newMemberId } from '@podium/model'
+import { decodePairingEnvelope } from '@podium/protocol'
 import { hashPassword, isPasswordHash, verifyPasswordHash } from '@podium/runtime/auth-store'
 import { Hono } from 'hono'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { clientAuthGuard } from './auth-route'
+import { clientAuthGuard, registerAuthRoute } from './auth-route'
 import { createMemberOfRequest, type MemberOfRequest } from './identity/member-of-request'
 import { identitySeamDeps } from './identity/server-identity'
+import { registerMcpRoute } from './mcp-route'
+import { registerMemberRoutes } from './member-routes'
+import { registerMobilePairingRoutes } from './mobile-pairing-route'
 import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
 import type { SessionStore } from './store'
 import { memberFacts } from './store/fixtures/test-support'
@@ -47,7 +52,11 @@ function samplePath(entry: EntryPoint): string {
   return entry.path
 }
 
-const BOUND_ENTRIES = WORKSPACE_ENTRY_POINTS.filter((entry) => entry.binding !== 'unbound')
+/** The rows a request can reach (not a hook or the unix control socket). */
+const ROUTED = WORKSPACE_ENTRY_POINTS.filter(
+  (entry) => entry.transport === 'http' || entry.transport === 'socket',
+)
+const BOUND_ENTRIES = ROUTED.filter((entry) => entry.binding !== 'unbound')
 const HTTP_BOUND = BOUND_ENTRIES.filter((entry) => entry.transport === 'http')
 const SOCKETS = BOUND_ENTRIES.filter((entry) => entry.transport === 'socket')
 
@@ -61,7 +70,7 @@ describe('the entry-point table', () => {
   })
 
   it('finds every row by its own path, the narrower row first', () => {
-    for (const entry of WORKSPACE_ENTRY_POINTS) {
+    for (const entry of ROUTED) {
       expect(entryPointOf('POST', samplePath(entry), entry.transport === 'socket')).toBe(entry)
     }
     expect(entryPointOf('POST', '/auth/members/complete', false).binding).toBe('credential')
@@ -318,6 +327,78 @@ describe('hosted edge, two workspaces in one database', () => {
     )
   })
 
+  it('classifies the decoded path Hono routes, so a percent-encoded path is no way around it (review F1)', async () => {
+    /** The row's sample path with its first letter percent-encoded. */
+    const encoded = (path: string) =>
+      path.replace(
+        /^(\/(?:auth\/)?)([a-z])/,
+        (_m, head: string, letter: string) => `${head}%${letter.charCodeAt(0).toString(16)}`,
+      )
+    const named = [
+      '/%66iles/asset',
+      '/%74rpc/machines.list',
+      '/%73ync/bootstrap',
+      '/auth/%6dobile-pair/start',
+    ]
+    const paths = [...named, ...HTTP_BOUND.map((entry) => encoded(samplePath(entry)))]
+    for (const path of paths) {
+      expect(path, path).toMatch(/%/)
+      for (const method of ['GET', 'POST']) {
+        const none = await app().request(`${ORIGIN}${path}`, {
+          method,
+          headers: { cookie: aliceCookie },
+        })
+        expect(none.status, `${method} ${path}`).toBe(400)
+        expect(await none.json(), path).toMatchObject({ error: 'workspace_required' })
+      }
+    }
+    // Named B: refused as the canonical path is, on every member and signed-in row.
+    for (const path of [
+      '/%66iles/asset',
+      '/%74rpc/x',
+      '/%73ync/bootstrap',
+      '/auth/%6dobile-pair/start',
+      '/auth/%6dembers/list',
+      '/auth/%61dmin/viewer',
+    ]) {
+      const response = await call(path, { cookie: aliceCookie, 'Podium-Workspace': 'beta' })
+      expect(response.status, path).toBe(403)
+    }
+  })
+
+  it('binds an unlisted GET on hosted and admits only a member, except the static files (review F2)', async () => {
+    expect(
+      (await app().request(`${ORIGIN}/some/route`, { headers: { cookie: aliceCookie } })).status,
+    ).toBe(400)
+    const named = (headers: Record<string, string>) =>
+      app().request(`${ORIGIN}/some/route`, { headers: { 'Podium-Workspace': 'acme', ...headers } })
+    expect((await named({})).status).toBe(401)
+    expect((await named({ cookie: beaCookie })).status).toBe(403)
+    expect(await (await named({ cookie: aliceCookie })).json()).toEqual({ bound: 'ws_a' })
+    for (const path of ['/', '/w/acme/issues', '/mobile/', '/assets/index-1.js', '/icon.png']) {
+      expect(await (await app().request(`${ORIGIN}${path}`)).json(), path).toEqual({ bound: null })
+    }
+    expect(entryPointOf('GET', '/some/route', false, 'hosted').binding).toBe('member')
+    expect(entryPointOf('GET', '/some/route', false, 'self-hosted').binding).toBe('unbound')
+  })
+
+  it('resolves an unbound request on hosted as nobody, whatever it carries (review F1)', async () => {
+    const page = new Request(`${ORIGIN}/w/acme/issues`, { headers: { cookie: aliceCookie } })
+    expect(await edge.bind(page)).toMatchObject({ kind: 'unbound' })
+    expect(await memberOfRequest(page)).toEqual({ kind: 'unauthenticated' })
+  })
+
+  it('matches a plugin row after the server rows, never before them', () => {
+    const plugin = [
+      { transport: 'http', path: '/hooks/', binding: 'credential', why: 'a plugin webhook' },
+      { transport: 'http', path: '/trpc/', binding: 'unbound', why: 'a plugin trying to shadow' },
+    ] as const
+    expect(entryPointOf('POST', '/hooks/stripe', false, 'hosted', plugin).binding).toBe(
+      'credential',
+    )
+    expect(entryPointOf('POST', '/trpc/x', false, 'hosted', plugin).binding).toBe('member')
+  })
+
   it('does not let the id header name a workspace by its slug', async () => {
     const response = await call('/trpc/x', { cookie: aliceCookie, 'Podium-Workspace-Id': 'acme' })
     expect(response.status).toBe(404)
@@ -338,7 +419,7 @@ describe('hosted edge, two workspaces in one database', () => {
   })
 
   it('passes unbound routes and CORS preflights through without a selector or binding', async () => {
-    for (const entry of WORKSPACE_ENTRY_POINTS.filter((e) => e.binding === 'unbound')) {
+    for (const entry of ROUTED.filter((e) => e.binding === 'unbound')) {
       const response = await call(samplePath(entry), {})
       expect(await response.json(), entry.path).toEqual({ bound: null })
     }
@@ -360,6 +441,194 @@ describe('hosted edge, two workspaces in one database', () => {
     // The same holds the other way round, for B's sign-in in A.
     const bea = new Request(`${ORIGIN}/trpc/x`, { headers: { cookie: beaCookie } })
     expect(await identityA.resolve(bea, httpsFacts())).toMatchObject({ kind: 'not-a-member' })
+  })
+
+  /**
+   * THE REAL CREDENTIAL ROUTES (review F3). One app per loaded workspace with
+   * that workspace's own sign-in, invitation, pairing and MCP routes, behind
+   * one edge that dispatches each request to its bound workspace's app, as a
+   * process holding one registry per workspace would.
+   */
+  describe('credential routes of the bound workspace', () => {
+    const SECRET = Buffer.alloc(32, 7)
+    const CLAIM_HASH = createHash('sha256').update(SECRET).digest('hex')
+    const MCP_TOKEN = { ws_a: 'mcp-token-of-a', ws_b: 'mcp-token-of-b' } as const
+
+    function workspaceApp(store: SessionStore, identity: WorkspaceIdentity): Hono {
+      const sub = new Hono()
+      const memberOfAccount = (id: string) => store.users.findMemberByAccount(id)
+      registerAuthRoute(sub, {
+        identity,
+        memberOfRequest,
+        memberOfAccount,
+        syncBoundaryId: (request) => maybeBoundServedWorkspaceOf(request)?.id,
+      })
+      registerMemberRoutes(sub, {
+        users: store.users,
+        identity,
+        resolveUserId: async (request) => {
+          const member = await memberOfRequest(request)
+          return member.kind === 'member' ? member.memberId : undefined
+        },
+        appUrl: () => ORIGIN,
+      })
+      registerMobilePairingRoutes(sub, {
+        identity,
+        memberOfRequest,
+        memberOfAccount,
+        serverIdentity: () => ({
+          publicUrl: ORIGIN,
+          instanceId: 'instance',
+          workspaceId: store.workspaceId,
+        }),
+      })
+      registerMcpRoute(
+        sub,
+        { mcpToolSpecs: async () => [], callMcpTool: async () => 'called' },
+        MCP_TOKEN[store.workspaceId as keyof typeof MCP_TOKEN],
+      )
+      return sub
+    }
+
+    function server(): Hono {
+      const apps = new Map([
+        [A.workspaceId as string, workspaceApp(A, identityA)],
+        [B.workspaceId as string, workspaceApp(B, identityB)],
+      ])
+      const hono = new Hono()
+      hono.use('*', edge.middleware)
+      hono.use('/auth/*', edge.signedInGate)
+      hono.all('*', async (c) => {
+        const bound = maybeBoundServedWorkspaceOf(c.req.raw)
+        const app = bound && apps.get(bound.id)
+        return app ? await app.fetch(c.req.raw) : c.json({ error: 'unbound' }, 404)
+      })
+      return hono
+    }
+
+    const post = (path: string, naming: string, body: unknown, headers = {}) =>
+      server().request(`${ORIGIN}${path}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'Podium-Workspace': naming, ...headers },
+        body: JSON.stringify(body),
+      })
+
+    it("refuses A's password at B's login, and signs in at A's", async () => {
+      const login = { email: 'alice@example.test', password: PASSWORDS.alice }
+      const inB = await post('/auth/login', 'beta', login)
+      expect(inB.status).toBe(401)
+      expect(await inB.json()).toEqual({ error: 'invalid password' })
+      expect(inB.headers.getSetCookie()).toEqual([])
+      const inA = await post('/auth/login', 'acme', login)
+      expect(inA.status).toBe(200)
+      expect(await inA.json()).toMatchObject({ ok: true, syncBoundaryId: 'ws_a' })
+    })
+
+    it("reports A's sign-in as no member at B's status, and as A's member at A's", async () => {
+      const status = (naming: string) =>
+        server().request(`${ORIGIN}/auth/status`, {
+          headers: { cookie: aliceCookie, 'Podium-Workspace': naming },
+        })
+      const inB = await (await status('beta')).json()
+      expect(inB).toMatchObject({ authed: false, denied: 'not_workspace_member' })
+      expect(inB.syncBoundaryId).toBeUndefined()
+      expect(await (await status('acme')).json()).toMatchObject({
+        authed: true,
+        syncBoundaryId: 'ws_a',
+      })
+    })
+
+    it("finds no invitation of A at B's inspect and complete", async () => {
+      const alice = (await A.users.earliestAdmin())?.id
+      if (!alice) throw new Error('A has no admin')
+      const { invitation } = await identityA.memberships.invite({
+        actor: { memberId: alice },
+        role: 'member',
+        email: 'carol@example.test',
+      })
+      const inspectB = await post('/auth/members/inspect', 'beta', { token: invitation.token })
+      expect(inspectB.status).toBe(400)
+      const completeB = await post('/auth/members/complete', 'beta', {
+        token: invitation.token,
+        email: 'carol@example.test',
+        password: 'carol password 1',
+        displayName: 'Carol',
+      })
+      expect(completeB.status).toBe(400)
+      const emailsOfB = (await identityB.memberships.list()).map((m) => m.account?.email)
+      expect(emailsOfB).not.toContain('carol@example.test')
+      const inspectA = await post('/auth/members/inspect', 'acme', { token: invitation.token })
+      expect(inspectA.status).toBe(200)
+      expect(await inspectA.json()).toMatchObject({ kind: 'invitation' })
+    })
+
+    it("never pairs a phone into B for A's member: B's gate refuses them, B's completion revokes the sign-in", async () => {
+      const start = await post('/auth/mobile-pair/start', 'acme', {}, { cookie: aliceCookie })
+      expect(start.status).toBe(200)
+      const started = (await start.json()) as { pairingId: string; envelope: string }
+      const envelope = decodePairingEnvelope(started.envelope)
+      if (envelope.v !== 2 || envelope.mode !== 'pair') throw new Error('wrong envelope')
+      // The envelope names the workspace the pairing was started in.
+      expect(envelope).toMatchObject({ workspaceId: 'ws_a' })
+      // Starting, reading and approving in B are refused for A's member.
+      for (const path of ['/auth/mobile-pair/start', '/auth/mobile-pair/approve']) {
+        const refused = await post(
+          path,
+          'beta',
+          { pairingId: started.pairingId },
+          {
+            cookie: aliceCookie,
+          },
+        )
+        expect(refused.status, path).toBe(403)
+        expect(await refused.json(), path).toMatchObject({ error: 'not_workspace_member' })
+      }
+      // The code is the account's, so a phone can claim it through B.
+      const claim = await post('/auth/mobile-pair/claim', 'beta', {
+        pairCode: envelope.pairCode,
+        claimHash: CLAIM_HASH,
+        deviceId: 'device-1',
+        deviceName: 'Phone',
+        platform: 'ios',
+        delivery: 'browser',
+      })
+      expect(claim.status).toBe(200)
+      const { claimId } = (await claim.json()) as { claimId: string }
+      const approved = await post(
+        '/auth/mobile-pair/approve',
+        'acme',
+        { pairingId: started.pairingId },
+        { cookie: aliceCookie },
+      )
+      expect(approved.status).toBe(200)
+      const complete = await post('/auth/mobile-pair/complete', 'beta', {
+        claimId,
+        claimSecret: SECRET.toString('base64url'),
+      })
+      // B's completion finds no member of B for the account: it revokes the
+      // sign-in it just made and answers as for any unusable code.
+      expect(complete.status).toBe(400)
+      const alice = await A.users.earliestAdmin()
+      const accountId = alice ? (await A.users.get(asUserId(alice.id)))?.accountId : undefined
+      if (!accountId) throw new Error('Alice has no account')
+      const phones = (await identityA.core.deviceSignIns.listForAccount(accountId)).filter(
+        (signIn) => signIn.kind === 'phone',
+      )
+      expect(phones).toEqual([])
+    })
+
+    it("refuses A's MCP token at B's /mcp", async () => {
+      const call = (naming: string, token: string) =>
+        post(
+          '/mcp',
+          naming,
+          { jsonrpc: '2.0', id: 1, method: 'tools/list' },
+          { authorization: `Bearer ${token}` },
+        )
+      expect((await call('beta', MCP_TOKEN.ws_a)).status).toBe(401)
+      expect((await call('acme', MCP_TOKEN.ws_a)).status).toBe(200)
+      expect((await call('beta', MCP_TOKEN.ws_b)).status).toBe(200)
+    })
   })
 })
 
@@ -394,26 +663,78 @@ describe('self-hosted edge', () => {
   })
 })
 
-describe('no handler reads a workspace from the request', () => {
-  const root = fileURLToPath(new URL('.', import.meta.url))
+describe('no handler reads a workspace from the request (criterion 4, review F5)', () => {
+  const repo = fileURLToPath(new URL('../../../', import.meta.url))
+  /** Every place the server reads requests: the server and the packages it serves them with. */
+  const SCANNED = [
+    'apps/server/src',
+    'packages/sync/src',
+    'packages/identity/src',
+    'packages/commands/src',
+    'packages/protocol/src',
+  ]
   const sources = (dir: string): string[] =>
     readdirSync(dir).flatMap((name) => {
       const path = join(dir, name)
-      if (statSync(path).isDirectory()) return name === 'test-support' ? [] : sources(path)
-      return name.endsWith('.ts') && !name.includes('.test.') ? [path] : []
+      if (statSync(path).isDirectory()) {
+        return name === 'test-support' || name === 'testing' || name === 'node_modules'
+          ? []
+          : sources(path)
+      }
+      return name.endsWith('.ts') && !name.includes('.test.') && !name.endsWith('.d.ts')
+        ? [path]
+        : []
     })
-  /** What a selector read looks like: the headers, the query, the path parameter. */
-  const SELECTOR_READ =
-    /Podium-Workspace|podium-workspace|(?:searchParams\.(?:get|getAll|has)|\.query|\.param)\(\s*['"]workspace['"]/
+  const files = SCANNED.flatMap((dir) => sources(join(repo, dir))).map((path) => ({
+    path: relative(repo, path),
+    text: readFileSync(path, 'utf8'),
+  }))
+  const readers = (pattern: RegExp) =>
+    files
+      .filter((file) => pattern.test(file.text))
+      .map((file) => file.path)
+      .sort()
+
+  /**
+   * A selector read: the headers by name or by the edge's constants, the query
+   * by `searchParams`, `c.req.query`, `c.req.queries` or the parsed query
+   * object, and the path parameter.
+   */
+  const SELECTOR_READ = new RegExp(
+    [
+      'Podium-Workspace',
+      'podium-workspace',
+      'WORKSPACE_(?:ID_HEADER|HEADER|QUERY)\\b',
+      '(?:searchParams\\.(?:get|getAll|has)|\\.queries|\\.query|\\.param)\\(\\s*[\'"]workspace[\'"]',
+      '\\.query\\(\\)\\s*(?:\\.workspace\\b|\\[)',
+    ].join('|'),
+  )
 
   it('reads the selector only at the edge', () => {
-    const readers = sources(root)
-      .filter((path) => SELECTOR_READ.test(readFileSync(path, 'utf8')))
-      .map((path) => relative(root, path))
-      .sort()
-    // The artifact route compares its path segment with the BOUND workspace,
-    // so a request bound to one workspace that names another is not found; it
-    // never selects one.
-    expect(readers).toEqual(['file-artifact-route.ts', 'workspace-edge.ts'])
+    expect(readers(SELECTOR_READ)).toEqual([
+      // The artifact route compares its path segment with the BOUND
+      // workspace, so a request bound to one workspace that names another is
+      // not found; it never selects one.
+      'apps/server/src/file-artifact-route.ts',
+      'apps/server/src/workspace-edge.ts',
+    ])
+  })
+
+  /** A request schema with a field that names a workspace. */
+  const WORKSPACE_INPUT = /\b(?:workspace|workspaceId|workspaceSlug|tenant|tenantId)\??\s*:\s*z\b/
+
+  it('lets no request input name a workspace, except the listed ones', () => {
+    expect(readers(WORKSPACE_INPUT)).toEqual([
+      // Cloud commands still take a client tenantId. POD-7310 deletes it and
+      // reads the tRPC context's boundWorkspace instead.
+      'packages/commands/src/cloud/contracts.ts',
+      // The janitor's change-log prune observation. The maintenance service
+      // compares it with its own store's workspace and refuses any other
+      // (modules/maintenance/service.ts); it never selects a workspace.
+      'packages/protocol/src/maintenance.ts',
+      // The join and pairing envelopes the server WRITES for a device to read;
+      // no server route parses them from a request.
+      'packages/protocol/src/pairing.ts',
+    ])
   })
 })

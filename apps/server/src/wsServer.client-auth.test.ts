@@ -20,6 +20,7 @@ import {
 import { SessionRegistry } from './relay'
 import type { SessionStore } from './store'
 import { openTestStore } from './test-support/open-test-store'
+import { testWorkspaceId } from './test-support/workspace-binding'
 
 let server: Pick<NativeServer<never>, 'port' | 'stop'> | undefined
 let handle: WsHandle | undefined
@@ -411,5 +412,69 @@ describe('/client WS auth gate', () => {
     expect(entityFrames.map((message) => message.type)).not.toContain('sessionsChanged')
     expect(entityFrames.map((message) => message.type)).not.toContain('metadataDelta')
     client.ws.close()
+  })
+})
+
+describe('the workspace binding of an upgrade (POD-7309)', () => {
+  /** A server whose upgrades are bound by `bind`; answers its base URL. */
+  async function startBound(
+    bind: NonNullable<WsAuthOptions['bindWorkspace']>,
+    principalForClient?: WsAuthOptions['principalForClient'],
+  ) {
+    store = await openTestStore(':memory:')
+    registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    handle = attachWebSockets(registry, {
+      bindWorkspace: bind,
+      ...(principalForClient ? { principalForClient } : {}),
+      userForClient: () => firstAdminMemberId(),
+      roleForClient: () => 'admin',
+    })
+    server = serveNative({
+      port: 0,
+      hostname: '127.0.0.1',
+      websocket: handle.websocket,
+      async fetch(request, nativeServer) {
+        const result = await handle?.handleRequest(request, nativeServer)
+        return result === null ? new Response('not found', { status: 404 }) : result
+      },
+    })
+    return `127.0.0.1:${server.port}`
+  }
+  const PATHS = ['/client?cap=sync.http.v1', '/daemon', '/machine']
+
+  test("refuses a socket bound to a workspace other than its registry's", async () => {
+    const host = await startBound(async () => ({ workspaceId: testWorkspaceId('ws_elsewhere') }))
+    for (const path of PATHS) {
+      const response = await fetch(`http://${host}${path}`)
+      expect(response.status, path).toBe(404)
+      expect(await response.json(), path).toEqual({ error: 'workspace_not_served' })
+      expect(await attempt(`ws://${host}${path}`), path).toBe('rejected')
+    }
+  })
+
+  test("answers the edge's refusal before reading any credential", async () => {
+    let credentialRead = false
+    const host = await startBound(
+      async () => ({ refused: { status: 400, body: { error: 'workspace_required' } } }),
+      () => {
+        credentialRead = true
+        return undefined
+      },
+    )
+    for (const path of PATHS) {
+      const response = await fetch(`http://${host}${path}`, {
+        headers: { cookie: 'session=whatever' },
+      })
+      expect(response.status, path).toBe(400)
+      expect(await response.json(), path).toEqual({ error: 'workspace_required' })
+    }
+    expect(credentialRead).toBe(false)
+  })
+
+  test("opens a socket bound to its registry's own workspace", async () => {
+    const host = await startBound(async () => ({
+      workspaceId: registry?.sessionStore.workspaceId ?? testWorkspaceId('unopened'),
+    }))
+    expect(await attempt(`ws://${host}/client?cap=sync.http.v1`)).toBe('open')
   })
 })
