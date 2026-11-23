@@ -20,10 +20,22 @@ import WebSocket from 'ws'
 import type { AppRouter } from '../router'
 import type { TestStoreEngine } from './pg-test-database'
 
-export type CoreTestCommand = { type: 'setWakeUpsDropped'; id: number; dropped: boolean }
+export type CoreTestCommand =
+  | { type: 'setWakeUpsDropped'; id: number; dropped: boolean }
+  | { type: 'watchWakeUps'; id: number }
 export type CoreTestReply =
   | { type: 'ready'; port: number; cookie?: string }
   | { type: 'wakeUpsDropped'; id: number; count: number }
+  | { type: 'watchingWakeUps'; id: number }
+  | { type: 'wakeUp'; workspaceId: string }
+
+/** A Core's wake-ups for its workspace, as a test watches them (`watchWakeUps`). */
+export interface CoreWakeUpWatch {
+  /** Wake-ups received since the watch began. */
+  count(): number
+  /** Resolve once `count()` has reached `count`; reject after `timeoutMs`. */
+  reach(count: number, timeoutMs?: number): Promise<void>
+}
 
 export interface CoreTestRoute {
   readonly pid: number
@@ -123,6 +135,7 @@ function spawnCore(
   root: string,
   databaseUrl: string | undefined,
   signIn: { cookie?: string },
+  wakeUpPollMs: number | undefined,
 ) {
   const stateDir = join(root, String(index))
   // Keep the test runtime's live-state guard and replace the deployment settings.
@@ -151,6 +164,7 @@ function spawnCore(
         PODIUM_CONNECT: 'off',
         PODIUM_TELEMETRY: 'off',
         PODIUM_UPDATE_FEED_POLLING: 'off',
+        ...(wakeUpPollMs === undefined ? {} : { PODIUM_WAKE_UP_POLL_MS: String(wakeUpPollMs) }),
       },
       stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
     },
@@ -235,13 +249,61 @@ function spawnCore(
       child.send({ type: 'setWakeUpsDropped', id, dropped } satisfies CoreTestCommand)
       return (await reply).count
     },
+    async watchWakeUps(): Promise<CoreWakeUpWatch> {
+      const id = ++requestId
+      let count = 0
+      const waiters = new Set<() => void>()
+      child.on('message', (message: CoreTestReply) => {
+        if (message.type !== 'wakeUp') return
+        count++
+        for (const wake of [...waiters]) wake()
+      })
+      const reply = waitForReply(
+        child,
+        (reply): reply is Extract<CoreTestReply, { type: 'watchingWakeUps' }> =>
+          reply.type === 'watchingWakeUps' && reply.id === id,
+        () => describe('watching wake-ups'),
+        5000,
+      )
+      child.send({ type: 'watchWakeUps', id } satisfies CoreTestCommand)
+      await reply
+      return {
+        count: () => count,
+        reach: (target, timeoutMs = 5000) =>
+          new Promise<void>((resolve, reject) => {
+            if (count >= target) return resolve()
+            const timer = setTimeout(() => {
+              waiters.delete(wake)
+              reject(
+                new Error(
+                  `${count} of ${target} wake-ups within ${timeoutMs} ms: ${describe('wake-ups')}`,
+                ),
+              )
+            }, timeoutMs)
+            const wake = () => {
+              if (count < target) return
+              clearTimeout(timer)
+              waiters.delete(wake)
+              resolve()
+            }
+            waiters.add(wake)
+          }),
+      }
+    },
   }
 }
 
 /** Boot independent Core processes on one database. SQLite uses one disk-backed process. */
 export async function startCoreTestCluster(
   engine: TestStoreEngine,
-  { postgresProcesses = 2 }: { postgresProcesses?: number } = {},
+  {
+    postgresProcesses = 2,
+    wakeUpPollMs,
+  }: {
+    postgresProcesses?: number
+    /** Each Core's wake-up poll period (`PODIUM_WAKE_UP_POLL_MS`); the server default otherwise. */
+    wakeUpPollMs?: number
+  } = {},
 ) {
   const size = engine === 'pg' ? postgresProcesses : 1
   if (!Number.isSafeInteger(size) || size < 1) throw new Error('Invalid Core process count')
@@ -278,7 +340,7 @@ export async function startCoreTestCluster(
     const previous = cores.get(index)
     if (previous && !previous.isRunning()) await kill(index)
     if (closing) throw new Error('Core test cluster is closed')
-    const core = cores.get(index) ?? spawnCore(index, root, database?.url, signIn)
+    const core = cores.get(index) ?? spawnCore(index, root, database?.url, signIn, wakeUpPollMs)
     cores.set(index, core)
     try {
       return await core.ready
@@ -370,12 +432,23 @@ export async function startCoreTestCluster(
     },
     start,
     kill,
-    /** Toggle wake-up loss on a process and return the number dropped since the last toggle. */
+    /**
+     * Drop the wake-up signals a process receives (the in-process event on SQLite, the
+     * notifications on Postgres), or stop dropping them, and return the number dropped
+     * since the last toggle. Its poll still wakes its subscribers.
+     */
     async setWakeUpsDropped(index: number, dropped: boolean): Promise<number> {
       checkIndex(index)
       const core = cores.get(index)
       if (!core?.route()) throw new Error(`Core process ${index} is not running`)
       return await core.setWakeUpsDropped(dropped)
+    },
+    /** Subscribe process `index` to its workspace's wake-ups and count them. */
+    async watchWakeUps(index: number): Promise<CoreWakeUpWatch> {
+      checkIndex(index)
+      const core = cores.get(index)
+      if (!core?.route()) throw new Error(`Core process ${index} is not running`)
+      return await core.watchWakeUps()
     },
     close,
   }

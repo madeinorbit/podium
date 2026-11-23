@@ -218,10 +218,13 @@ uses the same browser device sign-in, including after a restart. `enrollDaemon(i
 pairs a test machine through that Core. `connectDaemon(index, daemon)` opens an authenticated
 socket to the chosen Core with the enrolled key. Close the socket when the test is done.
 `kill(index)` sends `SIGKILL` and waits for the child to exit. `start(index)` reopens a killed
-slot on the same database. `setWakeUpsDropped(index, true)` gates only that Core's in-process
-scheduler-idle signal. The 50 ms frame flusher deadline still delivers the local feed, and
-toggling the gate back returns the number of callbacks dropped. POD-7292 moves the switch onto
-the cross-process workspace wake-up interface. Close the cluster in `finally` to stop the
+slot on the same database. `setWakeUpsDropped(index, true)` drops the workspace wake-up
+signals that Core receives: the in-process event on SQLite, the notifications on Postgres.
+Its poll still wakes subscribers, so a test can show that a dropped signal is healed.
+Toggling the gate back returns the number of signals dropped. `watchWakeUps(index)`
+subscribes that Core to its workspace's wake-ups and counts them; `reach(n)` waits for the
+count to reach `n`. Pass `wakeUpPollMs` to `startCoreTestCluster` for a poll short enough
+for a test. Close the cluster in `finally` to stop the
 remaining children before dropping the database. `close()` reports unrequested exits with
 the Core process output.
 

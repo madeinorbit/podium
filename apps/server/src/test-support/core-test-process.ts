@@ -14,14 +14,16 @@ const server = await startServer({ port: 0, mode: 'hosted', trustedProxyHops: 1 
 const store = server.registry.sessionStore
 let dropWakeUps = false
 let dropped = 0
-// Gate the in-process scheduler-idle signal. The 50 ms frame flusher deadline
-// still delivers the local feed. POD-7292 moves this gate to workspace wake-up.
-const onIdle = store.onPublicationIdle.bind(store)
-store.onPublicationIdle = (listener) =>
-  onIdle(() => {
-    if (dropWakeUps) dropped++
-    else listener()
-  })
+// Gate the cross-process workspace wake-up SIGNALS (POD-7292): the in-process event on
+// SQLite, the NOTIFY on Postgres. The poll's wake-ups do not pass through `receive`, so a
+// dropped signal still reaches a subscriber at the next poll (design 4.13).
+const wakeUps = store.database.wakeUps
+const receive = wakeUps.receive.bind(wakeUps)
+wakeUps.receive = (workspaceId) => {
+  if (dropWakeUps) dropped++
+  else receive(workspaceId)
+}
+let stopWatching: (() => void) | undefined
 
 process.on('message', (command: CoreTestCommand) => {
   if (command.type === 'setWakeUpsDropped') {
@@ -32,6 +34,13 @@ process.on('message', (command: CoreTestCommand) => {
       count: dropped,
     } satisfies CoreTestReply)
     dropped = 0
+  }
+  if (command.type === 'watchWakeUps') {
+    stopWatching?.()
+    stopWatching = wakeUps.subscribe(store.workspaceId, () =>
+      process.send?.({ type: 'wakeUp', workspaceId: store.workspaceId } satisfies CoreTestReply),
+    )
+    process.send?.({ type: 'watchingWakeUps', id: command.id } satisfies CoreTestReply)
   }
 })
 process.once('SIGTERM', () => {

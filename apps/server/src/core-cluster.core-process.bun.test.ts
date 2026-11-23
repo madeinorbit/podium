@@ -22,7 +22,8 @@ test.each([
   'sqlite',
   'pg',
 ] as const)('%s: a committed profile survives the writer process being killed', async (engine) => {
-  const cluster = await startCoreTestCluster(engine)
+  // A short poll, so the poll's healing of a dropped wake-up fits the test.
+  const cluster = await startCoreTestCluster(engine, { wakeUpPollMs: 250 })
   try {
     const reader = cluster.size - 1
     const writerRoute = cluster.route(0)
@@ -63,7 +64,12 @@ test.each([
         )
       })
       await waitForFrame(socket, (frame) => frame.type === 'feedResume')
-      await cluster.setWakeUpsDropped(0, true)
+      // The reader's first poll wakes its new subscriber once; from then on its wake-up
+      // signals are dropped, so the write below reaches it through the poll alone.
+      const watch = await cluster.watchWakeUps(reader)
+      await watch.reach(1)
+      await cluster.setWakeUpsDropped(reader, true)
+      const before = watch.count()
       await Promise.all([
         cluster
           .client(0)
@@ -89,7 +95,10 @@ test.each([
             ),
         ),
       ])
-      expect(await cluster.setWakeUpsDropped(0, false)).toBeGreaterThan(0)
+      await watch.reach(before + 1)
+      // The poll may run in the instant between the commit and its signal's arrival.
+      await delay(200)
+      expect(await cluster.setWakeUpsDropped(reader, false)).toBeGreaterThan(0)
     } finally {
       socket.terminate()
     }
