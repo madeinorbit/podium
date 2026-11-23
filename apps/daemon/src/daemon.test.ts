@@ -1155,9 +1155,17 @@ function defaultServerTransport(kind: 'codex' | 'grok'): DefaultServerTransport 
             ? { userAgent: 'fixture', codexHome: '/fixture/.codex' }
             : frame.method === 'thread/start'
               ? { thread: { id: 'fixture-codex-thread', path: null } }
-              : frame.method === 'getAuthStatus'
-                ? { authMethod: 'chatgpt' }
-                : {}
+              : frame.method === 'config/read'
+                ? { config: { model: null, model_reasoning_effort: null } }
+                : frame.method === 'model/list'
+                  ? {
+                      data: [
+                        { model: 'gpt-5-codex', defaultReasoningEffort: 'medium', isDefault: true },
+                      ],
+                    }
+                  : frame.method === 'getAuthStatus'
+                    ? { authMethod: 'chatgpt' }
+                    : {}
         reply(frame.id, result)
         return
       }

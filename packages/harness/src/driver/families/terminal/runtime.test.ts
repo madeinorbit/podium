@@ -6555,6 +6555,7 @@ describe('terminal receipts from the history (POD-4905)', () => {
   it.each([
     'cursor',
     'pi',
+    'antigravity',
   ] as const)("%s's tolerance is unmeasured: a person's words are never credited, a wrapped message is", async (harness) => {
     const profile = testProfileFor(harness)
     if (!profile) throw new Error(`no profile for ${harness}`)

@@ -737,23 +737,20 @@ function makeWorld(options: WorldOptions): {
  *   and archive/context support;
  * grok: process-settle readiness, required instrumentation WITHOUT hook acceptance,
  *   raw first turn, submit nudges and context reporting together;
+ * antigravity: confirmed-turn readiness, instrumentation and submit nudges,
+ *   with transcript-echo acceptance;
  * opencode: poll-state lifecycle alongside the observation lifecycle;
  * cursor/pi: no instrumentation/context/poll lifecycle, and bracketed first turn.
  * Every shape runs the same ordinary AND adversarial contract properties. */
-const SHIPPED_ARMS = ['claude-code', 'codex', 'grok', 'opencode', 'cursor'] as const
+const SHIPPED_ARMS = ['claude-code', 'codex', 'grok', 'opencode', 'cursor', 'antigravity'] as const
 /**
- * THE CURSOR ARM TYPES A PERSON'S WORDS, AND CURSOR'S HISTORY CANNOT CREDIT
- * THEM (POD-4905, spec §7): its text tolerance was never measured, so the
- * shipped profile confirms only a wrapped message's frame id. The corpus's
- * sends are a person's own words, so this arm runs Cursor's shape with an
- * exact-text tolerance; `terminal-driver.test.ts` pins that the shipped Cursor
- * and Pi profiles never credit such words by order.
+ * Cursor and Antigravity have no measured text tolerance, so their shipped
+ * profiles confirm only a wrapped message's frame id. The corpus sends plain
+ * words, so these arms use an exact-text tolerance; `runtime.test.ts` pins that
+ * the shipped Cursor, Pi and Antigravity profiles never credit words by order.
  */
-const CURSOR_CORPUS_PROFILE: TerminalHarnessProfile = {
-  ...shippedProfile('cursor'),
-  acceptCorrelation: {
-    'transcript-echo': promptEchoCorrelation((submitted, recorded) => submitted === recorded),
-  },
+const CORPUS_EXACT_TEXT_CORRELATION = {
+  'transcript-echo': promptEchoCorrelation((submitted, recorded) => submitted === recorded),
 }
 const worlds = [
   makeWorld({
@@ -761,13 +758,17 @@ const worlds = [
     profile: ADVERSARIAL_PROFILE,
     name: 'adversarial-pty (synthetic, no shipped harness)',
   }),
-  ...SHIPPED_ARMS.map((harness) =>
-    makeWorld({
+  ...SHIPPED_ARMS.map((harness) => {
+    const profile = shippedProfile(harness)
+    const exactText = harness === 'cursor' || harness === 'antigravity'
+    return makeWorld({
       harness,
-      profile: harness === 'cursor' ? CURSOR_CORPUS_PROFILE : shippedProfile(harness),
-      ...(harness === 'cursor' ? { name: 'cursor (generic-pty, exact-text tolerance)' } : {}),
-    }),
-  ),
+      profile: exactText
+        ? { ...profile, acceptCorrelation: CORPUS_EXACT_TEXT_CORRELATION }
+        : profile,
+      ...(exactText ? { name: `${harness} (generic-pty, exact-text tolerance)` } : {}),
+    })
+  }),
 ]
 for (const { target } of worlds) {
   runConformance(target.createDriver, {
