@@ -16,8 +16,10 @@ const base = execFileSync('git', ['rev-parse', '--verify', `${before}^{commit}`]
   encoding: 'utf8',
 }).trim()
 const compareAnchoring = process.argv.includes('--scroll-anchor')
+const traceAnchoring = process.argv.includes('--trace-anchor')
+const virtualizerFile = 'apps/web/src/features/issues/use-bounded-virtual-list.ts'
 const comparisonFile = compareAnchoring
-  ? 'apps/web/src/features/issues/use-bounded-virtual-list.ts'
+  ? virtualizerFile
   : 'apps/web/src/features/worklist/work-folds.tsx'
 const original = execFileSync('git', ['show', `${base}:${comparisonFile}`], { encoding: 'utf8' })
 const out = resolve(`.artifacts/sidebar-${compareAnchoring ? 'scroll-anchor' : 'fold'}`)
@@ -157,6 +159,11 @@ async function anchor(
   if (!first) throw new Error('Missing visible anchor row')
   const { key, top } = first
   const scroll = await page.getByTestId('work-scroll').evaluate((el) => el.scrollTop)
+  if (traceAnchoring && name === 'clamped')
+    await page.evaluate(() => {
+      Reflect.set(window, '__anchorTrace', [{ phase: 'close' }])
+      Reflect.set(window, '__traceAnchor', true)
+    })
   if (name === 'large') await page.screenshot({ path: `${out}/${mode}-anchor-open.png` })
   // The header is above the viewport: do not let Playwright scroll it into view.
   await header(page, foldIndex).evaluate((button) => {
@@ -181,6 +188,8 @@ async function anchor(
       })
     }, visible)
   const closedRows = await positions()
+  if (traceAnchoring && name === 'clamped')
+    await page.evaluate(() => Reflect.get(window, '__anchorTrace').push({ phase: 'reopen' }))
   if (name === 'large') await page.screenshot({ path: `${out}/${mode}-anchor-closed.png` })
   await header(page, foldIndex).evaluate((button) => {
     if (button instanceof HTMLElement) button.click()
@@ -188,6 +197,13 @@ async function anchor(
   await settle(page)
   const reopenedRows = await positions()
   const reopenedScroll = await page.getByTestId('work-scroll').evaluate((el) => el.scrollTop)
+  const trace =
+    traceAnchoring && name === 'clamped'
+      ? await page.evaluate(() => {
+          Reflect.set(window, '__traceAnchor', false)
+          return Reflect.get(window, '__anchorTrace')
+        })
+      : undefined
   await page.getByTestId('work-scroll').evaluate((el) => {
     el.scrollTop = 0
   })
@@ -202,6 +218,7 @@ async function anchor(
     reopenedScroll,
     closedRows,
     reopenedRows,
+    trace,
   }
 }
 
@@ -278,18 +295,39 @@ try {
       configFile: resolve('apps/web/vite.sidebar.config.ts'),
       cacheDir: resolve(`apps/web/node_modules/.cache/sidebar-fold-${mode}`),
       server: { host: '127.0.0.1', port: 41659, strictPort: true, hmr: false },
-      plugins:
-        mode === 'before'
-          ? [
-              {
-                name: 'fold-control',
-                enforce: 'pre',
-                transform(_code, id) {
-                  if (id.split('?')[0] === resolve(comparisonFile)) return original
-                },
-              },
-            ]
-          : [],
+      plugins: [
+        {
+          name: 'fold-control',
+          enforce: 'pre',
+          transform(code, id) {
+            const path = id.split('?')[0]
+            let source = mode === 'before' && path === resolve(comparisonFile) ? original : code
+            if (
+              traceAnchoring &&
+              path === resolve(virtualizerFile) &&
+              !(mode === 'before' && compareAnchoring)
+            ) {
+              source = source
+                .replace(
+                  'const changed = prior !== current || top !== currentTop',
+                  `const changed = prior !== current || top !== currentTop
+                if (Reflect.get(window, '__traceAnchor')) Reflect.get(window, '__anchorTrace').push({
+                  key: current.keys[0], currentTop, top, scrollTop, maxScroll, anchorScrollTop,
+                  anchorVersion, visible, saved, section: scroll ? sectionBounds(scroll, container) : null
+                })`,
+                )
+                .replace(
+                  'scroll.scrollTop += delta',
+                  `if (Reflect.get(window, '__traceAnchor')) Reflect.get(window, '__anchorTrace').push({
+                  key: current.keys[0], delta, before: scroll.scrollTop, maxScroll, anchorVersion
+                })
+                scroll.scrollTop += delta`,
+                )
+            }
+            return source === code ? undefined : source
+          },
+        },
+      ],
     })
     const page = await browser.newPage({
       viewport: { width: 1600, height: 950 },
