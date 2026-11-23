@@ -78,7 +78,11 @@ import type {
 } from '@podium/model'
 import { asSessionId, isProofOnlyItem, transcriptItemRefOf } from '@podium/model'
 import type { AgentObservation, ObservationProvenance, ProviderCursor } from '@podium/protocol'
-import { type DaemonMessage, isRuntimeFineEvent, type RuntimeHistoryPage } from '@podium/protocol/daemon'
+import {
+  type DaemonMessage,
+  isRuntimeFineEvent,
+  type RuntimeHistoryPage,
+} from '@podium/protocol/daemon'
 import type {
   AgentStateEvent,
   TerminalAcceptCorrelation,
@@ -87,7 +91,13 @@ import type {
   TranscriptTimestampFidelity,
 } from '../../../index.js'
 import { podiumFrameId } from '../../../index.js'
-import { harnessCapabilitiesFor, isCommandWrapperText, isGenericClaudeTitle, isTransientTitle, stripSpinnerFrame } from '../../../metadata.js'
+import {
+  harnessCapabilitiesFor,
+  isCommandWrapperText,
+  isGenericClaudeTitle,
+  isTransientTitle,
+  stripSpinnerFrame,
+} from '../../../metadata.js'
 import { decodeCursor } from '../../../store/cursor-codec.js'
 import type {
   AcceptPort,
@@ -194,6 +204,29 @@ export const SUBMIT_HOOK_LINK_WINDOW_MS = 1_000
 const LATER_PROMPT_LIMIT = 4
 const PROOF_WATCH_MS = 30 * 60_000
 
+/**
+ * THE TURN-END RECONCILE READS BACK ONLY TO WHAT IT ALREADY COVERED (POD-7429).
+ *
+ * The reconcile exists to pick up the turn's last records that the live tail
+ * had not delivered when the turn ended (Grok writes its chat history after the
+ * close). It used to read the newest 2,000 history items and emit every one
+ * this driver had not emitted itself. After a resume the driver holds only the
+ * reset's window, so every older item counted as missing: 1,788 historical
+ * items went out as live items after one first turn, and the server froze for
+ * 33 s folding them (POD-7414 finding 1).
+ *
+ * It now pages back from the newest item, {@link RECONCILE_PAGE} at a time,
+ * until it reaches the driver's covered item ({@link TranscriptCoverage}), and
+ * emits only what follows it. Without a proven covered item (a resume before
+ * its first reset, a store that rotated under the driver) it is a bounded
+ * catch-up: at most {@link RECONCILE_CATCH_UP_LIMIT} of the newest items.
+ * Either way it emits {@link RECONCILE_SLICE} items at a time and yields the
+ * event loop between slices.
+ */
+const RECONCILE_PAGE = 64
+export const RECONCILE_CATCH_UP_LIMIT = 512
+const RECONCILE_SLICE = 32
+
 // ---------------------------------------------------------------------------
 // The host port — TerminalHostPorts in ./host-ports.ts (POD-4785)
 // ---------------------------------------------------------------------------
@@ -240,6 +273,26 @@ type TranscriptPosition =
   | { kind: 'unknown' }
   | { kind: 'empty' }
   | { kind: 'at'; fileId: string; offset: number; sub: number }
+
+/**
+ * How much of the harness's transcript this driver has put on its stream
+ * (POD-7429): the turn-end reconcile's starting point.
+ *
+ * `through` names the newest item of the last reset, delta or reconcile, by the
+ * identity {@link DriverSession.transcriptVersions} keys. The server's buffer
+ * holds that reset and everything streamed after it, so an item at or before
+ * the covered one is either already there or older than the reset, which the
+ * server's buffer does not hold by design. `start` is an empty store (a fresh
+ * launch, an empty reset): every item is new. `unknown` is a resume or adopt
+ * before its first reset, where nothing proves what the server holds.
+ *
+ * From `unknown`, only a reset or a finished catch-up places it (a delta alone
+ * proves nothing older); deltas and reconciles then move it forward.
+ */
+type TranscriptCoverage =
+  | { kind: 'unknown' }
+  | { kind: 'start' }
+  | { kind: 'through'; identity: string }
 
 /**
  * One open accept watch: the prompt text it credits, how to tell it, and where
@@ -325,11 +378,14 @@ interface DriverSession {
   log: LoggedEvent[]
   wakers: Set<() => void>
   interactions: Map<string, PendingInteraction>
-  interactionOwners: Map<string, {
-    terminal: TerminalTransport | undefined
-    generation: number
-    bindingVersion: number
-  }>
+  interactionOwners: Map<
+    string,
+    {
+      terminal: TerminalTransport | undefined
+      generation: number
+      bindingVersion: number
+    }
+  >
   answerScript?: { cancel(detail: string): void }
   answered: Set<string>
   /** The open ask a screen-classified wait opened, if any (POD-4632). */
@@ -354,6 +410,13 @@ interface DriverSession {
   /** The furthest transcript position a delta has shown; each watch copies it
    *  when armed. See {@link TranscriptPosition}. */
   transcriptPosition: TranscriptPosition
+  /** What the stream already carries: the reconcile's start. */
+  transcriptCoverage: TranscriptCoverage
+  /** Bumped by every reset, so a reconcile that read across one stands down. */
+  transcriptResets: number
+  /** The turn-end reconcile in flight, and whether a later turn end asked again. */
+  reconciling?: Promise<void>
+  reconcileAgain?: { observerGeneration: number; bindingVersion: number }
   /**
    * USER turns in the harness's own transcript — the submit-verify baseline, and
    * the one number a receipt's `transcript-echo` proof rests on.
@@ -447,7 +510,8 @@ export function stateEventForObservation(
   return {
     kind: 'state_snapshot',
     state: observation.state,
-    at: observation.providerAt ??
+    at:
+      observation.providerAt ??
       (observation.provenance === 'bootstrap' ? observation.state.since : observation.receivedAt),
   }
 }
@@ -516,7 +580,11 @@ export interface TerminalRuntime {
   observeState(observation: TerminalStateObservation): void
   /** The causal accept signal: a raw hook payload, before the observers fold it. */
   onHookPayload(sessionId: SessionId, payload: unknown): void
-  respondToHook(sessionId: SessionId, payload: unknown, signal?: AbortSignal): Promise<string | null>
+  respondToHook(
+    sessionId: SessionId,
+    payload: unknown,
+    signal?: AbortSignal,
+  ): Promise<string | null>
   /**
    * THE SUPERVISOR OBSERVED A KERNEL OOM KILL in this session's scope
    * (POD-2413).
@@ -576,9 +644,7 @@ export interface TerminalRuntimeControl {
  */
 export function createTerminalRuntime(
   host: TerminalHostPorts,
-  primeSource:
-    | ((sessionId: SessionId) => Promise<{ ok: boolean; result?: unknown }>)
-    | undefined,
+  primeSource: ((sessionId: SessionId) => Promise<{ ok: boolean; result?: unknown }>) | undefined,
   slots: SessionDriverSlots,
 ): TerminalRuntime {
   const contexts = new Map<SessionId, ReturnType<typeof createBoundaryContext>>()
@@ -788,28 +854,63 @@ export function createTerminalRuntime(
     if (session.interactions.has(interaction.id) || session.answered.has(interaction.id)) return
     closeOpenInteractions(session, interaction.askedAt, observation.provenance, null)
     openAsk(session, interaction, observation.provenance, observation.providerCursor)
-    if (interaction.kind === 'question' && interaction.payload.questions.every((q) => q.options.length === 0)) {
+    if (
+      interaction.kind === 'question' &&
+      interaction.payload.questions.every((q) => q.options.length === 0)
+    ) {
       const generation = session.observerGeneration
       const terminal = terminalFor(session)
-      void host.readHistory({ sessionId: session.sessionId, agentKind: session.agentKind,
-        cwd: session.cwd, ...(session.resume ? { resume: session.resume } : {}) }, { limit: 50 })
+      void host
+        .readHistory(
+          {
+            sessionId: session.sessionId,
+            agentKind: session.agentKind,
+            cwd: session.cwd,
+            ...(session.resume ? { resume: session.resume } : {}),
+          },
+          { limit: 50 },
+        )
         .then((page) => {
           const items = page.items
-          if (session.disposed || session.answerScript || session.observerGeneration !== generation ||
-              terminalFor(session) !== terminal || session.interactions.get(interaction.id) !== interaction) return
-          const item = [...items].reverse().find((i) => i.role === 'tool' && i.toolName === 'AskUserQuestion' && i.toolInputJson)
+          if (
+            session.disposed ||
+            session.answerScript ||
+            session.observerGeneration !== generation ||
+            terminalFor(session) !== terminal ||
+            session.interactions.get(interaction.id) !== interaction
+          )
+            return
+          const item = [...items]
+            .reverse()
+            .find((i) => i.role === 'tool' && i.toolName === 'AskUserQuestion' && i.toolInputJson)
           if (!item?.toolInputJson) return
-          const parsed = JSON.parse(item.toolInputJson) as { questions?: NonNullable<NonNullable<AgentRuntimeState['need']>['interview']>['questions'] }
+          const parsed = JSON.parse(item.toolInputJson) as {
+            questions?: NonNullable<
+              NonNullable<AgentRuntimeState['need']>['interview']
+            >['questions']
+          }
           if (!Array.isArray(parsed.questions) || parsed.questions.length === 0) return
           // A historical tool call cannot enrich a different on-screen prompt.
           const summary = interaction.payload.questions[0]?.question
           if (!summary || !parsed.questions.some((q) => q.question === summary)) return
-          const questions = interviewPrompts({ kind: 'question', summary, interview: { questions: parsed.questions } })
+          const questions = interviewPrompts({
+            kind: 'question',
+            summary,
+            interview: { questions: parsed.questions },
+          })
           if (!questions) return
           const enriched: PendingInteraction = { ...interaction, payload: { v: 1, questions } }
           session.interactions.set(interaction.id, enriched)
-          emit(session, { t: 'interaction', ev: { ev: 'asked', interaction: enriched } }, interaction.askedAt, observation.provenance)
-        }).catch(() => { /* The observed menu remains authoritative when enrichment fails. */ })
+          emit(
+            session,
+            { t: 'interaction', ev: { ev: 'asked', interaction: enriched } },
+            interaction.askedAt,
+            observation.provenance,
+          )
+        })
+        .catch(() => {
+          /* The observed menu remains authoritative when enrichment fails. */
+        })
     }
   }
 
@@ -960,7 +1061,13 @@ export function createTerminalRuntime(
       session.answered.add(id)
       emit(
         session,
-        { t: 'interaction', ev: answeredBy === null ? { ev: 'expired', id, at } : { ev: 'answered', id, answeredBy, at } },
+        {
+          t: 'interaction',
+          ev:
+            answeredBy === null
+              ? { ev: 'expired', id, at }
+              : { ev: 'answered', id, answeredBy, at },
+        },
         at,
         provenance,
       )
@@ -1018,7 +1125,7 @@ export function createTerminalRuntime(
     provenance: ObservationProvenance,
   ): void {
     for (const item of items) {
-      const identity = item.cursor ?? item.id
+      const identity = transcriptIdentity(item)
       const version = JSON.stringify(item)
       if (session.transcriptVersions.get(identity) === version) continue
       session.transcriptVersions.set(identity, version)
@@ -1038,20 +1145,31 @@ export function createTerminalRuntime(
     emit(session, { t: 'draft', text }, observedAt(), 'live')
   }
 
-  function observeMetadata(session: DriverSession, change: SessionMetadataChange, at?: string): void {
+  function observeMetadata(
+    session: DriverSession,
+    change: SessionMetadataChange,
+    at?: string,
+  ): void {
     const prior = session.metadata.get(change.kind)
     if (change.kind === 'title') {
       if (isCommandWrapperText(change.title)) return
       const title = stripSpinnerFrame(change.title)
       if (isTransientTitle(title)) return
-      if (isGenericClaudeTitle(title) && prior?.change.kind === 'title' &&
-          !isGenericClaudeTitle(prior.change.title)) return
+      if (
+        isGenericClaudeTitle(title) &&
+        prior?.change.kind === 'title' &&
+        !isGenericClaudeTitle(prior.change.title)
+      )
+        return
       change = { ...change, title }
     }
     // Omitted effort is not a reset. Keep the latest pair in the snapshot even
     // when the next assistant record names only its model.
     if (change.kind === 'model' && change.effort === undefined && prior?.change.kind === 'model') {
-      change = { ...change, ...(prior.change.effort !== undefined ? { effort: prior.change.effort } : {}) }
+      change = {
+        ...change,
+        ...(prior.change.effort !== undefined ? { effort: prior.change.effort } : {}),
+      }
     }
     if (JSON.stringify(prior?.change) === JSON.stringify(change)) return
     // Prefer the native record's time. OSC and native callbacks without a
@@ -1133,7 +1251,11 @@ export function createTerminalRuntime(
         // A re-read keeps the time floor and deduplicates entries; restarting
         // or rewriting the store does not itself exhaust a proof watch.
         session.transcriptPosition = advancePosition(
-          msg.reset ? (msg.items.length === 0 ? { kind: 'empty' } : { kind: 'unknown' }) : session.transcriptPosition,
+          msg.reset
+            ? msg.items.length === 0
+              ? { kind: 'empty' }
+              : { kind: 'unknown' }
+            : session.transcriptPosition,
           msg.items,
         )
         // The conversation only: proof-only queue records stay here (POD-4905).
@@ -1141,8 +1263,13 @@ export function createTerminalRuntime(
         if (msg.reset) {
           session.transcriptVersions.clear()
           for (const item of shown) {
-            session.transcriptVersions.set(item.cursor ?? item.id, JSON.stringify(item))
+            session.transcriptVersions.set(transcriptIdentity(item), JSON.stringify(item))
           }
+          session.transcriptResets += 1
+          const newest = shown.at(-1)
+          session.transcriptCoverage = newest
+            ? { kind: 'through', identity: transcriptIdentity(newest) }
+            : { kind: 'start' }
           emit(
             session,
             {
@@ -1155,6 +1282,7 @@ export function createTerminalRuntime(
           )
         } else {
           emitTranscriptItems(session, shown, 'live')
+          coverThrough(session, shown)
         }
         return
       }
@@ -1288,7 +1416,8 @@ export function createTerminalRuntime(
         return
       case 'title': {
         const source = msg.source ?? 'native'
-        if (source === 'osc' && harnessCapabilitiesFor(session.agentKind)?.oscTitle === false) return
+        if (source === 'osc' && harnessCapabilitiesFor(session.agentKind)?.oscTitle === false)
+          return
         observeMetadata(session, { kind: 'title', source, title: msg.title })
         return
       }
@@ -1297,13 +1426,25 @@ export function createTerminalRuntime(
         return
       }
       case 'agentModel': {
-        observeMetadata(session, { kind: 'model', source: msg.source ?? 'transcript', model: msg.model,
-          ...(msg.effort !== undefined ? { effort: msg.effort } : {}) }, msg.at)
+        observeMetadata(
+          session,
+          {
+            kind: 'model',
+            source: msg.source ?? 'transcript',
+            model: msg.model,
+            ...(msg.effort !== undefined ? { effort: msg.effort } : {}),
+          },
+          msg.at,
+        )
         return
       }
       case 'agentContext': {
         session.contextUsedPercent = msg.percent
-        observeMetadata(session, { kind: 'context', source: 'transcript', percent: msg.percent }, msg.at)
+        observeMetadata(
+          session,
+          { kind: 'context', source: 'transcript', percent: msg.percent },
+          msg.at,
+        )
         return
       }
       case 'sessionResumeRef': {
@@ -1311,26 +1452,39 @@ export function createTerminalRuntime(
         // allows, per `resumeRefTiming` — this is that moment for every terminal
         // harness, and it is what unblocks `hibernate()` and `export()`.
         if (
-          (msg.observerGeneration !== undefined && msg.observerGeneration !== session.observerGeneration) ||
+          (msg.observerGeneration !== undefined &&
+            msg.observerGeneration !== session.observerGeneration) ||
           (msg.bindingVersion !== undefined && msg.bindingVersion !== session.bindingVersion)
-        ) return
+        )
+          return
         if (msg.confidence !== 'exact' && session.resumeConfidence === 'exact') return
-        if (!msg.receipt && session.resume?.kind === msg.resume.kind &&
-            session.resume.value === msg.resume.value &&
-            session.resumeConfidence === (msg.confidence ?? 'heuristic')) return
+        if (
+          !msg.receipt &&
+          session.resume?.kind === msg.resume.kind &&
+          session.resume.value === msg.resume.value &&
+          session.resumeConfidence === (msg.confidence ?? 'heuristic')
+        )
+          return
         session.resume = msg.resume
         session.resumeConfidence = msg.confidence ?? 'heuristic'
-        const identityBootstrap = session.observerGeneration > 1 &&
+        const identityBootstrap =
+          session.observerGeneration > 1 &&
           session.identityGeneration !== session.observerGeneration &&
           session.stateGeneration !== session.observerGeneration
         session.identityGeneration = session.observerGeneration
-        emit(session, {
-          t: 'binding', resume: msg.resume,
-          confidence: msg.confidence ?? 'heuristic',
-          bindingVersion: session.bindingVersion,
-          ...(msg.ackRequested ? { ackRequested: true } : {}),
-          ...(msg.receipt ? { receipt: msg.receipt } : {}),
-        }, observedAt(), identityBootstrap ? 'bootstrap' : 'live')
+        emit(
+          session,
+          {
+            t: 'binding',
+            resume: msg.resume,
+            confidence: msg.confidence ?? 'heuristic',
+            bindingVersion: session.bindingVersion,
+            ...(msg.ackRequested ? { ackRequested: true } : {}),
+            ...(msg.receipt ? { receipt: msg.receipt } : {}),
+          },
+          observedAt(),
+          identityBootstrap ? 'bootstrap' : 'live',
+        )
         return
       }
       case 'agentFrame':
@@ -1433,8 +1587,10 @@ export function createTerminalRuntime(
       (session.resume && observation.providerSessionId !== session.resume.value)
     )
       return
-    if (session.observerGeneration !== observation.observerGeneration ||
-        session.bindingVersion < observation.bindingVersion) {
+    if (
+      session.observerGeneration !== observation.observerGeneration ||
+      session.bindingVersion < observation.bindingVersion
+    ) {
       session.answerScript?.cancel('observer ownership changed')
     }
     session.observerGeneration = observation.observerGeneration
@@ -1479,7 +1635,8 @@ export function createTerminalRuntime(
     // The lone-close net below decides before the fenced return, so its own
     // absorbing guard (!alreadyFenced) is what keeps a closed epoch closed —
     // and what the ARM removes to prove it. Everything else still returns here.
-    const at = observation.providerAt ??
+    const at =
+      observation.providerAt ??
       (observation.provenance === 'bootstrap' ? observation.state.since : observation.receivedAt)
     // A LONE CLOSE OPENS FIRST (POD-4828), decided BEFORE the fenced return
     // so its own guard is what keeps a closed epoch closed (and what the ARM
@@ -1559,38 +1716,113 @@ export function createTerminalRuntime(
     }
   }
 
-  async function reconcileTranscript(
+  /** One reconcile per session at a time; a turn end during one runs it again. */
+  function reconcileTranscript(
+    session: DriverSession,
+    fence: { observerGeneration: number; bindingVersion: number },
+  ): Promise<void> {
+    if (session.reconciling) {
+      session.reconcileAgain = fence
+      return session.reconciling
+    }
+    const run = (async () => {
+      let next: typeof fence | undefined = fence
+      while (next) {
+        session.reconcileAgain = undefined
+        await reconcileOnce(session, next)
+        next = session.reconcileAgain
+      }
+    })().finally(() => {
+      session.reconciling = undefined
+    })
+    session.reconciling = run
+    return run
+  }
+
+  /** See {@link RECONCILE_PAGE}: read back to the covered item, emit what follows. */
+  async function reconcileOnce(
     session: DriverSession,
     fence: { observerGeneration: number; bindingVersion: number },
   ): Promise<void> {
     const registration = registrations.get(session.sessionId)
     if (!registration) return
+    const resets = session.transcriptResets
+    const current = () =>
+      sessions.get(session.sessionId) === session &&
+      !session.disposed &&
+      session.observerGeneration === fence.observerGeneration &&
+      session.bindingVersion === fence.bindingVersion &&
+      // A reset re-seeded the server's buffer; this read predates it.
+      session.transcriptResets === resets
     try {
-      const items = (
-        await host.readHistory(
+      const coverage = session.transcriptCoverage
+      const covered = coverage.kind === 'through' ? coverage.identity : undefined
+      // Newest last, in store order.
+      let read: TranscriptItem[] = []
+      let from: RuntimeHistoryPage['head']
+      let found = -1
+      for (;;) {
+        const page = await host.readHistory(
           {
             sessionId: session.sessionId,
             agentKind: session.agentKind,
             cwd: registration.cwd,
             ...(session.resume ? { resume: session.resume } : {}),
           },
-          { limit: 2000 },
+          { limit: RECONCILE_PAGE, ...(from ? { from } : {}) },
         )
-      ).items
-      if (
-        sessions.get(session.sessionId) !== session ||
-        session.disposed ||
-        session.observerGeneration !== fence.observerGeneration ||
-        session.bindingVersion !== fence.bindingVersion
-      )
-        return
-      emitTranscriptItems(session, items, 'live')
+        if (!current()) return
+        read = [...page.items, ...read]
+        if (covered !== undefined) {
+          let at = page.items.length - 1
+          while (at >= 0 && transcriptIdentity(page.items[at]!) !== covered) at--
+          if (at >= 0) {
+            found = at
+            break
+          }
+        }
+        if (!page.hasMore || !page.head || read.length >= RECONCILE_CATCH_UP_LIMIT) break
+        from = page.head
+      }
+      const missing =
+        found >= 0
+          ? read.filter(
+              (item, index) =>
+                index > found ||
+                // A record this driver streamed and the store has since
+                // rewritten. Unknown items before the covered one are history
+                // older than the reset, which the stream never carries.
+                (session.transcriptVersions.has(transcriptIdentity(item)) &&
+                  session.transcriptVersions.get(transcriptIdentity(item)) !==
+                    JSON.stringify(item)),
+            )
+          : // No proven covered item: a bounded catch-up of the newest items.
+            read.slice(-RECONCILE_CATCH_UP_LIMIT)
+      for (let start = 0; start < missing.length; start += RECONCILE_SLICE) {
+        if (start > 0) {
+          await new Promise<void>((resolve) => host.setTimer(resolve, 0))
+          if (!current()) return
+        }
+        emitTranscriptItems(session, missing.slice(start, start + RECONCILE_SLICE), 'live')
+      }
+      // The stream now carries the store's newest item, whatever was missing.
+      // A delta that moved coverage during the read is newer still: keep it.
+      const newest = read.at(-1)
+      if (newest && session.transcriptCoverage === coverage)
+        session.transcriptCoverage = { kind: 'through', identity: transcriptIdentity(newest) }
     } catch (error) {
       log.warn('terminal transcript completion reconcile failed', {
         err: error,
         sessionId: session.sessionId,
       })
     }
+  }
+
+  /** A non-reset delta extends what the stream carries, once a reset placed it. */
+  function coverThrough(session: DriverSession, shown: readonly TranscriptItem[]): void {
+    const newest = shown.at(-1)
+    if (!newest || session.transcriptCoverage.kind === 'unknown') return
+    session.transcriptCoverage = { kind: 'through', identity: transcriptIdentity(newest) }
   }
 
   // -- the native submit link ----------------------------------------------
@@ -1609,20 +1841,28 @@ export function createTerminalRuntime(
     // whether that id can be the send's is the injection machine's call.
     const harnessRef = correlation.harnessRef?.(payload)
     const waiter = creditAcceptWaiter(
-      session.hookWaiters, correlation, payload, harnessRef ? { harnessRef } : {},
-      (waiter) => waiter.submittedAtMs !== undefined && host.now() >= waiter.submittedAtMs &&
+      session.hookWaiters,
+      correlation,
+      payload,
+      harnessRef ? { harnessRef } : {},
+      (waiter) =>
+        waiter.submittedAtMs !== undefined &&
+        host.now() >= waiter.submittedAtMs &&
         host.now() - waiter.submittedAtMs <= SUBMIT_HOOK_LINK_WINDOW_MS,
     )
     if (!waiter || !harnessRef) return
-    const echoes = [...session.echoWaiters].filter((echo) =>
-      echo.turnId === waiter.turnId && echo.text === waiter.text,
+    const echoes = [...session.echoWaiters].filter(
+      (echo) => echo.turnId === waiter.turnId && echo.text === waiter.text,
     )
     if (echoes.length !== 1) return
     const echo = echoes[0]!
     echo.hookRefs = harnessRef
     if (host.now() >= echo.start.atMs + PROOF_WATCH_MS) return
     const recorded = [...echo.seenPrompts.values()].find((item) =>
-      item.harnessRef?.some((ref) => harnessRef.some((hook) => ref.kind === hook.kind && ref.id === hook.id)))
+      item.harnessRef?.some((ref) =>
+        harnessRef.some((hook) => ref.kind === hook.kind && ref.id === hook.id),
+      ),
+    )
     if (recorded) confirmRecorded(session, echo, recorded)
   }
 
@@ -1645,10 +1885,13 @@ export function createTerminalRuntime(
     // including one whose own fingerprint is null. The keystrokes still went
     // out; `unverified` is true and a mis-credit would be worse.
     if (fingerprint === null) return undefined
-    const candidates = [...waiters].filter((waiter) => eligible(waiter) &&
-      (correlation.textMatches
-        ? correlation.textMatches(waiter.text, observation)
-        : correlation.fingerprintText(waiter.text) === fingerprint))
+    const candidates = [...waiters].filter(
+      (waiter) =>
+        eligible(waiter) &&
+        (correlation.textMatches
+          ? correlation.textMatches(waiter.text, observation)
+          : correlation.fingerprintText(waiter.text) === fingerprint),
+    )
     if (candidates.length !== 1) return undefined
     const waiter = candidates[0]!
     waiters.delete(waiter)
@@ -1684,17 +1927,23 @@ export function createTerminalRuntime(
       }
       const queued = item.queued === true
       if (!queued && !correlation.accepts(item)) continue
-      const after = [...session.echoWaiters].filter((waiter) =>
-        host.now() < waiter.start.atMs + PROOF_WATCH_MS && echoIsAfterStart(item, waiter.start, timestamps) &&
-        !waiter.beforeTypingIds.has(item.id || item.cursor || '') &&
-        !waiter.seenPrompts.has(item.id),
+      const after = [...session.echoWaiters].filter(
+        (waiter) =>
+          host.now() < waiter.start.atMs + PROOF_WATCH_MS &&
+          echoIsAfterStart(item, waiter.start, timestamps) &&
+          !waiter.beforeTypingIds.has(item.id || item.cursor || '') &&
+          !waiter.seenPrompts.has(item.id),
       )
       if (after.length === 0) continue
       const typed = queued ? item.text : correlation.typedText(item)
-      const linked = !queued && item.harnessRef?.length
-        ? after.filter((waiter) => waiter.hookRefs?.some((hook) =>
-          item.harnessRef!.some((ref) => ref.kind === hook.kind && ref.id === hook.id)))
-        : []
+      const linked =
+        !queued && item.harnessRef?.length
+          ? after.filter((waiter) =>
+              waiter.hookRefs?.some((hook) =>
+                item.harnessRef!.some((ref) => ref.kind === hook.kind && ref.id === hook.id),
+              ),
+            )
+          : []
       // This entry spends every unwrapped watch's first-entry order, including
       // when its native id supplies the proof for a different watch.
       const ordered = creditOne(session, correlation, item, typed, after, queued)
@@ -1731,11 +1980,17 @@ export function createTerminalRuntime(
     }
   }
 
-  function confirmRecorded(session: DriverSession, waiter: AcceptWaiter, item: TranscriptItem): void {
+  function confirmRecorded(
+    session: DriverSession,
+    waiter: AcceptWaiter,
+    item: TranscriptItem,
+  ): void {
     waiter.cancel()
     const transcriptItem = transcriptItemRefOf(item)
-    waiter.resolve({ ...(transcriptItem ? { transcriptItem } : {}),
-      ...(item.harnessRef?.length ? { harnessRef: item.harnessRef } : {}) })
+    waiter.resolve({
+      ...(transcriptItem ? { transcriptItem } : {}),
+      ...(item.harnessRef?.length ? { harnessRef: item.harnessRef } : {}),
+    })
     if (waiter.turnId) removeProofWatch(session, waiter.turnId)
   }
 
@@ -1754,16 +2009,19 @@ export function createTerminalRuntime(
     item: TranscriptItem,
     timestamps: TranscriptTimestampFidelity,
   ): void {
-    const after = [...session.echoWaiters].filter((waiter) =>
-      host.now() < waiter.start.atMs + PROOF_WATCH_MS && echoIsAfterStart(item, waiter.start, timestamps) &&
-      !waiter.beforeTypingIds.has(item.id || item.cursor || ''),
+    const after = [...session.echoWaiters].filter(
+      (waiter) =>
+        host.now() < waiter.start.atMs + PROOF_WATCH_MS &&
+        echoIsAfterStart(item, waiter.start, timestamps) &&
+        !waiter.beforeTypingIds.has(item.id || item.cursor || ''),
     )
     if (after.length === 0) return
     const frameId = podiumFrameId(item.text)
     const matches = entryMatcher(correlation, item, item.text)
-    const heldTwins = frameId || !matches
-      ? []
-      : after.filter((waiter) => waiter.held && !waiter.frameId && matches(waiter.text))
+    const heldTwins =
+      frameId || !matches
+        ? []
+        : after.filter((waiter) => waiter.held && !waiter.frameId && matches(waiter.text))
     const dropped = frameId
       ? after.find((waiter) => waiter.frameId === frameId)
       : heldTwins.length > 0
@@ -1778,7 +2036,10 @@ export function createTerminalRuntime(
     }
     if (!dropped) return
     dropped.cancel()
-    dropped.disprove({ proof: 'dropped-by-agent', reason: 'the agent program dropped it (a hook blocked it)' })
+    dropped.disprove({
+      proof: 'dropped-by-agent',
+      reason: 'the agent program dropped it (a hook blocked it)',
+    })
     if (dropped.turnId) removeProofWatch(session, dropped.turnId)
   }
 
@@ -1823,7 +2084,8 @@ export function createTerminalRuntime(
     for (const waiter of open) {
       if (!session.echoWaiters.has(waiter)) continue
       const reachesStart =
-        !page.hasMore || (oldest !== undefined && !echoIsAfterStart(oldest, waiter.start, timestamps))
+        !page.hasMore ||
+        (oldest !== undefined && !echoIsAfterStart(oldest, waiter.start, timestamps))
       if (!reachesStart) continue
       waiter.cancel()
       waiter.disprove({
@@ -1920,19 +2182,29 @@ export function createTerminalRuntime(
       })
       return undefined
     }
-    if (!unchanged(candidate)) log.debug('order credit with foreign-write diagnostics', {
-      sessionId, typingMark: candidate.typingMark(), count: host.foreignWrites?.count(sessionId),
-      orderTrustworthy: host.foreignWrites?.orderTrustworthy(sessionId),
-    })
+    if (!unchanged(candidate))
+      log.debug('order credit with foreign-write diagnostics', {
+        sessionId,
+        typingMark: candidate.typingMark(),
+        count: host.foreignWrites?.count(sessionId),
+        orderTrustworthy: host.foreignWrites?.orderTrustworthy(sessionId),
+      })
     return candidate
   }
 
   function removeProofWatch(session: DriverSession, turnId: string): void {
-    void host.proofWatches?.remove(session.sessionId, turnId).catch((err) =>
-      log.warn('receipt watch removal failed', { sessionId: session.sessionId, turnId, err }))
+    void host.proofWatches
+      ?.remove(session.sessionId, turnId)
+      .catch((err) =>
+        log.warn('receipt watch removal failed', { sessionId: session.sessionId, turnId, err }),
+      )
   }
 
-  const acceptFor = (session: DriverSession, waiters: DriverSession['hookWaiters'], atMs?: number): AcceptPort => ({
+  const acceptFor = (
+    session: DriverSession,
+    waiters: DriverSession['hookWaiters'],
+    atMs?: number,
+  ): AcceptPort => ({
     watch(text: string, turnId?: string) {
       let settle: ((seen: AcceptSeen) => void) | undefined
       const accepted = new Promise<AcceptSeen>((resolve) => {
@@ -1958,8 +2230,10 @@ export function createTerminalRuntime(
         text,
         resolve: (seen) => settle?.(seen),
         // Recovery starts at a saved time, not the observer's current tail.
-        start: { atMs: atMs ?? host.now(), position: atMs === undefined
-          ? session.transcriptPosition : { kind: 'unknown' } },
+        start: {
+          atMs: atMs ?? host.now(),
+          position: atMs === undefined ? session.transcriptPosition : { kind: 'unknown' },
+        },
         pass: () => pass?.(),
         hold: () => {
           waiter.held = true
@@ -1975,8 +2249,10 @@ export function createTerminalRuntime(
         queueSpent: false,
         held: false,
         turnId,
-        beforeTypingIds: atMs === undefined && waiters === session.echoWaiters
-          ? new Set(session.transcriptIds) : new Set(),
+        beforeTypingIds:
+          atMs === undefined && waiters === session.echoWaiters
+            ? new Set(session.transcriptIds)
+            : new Set(),
         seenPrompts: new Map(),
         unexplainedSeen: 0,
         cancel: () => {
@@ -1992,19 +2268,32 @@ export function createTerminalRuntime(
         held,
         disproved,
         cancel: () => waiter.cancel(),
-        submitted() { waiter.submittedAtMs = host.now() },
-        ...(waiters === session.echoWaiters && turnId !== undefined && host.proofWatches && atMs === undefined ? {
-          async typingStarts() {
-            await host.proofWatches!.save(session.sessionId, {
-              turnId, text, typingStartedAt: new Date(waiter.start.atMs).toISOString(),
-            })
-            if (!session.disposed) deadline = host.setTimer(() => {
-              waiter.pass()
-              waiter.cancel()
-              removeProofWatch(session, turnId)
-            }, Math.max(0, waiter.start.atMs + PROOF_WATCH_MS - host.now()))
-          },
-        } : {}),
+        submitted() {
+          waiter.submittedAtMs = host.now()
+        },
+        ...(waiters === session.echoWaiters &&
+        turnId !== undefined &&
+        host.proofWatches &&
+        atMs === undefined
+          ? {
+              async typingStarts() {
+                await host.proofWatches!.save(session.sessionId, {
+                  turnId,
+                  text,
+                  typingStartedAt: new Date(waiter.start.atMs).toISOString(),
+                })
+                if (!session.disposed)
+                  deadline = host.setTimer(
+                    () => {
+                      waiter.pass()
+                      waiter.cancel()
+                      removeProofWatch(session, turnId)
+                    },
+                    Math.max(0, waiter.start.atMs + PROOF_WATCH_MS - host.now()),
+                  )
+              },
+            }
+          : {}),
       }
     },
   })
@@ -2032,16 +2321,28 @@ export function createTerminalRuntime(
       let from: RuntimeHistoryPage['head']
       const heads = new Set<string>()
       for (;;) {
-        const page = await host.readHistory({ sessionId: session.sessionId, agentKind: session.agentKind,
-          cwd: session.cwd, ...(session.resume ? { resume: session.resume } : {}) },
-          { limit: EXIT_HISTORY_READ_LIMIT, ...(from ? { from } : {}) })
+        const page = await host.readHistory(
+          {
+            sessionId: session.sessionId,
+            agentKind: session.agentKind,
+            cwd: session.cwd,
+            ...(session.resume ? { resume: session.resume } : {}),
+          },
+          { limit: EXIT_HISTORY_READ_LIMIT, ...(from ? { from } : {}) },
+        )
         if (session.disposed) return
         items.unshift(...page.items)
         const oldestTime = page.items[0]?.ts ? Date.parse(page.items[0]!.ts!) : Number.NaN
-        if (!page.hasMore || (timestamps !== 'absent' && Number.isFinite(oldestTime) &&
-          oldestTime < Math.floor(floor / timestamps.resolutionMs) * timestamps.resolutionMs)) break
+        if (
+          !page.hasMore ||
+          (timestamps !== 'absent' &&
+            Number.isFinite(oldestTime) &&
+            oldestTime < Math.floor(floor / timestamps.resolutionMs) * timestamps.resolutionMs)
+        )
+          break
         const key = JSON.stringify(page.head)
-        if (!page.head || heads.has(key)) throw new Error('history read did not reach receipt time floor')
+        if (!page.head || heads.has(key))
+          throw new Error('history read did not reach receipt time floor')
         heads.add(key)
         from = page.head
       }
@@ -2054,25 +2355,42 @@ export function createTerminalRuntime(
         if ([...session.echoWaiters].some((waiter) => waiter.turnId === watch.turnId)) continue
         const echo = acceptFor(session, session.echoWaiters, atMs).watch(watch.text, watch.turnId)
         const waiter = [...session.echoWaiters].find((waiter) => waiter.turnId === watch.turnId)!
-        const timer = host.setTimer(() => {
+        const timer = host.setTimer(
+          () => {
+            echo.cancel()
+            removeProofWatch(session, watch.turnId)
+          },
+          Math.max(0, atMs + PROOF_WATCH_MS - host.now()),
+        )
+        const close = () => {
+          host.clearTimer(timer)
           echo.cancel()
-          removeProofWatch(session, watch.turnId)
-        }, Math.max(0, atMs + PROOF_WATCH_MS - host.now()))
-        const close = () => { host.clearTimer(timer); echo.cancel() }
+        }
         const cancel = waiter.cancel
-        waiter.cancel = () => { host.clearTimer(timer); cancel() }
+        waiter.cancel = () => {
+          host.clearTimer(timer)
+          cancel()
+        }
         void echo.accepted.then((seen) => {
           close()
           if (session.disposed) return
-          emit(session, { t: 'delivery', rowId: watch.turnId, outcome: 'delivered', ...seen },
-            new Date(host.now()).toISOString(), 'live')
+          emit(
+            session,
+            { t: 'delivery', rowId: watch.turnId, outcome: 'delivered', ...seen },
+            new Date(host.now()).toISOString(),
+            'live',
+          )
         })
         void echo.passed?.then(close)
         void echo.disproved?.then(({ proof, reason }) => {
           close()
           if (session.disposed) return
-          emit(session, { t: 'delivery', rowId: watch.turnId, outcome: 'failed', cause: proof, reason },
-            new Date(host.now()).toISOString(), 'live')
+          emit(
+            session,
+            { t: 'delivery', rowId: watch.turnId, outcome: 'failed', cause: proof, reason },
+            new Date(host.now()).toISOString(),
+            'live',
+          )
         })
       }
       creditEchoWaiters(session, [...items, ...(session.restoringProofItems ?? [])])
@@ -2111,13 +2429,17 @@ export function createTerminalRuntime(
         live: () => session.live && session.alive && terminalFor(session) !== undefined,
         phase: () => host.trackedState(session.sessionId)?.phase,
         ...(host.readInput ? { readInput: () => host.readInput!(session.sessionId) } : {}),
-        foreignWriteCount: () => host.foreignWrites?.orderTrustworthy(session.sessionId)
-          ? host.foreignWrites.count(session.sessionId) : undefined,
+        foreignWriteCount: () =>
+          host.foreignWrites?.orderTrustworthy(session.sessionId)
+            ? host.foreignWrites.count(session.sessionId)
+            : undefined,
         lastOutputAtMs: () => session.lastOutputAtMs,
         now: host.now,
         setTimer: host.setTimer,
         clearTimer: host.clearTimer,
-        ...(profile?.acceptCorrelation?.hook ? { hookAccept: acceptFor(session, session.hookWaiters) } : {}),
+        ...(profile?.acceptCorrelation?.hook
+          ? { hookAccept: acceptFor(session, session.hookWaiters) }
+          : {}),
         ...(profile?.acceptCorrelation?.['transcript-echo']
           ? { echoAccept: acceptFor(session, session.echoWaiters) }
           : {}),
@@ -2270,6 +2592,10 @@ export function createTerminalRuntime(
       // has not seen; it starts `unknown` until a delta places it.
       transcriptPosition:
         registration.resume || registration.rebind ? { kind: 'unknown' } : { kind: 'empty' },
+      // The same rule for what the stream carries: a fresh store holds nothing.
+      transcriptCoverage:
+        registration.resume || registration.rebind ? { kind: 'unknown' } : { kind: 'start' },
+      transcriptResets: 0,
       userTurns: 0,
       alive: true,
       // STARTS FALSE EVEN ON AN ADOPT. The `bind` frame is what says the CLI is
@@ -2361,7 +2687,7 @@ export function createTerminalRuntime(
         // process under the same session is a different conversation, and carrying
         // a position across would fence its first events out as already-seen.
         streamPositions.delete(session.sessionId)
-        if (!await host.stopSession({ sessionId: session.sessionId }))
+        if (!(await host.stopSession({ sessionId: session.sessionId })))
           throw new Error('terminal process retirement was not confirmed')
       },
 
@@ -2373,7 +2699,7 @@ export function createTerminalRuntime(
         session.answerScript?.cancel('the process ended')
         session.alive = false
         session.terminatedByDriver = true
-        if (!await host.stopSession({ sessionId: session.sessionId }))
+        if (!(await host.stopSession({ sessionId: session.sessionId })))
           throw new Error('terminal process retirement was not confirmed')
         return { ok: true as const }
       },
@@ -2383,7 +2709,7 @@ export function createTerminalRuntime(
         session.alive = false
         session.terminatedByDriver = true
         streamPositions.delete(session.sessionId)
-        if (!await host.stopSession({ sessionId: session.sessionId }))
+        if (!(await host.stopSession({ sessionId: session.sessionId })))
           throw new Error('terminal process retirement was not confirmed')
       },
 
@@ -2472,12 +2798,15 @@ export function createTerminalRuntime(
         }
       },
 
-      ...(primeSource && profiles.get(session.sessionId)?.instrumentationRequired ? {
-        boundaryContext: (request: BoundaryContextRequest) => {
-          if (session.disposed || sessions.get(session.sessionId) !== session) return Promise.resolve(null)
-          return boundaryContextFor(session.sessionId)?.(request) ?? Promise.resolve(null)
-        },
-      } : {}),
+      ...(primeSource && profiles.get(session.sessionId)?.instrumentationRequired
+        ? {
+            boundaryContext: (request: BoundaryContextRequest) => {
+              if (session.disposed || sessions.get(session.sessionId) !== session)
+                return Promise.resolve(null)
+              return boundaryContextFor(session.sessionId)?.(request) ?? Promise.resolve(null)
+            },
+          }
+        : {}),
       // ---- turns ----
       async send(input: TurnInput, options: SendOptions): Promise<TurnReceipt> {
         if (options.delivery === 'at-boundary') {
@@ -2672,9 +3001,14 @@ export function createTerminalRuntime(
         const interaction = session.interactions.get(interactionId)
         if (!interaction) return { ok: false, reason: 'unknown-interaction' }
         const owner = session.interactionOwners.get(interactionId)
-        if (session.disposed || !session.alive || !owner?.terminal ||
-            terminalFor(session) !== owner.terminal ||
-            owner.generation !== session.observerGeneration || owner.bindingVersion !== session.bindingVersion) {
+        if (
+          session.disposed ||
+          !session.alive ||
+          !owner?.terminal ||
+          terminalFor(session) !== owner.terminal ||
+          owner.generation !== session.observerGeneration ||
+          owner.bindingVersion !== session.bindingVersion
+        ) {
           return { ok: false, reason: 'expired' }
         }
         const script = menuScriptFor(answer, interaction)
@@ -2715,24 +3049,37 @@ export function createTerminalRuntime(
                 session.interactionOwners.delete(interactionId)
                 session.answered.add(interactionId)
               }
-              finish({ ok: false, reason: writes > 0 ? 'partial-delivery' : 'expired',
-                detail: `${detail}; ${writes}/${script.script.keys.length} writes completed` })
+              finish({
+                ok: false,
+                reason: writes > 0 ? 'partial-delivery' : 'expired',
+                detail: `${detail}; ${writes}/${script.script.keys.length} writes completed`,
+              })
             },
           }
           session.answerScript = running
           const send = (key: string, index: number): void => {
             if (settled) return
-            if (session.disposed || !session.alive || sessions.get(session.sessionId) !== session ||
-                terminalFor(session) !== terminal ||
-                session.observerGeneration !== generation || session.bindingVersion !== bindingVersion ||
-                session.interactions.get(interactionId) !== interaction || session.answerScript !== running) {
+            if (
+              session.disposed ||
+              !session.alive ||
+              sessions.get(session.sessionId) !== session ||
+              terminalFor(session) !== terminal ||
+              session.observerGeneration !== generation ||
+              session.bindingVersion !== bindingVersion ||
+              session.interactions.get(interactionId) !== interaction ||
+              session.answerScript !== running
+            ) {
               running.cancel('answer ownership changed')
               return
             }
             // Count an attempted write conservatively: a throwing terminal may have written bytes.
             writes += 1
-            try { terminal.writeBase64(Buffer.from(key, 'utf8').toString('base64')) }
-            catch { running.cancel('terminal write failed'); return }
+            try {
+              terminal.writeBase64(Buffer.from(key, 'utf8').toString('base64'))
+            } catch {
+              running.cancel('terminal write failed')
+              return
+            }
             if (index === script.script.keys.length - 1) finish({ ok: true })
           }
           for (const [index, key] of script.script.keys.entries()) {
@@ -3001,8 +3348,11 @@ export function createTerminalRuntime(
       const session = sessions.get(sessionId)
       if (!session) return
       session.interactions.set(interaction.id, interaction)
-      session.interactionOwners.set(interaction.id, { terminal: terminalFor(session),
-        generation: session.observerGeneration, bindingVersion: session.bindingVersion })
+      session.interactionOwners.set(interaction.id, {
+        terminal: terminalFor(session),
+        generation: session.observerGeneration,
+        bindingVersion: session.bindingVersion,
+      })
       emit(
         session,
         { t: 'interaction', ev: { ev: 'asked', interaction } },
@@ -3234,7 +3584,9 @@ function leaseFields(lease: TerminalObservationLease | undefined): {
   bindingVersion?: number
 } {
   return {
-    ...(lease?.observerGeneration !== undefined ? { observerGeneration: lease.observerGeneration } : {}),
+    ...(lease?.observerGeneration !== undefined
+      ? { observerGeneration: lease.observerGeneration }
+      : {}),
     ...(lease?.bindingVersion !== undefined ? { bindingVersion: lease.bindingVersion } : {}),
   }
 }
@@ -3249,6 +3601,11 @@ const capabilityCache = new WeakMap<TerminalHarnessProfile, DriverCapabilities>(
  * whose cursor does not decode cannot be placed: it ends `empty` (the store
  * is no longer known to be empty) and leaves a known position as it was.
  */
+/** The identity {@link DriverSession.transcriptVersions} keys an item by. */
+function transcriptIdentity(item: TranscriptItem): string {
+  return item.cursor ?? item.id
+}
+
 function advancePosition(
   from: TranscriptPosition,
   items: readonly TranscriptItem[],
@@ -3260,8 +3617,13 @@ function advancePosition(
       if (position.kind === 'empty') position = { kind: 'unknown' }
       continue
     }
-    if (position.kind === 'at' && position.fileId === parts.fileId &&
-      (parts.offset < position.offset || parts.offset === position.offset && parts.sub <= position.sub)) continue
+    if (
+      position.kind === 'at' &&
+      position.fileId === parts.fileId &&
+      (parts.offset < position.offset ||
+        (parts.offset === position.offset && parts.sub <= position.sub))
+    )
+      continue
     position = { kind: 'at', fileId: parts.fileId, offset: parts.offset, sub: parts.sub }
   }
   return position
@@ -3300,9 +3662,15 @@ function echoIsAfterStart(
   const writtenAtMs = timestamps !== 'absent' && item.ts ? Date.parse(item.ts) : Number.NaN
   const dated = Number.isFinite(writtenAtMs)
   const parts = item.cursor ? decodeCursor(item.cursor) : null
-  const comparable = parts !== null && start.position.kind === 'at' && parts.fileId === start.position.fileId
-  if (comparable && start.position.kind === 'at' &&
-    (parts.offset < start.position.offset || parts.offset === start.position.offset && parts.sub <= start.position.sub)) return false
+  const comparable =
+    parts !== null && start.position.kind === 'at' && parts.fileId === start.position.fileId
+  if (
+    comparable &&
+    start.position.kind === 'at' &&
+    (parts.offset < start.position.offset ||
+      (parts.offset === start.position.offset && parts.sub <= start.position.sub))
+  )
+    return false
   if (dated && timestamps !== 'absent') {
     return writtenAtMs >= Math.floor(start.atMs / timestamps.resolutionMs) * timestamps.resolutionMs
   }
@@ -3559,7 +3927,8 @@ function questionScriptFor(
     const prompt = prompts[at]
     const selection = selections[at]
     if (!prompt || !selection) return { ok: false, detail: `prompt ${at + 1}: missing` }
-    if (prompt.options.length === 0) return { ok: false, detail: `prompt ${at + 1}: options are unreadable` }
+    if (prompt.options.length === 0)
+      return { ok: false, detail: `prompt ${at + 1}: options are unreadable` }
     if (!prompt.multiSelect && selection.optionIndices.length > 1) {
       return { ok: false, detail: `prompt ${at + 1}: this question takes one option` }
     }
@@ -3646,4 +4015,3 @@ function questionScriptFor(
   if (!isLoneSingleChoice(choices)) key('\r', MENU_CONFIRM_DELAY_MS)
   return { ok: true, script: { keys, at } }
 }
-
