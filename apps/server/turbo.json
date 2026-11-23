@@ -1234,6 +1234,7 @@
         "src/store/credentials.test.ts",
         "src/store/credentials.ts",
         "src/store/cross-workspace-allowlist.ts",
+        "src/store/daemon-link-settings.test.ts",
         "src/store/database.test.ts",
         "src/store/database.ts",
         "src/store/effects.ts",
