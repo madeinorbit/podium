@@ -2,9 +2,9 @@
  * QUOTA AND MODEL PROBES PER HOME (credential management §10: "each home
  * reports its own login state, identity, quota and model list").
  *
- * The default directory's probes are unchanged; these add one answer per
- * Podium home, each read with the harness's directory variable pointed at
- * that home, so a second subscription's quota and models are its own.
+ * These add one answer per Podium home, each read with the harness's directory
+ * variable pointed at that home, so a second subscription's quota and models
+ * are its own. A home already read as the default account adds no quota entry.
  */
 
 import {
@@ -25,9 +25,16 @@ import {
 } from '@podium/harness'
 import { makeQuotaFetcher, probeAccountQuota } from '@podium/harness/inventory'
 import type { AgentQuotaWire } from '@podium/model'
+import type { HomeHarness } from '@podium/protocol'
 import type { HarnessHome } from './registry'
 
-type Account = { home: string; env: HarnessEnvironment; snapshot?: HarnessExecutableSnapshot }
+type Account = {
+  home: string
+  env: HarnessEnvironment
+  snapshot?: HarnessExecutableSnapshot
+  /** Homes already read by the default account, from the shared own-login rule. */
+  ownLoginHomes?: Readonly<Partial<Record<HomeHarness, string>>>
+}
 type QuotaFetch = (
   kind: string,
   scope: HarnessAccountScope,
@@ -42,7 +49,7 @@ const manifestQuota: QuotaFetch = async (kind, scope, deps) => {
 /**
  * A reader of every home's quota, one cached fetcher per home (the same TTL
  * and stale-while-revalidate rule as the default directory's). Each wire
- * carries its `homeId`; a removed home is forgotten.
+ * carries its `homeId`; a removed home or one read as default is forgotten.
  */
 export function homeQuotaReader(deps: {
   homes(): readonly HarnessHome[]
@@ -79,7 +86,9 @@ export function homeQuotaReader(deps: {
     return fetcher
   }
   return async (refresh) => {
-    const homes = deps.homes()
+    // A failed account lookup is reported by each home's fetcher as before.
+    const account = await deps.account().catch(() => undefined)
+    const homes = deps.homes().filter((home) => account?.ownLoginHomes?.[home.harness] !== home.dir)
     const present = new Set(homes.map((home) => home.homeId))
     for (const homeId of fetchers.keys()) if (!present.has(homeId)) fetchers.delete(homeId)
     const answers = await Promise.all(

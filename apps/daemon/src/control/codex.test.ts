@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -22,7 +22,10 @@ const REFRESH = 'refresh-single-use-xyz'
 const ACCOUNT = 'acct-1'
 
 function writeAuth(home: string, accessToken: string, accountId = ACCOUNT): void {
-  const dir = join(home, '.codex')
+  writeAuthAt(join(home, '.codex'), accessToken, accountId)
+}
+
+function writeAuthAt(dir: string, accessToken: string, accountId = ACCOUNT): void {
   mkdirSync(dir, { recursive: true })
   writeFileSync(
     join(dir, 'auth.json'),
@@ -89,6 +92,9 @@ describe('resolveCodexDaemonAuth — read-only, self-healing (moved from server 
   beforeEach(() => {
     home = mkdtempSync(join(tmpdir(), 'codex-daemon-auth-'))
   })
+  afterEach(() => {
+    rmSync(home, { recursive: true, force: true })
+  })
 
   it('returns the access token and account id for a valid token without touching the file', async () => {
     const token = jwt(nowSec() + 3600)
@@ -148,6 +154,7 @@ describe('runCodexComplete', () => {
   afterEach(() => {
     if (prevCodexHome === undefined) delete process.env.CODEX_HOME
     else process.env.CODEX_HOME = prevCodexHome
+    rmSync(home, { recursive: true, force: true })
   })
 
   it('calls the Responses API with the local token and returns text + tool calls', async () => {
@@ -176,31 +183,41 @@ describe('runCodexComplete', () => {
     if (!outcome.ok) expect(outcome.error).toMatch(/isn't logged in/)
   })
 
-  it('self-heals after a 401 when the CLI rotated a fresh token in', async () => {
+  it.each([false, true])('self-heals after a 401 (Podium home override: %s)', async (override) => {
     const stale = jwt(nowSec() + 3600)
     const fresh = jwt(nowSec() + 7200)
-    writeAuth(home, stale)
+    const codexHome = override ? join(home, 'podium-codex') : undefined
+    const dir = codexHome ?? join(home, '.codex')
+    writeAuthAt(dir, stale)
+    if (override) writeAuth(home, 'decoy-person-token')
     let calls = 0
-    const fetchImpl = (async () => {
+    const tokens: string[] = []
+    const fetchImpl = (async (_url: unknown, init: RequestInit) => {
       calls += 1
+      tokens.push(new Headers(init.headers).get('authorization') ?? '')
       if (calls === 1) {
         // First attempt with the stale token: the backend rejects it. The CLI
         // rotates the file before we re-read.
-        writeAuth(home, fresh)
+        writeAuthAt(dir, fresh)
         return { ok: false, status: 401, text: async () => 'unauthorized' } as Response
       }
       return {
         ok: true,
         status: 200,
         text: async () =>
-          sse({ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'healed' }] }),
+          sse({
+            type: 'message',
+            role: 'assistant',
+            content: [{ type: 'output_text', text: 'healed' }],
+          }),
       } as Response
     }) as unknown as typeof fetch
 
-    const outcome = await runCodexComplete({ credentialHome: home, fetchImpl }, REQUEST)
+    const outcome = await runCodexComplete({ credentialHome: home, codexHome, fetchImpl }, REQUEST)
 
     expect(outcome).toEqual({ ok: true, text: 'healed', toolCalls: [] })
     expect(calls).toBe(2)
+    expect(tokens).toEqual([`Bearer ${stale}`, `Bearer ${fresh}`])
   })
 
   it('surfaces an actionable error (no retry loop) when the rejected token is still in the file', async () => {
@@ -239,32 +256,33 @@ describe('runCodexComplete', () => {
     if (!outcome.ok) expect(outcome.error).toMatch(/timed out/)
   })
 
-  it.each(['success', 'login-missing', 'rejected-token'] as const)(
-    'the reply for %s carries no credential material (token never leaves)',
-    async (variant) => {
-      const token = jwt(nowSec() + 3600)
-      if (variant !== 'login-missing') writeAuth(home, token)
-      const fetchImpl =
-        variant === 'rejected-token'
-          ? (async () => ({ ok: false, status: 401, text: async () => 'no' }) as Response)
-          : mockFetch(
-              sse({
-                type: 'message',
-                role: 'assistant',
-                content: [{ type: 'output_text', text: 'hello' }],
-              }),
-            )
+  it.each([
+    'success',
+    'login-missing',
+    'rejected-token',
+  ] as const)('the reply for %s carries no credential material (token never leaves)', async (variant) => {
+    const token = jwt(nowSec() + 3600)
+    if (variant !== 'login-missing') writeAuth(home, token)
+    const fetchImpl =
+      variant === 'rejected-token'
+        ? async () => ({ ok: false, status: 401, text: async () => 'no' }) as Response
+        : mockFetch(
+            sse({
+              type: 'message',
+              role: 'assistant',
+              content: [{ type: 'output_text', text: 'hello' }],
+            }),
+          )
 
-      const outcome = await runCodexComplete({ credentialHome: home, fetchImpl }, REQUEST)
-      const frame = JSON.stringify({
-        type: 'codexCompleteResult',
-        requestId: REQUEST.requestId,
-        ...outcome,
-      })
-      // Neither half of the refresh lineage nor the provider account id.
-      expect(frame).not.toContain(token)
-      expect(frame).not.toContain(REFRESH)
-      expect(frame).not.toContain(ACCOUNT)
-    },
-  )
+    const outcome = await runCodexComplete({ credentialHome: home, fetchImpl }, REQUEST)
+    const frame = JSON.stringify({
+      type: 'codexCompleteResult',
+      requestId: REQUEST.requestId,
+      ...outcome,
+    })
+    // Neither half of the refresh lineage nor the provider account id.
+    expect(frame).not.toContain(token)
+    expect(frame).not.toContain(REFRESH)
+    expect(frame).not.toContain(ACCOUNT)
+  })
 })

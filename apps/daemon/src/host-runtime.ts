@@ -1276,12 +1276,14 @@ export async function createDaemonHostRuntime(args: {
           ...(accountHome ? { accountHome } : {}),
           homeDir: homeDir ?? machineHome,
           ...(harnessRuntime ? { harnessRuntime } : {}),
+          homes,
         })
         return account
           ? {
               home: account.home,
               env: account.machineEnv,
               ...(account.snapshot ? { snapshot: account.snapshot } : {}),
+              ...(account.ownLoginHomes ? { ownLoginHomes: account.ownLoginHomes } : {}),
             }
           : undefined
       },

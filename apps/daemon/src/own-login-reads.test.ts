@@ -4,15 +4,16 @@
  *
  * Where the machine's own login of a harness is the Podium home
  * (`ownLoginInPodiumHome`), the reads of the `default` account read there: its
- * model list (Podium's Codex run in the Podium home), its quota (the token in
- * the Podium home's auth file), its usage (the rollouts there), and a
+ * model list (Podium's Codex run in the Podium home), Responses calls and quota
+ * (the token in the Podium home's auth file), its usage (the rollouts there), and a
  * conversation moved to or from `default` (placed in the Podium home). Where
  * it is the person's folder, those reads stay there.
  *
  * The machine states, for Codex: Podium's install alone; both installs with
  * the person signed in to their own copy; both installs with only Podium's
  * copy signed in (the person installed their own later and never signed in
- * there: the Podium home keeps the login); both signed out; no install.
+ * there: the Podium home keeps the login); only the person's install; both
+ * signed out; no install.
  *
  * Driven through the daemon's entry points with the process and network
  * boundaries stubbed: recording fake Codex binaries, a fetch that records the
@@ -25,15 +26,17 @@ import type { ResolvedHarnessExecutable, ResolvedHarnessInventory } from '@podiu
 import type { BuiltinHarnessKind } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { codexAuthPathFor, codexHandlers, resolveCodexDaemonAuth } from './control/codex'
 import { execHandlers } from './control/exec'
 import { inventoryHandlers } from './control/inventory'
-import { managementQuotaFetcher } from './harness-management'
+import { managementQuotaFetcher, resolveManagementAccount } from './harness-management'
 import { conversationHandlers } from './homes/conversation'
 import { ownLoginInPodiumHome, snapshotHomeFacts } from './homes/own-login'
+import { homeQuotaReader } from './homes/probes'
 import { HomeRegistry } from './homes/registry'
 import { testHarnessSnapshot } from './test-support/harness-snapshot'
 
-type MachineState = 'only-managed' | 'both' | 'none'
+type MachineState = 'only-managed' | 'both' | 'only-person' | 'none'
 /** Which side holds a Codex sign-in. */
 type SignedIn = 'person' | 'podium' | 'both' | 'neither'
 
@@ -115,10 +118,10 @@ async function machine(state: MachineState, signedIn: SignedIn): Promise<Resolve
   const base = testHarnessSnapshot({}, 3, {})
   const executables = new Map(base.executables)
   executables.delete('codex')
-  if (state === 'both')
+  if (state === 'both' || state === 'only-person')
     executables.set('codex', { kind: 'codex', path: bin.person, version: '0.160.0', generation: 3 })
   const managed = new Map<BuiltinHarnessKind, ResolvedHarnessExecutable>()
-  if (state !== 'none')
+  if (state === 'only-managed' || state === 'both')
     managed.set('codex', {
       kind: 'codex',
       path: bin.managed,
@@ -275,6 +278,115 @@ describe('the model list, quota and usage of the default account (gaps 1 and 2)'
       quota: 'podium',
       usage: 'podium',
     })
+  })
+})
+
+describe('Codex Responses auth and quota use the same default login', () => {
+  const cases: [MachineState, SignedIn, 'person' | 'podium'][] = [
+    ['only-managed', 'podium', 'podium'],
+    ['only-managed', 'both', 'podium'],
+    ['both', 'both', 'person'],
+    ['only-person', 'both', 'person'],
+    ['both', 'podium', 'podium'],
+  ]
+
+  it.each(cases)('%s, signed in on %s: Responses reads %s auth', async (state, signedIn, side) => {
+    const { ctx, sent } = daemonCtx(await machine(state, signedIn))
+    const account = await resolveManagementAccount(ctx)
+    expect(account).toBeDefined()
+    const codexHome = account?.ownLoginHomes?.codex
+    const expectedPath = join(side === 'podium' ? podiumCodex() : personCodex(), 'auth.json')
+    expect(codexAuthPathFor(account?.home, codexHome)).toBe(expectedPath)
+    expect(await resolveCodexDaemonAuth(account?.home, { codexHome })).toEqual({
+      accessToken: `codex-${side}`,
+      accountId: `acct-${side}`,
+    })
+    const before = await readFile(expectedPath, 'utf8')
+    const fetchImpl = vi.fn(async (_url: unknown, init?: RequestInit) => {
+      const headers = new Headers(init?.headers)
+      expect(headers.get('authorization')).toBe(`Bearer codex-${side}`)
+      expect(headers.get('chatgpt-account-id')).toBe(`acct-${side}`)
+      return new Response(
+        `event: response.completed\ndata: ${JSON.stringify({
+          type: 'response.completed',
+          response: { status: 'completed' },
+        })}\n\n`,
+      )
+    })
+    vi.stubGlobal('fetch', fetchImpl)
+
+    codexHandlers.codexCompleteRequest(ctx, {
+      type: 'codexCompleteRequest',
+      requestId: 'complete',
+      model: 'gpt-fixture',
+      messages: [{ role: 'user', content: 'hi' }],
+      tools: [],
+      effort: 'medium',
+    })
+
+    expect(await waitFor(sent, 'codexCompleteResult')).toEqual({
+      type: 'codexCompleteResult',
+      requestId: 'complete',
+      ok: true,
+      text: '',
+      toolCalls: [],
+    })
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+    expect(await readFile(expectedPath, 'utf8')).toBe(before)
+  })
+
+  it('only Podium’s install without its login never falls back to the person’s old login', async () => {
+    const { ctx, sent } = daemonCtx(await machine('only-managed', 'person'))
+    const fetchImpl = vi.fn(() => {
+      throw new Error('a missing Podium login must not make a request')
+    })
+    vi.stubGlobal('fetch', fetchImpl)
+
+    codexHandlers.codexCompleteRequest(ctx, {
+      type: 'codexCompleteRequest',
+      requestId: 'missing',
+      model: 'gpt-fixture',
+      messages: [],
+      tools: [],
+      effort: 'medium',
+    })
+
+    expect(await waitFor(sent, 'codexCompleteResult')).toMatchObject({
+      ok: false,
+      error: expect.stringContaining(join(podiumCodex(), 'auth.json')),
+    })
+    expect(fetchImpl).not.toHaveBeenCalled()
+  })
+
+  it.each(cases)('%s, signed in on %s: quota counts %s once', async (state, signedIn, side) => {
+    const { ctx } = daemonCtx(await machine(state, signedIn))
+    const other = (await homes.ensure('cred_other', 'codex')).home
+    await codexRoot(other.dir, 'other', true)
+    const tokens: string[] = []
+    vi.stubGlobal('fetch', async (_url: unknown, init?: RequestInit) => {
+      tokens.push(new Headers(init?.headers).get('authorization') ?? '')
+      return new Response('{}')
+    })
+    const readHomes = homeQuotaReader({
+      homes: () => homes.list(),
+      account: async () => {
+        const account = await resolveManagementAccount(ctx)
+        return account && { ...account, env: account.machineEnv }
+      },
+    })
+
+    const defaultQuota = await managementQuotaFetcher(ctx).getAgentQuota(true)
+    const homeQuota = await readHomes(true)
+    const codexQuota = [...defaultQuota, ...homeQuota].filter((wire) => wire.agent === 'codex')
+    const expectedHomes = ['default', other.homeId]
+    const expectedTokens = [`Bearer codex-${side}`, 'Bearer codex-other']
+    if (side === 'person') {
+      expectedHomes.push('podium:codex')
+      expectedTokens.push('Bearer codex-podium')
+    }
+    expect(codexQuota.map((wire) => wire.homeId ?? 'default').sort()).toEqual(expectedHomes.sort())
+    expect(codexQuota.every((wire) => wire.status === 'ok')).toBe(true)
+    expect(tokens.sort()).toEqual(expectedTokens.sort())
   })
 })
 
