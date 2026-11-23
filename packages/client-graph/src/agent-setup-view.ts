@@ -339,6 +339,7 @@ export class AgentSetupItem {
   /** Install Podium's copy; also the retry of a failed install. */
   @action install(): void {
     if (!this.canInstall) return
+    if (!this.view.focus) this.view.setFocus(this.kind)
     this.run('install')
   }
   @action retry(): void {
@@ -794,7 +795,12 @@ export class AgentSetupView {
   readonly client: AgentSetupOptions['client']
   readonly preferences: AgentSetupPreferences
   readonly origin: AgentSetupOrigin
-  readonly focus: BuiltinHarnessKind | undefined
+  /**
+   * The harness the opener gets back from "Start <harness>". A menu may name one when it
+   * opens the panel; "Set up agents…" names none, so the first harness the person
+   * installs here becomes the focus, and {@link setFocus} retargets it.
+   */
+  @observable accessor focus: BuiltinHarnessKind | undefined = undefined
   /** Kinds the person ticked; only not-installed harnesses count (see {@link selectedKinds}). */
   readonly selection = observable.set<BuiltinHarnessKind>()
   @observable accessor detailKind: BuiltinHarnessKind | null = null
@@ -875,7 +881,9 @@ export class AgentSetupView {
   }
   /** Install every ticked harness at once; each install has its own answer. */
   @action installSelected(): void {
-    for (const kind of this.selectedKinds) this.itemFor(kind)?.install()
+    const kinds = this.selectedKinds
+    if (!this.focus && kinds.length > 0) this.focus = kinds[0]
+    for (const kind of kinds) this.itemFor(kind)?.install()
     this.selection.clear()
   }
 
@@ -894,6 +902,10 @@ export class AgentSetupView {
 
   // Hand-back
 
+  /** Point "Start <harness>" at another harness of this machine. */
+  @action setFocus(kind: BuiltinHarnessKind | undefined): void {
+    this.focus = kind
+  }
   @lazy get focusItem(): AgentSetupItem | undefined {
     return this.focus ? this.itemFor(this.focus) : undefined
   }

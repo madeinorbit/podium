@@ -647,6 +647,29 @@ describe('agent setup hand-back', () => {
     expect(view.primary).toEqual({ kind: 'done', label: 'Done' })
   })
 
+  it('opened with no focus, the first harness the person installs becomes the one to start', () => {
+    const onStart = vi.fn()
+    const { view } = setup({ origin: { kind: 'menu', onStart } })
+    view.toggle('cursor')
+    view.installSelected()
+    expect(view.focus).toBe('cursor')
+    expect(view.primary).toEqual({ kind: 'start', label: 'Start Cursor', enabled: false })
+  })
+
+  it('a single install from the harness page also sets the focus when none is set', () => {
+    const { view, item } = setup({ origin: { kind: 'menu', onStart: vi.fn() } })
+    item('cursor').install()
+    expect(view.focus).toBe('cursor')
+  })
+
+  it('setFocus retargets the hand-back to another harness', () => {
+    const { view } = setup({ origin: { kind: 'menu', onStart: vi.fn() }, focus: 'cursor' })
+    view.setFocus('claude-code')
+    expect(view.primary.label).toBe('Start Claude Code')
+    view.setFocus(undefined)
+    expect(view.primary).toEqual({ kind: 'done', label: 'Done' })
+  })
+
   it('closing drops the opening’s answers, sign-in and selection', async () => {
     const { view, item, logins } = setup({
       origin: { kind: 'menu', onStart: vi.fn() },
